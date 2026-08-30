@@ -17,4 +17,5 @@
     <PackageReference Include="HPD-TUI" Version="$(HPDTuiVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
   </ItemGroup>
 
+  <PropertyGroup><WarningsAsErrors>$(WarningsAsErrors);HPDAEVT001</WarningsAsErrors></PropertyGroup>
 </Project>

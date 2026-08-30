@@ -10,6 +10,7 @@
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
     <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
     <NoWarn>$(NoWarn);CA2255;CS8602;CS8620;IL2026;IL3050</NoWarn>
+    <WarningsAsErrors>$(WarningsAsErrors);HPDAEVT001</WarningsAsErrors>
 
     <!-- Package Metadata (inherits Version, Authors, License from Directory.Build.props) -->
     <PackageId>HPD-Agent.ToolHarness.Coding</PackageId>

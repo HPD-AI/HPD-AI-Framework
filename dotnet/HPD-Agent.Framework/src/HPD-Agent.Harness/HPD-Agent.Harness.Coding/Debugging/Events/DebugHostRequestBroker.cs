@@ -1,10 +1,12 @@
 using System.Collections.Immutable;
 using HPD.Agent;
 using HPD.Events;
+using HPD.Agent.Serialization;
 using HPDOS.ToolHarnesses.Middleware;
 
 namespace HPD.Agent.ToolHarness.Coding.Debugging;
 
+[EventDurability(AgentEventDurability.Durable)]
 public sealed record DebugRunInTerminalRequestEvent : AgentEvent, IAgentRequestEvent<DebugRunInTerminalResponseEvent>
 {
     public override EventKind Kind { get; init; } = EventKind.Control;
@@ -22,6 +24,7 @@ public sealed record DebugRunInTerminalRequestEvent : AgentEvent, IAgentRequestE
     public string SourceName => "HPD.Debugging";
 }
 
+[EventDurability(AgentEventDurability.Durable)]
 public sealed record DebugRunInTerminalResponseEvent : AgentEvent, IAgentResponseEvent
 {
     public override EventKind Kind { get; init; } = EventKind.Control;

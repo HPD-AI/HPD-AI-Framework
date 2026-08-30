@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using HPD.Agent;
 using HPD.Agent.Middleware;
 using HPD.Agent.Security;
+using HPD.Agent.Serialization;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.ToolHarness.Coding.Security;
 using HPD.Environment.Contracts;
@@ -1691,6 +1692,7 @@ public sealed record PersistRuleChoice : ExecuteCommandPermissionChoice
 public sealed record DenyChoice : ExecuteCommandPermissionChoice;
 public sealed record FeedbackChoice : ExecuteCommandPermissionChoice;
 
+[EventDurability(AgentEventDurability.Durable)]
 public sealed record ExecuteCommandPermissionRequestEvent(
     string PermissionId,
     string SourceName,
@@ -1705,6 +1707,7 @@ public sealed record ExecuteCommandPermissionRequestEvent(
     public string RequestId => PermissionId;
 }
 
+[EventDurability(AgentEventDurability.Durable)]
 public sealed record ExecuteCommandPermissionResponseEvent(
     string PermissionId,
     string SourceName,
@@ -1717,6 +1720,7 @@ public sealed record ExecuteCommandPermissionResponseEvent(
     public string RequestId => PermissionId;
 }
 
+[EventDurability(AgentEventDurability.Durable)]
 public sealed record ExecuteCommandPermissionRulePersistedEvent(
     string PermissionId,
     string SourceName,

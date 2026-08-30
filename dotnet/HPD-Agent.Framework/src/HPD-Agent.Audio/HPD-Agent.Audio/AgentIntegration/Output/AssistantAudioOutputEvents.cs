@@ -2,9 +2,11 @@ using HPD.Agent;
 using HPD.Agent.Audio.Ledger;
 using HPD.Agent.Audio;
 using HPD.Agent.Audio.Output;
+using HPD.Agent.Serialization;
 
 namespace HPD.Agent.Audio.AgentIntegration.Output;
 
+[EventDurability(AgentEventDurability.Durable)]
 public abstract record AssistantAudioEvent : AgentEvent
 {
     protected AssistantAudioEvent(string sessionId)

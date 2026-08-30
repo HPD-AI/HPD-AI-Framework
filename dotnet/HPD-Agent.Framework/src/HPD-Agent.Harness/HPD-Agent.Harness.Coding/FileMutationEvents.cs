@@ -1,8 +1,10 @@
 using HPD.Agent;
 using HPD.Events;
+using HPD.Agent.Serialization;
 
 namespace HPDOS.ToolHarnesses.Middleware;
 
+[EventDurability(AgentEventDurability.Durable)]
 public abstract record FileMutationAppliedEvent : AgentEvent
 {
     public override EventKind Kind { get; init; } = EventKind.Diagnostic;

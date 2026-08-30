@@ -11,7 +11,8 @@
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
     <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
     <OutputType>Library</OutputType>
-    <NoWarn>$(NoWarn);1591;CS8604</NoWarn>
+    <NoWarn>$(NoWarn);1591;CS8604;HPDA005</NoWarn>
+    <WarningsAsErrors>$(WarningsAsErrors);HPDAEVT001</WarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>
@@ -27,6 +28,7 @@
     <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.7.0" />
     <PackageReference Include="System.Formats.Cbor" Version="10.0.10" />
     <ProjectReference Include="../../HPD-Agent/HPD-Agent.csproj" />
+    <ProjectReference Include="../../HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../../../shared/src/HPD-RealtimeMedia/src/HPD-Audio.Primitives/HPD-Audio.Primitives.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
     <PackageReference Include="HPD-Audio.Primitives" Version="$(HPDRealtimeMediaVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
   </ItemGroup>

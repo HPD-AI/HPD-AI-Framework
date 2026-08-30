@@ -1,8 +1,10 @@
 using HPD.Agent;
 using HPD.Events;
+using HPD.Agent.Serialization;
 
 namespace HPDOS.ToolHarnesses.Middleware;
 
+[EventDurability(AgentEventDurability.Durable)]
 public abstract record LanguageServerEvent : AgentEvent
 {
     public override EventKind Kind { get; init; } = EventKind.Diagnostic;
@@ -11,6 +13,7 @@ public abstract record LanguageServerEvent : AgentEvent
 }
 
 /// <summary>Authoritative snapshot of language-server processes observed by the current runtime.</summary>
+[EventDurability(AgentEventDurability.Durable)]
 public sealed record LanguageServerStatusSnapshotEvent : AgentEvent
 {
     public override EventKind Kind { get; init; } = EventKind.Diagnostic;

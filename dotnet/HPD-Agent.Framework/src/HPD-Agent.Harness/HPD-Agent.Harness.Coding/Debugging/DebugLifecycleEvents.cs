@@ -1,6 +1,7 @@
 using HPD.Agent;
 using HPD.Agent.ToolHarness.Coding.Debugging;
 using HPD.Events;
+using HPD.Agent.Serialization;
 
 namespace HPDOS.ToolHarnesses.Middleware;
 
@@ -9,6 +10,7 @@ public interface IDebugLifecycleEventPublisher
     ValueTask PublishAsync(AgentEvent @event, bool durable, CancellationToken cancellationToken = default);
 }
 
+[EventDurability(AgentEventDurability.Durable)]
 public abstract record DebugLifecycleEvent : AgentEvent
 {
     public override EventKind Kind { get; init; } = EventKind.Lifecycle;

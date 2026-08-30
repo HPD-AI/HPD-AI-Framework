@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using HPD.Agent;
 using HPD.Events;
+using HPD.Agent.Serialization;
 
 [JsonConverter(typeof(JsonStringEnumConverter<ExecuteCommandCategory>))]
 public enum ExecuteCommandCategory
@@ -37,6 +38,7 @@ public enum ExecuteCommandCompletionKind
     Faulted
 }
 
+[EventDurability(AgentEventDurability.Durable)]
 public abstract record ExecuteCommandEvent : AgentEvent
 {
     public override EventKind Kind { get; init; } = EventKind.Diagnostic;

@@ -251,6 +251,17 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
                 }
             }
         }
+        for (INamedTypeSymbol? current = typeSymbol; current is not null; current = current.BaseType)
+        {
+            var durabilityAttribute = current.GetAttributes().FirstOrDefault(static attr =>
+                attr.AttributeClass?.Name is "EventDurabilityAttribute" or "EventDurability");
+            if (durabilityAttribute is null)
+                continue;
+            var durability = durabilityAttribute.ConstructorArguments.FirstOrDefault().Value is int value && value == 1
+                ? "Durable"
+                : "LiveOnly";
+            return (null, durability, true);
+        }
         return (null, "LiveOnly", false);
     }
 
