@@ -541,6 +541,7 @@ public class CustomPIIDetector
 /// <summary>
 /// Event emitted when PII is detected.
 /// </summary>
+[HPD.Agent.Serialization.EventType("PII_DETECTED", Durability = HPD.Agent.Serialization.AgentEventDurability.Durable)]
 public record PIIDetectedEvent(
     string AgentName,
     string PIIType,

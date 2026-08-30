@@ -49,11 +49,3 @@ public sealed class EventTypeAttribute : Attribute
         Discriminator = discriminator ?? throw new ArgumentNullException(nameof(discriminator));
     }
 }
-
-/// <summary>Declares an event durability policy independently of its discriminator.</summary>
-[AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = true)]
-public sealed class EventDurabilityAttribute(AgentEventDurability durability) : Attribute
-{
-    /// <summary>Gets the declared durability policy.</summary>
-    public AgentEventDurability Durability { get; } = durability;
-}

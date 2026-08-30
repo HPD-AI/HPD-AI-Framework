@@ -176,6 +176,7 @@ public class ErrorTrackingMiddleware : IAgentMiddleware
 /// Event emitted when max consecutive errors threshold is exceeded.
 /// Used for observability and telemetry.
 /// </summary>
+[HPD.Agent.Serialization.EventType("MAX_CONSECUTIVE_ERRORS_EXCEEDED", Durability = HPD.Agent.Serialization.AgentEventDurability.Durable)]
 public record MaxConsecutiveErrorsExceededEvent(
     string AgentName,
     int ConsecutiveErrors,

@@ -87,6 +87,7 @@ public enum AgentRequestTerminalKind
 }
 
 /// <summary>Durable terminal fact for a request that did not receive a response.</summary>
+[HPD.Agent.Serialization.EventType("AGENT_REQUEST_TERMINATED", Durability = HPD.Agent.Serialization.AgentEventDurability.Durable)]
 public sealed record AgentRequestTerminatedEvent(
     string RequestId,
     string SourceName,

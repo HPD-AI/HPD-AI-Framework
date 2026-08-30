@@ -18,6 +18,7 @@ namespace HPD.Agent.ClientTools;
 /// <param name="CallId">The function call ID from the LLM</param>
 /// <param name="Arguments">Arguments to pass to the tool</param>
 /// <param name="Description">Optional description of the tool (for debugging)</param>
+[HPD.Agent.Serialization.EventType("CLIENT_TOOL_INVOKE_REQUEST", Durability = HPD.Agent.Serialization.AgentEventDurability.Durable)]
 public record ClientToolInvokeRequestEvent(
     string RequestId,
     string ToolName,
@@ -56,6 +57,7 @@ public enum ClientToolInvokeOutcomeKind
 /// <summary>
 /// Immediate outcome from a client after it receives a client tool invocation request.
 /// </summary>
+[HPD.Agent.Serialization.EventType("CLIENT_TOOL_INVOKE_OUTCOME", Durability = HPD.Agent.Serialization.AgentEventDurability.Durable)]
 public record ClientToolInvokeOutcomeEvent : AgentEvent, IAgentResponseEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;

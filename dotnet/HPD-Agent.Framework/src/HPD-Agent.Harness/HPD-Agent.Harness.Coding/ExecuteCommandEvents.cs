@@ -38,7 +38,6 @@ public enum ExecuteCommandCompletionKind
     Faulted
 }
 
-[EventDurability(AgentEventDurability.Durable)]
 public abstract record ExecuteCommandEvent : AgentEvent
 {
     public override EventKind Kind { get; init; } = EventKind.Diagnostic;
@@ -58,6 +57,7 @@ public abstract record ExecuteCommandEvent : AgentEvent
     public required string WorkingDirectory { get; init; }
 }
 
+[EventType("EXECUTE_COMMAND_PROCESS_STARTED", Durability = AgentEventDurability.Durable)]
 public sealed record ExecuteCommandProcessStartedEvent : ExecuteCommandEvent
 {
     public override EventKind Kind { get; init; } = EventKind.Lifecycle;
@@ -75,6 +75,7 @@ public sealed record ExecuteCommandProcessStartedEvent : ExecuteCommandEvent
     public required int TimeoutMilliseconds { get; init; }
 }
 
+[EventType("EXECUTE_COMMAND_OUTPUT_CHUNK", Durability = AgentEventDurability.Durable)]
 public sealed record ExecuteCommandOutputChunkEvent : ExecuteCommandEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
@@ -99,6 +100,7 @@ public sealed record ExecuteCommandOutputChunkEvent : ExecuteCommandEvent
     public bool Binary { get; init; }
 }
 
+[EventType("EXECUTE_COMMAND_PROGRESS", Durability = AgentEventDurability.Durable)]
 public sealed record ExecuteCommandProgressEvent : ExecuteCommandEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
@@ -121,6 +123,7 @@ public sealed record ExecuteCommandProgressEvent : ExecuteCommandEvent
     public required bool OutputEventsSuppressed { get; init; }
 }
 
+[EventType("EXECUTE_COMMAND_PROCESS_EXITED", Durability = AgentEventDurability.Durable)]
 public sealed record ExecuteCommandProcessExitedEvent : ExecuteCommandEvent
 {
     public override EventKind Kind { get; init; } = EventKind.Lifecycle;
@@ -168,6 +171,7 @@ public sealed record ExecuteCommandProcessExitedEvent : ExecuteCommandEvent
     public string? CombinedOutputLocalPath { get; init; }
 }
 
+[EventType("EXECUTE_COMMAND_AUTO_BACKGROUNDED", Durability = AgentEventDurability.Durable)]
 public sealed record ExecuteCommandAutoBackgroundedEvent : ExecuteCommandEvent
 {
     public override EventKind Kind { get; init; } = EventKind.Lifecycle;

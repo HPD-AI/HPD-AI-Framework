@@ -6,7 +6,7 @@ using HPDOS.ToolHarnesses.Middleware;
 
 namespace HPD.Agent.ToolHarness.Coding.Debugging;
 
-[EventDurability(AgentEventDurability.Durable)]
+[EventType("DEBUG_RUN_IN_TERMINAL_REQUEST", Durability = AgentEventDurability.Durable)]
 public sealed record DebugRunInTerminalRequestEvent : AgentEvent, IAgentRequestEvent<DebugRunInTerminalResponseEvent>
 {
     public override EventKind Kind { get; init; } = EventKind.Control;
@@ -24,7 +24,7 @@ public sealed record DebugRunInTerminalRequestEvent : AgentEvent, IAgentRequestE
     public string SourceName => "HPD.Debugging";
 }
 
-[EventDurability(AgentEventDurability.Durable)]
+[EventType("DEBUG_RUN_IN_TERMINAL_RESPONSE", Durability = AgentEventDurability.Durable)]
 public sealed record DebugRunInTerminalResponseEvent : AgentEvent, IAgentResponseEvent
 {
     public override EventKind Kind { get; init; } = EventKind.Control;
