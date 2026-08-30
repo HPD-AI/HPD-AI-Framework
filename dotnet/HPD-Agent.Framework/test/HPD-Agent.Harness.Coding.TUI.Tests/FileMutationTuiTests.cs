@@ -23,7 +23,7 @@ public sealed class FileMutationTuiTests
 {
     private static readonly AgentEventCodec Codec = AgentEventComposition.Create([
         CoreAgentEventModule.Fragment,
-        global::CodingAgentEventModule.Fragment
+        GeneratedAgentEventModule_HPD_Agent_Harness_Coding_ab3285cb.Fragment
     ]).Codec;
     [Fact]
     public void AddCodingHarnessTui_RegistersFileMutationHandlersAndRenderers()

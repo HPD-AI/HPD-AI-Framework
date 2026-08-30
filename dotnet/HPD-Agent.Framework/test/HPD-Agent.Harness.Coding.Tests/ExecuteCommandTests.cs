@@ -87,10 +87,10 @@ public sealed class ExecuteCommandTests : IDisposable
 
         var json = JsonSerializer.Serialize(
             evt,
-            CodingToolHarnessJsonContext.Default.ExecuteCommandProcessStartedEvent);
+            CodingEventTestCodec.TypeInfo<ExecuteCommandProcessStartedEvent>());
         var roundTrip = JsonSerializer.Deserialize(
             json,
-            CodingToolHarnessJsonContext.Default.ExecuteCommandProcessStartedEvent);
+            CodingEventTestCodec.TypeInfo<ExecuteCommandProcessStartedEvent>());
 
         roundTrip.Should().NotBeNull();
         roundTrip!.CommandId.Should().Be("cmd_1");
@@ -190,10 +190,10 @@ public sealed class ExecuteCommandTests : IDisposable
 
         var json = JsonSerializer.Serialize(
             evt,
-            CodingToolHarnessJsonContext.Default.ExecuteCommandPermissionRequestEvent);
+            CodingEventTestCodec.TypeInfo<ExecuteCommandPermissionRequestEvent>());
         var roundTrip = JsonSerializer.Deserialize(
             json,
-            CodingToolHarnessJsonContext.Default.ExecuteCommandPermissionRequestEvent);
+            CodingEventTestCodec.TypeInfo<ExecuteCommandPermissionRequestEvent>());
 
         roundTrip.Should().NotBeNull();
         roundTrip!.Plan.Should().BeOfType<SimpleCommandPermissionPlan>();
@@ -1700,7 +1700,7 @@ public sealed class ExecuteCommandTests : IDisposable
             EventComposition = AgentEventComposition.Create(
             [
                 CoreAgentEventModule.Fragment,
-                CodingAgentEventModule.Fragment
+                GeneratedAgentEventModule_HPD_Agent_Harness_Coding_ab3285cb.Fragment
             ])
         };
 

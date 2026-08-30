@@ -1,10 +1,17 @@
 using System.Text;
 using System.Text.Json;
+using System.Reflection;
 using HPD.Agent;
+using HPD.Agent.Serialization;
 using HPD.Agent.ToolHarness.Coding.Debugging;
 using HPD.Agent.ToolHarness.Coding.Debugging.Protocol;
 using HPD.Agent.ToolHarness.Coding.Debugging.Protocol.Generated;
 using HPDOS.ToolHarnesses.Middleware;
+
+var applicationIdentity = Assembly.GetExecutingAssembly().GetName().Name!;
+if (!AgentEventCompositionHost.TryGetApplication(applicationIdentity, out var eventComposition))
+    return 8;
+var eventCodec = eventComposition.Codec;
 
 var functions = CodingToolHarnessRegistration.CreateToolHarness(
     new CodingToolHarness(),
@@ -216,12 +223,8 @@ var plannedEvent = new DebugExecutionPlannedEvent
     AdapterStartMethod = DebugAdapterStartMethod.Attach,
     ExecutionPlannerId = "dotnet-vstest"
 };
-var plannedPayload = JsonSerializer.SerializeToUtf8Bytes(
-    plannedEvent,
-    CodingToolHarnessJsonContext.Default.DebugExecutionPlannedEvent);
-if (JsonSerializer.Deserialize(
-        plannedPayload,
-        CodingToolHarnessJsonContext.Default.DebugExecutionPlannedEvent)
+var plannedPayload = eventCodec.Serialize(plannedEvent);
+if (eventCodec.DeserializeEvent(plannedPayload)
     is not { AdapterStartMethod: DebugAdapterStartMethod.Attach })
     return 20;
 var breakpointSelectionEvent = new DebugBreakpointSelectionAppliedEvent
@@ -291,23 +294,11 @@ var treeCompletedEvent = new DebugTreeCompletedEvent
     DroppedOutputBytes = 0,
     ProjectionFailures = 0
 };
-if (JsonSerializer.Deserialize(
-        JsonSerializer.SerializeToUtf8Bytes(
-            breakpointSelectionEvent,
-            CodingToolHarnessJsonContext.Default.DebugBreakpointSelectionAppliedEvent),
-        CodingToolHarnessJsonContext.Default.DebugBreakpointSelectionAppliedEvent)
+if (eventCodec.DeserializeEvent(eventCodec.Serialize(breakpointSelectionEvent))
         is not { After.Count: 1 } ||
-    JsonSerializer.Deserialize(
-        JsonSerializer.SerializeToUtf8Bytes(
-            stopSummaryEvent,
-            CodingToolHarnessJsonContext.Default.DebugPrimaryStopAvailableEvent),
-        CodingToolHarnessJsonContext.Default.DebugPrimaryStopAvailableEvent)
+    eventCodec.DeserializeEvent(eventCodec.Serialize(stopSummaryEvent))
         is not { SuspensionEpoch: 2 } ||
-    JsonSerializer.Deserialize(
-        JsonSerializer.SerializeToUtf8Bytes(
-            treeCompletedEvent,
-            CodingToolHarnessJsonContext.Default.DebugTreeCompletedEvent),
-        CodingToolHarnessJsonContext.Default.DebugTreeCompletedEvent)
+    eventCodec.DeserializeEvent(eventCodec.Serialize(treeCompletedEvent))
         is not { BreakpointStopCount: 1 })
     return 22;
 var activatingEvent = new DebugExecutionActivatingEvent
@@ -371,46 +362,14 @@ var evictedEvent = new DebugTerminalRecordEvictedEvent
     AdapterId = "netcoredbg",
     SafeReasonCode = "COUNT_BOUND"
 };
-if (JsonSerializer.Deserialize(
-        JsonSerializer.SerializeToUtf8Bytes(
-            activatingEvent,
-            CodingToolHarnessJsonContext.Default.DebugExecutionActivatingEvent),
-        CodingToolHarnessJsonContext.Default.DebugExecutionActivatingEvent) is null ||
-    JsonSerializer.Deserialize(
-        JsonSerializer.SerializeToUtf8Bytes(
-            hostStartedEvent,
-            CodingToolHarnessJsonContext.Default.DebugHostProcessStartedEvent),
-        CodingToolHarnessJsonContext.Default.DebugHostProcessStartedEvent) is null ||
-    JsonSerializer.Deserialize(
-        JsonSerializer.SerializeToUtf8Bytes(
-            hostReadyEvent,
-            CodingToolHarnessJsonContext.Default.DebugHostReadyEvent),
-        CodingToolHarnessJsonContext.Default.DebugHostReadyEvent) is null ||
-    JsonSerializer.Deserialize(
-        JsonSerializer.SerializeToUtf8Bytes(
-            hostExitedEvent,
-            CodingToolHarnessJsonContext.Default.DebugHostProcessExitedEvent),
-        CodingToolHarnessJsonContext.Default.DebugHostProcessExitedEvent) is null ||
-    JsonSerializer.Deserialize(
-        JsonSerializer.SerializeToUtf8Bytes(
-            activationFailedEvent,
-            CodingToolHarnessJsonContext.Default.DebugExecutionActivationFailedEvent),
-        CodingToolHarnessJsonContext.Default.DebugExecutionActivationFailedEvent) is null ||
-    JsonSerializer.Deserialize(
-        JsonSerializer.SerializeToUtf8Bytes(
-            cleanupFailedEvent,
-            CodingToolHarnessJsonContext.Default.DebugOwnedResourceCleanupFailedEvent),
-        CodingToolHarnessJsonContext.Default.DebugOwnedResourceCleanupFailedEvent) is null ||
-    JsonSerializer.Deserialize(
-        JsonSerializer.SerializeToUtf8Bytes(
-            retainedEvent,
-            CodingToolHarnessJsonContext.Default.DebugTerminalRecordRetainedEvent),
-        CodingToolHarnessJsonContext.Default.DebugTerminalRecordRetainedEvent) is null ||
-    JsonSerializer.Deserialize(
-        JsonSerializer.SerializeToUtf8Bytes(
-            evictedEvent,
-            CodingToolHarnessJsonContext.Default.DebugTerminalRecordEvictedEvent),
-        CodingToolHarnessJsonContext.Default.DebugTerminalRecordEvictedEvent) is null)
+if (eventCodec.DeserializeEvent(eventCodec.Serialize(activatingEvent)) is null ||
+    eventCodec.DeserializeEvent(eventCodec.Serialize(hostStartedEvent)) is null ||
+    eventCodec.DeserializeEvent(eventCodec.Serialize(hostReadyEvent)) is null ||
+    eventCodec.DeserializeEvent(eventCodec.Serialize(hostExitedEvent)) is null ||
+    eventCodec.DeserializeEvent(eventCodec.Serialize(activationFailedEvent)) is null ||
+    eventCodec.DeserializeEvent(eventCodec.Serialize(cleanupFailedEvent)) is null ||
+    eventCodec.DeserializeEvent(eventCodec.Serialize(retainedEvent)) is null ||
+    eventCodec.DeserializeEvent(eventCodec.Serialize(evictedEvent)) is null)
     return 21;
 
 var descriptor = new DebugAdapterDescriptor
