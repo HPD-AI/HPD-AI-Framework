@@ -29,11 +29,7 @@ public sealed class EventContentPolicyDiagnosticsTests
     [InlineData("[PersistEventContent(\"x\")] public sealed record Bad<T> : AgentEvent;", "open generic")]
     [InlineData("[PersistEventContent(\"x\")] public sealed record Bad;", "does not derive")]
     [InlineData("[PersistEventContent(\"x\")] public sealed record Bad : AgentInputEvent;", "input contracts")]
-    [InlineData("[PersistEventContent(\"\")] public sealed record Bad : AgentEvent;", "kind")]
-    [InlineData("[PersistEventContent(\"x\", ContentType = \" \" )] public sealed record Bad : AgentEvent;", "ContentType")]
-    [InlineData("[PersistEventContent(\"x\", Scope = \" \" )] public sealed record Bad : AgentEvent;", "Scope")]
-    [InlineData("[PersistEventContent(\"x\", Origin = (ContentSource)42)] public sealed record Bad : AgentEvent;", "Origin")]
-    public void Invalid_policy_is_rejected(string declaration, string reason)
+    public void Invalid_policy_target_is_rejected(string declaration, string reason)
     {
         var result = Run($$"""
             using HPD.Agent;
@@ -41,6 +37,23 @@ public sealed class EventContentPolicyDiagnosticsTests
             """);
 
         var diagnostic = Assert.Single(result.Diagnostics, static item => item.Id == "HPDAEVT004");
+        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
+        Assert.Contains(reason, diagnostic.GetMessage(), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("[PersistEventContent(\"\")] public sealed record Bad : AgentEvent;", "kind")]
+    [InlineData("[PersistEventContent(\"x\", ContentType = \" \" )] public sealed record Bad : AgentEvent;", "ContentType")]
+    [InlineData("[PersistEventContent(\"x\", Scope = \" \" )] public sealed record Bad : AgentEvent;", "Scope")]
+    [InlineData("[PersistEventContent(\"x\", Origin = (ContentSource)42)] public sealed record Bad : AgentEvent;", "Origin")]
+    public void Unrepresentable_policy_is_rejected(string declaration, string reason)
+    {
+        var result = Run($$"""
+            using HPD.Agent;
+            {{declaration}}
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics, static item => item.Id == "HPDAEVT006");
         Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
         Assert.Contains(reason, diagnostic.GetMessage(), StringComparison.Ordinal);
     }
@@ -55,6 +68,7 @@ public sealed class EventContentPolicyDiagnosticsTests
             """);
 
         Assert.DoesNotContain(result.Diagnostics, static item => item.Id == "HPDAEVT004");
+        Assert.DoesNotContain(result.Diagnostics, static item => item.Id == "HPDAEVT006");
     }
 
     private static GeneratorDriverRunResult Run(string source)

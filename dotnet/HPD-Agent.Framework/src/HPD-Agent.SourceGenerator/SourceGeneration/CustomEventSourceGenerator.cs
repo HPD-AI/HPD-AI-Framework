@@ -25,14 +25,14 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
 {
     #region Diagnostic Descriptors
 
-    private static readonly DiagnosticDescriptor HPD010_DuplicateEventType = new(
-        id: "HPD010",
-        title: "Duplicate event type discriminator",
-        messageFormat: "Multiple events generate the same type discriminator '{0}': {1}. Consider renaming one of the events or using [EventType(\"CUSTOM_NAME\")] attribute.",
+    private static readonly DiagnosticDescriptor HPDAEVT005_InvalidOrDuplicateDiscriminator = new(
+        id: "HPDAEVT005",
+        title: "Invalid or duplicate event discriminator",
+        messageFormat: "Event discriminator '{0}' is invalid or duplicated: {1}",
         category: "HPD.Agent.Serialization",
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true,
-        description: "Each custom event must have a unique type discriminator for proper JSON serialization.");
+        description: "Event discriminators must be non-empty and unique within their serializer surface.");
 
     private static readonly DiagnosticDescriptor HPD011_GenericEventNotSupported = new(
         id: "HPD011",
@@ -79,7 +79,23 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         category: "HPD.Agent.Serialization",
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true,
-        description: "Content persistence policies are valid only on concrete, closed, class-based AgentEvent contracts and must contain representable metadata.");
+        description: "Content persistence policies are valid only on concrete, closed, class-based AgentEvent contracts.");
+
+    private static readonly DiagnosticDescriptor HPDAEVT006_UnrepresentableContentPolicy = new(
+        id: "HPDAEVT006",
+        title: "Event content policy cannot be represented",
+        messageFormat: "The [PersistEventContent] policy on type '{0}' cannot be represented as descriptor metadata: {1}",
+        category: "HPD.Agent.Serialization",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    private static readonly DiagnosticDescriptor HPDAEVT007_IncompleteApplicationClosure = new(
+        id: "HPDAEVT007",
+        title: "Application event manifest closure is incomplete",
+        messageFormat: "Application event composition cannot close manifest '{0}': {1}",
+        category: "HPD.Agent.Serialization",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
 
     #endregion
 
@@ -114,6 +130,20 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
                 ctx.TargetNode));
 
         context.RegisterSourceOutput(contentPolicyTargets, static (spc, diagnostic) =>
+        {
+            if (diagnostic is not null)
+                spc.ReportDiagnostic(diagnostic);
+        });
+
+        var eventTypeTargets = context.SyntaxProvider.ForAttributeWithMetadataName(
+            "HPD.Agent.Serialization.EventTypeAttribute",
+            static (node, _) => node is TypeDeclarationSyntax,
+            static (ctx, _) => ValidateEventTypeTarget(
+                (INamedTypeSymbol)ctx.TargetSymbol,
+                ctx.Attributes[0],
+                ctx.TargetNode));
+
+        context.RegisterSourceOutput(eventTypeTargets, static (spc, diagnostic) =>
         {
             if (diagnostic is not null)
                 spc.ReportDiagnostic(diagnostic);
@@ -229,6 +259,24 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         var contentPolicy = GetContentPolicy(typeSymbol);
         var discriminator = customDiscriminator ?? ToScreamingSnakeCase(typeSymbol.Name);
 
+        if (customDiscriminator is null && !IsCanonicalDiscriminator(discriminator))
+        {
+            diagnostics.Add(Diagnostic.Create(
+                HPDAEVT005_InvalidOrDuplicateDiscriminator,
+                recordDecl.Identifier.GetLocation(),
+                discriminator,
+                "the inferred discriminator is not canonical SCREAMING_SNAKE_CASE"));
+            return new CustomEventInfo(
+                Name: typeSymbol.Name,
+                Namespace: namespaceName,
+                FullTypeName: typeSymbol.ToDisplayString(),
+                ScreamingSnakeCaseName: discriminator,
+                Kind: eventKind.Value,
+                IsValid: false,
+                Diagnostics: diagnostics,
+                SourceLocation: recordDecl.Identifier.GetLocation());
+        }
+
         return new CustomEventInfo(
             Name: typeSymbol.Name,
             Namespace: namespaceName,
@@ -238,7 +286,8 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
             IsValid: true,
             Diagnostics: diagnostics,
             Durability: durability,
-            ContentPolicy: contentPolicy);
+            ContentPolicy: contentPolicy,
+            SourceLocation: recordDecl.Identifier.GetLocation());
     }
 
     private static Diagnostic? ValidateDurableEventTarget(INamedTypeSymbol type, SyntaxNode targetNode)
@@ -280,12 +329,19 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
             reason = "the event is abstract";
         else if (type.IsUnboundGenericType || type.TypeParameters.Length != 0 || HasOpenContainingType(type))
             reason = "the event is open generic";
-        else if (attribute.ConstructorArguments.Length == 0 ||
-                 attribute.ConstructorArguments[0].Value is not string kind ||
-                 string.IsNullOrWhiteSpace(kind))
+
+        if (reason is not null)
+            return Diagnostic.Create(
+                HPDAEVT004_InvalidEventPolicyTarget,
+                targetNode.GetLocation(),
+                type.ToDisplayString(),
+                reason);
+
+        if (attribute.ConstructorArguments.Length == 0 ||
+            attribute.ConstructorArguments[0].Value is not string kind ||
+            string.IsNullOrWhiteSpace(kind))
             reason = "kind must be a non-empty string";
         else
-        {
             foreach (var argument in attribute.NamedArguments)
             {
                 if (argument.Key == "ContentType" &&
@@ -300,16 +356,37 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
                 if (reason is not null)
                     break;
             }
-        }
 
-        return reason is null
-            ? null
-            : Diagnostic.Create(
-                HPDAEVT004_InvalidEventPolicyTarget,
-                targetNode.GetLocation(),
-                type.ToDisplayString(),
-                reason);
+        return reason is null ? null : Diagnostic.Create(
+            HPDAEVT006_UnrepresentableContentPolicy,
+            targetNode.GetLocation(),
+            type.ToDisplayString(),
+            reason);
     }
+
+    private static Diagnostic? ValidateEventTypeTarget(
+        INamedTypeSymbol type,
+        AttributeData attribute,
+        SyntaxNode targetNode)
+    {
+        var eventKind = GetEventRegistrationKind(type);
+        var discriminator = attribute.ConstructorArguments.FirstOrDefault().Value as string;
+        string? reason = eventKind is null
+            ? "the target is neither an AgentEvent nor an AgentStructEvent contract"
+            : !IsCanonicalDiscriminator(discriminator)
+                ? "the discriminator must be canonical SCREAMING_SNAKE_CASE and usable as a generated identifier"
+                : null;
+        return reason is null ? null : Diagnostic.Create(
+            HPDAEVT005_InvalidOrDuplicateDiscriminator,
+            targetNode.GetLocation(),
+            discriminator ?? "<null>",
+            reason);
+    }
+
+    private static bool IsCanonicalDiscriminator(string? discriminator) =>
+        !string.IsNullOrWhiteSpace(discriminator) &&
+        (discriminator[0] is >= 'A' and <= 'Z' || discriminator[0] == '_') &&
+        discriminator.All(static value => value is >= '0' and <= '9' or >= 'A' and <= 'Z' || value == '_');
 
     private static bool HasOpenContainingType(INamedTypeSymbol type)
     {
@@ -501,10 +578,10 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
             {
                 var types = string.Join(", ", group.Select(e => e.FullTypeName));
                 context.ReportDiagnostic(Diagnostic.Create(
-                    HPD010_DuplicateEventType,
-                    Location.None,
+                    HPDAEVT005_InvalidOrDuplicateDiscriminator,
+                    group.First().SourceLocation,
                     group.Key,
-                    types));
+                    $"multiple event contracts use it: {types}"));
             }
             return; // Don't generate code with conflicts
         }
@@ -554,9 +631,11 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         if (isApplication)
         {
             var providers = new List<string>();
-            AddManifestProviders(compilation.Assembly, providers);
+            var closureFailed = !AddManifestProviders(compilation.Assembly, providers, context, requirePublicProviders: false);
             foreach (var referencedAssembly in compilation.SourceModule.ReferencedAssemblySymbols)
-                AddManifestProviders(referencedAssembly, providers);
+                closureFailed |= !AddManifestProviders(referencedAssembly, providers, context, requirePublicProviders: true);
+            if (closureFailed)
+                return;
             if (!hasHandwrittenManifest && validAgentEvents.Count > 0 && jsonContextType is not null)
             {
                 providers.Add($"global::HPD.Agent.Serialization.{GetGeneratedProviderTypeName(moduleId)}");
@@ -752,17 +831,40 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
     private static string EscapeString(string value) =>
         value.Replace("\\", "\\\\").Replace("\"", "\\\"");
 
-    private static void AddManifestProviders(
+    private static bool AddManifestProviders(
         IAssemblySymbol assembly,
-        List<string> providers)
+        List<string> providers,
+        SourceProductionContext context,
+        bool requirePublicProviders)
     {
+        var valid = true;
         foreach (var attribute in assembly.GetAttributes().Where(static value =>
             value.AttributeClass?.Name == "HpdAgentEventModuleManifestAttribute"))
         {
             if (attribute.ConstructorArguments.Length < 2 ||
                 attribute.ConstructorArguments[0].Value is not string moduleId ||
-                attribute.ConstructorArguments[1].Value is not INamedTypeSymbol providerType)
+                string.IsNullOrWhiteSpace(moduleId) ||
+                attribute.ConstructorArguments[1].Value is not INamedTypeSymbol providerType ||
+                providerType.TypeKind == TypeKind.Error)
+            {
+                valid = false;
+                context.ReportDiagnostic(Diagnostic.Create(
+                    HPDAEVT007_IncompleteApplicationClosure,
+                    attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation() ?? Location.None,
+                    assembly.Identity.ToString(),
+                    "the manifest has no stable module ID or resolvable fragment provider type"));
                 continue;
+            }
+            if (requirePublicProviders && !IsPubliclyVisible(providerType))
+            {
+                valid = false;
+                context.ReportDiagnostic(Diagnostic.Create(
+                    HPDAEVT007_IncompleteApplicationClosure,
+                    attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation() ?? Location.None,
+                    moduleId,
+                    $"fragment provider '{providerType.ToDisplayString()}' is not public"));
+                continue;
+            }
             providers.Add(providerType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
             if (attribute.ConstructorArguments.Length < 3)
                 continue;
@@ -770,12 +872,32 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
             {
                 if (dependency.Value is INamedTypeSymbol dependencyType)
                 {
+                    if (dependencyType.TypeKind == TypeKind.Error ||
+                        requirePublicProviders && !IsPubliclyVisible(dependencyType))
+                    {
+                        valid = false;
+                        context.ReportDiagnostic(Diagnostic.Create(
+                            HPDAEVT007_IncompleteApplicationClosure,
+                            attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation() ?? Location.None,
+                            moduleId,
+                            $"dependency fragment provider '{dependencyType.ToDisplayString()}' is unresolved or not public"));
+                        continue;
+                    }
                     var dependencyName = dependencyType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                     if (!providers.Contains(dependencyName, StringComparer.Ordinal))
                         providers.Add(dependencyName);
                 }
             }
         }
+        return valid;
+    }
+
+    private static bool IsPubliclyVisible(INamedTypeSymbol type)
+    {
+        for (var current = type; current is not null; current = current.ContainingType)
+            if (current.DeclaredAccessibility != Accessibility.Public)
+                return false;
+        return true;
     }
 
     private static string GenerateApplicationComposition(
@@ -873,7 +995,8 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         bool IsValid,
         List<Diagnostic> Diagnostics,
         string Durability = "LiveOnly",
-        EventContentPolicyInfo? ContentPolicy = null);
+        EventContentPolicyInfo? ContentPolicy = null,
+        Location? SourceLocation = null);
 
     private sealed record EventContentPolicyInfo(
         string Kind,

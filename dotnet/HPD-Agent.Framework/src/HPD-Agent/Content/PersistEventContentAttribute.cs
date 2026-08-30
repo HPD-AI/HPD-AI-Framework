@@ -4,7 +4,8 @@ namespace HPD.Agent;
 /// <remarks>
 /// The target must be a concrete, closed <see cref="AgentEvent"/> class. Kind and
 /// <see cref="ContentType"/> must be non-empty; <see cref="Scope"/> must either be
-/// omitted or non-empty. Invalid policies are compile-time error HPDAEVT004.
+/// omitted or non-empty. Invalid targets are compile-time error HPDAEVT004;
+/// values that cannot become descriptor metadata are HPDAEVT006.
 /// </remarks>
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
 public sealed class PersistEventContentAttribute(string kind) : Attribute
