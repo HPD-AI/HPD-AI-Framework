@@ -5,23 +5,23 @@ using HPD.Agent.Serialization;
 
 namespace HPD.Agent.Tests.Serialization;
 
-public sealed record DurableCodecTestEvent(string Value) : AgentEvent;
-public sealed record LiveCodecTestEvent(string Value) : AgentEvent;
-public sealed record ConflictingCodecTestEvent(string Value) : AgentEvent;
-public sealed record ReservedCodecTestEvent([property: JsonPropertyName("type")] string TypeValue) : AgentEvent;
-
-[JsonSourceGenerationOptions(
-    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    WriteIndented = false)]
-[JsonSerializable(typeof(DurableCodecTestEvent))]
-[JsonSerializable(typeof(LiveCodecTestEvent))]
-[JsonSerializable(typeof(ConflictingCodecTestEvent))]
-[JsonSerializable(typeof(ReservedCodecTestEvent))]
-internal partial class CodecTestJsonContext : JsonSerializerContext;
-
-public sealed class AgentEventCodecTests
+public sealed partial class AgentEventCodecTests
 {
+    private sealed record DurableCodecTestEvent(string Value) : AgentEvent;
+    private sealed record LiveCodecTestEvent(string Value) : AgentEvent;
+    private sealed record ConflictingCodecTestEvent(string Value) : AgentEvent;
+    private sealed record ReservedCodecTestEvent([property: JsonPropertyName("type")] string TypeValue) : AgentEvent;
+
+    [JsonSourceGenerationOptions(
+        PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        WriteIndented = false)]
+    [JsonSerializable(typeof(DurableCodecTestEvent))]
+    [JsonSerializable(typeof(LiveCodecTestEvent))]
+    [JsonSerializable(typeof(ConflictingCodecTestEvent))]
+    [JsonSerializable(typeof(ReservedCodecTestEvent))]
+    private partial class CodecTestJsonContext : JsonSerializerContext;
+
     private static readonly AgentEventCodec CoreCodec = CoreAgentEventComposition.Instance.Codec;
 
     [Fact]

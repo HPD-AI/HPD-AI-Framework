@@ -1,5 +1,6 @@
 using Xunit;
 using HPD.Agent;
+using HPD.Agent.Serialization;
 
 using HPD.Agent.Tests.Infrastructure;
 

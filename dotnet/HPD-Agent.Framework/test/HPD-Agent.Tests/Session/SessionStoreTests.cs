@@ -163,14 +163,15 @@ public class SessionStoreTests : AgentTestBase
                 StringComparison.Ordinal));
 
             var reopened = new FileSessionStore(directory, codec);
-            var action = () => reopened.CollectThreadEventsAsync("session-safe", "main");
+            Func<Task> action = async () =>
+                await reopened.CollectThreadEventsAsync("session-safe", "main");
 
-            var exception = (await action.Should().ThrowAsync<UnknownDurableAgentEventException>()).Which;
-            exception.Discriminator.Should().Be("UNKNOWN_DURABLE_FIXTURE");
-            exception.SessionId.Should().Be("session-safe");
-            exception.ThreadId.Should().Be("main");
-            exception.JournalGeneration.Should().Be(1);
-            exception.Message.Should().NotContain("secret-payload");
+            var exception = await Assert.ThrowsAsync<UnknownDurableAgentEventException>(action);
+            Assert.Equal("UNKNOWN_DURABLE_FIXTURE", exception.Discriminator);
+            Assert.Equal("session-safe", exception.SessionId);
+            Assert.Equal("main", exception.ThreadId);
+            Assert.Equal(1, exception.JournalGeneration);
+            Assert.DoesNotContain("secret-payload", exception.Message);
         }
         finally
         {
