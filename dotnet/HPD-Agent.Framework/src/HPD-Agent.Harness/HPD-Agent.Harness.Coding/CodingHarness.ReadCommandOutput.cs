@@ -38,6 +38,10 @@ public partial class CodingToolHarness
         await using var opened = await context.ContentStore.OpenReadAsync(request.Address, cancellationToken)
             .ConfigureAwait(false)
             ?? throw new FileNotFoundException("The referenced command output was not found.");
+        if (string.IsNullOrWhiteSpace(context.ThreadId) || opened.Info.Tags is null ||
+            !opened.Info.Tags.TryGetValue("thread-id", out var ownerThreadId) ||
+            !StringComparer.Ordinal.Equals(ownerThreadId, context.ThreadId))
+            throw new UnauthorizedAccessException("The command output address is outside the current thread scope.");
         var limit = (int)Math.Min(request.MaxBytes, opened.Info.SizeBytes);
         var bytes = new byte[limit];
         var read = 0;
@@ -51,12 +55,42 @@ public partial class CodingToolHarness
         if (read != bytes.Length)
             Array.Resize(ref bytes, read);
 
-        var isText = opened.Info.ContentType.StartsWith("text/", StringComparison.OrdinalIgnoreCase) ||
+        var isCombined = opened.Info.Tags.TryGetValue("stream", out var streamKind) &&
+            StringComparer.Ordinal.Equals(streamKind, "combined");
+        var isText = isCombined || opened.Info.ContentType.StartsWith("text/", StringComparison.OrdinalIgnoreCase) ||
             opened.Info.ContentType.Contains("json", StringComparison.OrdinalIgnoreCase);
         return new ReadCommandOutputResult(
             opened.Info.ContentType,
             opened.Info.SizeBytes,
             isText ? "utf-8" : "base64",
-            isText ? Encoding.UTF8.GetString(bytes) : Convert.ToBase64String(bytes));
+            isText ? (isCombined ? DecodeCombinedOutput(bytes) : Encoding.UTF8.GetString(bytes)) : Convert.ToBase64String(bytes));
+    }
+
+    private static string DecodeCombinedOutput(ReadOnlySpan<byte> framed)
+    {
+        const string prefix = "[hpd.execute-command.interleaved.v1:";
+        var result = new StringBuilder();
+        var offset = 0;
+        while (offset < framed.Length)
+        {
+            var newline = framed[offset..].IndexOf((byte)'\n');
+            if (newline < 0)
+                break;
+            var header = Encoding.UTF8.GetString(framed.Slice(offset, newline));
+            var fields = header.StartsWith(prefix, StringComparison.Ordinal) && header.EndsWith(']')
+                ? header[prefix.Length..^1].Split(':')
+                : [];
+            if (fields.Length != 3 || !int.TryParse(fields[2], out var length) || length < 0)
+                throw new InvalidDataException("The combined command output framing is invalid.");
+            offset += newline + 1;
+            if (length > framed.Length - offset)
+                break;
+            result.Append('[').Append(fields[0]).Append(' ').Append(fields[1]).Append("] ");
+            result.Append(Encoding.UTF8.GetString(framed.Slice(offset, length))).AppendLine();
+            offset += length;
+            if (offset < framed.Length && framed[offset] == (byte)'\n')
+                offset++;
+        }
+        return result.ToString();
     }
 }

@@ -84,6 +84,8 @@ public class AgentBuilder
     internal bool _hasExplicitContentStore;
     internal Func<AgentEventComposition, ISessionStore>? _sessionStoreFactory;
     internal Func<IContentStore>? _implicitContentStoreFactory;
+    internal bool _ownsSessionStore;
+    internal bool _ownsContentStore;
     internal ISkillStore? _skillStore;
     // Track explicitly registered ToolHarnesses (for Collapsing manager)
     internal readonly HashSet<string> _explicitlyRegisteredToolHarnesses = new(StringComparer.OrdinalIgnoreCase);
@@ -1865,9 +1867,11 @@ public class AgentBuilder
             if (_config.SessionStore is not null)
                 throw new InvalidOperationException("An explicit session store cannot be combined with a session-store factory.");
             _config.SessionStore = _sessionStoreFactory(_config.EventComposition!);
+            _ownsSessionStore = true;
         }
         if (!_hasExplicitContentStore && _contentStore is null && _implicitContentStoreFactory is not null)
             _contentStore = _implicitContentStoreFactory();
+            _ownsContentStore = true;
         if (_config.Skills.ActivationLifetime != SkillActivationLifetime.MessageTurn)
             throw new InvalidOperationException(
                 $"Skill activation lifetime '{_config.Skills.ActivationLifetime}' is not supported. " +
@@ -2376,7 +2380,9 @@ public class AgentBuilder
             _stateFactories,
             buildData.OwnedHttpClients,
             buildData.ClientSet,
-            _runtimeSecretRegistry);
+            _runtimeSecretRegistry,
+            _ownsSessionStore,
+            _ownsContentStore);
         if (_capabilityCatalog is not null)
             agent.SetCapabilityCatalog(
                 _capabilityCatalog,

@@ -2124,6 +2124,7 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
     private readonly ExecuteCommandOptions _options;
     private readonly IContentStore? _contentStore;
     private readonly string? _sessionId;
+    private readonly string? _threadId;
     private readonly string _rootDirectory;
     private readonly CappedOutputFile _stdout;
     private readonly CappedOutputFile _stderr;
@@ -2136,6 +2137,7 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
         ExecuteCommandOptions options,
         IContentStore? contentStore,
         string? sessionId,
+        string? threadId,
         string rootDirectory)
     {
         _commandId = commandId;
@@ -2143,6 +2145,7 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
         _options = options;
         _contentStore = contentStore;
         _sessionId = sessionId;
+        _threadId = threadId;
         _rootDirectory = rootDirectory;
         _stdout = new CappedOutputFile(Path.Combine(rootDirectory, "stdout.txt"), options.MaxPersistedOutputBytes);
         _stderr = new CappedOutputFile(Path.Combine(rootDirectory, "stderr.txt"), options.MaxPersistedOutputBytes);
@@ -2169,6 +2172,7 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
             options,
             contentStore,
             context.SessionId,
+            context.ThreadId,
             rootDirectory);
         await session.OpenAsync(cancellationToken).ConfigureAwait(false);
         return session;
@@ -2257,23 +2261,21 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
             var localStderr = stderr;
             var localCombined = combined;
             var localMetadata = metadata;
+            var createdAddresses = new List<ContentAddress>(4);
             try
             {
-                stdout = await CommitAsync(stdout, "stdout.txt", "stdout", cancellationToken).ConfigureAwait(false);
-                stderr = await CommitAsync(stderr, "stderr.txt", "stderr", cancellationToken).ConfigureAwait(false);
-                combined = await CommitAsync(combined, "combined.log", "combined", cancellationToken).ConfigureAwait(false);
-                metadata = await CommitAsync(metadata, "metadata.json", "metadata", cancellationToken).ConfigureAwait(false);
+                stdout = await CommitAsync(stdout, "stdout.txt", "stdout", createdAddresses, cancellationToken).ConfigureAwait(false);
+                stderr = await CommitAsync(stderr, "stderr.txt", "stderr", createdAddresses, cancellationToken).ConfigureAwait(false);
+                combined = await CommitAsync(combined, "combined.log", "combined", createdAddresses, cancellationToken).ConfigureAwait(false);
+                metadata = await CommitAsync(metadata, "metadata.json", "metadata", createdAddresses, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 warning = $"Failed to commit command output artifacts: {ex.Message}";
-                foreach (var address in new[] { stdout.Address, stderr.Address, combined.Address, metadata.Address })
+                foreach (var committedAddress in createdAddresses)
                 {
-                    if (address is { } committedAddress)
-                    {
-                        try { await _contentStore.DeleteAsync(committedAddress, CancellationToken.None).ConfigureAwait(false); }
-                        catch { }
-                    }
+                    try { await _contentStore.DeleteAsync(committedAddress, CancellationToken.None).ConfigureAwait(false); }
+                    catch { }
                 }
                 stdout = localStdout;
                 stderr = localStderr;
@@ -2357,6 +2359,7 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
         ExecuteCommandOutputHandle local,
         string fileName,
         string stream,
+        ICollection<ContentAddress> createdAddresses,
         CancellationToken cancellationToken)
     {
         if (local.LocalPath is null || _contentStore is null || _sessionId is null)
@@ -2394,6 +2397,7 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
                     ["kind"] = "artifact",
                     ["artifact-kind"] = "execute_command_output",
                     ["command-id"] = _commandId,
+                    ["thread-id"] = _threadId ?? string.Empty,
                     ["stream"] = stream,
                     ["truncated"] = FormatBoolean(local.Truncated),
                     ["binary"] = FormatBoolean(local.Binary),
@@ -2407,6 +2411,7 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
                 FailIfNameExists = true
             },
             cancellationToken).ConfigureAwait(false);
+        createdAddresses.Add(contentInfo.Address);
 
         return local with
         {

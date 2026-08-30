@@ -92,6 +92,8 @@ public sealed partial class Agent : IAsyncDisposable
 
     // Store and generated-policy archiver used for event content retention.
     private readonly IContentStore? _contentStore;
+    private readonly bool _ownsSessionStore;
+    private readonly bool _ownsContentStore;
     private readonly IAgentEventContentArchiver _eventContentArchiver;
 
     // Service provider for creating new clients
@@ -289,10 +291,14 @@ public sealed partial class Agent : IAsyncDisposable
         IReadOnlyDictionary<string, MiddlewareStateFactory>? stateFactories = null,
         IReadOnlyList<HttpClient>? ownedHttpClients = null,
         AgentClientSet? clientSet = null,
-        IAsyncDisposable? providerRuntimeOwner = null)
+        IAsyncDisposable? providerRuntimeOwner = null,
+        bool ownsSessionStore = false,
+        bool ownsContentStore = false)
     {
         _providerRegistry = providerRegistry;
         _contentStore = contentStore;
+        _ownsSessionStore = ownsSessionStore;
+        _ownsContentStore = ownsContentStore;
         _eventContentArchiver = new AgentEventContentArchiver(
             contentStore,
             diagnostic => _agentLogger?.LogDebug(
@@ -4420,6 +4426,18 @@ public sealed partial class Agent : IAsyncDisposable
             await asyncEventCoordinator.DisposeAsync().ConfigureAwait(false);
         else
             (_eventCoordinator as IDisposable)?.Dispose();
+        if (_ownsContentStore)
+            await DisposeOwnedStoreAsync(_contentStore).ConfigureAwait(false);
+        if (_ownsSessionStore)
+            await DisposeOwnedStoreAsync(Config.SessionStore).ConfigureAwait(false);
+    }
+
+    private static async ValueTask DisposeOwnedStoreAsync(object? store)
+    {
+        if (store is IAsyncDisposable asyncDisposable)
+            await asyncDisposable.DisposeAsync().ConfigureAwait(false);
+        else
+            (store as IDisposable)?.Dispose();
     }
 
     private void ThrowIfShutdownStarted() =>
