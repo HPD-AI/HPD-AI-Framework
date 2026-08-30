@@ -5,13 +5,15 @@ using HPD.Agent.Middleware;
 
 public sealed record ReadCommandOutputRequest(
     ContentAddress Address,
-    int MaxBytes = 262_144);
+    int MaxBytes = 262_144,
+    long Offset = 0);
 
 public sealed record ReadCommandOutputResult(
     string ContentType,
     long StoredBytes,
     string Encoding,
-    string Content);
+    string Content,
+    long? NextOffset);
 
 public partial class CodingToolHarness
 {
@@ -25,6 +27,8 @@ public partial class CodingToolHarness
         ArgumentNullException.ThrowIfNull(request);
         if (request.MaxBytes is <= 0 or > 1_048_576)
             throw new ArgumentOutOfRangeException(nameof(request), "MaxBytes must be between 1 and 1048576.");
+        if (request.Offset < 0)
+            throw new ArgumentOutOfRangeException(nameof(request), "Offset cannot be negative.");
         if (context.ContentStore is null)
             throw new InvalidOperationException("No content store is configured.");
         if (context.ContentStore.PersistenceCapability != ContentStorePersistenceCapability.RestartDurable)
@@ -42,7 +46,10 @@ public partial class CodingToolHarness
             !opened.Info.Tags.TryGetValue("thread-id", out var ownerThreadId) ||
             !StringComparer.Ordinal.Equals(ownerThreadId, context.ThreadId))
             throw new UnauthorizedAccessException("The command output address is outside the current thread scope.");
-        var limit = (int)Math.Min(request.MaxBytes, opened.Info.SizeBytes);
+        if (request.Offset > opened.Info.SizeBytes)
+            throw new ArgumentOutOfRangeException(nameof(request), "Offset exceeds the stored content length.");
+        await SkipAsync(opened.Content, request.Offset, cancellationToken).ConfigureAwait(false);
+        var limit = (int)Math.Min(request.MaxBytes, opened.Info.SizeBytes - request.Offset);
         var bytes = new byte[limit];
         var read = 0;
         while (read < bytes.Length)
@@ -57,22 +64,59 @@ public partial class CodingToolHarness
 
         var isCombined = opened.Info.Tags.TryGetValue("stream", out var streamKind) &&
             StringComparer.Ordinal.Equals(streamKind, "combined");
-        var isText = isCombined || opened.Info.ContentType.StartsWith("text/", StringComparison.OrdinalIgnoreCase) ||
-            opened.Info.ContentType.Contains("json", StringComparison.OrdinalIgnoreCase);
+        var isRawOutput = StringComparer.Ordinal.Equals(streamKind, "stdout") ||
+            StringComparer.Ordinal.Equals(streamKind, "stderr");
+        var isBinary = opened.Info.Tags.TryGetValue("binary", out var binaryValue) &&
+            bool.TryParse(binaryValue, out var parsedBinary) && parsedBinary;
+        var isText = isCombined || !isRawOutput && !isBinary && (
+            opened.Info.ContentType.StartsWith("text/", StringComparison.OrdinalIgnoreCase) ||
+            opened.Info.ContentType.Contains("json", StringComparison.OrdinalIgnoreCase));
+        var consumedBytes = 0;
+        var content = isCombined
+            ? DecodeCombinedOutput(bytes, out consumedBytes)
+            : isText ? Encoding.UTF8.GetString(bytes) : Convert.ToBase64String(bytes);
+        var consumed = isCombined ? consumedBytes : read;
+        if (isCombined && consumed < read && request.Offset + read == opened.Info.SizeBytes)
+            consumed = read; // The capped spool ended inside a final frame; discard that incomplete tail and terminate.
+        if (isCombined && consumed == 0 && read > 0 && request.Offset + read < opened.Info.SizeBytes)
+            throw new InvalidOperationException("MaxBytes is too small for the next combined-output frame; retry this offset with a larger value.");
+        var nextOffset = request.Offset + consumed < opened.Info.SizeBytes
+            ? request.Offset + consumed
+            : (long?)null;
         return new ReadCommandOutputResult(
             opened.Info.ContentType,
             opened.Info.SizeBytes,
             isCombined ? "framed-base64" : isText ? "utf-8" : "base64",
-            isText ? (isCombined ? DecodeCombinedOutput(bytes) : Encoding.UTF8.GetString(bytes)) : Convert.ToBase64String(bytes));
+            content,
+            nextOffset);
     }
 
-    private static string DecodeCombinedOutput(ReadOnlySpan<byte> framed)
+    private static async ValueTask SkipAsync(Stream stream, long offset, CancellationToken cancellationToken)
+    {
+        if (stream.CanSeek)
+        {
+            stream.Seek(offset, SeekOrigin.Begin);
+            return;
+        }
+        var buffer = new byte[81920];
+        while (offset > 0)
+        {
+            var read = await stream.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, offset)), cancellationToken)
+                .ConfigureAwait(false);
+            if (read == 0)
+                throw new EndOfStreamException("The content ended before the requested offset.");
+            offset -= read;
+        }
+    }
+
+    private static string DecodeCombinedOutput(ReadOnlySpan<byte> framed, out int consumedBytes)
     {
         const string prefix = "[hpd.execute-command.interleaved.v1:";
         var result = new StringBuilder();
         var offset = 0;
         while (offset < framed.Length)
         {
+            var frameStart = offset;
             var newline = framed[offset..].IndexOf((byte)'\n');
             if (newline < 0)
                 break;
@@ -84,13 +128,21 @@ public partial class CodingToolHarness
                 throw new InvalidDataException("The combined command output framing is invalid.");
             offset += newline + 1;
             if (length > framed.Length - offset)
+            {
+                offset = frameStart;
                 break;
+            }
+            var frameEnd = offset + length;
+            if (frameEnd >= framed.Length || framed[frameEnd] != (byte)'\n')
+            {
+                offset = frameStart;
+                break;
+            }
             result.Append('[').Append(fields[0]).Append(' ').Append(fields[1]).Append(" base64] ");
             result.Append(Convert.ToBase64String(framed.Slice(offset, length))).AppendLine();
-            offset += length;
-            if (offset < framed.Length && framed[offset] == (byte)'\n')
-                offset++;
+            offset = frameEnd + 1;
         }
+        consumedBytes = offset;
         return result.ToString();
     }
 }
