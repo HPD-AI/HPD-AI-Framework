@@ -16,6 +16,8 @@ using HPD.Agent.Providers.Audio.Meai;
 using HPD.Agent.Providers.Audio.OpenAI;
 using Microsoft.Extensions.AI;
 
+[assembly: HPD.Agent.Serialization.HpdAgentApplication]
+
 #pragma warning disable MEAI001
 
 AudioCliOptions options;
@@ -316,9 +318,11 @@ foreach (var audioPath in audioPaths)
     }
 }
 
-var sessionStore = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
+var eventComposition = HPD.Agent.Serialization.GeneratedAgentEventComposition.Composition;
+var sessionStore = new InMemorySessionStore(eventComposition.Codec);
 var contentStore = new InMemoryContentStore();
 var builder = AgentBuilder.Create();
+builder.WithEventComposition(eventComposition);
 builder.ProviderRegistry.Register(new OpenAIAudioProvider());
 if (sttUsesElevenLabs || ttsRequested)
 {

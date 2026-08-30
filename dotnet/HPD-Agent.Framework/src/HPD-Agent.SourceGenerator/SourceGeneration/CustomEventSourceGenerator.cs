@@ -54,9 +54,17 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
     private static readonly DiagnosticDescriptor HPDAEVT001_LiveOnlyDefault = new(
         id: "HPDAEVT001",
         title: "Agent event is not part of an immutable event module",
-        messageFormat: "Event '{0}' is live-only and will not be journaled because assembly '{1}' declares no HpdAgentEventModule.",
+        messageFormat: "Event '{0}' has no explicit durability classification and defaults to live-only in assembly '{1}'.",
         category: "HPD.Agent.Serialization",
         defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
+    private static readonly DiagnosticDescriptor HPDAEVT002_MissingJsonMetadata = new(
+        id: "HPDAEVT002",
+        title: "Agent event is missing generated JSON metadata",
+        messageFormat: "Event '{0}' is not declared by [JsonSerializable] on context '{1}'.",
+        category: "HPD.Agent.Serialization",
+        defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
     #endregion
@@ -96,10 +104,10 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         if (baseList == null)
             return false;
 
-        // Check if any base type references one of the supported event contracts.
-        return baseList.Types.Any(t =>
-            t.Type.ToString().Contains("AgentEvent") ||
-            t.Type.ToString().Contains("AgentStructEvent"));
+        // Semantic analysis below follows the complete inheritance chain. Keeping
+        // this predicate broad is required for events derived through module-local
+        // abstract event bases.
+        return baseList.Types.Count > 0;
     }
 
     #endregion
@@ -167,7 +175,7 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
             return null;
 
         // Check for [EventType("CUSTOM_NAME")] attribute override
-        var (customDiscriminator, durability) = GetCustomEventTypeAttribute(typeSymbol);
+        var (customDiscriminator, durability, hasExplicitDurability) = GetCustomEventTypeAttribute(typeSymbol);
         var discriminator = customDiscriminator ?? ToScreamingSnakeCase(typeSymbol.Name);
 
         return new CustomEventInfo(
@@ -178,7 +186,8 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
             Kind: eventKind.Value,
             IsValid: true,
             Diagnostics: diagnostics,
-            Durability: durability);
+            Durability: durability,
+            HasExplicitDurability: hasExplicitDurability);
     }
 
     /// <summary>
@@ -216,7 +225,7 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
     /// <summary>
     /// Gets custom type discriminator from [EventType("...")] attribute if present.
     /// </summary>
-    private static (string? Discriminator, string Durability) GetCustomEventTypeAttribute(INamedTypeSymbol typeSymbol)
+    private static (string? Discriminator, string Durability, bool HasExplicitDurability) GetCustomEventTypeAttribute(INamedTypeSymbol typeSymbol)
     {
         foreach (var attr in typeSymbol.GetAttributes())
         {
@@ -227,21 +236,22 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
                     attr.ConstructorArguments[0].Value is string discriminator)
                 {
                     var durability = "LiveOnly";
+                    var hasExplicitDurability = false;
                     foreach (var namedArgument in attr.NamedArguments)
                     {
-                        if (namedArgument.Key == "Durability" &&
-                            namedArgument.Value.Value is int durabilityValue &&
-                            durabilityValue == 1)
+                        if (namedArgument.Key == "Durability")
                         {
-                            durability = "Durable";
+                            hasExplicitDurability = true;
+                            if (namedArgument.Value.Value is int durabilityValue && durabilityValue == 1)
+                                durability = "Durable";
                         }
                     }
 
-                    return (discriminator, durability);
+                    return (discriminator, durability, hasExplicitDurability);
                 }
             }
         }
-        return (null, "LiveOnly");
+        return (null, "LiveOnly", false);
     }
 
     /// <summary>
@@ -351,12 +361,28 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
                 throw new InvalidOperationException("HpdAgentEventModule requires a module ID and JsonSerializerContext type.");
             }
 
+            var metadataTypes = new HashSet<string>(jsonContextType.GetAttributes()
+                .Where(static attribute => attribute.AttributeClass?.Name == "JsonSerializableAttribute")
+                .Select(static attribute => attribute.ConstructorArguments.FirstOrDefault().Value as INamedTypeSymbol)
+                .Where(static type => type is not null)
+                .Select(static type => type!.ToDisplayString()), StringComparer.Ordinal);
+            var missingMetadata = false;
+            foreach (var evt in validAgentEvents.Where(static evt => !evt.HasExplicitDurability))
+                context.ReportDiagnostic(Diagnostic.Create(HPDAEVT001_LiveOnlyDefault, Location.None, evt.FullTypeName, compilation.AssemblyName ?? "unknown"));
+            foreach (var evt in validAgentEvents.Where(evt => !metadataTypes.Contains(evt.FullTypeName)))
+            {
+                missingMetadata = true;
+                context.ReportDiagnostic(Diagnostic.Create(HPDAEVT002_MissingJsonMetadata, Location.None, evt.FullTypeName, jsonContextType.ToDisplayString()));
+            }
+            if (missingMetadata)
+                return;
+
             context.AddSource("GeneratedAgentEventModule.g.cs",
                 GenerateEventModule(validAgentEvents, moduleId, jsonContextType));
         }
         else if (validAgentEvents.Count > 0 && !hasHandwrittenManifest)
         {
-            foreach (var evt in validAgentEvents)
+            foreach (var evt in validAgentEvents.Where(static evt => !evt.HasExplicitDurability))
             {
                 context.ReportDiagnostic(Diagnostic.Create(
                     HPDAEVT001_LiveOnlyDefault,
@@ -368,14 +394,14 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
 
         if (isApplication)
         {
-            var providers = new Dictionary<string, string>(StringComparer.Ordinal);
+            var providers = new List<string>();
             AddManifestProviders(compilation.Assembly, providers);
             foreach (var referencedAssembly in compilation.SourceModule.ReferencedAssemblySymbols)
                 AddManifestProviders(referencedAssembly, providers);
             if (moduleAttribute is not null && !hasHandwrittenManifest && validAgentEvents.Count > 0 &&
                 moduleAttribute.ConstructorArguments[0].Value is string localModuleId)
             {
-                providers[localModuleId] = "global::HPD.Agent.Serialization.GeneratedAgentEventModule";
+                providers.Add("global::HPD.Agent.Serialization.GeneratedAgentEventModule");
             }
             context.AddSource("GeneratedAgentEventComposition.g.cs",
                 GenerateApplicationComposition(
@@ -495,7 +521,7 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
 
     private static void AddManifestProviders(
         IAssemblySymbol assembly,
-        Dictionary<string, string> providers)
+        List<string> providers)
     {
         foreach (var attribute in assembly.GetAttributes().Where(static value =>
             value.AttributeClass?.Name == "HpdAgentEventModuleManifestAttribute"))
@@ -504,7 +530,7 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
                 attribute.ConstructorArguments[0].Value is not string moduleId ||
                 attribute.ConstructorArguments[1].Value is not INamedTypeSymbol providerType)
                 continue;
-            providers[moduleId] = providerType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            providers.Add(providerType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
             if (attribute.ConstructorArguments.Length < 3)
                 continue;
             foreach (var dependency in attribute.ConstructorArguments[2].Values)
@@ -512,8 +538,8 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
                 if (dependency.Value is INamedTypeSymbol dependencyType)
                 {
                     var dependencyName = dependencyType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                    if (!providers.ContainsKey(dependencyName))
-                        providers.Add(dependencyName, dependencyName);
+                    if (!providers.Contains(dependencyName, StringComparer.Ordinal))
+                        providers.Add(dependencyName);
                 }
             }
         }
@@ -521,9 +547,9 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
 
     private static string GenerateApplicationComposition(
         string assemblyIdentity,
-        Dictionary<string, string> providers)
+        List<string> providers)
     {
-        var providerList = providers.Values.Distinct(StringComparer.Ordinal).OrderBy(static value => value, StringComparer.Ordinal).ToArray();
+        var providerList = providers.Distinct(StringComparer.Ordinal).OrderBy(static value => value, StringComparer.Ordinal).ToArray();
         var sb = new StringBuilder();
         sb.AppendLine("// <auto-generated/>");
         sb.AppendLine("#nullable enable");
@@ -613,7 +639,8 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         EventRegistrationKind Kind,
         bool IsValid,
         List<Diagnostic> Diagnostics,
-        string Durability = "LiveOnly");
+        string Durability = "LiveOnly",
+        bool HasExplicitDurability = false);
 
     private enum EventRegistrationKind
     {

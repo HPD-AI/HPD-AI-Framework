@@ -1,5 +1,6 @@
 using HPD.Agent;
 using HPD.Events;
+using HPD.Agent.Serialization;
 
 namespace HPD.MultiAgent;
 
@@ -7,6 +8,7 @@ namespace HPD.MultiAgent;
 /// Event emitted when a multi-agent workflow starts execution.
 /// Wraps the internal graph execution start event in agent-idiomatic form.
 /// </summary>
+[EventType("WORKFLOW_STARTED", Durability = AgentEventDurability.LiveOnly)]
 public sealed record WorkflowStartedEvent : AgentEvent
 {
     /// <summary>
@@ -33,6 +35,7 @@ public sealed record WorkflowStartedEvent : AgentEvent
 /// <summary>
 /// Event emitted when a multi-agent workflow completes execution.
 /// </summary>
+[EventType("WORKFLOW_COMPLETED", Durability = AgentEventDurability.LiveOnly)]
 public sealed record WorkflowCompletedEvent : AgentEvent
 {
     /// <summary>
@@ -74,6 +77,7 @@ public sealed record WorkflowCompletedEvent : AgentEvent
 /// <summary>
 /// Event emitted when an agent in a workflow starts execution.
 /// </summary>
+[EventType("WORKFLOW_AGENT_STARTED", Durability = AgentEventDurability.LiveOnly)]
 public sealed record WorkflowAgentStartedEvent : AgentEvent
 {
     /// <summary>
@@ -105,6 +109,7 @@ public sealed record WorkflowAgentStartedEvent : AgentEvent
 /// <summary>
 /// Event emitted when an agent in a workflow completes execution.
 /// </summary>
+[EventType("WORKFLOW_AGENT_COMPLETED", Durability = AgentEventDurability.LiveOnly)]
 public sealed record WorkflowAgentCompletedEvent : AgentEvent
 {
     /// <summary>
@@ -156,6 +161,7 @@ public sealed record WorkflowAgentCompletedEvent : AgentEvent
 /// <summary>
 /// Event emitted when an agent in a workflow is skipped.
 /// </summary>
+[EventType("WORKFLOW_AGENT_SKIPPED", Durability = AgentEventDurability.LiveOnly)]
 public sealed record WorkflowAgentSkippedEvent : AgentEvent
 {
     /// <summary>
@@ -183,6 +189,7 @@ public sealed record WorkflowAgentSkippedEvent : AgentEvent
 /// Event emitted when an edge is traversed in a workflow (routing between nodes).
 /// Useful for debugging workflow routing decisions.
 /// </summary>
+[EventType("WORKFLOW_EDGE_TRAVERSED", Durability = AgentEventDurability.LiveOnly)]
 public sealed record WorkflowEdgeTraversedEvent : AgentEvent
 {
     /// <summary>
@@ -219,6 +226,7 @@ public sealed record WorkflowEdgeTraversedEvent : AgentEvent
 /// <summary>
 /// Event emitted when a workflow layer starts executing (for parallel execution).
 /// </summary>
+[EventType("WORKFLOW_LAYER_STARTED", Durability = AgentEventDurability.LiveOnly)]
 public sealed record WorkflowLayerStartedEvent : AgentEvent
 {
     /// <summary>
@@ -245,6 +253,7 @@ public sealed record WorkflowLayerStartedEvent : AgentEvent
 /// <summary>
 /// Event emitted when a workflow layer completes executing.
 /// </summary>
+[EventType("WORKFLOW_LAYER_COMPLETED", Durability = AgentEventDurability.LiveOnly)]
 public sealed record WorkflowLayerCompletedEvent : AgentEvent
 {
     /// <summary>
@@ -277,6 +286,7 @@ public sealed record WorkflowLayerCompletedEvent : AgentEvent
 /// Diagnostic event emitted during workflow execution.
 /// Wraps internal graph diagnostic events.
 /// </summary>
+[EventType("WORKFLOW_DIAGNOSTIC", Durability = AgentEventDurability.LiveOnly)]
 public sealed record WorkflowDiagnosticEvent : AgentEvent
 {
     /// <summary>

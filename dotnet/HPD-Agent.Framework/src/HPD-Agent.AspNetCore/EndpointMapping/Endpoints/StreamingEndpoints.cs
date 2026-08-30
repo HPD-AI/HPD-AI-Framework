@@ -125,12 +125,24 @@ internal static class StreamingEndpoints
         if (TryGetPropertyIgnoreCase(request, "type", out _))
             return null;
 
-        var textRequest = JsonSerializer.Deserialize<StreamTextRequest>(request.GetRawText(), CaseInsensitiveJson);
-        return string.IsNullOrWhiteSpace(textRequest?.Text)
+        var text = TryGetPropertyIgnoreCase(request, "text", out var textElement) && textElement.ValueKind == JsonValueKind.String
+            ? textElement.GetString()
+            : null;
+        var clientInputId = TryGetPropertyIgnoreCase(request, "clientInputId", out var clientInputElement) && clientInputElement.ValueKind == JsonValueKind.String
+            ? clientInputElement.GetString()
+            : null;
+        AgentRunConfig? runConfig = null;
+        if (TryGetPropertyIgnoreCase(request, "runConfig", out var runConfigElement) &&
+            runConfigElement.ValueKind is not JsonValueKind.Null and not JsonValueKind.Undefined)
+        {
+            runConfig = HpdAgentConfigSerializer.DeserializeRunConfig(
+                runConfigElement.GetRawText(), inputCodec.ProviderComposition);
+        }
+        return string.IsNullOrWhiteSpace(text)
             ? null
-            : new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, textRequest.Text)],
-                RunConfig = textRequest.RunConfig,
-                ClientInputId = textRequest.ClientInputId
+            : new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, text)],
+                RunConfig = runConfig,
+                ClientInputId = clientInputId
             };
     }
 

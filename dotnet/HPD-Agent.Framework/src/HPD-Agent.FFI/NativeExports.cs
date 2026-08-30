@@ -11,6 +11,8 @@ using HPD.Agent;
 using HPD.Agent.Providers;
 using HPD.Agent.Serialization;
 
+[assembly: HpdAgentApplication]
+
 namespace HPD.Agent.FFI;
 
 /// <summary>
@@ -198,7 +200,8 @@ public static partial class NativeExports
             var providerComposition = HPD.Agent.Providers.Generated.GeneratedProviderComposition.Composition;
             var agentConfig = DeserializeAgentConfig(configJson);
 
-            var builder = new AgentBuilder(agentConfig, providerComposition);
+            var builder = new AgentBuilder(agentConfig, providerComposition)
+                .WithEventComposition(GeneratedAgentEventComposition.Composition);
 
             // Parse and add native ToolHarnesses (Rust, C++, Zig, Go, etc.)
             string? ToolHarnessesJson = Marshal.PtrToStringUTF8(ToolHarnessesJsonPtr);

@@ -1710,8 +1710,13 @@ public sealed partial class Agent : IAsyncDisposable
     {
         if (string.IsNullOrWhiteSpace(evt.SessionId) || string.IsNullOrWhiteSpace(evt.ThreadId))
         {
-            await runtimeCoordinator.EmitAsync(evt, cancellationToken).ConfigureAwait(false);
-            return evt;
+            var codec = Config?.EventComposition?.Codec
+                ?? throw new InvalidOperationException("Agent runtime has no event composition authority.");
+            if (!codec.TryGetByType(evt.GetType(), out _))
+                throw new InvalidOperationException($"Agent event type '{evt.GetType().FullName}' is not present in codec '{codec.Digest}'.");
+            var live = evt with { ThreadSequenceNumber = 0 };
+            await runtimeCoordinator.EmitAsync(live, cancellationToken).ConfigureAwait(false);
+            return live;
         }
 
         var store = Config?.SessionStore;
@@ -1721,11 +1726,15 @@ public sealed partial class Agent : IAsyncDisposable
                 evt.SessionId,
                 evt.ThreadId,
                 evt) with { ThreadSequenceNumber = 0 };
+            var codec = Config?.EventComposition?.Codec
+                ?? throw new InvalidOperationException("Agent runtime has no event composition authority.");
+            if (!codec.TryGetByType(stateless.GetType(), out _))
+                throw new InvalidOperationException($"Agent event type '{stateless.GetType().FullName}' is not present in codec '{codec.Digest}'.");
             await runtimeCoordinator.EmitAsync(stateless, cancellationToken).ConfigureAwait(false);
             return stateless;
         }
 
-        return await new AgentEventPublisher(store, runtimeCoordinator).CommitAndPublishAsync(
+        return await new AgentEventPublisher(store, runtimeCoordinator).PublishAsync(
             new ThreadKey(evt.SessionId, evt.ThreadId),
             EnrichOutputEvent(evt),
             cancellationToken).ConfigureAwait(false);

@@ -180,12 +180,30 @@ public sealed class FunctionExecutionContext
             !string.IsNullOrWhiteSpace(scoped.ThreadId) &&
             ThreadEvents is not null)
         {
-            return await ThreadEvents.CommitAndPublishAsync(
+            return await ThreadEvents.PublishAsync(
                 new ThreadKey(scoped.SessionId, scoped.ThreadId),
                 scoped,
                 cancellationToken).ConfigureAwait(false);
         }
 
+        return await PublishLiveAsync(scoped, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask<AgentEvent> PublishLiveAsync(
+        AgentEvent evt,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(evt);
+        if (ThreadEvents is not null)
+            return await ThreadEvents.PublishLiveAsync(WithInvocationScope(evt), cancellationToken).ConfigureAwait(false);
+        if (EventCoordinator is null)
+            throw new InvalidOperationException("Function execution context does not have an event coordinator.");
+        var codec = _parentConfig?.EventComposition?.Codec
+            ?? throw new InvalidOperationException("Function execution context has no event composition authority.");
+        var scoped = WithInvocationScope(evt);
+        if (!codec.TryGetByType(scoped.GetType(), out _))
+            throw new InvalidOperationException($"Agent event type '{scoped.GetType().FullName}' is not present in codec '{codec.Digest}'.");
+        scoped = scoped with { ThreadSequenceNumber = 0 };
         await EventCoordinator.EmitAsync(scoped, cancellationToken).ConfigureAwait(false);
         return scoped;
     }

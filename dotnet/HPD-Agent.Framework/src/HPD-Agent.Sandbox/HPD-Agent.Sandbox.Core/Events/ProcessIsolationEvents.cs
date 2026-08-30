@@ -1,8 +1,10 @@
 using HPD.Agent;
 using HPD.Environment.Contracts;
+using HPD.Agent.Serialization;
 
 namespace HPD.Agent.Sandbox.Events;
 
+[EventType("PROCESS_ISOLATION_VIOLATION", Durability = AgentEventDurability.LiveOnly)]
 public sealed record ProcessIsolationViolationEvent : AgentEvent
 {
     public string SourceName => "HostSandboxApplicator";
@@ -26,6 +28,7 @@ public sealed record ProcessIsolationViolationEvent : AgentEvent
     }
 }
 
+[EventType("PROCESS_ISOLATION_INITIALIZED", Durability = AgentEventDurability.LiveOnly)]
 public sealed record ProcessIsolationInitializedEvent : AgentEvent, IObservabilityEvent
 {
     public string Platform { get; init; } = string.Empty;

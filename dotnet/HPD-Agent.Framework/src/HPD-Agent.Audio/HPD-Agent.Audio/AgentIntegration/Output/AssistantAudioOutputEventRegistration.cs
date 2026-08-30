@@ -37,6 +37,23 @@ public static class AudioAgentEventModule
         ModuleId = "hpd.agent.audio",
         Events = Array.AsReadOnly<AgentEventDescriptor>(
         [
+            Create(typeof(AssistantAudioOutputFailedEvent), AssistantAudioOutputFailed, AssistantAudioOutputEventJsonContext.Default.AssistantAudioOutputFailedEvent),
+            Create(typeof(AssistantAudioOutputStartedEvent), AssistantAudioOutputStarted, AssistantAudioOutputEventJsonContext.Default.AssistantAudioOutputStartedEvent),
+            Create(typeof(AssistantAudioOutputStreamStartedEvent), AssistantAudioOutputStreamStarted, AssistantAudioOutputEventJsonContext.Default.AssistantAudioOutputStreamStartedEvent),
+            Create(typeof(AssistantAudioOutputChunkReadyEvent), AssistantAudioOutputChunkReady, AssistantAudioOutputEventJsonContext.Default.AssistantAudioOutputChunkReadyEvent),
+            Create(typeof(AssistantAudioPushTextStreamOpeningEvent), AssistantAudioPushTextStreamOpening, AssistantAudioOutputEventJsonContext.Default.AssistantAudioPushTextStreamOpeningEvent),
+            Create(typeof(AssistantAudioPushTextStreamOpenedEvent), AssistantAudioPushTextStreamOpened, AssistantAudioOutputEventJsonContext.Default.AssistantAudioPushTextStreamOpenedEvent),
+            Create(typeof(AssistantAudioPushTextInputSentEvent), AssistantAudioPushTextInputSent, AssistantAudioOutputEventJsonContext.Default.AssistantAudioPushTextInputSentEvent),
+            Create(typeof(AssistantAudioOutputStreamCompletedEvent), AssistantAudioOutputStreamCompleted, AssistantAudioOutputEventJsonContext.Default.AssistantAudioOutputStreamCompletedEvent),
+            Create(typeof(AssistantAudioOutputArtifactCapturedEvent), AssistantAudioOutputArtifactCaptured, AssistantAudioOutputEventJsonContext.Default.AssistantAudioOutputArtifactCapturedEvent),
+            Create(typeof(AssistantAudioOutputSegmentFailedEvent), AssistantAudioOutputSegmentFailed, AssistantAudioOutputEventJsonContext.Default.AssistantAudioOutputSegmentFailedEvent),
+            Create(typeof(AssistantAudioOutputCompletedEvent), AssistantAudioOutputCompleted, AssistantAudioOutputEventJsonContext.Default.AssistantAudioOutputCompletedEvent),
+            Create(typeof(AssistantAudioPlaybackQueuedEvent), AssistantAudioPlaybackQueued, AssistantAudioOutputEventJsonContext.Default.AssistantAudioPlaybackQueuedEvent),
+            Create(typeof(AssistantAudioPlaybackStartedEvent), AssistantAudioPlaybackStarted, AssistantAudioOutputEventJsonContext.Default.AssistantAudioPlaybackStartedEvent),
+            Create(typeof(AssistantAudioPlaybackProgressEvent), AssistantAudioPlaybackProgress, AssistantAudioOutputEventJsonContext.Default.AssistantAudioPlaybackProgressEvent),
+            Create(typeof(AssistantAudioPlaybackCompletedEvent), AssistantAudioPlaybackCompleted, AssistantAudioOutputEventJsonContext.Default.AssistantAudioPlaybackCompletedEvent),
+            Create(typeof(AssistantAudioPlaybackInterruptedEvent), AssistantAudioPlaybackInterrupted, AssistantAudioOutputEventJsonContext.Default.AssistantAudioPlaybackInterruptedEvent),
+            Create(typeof(AssistantAudioPlaybackFailedEvent), AssistantAudioPlaybackFailed, AssistantAudioOutputEventJsonContext.Default.AssistantAudioPlaybackFailedEvent)
         ])
     };
 

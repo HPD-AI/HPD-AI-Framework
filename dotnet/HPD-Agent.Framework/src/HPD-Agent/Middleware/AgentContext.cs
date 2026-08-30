@@ -389,15 +389,30 @@ public sealed class AgentContext
             evt = ThreadEventValidation.PrepareForAppend(_thread.SessionId, _thread.Id, evt);
             if (_threadEvents is not null)
             {
-                return await _threadEvents.CommitAndPublishAsync(
+                return await _threadEvents.PublishAsync(
                     new ThreadKey(_thread.SessionId, _thread.Id),
                     evt,
                     cancellationToken).ConfigureAwait(false);
             }
         }
 
-        await _events.EmitAsync(evt, cancellationToken).ConfigureAwait(false);
-        return evt;
+        return await PublishLiveAsync(evt, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask<AgentEvent> PublishLiveAsync(
+        AgentEvent evt,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(evt);
+        if (_threadEvents is not null)
+            return await _threadEvents.PublishLiveAsync(evt, cancellationToken).ConfigureAwait(false);
+        var codec = _config?.EventComposition?.Codec
+            ?? throw new InvalidOperationException("Agent context has no event composition authority.");
+        if (!codec.TryGetByType(evt.GetType(), out _))
+            throw new InvalidOperationException($"Agent event type '{evt.GetType().FullName}' is not present in codec '{codec.Digest}'.");
+        var live = evt with { ThreadSequenceNumber = 0 };
+        await _events.EmitAsync(live, cancellationToken).ConfigureAwait(false);
+        return live;
     }
 
     /// <summary>

@@ -70,9 +70,9 @@ public static class HPDAgentEndpointRouteBuilderExtensions
 
         var routeGroup = endpoints.MapGroup(options.RoutePrefix);
 
-        var servicesProvider = endpoints.ServiceProvider.GetRequiredService<IHPDAgentHostingServicesProvider>();
-        var hostingServices = servicesProvider.Get(name);
-        var eventComposition = endpoints.ServiceProvider.GetRequiredService<AgentEventComposition>();
+        var pair = endpoints.ServiceProvider.GetRequiredService<HPDAgentRegistry>().Get(name);
+        var hostingServices = pair.HostingServices;
+        var eventComposition = pair.EventComposition;
 
         routeGroup.MapGet("/event-catalog", () => Results.Json(
             eventComposition.Catalog,
@@ -95,7 +95,7 @@ public static class HPDAgentEndpointRouteBuilderExtensions
                 new HPD.Agent.Serialization.AgentInputCodec(
                     endpoints.ServiceProvider.GetRequiredService<HPD.Agent.Providers.ProviderComposition>()));
         if (options.MapMiddlewareResponses)
-            MiddlewareResponseEndpoints.Map(routeGroup, hostingServices.MiddlewareResponses);
+            MiddlewareResponseEndpoints.Map(routeGroup, hostingServices.MiddlewareResponses, eventComposition.Codec);
         if (options.MapClientToolProviders)
             ClientToolProviderEndpoints.Map(
                 routeGroup,

@@ -75,7 +75,8 @@ internal sealed class HPDAgentRegistry
         return new HPDAgentPair(
             agentManager,
             sessionManager,
-            hostingServices);
+            hostingServices,
+            eventComposition);
     }
 }
 
@@ -83,4 +84,5 @@ internal sealed class HPDAgentRegistry
 internal record HPDAgentPair(
     AspNetCoreAgentManager AgentManager,
     AspNetCoreSessionManager SessionManager,
-    HPDAgentHostingServices HostingServices);
+    HPDAgentHostingServices HostingServices,
+    AgentEventComposition EventComposition);
