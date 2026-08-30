@@ -62,7 +62,7 @@ public partial class CodingToolHarness
         return new ReadCommandOutputResult(
             opened.Info.ContentType,
             opened.Info.SizeBytes,
-            isText ? "utf-8" : "base64",
+            isCombined ? "framed-base64" : isText ? "utf-8" : "base64",
             isText ? (isCombined ? DecodeCombinedOutput(bytes) : Encoding.UTF8.GetString(bytes)) : Convert.ToBase64String(bytes));
     }
 
@@ -85,8 +85,8 @@ public partial class CodingToolHarness
             offset += newline + 1;
             if (length > framed.Length - offset)
                 break;
-            result.Append('[').Append(fields[0]).Append(' ').Append(fields[1]).Append("] ");
-            result.Append(Encoding.UTF8.GetString(framed.Slice(offset, length))).AppendLine();
+            result.Append('[').Append(fields[0]).Append(' ').Append(fields[1]).Append(" base64] ");
+            result.Append(Convert.ToBase64String(framed.Slice(offset, length))).AppendLine();
             offset += length;
             if (offset < framed.Length && framed[offset] == (byte)'\n')
                 offset++;

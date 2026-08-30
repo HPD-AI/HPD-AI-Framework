@@ -8,13 +8,14 @@
   <ItemGroup>
     <CompilerVisibleProperty Include="HpdAgentApplication" />
     <CompilerVisibleProperty Include="HpdAgentEventModuleId" />
+    <CompilerVisibleProperty Include="NativeLib" />
   </ItemGroup>
 
   <Target Name="HpdGenerateAgentEventJsonContext"
           DependsOnTargets="$(HpdAgentEventPrecompileDependsOn)"
           AfterTargets="ResolveReferences"
           BeforeTargets="CoreCompile"
-          Condition="'$(DesignTimeBuild)' != 'true' And ('$(HpdAgentEventPrecompileRequireAnalyzer)' != 'true' Or $([System.String]::Copy('@(Analyzer);@(ProjectReference)').Contains('HPD-Agent.SourceGenerator'))) ">
+          Condition="'$(HpdAgentEventPrecompileRequireAnalyzer)' != 'true' Or $([System.String]::Copy('@(Analyzer);@(ProjectReference)').Contains('HPD-Agent.SourceGenerator')) ">
     <WriteLinesToFile File="$(HpdAgentEventSourcesFile)" Lines="@(Compile)" Overwrite="true" WriteOnlyWhenDifferent="true" />
     <WriteLinesToFile File="$(HpdAgentEventReferencesFile)" Lines="@(ReferencePath)" Overwrite="true" WriteOnlyWhenDifferent="true" />
     <Exec Command="dotnet exec &quot;$(HpdAgentEventPrecompilerPath)&quot; --sources &quot;$(HpdAgentEventSourcesFile)&quot; --references &quot;$(HpdAgentEventReferencesFile)&quot; --output &quot;$(HpdAgentGeneratedEventContext)&quot; --assembly &quot;$(AssemblyName)&quot; --language &quot;$(LangVersion)&quot; --defines &quot;$(DefineConstants)&quot;" />

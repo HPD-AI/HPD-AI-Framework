@@ -336,9 +336,11 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
 
         var assemblyAttributes = compilation.Assembly.GetAttributes();
         options.GlobalOptions.TryGetValue("build_property.HpdAgentApplication", out var applicationOption);
+        options.GlobalOptions.TryGetValue("build_property.NativeLib", out var nativeLib);
         var isApplication = bool.TryParse(applicationOption, out var explicitlyApplication)
             ? explicitlyApplication
-            : compilation.Options.OutputKind is OutputKind.ConsoleApplication or OutputKind.WindowsApplication;
+            : compilation.Options.OutputKind is OutputKind.ConsoleApplication or OutputKind.WindowsApplication ||
+                !string.IsNullOrWhiteSpace(nativeLib);
         if (validEvents.Count == 0 && !isApplication)
             return;
 

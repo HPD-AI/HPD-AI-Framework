@@ -1870,8 +1870,10 @@ public class AgentBuilder
             _ownsSessionStore = true;
         }
         if (!_hasExplicitContentStore && _contentStore is null && _implicitContentStoreFactory is not null)
+        {
             _contentStore = _implicitContentStoreFactory();
             _ownsContentStore = true;
+        }
         if (_config.Skills.ActivationLifetime != SkillActivationLifetime.MessageTurn)
             throw new InvalidOperationException(
                 $"Skill activation lifetime '{_config.Skills.ActivationLifetime}' is not supported. " +
