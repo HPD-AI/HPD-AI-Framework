@@ -1,6 +1,7 @@
 using System.Reflection;
 using HPD.Agent;
 using HPD.Agent.EventComposition.AotFixture;
+using HPD.Agent.EventComposition.AotFixtureTwo;
 using HPD.Agent.Serialization;
 
 [assembly: HpdAgentApplication]
@@ -11,6 +12,9 @@ if (!AgentEventCompositionHost.TryGetApplication(applicationIdentity, out var co
 if (!composition.Codec.TryGetByType(typeof(AotFixtureEvent), out var descriptor) ||
     descriptor.Durability != AgentEventDurability.Durable)
     return 2;
+if (!composition.Codec.TryGetByType(typeof(AotFixtureTwoEvent), out _) ||
+    !composition.Codec.TryGetByType(typeof(AotSmokeLocalEvent), out _))
+    return 4;
 
 var root = args.Length == 1
     ? Path.GetFullPath(args[0])

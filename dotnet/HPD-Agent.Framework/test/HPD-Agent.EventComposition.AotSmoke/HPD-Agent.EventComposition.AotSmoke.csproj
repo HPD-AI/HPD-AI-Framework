@@ -10,6 +10,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../HPD-Agent.EventComposition.AotFixture/HPD-Agent.EventComposition.AotFixture.csproj" />
+    <ProjectReference Include="../HPD-Agent.EventComposition.AotFixtureTwo/HPD-Agent.EventComposition.AotFixtureTwo.csproj" />
     <ProjectReference Include="../../src/HPD-Agent/HPD-Agent.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj"
                       OutputItemType="Analyzer"
