@@ -50,6 +50,7 @@
     <ProjectReference Include="../../src/HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="true" />
+    <ProjectReference Include="../../src/HPD-Agent.EventPrecompiler/HPD-Agent.EventPrecompiler.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Harness/HPD-Agent.Harness.FileSystem/HPD-Agent.Harness.FileSystem.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Harness/HPD-Agent.Harness.WebSearch/HPD-Agent.Harness.WebSearch.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.MultiAgent/HPD-Agent.MultiAgent.csproj" />

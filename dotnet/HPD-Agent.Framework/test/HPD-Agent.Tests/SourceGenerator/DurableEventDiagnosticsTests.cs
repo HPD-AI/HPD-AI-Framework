@@ -46,7 +46,7 @@ public sealed class DurableEventDiagnosticsTests
 
         var result = driver.RunGenerators(compilation).GetRunResult();
 
-        var diagnostic = Assert.Single(result.Diagnostics, static item => item.Id == "HPDAEVT003");
+        var diagnostic = Assert.Single(result.Diagnostics, static item => item.Id == "HPDAEVT001");
         Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
         Assert.Contains(reason, diagnostic.GetMessage(), StringComparison.Ordinal);
     }
@@ -72,6 +72,6 @@ public sealed class DurableEventDiagnosticsTests
 
         var result = driver.RunGenerators(compilation).GetRunResult();
 
-        Assert.DoesNotContain(result.Diagnostics, static item => item.Id == "HPDAEVT003");
+        Assert.DoesNotContain(result.Diagnostics, static item => item.Id == "HPDAEVT001");
     }
 }

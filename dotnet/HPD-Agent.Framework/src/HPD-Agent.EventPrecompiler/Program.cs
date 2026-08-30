@@ -16,6 +16,13 @@ var sources = File.ReadAllLines(arguments.SourcesFile)
     .Where(item => File.Exists(item.PhysicalPath))
     .Where(item => !Path.GetFullPath(item.PhysicalPath).Equals(Path.GetFullPath(arguments.Output), StringComparison.OrdinalIgnoreCase))
     .ToArray();
+var declarationErrors = PrecompileDeclarationProtocol.Validate(sources);
+if (declarationErrors.Length != 0)
+{
+    foreach (var error in declarationErrors)
+        Console.Error.WriteLine($"error HPDAEVT003: {error}");
+    return 1;
+}
 var referencePaths = File.ReadAllLines(arguments.ReferencesFile)
     .Where(File.Exists)
     .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -115,6 +122,8 @@ static string ComputeFingerprint(
     {
         Append(Path.GetFullPath(source.PhysicalPath));
         Append(source.LogicalPath);
+        Append(source.DeclarationId);
+        Append(source.Producer);
         AppendFile(source.PhysicalPath);
     }
     foreach (var reference in references.OrderBy(static path => path, StringComparer.Ordinal))
@@ -233,13 +242,62 @@ internal sealed record Arguments(
     }
 }
 
-internal sealed record SourceItem(string PhysicalPath, string LogicalPath)
+/// <summary>A compiler source or declared same-compilation generated source.</summary>
+public sealed record SourceItem(
+    string PhysicalPath,
+    string LogicalPath,
+    string DeclarationId,
+    string Producer,
+    bool IsDeclaration)
 {
     public static SourceItem Parse(string value)
     {
-        var separator = value.IndexOf('|');
-        var physicalPath = separator < 0 ? value : value[..separator];
-        var link = separator < 0 ? "" : value[(separator + 1)..];
-        return new SourceItem(physicalPath, string.IsNullOrWhiteSpace(link) ? physicalPath : link);
+        var fields = value.Split('|');
+        var physicalPath = fields[0];
+        var link = fields.Length > 1 ? fields[1] : "";
+        var isDeclaration = fields.Length > 2;
+        return new SourceItem(
+            physicalPath,
+            string.IsNullOrWhiteSpace(link) ? physicalPath : link,
+            fields.Length > 2 ? fields[2] : "",
+            fields.Length > 3 ? fields[3] : "",
+            isDeclaration);
+    }
+}
+
+/// <summary>Validates the deterministic MSBuild/AdditionalFiles declaration handoff.</summary>
+public static class PrecompileDeclarationProtocol
+{
+    /// <summary>Returns stable HPDAEVT003 message bodies for all declaration conflicts.</summary>
+    public static string[] Validate(IReadOnlyList<SourceItem> sources)
+    {
+        var errors = new List<string>();
+        var declarations = sources.Where(static item => item.IsDeclaration).ToArray();
+        foreach (var declaration in declarations)
+        {
+            if (string.IsNullOrWhiteSpace(declaration.DeclarationId) ||
+                declaration.DeclarationId.Any(static value =>
+                    !char.IsAsciiLetterOrDigit(value) && value is not '.' and not '_' and not '-'))
+                errors.Add($"precompile declaration '{declaration.PhysicalPath}' has an invalid DeclarationId; use only ASCII letters, digits, '.', '_' or '-'");
+            if (string.IsNullOrWhiteSpace(declaration.Producer))
+                errors.Add($"precompile declaration '{declaration.PhysicalPath}' does not identify its Producer");
+        }
+
+        foreach (var group in declarations.GroupBy(static item => item.DeclarationId, StringComparer.Ordinal))
+        {
+            var distinct = group
+                .Select(static item => (Path.GetFullPath(item.PhysicalPath), item.LogicalPath, item.Producer))
+                .Distinct()
+                .ToArray();
+            if (distinct.Length > 1)
+                errors.Add($"precompile declaration id '{group.Key}' is contributed more than once with conflicting paths or producers");
+        }
+
+        foreach (var group in declarations.GroupBy(static item => item.LogicalPath, StringComparer.Ordinal))
+        {
+            if (group.Select(static item => item.DeclarationId).Distinct(StringComparer.Ordinal).Skip(1).Any())
+                errors.Add($"precompile logical path '{group.Key}' is claimed by conflicting declaration ids");
+        }
+        return errors.Distinct(StringComparer.Ordinal).OrderBy(static value => value, StringComparer.Ordinal).ToArray();
     }
 }

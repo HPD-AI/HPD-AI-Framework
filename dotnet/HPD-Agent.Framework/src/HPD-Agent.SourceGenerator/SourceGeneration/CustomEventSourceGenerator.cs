@@ -60,14 +60,26 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
-    private static readonly DiagnosticDescriptor HPDAEVT003_InvalidDurableEventTarget = new(
-        id: "HPDAEVT003",
+    private static readonly DiagnosticDescriptor HPDAEVT001_InvalidDurableEventTarget = new(
+        id: "HPDAEVT001",
         title: "Invalid durable event target",
         messageFormat: "Type '{0}' cannot be marked [DurableEvent]: {1}",
         category: "HPD.Agent.Serialization",
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true,
         description: "Durable events must be concrete, closed, class-based AgentEvent contracts and cannot be input or struct-event contracts.");
+
+    // HPDAEVT003 is intentionally reserved for conflicts between deterministic
+    // precompile declarations. Those conflicts are detected by the precompiler,
+    // before this generator runs.
+    private static readonly DiagnosticDescriptor HPDAEVT004_InvalidEventPolicyTarget = new(
+        id: "HPDAEVT004",
+        title: "Invalid event content policy",
+        messageFormat: "Type '{0}' has an invalid [PersistEventContent] policy: {1}",
+        category: "HPD.Agent.Serialization",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "Content persistence policies are valid only on concrete, closed, class-based AgentEvent contracts and must contain representable metadata.");
 
     #endregion
 
@@ -88,6 +100,20 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
             static (ctx, _) => ValidateDurableEventTarget((INamedTypeSymbol)ctx.TargetSymbol, ctx.TargetNode));
 
         context.RegisterSourceOutput(durableEventTargets, static (spc, diagnostic) =>
+        {
+            if (diagnostic is not null)
+                spc.ReportDiagnostic(diagnostic);
+        });
+
+        var contentPolicyTargets = context.SyntaxProvider.ForAttributeWithMetadataName(
+            "HPD.Agent.PersistEventContentAttribute",
+            static (node, _) => node is TypeDeclarationSyntax,
+            static (ctx, _) => ValidateContentPolicyTarget(
+                (INamedTypeSymbol)ctx.TargetSymbol,
+                ctx.Attributes[0],
+                ctx.TargetNode));
+
+        context.RegisterSourceOutput(contentPolicyTargets, static (spc, diagnostic) =>
         {
             if (diagnostic is not null)
                 spc.ReportDiagnostic(diagnostic);
@@ -232,7 +258,54 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         return reason is null
             ? null
             : Diagnostic.Create(
-                HPDAEVT003_InvalidDurableEventTarget,
+                HPDAEVT001_InvalidDurableEventTarget,
+                targetNode.GetLocation(),
+                type.ToDisplayString(),
+                reason);
+    }
+
+    private static Diagnostic? ValidateContentPolicyTarget(
+        INamedTypeSymbol type,
+        AttributeData attribute,
+        SyntaxNode targetNode)
+    {
+        string? reason = null;
+        if (type.TypeKind is TypeKind.Struct)
+            reason = "struct events do not have canonical AgentEvent envelopes";
+        else if (InheritsFromHpdContract(type, "AgentInputEvent"))
+            reason = "input contracts are commands into the runtime, not published events";
+        else if (!InheritsFromHpdContract(type, "AgentEvent"))
+            reason = "the type does not derive from AgentEvent";
+        else if (type.IsAbstract)
+            reason = "the event is abstract";
+        else if (type.IsUnboundGenericType || type.TypeParameters.Length != 0 || HasOpenContainingType(type))
+            reason = "the event is open generic";
+        else if (attribute.ConstructorArguments.Length == 0 ||
+                 attribute.ConstructorArguments[0].Value is not string kind ||
+                 string.IsNullOrWhiteSpace(kind))
+            reason = "kind must be a non-empty string";
+        else
+        {
+            foreach (var argument in attribute.NamedArguments)
+            {
+                if (argument.Key == "ContentType" &&
+                    (argument.Value.Value is not string contentType || string.IsNullOrWhiteSpace(contentType)))
+                    reason = "ContentType must be a non-empty string";
+                else if (argument.Key == "Scope" &&
+                         argument.Value.Value is string scope && string.IsNullOrWhiteSpace(scope))
+                    reason = "Scope must be omitted or a non-empty string";
+                else if (argument.Key == "Origin" &&
+                         argument.Value.Value is int origin && origin is < 0 or > 2)
+                    reason = "Origin is not a defined ContentSource value";
+                if (reason is not null)
+                    break;
+            }
+        }
+
+        return reason is null
+            ? null
+            : Diagnostic.Create(
+                HPDAEVT004_InvalidEventPolicyTarget,
                 targetNode.GetLocation(),
                 type.ToDisplayString(),
                 reason);

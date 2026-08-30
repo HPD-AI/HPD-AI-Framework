@@ -12,12 +12,42 @@
     <CompilerVisibleProperty Include="NativeLib" />
   </ItemGroup>
 
+  <!--
+    Same-compilation events emitted by an unrelated generator must be exposed
+    before CoreCompile as an HpdAgentEventPrecompileDeclaration item. Include
+    points at a deterministic C# declaration shadow and both metadata values are
+    required:
+
+      <HpdAgentEventPrecompileDeclaration Include="$(IntermediateOutputPath)My.Events.hpd.cs"
+          DeclarationId="com.example.generator.events-v1"
+          Producer="Example.EventGenerator/1" />
+
+    DeclarationId is a stable ASCII protocol identity, not a temporary path.
+    Producer identifies the owning generator/protocol version. HPD also publishes
+    the item as an AdditionalFile with HpdAgentEventPrecompileDeclaration=true so
+    participating analyzers observe the same deterministic handoff. Conflicting
+    identities fail with HPDAEVT003.
+  -->
+
   <Target Name="HpdGenerateAgentEventJsonContext"
           DependsOnTargets="$(HpdAgentEventPrecompileDependsOn)"
           AfterTargets="ResolveReferences"
           BeforeTargets="CoreCompile"
           Condition="'$(HpdAgentEventPrecompileRequireAnalyzer)' != 'true' Or $([System.String]::Copy('@(Analyzer);@(ProjectReference)').Contains('HPD-Agent.SourceGenerator')) ">
-    <WriteLinesToFile File="$(HpdAgentEventSourcesFile)" Lines="@(Compile->'%(FullPath)|%(Link)');@(HpdAgentEventPrecompileDeclaration->'%(FullPath)|%(Link)')" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <Error Condition="'%(HpdAgentEventPrecompileDeclaration.Identity)' != '' And '%(HpdAgentEventPrecompileDeclaration.DeclarationId)' == ''"
+           Code="HPDAEVT003"
+           Text="HpdAgentEventPrecompileDeclaration '%(HpdAgentEventPrecompileDeclaration.Identity)' must define stable DeclarationId metadata." />
+    <Error Condition="'%(HpdAgentEventPrecompileDeclaration.Identity)' != '' And '%(HpdAgentEventPrecompileDeclaration.Producer)' == ''"
+           Code="HPDAEVT003"
+           Text="HpdAgentEventPrecompileDeclaration '%(HpdAgentEventPrecompileDeclaration.Identity)' must define Producer metadata." />
+    <ItemGroup>
+      <AdditionalFiles Include="@(HpdAgentEventPrecompileDeclaration)"
+                       Condition="'%(HpdAgentEventPrecompileDeclaration.Identity)' != ''"
+                       HpdAgentEventPrecompileDeclaration="true"
+                       DeclarationId="%(HpdAgentEventPrecompileDeclaration.DeclarationId)"
+                       Producer="%(HpdAgentEventPrecompileDeclaration.Producer)" />
+    </ItemGroup>
+    <WriteLinesToFile File="$(HpdAgentEventSourcesFile)" Lines="@(Compile->'%(FullPath)|%(Link)');@(HpdAgentEventPrecompileDeclaration->'%(FullPath)|%(Link)|%(DeclarationId)|%(Producer)')" Overwrite="true" WriteOnlyWhenDifferent="true" />
     <WriteLinesToFile File="$(HpdAgentEventReferencesFile)" Lines="@(ReferencePath)" Overwrite="true" WriteOnlyWhenDifferent="true" />
     <WriteLinesToFile File="$(HpdAgentEventAnalyzerConfigsFile)" Lines="@(EditorConfigFiles);@(GlobalAnalyzerConfigFiles)" Overwrite="true" WriteOnlyWhenDifferent="true" />
     <Exec Command="dotnet exec &quot;$(HpdAgentEventPrecompilerPath)&quot; --sources &quot;$(HpdAgentEventSourcesFile)&quot; --references &quot;$(HpdAgentEventReferencesFile)&quot; --analyzer-configs &quot;$(HpdAgentEventAnalyzerConfigsFile)&quot; --output &quot;$(HpdAgentGeneratedEventContext)&quot; --assembly &quot;$(AssemblyName)&quot; --language &quot;$(LangVersion)&quot; --defines &quot;$(DefineConstants)&quot; --nullable &quot;$(Nullable)&quot; --unsafe &quot;$(AllowUnsafeBlocks)&quot; --checked &quot;$(CheckForOverflowUnderflow)&quot; --optimize &quot;$(Optimize)&quot; --platform &quot;$(PlatformTarget)&quot; --output-type &quot;$(OutputType)&quot; --module-id &quot;$(HpdAgentEventModuleId)&quot; --application &quot;$(HpdAgentApplication)&quot; --native-lib &quot;$(NativeLib)&quot;" />
