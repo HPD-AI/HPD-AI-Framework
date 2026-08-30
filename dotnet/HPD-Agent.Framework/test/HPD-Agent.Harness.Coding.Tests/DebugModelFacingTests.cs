@@ -422,13 +422,15 @@ public sealed class DebugModelFacingTests
         var result = new DebugSessionStartResult(
             "tree",
             "session",
-            new BackgroundHandleSnapshot
+            new AgentOperationReceipt
             {
-                HandleId = "handle",
+                OperationId = "handle",
                 Name = "debug",
-                Kind = BackgroundHandleKind.DebugSession,
-                SourceKind = BackgroundTaskSourceKind.Runtime,
-                Status = "Running"
+                SourceKind = AgentOperationSourceKind.LocalTool,
+                Address = new("agent", "session", "thread"),
+                ProviderStatus = AgentOperationProviderStatus.Running,
+                ObservationStatus = AgentOperationObservationStatus.Attached,
+                Control = new("handle", AgentOperationKind.Session, AgentOperationCapabilities.Cancel)
             },
             DebugSessionStatus.Running,
             1,

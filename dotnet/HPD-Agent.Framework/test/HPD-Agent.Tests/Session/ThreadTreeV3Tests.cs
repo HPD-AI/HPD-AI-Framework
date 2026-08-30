@@ -27,7 +27,7 @@ public class ThreadTreeV3Tests : AgentTestBase
     [Fact]
     public async Task ForkCompaction_EncodesOnlyThePreparedTargetJournal()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var agent = await CreateAgentWithForkCompaction(store, new CompactionSpecification
         {
             Point = new CompactAtCurrentHead(),
@@ -61,7 +61,7 @@ public class ThreadTreeV3Tests : AgentTestBase
     [Fact]
     public async Task ForkCompaction_CanExplicitlyDisableTheAgentDefault()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var agent = await CreateAgentWithForkCompaction(store, new CompactionSpecification
         {
             Point = new CompactAtCurrentHead(),
@@ -165,7 +165,7 @@ public class ThreadTreeV3Tests : AgentTestBase
     [Fact]
     public async Task ForkThread_SetsLineageAndParentChildReference()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var agent = await CreateAgentWithStore(store);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
@@ -192,7 +192,7 @@ public class ThreadTreeV3Tests : AgentTestBase
     [Fact]
     public async Task MultipleForksAtSamePoint_StoreOnlyLineageFacts()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var agent = await CreateAgentWithStore(store);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
@@ -222,7 +222,7 @@ public class ThreadTreeV3Tests : AgentTestBase
     [Fact]
     public async Task ForkGraph_GroupsNestedForksAtSameCopiedMessage()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var agent = await CreateAgentWithStore(store);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
@@ -249,7 +249,7 @@ public class ThreadTreeV3Tests : AgentTestBase
     [Fact]
     public async Task ForkGraph_GroupsNestedRootForksTogether()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var agent = await CreateAgentWithStore(store);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
@@ -344,7 +344,7 @@ public class ThreadTreeV3Tests : AgentTestBase
     [Fact]
     public async Task ForkAtDifferentMessages_CapturesDifferentForkPoints()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var agent = await CreateAgentWithStore(store);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
@@ -371,7 +371,7 @@ public class ThreadTreeV3Tests : AgentTestBase
     [Fact]
     public async Task ForkThread_ExpandsCopiedPrefixThroughToolTurn()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var agent = await CreateAgentWithStore(store);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
@@ -422,7 +422,7 @@ public class ThreadTreeV3Tests : AgentTestBase
     [Fact]
     public async Task ForkThread_CopiesSourceEventsInsteadOfSynthesizingToolHistory()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var agent = await CreateAgentWithStore(store);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
@@ -470,7 +470,7 @@ public class ThreadTreeV3Tests : AgentTestBase
     [Fact]
     public async Task ForkThread_CopiesCoherentSourceEventPrefixThroughCompletedRun()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var agent = await CreateAgentWithStore(store);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);

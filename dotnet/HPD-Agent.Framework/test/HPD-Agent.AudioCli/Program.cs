@@ -316,7 +316,7 @@ foreach (var audioPath in audioPaths)
     }
 }
 
-var sessionStore = new InMemorySessionStore();
+var sessionStore = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
 var contentStore = new InMemoryContentStore();
 var builder = AgentBuilder.Create();
 builder.ProviderRegistry.Register(new OpenAIAudioProvider());

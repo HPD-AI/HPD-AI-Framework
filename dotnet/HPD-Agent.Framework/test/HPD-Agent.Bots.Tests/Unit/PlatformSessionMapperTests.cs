@@ -18,7 +18,7 @@ public class PlatformSessionMapperTests : IDisposable
 
     public PlatformSessionMapperTests()
     {
-        _store   = new InMemorySessionStore();
+        _store   = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
         _manager = new TestSessionManager(_store);
         _mapper  = new PlatformSessionMapper(_manager, "test-agent");
     }

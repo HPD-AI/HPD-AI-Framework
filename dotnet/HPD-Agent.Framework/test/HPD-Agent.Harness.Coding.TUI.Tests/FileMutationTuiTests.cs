@@ -21,6 +21,10 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.Tests;
 
 public sealed class FileMutationTuiTests
 {
+    private static readonly AgentEventCodec Codec = AgentEventComposition.Create([
+        CoreAgentEventModule.Fragment,
+        global::CodingAgentEventModule.Fragment
+    ]).Codec;
     [Fact]
     public void AddCodingHarnessTui_RegistersFileMutationHandlersAndRenderers()
     {
@@ -496,8 +500,8 @@ public sealed class FileMutationTuiTests
 
         projected.Should().NotBeNull();
 
-        var json = AgentEventSerializer.ToJson(projected!);
-        return AgentEventSerializer.FromJson(json)
+        var json = Codec.Serialize(projected!);
+        return Codec.DeserializeEvent(json)
             .Should().BeAssignableTo<AgentEvent>().Subject;
     }
 

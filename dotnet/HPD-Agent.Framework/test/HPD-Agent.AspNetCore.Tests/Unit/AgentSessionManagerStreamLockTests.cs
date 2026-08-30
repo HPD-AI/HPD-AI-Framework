@@ -18,7 +18,7 @@ public class AgentSessionManagerThreadOperationLockTests : IDisposable
 
     public AgentSessionManagerThreadOperationLockTests()
     {
-        _store = new InMemorySessionStore();
+        _store = new InMemorySessionStore(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec);
         var optionsMonitor = new OptionsMonitorWrapper();
         _manager = new AspNetCoreSessionManagerTestable(_store, optionsMonitor, Options.DefaultName);
     }

@@ -14,7 +14,7 @@ public sealed class AudioFunctionCallingValidationTests
     [Fact]
     public async Task AgentIterations_MathToolHarness_ExecutesMultipleToolCallsAndPersistsToolHarnessEvents()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
         var chatClient = new ScriptedToolLoopChatClient();
         chatClient.EnqueueToolCall("Add", "call-add", new Dictionary<string, object?>
         {

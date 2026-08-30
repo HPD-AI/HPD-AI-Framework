@@ -66,7 +66,7 @@ public static class TestAgentFactory
             {
                 Chat = new ChatClientConfig
                 {
-                    ProviderKey = "test",  // Required by validation
+                    Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" },  // Required by validation
                     ModelName = "test-model"
                 }
             },
@@ -110,7 +110,7 @@ internal class TestProviderRegistry : IProviderRegistry
     }
 
     public TProvider? GetProvider<TProvider>(string providerKey)
-        where TProvider : class, IProvider
+        where TProvider : class
     {
         return GetProvider(providerKey) as TProvider;
     }

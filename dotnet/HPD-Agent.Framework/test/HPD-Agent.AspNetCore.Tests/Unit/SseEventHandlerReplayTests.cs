@@ -14,7 +14,7 @@ public sealed class SseEventHandlerReplayTests
     [Fact]
     public async Task StreamEventsAsync_ReplaysOnlyCommittedEventsAfterTheCursor()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec);
         await store.AppendThreadEventAsync(
             "session-1",
             "main",
@@ -32,6 +32,8 @@ public sealed class SseEventHandlerReplayTests
             .OfType<TextDeltaEvent>()
             .Single(evt => evt.Text == "second")
             .ThreadSequenceNumber;
+        TestEventApplication.Codec.Serialize(committed.Single(evt => evt.ThreadSequenceNumber == secondSequence))
+            .Should().Contain("TEXT_DELTA");
         var context = new DefaultHttpContext();
         context.Request.QueryString = new QueryString($"?after=1:{firstSequence}");
         context.Response.Body = new CapturingStream();
@@ -132,7 +134,7 @@ public sealed class SseEventHandlerReplayTests
         var context = CreateContext(after: "1:1");
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         var streamTask = SseEventHandler.StreamEventsAsync(context, observation, timeout.Token);
-        var publisher = new ThreadEventPublisher(store, coordinator);
+        var publisher = new AgentEventPublisher(store, coordinator);
 
         var committed = await publisher.CommitAndPublishAsync(
             new ThreadKey("session-1", "main"),
@@ -150,7 +152,7 @@ public sealed class SseEventHandlerReplayTests
 
     private static async Task<InMemorySessionStore> CreateStoreWithThreadAsync()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec);
         await store.AppendThreadEventAsync(
             "session-1",
             "main",

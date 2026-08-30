@@ -28,6 +28,7 @@ internal static class SseEventHandler
         var streamCancellationToken = streamLifetime.Token;
 
         var store = observation.Store;
+        var eventCodec = store.EventCodec;
         var thread = observation.Thread;
 
         context.Response.ContentType = "text/event-stream";
@@ -51,7 +52,7 @@ internal static class SseEventHandler
             {
                 foreach (var evt in batch.Events)
                 {
-                    await WriteJournalEventAsync(context, batch.Generation, evt, streamCancellationToken)
+                    await WriteJournalEventAsync(context, eventCodec, batch.Generation, evt, streamCancellationToken)
                         .ConfigureAwait(false);
                     cursor = new ThreadJournalCursor(batch.Generation, evt.ThreadSequenceNumber);
                 }
@@ -86,7 +87,7 @@ internal static class SseEventHandler
                         continue;
 
                     await WriteLiveEventAsync(
-                        context, liveGeneration, evt, selectedThread, streamCancellationToken).ConfigureAwait(false);
+                        context, eventCodec, liveGeneration, evt, selectedThread, streamCancellationToken).ConfigureAwait(false);
                     if (evt.ThreadSequenceNumber > 0 && selectedThread)
                     {
                         cursor = new ThreadJournalCursor(head.Generation, evt.ThreadSequenceNumber);
@@ -130,12 +131,13 @@ internal static class SseEventHandler
 
     private static async Task WriteLiveEventAsync(
         HttpContext context,
+        AgentEventCodec eventCodec,
         long generation,
         AgentEvent evt,
         bool includeJournalCursor,
         CancellationToken cancellationToken)
     {
-        var json = AgentEventSerializer.ToJson(evt);
+        var json = eventCodec.Serialize(evt);
         if (includeJournalCursor && evt.ThreadSequenceNumber > 0)
         {
             await context.Response.WriteAsync(
@@ -151,11 +153,12 @@ internal static class SseEventHandler
 
     private static async Task WriteJournalEventAsync(
         HttpContext context,
+        AgentEventCodec eventCodec,
         long generation,
         AgentEvent evt,
         CancellationToken cancellationToken)
     {
-        var json = AgentEventSerializer.ToJson(evt);
+        var json = eventCodec.Serialize(evt);
         await context.Response.WriteAsync(
                 $"id: {generation}:{evt.ThreadSequenceNumber}\n",
                 cancellationToken)

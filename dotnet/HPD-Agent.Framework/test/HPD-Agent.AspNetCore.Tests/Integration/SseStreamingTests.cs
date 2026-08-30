@@ -6,6 +6,7 @@ using FluentAssertions;
 using HPD.Agent;
 using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
 using HPD.Agent.Hosting.Data;
+using HPD.Agent.Providers;
 using HPD.Agent.Serialization;
 using Microsoft.Extensions.AI;
 
@@ -16,6 +17,7 @@ namespace HPD.Agent.AspNetCore.Tests.Integration;
 /// </summary>
 public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
 {
+    private static readonly AgentInputCodec InputCodec = new(ProviderComposition.Create([]));
     private readonly HttpClient _client;
     private readonly TestWebApplicationFactory _factory;
 
@@ -33,7 +35,7 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
     }
 
     private static string CreateInputJson(string text, AgentRunConfig? runConfig = null, string? clientInputId = null) =>
-        AgentEventSerializer.ToJson(new UserMessagesInputEvent { Messages = [
+        InputCodec.Serialize(new UserMessagesInputEvent { Messages = [
             new ChatMessage(ChatRole.User, text)
         ],
             RunConfig = runConfig,
@@ -242,7 +244,7 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
             if (!line.StartsWith("data: ", StringComparison.Ordinal))
                 continue;
 
-            observed.Add(AgentEventSerializer.DeserializeEventJson(line[6..]));
+            observed.Add(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec.DeserializeEvent(line[6..]));
         }
 
         return observed;

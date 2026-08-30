@@ -59,18 +59,4 @@ public static class AgentBuilderSessionExtensions
         return builder;
     }
 
-    /// <summary>
-    /// Convenience overload with file-based storage.
-    /// </summary>
-    public static AgentBuilder WithSessionStore(
-        this AgentBuilder builder,
-        string storagePath,
-        bool persistAfterTurn = true)
-    {
-        ArgumentNullException.ThrowIfNull(builder);
-        ArgumentException.ThrowIfNullOrWhiteSpace(storagePath);
-
-        var store = new FileSessionStore(storagePath);
-        return builder.WithSessionStore(store, persistAfterTurn);
-    }
 }

@@ -54,7 +54,7 @@ public class SlackBotSocketDispatchTests
             opts => opts.HttpMessageHandlerBuilderActions.Add(
                 b => b.PrimaryHandler = new NoOpHttpHandler()));
 
-        services.AddSingleton<SessionManager>(new TestSessionManager(new InMemorySessionStore()));
+        services.AddSingleton<SessionManager>(new TestSessionManager(new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec)));
         services.AddSingleton<AgentManager>(new TestAgentManager(new InMemoryAgentStore()));
 
         services.AddSlackBot(

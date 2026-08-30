@@ -56,12 +56,12 @@ internal interface IDebugHostRequestBroker
 internal sealed class DebugHostRequestBroker : IDebugHostRequestBroker
 {
     private readonly IEventCoordinator _events;
-    private readonly IThreadEventPublisher? _threadEvents;
+    private readonly IAgentEventPublisher? _threadEvents;
     private readonly TimeSpan _timeout;
 
     public DebugHostRequestBroker(
         IEventCoordinator events,
-        IThreadEventPublisher? threadEvents,
+        IAgentEventPublisher? threadEvents,
         TimeSpan? timeout = null)
     {
         _events = events ?? throw new ArgumentNullException(nameof(events));

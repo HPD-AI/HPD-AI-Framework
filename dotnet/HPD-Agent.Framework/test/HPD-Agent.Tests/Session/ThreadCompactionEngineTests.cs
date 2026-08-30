@@ -98,14 +98,14 @@ public sealed class ThreadCompactionEngineTests
     public async Task HardCommit_ReplacesEverySourceEventWithConfiguredResult()
     {
         var thread = CreateThread(4);
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var key = new ThreadKey(thread.SessionId, thread.Id);
         var sourceEvents = new List<AgentEvent> { ThreadEventFactory.ThreadCreated(thread) };
         foreach (var message in thread.Messages)
             sourceEvents.AddRange(ThreadMessageEventConverter.ToThreadEvents(thread.SessionId, thread.Id, message));
         var append = await store.AppendThreadEventsAsync(key, sourceEvents);
         var oldEventIds = append.CommittedEvents.Select(static evt => evt.EventId).ToHashSet(StringComparer.Ordinal);
-        var publisher = new ThreadEventPublisher(store, new EventCoordinator());
+        var publisher = new AgentEventPublisher(store, new EventCoordinator());
         var context = new ThreadCompactionContext(thread, thread.Messages, publisher, null);
         var specification = RemoveAtHead(CompactionCommitMode.Hard) with
         {
@@ -131,13 +131,13 @@ public sealed class ThreadCompactionEngineTests
     public async Task Execute_SoftCommitsCompleteLifecycleAroundCheckpoint()
     {
         var thread = CreateThread(4);
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var key = new ThreadKey(thread.SessionId, thread.Id);
         await store.AppendThreadEventsAsync(key, ThreadJournalEncoder.Encode(thread, thread.Messages));
         var context = new ThreadCompactionContext(
             thread,
             thread.Messages,
-            new ThreadEventPublisher(store, new EventCoordinator()),
+            new AgentEventPublisher(store, new EventCoordinator()),
             null);
 
         var result = await new ThreadCompactionEngine().ExecuteAsync(
@@ -163,13 +163,13 @@ public sealed class ThreadCompactionEngineTests
     public async Task Execute_HardDropsSourceLifecycleAndCommitsCompletedInNewGeneration()
     {
         var thread = CreateThread(4);
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var key = new ThreadKey(thread.SessionId, thread.Id);
         await store.AppendThreadEventsAsync(key, ThreadJournalEncoder.Encode(thread, thread.Messages));
         var context = new ThreadCompactionContext(
             thread,
             thread.Messages,
-            new ThreadEventPublisher(store, new EventCoordinator()),
+            new AgentEventPublisher(store, new EventCoordinator()),
             null);
 
         await new ThreadCompactionEngine().ExecuteAsync(
@@ -199,14 +199,14 @@ public sealed class ThreadCompactionEngineTests
     public async Task HardCommit_ReencodesAuthoritativeControlSeedsInReplacementGeneration()
     {
         var thread = CreateThread(4);
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var key = new ThreadKey(thread.SessionId, thread.Id);
         await store.AppendThreadEventsAsync(key, ThreadJournalEncoder.Encode(thread, thread.Messages));
         var seed = new ThreadExecutionStartedEvent("active-run", "agent", DateTimeOffset.UtcNow);
         var context = new ThreadCompactionContext(
             thread,
             thread.Messages,
-            new ThreadEventPublisher(store, new EventCoordinator()),
+            new AgentEventPublisher(store, new EventCoordinator()),
             null,
             new StaticSeedProvider(seed));
         var engine = new ThreadCompactionEngine();
@@ -233,10 +233,10 @@ public sealed class ThreadCompactionEngineTests
     public async Task CompactAtMessage_RejectsAStaleJournalGeneration()
     {
         var thread = CreateThread(4);
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var key = new ThreadKey(thread.SessionId, thread.Id);
         await store.AppendThreadEventsAsync(key, ThreadJournalEncoder.Encode(thread, thread.Messages));
-        var publisher = new ThreadEventPublisher(store, new EventCoordinator());
+        var publisher = new AgentEventPublisher(store, new EventCoordinator());
         var context = new ThreadCompactionContext(thread, thread.Messages, publisher, null);
         var specification = RemoveAtHead(CompactionCommitMode.Soft) with
         {

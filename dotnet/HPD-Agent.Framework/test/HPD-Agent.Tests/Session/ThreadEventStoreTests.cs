@@ -9,12 +9,15 @@ namespace HPD.Agent.Tests.Session;
 
 public class ThreadEventStoreTests : AgentTestBase
 {
-    private static string EventType(AgentEvent evt) => AgentEventSerializer.GetEventTypeName(evt);
+    private static string EventType(AgentEvent evt) =>
+        HPD.Agent.Tests.TestEventApplication.Codec.TryGetByType(evt.GetType(), out var descriptor)
+            ? descriptor.Discriminator
+            : throw new InvalidOperationException($"Missing core event descriptor for {evt.GetType().Name}.");
 
     [Fact]
     public async Task InMemoryStore_ProjectsThreadFromEvents()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var session = new HPD.Agent.Session("session-1");
         var thread = session.CreateThread("test-agent", "main");
 
@@ -38,7 +41,7 @@ public class ThreadEventStoreTests : AgentTestBase
     [Fact]
     public async Task SaveInitialThread_RootThread_DoesNotWriteRedundantStateEvents()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var session = new HPD.Agent.Session("session-1");
         var thread = session.CreateThread("test-agent", "main");
         thread.Name = "main";
@@ -285,7 +288,7 @@ public class ThreadEventStoreTests : AgentTestBase
     [Fact]
     public async Task InMemoryStore_ReadThreadEvents_UsesBoundedSequenceRange()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var session = new HPD.Agent.Session("session-1");
         var thread = session.CreateThread("test-agent", "main");
 
@@ -318,7 +321,7 @@ public class ThreadEventStoreTests : AgentTestBase
 
         try
         {
-            var store = new FileSessionStore(tempDir);
+            var store = new FileSessionStore(tempDir, HPD.Agent.Tests.TestEventApplication.Codec);
             var session = new HPD.Agent.Session("session-1");
             var thread = session.CreateThread("test-agent", "main");
 
@@ -391,7 +394,7 @@ public class ThreadEventStoreTests : AgentTestBase
 
         try
         {
-            var store = new FileSessionStore(tempDir);
+            var store = new FileSessionStore(tempDir, HPD.Agent.Tests.TestEventApplication.Codec);
             var session = new HPD.Agent.Session("session-1");
             var thread = session.CreateThread("test-agent", "main");
             var assistant = new ChatMessage(ChatRole.Assistant, []) { MessageId = "assistant-1" };
@@ -474,7 +477,7 @@ public class ThreadEventStoreTests : AgentTestBase
     [Fact]
     public async Task InMemoryStore_AppendThreadEvent_AssignsMissingDurableIdentityAndScope()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
 
         await store.AppendThreadEventAsync("session-1", "main", new TextDeltaEvent("hello", "msg-1"));
 
@@ -492,7 +495,7 @@ public class ThreadEventStoreTests : AgentTestBase
 
         try
         {
-            var store = new FileSessionStore(tempDir);
+            var store = new FileSessionStore(tempDir, HPD.Agent.Tests.TestEventApplication.Codec);
 
             await store.AppendThreadEventAsync("session-1", "main", new TextDeltaEvent("hello", "msg-1"));
 
@@ -519,8 +522,8 @@ public class ThreadEventStoreTests : AgentTestBase
         try
         {
             ISessionStore store = useFileStore
-                ? new FileSessionStore(tempDir)
-                : new InMemorySessionStore();
+                ? new FileSessionStore(tempDir, HPD.Agent.Tests.TestEventApplication.Codec)
+                : new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
             var supplied = ThreadEventFactory.TextDelta(
                 "session-1", "main", "turn-1", "msg-1", "hello", 0);
 
@@ -546,7 +549,7 @@ public class ThreadEventStoreTests : AgentTestBase
 
         try
         {
-            var store = new FileSessionStore(tempDir);
+            var store = new FileSessionStore(tempDir, HPD.Agent.Tests.TestEventApplication.Codec);
 
             await store.AppendThreadEventAsync(
                 "session-1",
@@ -576,8 +579,8 @@ public class ThreadEventStoreTests : AgentTestBase
         try
         {
             ISessionStore store = useFileStore
-                ? new FileSessionStore(tempDir)
-                : new InMemorySessionStore();
+                ? new FileSessionStore(tempDir, HPD.Agent.Tests.TestEventApplication.Codec)
+                : new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
             var evt = new TextDeltaEvent("hello", "msg-1")
             {
                 SessionId = "different-session",
@@ -599,7 +602,7 @@ public class ThreadEventStoreTests : AgentTestBase
     [Fact]
     public async Task Agent_PersistsInputAndRuntimeOutputWithoutDuplicateTranscriptEvents()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
         config.SessionStore = store;
         var client = new FakeChatClient();
@@ -630,7 +633,7 @@ public class ThreadEventStoreTests : AgentTestBase
     [Fact]
     public async Task Agent_PersistsTurnFailed_WhenSessionTurnFaults()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
         config.SessionStore = store;
         var client = new FakeChatClient();
@@ -666,7 +669,7 @@ public class ThreadEventStoreTests : AgentTestBase
     [Fact]
     public async Task Agent_PersistsReasoningEvents_WhenReasoningExcludedFromModelHistory()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
         config.SessionStore = store;
         config.IncludeReasoningInModelHistory = false;
@@ -731,7 +734,7 @@ public class ThreadEventStoreTests : AgentTestBase
     [Fact]
     public async Task Agent_StreamsGranularAssistantDeltas_ButPersistsOneCompactDelta()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
         config.SessionStore = store;
         var client = new FakeChatClient();
@@ -769,7 +772,7 @@ public class ThreadEventStoreTests : AgentTestBase
     [Fact]
     public async Task Agent_EarlyStreamDisposal_FinalizesTheVisiblePartialDelta()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
         config.SessionStore = store;
         var client = new FakeChatClient();
@@ -802,7 +805,7 @@ public class ThreadEventStoreTests : AgentTestBase
     [Fact]
     public async Task Agent_PersistsToolCallEvents_WhenToolEventsAreStreamed()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
         config.SessionStore = store;
         var client = new FakeChatClient();

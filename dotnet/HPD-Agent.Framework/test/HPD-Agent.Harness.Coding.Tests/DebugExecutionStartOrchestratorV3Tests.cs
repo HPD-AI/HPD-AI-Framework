@@ -5,7 +5,10 @@ using HPD.Agent.Middleware;
 using HPD.Agent.ToolHarness.Coding.Debugging;
 using HPD.Agent.ToolHarness.Coding.Debugging.Protocol;
 using HPD.Environment.Contracts;
+using HPD.Events;
+using HPD.Events.Core;
 using HPDOS.ToolHarnesses.Middleware;
+using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.ToolHarness.Coding.Tests;
 
@@ -31,7 +34,7 @@ public sealed class DebugExecutionStartOrchestratorV3Tests
     public async Task Background_registration_failure_disposes_session_and_owned_resource()
     {
         await using var fixture = new Fixture();
-        fixture.Backgrounds.FailRegistration = true;
+        fixture.OperationSink.FailRegistration = true;
 
         var action = () => fixture.Orchestrator.StartAsync(
             fixture.Request(),
@@ -195,7 +198,8 @@ public sealed class DebugExecutionStartOrchestratorV3Tests
             };
             Activator = new FakeActivator(Manager, Adapter);
             Starter = new FakeProtocolStarter();
-            Backgrounds = new FakeBackgroundRegistry();
+            OperationSink = new FakeOperationSink();
+            Operations = new AgentOperationRegistry(OperationSink);
             Events = new FakeLifecyclePublisher();
             Orchestrator = new(
                 Starter,
@@ -211,7 +215,8 @@ public sealed class DebugExecutionStartOrchestratorV3Tests
         public DirectAdapterDebugExecutionPlan Plan { get; }
         public FakeActivator Activator { get; }
         public FakeProtocolStarter Starter { get; }
-        public FakeBackgroundRegistry Backgrounds { get; }
+        public FakeOperationSink OperationSink { get; }
+        public AgentOperationRegistry Operations { get; }
         public FakeLifecyclePublisher Events { get; }
         public DebugExecutionStartOrchestrator Orchestrator { get; }
 
@@ -224,12 +229,38 @@ public sealed class DebugExecutionStartOrchestratorV3Tests
                 [new AgentWorkspaceRoot("root", Path.GetTempPath())]),
             ExecutionPlan = Plan,
             Permission = new("call", "launch", DebugPermissionClass.Launch),
-            BackgroundHandles = Backgrounds,
+            ExecutionContext = CreateExecutionContext(),
             InitializeFeatures = new(),
             EventPublisher = Events
         };
 
-        public async ValueTask DisposeAsync() => await Manager.DisposeAsync();
+        public async ValueTask DisposeAsync()
+        {
+            await Operations.DisposeAsync();
+            await Manager.DisposeAsync();
+        }
+
+        private FunctionExecutionContext CreateExecutionContext()
+        {
+            var coordinator = new EventCoordinator();
+            var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "agent");
+            var session = new Session("session");
+            var thread = new Thread("session", "agent") { Id = "thread" };
+            var agentContext = new AgentContext(
+                "agent", "conversation-1", state, coordinator, session, thread, CancellationToken.None);
+            agentContext.RuntimeCapabilities.Set(Operations);
+            var function = AIFunctionFactory.Create(() => "ok", new AIFunctionFactoryOptions { Name = "Debug" });
+            var before = agentContext.AsBeforeFunction(
+                function, "call", new Dictionary<string, object?>(), new AgentRunConfig(), null, null, null);
+            return new FunctionExecutionContext(before, new FunctionRequest
+            {
+                Function = function,
+                CallId = "call",
+                Arguments = new Dictionary<string, object?>(),
+                State = state,
+                EventCoordinator = coordinator
+            });
+        }
 
         private static DebugAdapterStartPlan CreateAdapterPlan()
         {
@@ -379,36 +410,15 @@ public sealed class DebugExecutionStartOrchestratorV3Tests
         }
     }
 
-    private sealed class FakeBackgroundRegistry : IAgentBackgroundHandleRegistry
+    private sealed class FakeOperationSink : IAgentOperationEventSink
     {
         public bool FailRegistration { get; set; }
-        private readonly Dictionary<string, RegisteredBackgroundHandle> _handles = [];
-
-        public ValueTask<BackgroundHandleRegistration> RegisterHandleAsync(
-            BackgroundHandleDescriptor descriptor,
-            IBackgroundHandle handle,
-            CancellationToken cancellationToken = default)
+        public ValueTask AppendAsync(AgentEvent operationEvent, CancellationToken cancellationToken)
         {
             if (FailRegistration)
                 throw new InvalidOperationException("registration failed");
-            var id = descriptor.HandleId!;
-            _handles[id] = new(id, descriptor, handle, DateTimeOffset.UtcNow);
-            return ValueTask.FromResult(new BackgroundHandleRegistration(
-                id,
-                descriptor.Name,
-                descriptor.Kind,
-                descriptor.SourceKind));
+            return ValueTask.CompletedTask;
         }
-
-        public bool TryGetHandle(
-            string handleId,
-            BackgroundHandleScope scope,
-            out RegisteredBackgroundHandle handle)
-            => _handles.TryGetValue(handleId, out handle!);
-
-        public IReadOnlyList<RegisteredBackgroundHandle> ListHandles(
-            BackgroundHandleQuery query)
-            => _handles.Values.ToArray();
     }
 
     private sealed class FakeLifecyclePublisher : IDebugLifecycleEventPublisher

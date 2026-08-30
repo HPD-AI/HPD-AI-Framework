@@ -17,6 +17,15 @@ public static partial class AgentStructEventSerializer
     private static readonly Dictionary<string, Type> DiscriminatorToType =
         new(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<Type, JsonTypeInfo> TypeInfos = new();
+    private static readonly JsonSerializerOptions SerializerOptions = CreateSerializerOptions();
+
+    private static JsonSerializerOptions CreateSerializerOptions()
+    {
+        var options = HpdAgentJsonUtilities.CreateDefaultOptions();
+        options.TypeInfoResolverChain.Insert(0, AgentEventJsonContext.Default);
+        options.MakeReadOnly();
+        return options;
+    }
 
     /// <summary>
     /// Serializes an agent struct event to JSON with version and type fields.
@@ -163,9 +172,9 @@ public static partial class AgentStructEventSerializer
         if (TypeInfos.TryGetValue(concreteType, out var typeInfo))
             return typeInfo;
 
-        typeInfo = AgentEventSerializer.StandardJsonOptions.TypeInfoResolver?.GetTypeInfo(
+        typeInfo = SerializerOptions.TypeInfoResolver?.GetTypeInfo(
                 concreteType,
-                AgentEventSerializer.StandardJsonOptions)
+                SerializerOptions)
             ?? throw new JsonException($"No JSON metadata registered for agent struct event type '{concreteType.FullName}'.");
 
         TypeInfos[concreteType] = typeInfo;

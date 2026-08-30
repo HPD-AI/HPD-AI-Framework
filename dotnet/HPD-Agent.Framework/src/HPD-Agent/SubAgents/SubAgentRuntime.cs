@@ -249,7 +249,7 @@ public static class SubAgentRuntime
             definition,
             request.ParentContext?.GetParentAgentMetadata());
         var threadExecutionId = Guid.NewGuid().ToString("N");
-        var publisher = new ThreadEventPublisher(
+        var publisher = new AgentEventPublisher(
             agent.Config.SessionStore ?? throw new InvalidOperationException("No session store configured."),
             agent.EventCoordinator);
         var childRunStarted = false;

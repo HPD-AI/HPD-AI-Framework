@@ -400,7 +400,7 @@ public class AgentManagerTests : IAsyncLifetime
             var registry = new TestProviderRegistry(chatClient);
             return await new AgentBuilder(stored.Config, registry)
                 .WithAgentId(stored.Id)
-                .WithSessionStore(new InMemorySessionStore())
+                .WithSessionStore(new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec))
                 .BuildAsync(ct);
         }
 

@@ -73,7 +73,7 @@ public sealed class AgentStreamingService : IAgentStreamingService
         }
 
         input = ApplyRouteScope(input, agentId, sessionId, threadId, execution.ThreadExecutionId);
-        var publisher = new ThreadEventPublisher(_sessionManager.Store, agent.EventCoordinator);
+        var publisher = new AgentEventPublisher(_sessionManager.Store, agent.EventCoordinator);
         var startCommitted = false;
 
         try
@@ -218,7 +218,7 @@ public sealed class AgentStreamingService : IAgentStreamingService
     private async Task FinishExecutionAsync(
         ThreadExecutionState execution,
         RuntimeInputReceipt submission,
-        IThreadEventPublisher publisher,
+        IAgentEventPublisher publisher,
         IDisposable runtimePin)
     {
         try
@@ -258,7 +258,7 @@ public sealed class AgentStreamingService : IAgentStreamingService
 
     private async Task CommitTerminalAsync(
         ThreadExecutionState execution,
-        IThreadEventPublisher publisher,
+        IAgentEventPublisher publisher,
         bool cancelled,
         Exception? error,
         AgentInputResult? inputResult,
@@ -417,7 +417,7 @@ public sealed class AgentStreamingService : IAgentStreamingService
             var ownsCoordinator = runtimeAgent is null;
             try
             {
-                await new ThreadEventPublisher(_sessionManager.Store, coordinator)
+                await new AgentEventPublisher(_sessionManager.Store, coordinator)
                     .CommitAndPublishAsync(
                         thread,
                         terminalEvents,

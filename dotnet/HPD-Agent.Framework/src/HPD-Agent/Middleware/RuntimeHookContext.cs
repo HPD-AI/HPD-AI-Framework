@@ -38,7 +38,7 @@ public sealed class AgentRuntimeContext :
     public AgentClientSet? ClientSet { get; }
     public IServiceProvider? Services { get; }
     public IEventCoordinator EventCoordinator { get; }
-    public IThreadEventPublisher? ThreadEvents { get; }
+    public IAgentEventPublisher? ThreadEvents { get; }
     public IEventFlowRegistry EventFlows => EventCoordinator.EventFlows;
     public IStructEventHub StructEvents { get; }
     public IContentStore? ContentStore { get; }
@@ -60,7 +60,7 @@ public sealed class AgentRuntimeContext :
         Func<AgentInputEvent, CancellationToken, ValueTask> runtimeInputHandler,
         Func<bool> hasActiveRuntimeInputs,
         CancellationToken runtimeCancellationToken,
-        IThreadEventPublisher? threadEvents = null,
+        IAgentEventPublisher? threadEvents = null,
         AgentClientSet? clientSet = null,
         AgentRunConfig? runConfig = null,
         IContentStore? contentStore = null)
@@ -306,7 +306,7 @@ public abstract class RuntimeHookContext
     public AgentClientSet? ClientSet => Base.ClientSet;
     public IServiceProvider? Services => Base.Services;
     public IEventCoordinator EventCoordinator => Base.EventCoordinator;
-    public IThreadEventPublisher? ThreadEvents => Base.ThreadEvents;
+    public IAgentEventPublisher? ThreadEvents => Base.ThreadEvents;
     public IEventFlowRegistry EventFlows => Base.EventFlows;
     public IStructEventHub StructEvents => Base.StructEvents;
     public IContentStore? ContentStore => Base.ContentStore;

@@ -34,7 +34,9 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
             .Where(static ToolHarness => ToolHarness is not null)
             .Collect();
 
-        context.RegisterSourceOutput(toolClasses, GenerateToolRegistrations);
+        context.RegisterSourceOutput(
+            toolClasses.Combine(context.CompilationProvider),
+            static (sourceContext, value) => GenerateToolRegistrations(sourceContext, value.Left, value.Right));
 
         // Middleware detection (classes with [Middleware] attribute)
         var middlewareClasses = context.SyntaxProvider
@@ -46,7 +48,7 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
 
         context.RegisterSourceOutput(middlewareClasses, GenerateMiddlewareRegistry);
     }
-    
+
     private static bool IsToolClass(SyntaxNode node, CancellationToken cancellationToken = default)
     {
         if (node is not ClassDeclarationSyntax classDecl)
@@ -103,7 +105,7 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
 
         return hasCapabilityMethods;
     }
-    
+
     private static ToolHarnessInfo? GetToolDeclaration(GeneratorSyntaxContext context, CancellationToken cancellationToken)
     {
         var classDecl = (ClassDeclarationSyntax)context.Node;
@@ -357,8 +359,11 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
             return $"ToolHarness containing {rest}, and {last}.";
         }
     }
-    
-    private static void GenerateToolRegistrations(SourceProductionContext context, ImmutableArray<ToolHarnessInfo?> ToolHarnesses)
+
+    private static void GenerateToolRegistrations(
+        SourceProductionContext context,
+        ImmutableArray<ToolHarnessInfo?> ToolHarnesses,
+        Compilation compilation)
     {
         // Group ToolHarnesses by name+namespace to handle partial classes FIRST
         // This prevents duplicate generation by merging partial classes before validation
@@ -581,7 +586,7 @@ namespace HPD.Agent.Diagnostics {{
         // NEW: Generate ToolHarness registry catalog for AOT-compatible ToolHarness discovery
         if (ToolHarnessGroups.Any())
         {
-            var registrySource = GenerateToolHarnessRegistry(ToolHarnessGroups);
+            var registrySource = GenerateToolHarnessRegistry(ToolHarnessGroups, GetEventModuleProvider(compilation));
             context.AddSource("HPD.Agent.Generated.ToolHarnessRegistry.g.cs", registrySource);
         }
     }
@@ -591,7 +596,9 @@ namespace HPD.Agent.Diagnostics {{
     /// This eliminates reflection in hot paths by providing direct delegate references.
     /// Only ToolHarnesses with parameterless constructors and public accessibility are included.
     /// </summary>
-    private static string GenerateToolHarnessRegistry(List<ToolHarnessInfo> ToolHarnesses)
+    private static string GenerateToolHarnessRegistry(
+        List<ToolHarnessInfo> ToolHarnesses,
+        string? eventModuleProvider)
     {
         // Filter to only include ToolHarnesses that can be instantiated via the registry:
         // 1. Must have parameterless constructor, config constructor, or ISecretResolver-only constructor
@@ -777,6 +784,12 @@ namespace HPD.Agent.Diagnostics {{
                 sb.AppendLine($"                CollapseMiddlewareConfigFactories: null");
             }
 
+            if (eventModuleProvider is not null)
+            {
+                sb.AppendLine(",");
+                sb.AppendLine($"                EventModule: {eventModuleProvider}.Fragment");
+            }
+
             sb.AppendLine($"            ),");
         }
 
@@ -807,6 +820,24 @@ namespace HPD.Agent.Diagnostics {{
         sb.AppendLine("}");
 
         return sb.ToString();
+    }
+
+    private static string? GetEventModuleProvider(Compilation compilation)
+    {
+        foreach (var attribute in compilation.Assembly.GetAttributes())
+        {
+            if (attribute.AttributeClass?.Name == "HpdAgentEventModuleAttribute")
+                return "global::HPD.Agent.Serialization.GeneratedAgentEventModule";
+
+            if (attribute.AttributeClass?.Name == "HpdAgentEventModuleManifestAttribute" &&
+                attribute.ConstructorArguments.Length > 1 &&
+                attribute.ConstructorArguments[1].Value is INamedTypeSymbol providerType)
+            {
+                return providerType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -1358,7 +1389,7 @@ $@"    /// <summary>
         }
         return "";
     }
-    
+
     private static string GetNamespace(SyntaxNode node)
     {
         var parent = node.Parent;
@@ -1377,7 +1408,7 @@ $@"    /// <summary>
     {
         return method.ReturnType.ToString();
     }
-    
+
     private static bool IsAsyncMethod(MethodDeclarationSyntax method)
     {
         return method.Modifiers.Any(SyntaxKind.AsyncKeyword) ||
@@ -1385,7 +1416,7 @@ $@"    /// <summary>
     }
 
     // V3.0 New Helper Methods
-    
+
     /// <summary>
     /// Extracts context type from AIFunction&lt;TMetadata&gt; attribute.
     /// </summary>
@@ -1394,14 +1425,14 @@ $@"    /// <summary>
         var aiFunctionAttributes = method.AttributeLists
             .SelectMany(attrList => attrList.Attributes)
             .Where(attr => attr.Name.ToString().Contains("AIFunction"));
-            
+
         foreach (var attr in aiFunctionAttributes)
         {
             var symbolInfo = semanticModel.GetSymbolInfo(attr);
             if (symbolInfo.Symbol is IMethodSymbol methodSymbol)
             {
                 var attributeType = methodSymbol.ContainingType;
-                
+
                 // Check if it's the generic AIFunction<TMetadata>
                 if (attributeType.IsGenericType && attributeType.TypeArguments.Length == 1)
                 {
@@ -1410,7 +1441,7 @@ $@"    /// <summary>
                 }
             }
         }
-        
+
         return (null, false);
     }
 
@@ -1422,7 +1453,7 @@ $@"    /// <summary>
         var conditionalAttributes = method.AttributeLists
             .SelectMany(attrList => attrList.Attributes)
             .Where(attr => attr.Name.ToString().Contains("ConditionalFunction"));
-            
+
         foreach (var attr in conditionalAttributes)
         {
             var arguments = attr.ArgumentList?.Arguments;
@@ -1431,7 +1462,7 @@ $@"    /// <summary>
                 return ExtractStringLiteral(arguments.Value[0].Expression);
             }
         }
-        
+
         return null;
     }
 
@@ -1445,7 +1476,7 @@ $@"    /// <summary>
         {
             ValidateTemplateString(context, function.Description, contextType, location, $"function {function.Name} description");
         }
-        
+
         // Validate parameter description templates
         foreach (var parameter in function.Parameters.Where(p => p.HasDynamicDescription))
         {
@@ -1464,7 +1495,7 @@ $@"    /// <summary>
             .Where(p => p.DeclaredAccessibility == Accessibility.Public)
             .Select(p => p.Name)
             .ToList();
-            
+
         foreach (Match match in regex.Matches(template))
         {
             var propertyName = match.Groups[1].Value;
@@ -1492,10 +1523,10 @@ $@"    /// <summary>
     {
         // First validate syntax
         ValidateExpressionSyntax(context, expression, location);
-        
+
         // Then validate type compatibility
         ValidateTypeCompatibility(context, expression, contextType, location);
-        
+
         // Finally validate property existence (existing logic)
         var propertyNames = ExtractPropertyNames(expression);
         var availableProperties = contextType.GetMembers()
@@ -1503,7 +1534,7 @@ $@"    /// <summary>
             .Where(p => p.DeclaredAccessibility == Accessibility.Public)
             .Select(p => p.Name)
             .ToList();
-            
+
         foreach (var propertyName in propertyNames)
         {
             if (!availableProperties.Contains(propertyName))
@@ -1531,7 +1562,7 @@ $@"    /// <summary>
         var propertyNames = new HashSet<string>();
         var identifierRegex = new Regex(@"\b[A-Za-z_][A-Za-z0-9_]*\b");
         var keywords = new HashSet<string> { "true", "false", "null", "&&", "||", "!", "==", "!=", "<", ">", "<=", ">=" };
-        
+
         foreach (Match match in identifierRegex.Matches(expression))
         {
             var identifier = match.Value;
@@ -1540,7 +1571,7 @@ $@"    /// <summary>
                 propertyNames.Add(identifier);
             }
         }
-        
+
         return propertyNames;
     }
 
@@ -1550,12 +1581,12 @@ $@"    /// <summary>
     private static void ValidateFunctionContextUsage(SourceProductionContext context, HPD.Agent.SourceGenerator.Capabilities.FunctionCapability function, MethodDeclarationSyntax method)
     {
         // Check if function uses dynamic features but no generic context
-        bool usesDynamicFeatures = function.HasDynamicDescription || 
-                                  function.IsConditional || 
+        bool usesDynamicFeatures = function.HasDynamicDescription ||
+                                  function.IsConditional ||
                                   function.HasConditionalParameters;
-        
+
         bool hasGenericContext = !string.IsNullOrEmpty(function.ContextTypeName);
-        
+
         if (usesDynamicFeatures && !hasGenericContext)
         {
             var diagnostic = Diagnostic.Create(
@@ -1585,7 +1616,7 @@ $@"    /// <summary>
                 ReportError(context, "Invalid operator sequence", location);
                 return;
             }
-            
+
             // Check balanced parentheses
             var openCount = expression.Count(c => c == '(');
             var closeCount = expression.Count(c => c == ')');
@@ -1594,14 +1625,14 @@ $@"    /// <summary>
                 ReportError(context, "Unbalanced parentheses", location);
                 return;
             }
-            
+
             // Check for empty expressions
             if (string.IsNullOrWhiteSpace(expression))
             {
                 ReportError(context, "Empty expression", location);
                 return;
             }
-            
+
             // Check for invalid characters
             var invalidChars = expression.Where(c => !char.IsLetterOrDigit(c) && !"()&|!<>=. _".Contains(c)).ToArray();
             if (invalidChars.Any())
@@ -1619,7 +1650,7 @@ $@"    /// <summary>
     /// <summary>
     /// NEW: Validates type compatibility between operations and property types.
     /// </summary>
-    private static void ValidateTypeCompatibility(SourceProductionContext context, string expression, 
+    private static void ValidateTypeCompatibility(SourceProductionContext context, string expression,
         ITypeSymbol contextType, SyntaxNode location)
     {
         try
@@ -1633,8 +1664,8 @@ $@"    /// <summary>
                     var property = GetPropertyType(contextType, token.PropertyName);
                     if (property != null && !IsValidOperation(property, token.Operator))
                     {
-                        ReportError(context, 
-                            $"Cannot use operator '{token.Operator}' on property '{token.PropertyName}' of type {property.Name}", 
+                        ReportError(context,
+                            $"Cannot use operator '{token.Operator}' on property '{token.PropertyName}' of type {property.Name}",
                             location);
                     }
                 }
@@ -1653,12 +1684,12 @@ $@"    /// <summary>
     private static List<ExpressionToken> ParseExpressionTokens(string expression)
     {
         var tokens = new List<ExpressionToken>();
-        
+
         // Simple regex-based parsing for basic validation
         // This is a simplified version - could be enhanced with proper expression parsing
         var comparisonPattern = @"(\w+(?:\.\w+)*)\s*([<>=!]+)\s*(\w+|""[^""]*"")";
         var matches = System.Text.RegularExpressions.Regex.Matches(expression, comparisonPattern);
-        
+
         foreach (System.Text.RegularExpressions.Match match in matches)
         {
             tokens.Add(new ExpressionToken
@@ -1669,7 +1700,7 @@ $@"    /// <summary>
                 Value = match.Groups[3].Value
             });
         }
-        
+
         return tokens;
     }
 
@@ -1681,19 +1712,19 @@ $@"    /// <summary>
         // Handle nested property access (e.g., "context.User.Name")
         var parts = propertyName.Split('.');
         var currentType = contextType;
-        
+
         foreach (var part in parts)
         {
             var property = currentType.GetMembers(part)
                 .OfType<IPropertySymbol>()
                 .FirstOrDefault();
-                
+
             if (property == null)
                 return null;
-                
+
             currentType = property.Type;
         }
-        
+
         return currentType;
     }
 
@@ -1703,7 +1734,7 @@ $@"    /// <summary>
     private static bool IsValidOperation(ITypeSymbol propertyType, string operatorSymbol)
     {
         var typeName = propertyType.Name;
-        
+
         return operatorSymbol switch
         {
             ">" or "<" or ">=" or "<=" => IsNumericType(typeName) || IsComparableType(typeName),

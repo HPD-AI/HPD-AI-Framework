@@ -1,11 +1,17 @@
-using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using HPD.Agent.Audio.Ledger;
 using HPD.Agent.Serialization;
 
+[assembly: HpdAgentEventModuleManifest(
+    "hpd.agent.audio",
+    typeof(HPD.Agent.Audio.AgentIntegration.Output.AudioAgentEventModule),
+    typeof(CoreAgentEventModule))]
+
 namespace HPD.Agent.Audio.AgentIntegration.Output;
 
-internal static class AssistantAudioOutputEventRegistration
+/// <summary>Immutable durable event declarations owned by HPD Agent Audio.</summary>
+public static class AudioAgentEventModule
 {
     public const string AssistantAudioOutputFailed = "ASSISTANT_AUDIO_OUTPUT_FAILED";
     public const string AssistantAudioOutputStarted = "ASSISTANT_AUDIO_OUTPUT_STARTED";
@@ -25,80 +31,23 @@ internal static class AssistantAudioOutputEventRegistration
     public const string AssistantAudioPlaybackInterrupted = "ASSISTANT_AUDIO_PLAYBACK_INTERRUPTED";
     public const string AssistantAudioPlaybackFailed = "ASSISTANT_AUDIO_PLAYBACK_FAILED";
 
-#pragma warning disable CA2255
-    [ModuleInitializer]
-#pragma warning restore CA2255
-    internal static void Initialize()
+    /// <summary>Gets the immutable audio event fragment.</summary>
+    public static AgentEventModuleFragment Fragment { get; } = new()
     {
-        AgentEventSerializer.RegisterEventType(
-            typeof(AssistantAudioOutputFailedEvent),
-            AssistantAudioOutputFailed,
-            AssistantAudioOutputEventJsonContext.Default.AssistantAudioOutputFailedEvent);
-        AgentEventSerializer.RegisterEventType(
-            typeof(AssistantAudioOutputStartedEvent),
-            AssistantAudioOutputStarted,
-            AssistantAudioOutputEventJsonContext.Default.AssistantAudioOutputStartedEvent);
-        AgentEventSerializer.RegisterEventType(
-            typeof(AssistantAudioOutputStreamStartedEvent),
-            AssistantAudioOutputStreamStarted,
-            AssistantAudioOutputEventJsonContext.Default.AssistantAudioOutputStreamStartedEvent);
-        AgentEventSerializer.RegisterEventType(
-            typeof(AssistantAudioOutputChunkReadyEvent),
-            AssistantAudioOutputChunkReady,
-            AssistantAudioOutputEventJsonContext.Default.AssistantAudioOutputChunkReadyEvent);
-        AgentEventSerializer.RegisterEventType(
-            typeof(AssistantAudioPushTextStreamOpeningEvent),
-            AssistantAudioPushTextStreamOpening,
-            AssistantAudioOutputEventJsonContext.Default.AssistantAudioPushTextStreamOpeningEvent);
-        AgentEventSerializer.RegisterEventType(
-            typeof(AssistantAudioPushTextStreamOpenedEvent),
-            AssistantAudioPushTextStreamOpened,
-            AssistantAudioOutputEventJsonContext.Default.AssistantAudioPushTextStreamOpenedEvent);
-        AgentEventSerializer.RegisterEventType(
-            typeof(AssistantAudioPushTextInputSentEvent),
-            AssistantAudioPushTextInputSent,
-            AssistantAudioOutputEventJsonContext.Default.AssistantAudioPushTextInputSentEvent);
-        AgentEventSerializer.RegisterEventType(
-            typeof(AssistantAudioOutputStreamCompletedEvent),
-            AssistantAudioOutputStreamCompleted,
-            AssistantAudioOutputEventJsonContext.Default.AssistantAudioOutputStreamCompletedEvent);
-        AgentEventSerializer.RegisterEventType(
-            typeof(AssistantAudioOutputArtifactCapturedEvent),
-            AssistantAudioOutputArtifactCaptured,
-            AssistantAudioOutputEventJsonContext.Default.AssistantAudioOutputArtifactCapturedEvent);
-        AgentEventSerializer.RegisterEventType(
-            typeof(AssistantAudioOutputSegmentFailedEvent),
-            AssistantAudioOutputSegmentFailed,
-            AssistantAudioOutputEventJsonContext.Default.AssistantAudioOutputSegmentFailedEvent);
-        AgentEventSerializer.RegisterEventType(
-            typeof(AssistantAudioOutputCompletedEvent),
-            AssistantAudioOutputCompleted,
-            AssistantAudioOutputEventJsonContext.Default.AssistantAudioOutputCompletedEvent);
-        AgentEventSerializer.RegisterEventType(
-            typeof(AssistantAudioPlaybackQueuedEvent),
-            AssistantAudioPlaybackQueued,
-            AssistantAudioOutputEventJsonContext.Default.AssistantAudioPlaybackQueuedEvent);
-        AgentEventSerializer.RegisterEventType(
-            typeof(AssistantAudioPlaybackStartedEvent),
-            AssistantAudioPlaybackStarted,
-            AssistantAudioOutputEventJsonContext.Default.AssistantAudioPlaybackStartedEvent);
-        AgentEventSerializer.RegisterEventType(
-            typeof(AssistantAudioPlaybackProgressEvent),
-            AssistantAudioPlaybackProgress,
-            AssistantAudioOutputEventJsonContext.Default.AssistantAudioPlaybackProgressEvent);
-        AgentEventSerializer.RegisterEventType(
-            typeof(AssistantAudioPlaybackCompletedEvent),
-            AssistantAudioPlaybackCompleted,
-            AssistantAudioOutputEventJsonContext.Default.AssistantAudioPlaybackCompletedEvent);
-        AgentEventSerializer.RegisterEventType(
-            typeof(AssistantAudioPlaybackInterruptedEvent),
-            AssistantAudioPlaybackInterrupted,
-            AssistantAudioOutputEventJsonContext.Default.AssistantAudioPlaybackInterruptedEvent);
-        AgentEventSerializer.RegisterEventType(
-            typeof(AssistantAudioPlaybackFailedEvent),
-            AssistantAudioPlaybackFailed,
-            AssistantAudioOutputEventJsonContext.Default.AssistantAudioPlaybackFailedEvent);
-    }
+        ModuleId = "hpd.agent.audio",
+        Events = Array.AsReadOnly<AgentEventDescriptor>(
+        [
+        ])
+    };
+
+    private static AgentEventDescriptor Create(Type type, string discriminator, JsonTypeInfo typeInfo) => new()
+    {
+        EventType = type,
+        Discriminator = discriminator,
+        JsonTypeInfo = typeInfo,
+        Durability = AgentEventDurability.Durable,
+        ModuleId = "hpd.agent.audio"
+    };
 }
 
 [JsonSourceGenerationOptions(

@@ -15,7 +15,8 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
     private readonly HttpClient _http;
     private readonly bool _ownsHttpClient;
     private readonly AgentTuiRuntimeScope _defaultScope;
-    private readonly HPD.Agent.Providers.ProviderComposition? _providerComposition;
+    private readonly AgentInputCodec _inputCodec;
+    private readonly AgentEventCodec _eventCodec;
 
     public HostedAgentTuiRuntime(HostedAgentTuiRuntimeOptions options)
         : this(CreateHttpClient(options), options, ownsHttpClient: true)
@@ -39,7 +40,8 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
 
         _http = httpClient;
         _ownsHttpClient = ownsHttpClient;
-        _providerComposition = options.ProviderComposition;
+        _inputCodec = new AgentInputCodec(options.ProviderComposition);
+        _eventCodec = options.EventComposition.Codec;
         _defaultScope = options.DefaultScope ?? new AgentTuiRuntimeScope(
             "default",
             "local-session",
@@ -256,9 +258,9 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
     }
 
     private JsonNode? SerializeAgentConfig(AgentConfig config)
-        => _providerComposition is null
-            ? JsonSerializer.SerializeToNode(config, HPDJsonContext.Default.AgentConfig)
-            : JsonNode.Parse(HpdAgentConfigSerializer.Serialize(config, _providerComposition));
+        => JsonNode.Parse(HpdAgentConfigSerializer.Serialize(
+            config,
+            _inputCodec.ProviderComposition));
 
     public async Task<IReadOnlyList<AgentTuiSessionInfo>> ListSessionsAsync(
         CancellationToken cancellationToken = default)
@@ -593,6 +595,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(scope);
+        await ValidateBackendEventCatalogAsync(cancellationToken).ConfigureAwait(false);
         var cursor = after;
         var catchUpMode = after.SequenceNumber == 0
             ? AgentTuiEventDeliveryMode.Historical
@@ -658,7 +661,16 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
                         new ThreadJournalCursor(previous, cursor.SequenceNumber),
                         ThreadJournalCursor.Start(current));
                 }
-                if (json.Length == 0 || AgentEventSerializer.FromJson(json) is not AgentEvent evt)
+                if (json.Length == 0)
+                {
+                    continue;
+                }
+                AgentEvent evt;
+                try
+                {
+                    evt = _eventCodec.DeserializeEvent(json);
+                }
+                catch (JsonException)
                 {
                     continue;
                 }
@@ -726,6 +738,26 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         }
     }
 
+    /// <summary>Ensures the backend and this client use the same authoritative output-event catalog.</summary>
+    public async Task ValidateBackendEventCatalogAsync(CancellationToken cancellationToken = default)
+    {
+        using var response = await _http.GetAsync("event-catalog", cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            await ThrowForUnexpectedResponseAsync(response, "load event catalog", cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        var catalog = JsonSerializer.Deserialize(json, AgentEventJsonContext.Default.AgentEventCatalog)
+            ?? throw new JsonException("The backend event catalog response was empty.");
+        if (!StringComparer.Ordinal.Equals(catalog.Digest, _eventCodec.Digest))
+        {
+            throw new InvalidOperationException(
+                $"Backend event catalog '{catalog.Digest}' differs from the TUI event catalog '{_eventCodec.Digest}'.");
+        }
+    }
+
     private static AgentTuiEventBatch CreateDeliveryBatch(
         IReadOnlyList<AgentEvent> events,
         AgentTuiEventDeliveryMode deliveryMode,
@@ -758,9 +790,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         ArgumentNullException.ThrowIfNull(scope);
         ArgumentNullException.ThrowIfNull(input);
 
-        var json = _providerComposition is null
-            ? AgentEventSerializer.ToJson(input)
-            : AgentEventSerializer.ToJson(input, _providerComposition);
+        var json = _inputCodec.Serialize(input);
         using var response = await PostJsonEnvelopeAsync(
                 $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/threads/{Escape(scope.ThreadId)}/inputs",
                 json,
@@ -895,7 +925,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
                 $"Response event '{response.GetType().Name}' is not a request response event.");
         }
 
-        var json = AgentEventSerializer.ToJson(response);
+        var json = _eventCodec.Serialize(response);
         using var httpResponse = await PostJsonEnvelopeAsync(
                 $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/threads/{Escape(scope.ThreadId)}/responses",
                 json,
@@ -968,10 +998,16 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         {
             foreach (var pending in pendingElement.EnumerateArray())
             {
-                if (pending.TryGetProperty("request", out var requestElement) &&
-                    AgentEventSerializer.FromJson(requestElement.GetRawText()) is AgentEvent request)
+                if (pending.TryGetProperty("request", out var requestElement))
                 {
-                    pendingRequests.Add(request);
+                    try
+                    {
+                        pendingRequests.Add(_eventCodec.DeserializeEvent(requestElement.GetRawText()));
+                    }
+                    catch (JsonException)
+                    {
+                        // Ignore malformed pending-request projections from a remote host.
+                    }
                 }
             }
         }
@@ -1245,9 +1281,9 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         var metadata = ReadObjectMap(element, "metadata");
         var config = element.TryGetProperty("config", out var configElement) &&
                      configElement.ValueKind == JsonValueKind.Object
-            ? _providerComposition is null
-                ? configElement.Deserialize(HPDJsonContext.Default.AgentConfig)
-                : HpdAgentConfigSerializer.Deserialize(configElement.GetRawText(), _providerComposition)
+            ? HpdAgentConfigSerializer.Deserialize(
+                configElement.GetRawText(),
+                _inputCodec.ProviderComposition)
             : null;
         return new AgentTuiAgentInfo(
             GetRequiredString(element, "id"),

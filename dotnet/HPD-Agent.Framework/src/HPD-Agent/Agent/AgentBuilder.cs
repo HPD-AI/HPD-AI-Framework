@@ -101,6 +101,7 @@ public class AgentBuilder
     internal IServiceProvider? _serviceProvider;
     private JsonSerializerOptions? _toolSerializerOptions;
     internal ILoggerFactory? _logger;
+    private string? _eventApplicationIdentity;
 
     // AIContextProvider factory (protocol-specific, stored as object for extensibility)
     internal object? _contextProviderFactory;
@@ -1073,6 +1074,23 @@ public class AgentBuilder
         return this;
     }
 
+    /// <summary>Selects an explicit immutable application event composition.</summary>
+    public AgentBuilder WithEventComposition(AgentEventComposition composition)
+    {
+        _config.EventComposition = composition ?? throw new ArgumentNullException(nameof(composition));
+        _eventApplicationIdentity = null;
+        return this;
+    }
+
+    /// <summary>Selects a generated application event composition by its assembly identity.</summary>
+    public AgentBuilder WithEventApplicationIdentity(string applicationAssemblyIdentity)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(applicationAssemblyIdentity);
+        _eventApplicationIdentity = applicationAssemblyIdentity;
+        _config.EventComposition = null;
+        return this;
+    }
+
     /// <summary>Registers a named SDK-native external identity for provider authentication.</summary>
     /// <param name="registration">The lease-producing identity registration.</param>
     /// <returns>This builder.</returns>
@@ -1837,12 +1855,14 @@ public class AgentBuilder
     /// <param name="cancellationToken">Cancellation token for async operations</param>
     public async Task<Agent> BuildAsync(CancellationToken cancellationToken = default)
     {
+        ResolveEventComposition();
         if (_config.Skills.ActivationLifetime != SkillActivationLifetime.MessageTurn)
             throw new InvalidOperationException(
                 $"Skill activation lifetime '{_config.Skills.ActivationLifetime}' is not supported. " +
                 "Use MessageTurn until its persistence semantics are implemented.");
         await ResolveStoredAgentDefinitionAsync(cancellationToken).ConfigureAwait(false);
         EnsureAutoConfiguration();
+        ValidateEventAuthority();
 
         // Build the secret resolver chain FIRST (before BuildDependenciesAsync)
         // Providers need ISecretResolver available in the service provider during CreateChatClient
@@ -1919,7 +1939,7 @@ public class AgentBuilder
         // Users can override with WithSessionStore() for persistent storage (FileSessionStore, etc.)
         if (_config.SessionStore == null)
         {
-            _config.SessionStore = new InMemorySessionStore();
+            _config.SessionStore = new InMemorySessionStore(_config.EventComposition!.Codec);
             _logger?.CreateLogger<AgentBuilder>().LogInformation(
                 "Using default InMemorySessionStore (in-memory, ephemeral). " +
                 "Use .WithSessionStore() for persistence.");
@@ -1937,6 +1957,59 @@ public class AgentBuilder
         ActivateRegisteredFeatures();
         RegisterAutoMiddleware(buildData);
         return CreateAgent(buildData);
+    }
+
+    private void ResolveEventComposition()
+    {
+        if (_config.EventComposition is not null)
+            return;
+
+        if (_eventApplicationIdentity is not null)
+        {
+            if (AgentEventCompositionHost.TryGetApplication(_eventApplicationIdentity, out var selected))
+            {
+                _config.EventComposition = selected;
+                return;
+            }
+            throw new InvalidOperationException($"No generated agent event composition is registered for application '{_eventApplicationIdentity}'.");
+        }
+
+        var identities = AgentEventCompositionHost.GetApplicationIdentities();
+        if (identities.Count == 1 && AgentEventCompositionHost.TryGetApplication(identities[0], out var sole))
+        {
+            _config.EventComposition = sole;
+            return;
+        }
+
+        throw new InvalidOperationException(identities.Count == 0
+            ? "No agent event composition is registered. Supply WithEventComposition(...) or publish a generated application composition."
+            : $"Multiple agent event compositions are registered ({string.Join(", ", identities)}). Select one with WithEventApplicationIdentity(...)." );
+    }
+
+    private void ValidateEventAuthority()
+    {
+        var composition = _config.EventComposition!;
+        if (_config.SessionStore is not null &&
+            !ReferenceEquals(_config.SessionStore.EventCodec, composition.Codec))
+        {
+            throw new InvalidOperationException(
+                "The configured session store does not own the selected application event codec.");
+        }
+
+        foreach (var factory in _selectedToolHarnessFactories)
+        {
+            if (factory.EventModule is null)
+                continue;
+
+            var selectedModule = composition.Fragments.FirstOrDefault(fragment =>
+                StringComparer.Ordinal.Equals(fragment.ModuleId, factory.EventModule.ModuleId));
+            if (!ReferenceEquals(selectedModule, factory.EventModule))
+            {
+                throw new InvalidOperationException(
+                    $"ToolHarness '{factory.Name}' requires event module '{factory.EventModule.ModuleId}', " +
+                    "but the selected application event composition does not contain that exact fragment.");
+            }
+        }
     }
 
     private IProviderExternalIdentityRegistry ResolveExternalIdentityRegistry(IServiceProvider? services)

@@ -1083,7 +1083,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             return evt;
         }
 
-        return await new ThreadEventPublisher(store, _agent.EventCoordinator).CommitAndPublishAsync(
+        return await new AgentEventPublisher(store, _agent.EventCoordinator).CommitAndPublishAsync(
             new ThreadKey(evt.SessionId, evt.ThreadId),
             evt,
             cancellationToken).ConfigureAwait(false);

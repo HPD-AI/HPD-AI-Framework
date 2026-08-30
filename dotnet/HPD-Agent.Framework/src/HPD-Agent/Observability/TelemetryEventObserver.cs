@@ -272,12 +272,12 @@ public class TelemetryEventObserver : IDisposable
             case ContainerExpandedEvent e:
                 _containerExpansions.Add(1,
                     new KeyValuePair<string, object?>("container.name", e.ContainerName),
-                    new KeyValuePair<string, object?>("container.type", e.Type.ToString()),
+                    new KeyValuePair<string, object?>("container.type", e.ContainerType.ToString()),
                     new KeyValuePair<string, object?>("unlocked.count", e.UnlockedFunctions.Count));
 
                 _containerMemberCountHistogram.Record(e.UnlockedFunctions.Count,
                     new KeyValuePair<string, object?>("container.name", e.ContainerName),
-                    new KeyValuePair<string, object?>("container.type", e.Type.ToString()));
+                    new KeyValuePair<string, object?>("container.type", e.ContainerType.ToString()));
                 break;
 
             case FunctionRetryEvent e:

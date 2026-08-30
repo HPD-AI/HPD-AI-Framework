@@ -51,6 +51,14 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         isEnabledByDefault: true,
         description: "Abstract event types are valid base classes but cannot be serialized directly.");
 
+    private static readonly DiagnosticDescriptor HPDAEVT001_LiveOnlyDefault = new(
+        id: "HPDAEVT001",
+        title: "Agent event is not part of an immutable event module",
+        messageFormat: "Event '{0}' is live-only and will not be journaled because assembly '{1}' declares no HpdAgentEventModule.",
+        category: "HPD.Agent.Serialization",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
     #endregion
 
     #region Initialization
@@ -66,8 +74,8 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
 
         // Collect all events and generate registration code
         context.RegisterSourceOutput(
-            customEvents.Collect(),
-            (spc, events) => GenerateEventRegistrations(spc, events!));
+            context.CompilationProvider.Combine(customEvents.Collect()),
+            (spc, value) => GenerateEventRegistrations(spc, value.Left, value.Right!));
     }
 
     #endregion
@@ -118,10 +126,7 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         if (typeSymbol.Name == "AgentEvent" || typeSymbol.Name == "AgentStructEvent")
             return null;
 
-        // Skip framework events (HPD.Agent namespace)
         var namespaceName = typeSymbol.ContainingNamespace?.ToDisplayString() ?? "";
-        if (namespaceName.StartsWith("HPD.Agent") || namespaceName.StartsWith("HPD.Agent"))
-            return null;
 
         // Skip generic types with warning
         if (typeSymbol.IsGenericType)
@@ -162,7 +167,7 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
             return null;
 
         // Check for [EventType("CUSTOM_NAME")] attribute override
-        var customDiscriminator = GetCustomEventTypeAttribute(typeSymbol);
+        var (customDiscriminator, durability) = GetCustomEventTypeAttribute(typeSymbol);
         var discriminator = customDiscriminator ?? ToScreamingSnakeCase(typeSymbol.Name);
 
         return new CustomEventInfo(
@@ -172,7 +177,8 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
             ScreamingSnakeCaseName: discriminator,
             Kind: eventKind.Value,
             IsValid: true,
-            Diagnostics: diagnostics);
+            Diagnostics: diagnostics,
+            Durability: durability);
     }
 
     /// <summary>
@@ -210,7 +216,7 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
     /// <summary>
     /// Gets custom type discriminator from [EventType("...")] attribute if present.
     /// </summary>
-    private static string? GetCustomEventTypeAttribute(INamedTypeSymbol typeSymbol)
+    private static (string? Discriminator, string Durability) GetCustomEventTypeAttribute(INamedTypeSymbol typeSymbol)
     {
         foreach (var attr in typeSymbol.GetAttributes())
         {
@@ -220,11 +226,22 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
                 if (attr.ConstructorArguments.Length > 0 &&
                     attr.ConstructorArguments[0].Value is string discriminator)
                 {
-                    return discriminator;
+                    var durability = "LiveOnly";
+                    foreach (var namedArgument in attr.NamedArguments)
+                    {
+                        if (namedArgument.Key == "Durability" &&
+                            namedArgument.Value.Value is int durabilityValue &&
+                            durabilityValue == 1)
+                        {
+                            durability = "Durable";
+                        }
+                    }
+
+                    return (discriminator, durability);
                 }
             }
         }
-        return null;
+        return (null, "LiveOnly");
     }
 
     /// <summary>
@@ -259,6 +276,7 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
     /// </summary>
     private static void GenerateEventRegistrations(
         SourceProductionContext context,
+        Compilation compilation,
         ImmutableArray<CustomEventInfo?> events)
     {
         // Filter valid events and report diagnostics
@@ -279,7 +297,10 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
             }
         }
 
-        if (validEvents.Count == 0)
+        var assemblyAttributes = compilation.Assembly.GetAttributes();
+        var isApplication = assemblyAttributes.Any(static attribute =>
+            attribute.AttributeClass?.Name == "HpdAgentApplicationAttribute");
+        if (validEvents.Count == 0 && !isApplication)
             return;
 
         var validAgentEvents = validEvents
@@ -313,13 +334,53 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
             return; // Don't generate code with conflicts
         }
 
-        if (validAgentEvents.Count > 0)
+        var hasHandwrittenManifest = assemblyAttributes.Any(static attribute =>
+            attribute.AttributeClass?.Name == "HpdAgentEventModuleManifestAttribute");
+        var moduleAttribute = assemblyAttributes.FirstOrDefault(static attribute =>
+            attribute.AttributeClass?.Name == "HpdAgentEventModuleAttribute");
+
+        if (validAgentEvents.Count > 0 && !hasHandwrittenManifest && moduleAttribute is not null)
         {
             context.AddSource("CustomEventTypes.g.cs",
                 GenerateEventTypesPartial(validAgentEvents));
 
-            context.AddSource("CustomEventSerializer.g.cs",
-                GenerateSerializerPartial(validAgentEvents));
+            if (moduleAttribute.ConstructorArguments.Length < 2 ||
+                moduleAttribute.ConstructorArguments[0].Value is not string moduleId ||
+                moduleAttribute.ConstructorArguments[1].Value is not INamedTypeSymbol jsonContextType)
+            {
+                throw new InvalidOperationException("HpdAgentEventModule requires a module ID and JsonSerializerContext type.");
+            }
+
+            context.AddSource("GeneratedAgentEventModule.g.cs",
+                GenerateEventModule(validAgentEvents, moduleId, jsonContextType));
+        }
+        else if (validAgentEvents.Count > 0 && !hasHandwrittenManifest)
+        {
+            foreach (var evt in validAgentEvents)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    HPDAEVT001_LiveOnlyDefault,
+                    Location.None,
+                    evt.FullTypeName,
+                    compilation.AssemblyName ?? "unknown"));
+            }
+        }
+
+        if (isApplication)
+        {
+            var providers = new Dictionary<string, string>(StringComparer.Ordinal);
+            AddManifestProviders(compilation.Assembly, providers);
+            foreach (var referencedAssembly in compilation.SourceModule.ReferencedAssemblySymbols)
+                AddManifestProviders(referencedAssembly, providers);
+            if (moduleAttribute is not null && !hasHandwrittenManifest && validAgentEvents.Count > 0 &&
+                moduleAttribute.ConstructorArguments[0].Value is string localModuleId)
+            {
+                providers[localModuleId] = "global::HPD.Agent.Serialization.GeneratedAgentEventModule";
+            }
+            context.AddSource("GeneratedAgentEventComposition.g.cs",
+                GenerateApplicationComposition(
+                    compilation.AssemblyName ?? "HPD.Agent.Application",
+                    providers));
         }
 
         if (validStructEvents.Count > 0)
@@ -366,7 +427,8 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         sb.AppendLine("// <auto-generated/>");
         sb.AppendLine("#nullable enable");
         sb.AppendLine();
-        sb.AppendLine("namespace HPD.Agent.Serialization;");
+        sb.AppendLine("namespace HPD.Agent.Serialization");
+        sb.AppendLine("{");
         sb.AppendLine();
         sb.AppendLine("internal static class CustomStructEventTypes");
         sb.AppendLine("{");
@@ -381,44 +443,124 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         }
 
         sb.AppendLine("}");
+        sb.AppendLine("}");
 
         return sb.ToString();
     }
 
     /// <summary>
-    /// Generates module initializer registration for custom events.
+    /// Generates one immutable module fragment and assembly manifest for custom events.
     /// </summary>
-    private static string GenerateSerializerPartial(List<CustomEventInfo> events)
+    private static string GenerateEventModule(
+        List<CustomEventInfo> events,
+        string moduleId,
+        INamedTypeSymbol jsonContextType)
     {
+        var contextName = jsonContextType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         var sb = new StringBuilder();
         sb.AppendLine("// <auto-generated/>");
         sb.AppendLine("#nullable enable");
-        sb.AppendLine();
-        sb.AppendLine("using System.Runtime.CompilerServices;");
+        sb.AppendLine($"[assembly: global::HPD.Agent.Serialization.HpdAgentEventModuleManifestAttribute(\"{moduleId}\", typeof(global::HPD.Agent.Serialization.GeneratedAgentEventModule), typeof(global::HPD.Agent.Serialization.CoreAgentEventModule))]");
         sb.AppendLine();
         sb.AppendLine("namespace HPD.Agent.Serialization;");
         sb.AppendLine();
-        sb.AppendLine("internal static class CustomEventSerializerRegistration");
+        sb.AppendLine("/// <summary>Provides the immutable event fragment generated for this module.</summary>");
+        sb.AppendLine("public static class GeneratedAgentEventModule");
         sb.AppendLine("{");
-        sb.AppendLine("    /// <summary>");
-        sb.AppendLine("    /// Registers all auto-discovered custom events when the assembly loads.");
-        sb.AppendLine("    /// </summary>");
-        sb.AppendLine("#pragma warning disable CA2255");
-        sb.AppendLine("    [ModuleInitializer]");
-        sb.AppendLine("    internal static void RegisterCustomEvents()");
-        sb.AppendLine("#pragma warning restore CA2255");
+        sb.AppendLine("    /// <summary>Gets the immutable generated event fragment.</summary>");
+        sb.AppendLine("    public static AgentEventModuleFragment Fragment { get; } = new()");
         sb.AppendLine("    {");
+        sb.AppendLine($"        ModuleId = \"{moduleId}\",");
+        sb.AppendLine("        Events = global::System.Array.AsReadOnly<AgentEventDescriptor>([");
 
         foreach (var evt in events.OrderBy(e => e.FullTypeName))
         {
-            sb.AppendLine($"        AgentEventSerializer.RegisterEventType(");
-            sb.AppendLine($"            typeof(global::{evt.FullTypeName}),");
-            sb.AppendLine($"            CustomEventTypes.{evt.ScreamingSnakeCaseName});");
+            sb.AppendLine("            new AgentEventDescriptor");
+            sb.AppendLine("            {");
+            sb.AppendLine($"                EventType = typeof(global::{evt.FullTypeName}),");
+            sb.AppendLine($"                Discriminator = \"{evt.ScreamingSnakeCaseName}\",");
+            sb.AppendLine($"                JsonTypeInfo = {contextName}.Default.GetTypeInfo(typeof(global::{evt.FullTypeName}))");
+            sb.AppendLine($"                    ?? throw new global::System.InvalidOperationException(\"Missing generated JSON metadata for {evt.FullTypeName}.\"),");
+            sb.AppendLine($"                Durability = AgentEventDurability.{evt.Durability},");
+            sb.AppendLine($"                ModuleId = \"{moduleId}\"");
+            sb.AppendLine("            },");
         }
 
-        sb.AppendLine("    }");
+        sb.AppendLine("        ])");
+        sb.AppendLine("    };");
         sb.AppendLine("}");
 
+        return sb.ToString();
+    }
+
+    private static void AddManifestProviders(
+        IAssemblySymbol assembly,
+        Dictionary<string, string> providers)
+    {
+        foreach (var attribute in assembly.GetAttributes().Where(static value =>
+            value.AttributeClass?.Name == "HpdAgentEventModuleManifestAttribute"))
+        {
+            if (attribute.ConstructorArguments.Length < 2 ||
+                attribute.ConstructorArguments[0].Value is not string moduleId ||
+                attribute.ConstructorArguments[1].Value is not INamedTypeSymbol providerType)
+                continue;
+            providers[moduleId] = providerType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            if (attribute.ConstructorArguments.Length < 3)
+                continue;
+            foreach (var dependency in attribute.ConstructorArguments[2].Values)
+            {
+                if (dependency.Value is INamedTypeSymbol dependencyType)
+                {
+                    var dependencyName = dependencyType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                    if (!providers.ContainsKey(dependencyName))
+                        providers.Add(dependencyName, dependencyName);
+                }
+            }
+        }
+    }
+
+    private static string GenerateApplicationComposition(
+        string assemblyIdentity,
+        Dictionary<string, string> providers)
+    {
+        var providerList = providers.Values.Distinct(StringComparer.Ordinal).OrderBy(static value => value, StringComparer.Ordinal).ToArray();
+        var sb = new StringBuilder();
+        sb.AppendLine("// <auto-generated/>");
+        sb.AppendLine("#nullable enable");
+        sb.AppendLine("namespace HPD.Agent.Serialization");
+        sb.AppendLine("{");
+        sb.AppendLine("internal static class GeneratedAgentEventComposition");
+        sb.AppendLine("{");
+        sb.AppendLine("    public static AgentEventComposition Composition { get; } = AgentEventComposition.Create([");
+        foreach (var provider in providerList)
+            sb.AppendLine($"        {provider}.Fragment,");
+        sb.AppendLine("    ]);");
+        sb.AppendLine("}");
+        sb.AppendLine("internal static class GeneratedAgentEventCompositionRegistration");
+        sb.AppendLine("{");
+        sb.AppendLine("    [global::System.Runtime.CompilerServices.ModuleInitializer]");
+        sb.AppendLine("    internal static void Register() => AgentEventCompositionHost.RegisterApplication(");
+        sb.AppendLine($"        GeneratedAgentEventComposition.Composition, \"{assemblyIdentity}\");");
+        sb.AppendLine("}");
+        sb.AppendLine("}");
+        sb.AppendLine("namespace Microsoft.Extensions.DependencyInjection");
+        sb.AppendLine("{");
+        sb.AppendLine("/// <summary>Registers the generated application event composition.</summary>");
+        sb.AppendLine("public static class GeneratedAgentEventServiceCollectionExtensions");
+        sb.AppendLine("{");
+        sb.AppendLine("    /// <summary>Adds the generated immutable application event composition.</summary>");
+        sb.AppendLine("    /// <param name=\"services\">The target service collection.</param>");
+        sb.AppendLine("    /// <returns>The same service collection.</returns>");
+        sb.AppendLine("    public static global::Microsoft.Extensions.DependencyInjection.IServiceCollection AddHpdGeneratedAgentEvents(");
+        sb.AppendLine("        this global::Microsoft.Extensions.DependencyInjection.IServiceCollection services)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        global::System.ArgumentNullException.ThrowIfNull(services);");
+        sb.AppendLine("        global::Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton(");
+        sb.AppendLine("            services, global::HPD.Agent.Serialization.GeneratedAgentEventComposition.Composition);");
+        sb.AppendLine("        return services;");
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
+        sb.AppendLine("}");
         return sb.ToString();
     }
 
@@ -470,7 +612,8 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         string ScreamingSnakeCaseName,
         EventRegistrationKind Kind,
         bool IsValid,
-        List<Diagnostic> Diagnostics);
+        List<Diagnostic> Diagnostics,
+        string Durability = "LiveOnly");
 
     private enum EventRegistrationKind
     {

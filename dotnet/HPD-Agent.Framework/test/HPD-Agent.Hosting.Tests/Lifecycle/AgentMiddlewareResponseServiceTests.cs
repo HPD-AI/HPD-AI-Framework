@@ -8,7 +8,7 @@ namespace HPD.Agent.Hosting.Tests.Lifecycle;
 
 public class AgentMiddlewareResponseServiceTests : IAsyncLifetime
 {
-    private readonly InMemorySessionStore _sessionStore = new();
+    private readonly InMemorySessionStore _sessionStore = new(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
     private readonly InMemoryAgentStore _agentStore = new();
     private readonly TestSessionManager _sessionManager;
     private readonly TestAgentManager _agentManager;
@@ -137,7 +137,7 @@ public class AgentMiddlewareResponseServiceTests : IAsyncLifetime
             var registry = new TestProviderRegistry(new FakeChatClient());
             return await new AgentBuilder(stored.Config, registry)
                 .WithAgentId(stored.Id)
-                .WithSessionStore(new InMemorySessionStore())
+                .WithSessionStore(new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec))
                 .BuildAsync(ct);
         }
 

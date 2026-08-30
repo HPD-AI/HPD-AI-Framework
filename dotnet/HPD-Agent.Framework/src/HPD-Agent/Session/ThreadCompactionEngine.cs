@@ -42,7 +42,7 @@ public sealed record CompactionEvent(
 public sealed record ThreadCompactionContext(
     Thread Thread,
     IReadOnlyList<ChatMessage> ModelHistory,
-    IThreadEventPublisher? Publisher,
+    IAgentEventPublisher? Publisher,
     IChatClient? SummarizerClient,
     IThreadJournalRebaseSeedProvider? RebaseSeedProvider = null,
     ChatOptions? SummarizerOptions = null);

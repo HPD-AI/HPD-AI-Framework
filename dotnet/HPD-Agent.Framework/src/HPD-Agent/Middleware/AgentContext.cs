@@ -35,7 +35,7 @@ public sealed class AgentContext
     private volatile bool _middlewareExecuting = false;
     private int _stateGeneration = 0;
     private readonly IEventCoordinator _events;
-    private readonly IThreadEventPublisher? _threadEvents;
+    private readonly IAgentEventPublisher? _threadEvents;
     private readonly IStructEventHub _structEvents;
     private readonly CancellationToken _cancellationToken;
     private readonly AgentChatClientHandle? _effectiveChatClient;
@@ -59,7 +59,7 @@ public sealed class AgentContext
     /// Event coordinator (internal access for adapters).
     /// </summary>
     internal IEventCoordinator EventCoordinator => _events;
-    internal IThreadEventPublisher? ThreadEvents => _threadEvents;
+    internal IAgentEventPublisher? ThreadEvents => _threadEvents;
 
     internal IStructEventHub StructEvents => _structEvents;
 
@@ -534,7 +534,7 @@ public sealed class AgentContext
         Session? session,
         Thread? thread,
         CancellationToken cancellationToken,
-        IThreadEventPublisher? threadEvents = null,
+        IAgentEventPublisher? threadEvents = null,
         AgentChatClientHandle? effectiveChatClient = null,
         AgentChatClientResolver? chatClientResolver = null,
         IServiceProvider? services = null,

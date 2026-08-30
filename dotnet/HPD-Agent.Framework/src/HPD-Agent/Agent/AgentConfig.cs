@@ -1,6 +1,7 @@
 using System;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using HPD.Agent.Serialization;
 using HPD.Agent.Audio;
 using HPD.Agent.Audio.Output;
 using HPD.Agent.Audio.Policies;
@@ -327,6 +328,10 @@ public class AgentConfig
     /// </remarks>
     [JsonIgnore]
     public ISessionStore? SessionStore { get; set; }
+
+    /// <summary>Gets or sets the immutable application event authority selected for this agent.</summary>
+    [JsonIgnore]
+    public AgentEventComposition? EventComposition { get; set; }
 
     /// <summary>
     /// Agent store used to resolve <see cref="StoredAgent"/> definitions at runtime.

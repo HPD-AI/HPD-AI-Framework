@@ -1,6 +1,5 @@
 using Xunit;
 using HPD.Agent;
-using HPD.Agent;
 
 using HPD.Agent.Tests.Infrastructure;
 
@@ -20,7 +19,7 @@ public class SessionBuilderExtensionTests : AgentTestBase
     public void WithSessionStore_StoreOnly_SetsAutoSave()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var builder = new AgentBuilder();
 
         // Act
@@ -40,7 +39,7 @@ public class SessionBuilderExtensionTests : AgentTestBase
     public void WithSessionStore_WithPersistAfterTurnTrue_SetsPersistAfterTurn()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var builder = new AgentBuilder();
 
         // Act
@@ -55,7 +54,7 @@ public class SessionBuilderExtensionTests : AgentTestBase
     public void WithSessionStore_WithPersistAfterTurnFalse_SetsManualSave()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var builder = new AgentBuilder();
 
         // Act
@@ -74,7 +73,7 @@ public class SessionBuilderExtensionTests : AgentTestBase
     public void WithSessionStore_WithConfigureAction_AllowsFullConfiguration()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var builder = new AgentBuilder();
 
         // Act
@@ -90,7 +89,7 @@ public class SessionBuilderExtensionTests : AgentTestBase
     }
 
     //──────────────────────────────────────────────────────────────────
-    // WithSessionStore(string storagePath, bool persistAfterTurn)
+    // WithSessionStore(FileSessionStore, bool persistAfterTurn)
     //──────────────────────────────────────────────────────────────────
 
     [Fact]
@@ -103,7 +102,9 @@ public class SessionBuilderExtensionTests : AgentTestBase
         try
         {
             // Act
-            builder.WithSessionStore(tempPath, persistAfterTurn: true);
+            builder.WithSessionStore(
+                new FileSessionStore(tempPath, HPD.Agent.Tests.TestEventApplication.Codec),
+                persistAfterTurn: true);
 
             // Assert
             Assert.NotNull(builder.Config.SessionStore);
@@ -128,7 +129,8 @@ public class SessionBuilderExtensionTests : AgentTestBase
         try
         {
             // Act
-            builder.WithSessionStore(tempPath); // persistAfterTurn defaults to true
+            builder.WithSessionStore(
+                new FileSessionStore(tempPath, HPD.Agent.Tests.TestEventApplication.Codec));
 
             // Assert
             Assert.True(builder.Config.SessionStoreOptions?.PersistAfterTurn);
@@ -164,7 +166,7 @@ public class SessionBuilderExtensionTests : AgentTestBase
     {
         // Arrange
         AgentBuilder builder = null!;
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
 
         // Act & Assert
         Assert.Throws<ArgumentNullException>(() => builder.WithSessionStore(store));
@@ -180,27 +182,6 @@ public class SessionBuilderExtensionTests : AgentTestBase
         Assert.Throws<ArgumentNullException>(() => builder.WithSessionStore((ISessionStore)null!));
     }
 
-    [Fact]
-    public void WithSessionStore_NullPath_Throws()
-    {
-        // Arrange
-        var builder = new AgentBuilder();
-
-        // Act & Assert
-        // ThrowIfNullOrWhiteSpace throws ArgumentNullException for null
-        Assert.Throws<ArgumentNullException>(() => builder.WithSessionStore((string)null!));
-    }
-
-    [Fact]
-    public void WithSessionStore_EmptyPath_Throws()
-    {
-        // Arrange
-        var builder = new AgentBuilder();
-
-        // Act & Assert
-        Assert.Throws<ArgumentException>(() => builder.WithSessionStore(""));
-    }
-
     //──────────────────────────────────────────────────────────────────
     // FLUENT API CHAINING
     //──────────────────────────────────────────────────────────────────
@@ -209,7 +190,7 @@ public class SessionBuilderExtensionTests : AgentTestBase
     public void WithSessionStore_ReturnsBuilder_ForChaining()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var builder = new AgentBuilder();
 
         // Act
@@ -224,7 +205,7 @@ public class SessionBuilderExtensionTests : AgentTestBase
     {
         // Arrange
         var builder = new AgentBuilder();
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
 
         // Act - Chain multiple builder methods
         var result = builder

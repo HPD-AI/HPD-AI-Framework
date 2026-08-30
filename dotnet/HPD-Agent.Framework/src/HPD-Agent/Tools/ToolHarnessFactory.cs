@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.AI;
 using HPD.Agent.Middleware;
 using HPD.Agent.Secrets;
+using HPD.Agent.Serialization;
 
 namespace HPD.Agent;
 
@@ -196,7 +197,13 @@ public record ToolHarnessFactory(
     /// Emitted by <c>HPDToolSourceGenerator</c> into <c>ToolHarnessRegistry.g.cs</c>.
     /// Null when the toolharness declares no config-constructor scoped middlewares.
     /// </summary>
-    IReadOnlyList<CollapseMiddlewareConfigFactory>? CollapseMiddlewareConfigFactories = null
+    IReadOnlyList<CollapseMiddlewareConfigFactory>? CollapseMiddlewareConfigFactories = null,
+
+    /// <summary>
+    /// Gets the immutable event module owned by this harness assembly, when it declares events.
+    /// Hosted durable use requires this exact module to be present in the application composition.
+    /// </summary>
+    AgentEventModuleFragment? EventModule = null
 );
 
 /// <summary>

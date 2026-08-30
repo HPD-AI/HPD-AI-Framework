@@ -15,7 +15,7 @@ public class SessionManagerTests : IDisposable
 
     public SessionManagerTests()
     {
-        _store = new InMemorySessionStore();
+        _store = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
         _manager = new TestSessionManagerImpl(_store);
     }
 

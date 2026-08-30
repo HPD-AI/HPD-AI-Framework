@@ -8,6 +8,10 @@ namespace HPD.Agent.Audio.V2.Tests;
 
 public sealed class AssistantAudioOutputEventSerializationTests
 {
+    private static readonly AgentEventCodec Codec = AgentEventComposition.Create([
+        CoreAgentEventModule.Fragment,
+        AudioAgentEventModule.Fragment
+    ]).Codec;
     private const string SessionId = "session-audio";
     private const string OutputFlowId = "output-flow";
     private const string ResponseId = "response-audio";
@@ -21,7 +25,7 @@ public sealed class AssistantAudioOutputEventSerializationTests
     private const string PayloadKind = "DecodedPcmFrame";
 
     [Fact]
-    public void OutputLifecycleEvents_RoundTripValuesThroughAgentEventSerializer()
+    public void OutputLifecycleEvents_RoundTripValuesThroughApplicationCodec()
     {
         var started = RoundTrip(new AssistantAudioOutputStartedEvent(
             SessionId,
@@ -73,7 +77,7 @@ public sealed class AssistantAudioOutputEventSerializationTests
     }
 
     [Fact]
-    public void OutputStreamEvents_RoundTripValuesThroughAgentEventSerializer()
+    public void OutputStreamEvents_RoundTripValuesThroughApplicationCodec()
     {
         var streamStarted = RoundTrip(new AssistantAudioOutputStreamStartedEvent(
             SessionId,
@@ -176,7 +180,7 @@ public sealed class AssistantAudioOutputEventSerializationTests
     }
 
     [Fact]
-    public void PushTextEvents_RoundTripValuesThroughAgentEventSerializer()
+    public void PushTextEvents_RoundTripValuesThroughApplicationCodec()
     {
         var opening = RoundTrip(new AssistantAudioPushTextStreamOpeningEvent(
             SessionId,
@@ -221,7 +225,7 @@ public sealed class AssistantAudioOutputEventSerializationTests
     }
 
     [Fact]
-    public void PlaybackEvents_RoundTripValuesThroughAgentEventSerializer()
+    public void PlaybackEvents_RoundTripValuesThroughApplicationCodec()
     {
         var queued = RoundTrip(new AssistantAudioPlaybackQueuedEvent(
             SessionId,
@@ -316,11 +320,11 @@ public sealed class AssistantAudioOutputEventSerializationTests
     private static T RoundTrip<T>(T evt)
         where T : AgentEvent
     {
-        var json = AgentEventSerializer.ToJson(evt);
+        var json = Codec.Serialize(evt);
 
         Assert.Contains($"\"sessionId\":\"{SessionId}\"", json);
 
-        var roundTripped = Assert.IsType<T>(AgentEventSerializer.FromJson(json));
+        var roundTripped = Assert.IsType<T>(Codec.DeserializeEvent(json));
         Assert.Equal(SessionId, roundTripped.SessionId);
         Assert.Equal(OutputFlowId, GetProperty<string>(roundTripped, nameof(AssistantAudioOutputStartedEvent.OutputFlowId)));
         Assert.Equal(ResponseId, GetProperty<string>(roundTripped, nameof(AssistantAudioOutputStartedEvent.ResponseId)));

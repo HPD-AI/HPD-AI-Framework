@@ -71,7 +71,7 @@ public class RemovedMiddlewareEventsTests
     public void Serializer_StillHandles_ToolCallStartEvent()
     {
         var evt = new ToolCallStartEvent("call-1", "MyTool", "msg-1");
-        var json = AgentEventSerializer.ToJson(evt);
+        var json = HPD.Agent.Tests.TestEventApplication.Codec.Serialize(evt);
 
         json.Should().Contain("TOOL_CALL_START");
         json.Should().Contain("MyTool");
@@ -81,7 +81,7 @@ public class RemovedMiddlewareEventsTests
     public void Serializer_StillHandles_MessageTurnFinishedEvent()
     {
         var evt = new MessageTurnFinishedEvent("t-1", "c-1", "agent-1", "Agent", TimeSpan.FromSeconds(1), MessageTurnUsageSummary.Empty);
-        var json = AgentEventSerializer.ToJson(evt);
+        var json = HPD.Agent.Tests.TestEventApplication.Codec.Serialize(evt);
 
         json.Should().Contain("MESSAGE_TURN_FINISHED");
     }

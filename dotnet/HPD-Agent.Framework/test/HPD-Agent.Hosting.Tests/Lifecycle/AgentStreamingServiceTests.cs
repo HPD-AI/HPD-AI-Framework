@@ -8,7 +8,7 @@ namespace HPD.Agent.Hosting.Tests.Lifecycle;
 
 public sealed class AgentStreamingServiceTests : IAsyncLifetime
 {
-    private readonly InMemorySessionStore _sessionStore = new();
+    private readonly InMemorySessionStore _sessionStore = new(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
     private readonly InMemoryAgentStore _agentStore = new();
     private readonly TestSessionManager _sessionManager;
     private readonly TestAgentManager _agentManager;

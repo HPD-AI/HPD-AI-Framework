@@ -11,7 +11,7 @@ public class MultiAgentConversationRuntimeTests
     [Fact]
     public async Task SharedWorkflowThread_RoutesAllNodesToSameThread()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
         var runtime = new MultiAgentConversationRuntime(
             MultiAgentConversationPolicies.SharedWorkflowThread("workflow-session"),
             store,
@@ -41,7 +41,7 @@ public class MultiAgentConversationRuntimeTests
     [Fact]
     public async Task ThreadPerAgent_CreatesStableThreadForEachNode()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
         var runtime = new MultiAgentConversationRuntime(
             MultiAgentConversationPolicies.ThreadPerAgent("workflow-session", "node"),
             store,
@@ -67,7 +67,7 @@ public class MultiAgentConversationRuntimeTests
     [Fact]
     public async Task ForkThreadPerAgent_ForksEachNodeFromRootInputThread()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
         var runtime = new MultiAgentConversationRuntime(
             MultiAgentConversationPolicies.ForkThreadPerAgent("workflow-session", "root", "node"),
             store,
@@ -110,7 +110,7 @@ public class MultiAgentConversationRuntimeTests
     [Fact]
     public async Task ExistingSession_IsEnrichedWithWorkflowMetadata()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
         var agent = await new AgentBuilder(MinimalConfig())
             .WithSessionStore(store)
             .BuildAsync(CancellationToken.None);

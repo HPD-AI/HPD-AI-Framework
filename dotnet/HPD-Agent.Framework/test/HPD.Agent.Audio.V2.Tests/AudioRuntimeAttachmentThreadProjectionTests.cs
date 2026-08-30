@@ -116,7 +116,7 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
     [Fact]
     public async Task BeforeMessageTurn_ProjectsInputMediaTranscript_ToSessionThreadWithoutRawAudio()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             ThreadProjectionSink = new SessionThreadProjectionSink(store),
@@ -156,7 +156,7 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
     [Fact]
     public async Task BeforeMessageTurn_CreatesInteractionFactoryFromInputMediaResolver()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
         var client = new FakeSpeechToTextClient("meai middleware transcript");
         var factoryCreateCount = 0;
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions

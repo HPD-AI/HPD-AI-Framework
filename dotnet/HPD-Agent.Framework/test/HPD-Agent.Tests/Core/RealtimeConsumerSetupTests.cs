@@ -23,7 +23,7 @@ public sealed class RealtimeConsumerSetupTests
                     ResponseId = "resp-consumer"
                 }
             ]);
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var agent = await AgentBuilder
             .Create()
             .WithSessionStore(store)

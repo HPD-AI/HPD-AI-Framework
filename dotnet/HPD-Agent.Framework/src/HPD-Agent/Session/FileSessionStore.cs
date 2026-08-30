@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using HPD.Agent.Serialization;
 
 namespace HPD.Agent;
 
@@ -37,6 +38,9 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
     private long _observationWaitCount;
 
     /// <inheritdoc />
+    public AgentEventCodec EventCodec { get; }
+
+    /// <inheritdoc />
     public async ValueTask StageThreadDeltaAsync(
         ThreadKey thread,
         AgentEvent delta,
@@ -47,8 +51,8 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
         _ = GetPendingIdentity(delta);
         var path = GetPendingDeltaPath(thread, delta);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        var frame = JsonSerializer.Serialize<AgentEvent>(
-            delta with { ThreadSequenceNumber = 0 }, ThreadEventJson.CompactOptions) + "\n";
+        EventCodec.RequireDurable(delta);
+        var frame = EventCodec.Serialize(delta with { ThreadSequenceNumber = 0 }) + "\n";
         var bytes = Encoding.UTF8.GetBytes(frame);
         await using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read, 16 * 1024, true);
         await stream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
@@ -65,7 +69,7 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
     {
         ValidateThreadKey(thread);
         var path = GetPendingDeltaPath(thread, messageEnd);
-        var deltas = await ReadPendingDeltasAsync(path, cancellationToken).ConfigureAwait(false);
+        var deltas = await ReadPendingDeltasAsync(thread, path, cancellationToken).ConfigureAwait(false);
         var events = ThreadDeltaCoalescer.Coalesce(deltas, messageEnd);
         var result = await AppendThreadEventsAsync(thread, events, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
@@ -86,7 +90,7 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
 
         foreach (var path in Directory.EnumerateFiles(directory, "*.events").OrderBy(static path => path, StringComparer.Ordinal))
         {
-            var deltas = await ReadPendingDeltasAsync(path, cancellationToken).ConfigureAwait(false);
+            var deltas = await ReadPendingDeltasAsync(thread, path, cancellationToken).ConfigureAwait(false);
             if (deltas.Count == 0)
             {
                 File.Delete(path);
@@ -166,6 +170,7 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
     }
 
     private async ValueTask<IReadOnlyList<AgentEvent>> ReadPendingDeltasAsync(
+        ThreadKey thread,
         string path,
         CancellationToken cancellationToken)
     {
@@ -186,8 +191,7 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
         {
             if (string.IsNullOrWhiteSpace(line))
                 continue;
-            events.Add(JsonSerializer.Deserialize<AgentEvent>(line, ThreadEventJson.Options)
-                ?? throw new InvalidDataException($"Pending delta frame '{path}' is empty."));
+            events.Add(DeserializeDurableEvent(line, thread, ReadJournalGeneration(thread), 0));
         }
         return events;
     }
@@ -215,9 +219,13 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
             Directory.Delete(directory);
     }
 
-    public FileSessionStore(string basePath, FileSessionStoreOptions? options = null)
+    public FileSessionStore(
+        string basePath,
+        AgentEventCodec eventCodec,
+        FileSessionStoreOptions? options = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(basePath);
+        EventCodec = eventCodec ?? throw new ArgumentNullException(nameof(eventCodec));
         _options = options ?? new FileSessionStoreOptions();
         if (_options.SegmentEventCapacity <= 0)
             throw new ArgumentOutOfRangeException(nameof(options), "SegmentEventCapacity must be positive.");
@@ -398,7 +406,7 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
             if (segment.LastSequence <= request.After.SequenceNumber || segment.FirstSequence > boundary.Through)
                 continue;
 
-            await foreach (var evt in ReadSegmentEventsAsync(segment, cancellationToken).ConfigureAwait(false))
+            await foreach (var evt in ReadSegmentEventsAsync(thread, boundary.Generation, segment, cancellationToken).ConfigureAwait(false))
             {
                 if (evt.ThreadSequenceNumber <= request.After.SequenceNumber || evt.ThreadSequenceNumber > boundary.Through)
                     continue;
@@ -506,6 +514,8 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
         => new(events.ToArray(), generation, events[0].ThreadSequenceNumber, events[^1].ThreadSequenceNumber);
 
     private async IAsyncEnumerable<AgentEvent> ReadSegmentEventsAsync(
+        ThreadKey thread,
+        long generation,
         SegmentSnapshot segment,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
@@ -522,8 +532,7 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
                 continue;
             if (index > start)
             {
-                var frame = JsonSerializer.Deserialize<List<AgentEvent>>(bytes.AsSpan(start, index - start), ThreadEventJson.Options)
-                    ?? throw new InvalidDataException($"Journal segment '{segment.Path}' contains an empty frame.");
+                var frame = DeserializeFrame(bytes.AsSpan(start, index - start), thread, generation, segment.FirstSequence);
                 Interlocked.Add(ref _eventDecodeCount, frame.Count);
                 foreach (var evt in frame)
                     yield return evt;
@@ -541,6 +550,55 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
         await File.WriteAllTextAsync(temp, content, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
         File.Move(temp, path, true);
     }
+
+    private IReadOnlyList<AgentEvent> DeserializeFrame(
+        ReadOnlySpan<byte> bytes,
+        ThreadKey thread,
+        long generation,
+        long firstSequence)
+    {
+        using var document = JsonDocument.Parse(bytes.ToArray());
+        if (document.RootElement.ValueKind != JsonValueKind.Array)
+            throw new InvalidDataException("Journal frame must be a JSON array.");
+        var events = new List<AgentEvent>();
+        foreach (var element in document.RootElement.EnumerateArray())
+        {
+            var sequence = element.TryGetProperty("threadSequenceNumber", out var sequenceProperty) &&
+                sequenceProperty.TryGetInt64(out var persistedSequence)
+                ? persistedSequence
+                : firstSequence + events.Count;
+            events.Add(DeserializeDurableEvent(element.GetRawText(), thread, generation, sequence));
+        }
+        return events;
+    }
+
+    private AgentEvent DeserializeDurableEvent(string json, ThreadKey thread, long generation, long sequence)
+    {
+        try
+        {
+            return EventCodec.DeserializeEvent(json);
+        }
+        catch (UnknownAgentEventDiscriminatorException exception)
+        {
+            throw new UnknownDurableAgentEventException(
+                exception.Discriminator,
+                thread.SessionId,
+                thread.ThreadId,
+                generation,
+                sequence,
+                exception.CodecDigest,
+                exception);
+        }
+    }
+
+    private long ReadJournalGeneration(ThreadKey thread)
+    {
+        var path = GetJournalGenerationPath(thread);
+        return File.Exists(path) && long.TryParse(File.ReadAllText(path), out var generation) ? generation : 0;
+    }
+
+    private string SerializeFrame(IEnumerable<AgentEvent> events) =>
+        "[" + string.Join(',', events.Select(evt => EventCodec.Serialize(evt))) + "]\n";
 
     private static void ValidateThreadKey(ThreadKey key)
     {
@@ -606,7 +664,9 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
                 var segmentPath = _store.GetSegmentPath(_key, segmentStart);
                 Directory.CreateDirectory(Path.GetDirectoryName(segmentPath)!);
                 await EnsureJournalGenerationAsync(generation, cancellationToken).ConfigureAwait(false);
-                var frame = "[" + string.Join(',', committed.Select(evt => JsonSerializer.Serialize(evt, ThreadEventJson.CompactOptions))) + "]\n";
+                foreach (var evt in committed)
+                    _store.EventCodec.RequireDurable(evt);
+                var frame = _store.SerializeFrame(committed);
                 await AppendTextAsync(segmentPath, frame, cancellationToken).ConfigureAwait(false);
 
                 var indexText = string.Concat(committed.Select(evt => $"{evt.ThreadSequenceNumber}\t{evt.EventId}\t{segmentStart}\n"));
@@ -668,7 +728,9 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
                 var replacementJournal = Path.Combine(replacementRoot, "journal");
                 Directory.CreateDirectory(replacementJournal);
                 var segmentPath = Path.Combine(replacementJournal, "segment-00000000000000000001.events");
-                var frame = "[" + string.Join(',', committed.Select(evt => JsonSerializer.Serialize(evt, ThreadEventJson.CompactOptions))) + "]\n";
+                foreach (var evt in committed)
+                    _store.EventCodec.RequireDurable(evt);
+                var frame = _store.SerializeFrame(committed);
                 await File.WriteAllTextAsync(segmentPath, frame, new UTF8Encoding(false), cancellationToken).ConfigureAwait(false);
                 await File.WriteAllTextAsync(
                     Path.Combine(replacementJournal, "generation"),
@@ -873,7 +935,8 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
                 ParseSegmentStart(lastSegment),
                 long.MaxValue,
                 new FileInfo(lastSegment).Length);
-            await foreach (var evt in _store.ReadSegmentEventsAsync(snapshot, cancellationToken).ConfigureAwait(false))
+            var generation = await ReadJournalGenerationAsync(cancellationToken).ConfigureAwait(false);
+            await foreach (var evt in _store.ReadSegmentEventsAsync(_key, generation, snapshot, cancellationToken).ConfigureAwait(false))
                 head = evt.ThreadSequenceNumber;
             return head;
         }
@@ -907,7 +970,7 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
                 currentStart = ParseSegmentStart(path);
                 currentCount = 0;
                 var snapshot = new SegmentSnapshot(path, currentStart, long.MaxValue, new FileInfo(path).Length);
-                await foreach (var evt in _store.ReadSegmentEventsAsync(snapshot, cancellationToken).ConfigureAwait(false))
+                await foreach (var evt in _store.ReadSegmentEventsAsync(_key, generation, snapshot, cancellationToken).ConfigureAwait(false))
                 {
                     var expected = (descriptor?.Head ?? 0) + 1;
                     if (evt.ThreadSequenceNumber != expected || !_eventIds.Add(evt.EventId))

@@ -7,11 +7,13 @@ internal static class AgentEventContentPersistence
 {
     public static async Task<ContentInfo?> PersistAsync(
         IContentStore? contentStore,
+        AgentEventCodec eventCodec,
         AgentEvent evt,
         string? defaultScope,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(evt);
+        ArgumentNullException.ThrowIfNull(eventCodec);
 
         var request = evt.GetContentPersistenceRequest();
         if (contentStore == null || request == null)
@@ -21,7 +23,9 @@ internal static class AgentEventContentPersistence
         var tags = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["kind"] = kind,
-            ["event.type"] = AgentEventSerializer.GetEventTypeName(evt)
+            ["event.type"] = eventCodec.TryGetByType(evt.GetType(), out var descriptor)
+                ? descriptor.Discriminator
+                : throw new InvalidOperationException($"Event '{evt.GetType().FullName}' is absent from codec '{eventCodec.Digest}'.")
         };
 
         AddIfPresent(tags, "event.id", evt.EventId);
@@ -48,7 +52,7 @@ internal static class AgentEventContentPersistence
             }
         }
 
-        var json = AgentEventSerializer.ToJson(evt);
+        var json = eventCodec.Serialize(evt);
         await using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
 
         return await contentStore.WriteAsync(

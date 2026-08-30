@@ -508,7 +508,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
         await state.ApplyEventAsync(ExecuteCommandResult(
             """
             <execute_command_background count="1">
-              <command background_handle_id="bg-1" command="npm run dev" cwd="/repo" status="running" />
+              <command operation_id="bg-1" command="npm run dev" cwd="/repo" status="running" />
             </execute_command_background>
             """));
 
@@ -527,7 +527,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
         await state.ApplyEventAsync(Output("ready on 5173\n", command: "npm run dev"));
         await state.ApplyEventAsync(ExecuteCommandResult(
             """
-            <execute_command_stop background_handle_id="cmd-1" command="npm run dev" cwd="/repo" status="stopped" exit_code="137" completion_kind="stopped" />
+            <execute_command_stop operation_id="cmd-1" command="npm run dev" cwd="/repo" status="stopped" exit_code="137" completion_kind="stopped" />
             """,
             callId: "call-stop"));
 
@@ -547,7 +547,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
 
         await state.ApplyEventAsync(ExecuteCommandResult(
             """
-            <execute_command_stop background_handle_id="bg-1" command="npm run dev" cwd="/repo" status="stopped" exit_code="137" completion_kind="stopped" />
+            <execute_command_stop operation_id="bg-1" command="npm run dev" cwd="/repo" status="stopped" exit_code="137" completion_kind="stopped" />
             """));
 
         var rendered = RenderTranscript(state);
@@ -988,7 +988,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
             BaseCommand = "npm",
             Category = ExecuteCommandCategory.Server,
             WorkingDirectory = "/repo",
-            BackgroundHandleId = "bg-1",
+            OperationId = "bg-1",
             BackgroundedAt = DateTimeOffset.Parse("2026-06-06T12:00:02Z"),
             ElapsedMilliseconds = 2_000
         };

@@ -15,6 +15,7 @@ namespace HPD.Agent.Hosting.Tests.Data;
 /// </summary>
 public class DtoSerializationTests
 {
+    private static readonly AgentInputCodec InputCodec = new(ProviderComposition.Create([]));
     private readonly JsonSerializerOptions _options;
 
     public DtoSerializationTests()
@@ -324,8 +325,8 @@ public class DtoSerializationTests
         };
 
         // Act
-        var json = AgentEventSerializer.ToJson(original);
-        var deserialized = AgentEventSerializer.FromJson(json) as UserMessagesInputEvent;
+        var json = InputCodec.Serialize(original);
+        var deserialized = InputCodec.Deserialize(json) as UserMessagesInputEvent;
 
         // Assert
         deserialized.Should().NotBeNull();
@@ -366,8 +367,8 @@ public class DtoSerializationTests
             }
         };
 
-        var json = AgentEventSerializer.ToJson(original);
-        var deserialized = AgentEventSerializer.FromJson(json) as CompactThreadInputEvent;
+        var json = InputCodec.Serialize(original);
+        var deserialized = InputCodec.Deserialize(json) as CompactThreadInputEvent;
 
         deserialized.Should().NotBeNull();
         deserialized!.SessionId.Should().Be("session-123");

@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Agent.AspNetCore.EndpointMapping.Endpoints;
 
@@ -46,7 +47,14 @@ internal static class MiddlewareResponseEndpoints
                 });
             }
 
-            if (AgentEventSerializer.FromJson(json) is not AgentEvent evt)
+            AgentEvent evt;
+            try
+            {
+                evt = request.HttpContext.RequestServices
+                    .GetRequiredService<AgentEventComposition>().Codec
+                    .DeserializeEvent(json);
+            }
+            catch
             {
                 return TypedResults.ValidationProblem(new Dictionary<string, string[]>
                 {

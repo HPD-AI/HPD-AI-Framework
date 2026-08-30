@@ -60,8 +60,9 @@ public class HPDAgentRegistryTests
     public void AddHPDAgent_NamedOptions_AreIsolated()
     {
         var services = new ServiceCollection();
-        services.AddHPDAgent("agent1", opts => opts.AgentIdleTimeout = TimeSpan.FromMinutes(30));
-        services.AddHPDAgent("agent2", opts => opts.AgentIdleTimeout = TimeSpan.FromMinutes(60));
+        services.AddTestApplicationCompositions();
+        services.AddTestApplicationCompositions().AddHPDAgent("agent1", opts => opts.AgentIdleTimeout = TimeSpan.FromMinutes(30));
+        services.AddTestApplicationCompositions().AddHPDAgent("agent2", opts => opts.AgentIdleTimeout = TimeSpan.FromMinutes(60));
         var sp = services.BuildServiceProvider();
 
         var monitor = sp.GetRequiredService<IOptionsMonitor<HPDAgentConfig>>();
@@ -76,7 +77,7 @@ public class HPDAgentRegistryTests
     [Fact]
     public void AddHPDAgent_UsesProvidedSessionStore()
     {
-        var customStore = new InMemorySessionStore();
+        var customStore = new InMemorySessionStore(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec);
         var sp = BuildProvider(opts => opts.SessionStore = customStore);
 
         var sm = sp.GetRequiredService<SessionManager>();
@@ -97,7 +98,7 @@ public class HPDAgentRegistryTests
         var tempPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         try
         {
-            var sp = BuildProvider(opts => opts.SessionStore = new FileSessionStore(tempPath));
+            var sp = BuildProvider(opts => opts.SessionStore = new FileSessionStore(tempPath, HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec));
             var sm = sp.GetRequiredService<SessionManager>();
             sm.Store.Should().BeOfType<FileSessionStore>();
         }
@@ -116,8 +117,9 @@ public class HPDAgentRegistryTests
     public void AddHPDAgent_ResolvesIAgentFactory_FromDI()
     {
         var services = new ServiceCollection();
+        services.AddTestApplicationCompositions();
         services.AddSingleton<IAgentFactory, StubAgentFactory>();
-        services.AddHPDAgent(opts => opts.SessionStore = new InMemorySessionStore());
+        services.AddTestApplicationCompositions().AddHPDAgent(opts => opts.SessionStore = new InMemorySessionStore(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec));
         var sp = services.BuildServiceProvider();
 
         // AgentManager and SessionManager must resolve without throwing
@@ -195,9 +197,10 @@ public class HPDAgentRegistryTests
     private static ServiceProvider BuildProvider(Action<HPDAgentConfig>? configure = null)
     {
         var services = new ServiceCollection();
-        services.AddHPDAgent(opts =>
+        services.AddTestApplicationCompositions();
+        services.AddTestApplicationCompositions().AddHPDAgent(opts =>
         {
-            opts.SessionStore = new InMemorySessionStore();
+            opts.SessionStore = new InMemorySessionStore(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec);
             configure?.Invoke(opts);
         });
         return services.BuildServiceProvider();
@@ -207,7 +210,7 @@ public class HPDAgentRegistryTests
     {
         builder.Config.SetChatClientConfig(new ChatClientConfig
         {
-            ProviderKey = "test",
+            Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" },
             ModelName = "test-model"
         });
 

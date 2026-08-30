@@ -172,7 +172,7 @@ public class MessageTurnFinishedEventTests : AgentTestBase
     [Fact]
     public async Task FinalizerReplacementAndAssistantAppend_RoundTripThroughThreadJournal()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
         config.SessionStore = store;
         var fakeClient = new FakeChatClientWithUsage();
@@ -199,7 +199,7 @@ public class MessageTurnFinishedEventTests : AgentTestBase
     {
         var events = new List<AgentEvent>();
         var config = DefaultConfig();
-        config.SessionStore = new InMemorySessionStore();
+        config.SessionStore = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var fakeClient = new FakeChatClientWithUsage();
         fakeClient.EnqueueResponse("done", 3, 2);
         var agent = CreateAgentWithMiddlewares(config, fakeClient, [new InvalidHistoryFinalizer(reorder)]);
@@ -217,7 +217,7 @@ public class MessageTurnFinishedEventTests : AgentTestBase
     public async Task ReconciliationFailureSuppressesSuccessTerminal()
     {
         var events = new List<AgentEvent>();
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
         config.SessionStore = store;
         var fakeClient = new FakeChatClientWithUsage();
@@ -397,7 +397,7 @@ public class MessageTurnFinishedEventTests : AgentTestBase
     private Agent CreatePersistentAgent(IChatClient client, params AIFunction[] tools)
     {
         var config = DefaultConfig();
-        config.SessionStore = new InMemorySessionStore();
+        config.SessionStore = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         return CreateAgent(config, client, tools: tools);
     }
 

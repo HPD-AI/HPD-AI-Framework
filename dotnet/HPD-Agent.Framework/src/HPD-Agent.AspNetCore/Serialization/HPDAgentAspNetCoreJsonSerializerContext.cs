@@ -4,6 +4,7 @@ using HPD.Agent.AspNetCore.EndpointMapping.Endpoints;
 using HPD.Agent.Evaluations.Batch;
 using HPD.Agent.Evaluations;
 using HPD.Agent.Evaluations.Storage;
+using HPD.Agent.Serialization;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.AI.Evaluation;
 
@@ -83,6 +84,8 @@ namespace HPD.Agent.AspNetCore.Serialization;
 [JsonSerializable(typeof(List<ChatMessage>))]
 [JsonSerializable(typeof(ChatResponse))]
 [JsonSerializable(typeof(UsageDetails))]
+[JsonSerializable(typeof(AgentEventCatalog))]
+[JsonSerializable(typeof(AgentEventCatalogEntry))]
 internal partial class HPDAgentAspNetCoreJsonSerializerContext : JsonSerializerContext
 {
 }

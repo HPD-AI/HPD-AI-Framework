@@ -159,8 +159,6 @@ public partial class SessionJsonContext : JsonSerializerContext
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         };
 
-        options.Converters.Add(new AgentEventJsonConverter());
-
         // Start with our SessionJsonContext for HPD-specific types
         options.TypeInfoResolverChain.Add(new SessionJsonContext());
         options.TypeInfoResolverChain.Add(AgentEventJsonContext.Default);

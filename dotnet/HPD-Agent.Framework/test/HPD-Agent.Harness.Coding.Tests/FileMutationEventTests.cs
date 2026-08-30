@@ -66,7 +66,7 @@ public sealed class FileMutationEventTests
     [Fact]
     public void FileMutationAppliedEvent_SerializesForAgentEventStream()
     {
-        var json = AgentEventSerializer.ToJson(CreateWriteEvent());
+        var json = CodingEventTestCodec.Codec.Serialize(CreateWriteEvent());
         using var doc = JsonDocument.Parse(json);
 
         doc.RootElement.GetProperty("type").GetString().Should().Be("FILE_WRITE_APPLIED");

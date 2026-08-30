@@ -131,7 +131,7 @@ public class TeamsBotInteractionTests
 
     private static HPD.Agent.Bots.Teams.TeamsBot CreateBot(AgentManager agentManager)
     {
-        var sessionManager = new TestSessionManager(new InMemorySessionStore());
+        var sessionManager = new TestSessionManager(new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec));
         var mapper = new PlatformSessionMapper(sessionManager, "teams-test-agent");
         var options = Options.Create(new TeamsBotConfig
         {
@@ -162,7 +162,7 @@ public class TeamsBotInteractionTests
                 MaxRetries = 0,
                 NormalizeErrors = true,
             },
-            SessionStore = new InMemorySessionStore(),
+            SessionStore = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec),
         };
 
     private sealed class StaticAgentManager(HpdAgent agent) : AgentManager(new InMemoryAgentStore())

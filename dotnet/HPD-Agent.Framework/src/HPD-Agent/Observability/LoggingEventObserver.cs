@@ -38,7 +38,7 @@ public class LoggingEventObserver
                 {
                     _logger.LogTrace(
                         "Container '{Container}' ({Type}) expanded at iteration {Iteration}: unlocked {Count} functions: [{Functions}]",
-                        e.ContainerName, e.Type, e.Iteration, e.UnlockedFunctions.Count,
+                        e.ContainerName, e.ContainerType, e.Iteration, e.UnlockedFunctions.Count,
                         string.Join(", ", e.UnlockedFunctions));
                 }
                 break;

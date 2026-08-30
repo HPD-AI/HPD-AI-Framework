@@ -22,6 +22,7 @@ internal class AspNetCoreAgentManager : AgentManager
     private readonly string _name;
     private readonly IContentStore _contentStore;
     private readonly HostingAgentFactory? _agentFactory;
+    private readonly AgentEventComposition _eventComposition;
 
     internal AspNetCoreAgentManager(
         IAgentStore agentStore,
@@ -30,7 +31,8 @@ internal class AspNetCoreAgentManager : AgentManager
         IServiceProvider serviceProvider,
         string name,
         IContentStore contentStore,
-        HostingAgentFactory? agentFactory = null)
+        HostingAgentFactory? agentFactory,
+        AgentEventComposition eventComposition)
         : base(agentStore)
     {
         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
@@ -39,6 +41,7 @@ internal class AspNetCoreAgentManager : AgentManager
         _name = name ?? throw new ArgumentNullException(nameof(name));
         _contentStore = contentStore ?? throw new ArgumentNullException(nameof(contentStore));
         _agentFactory = agentFactory;
+        _eventComposition = eventComposition ?? throw new ArgumentNullException(nameof(eventComposition));
     }
 
     protected override async Task<Agent> BuildAgentAsync(string agentId, CancellationToken ct)
@@ -90,6 +93,7 @@ internal class AspNetCoreAgentManager : AgentManager
         }
 
         builder
+            .WithEventComposition(_eventComposition)
             .WithServiceProvider(_serviceProvider)
             .WithAgentId(agentId)
             .WithAgentStore(AgentStore, opts.PersistAgentDefinitionsOnBuild)

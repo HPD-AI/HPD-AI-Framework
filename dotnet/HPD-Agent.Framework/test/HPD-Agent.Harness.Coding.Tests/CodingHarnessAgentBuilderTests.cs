@@ -21,12 +21,14 @@ public class CodingToolHarnessAgentBuilderTests
         {
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig
             {
-                ProviderKey = "test",
+                Provider = new ProviderReference { Key = "test" },
                 ModelName = "test-model"
             } }
         };
 
         var agent = await new AgentBuilder(config, new TestProviderRegistry(chatClient))
+            .WithEventComposition(CodingEventTestCodec.Composition)
+            .WithChatClient(chatClient)
             .WithName("coding-toolharness-test-agent")
             .WithToolHarness<CodingToolHarness>()
             .BuildAsync();
@@ -96,12 +98,14 @@ public class CodingToolHarnessAgentBuilderTests
         {
             Chat = new ChatClientConfig
             {
-                ProviderKey = "test",
+                Provider = new ProviderReference { Key = "test" },
                 ModelName = "test-model"
             }
         };
 
         var agent = await new AgentBuilder(config, new TestProviderRegistry(chatClient))
+            .WithEventComposition(CodingEventTestCodec.Composition)
+            .WithChatClient(chatClient)
             .BuildAsync();
 
         var toolNames = agent.DefaultOptions?.Tools?
@@ -135,6 +139,8 @@ public class CodingToolHarnessAgentBuilderTests
     {
         using var chatClient = new RecordingTestChatClient();
         var agent = await new AgentBuilder(CreateTestConfig(), new TestProviderRegistry(chatClient))
+            .WithEventComposition(CodingEventTestCodec.Composition)
+            .WithChatClient(chatClient)
             .WithName("automatic-collapsing-root")
             .WithToolHarness<CodingToolHarness>()
             .BuildAsync();
@@ -156,6 +162,8 @@ public class CodingToolHarnessAgentBuilderTests
         reviewerConfig.Clients = CreateTestConfig().Clients;
 
         var reviewer = await new AgentBuilder(reviewerConfig, new TestProviderRegistry(chatClient))
+            .WithEventComposition(CodingEventTestCodec.Composition)
+            .WithChatClient(chatClient)
             .BuildAsync();
 
         await reviewer.RunAsync("Review this workspace.");
@@ -203,11 +211,13 @@ public class CodingToolHarnessAgentBuilderTests
                     {
                         Clients = new AgentClientsConfig { Chat = new ChatClientConfig
                         {
-                            ProviderKey = "test",
+                            Provider = new ProviderReference { Key = "test" },
                             ModelName = "test-model"
                         } }
                     },
                     new TestProviderRegistry(chatClient))
+                .WithEventComposition(CodingEventTestCodec.Composition)
+                .WithChatClient(chatClient)
                 .WithName("coding-toolharness-test-agent")
                 .WithToolHarness<CodingToolHarness>()
                 .BuildAsync();
@@ -297,7 +307,7 @@ public class CodingToolHarnessAgentBuilderTests
         {
             Chat = new ChatClientConfig
             {
-                ProviderKey = "test",
+                Provider = new ProviderReference { Key = "test" },
                 ModelName = "test-model"
             }
         }
@@ -358,7 +368,7 @@ public class CodingToolHarnessAgentBuilderTests
                 : null;
 
         public TProvider? GetProvider<TProvider>(string providerKey)
-            where TProvider : class, IProvider
+            where TProvider : class
             => GetProvider(providerKey) as TProvider;
 
         public IReadOnlyCollection<string> GetRegisteredProviders() => ["test"];

@@ -42,7 +42,7 @@ public sealed partial class Agent : IAsyncDisposable
     private readonly ProviderClientManager<IImageGenerator> _imageGeneratorManager = new();
     private readonly ProviderClientManager<IEmbeddingGenerator> _embeddingGeneratorManager = new();
     private readonly ProviderClientManager<IHostedFileClient> _hostedFileClientManager = new();
-    private readonly InMemorySessionStore _ephemeralEventJournal = new();
+    private readonly InMemorySessionStore _ephemeralEventJournal;
     private readonly AgentClientSet? _clientSet;
     private readonly IAsyncDisposable? _providerRuntimeOwner;
     private readonly string _name;
@@ -292,6 +292,9 @@ public sealed partial class Agent : IAsyncDisposable
             ?? ImmutableDictionary<string, MiddlewareStateFactory>.Empty;
         _ownedHttpClients = ownedHttpClients;
         Config = config ?? throw new ArgumentNullException(nameof(config));
+        _ephemeralEventJournal = new InMemorySessionStore(
+            config.EventComposition?.Codec
+            ?? throw new InvalidOperationException("AgentConfig.EventComposition must be resolved before Agent construction."));
         _clientSet = clientSet;
         _providerRuntimeOwner = providerRuntimeOwner;
         _baseClient = clientSet?.Chat ?? baseClient;
@@ -330,7 +333,7 @@ public sealed partial class Agent : IAsyncDisposable
         _eventCoordinator = new HPD.Events.Core.EventCoordinator();
         var operationThreadEvents = Config.SessionStore is null
             ? null
-            : new ThreadEventPublisher(Config.SessionStore, _eventCoordinator);
+            : new AgentEventPublisher(Config.SessionStore, _eventCoordinator);
         _operationRegistry = new AgentOperationRegistry(
             new AgentOperationEventSink(_eventCoordinator, operationThreadEvents),
             Config.OperationRetention);
@@ -358,7 +361,7 @@ public sealed partial class Agent : IAsyncDisposable
             _baseClient,
             config.ConfigureOptions,
             config.ClientMiddleware?.Chat,
-            serviceProvider);  
+            serviceProvider);
         _chatModelTurnExecutor = new ChatModelTurnExecutor(_agentTurn);
         _realtimeProviderProtocolParticipant = new RealtimeProviderProtocolParticipantV1();
 
@@ -839,7 +842,7 @@ public sealed partial class Agent : IAsyncDisposable
             await store.SaveSessionAsync(session, cancellationToken).ConfigureAwait(false);
         }
 
-        var publisher = new ThreadEventPublisher(store, eventCoordinator);
+        var publisher = new AgentEventPublisher(store, eventCoordinator);
         foreach (var message in newMessages.Where(ShouldCommitMessageSnapshotToThread))
         {
             AgentMessagePolicy.StampDefaults(message);
@@ -961,7 +964,7 @@ public sealed partial class Agent : IAsyncDisposable
         var finalizationEvents = replacements.Concat(appendedEvents).ToArray();
         if (finalizationEvents.Length > 0)
         {
-            var publisher = new ThreadEventPublisher(store, eventCoordinator);
+            var publisher = new AgentEventPublisher(store, eventCoordinator);
             await publisher.CommitAndPublishAsync(
                 new ThreadKey(thread.SessionId, thread.Id),
                 finalizationEvents,
@@ -1032,7 +1035,7 @@ public sealed partial class Agent : IAsyncDisposable
         evt = EnrichOutputEvent(evt);
         if (thread == null)
         {
-            return await new ThreadEventPublisher(_ephemeralEventJournal, eventCoordinator)
+            return await new AgentEventPublisher(_ephemeralEventJournal, eventCoordinator)
                 .CommitAndPublishAsync(new ThreadKey($"ephemeral:{AgentId}", "main"), evt, cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -1040,12 +1043,12 @@ public sealed partial class Agent : IAsyncDisposable
         var store = Config?.SessionStore;
         if (store == null)
         {
-            return await new ThreadEventPublisher(_ephemeralEventJournal, eventCoordinator)
+            return await new AgentEventPublisher(_ephemeralEventJournal, eventCoordinator)
                 .CommitAndPublishAsync(new ThreadKey(thread.SessionId, thread.Id), evt, cancellationToken)
                 .ConfigureAwait(false);
         }
 
-        var publisher = new ThreadEventPublisher(store, eventCoordinator);
+        var publisher = new AgentEventPublisher(store, eventCoordinator);
         return await publisher.CommitAndPublishAsync(
             new ThreadKey(thread.SessionId, thread.Id),
             evt,
@@ -1165,7 +1168,7 @@ public sealed partial class Agent : IAsyncDisposable
         evt = EnrichOutputEvent(evt);
         if (thread == null)
         {
-            return await new ThreadEventPublisher(_ephemeralEventJournal, eventCoordinator)
+            return await new AgentEventPublisher(_ephemeralEventJournal, eventCoordinator)
                 .CommitAndPublishAsync(new ThreadKey($"ephemeral:{AgentId}", "main"), evt, cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -1207,7 +1210,7 @@ public sealed partial class Agent : IAsyncDisposable
         var threadEvent = CreateAgentThreadEvent(
             thread, evt, messageTurnId, conversationId, iteration,
             inputMessageCount, isResume, turnMessageCount);
-        var publisher = new ThreadEventPublisher(Config!.SessionStore!, eventCoordinator);
+        var publisher = new AgentEventPublisher(Config!.SessionStore!, eventCoordinator);
         return await publisher.StageAndPublishDeltaAsync(
             new ThreadKey(thread.SessionId, thread.Id), threadEvent, cancellationToken).ConfigureAwait(false);
     }
@@ -1227,7 +1230,7 @@ public sealed partial class Agent : IAsyncDisposable
         var threadEvent = CreateAgentThreadEvent(
             thread, evt, messageTurnId, conversationId, iteration,
             inputMessageCount, isResume, turnMessageCount);
-        var publisher = new ThreadEventPublisher(Config!.SessionStore!, eventCoordinator);
+        var publisher = new AgentEventPublisher(Config!.SessionStore!, eventCoordinator);
         var result = await publisher.FinalizeAndPublishDeltasAsync(
             new ThreadKey(thread.SessionId, thread.Id), threadEvent, cancellationToken).ConfigureAwait(false);
         return result.CommittedEvents[^1];
@@ -1313,6 +1316,7 @@ public sealed partial class Agent : IAsyncDisposable
         {
             await AgentEventContentPersistence.PersistAsync(
                 _contentStore,
+                Config.EventComposition!.Codec,
                 evt,
                 sessionId,
                 cancellationToken).ConfigureAwait(false);
@@ -1721,7 +1725,7 @@ public sealed partial class Agent : IAsyncDisposable
             return stateless;
         }
 
-        return await new ThreadEventPublisher(store, runtimeCoordinator).CommitAndPublishAsync(
+        return await new AgentEventPublisher(store, runtimeCoordinator).CommitAndPublishAsync(
             new ThreadKey(evt.SessionId, evt.ThreadId),
             EnrichOutputEvent(evt),
             cancellationToken).ConfigureAwait(false);
@@ -1737,7 +1741,7 @@ public sealed partial class Agent : IAsyncDisposable
 
         Middleware.AgentRuntimeContext runtimeContext;
         HPD.Events.IEventCoordinator runtimeCoordinator;
-        IThreadEventPublisher? runtimeThreadEvents;
+        IAgentEventPublisher? runtimeThreadEvents;
         StructEventHub runtimeStructEvents;
         CancellationTokenSource runtimeCts;
         Channel<AgentInputEvent> runtimeInbox;
@@ -1757,7 +1761,7 @@ public sealed partial class Agent : IAsyncDisposable
             runtimeCoordinator = new HPD.Events.Core.EventCoordinator();
             runtimeCoordinator.SetParent(_eventCoordinator);
             runtimeThreadEvents = Config?.SessionStore is { } store
-                ? new ThreadEventPublisher(store, runtimeCoordinator)
+                ? new AgentEventPublisher(store, runtimeCoordinator)
                 : null;
             runtimeStructEvents = new StructEventHub();
             runtimeInbox = Channel.CreateUnbounded<AgentInputEvent>(new UnboundedChannelOptions
@@ -2260,7 +2264,7 @@ public sealed partial class Agent : IAsyncDisposable
         var store = Config?.SessionStore
             ?? throw new InvalidOperationException(
                 "A scoped response requires the configured session store so it can commit before request completion.");
-        var publisher = new ThreadEventPublisher(store, coordinator);
+        var publisher = new AgentEventPublisher(store, coordinator);
         var key = new ThreadKey(agentResponse.SessionId, agentResponse.ThreadId);
 
         var result = await coordinator.RespondAsync(
@@ -2476,7 +2480,7 @@ public sealed partial class Agent : IAsyncDisposable
             using var providerAccountingScope = accountingBridge?.Collector is { } collector
                 ? ProviderOperationAccountingScope.Push(collector)
                 : null;
- 
+
             AgentLoopState state;
             IEnumerable<ChatMessage> effectiveMessages;
             ChatOptions? effectiveOptions;
@@ -2510,17 +2514,17 @@ public sealed partial class Agent : IAsyncDisposable
                 SpanId = turnSpanId
             };
 
-            //     
+            //
             // BUILD CONFIGURATION & DECISION ENGINE (common to both paths)
-            //     
+            //
 
             var config = BuildDecisionConfiguration(effectiveOptions);
             var decisionEngine = new AgentDecisionEngine();
-            
+
             // INITIALIZE TURN HISTORY: Add only NEW input messages (Option 2 pattern)
             // All NEW messages from this turn will be saved to session at the end
             // PreparedTurn separates MessagesForLLM (full history) from NewInputMessages (to persist)
-            
+
             foreach (var msg in newInputMessages)
             {
                 turnHistory.Add(msg);
@@ -2582,7 +2586,7 @@ public sealed partial class Agent : IAsyncDisposable
                 initialState: state,
                 eventCoordinator: eventCoordinator,
                 threadEvents: Config?.SessionStore is { } turnStore
-                    ? new ThreadEventPublisher(turnStore, eventCoordinator)
+                    ? new AgentEventPublisher(turnStore, eventCoordinator)
                     : null,
                 session: session,
                 thread: thread,
@@ -2725,15 +2729,15 @@ public sealed partial class Agent : IAsyncDisposable
                     AgentName: _name)
                 { TraceId = traceId };
 
-                //      
+                //
                 // FUNCTIONAL CORE: Pure Decision (No I/O)
-                //      
+                //
 
                 var decision = decisionEngine.DecideNextAction(state, lastResponse, config);
 
-                //      
+                //
                 // OBSERVABILITY: Emit iteration and decision events
-                //      
+                //
 
                 // Emit iteration start event
                 yield return new IterationStartEvent(
@@ -2758,9 +2762,9 @@ public sealed partial class Agent : IAsyncDisposable
                 // NOTE: Circuit breaker events are now emitted directly by CircuitBreakerIterationMiddleware
                 // via context.PublishAsync() in BeforeToolExecutionAsync.
 
-                //     
+                //
                 // ARCHITECTURAL DECISION: Inline Execution for Zero-Latency Streaming
-                //     
+                //
                 //
                 // LLM calls and tool execution happen INLINE (not extracted to methods)
                 // to preserve real-time streaming. Extracting would add 200-3000ms latency
@@ -2768,7 +2772,7 @@ public sealed partial class Agent : IAsyncDisposable
                 //
 
                 if (decision is AgentDecision.CallLLM)
-                {    
+                {
 
                     // Select the provider input for this iteration.
                     IEnumerable<ChatMessage> messagesToSend;
@@ -3726,7 +3730,7 @@ public sealed partial class Agent : IAsyncDisposable
                     {
                         // Coalesce text content before creating the message
                         var coalescedContents = CoalesceTextContents(assistantContents);
-                        
+
                         // Create assistant message with tool calls
                         var assistantMessage = new ChatMessage(ChatRole.Assistant, coalescedContents)
                         {
@@ -3877,7 +3881,7 @@ public sealed partial class Agent : IAsyncDisposable
                             break;
                         }
 
-                        // UPDATE STATE WITH COMPLETED FUNCTIONS   
+                        // UPDATE STATE WITH COMPLETED FUNCTIONS
                         foreach (var functionName in successfulFunctions)
                         {
                             state = state.CompleteFunction(functionName);
@@ -4149,7 +4153,7 @@ public sealed partial class Agent : IAsyncDisposable
                 turnStopwatch.Elapsed,
                 DateTimeOffset.UtcNow)
             { TraceId = traceId };
-    
+
             // PERSISTENCE: Save persistent middleware state ( split by scope)
             if (session != null)
             {
@@ -6604,7 +6608,7 @@ public sealed partial class Agent : IAsyncDisposable
                 initialState: forkState,
                 eventCoordinator: forkEventCoordinator,
                 threadEvents: Config?.SessionStore is { } forkStore
-                    ? new ThreadEventPublisher(forkStore, forkEventCoordinator)
+                    ? new AgentEventPublisher(forkStore, forkEventCoordinator)
                     : null,
                 session: sourceThread.Session,
                 thread: newThread,
@@ -7941,9 +7945,9 @@ public sealed record AgentLoopState
     /// </summary>
     public string? TerminationReason { get; init; }
 
-    //      
+    //
     // FUNCTION TRACKING
-    //      
+    //
 
     /// <summary>
     /// Functions completed in this run (for telemetry and deduplication).
@@ -7951,9 +7955,9 @@ public sealed record AgentLoopState
     /// </summary>
     public required ImmutableHashSet<string> CompletedFunctions { get; init; }
 
-    //      
+    //
     // HISTORY OPTIMIZATION STATE
-    //      
+    //
 
     /// <summary>
     /// Whether the LLM service manages conversation history server-side.
@@ -7975,9 +7979,9 @@ public sealed record AgentLoopState
     /// </summary>
     public string? LastProviderResponseId { get; init; }
 
-    //      
+    //
     // STREAMING STATE
-    //      
+    //
 
     /// <summary>
     /// Last assistant message ID (for event correlation).
@@ -8098,10 +8102,10 @@ public sealed record AgentLoopState
         MiddlewareState = persistentState ?? new MiddlewareState()
     };
 
-    //      
+    //
     // STATE TRANSITIONS (Immutable Updates)
     // All methods return NEW instances - never mutate existing state
-    //      
+    //
 
     /// <summary>
     /// Advances to the next iteration.
@@ -8223,7 +8227,7 @@ public sealed record AgentLoopState
     /// Serialized loop-state schema version.
     /// </summary>
     public int Version { get; init; } = 2;
-    
+
     /// <summary>
     /// Serializes this loop state to JSON.
     /// Uses Microsoft.Extensions.AI's built-in serialization for ChatMessage and AIContent.

@@ -5,7 +5,7 @@ namespace HPD.Agent;
 /// <summary>Commits canonical operation events through the owning agent coordinator.</summary>
 internal sealed class AgentOperationEventSink(
     IEventCoordinator events,
-    IThreadEventPublisher? threadEvents = null) : IAgentOperationEventSink
+    IAgentEventPublisher? threadEvents = null) : IAgentOperationEventSink
 {
     public async ValueTask AppendAsync(AgentEvent operationEvent, CancellationToken cancellationToken)
     {

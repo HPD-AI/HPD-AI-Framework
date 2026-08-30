@@ -6,7 +6,7 @@ namespace HPD.Agent.Serialization;
 /// Organized hierarchically by category for better discoverability.
 /// </summary>
 /// <remarks>
-/// These constants are used by AgentEventSerializer for type discrimination.
+/// These constants define stable wire discriminators used by generated event and input codecs.
 /// </remarks>
 public static partial class EventTypes
 {

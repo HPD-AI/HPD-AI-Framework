@@ -59,7 +59,7 @@ public sealed record AgentOperationNotificationSuppressedEvent : AgentEvent
 /// <summary>Dispatches operation transition notifications through the semantic input lane.</summary>
 internal sealed class AgentOperationNotificationDispatcher : IDisposable
 {
-    private readonly IThreadEventPublisher? _threadEvents;
+    private readonly IAgentEventPublisher? _threadEvents;
     private readonly HPD.Events.IEventCoordinator _events;
     private readonly System.Threading.Channels.ChannelWriter<AgentInputEvent> _input;
     private readonly IDisposable _subscription;
@@ -71,7 +71,7 @@ internal sealed class AgentOperationNotificationDispatcher : IDisposable
 
     internal AgentOperationNotificationDispatcher(
         HPD.Events.IEventCoordinator events,
-        IThreadEventPublisher? threadEvents,
+        IAgentEventPublisher? threadEvents,
         System.Threading.Channels.ChannelWriter<AgentInputEvent> input,
         AgentRunConfig? runConfig)
     {

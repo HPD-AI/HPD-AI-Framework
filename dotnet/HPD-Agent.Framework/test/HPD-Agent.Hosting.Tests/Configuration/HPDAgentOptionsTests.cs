@@ -13,7 +13,7 @@ public class HPDAgentConfigTests
     public void SessionStore_TakesPriority_OverSessionStorePath()
     {
         // Arrange
-        var customStore = new InMemorySessionStore();
+        var customStore = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
         var options = new HPDAgentConfig
         {
             SessionStore = customStore,

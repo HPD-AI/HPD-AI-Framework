@@ -1,13 +1,39 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using FluentAssertions;
 using HPD.Agent.Serialization;
+using HPD.Agent.Providers;
 using HPD.Agent.TUI.Runtime;
 
 namespace HPD.Agent.TUI.Tests;
 
 public sealed class HostedAgentTuiRuntimeValidationTests
 {
+    private static readonly AgentEventComposition TestEventComposition = CoreAgentEventComposition.Instance;
+    private static readonly ProviderComposition TestProviderComposition = ProviderComposition.Create([]);
+
+    [Fact]
+    public async Task ValidateBackendEventCatalogAsync_RejectsDifferentAuthority()
+    {
+        using var http = new HttpClient(new JsonHandler("""
+            { "events": [], "digest": "different" }
+            """))
+        {
+            BaseAddress = new Uri("http://127.0.0.1/api/hpd-agent/")
+        };
+        await using var runtime = new HostedAgentTuiRuntime(http, new HostedAgentTuiRuntimeOptions
+        {
+            EventComposition = TestEventComposition,
+            ProviderComposition = TestProviderComposition,
+            BaseAddress = http.BaseAddress
+        });
+
+        var action = () => runtime.ValidateBackendEventCatalogAsync();
+
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*different*TUI event catalog*");
+    }
     [Fact]
     public async Task GetThreadStateAsync_ProjectsUnifiedOperations()
     {
@@ -46,6 +72,8 @@ public sealed class HostedAgentTuiRuntimeValidationTests
         };
         await using var runtime = new HostedAgentTuiRuntime(http, new HostedAgentTuiRuntimeOptions
         {
+            EventComposition = TestEventComposition,
+            ProviderComposition = TestProviderComposition,
             BaseAddress = http.BaseAddress
         });
 
@@ -91,6 +119,8 @@ public sealed class HostedAgentTuiRuntimeValidationTests
             http,
             new HostedAgentTuiRuntimeOptions
             {
+            EventComposition = TestEventComposition,
+            ProviderComposition = TestProviderComposition,
                 BaseAddress = new Uri("http://127.0.0.1/api/hpd-agent/")
             });
 
@@ -116,6 +146,8 @@ public sealed class HostedAgentTuiRuntimeValidationTests
             http,
             new HostedAgentTuiRuntimeOptions
             {
+            EventComposition = TestEventComposition,
+            ProviderComposition = TestProviderComposition,
                 BaseAddress = new Uri("http://127.0.0.1/api/hpd-agent/")
             });
 
@@ -147,6 +179,8 @@ public sealed class HostedAgentTuiRuntimeValidationTests
         };
         await using var runtime = new HostedAgentTuiRuntime(http, new HostedAgentTuiRuntimeOptions
         {
+            EventComposition = TestEventComposition,
+            ProviderComposition = TestProviderComposition,
             BaseAddress = http.BaseAddress
         });
 
@@ -166,6 +200,8 @@ public sealed class HostedAgentTuiRuntimeValidationTests
         };
         await using var runtime = new HostedAgentTuiRuntime(http, new HostedAgentTuiRuntimeOptions
         {
+            EventComposition = TestEventComposition,
+            ProviderComposition = TestProviderComposition,
             BaseAddress = http.BaseAddress
         });
         var scope = new AgentTuiRuntimeScope("agent", "session", "main");
@@ -191,6 +227,8 @@ public sealed class HostedAgentTuiRuntimeValidationTests
         };
         await using var runtime = new HostedAgentTuiRuntime(http, new HostedAgentTuiRuntimeOptions
         {
+            EventComposition = TestEventComposition,
+            ProviderComposition = TestProviderComposition,
             BaseAddress = http.BaseAddress,
             DefaultScope = scope
         });
@@ -213,6 +251,8 @@ public sealed class HostedAgentTuiRuntimeValidationTests
         };
         await using var runtime = new HostedAgentTuiRuntime(http, new HostedAgentTuiRuntimeOptions
         {
+            EventComposition = TestEventComposition,
+            ProviderComposition = TestProviderComposition,
             BaseAddress = http.BaseAddress
         });
 
@@ -239,6 +279,8 @@ public sealed class HostedAgentTuiRuntimeValidationTests
         };
         await using var runtime = new HostedAgentTuiRuntime(http, new HostedAgentTuiRuntimeOptions
         {
+            EventComposition = TestEventComposition,
+            ProviderComposition = TestProviderComposition,
             BaseAddress = http.BaseAddress
         });
         var scope = new AgentTuiRuntimeScope("agent", "session", "main");
@@ -281,6 +323,8 @@ public sealed class HostedAgentTuiRuntimeValidationTests
         };
         await using var runtime = new HostedAgentTuiRuntime(http, new HostedAgentTuiRuntimeOptions
         {
+            EventComposition = TestEventComposition,
+            ProviderComposition = TestProviderComposition,
             BaseAddress = http.BaseAddress
         });
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -319,14 +363,16 @@ public sealed class HostedAgentTuiRuntimeValidationTests
             ThreadSequenceNumber = 5
         };
         var handler = new RawSequentialSseHandler(
-            $"event: live-agent-event\ndata: {AgentEventSerializer.ToJson(live)}\n\n",
-            $"id: 1:5\nevent: agent-event\ndata: {AgentEventSerializer.ToJson(committed)}\n\n");
+            $"event: live-agent-event\ndata: {TestEventComposition.Codec.Serialize(live)}\n\n",
+            $"id: 1:5\nevent: agent-event\ndata: {TestEventComposition.Codec.Serialize(committed)}\n\n");
         using var http = new HttpClient(handler)
         {
             BaseAddress = new Uri("http://127.0.0.1/api/hpd-agent/")
         };
         await using var runtime = new HostedAgentTuiRuntime(http, new HostedAgentTuiRuntimeOptions
         {
+            EventComposition = TestEventComposition,
+            ProviderComposition = TestProviderComposition,
             BaseAddress = http.BaseAddress
         });
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -366,14 +412,16 @@ public sealed class HostedAgentTuiRuntimeValidationTests
             ThreadSequenceNumber = 7
         };
         var handler = new RawSequentialSseHandler(
-            $"id: 1:6\nevent: live-agent-event\ndata: {AgentEventSerializer.ToJson(live)}\n\n",
-            $"id: 1:7\nevent: agent-event\ndata: {AgentEventSerializer.ToJson(next)}\n\n");
+            $"id: 1:6\nevent: live-agent-event\ndata: {TestEventComposition.Codec.Serialize(live)}\n\n",
+            $"id: 1:7\nevent: agent-event\ndata: {TestEventComposition.Codec.Serialize(next)}\n\n");
         using var http = new HttpClient(handler)
         {
             BaseAddress = new Uri("http://127.0.0.1/api/hpd-agent/")
         };
         await using var runtime = new HostedAgentTuiRuntime(http, new HostedAgentTuiRuntimeOptions
         {
+            EventComposition = TestEventComposition,
+            ProviderComposition = TestProviderComposition,
             BaseAddress = http.BaseAddress
         });
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -424,12 +472,14 @@ public sealed class HostedAgentTuiRuntimeValidationTests
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
+            if (request.RequestUri?.AbsolutePath.EndsWith("/event-catalog", StringComparison.Ordinal) == true)
+                return Task.FromResult(CatalogResponse());
             Requests.Add(request.RequestUri?.Query ?? string.Empty);
             var evt = events[_index++];
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
-                    $"id: 1:{evt.ThreadSequenceNumber}\ndata: {AgentEventSerializer.ToJson(evt)}\n\n",
+                    $"id: 1:{evt.ThreadSequenceNumber}\ndata: {TestEventComposition.Codec.Serialize(evt)}\n\n",
                     Encoding.UTF8,
                     "text/event-stream")
             });
@@ -446,6 +496,8 @@ public sealed class HostedAgentTuiRuntimeValidationTests
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
+            if (request.RequestUri?.AbsolutePath.EndsWith("/event-catalog", StringComparison.Ordinal) == true)
+                return Task.FromResult(CatalogResponse());
             Requests.Add(request.RequestUri?.Query ?? string.Empty);
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
@@ -453,6 +505,14 @@ public sealed class HostedAgentTuiRuntimeValidationTests
             });
         }
     }
+
+    private static HttpResponseMessage CatalogResponse() => new(HttpStatusCode.OK)
+    {
+        Content = new StringContent(
+            JsonSerializer.Serialize(TestEventComposition.Catalog, AgentEventJsonContext.Default.AgentEventCatalog),
+            Encoding.UTF8,
+            "application/json")
+    };
 
     private sealed class ScopeInitializationHandler : HttpMessageHandler
     {

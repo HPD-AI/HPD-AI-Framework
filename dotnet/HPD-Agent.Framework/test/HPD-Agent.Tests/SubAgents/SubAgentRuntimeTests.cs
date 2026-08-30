@@ -103,7 +103,7 @@ public class SubAgentRuntimeTests
     [Fact]
     public async Task InvokeAsync_ReturnsOnlyThePersistedAssistantResponse()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var client = new FakeChatClient();
         client.EnqueueTextResponse("Review complete.");
         var agent = await BuildAgentAsync(store, client);
@@ -140,7 +140,7 @@ public class SubAgentRuntimeTests
     [Fact]
     public async Task InvokeAsync_WithoutAssistantResponse_FailsInsteadOfEchoingInput()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var client = new FakeChatClient();
         client.EnqueueTextResponse("");
         var agent = await BuildAgentAsync(store, client);
@@ -178,7 +178,7 @@ public class SubAgentRuntimeTests
     [Fact]
     public async Task DefaultPolicy_ForksParentThread_WithSubAgentMetadata()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var agent = await BuildAgentAsync(store);
         await agent.CreateSessionAsync("parent-session");
 
@@ -245,7 +245,7 @@ public class SubAgentRuntimeTests
     [Fact]
     public async Task FreshThread_CreatesEmptyThreadInParentSession()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var agent = await BuildAgentAsync(store);
         await agent.CreateSessionAsync("parent-session");
 

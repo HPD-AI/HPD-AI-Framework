@@ -91,7 +91,7 @@ public sealed class FunctionExecutionContext
     public int? ToolCallIndex => InvocationSnapshot.ToolCallIndex;
 
     public IEventCoordinator? EventCoordinator { get; }
-    public IThreadEventPublisher? ThreadEvents { get; }
+    public IAgentEventPublisher? ThreadEvents { get; }
 
     public IEventFlowRegistry? EventFlows => EventCoordinator?.EventFlows;
 

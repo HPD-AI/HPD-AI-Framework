@@ -7,6 +7,7 @@ using HPD.Agent.ClientTools;
 using HPD.Agent.Hosting.Data;
 using HPD.Agent.Hosting.Lifecycle;
 using HPD.Agent.Middleware;
+using HPD.Agent.Serialization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -19,10 +20,25 @@ namespace HPD.Agent.AspNetCore.Tests.Integration;
 public class EndpointComposabilityTests
 {
     [Fact]
+    public async Task EventCatalog_ExposesTheAuthoritativeApplicationDigest()
+    {
+        using var server = CreateServer(
+            services => services.AddTestApplicationCompositions().AddHPDAgent(),
+            endpoints => endpoints.MapHPDAgentApi());
+        using var client = CreateClient(server);
+
+        var catalog = await client.GetFromJsonAsync<AgentEventCatalog>("/event-catalog");
+
+        catalog.Should().NotBeNull();
+        catalog!.Digest.Should().Be(TestEventApplication.Composition.Digest);
+        catalog.Events.Should().Contain(entry => entry.Discriminator == EventTypes.Content.TEXT_DELTA);
+    }
+
+    [Fact]
     public async Task MapSessionsFalse_DoesNotMapBuiltInSessionRoutes_ButKeepsOtherGroups()
     {
         using var server = CreateServer(
-            services => services.AddHPDAgent(),
+            services => services.AddTestApplicationCompositions().AddHPDAgent(),
             endpoints => endpoints.MapHPDAgentApi(options => options.MapSessions = false));
         using var client = CreateClient(server);
 
@@ -37,7 +53,7 @@ public class EndpointComposabilityTests
     public async Task ConfigureRoutes_AddsCustomRouteInsideAgentGroup()
     {
         using var server = CreateServer(
-            services => services.AddHPDAgent(),
+            services => services.AddTestApplicationCompositions().AddHPDAgent(),
             endpoints => endpoints.MapHPDAgentApi(options =>
             {
                 options.RoutePrefix = "/agent";
@@ -62,7 +78,7 @@ public class EndpointComposabilityTests
             services =>
             {
                 services.AddSingleton<IHPDAgentHostingServicesProvider, CustomHostingServicesProvider>();
-                services.AddHPDAgent();
+                services.AddTestApplicationCompositions().AddHPDAgent();
             },
             endpoints => endpoints.MapHPDAgentApi(options =>
             {
@@ -89,7 +105,7 @@ public class EndpointComposabilityTests
             services =>
             {
                 services.AddSingleton<IAgentSessionService, CustomSessionService>();
-                services.AddHPDAgent();
+                services.AddTestApplicationCompositions().AddHPDAgent();
             },
             endpoints => endpoints.MapHPDAgentApi(options =>
             {
@@ -116,7 +132,7 @@ public class EndpointComposabilityTests
             services =>
             {
                 services.AddSingleton<IHPDAgentHostingServicesProvider, CustomHostingServicesProvider>();
-                services.AddHPDAgent("named-agent");
+                services.AddTestApplicationCompositions().AddHPDAgent("named-agent");
             },
             endpoints => endpoints.MapHPDAgentApi("named-agent", options =>
             {

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
+using HPD.Agent.Serialization;
 
 namespace HPD.Agent;
 
@@ -15,6 +16,15 @@ public sealed class InMemorySessionStore : ISessionStore, IThreadDeltaStore
     private readonly ConcurrentDictionary<ThreadKey, ThreadJournal> _threads = new();
     private readonly ConcurrentDictionary<(ThreadKey Thread, string MessageId, Type Kind), List<AgentEvent>> _pendingDeltas = new();
 
+    /// <summary>Creates an in-memory store bound to one immutable event codec.</summary>
+    public InMemorySessionStore(AgentEventCodec eventCodec)
+    {
+        EventCodec = eventCodec ?? throw new ArgumentNullException(nameof(eventCodec));
+    }
+
+    /// <inheritdoc />
+    public AgentEventCodec EventCodec { get; }
+
     /// <inheritdoc />
     public ValueTask StageThreadDeltaAsync(
         ThreadKey thread,
@@ -22,6 +32,7 @@ public sealed class InMemorySessionStore : ISessionStore, IThreadDeltaStore
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        EventCodec.RequireDurable(delta);
         var key = PendingKey(thread, delta);
         var pending = _pendingDeltas.GetOrAdd(key, static _ => []);
         lock (pending)
@@ -115,6 +126,9 @@ public sealed class InMemorySessionStore : ISessionStore, IThreadDeltaStore
         ThreadAppendCondition condition = default,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(events);
+        foreach (var evt in events)
+            EventCodec.RequireDurable(evt);
         ValidateThreadKey(thread);
         ArgumentNullException.ThrowIfNull(events);
         if (events.Count == 0)
@@ -134,6 +148,8 @@ public sealed class InMemorySessionStore : ISessionStore, IThreadDeltaStore
         ThreadJournalCursor expectedCursor,
         CancellationToken cancellationToken = default)
     {
+        foreach (var evt in events)
+            EventCodec.RequireDurable(evt);
         ValidateThreadKey(thread);
         ArgumentNullException.ThrowIfNull(events);
         if (events.Count == 0)

@@ -6,13 +6,20 @@ namespace HPD.Agent.Tests.Content;
 
 public class AgentEventContentPersistenceTests
 {
-    static AgentEventContentPersistenceTests()
-    {
-        AgentEventSerializer.RegisterEventType(
-            typeof(PersistableContentTestEvent),
-            "PERSISTABLE_CONTENT_TEST",
-            AgentEventContentPersistenceTestJsonContext.Default.PersistableContentTestEvent);
-    }
+    private static readonly AgentEventCodec Codec = AgentEventComposition.Create([
+        new AgentEventModuleFragment
+        {
+            ModuleId = "hpd.agent.tests.content",
+            Events = [new AgentEventDescriptor
+            {
+                Discriminator = "PERSISTABLE_CONTENT_TEST",
+                EventType = typeof(PersistableContentTestEvent),
+                JsonTypeInfo = AgentEventContentPersistenceTestJsonContext.Default.PersistableContentTestEvent,
+                Durability = AgentEventDurability.Durable,
+                ModuleId = "hpd.agent.tests.content"
+            }]
+        }
+    ]).Codec;
 
     [Fact]
     public async Task PersistAsync_WhenEventRequestsContentPersistence_WritesSerializedEvent()
@@ -34,6 +41,7 @@ public class AgentEventContentPersistenceTests
 
         var info = await AgentEventContentPersistence.PersistAsync(
             store,
+            Codec,
             evt,
             "default-scope");
 
@@ -68,6 +76,7 @@ public class AgentEventContentPersistenceTests
 
         var info = await AgentEventContentPersistence.PersistAsync(
             store,
+            HPD.Agent.Tests.TestEventApplication.Codec,
             new TextDeltaEvent("hello", "message-1"),
             "default-scope");
 

@@ -66,7 +66,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                     TextDone("resp-final")
                 ]
             ]);
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
         config.SessionStore = store;
         var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
@@ -118,7 +118,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                     TextDone("resp-final")
                 ]
             ]);
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
         config.SessionStore = store;
         var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
@@ -188,7 +188,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                     ResponseDone("resp-final")
                 ]
             ]);
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
         config.SessionStore = store;
         var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
@@ -251,7 +251,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                     ResponseDone("resp-final")
                 ]
             ]);
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
         config.SessionStore = store;
         var agent = TestAgentFactory.CreateWithMiddlewares(
@@ -312,7 +312,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                     }
                 ]
             ]);
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
         config.SessionStore = store;
         var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
@@ -345,7 +345,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                 [ToolCallDone("resp-add", "call-add", "Add", new Dictionary<string, object?> { ["left"] = 2, ["right"] = 3 })],
                 [TextDelta("resp-final", "The answer is 5."), TextDone("resp-final")]
             ]);
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
         config.SessionStore = store;
         var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
@@ -390,7 +390,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                 [ToolCallDone("resp-add", "call-add", "Add", new Dictionary<string, object?> { ["left"] = 10, ["right"] = 7 })],
                 [TextDelta("resp-2", "The answer is 17."), TextDone("resp-2")]
             ]);
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
         config.SessionStore = store;
         var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
@@ -447,7 +447,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                     }
                 ]
             ]);
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
         config.SessionStore = store;
         var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
@@ -491,7 +491,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                 ],
                 [TextDelta("resp-final", "The answers are 5 and 20."), TextDone("resp-final")]
             ]);
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
         config.SessionStore = store;
         var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);

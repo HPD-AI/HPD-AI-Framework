@@ -29,12 +29,12 @@ internal static class StreamingEndpoints
     internal static void Map(
         IEndpointRouteBuilder endpoints,
         IAgentStreamingService streaming,
-        ProviderComposition? providerComposition)
+        AgentInputCodec inputCodec)
     {
         // POST /agents/{agentId}/sessions/{sid}/threads/{bid}/inputs - Submit runtime-owned input
         endpoints.MapPost("/agents/{agentId}/sessions/{sid}/threads/{bid}/inputs",
                 async (string agentId, string sid, string bid, JsonElement request, CancellationToken ct) =>
-                    await SubmitInput(RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid), request, streaming, providerComposition, ct))
+                    await SubmitInput(RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid), request, streaming, inputCodec, ct))
             .WithName("SubmitAgentInput")
             .WithSummary("Submit an agent input event to the runtime");
 
@@ -65,10 +65,10 @@ internal static class StreamingEndpoints
         string bid,
         JsonElement request,
         IAgentStreamingService streaming,
-        ProviderComposition? providerComposition,
+        AgentInputCodec inputCodec,
         CancellationToken ct = default)
     {
-        var input = ParseInputEvent(request, providerComposition);
+        var input = ParseInputEvent(request, inputCodec);
         if (input == null)
             return TypedResults.BadRequest();
 
@@ -108,16 +108,20 @@ internal static class StreamingEndpoints
 
     private static AgentInputEvent? ParseInputEvent(
         JsonElement request,
-        ProviderComposition? providerComposition)
+        AgentInputCodec inputCodec)
     {
         if (request.ValueKind != JsonValueKind.Object)
             return null;
 
-        var envelope = providerComposition is null
-            ? AgentEventSerializer.FromInputJson(request.GetRawText())
-            : AgentEventSerializer.FromInputJson(request.GetRawText(), providerComposition);
-        if (envelope != null)
-            return envelope;
+        try
+        {
+            return inputCodec.Deserialize(request.GetRawText());
+        }
+        catch (JsonException)
+        {
+            // A typed but unknown/malformed envelope is an invalid request. An
+            // untyped object may still be the text convenience shape below.
+        }
         if (TryGetPropertyIgnoreCase(request, "type", out _))
             return null;
 

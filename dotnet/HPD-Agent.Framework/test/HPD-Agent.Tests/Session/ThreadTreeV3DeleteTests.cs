@@ -18,7 +18,7 @@ public class ThreadTreeV3DeleteTests : AgentTestBase
     [Fact]
     public async Task DeleteThread_WithChildren_Throws()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var agent = await CreateAgentWithStore(store);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
@@ -43,7 +43,7 @@ public class ThreadTreeV3DeleteTests : AgentTestBase
     [Fact]
     public async Task DeleteLeafFork_RemovesParentChildReference()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var agent = await CreateAgentWithStore(store);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
@@ -68,7 +68,7 @@ public class ThreadTreeV3DeleteTests : AgentTestBase
     [Fact]
     public async Task DeleteOneFork_DoesNotMutateRemainingForkLineage()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var agent = await CreateAgentWithStore(store);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
@@ -97,7 +97,7 @@ public class ThreadTreeV3DeleteTests : AgentTestBase
     [Fact]
     public async Task DeleteMainThread_Throws()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var agent = await CreateAgentWithStore(store);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);

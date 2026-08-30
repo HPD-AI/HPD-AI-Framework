@@ -116,7 +116,6 @@ public sealed record InterruptionHandledEvent : AgentEvent
 /// Inherits from HPD.Events.Event to participate in unified cross-domain event streaming.
 /// Adapters convert these to protocol-specific formats as needed.
 /// </summary>
-[JsonConverter(typeof(AgentEventJsonConverter))]
 public abstract record AgentEvent : HPD.Events.Event
 {
     /// <summary>
@@ -1258,7 +1257,7 @@ public record CollapsedToolsVisibleEvent(
 /// </summary>
 public record ContainerExpandedEvent(
     string ContainerName,
-    ContainerType Type,
+    ContainerType ContainerType,
     IReadOnlyList<string> UnlockedFunctions,
     int Iteration,
     DateTimeOffset Timestamp

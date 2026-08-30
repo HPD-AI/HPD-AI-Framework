@@ -47,22 +47,22 @@ public class NativeFunctionInfo
 {
     [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;
-    
+
     [JsonPropertyName("description")]
     public string Description { get; set; } = string.Empty;
-    
+
     [JsonPropertyName("wrapperFunctionName")]
     public string WrapperFunctionName { get; set; } = string.Empty;
-    
+
     [JsonPropertyName("schema")]
     public string Schema { get; set; } = "{}";
-    
+
     [JsonPropertyName("requiresPermission")]
     public bool RequiresPermission { get; set; }
-    
+
     [JsonPropertyName("requiredPermissions")]
     public List<string> RequiredPermissions { get; set; } = new();
-    
+
     [JsonPropertyName("ToolHarness_name")]
     public string ToolHarnessName { get; set; } = string.Empty;
 }
@@ -151,7 +151,7 @@ public static partial class NativeExports
             byte[] responseBytes = Encoding.UTF8.GetBytes(response + '\0'); // null-terminated
             IntPtr responsePtr = Marshal.AllocHGlobal(responseBytes.Length);
             Marshal.Copy(responseBytes, 0, responsePtr, responseBytes.Length);
-            
+
             return responsePtr;
         }
         catch (Exception ex)
@@ -291,13 +291,13 @@ public static partial class NativeExports
 
                 // Execute the native function via FFI
                 var result = NativeToolHarnessFFI.ExecuteFunction(nativeFunc.Name, argsDict);
-                
+
                 if (!result.Success)
                 {
                     // Return error as structured response for better AI understanding
                     return Task.FromResult<object?>(new { error = result.Error ?? "Unknown error", success = false });
                 }
-                
+
                 // Parse the result
                 if (result.Result != null)
                 {
@@ -306,16 +306,16 @@ public static partial class NativeExports
                         using (result.Result)
                         {
                             var root = result.Result.RootElement;
-                            
+
                             // Check if it's a success/result envelope
-                            if (root.TryGetProperty("success", out var successProp) && 
+                            if (root.TryGetProperty("success", out var successProp) &&
                                 root.TryGetProperty("result", out var resultProp))
                             {
                                 if (successProp.GetBoolean())
                                 {
                                     // Return just the result value
-                                    return Task.FromResult<object?>(resultProp.ValueKind == JsonValueKind.String 
-                                        ? resultProp.GetString() 
+                                    return Task.FromResult<object?>(resultProp.ValueKind == JsonValueKind.String
+                                        ? resultProp.GetString()
                                         : resultProp.GetRawText());
                                 }
                                 else if (root.TryGetProperty("error", out var errorProp))
@@ -323,7 +323,7 @@ public static partial class NativeExports
                                     return Task.FromResult<object?>(new { error = errorProp.GetString(), success = false });
                                 }
                             }
-                            
+
                             // Return raw response if not in envelope format
                             return Task.FromResult<object?>(root.GetRawText());
                         }
@@ -333,7 +333,7 @@ public static partial class NativeExports
                         return Task.FromResult<object?>(new { error = $"Failed to parse result: {ex.Message}", success = false });
                     }
                 }
-                
+
                 return Task.FromResult<object?>(null);
             },
             new HPDAIFunctionFactoryOptions
@@ -348,7 +348,7 @@ public static partial class NativeExports
                         // Parse the schema JSON from native code
                         var schemaDoc = JsonDocument.Parse(nativeFunc.Schema);
                         var rootSchema = schemaDoc.RootElement;
-                        
+
                         // Check if this is an OpenAPI function calling format
                         if (rootSchema.TryGetProperty("function", out var functionElement) &&
                             functionElement.TryGetProperty("parameters", out var parametersElement))
@@ -601,9 +601,9 @@ public static partial class NativeExports
             HPDFFIJsonContext.Default.ProviderAccountFfiError));
     }
 
-    //    
+    //
     // CONVERSATION THREAD MANAGEMENT
-    //    
+    //
 
     /// <summary>
     /// Creates a new conversation thread for managing conversation state.
@@ -767,9 +767,9 @@ public static partial class NativeExports
         }
     }
 
-    //    
+    //
     // AGENT EXECUTION APIs
-    //    
+    //
 
     /// <summary>
     /// Runs the agent synchronously with the given input and returns the final response.
@@ -889,7 +889,7 @@ public static partial class NativeExports
                 using var subscription = agent.SubscribeAny(evt =>
                 {
                     // Serialize event to JSON
-                    var eventJson = AgentEventSerializer.ToJson(evt);
+                    var eventJson = agent.Config.EventComposition!.Codec.Serialize(evt);
                     var eventPtr = MarshalString(eventJson);
 
                     try
@@ -927,9 +927,9 @@ public static partial class NativeExports
 
     // V2 serialize_thread / deserialize_thread APIs removed — recovery is projected from thread events.
 
-    //    
+    //
     // PERMISSION SYSTEM APIs (Human-in-the-Loop)
-    //    
+    //
 
     /// <summary>
     /// Responds to a permission request from the agent.
@@ -993,9 +993,9 @@ public static partial class NativeExports
         }
     }
 
-    //    
+    //
     // HELPER METHODS
-    //    
+    //
 
     /// <summary>
     /// Helper method to marshal a C# string to unmanaged UTF-8 memory.
@@ -1010,11 +1010,11 @@ public static partial class NativeExports
         return ptr;
     }
 
-    //    
+    //
     // Future APIs:
     // - Advanced memory management APIs (optional user-facing CRUD)
     // - Provider discovery and management
-    //    
+    //
 }
 
 /// <summary>

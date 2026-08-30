@@ -514,7 +514,7 @@ public sealed class DebugPublicHostedRealAdapterTests
             "debug_activation_cancelled",
             xml);
         fixture.Manager.ListTrees(fixture.Scope).Should().BeEmpty();
-        fixture.Backgrounds.ListHandles(new()).Should().BeEmpty();
+        fixture.Operations.Snapshot().Should().BeEmpty();
     }
 
     [RealAdapterFact("HPD_NETCOREDBG", "HPD_DOTNET")]
@@ -799,7 +799,7 @@ public sealed class DebugPublicHostedRealAdapterTests
         outputXml.Should().Contain("Passed!");
 
         fixture.Manager.ListTrees(fixture.Scope).Should().BeEmpty();
-        fixture.Backgrounds.ListHandles(new()).Should().ContainSingle();
+        fixture.Operations.Snapshot().Should().ContainSingle();
     }
 
     private static LaunchDebugOperation TestLaunch(
@@ -981,7 +981,7 @@ public sealed class DebugPublicHostedRealAdapterTests
             Manager = new DebugSessionManager(
                 new DebugTerminalRecordStore(new DebugTerminalRecordStoreOptions()));
             Scope = new(Manager.RuntimeId, "session", "thread");
-            Backgrounds = new();
+            Operations = new AgentOperationRegistry(new RecordingOperationSink());
             var services = new ServiceCollection();
             services.AddHPDCodingDebugging();
             services.AddHPDBuiltInDebugAdapters();
@@ -992,7 +992,7 @@ public sealed class DebugPublicHostedRealAdapterTests
 
         public DebugSessionManager Manager { get; }
         public DebugTreeLookupScope Scope { get; }
-        public BackgroundRegistry Backgrounds { get; }
+        public AgentOperationRegistry Operations { get; }
 
         public string DescribeHost(string treeId)
         {
@@ -1063,6 +1063,7 @@ public sealed class DebugPublicHostedRealAdapterTests
                 CancellationToken.None,
                 services: _services);
             agent.RuntimeCapabilities.Set<IDebugSessionManager>(Manager);
+            agent.RuntimeCapabilities.Set(Operations);
             agent.RuntimeCapabilities.Set(new DebugRuntimeBindingState());
             agent.RuntimeCapabilities.Set(new RuntimeProcessExecutionBinding
             {
@@ -1091,8 +1092,7 @@ public sealed class DebugPublicHostedRealAdapterTests
                 callId,
                 new Dictionary<string, object?>(),
                 runConfig,
-                nameof(CodingToolHarness),
-                backgroundHandles: Backgrounds);
+                nameof(CodingToolHarness));
             return new FunctionExecutionContext(before, new FunctionRequest
             {
                 Function = function,
@@ -1101,13 +1101,13 @@ public sealed class DebugPublicHostedRealAdapterTests
                 State = state,
                 RunConfig = runConfig,
                 ResultMetadata = new ToolResultMetadata(),
-                EventCoordinator = _events,
-                BackgroundHandles = Backgrounds
+                EventCoordinator = _events
             });
         }
 
         public async ValueTask DisposeAsync()
         {
+            await Operations.DisposeAsync();
             await Manager.DisposeAsync();
             await _services.DisposeAsync();
             await _isolation.DisposeAsync();
@@ -1176,32 +1176,11 @@ public sealed class DebugPublicHostedRealAdapterTests
             => inner.ReadOutputAsync(process, cancellationToken);
     }
 
-    private sealed class BackgroundRegistry : IAgentBackgroundHandleRegistry
+    private sealed class RecordingOperationSink : IAgentOperationEventSink
     {
-        private readonly Dictionary<string, RegisteredBackgroundHandle> _handles = [];
-
-        public ValueTask<BackgroundHandleRegistration> RegisterHandleAsync(
-            BackgroundHandleDescriptor descriptor,
-            IBackgroundHandle handle,
-            CancellationToken cancellationToken = default)
-        {
-            var id = descriptor.HandleId!;
-            _handles[id] = new(id, descriptor, handle, DateTimeOffset.UtcNow);
-            return ValueTask.FromResult(new BackgroundHandleRegistration(
-                id,
-                descriptor.Name,
-                descriptor.Kind,
-                descriptor.SourceKind));
-        }
-
-        public bool TryGetHandle(
-            string handleId,
-            BackgroundHandleScope scope,
-            out RegisteredBackgroundHandle handle)
-            => _handles.TryGetValue(handleId, out handle!);
-
-        public IReadOnlyList<RegisteredBackgroundHandle> ListHandles(
-            BackgroundHandleQuery query)
-            => _handles.Values.ToArray();
+        public ValueTask AppendAsync(
+            AgentEvent operationEvent,
+            CancellationToken cancellationToken)
+            => ValueTask.CompletedTask;
     }
 }

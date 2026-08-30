@@ -48,8 +48,8 @@ public sealed class CanonicalCodingEventCodecTests
                 "session-1",
                 "thread-1",
                 proposed);
-            var json = AgentEventSerializer.ToJson(scoped);
-            var decoded = AgentEventSerializer.FromJson(json).Should().BeAssignableTo<AgentEvent>().Subject;
+            var json = CodingEventTestCodec.Codec.Serialize(scoped);
+            var decoded = CodingEventTestCodec.Codec.DeserializeEvent(json).Should().BeAssignableTo<AgentEvent>().Subject;
 
             decoded.Should().BeOfType(proposed.GetType());
             decoded.EventId.Should().Be(scoped.EventId);
@@ -85,8 +85,8 @@ public sealed class CanonicalCodingEventCodecTests
             CombinedOutputLocalPath = "/tmp/combined.log"
         };
 
-        var json = AgentEventSerializer.ToJson(proposed);
-        var decoded = AgentEventSerializer.FromJson(json)
+        var json = CodingEventTestCodec.Codec.Serialize(proposed);
+        var decoded = CodingEventTestCodec.Codec.DeserializeEvent(json)
             .Should().BeOfType<ExecuteCommandProcessExitedEvent>().Subject;
 
         decoded.ExitCode.Should().BeNull();
@@ -121,15 +121,14 @@ public sealed class CanonicalCodingEventCodecTests
 
         foreach (var proposed in events)
         {
-            var json = AgentEventSerializer.ToJson(ThreadEventValidation.PrepareForAppend("session", "thread", proposed));
-            AgentEventSerializer.FromJson(json).Should().BeOfType(proposed.GetType());
+            var json = CodingEventTestCodec.Codec.Serialize(ThreadEventValidation.PrepareForAppend("session", "thread", proposed));
+            CodingEventTestCodec.Codec.DeserializeEvent(json).Should().BeOfType(proposed.GetType());
         }
     }
 
     [Fact]
     public void LanguageServerDocumentVersion_DoesNotCollideWithEnvelopeVersion()
     {
-        CodingHarnessEventSerialization.RegisterEvents();
         var proposed = new LanguageServerDocumentOpenedEvent
         {
             Path = "/repo/A.cs",
@@ -138,12 +137,12 @@ public sealed class CanonicalCodingEventCodecTests
             DocumentVersion = 42
         };
 
-        var json = AgentEventSerializer.ToJson(proposed);
+        var json = CodingEventTestCodec.Codec.Serialize(proposed);
         using var document = JsonDocument.Parse(json);
         document.RootElement.GetProperty("version").GetString().Should().Be("1.0");
         document.RootElement.GetProperty("documentVersion").GetInt32().Should().Be(42);
 
-        var decoded = AgentEventSerializer.FromJson(json)
+        var decoded = CodingEventTestCodec.Codec.DeserializeEvent(json)
             .Should().BeOfType<LanguageServerDocumentOpenedEvent>().Subject;
         decoded.DocumentVersion.Should().Be(42);
     }

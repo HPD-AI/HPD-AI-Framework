@@ -106,8 +106,8 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
             Outcome = ClientToolInvokeOutcomeKind.Completed,
             Content = new[] { new TextContent("Tool execution succeeded") }
         };
-        var json = AgentEventSerializer.ToJson(evt);
-        AgentEventSerializer.FromJson(json).Should().BeOfType<ClientToolInvokeOutcomeEvent>(json);
+        var json = HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec.Serialize(evt);
+        HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec.DeserializeEvent(json).Should().BeOfType<ClientToolInvokeOutcomeEvent>(json);
 
         // Act
         var response = await _client.PostAsync(
@@ -193,5 +193,5 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
     private Task<HttpResponseMessage> PostEventAsync(string requestUri, AgentEvent evt) =>
         _client.PostAsync(
             requestUri,
-            new StringContent(AgentEventSerializer.ToJson(evt), Encoding.UTF8, "application/json"));
+            new StringContent(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec.Serialize(evt), Encoding.UTF8, "application/json"));
 }

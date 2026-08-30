@@ -50,7 +50,7 @@ public class SlackBotRegistrationTests
 
         // SessionManager and AgentManager are abstract — register test doubles to satisfy DI.
         services.AddSingleton<SessionManager>(
-            new TestSessionManager(new InMemorySessionStore()));
+            new TestSessionManager(new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec)));
         services.AddSingleton<AgentManager>(
             new TestAgentManager(new InMemoryAgentStore()));
 
@@ -236,7 +236,7 @@ public class SlackBotRegistrationTests
         var services = new ServiceCollection();
         services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
         services.AddHttpClient();
-        services.AddSingleton<SessionManager>(new TestSessionManager(new InMemorySessionStore()));
+        services.AddSingleton<SessionManager>(new TestSessionManager(new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec)));
         services.AddSingleton<AgentManager>(new TestAgentManager(new InMemoryAgentStore()));
 
         services.AddSlackBot(c =>

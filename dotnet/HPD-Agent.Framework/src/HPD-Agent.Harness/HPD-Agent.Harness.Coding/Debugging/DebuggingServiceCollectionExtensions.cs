@@ -20,7 +20,6 @@ public static class DebuggingServiceCollectionExtensions
     public static IServiceCollection AddHPDCodingDebugging(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
-        global::CodingHarnessEventSerialization.RegisterEvents();
         services.TryAddSingleton<StandardDebugAdapterFactory>();
         services.TryAddSingleton<DebugPyAdapterFactory>();
         services.TryAddSingleton<CodeLldbAdapterFactory>();

@@ -79,7 +79,7 @@ public class TestWebApplicationFactory : IDisposable
                 services.AddSingleton(_fakeChatClient);
                 // Register IAgentFactory to create test agents
                 services.AddSingleton<IAgentFactory, TestWebApplicationAgentFactory>();
-                services.AddHPDAgent("test-agent", options =>
+                services.AddTestApplicationCompositions().AddHPDAgent("test-agent", options =>
                 {
                     options.SessionStorePath = Path.Combine(Path.GetTempPath(), $"hpd-agent-tests-{Guid.NewGuid()}");
                 });
@@ -131,7 +131,7 @@ internal class TestWebApplicationAgentFactory : IAgentFactory
             Name = sessionId,
             MaxAgenticIterations = 50,
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
-                ProviderKey = "test",
+                Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" },
                 ModelName = "test-model"
             } }
         };

@@ -230,7 +230,7 @@ internal sealed class CompactThreadInputHandler : IAgentInputHandler<CompactThre
         }
 
         var publisher = context.Config.SessionStore is { } sessionStore
-            ? new ThreadEventPublisher(sessionStore, context.EventCoordinator)
+            ? new AgentEventPublisher(sessionStore, context.EventCoordinator)
             : null;
         await using var chatLease = input.Request.Compaction.Strategy is SummarizingCompaction summarizing
             ? await context.ChatClientResolver.ResolveAsync(

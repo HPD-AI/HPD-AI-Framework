@@ -288,7 +288,7 @@ public class ChannelRoutingTests
     {
         var evt = new InterruptionHandledEvent("stream-abc", "User cancelled", InterruptionSource.User);
 
-        var json = AgentEventSerializer.ToJson(evt);
+        var json = HPD.Agent.Tests.TestEventApplication.Codec.Serialize(evt);
 
         Assert.Contains("\"type\":\"INTERRUPTION_HANDLED\"", json);
         Assert.Contains("\"version\":\"1.0\"", json);
@@ -300,7 +300,7 @@ public class ChannelRoutingTests
     {
         var evt = new TextDeltaEvent("hello", "msg1");
 
-        var json = AgentEventSerializer.ToJson(evt);
+        var json = HPD.Agent.Tests.TestEventApplication.Codec.Serialize(evt);
 
         Assert.Contains("\"type\":\"TEXT_DELTA\"", json);
         Assert.Contains("\"text\":\"hello\"", json);
@@ -311,7 +311,7 @@ public class ChannelRoutingTests
     {
         var evt = new MessageTurnStartedEvent("turn1", "conv1", "agent") { Channel = EventChannel.Control };
 
-        var json = AgentEventSerializer.ToJson(evt);
+        var json = HPD.Agent.Tests.TestEventApplication.Codec.Serialize(evt);
 
         Assert.Contains("\"type\":\"MESSAGE_TURN_STARTED\"", json);
         Assert.Contains("channel", json, StringComparison.OrdinalIgnoreCase);
