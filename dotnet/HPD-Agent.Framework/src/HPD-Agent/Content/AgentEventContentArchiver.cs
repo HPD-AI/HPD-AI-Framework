@@ -4,10 +4,15 @@ using HPD.Agent.Serialization;
 namespace HPD.Agent;
 
 /// <summary>Reports a best-effort event archive failure without altering journal publication.</summary>
-public sealed record AgentEventArchiveDiagnostic(
+public readonly record struct AgentEventArchiveDiagnostic(
     Type EventType,
     string Reason,
-    Exception? Exception = null);
+    Exception? Exception = null) : AgentStructEvent
+{
+    public HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+    public long SequenceNumber { get; init; }
+    public long TimestampNs { get; init; }
+}
 
 /// <summary>Archives canonical event representations after successful publication.</summary>
 public interface IAgentEventContentArchiver

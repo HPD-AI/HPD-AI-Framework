@@ -2378,9 +2378,11 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         if (!Directory.Exists(spoolRoot) || maxDirectories <= 0) return;
+        var processedDirectories = 0;
         foreach (var directory in Directory.EnumerateDirectories(spoolRoot)
-                     .OrderBy(static path => path, StringComparer.Ordinal).Take(maxDirectories))
+                     .OrderBy(static path => path, StringComparer.Ordinal))
         {
+            if (processedDirectories >= maxDirectories) break;
             cancellationToken.ThrowIfCancellationRequested();
             FileStream? lease = null;
             try
@@ -2394,6 +2396,7 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
             {
                 var pendingPath = Path.Combine(directory, PendingContentFileName);
                 var committedPath = Path.Combine(directory, CommittedFileName);
+                var ownedByScope = !File.Exists(pendingPath) || File.Exists(committedPath);
                 if (!File.Exists(committedPath) && File.Exists(pendingPath))
                 {
                     if (contentStore is null)
@@ -2409,7 +2412,10 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
                                 line,
                                 CodingToolHarnessJsonContext.Default.ContentAddress);
                             if (address.Scope == scope)
+                            {
+                                ownedByScope = true;
                                 await contentStore.DeleteAsync(address, cancellationToken).ConfigureAwait(false);
+                            }
                             else
                                 unresolved.Add(line);
                         }
@@ -2423,10 +2429,12 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
                     if (unresolved.Count > 0)
                     {
                         await File.WriteAllLinesAsync(pendingPath, unresolved, cancellationToken).ConfigureAwait(false);
+                        if (ownedByScope) processedDirectories++;
                         continue;
                     }
                 }
             }
+            processedDirectories++;
             TryDeleteDirectory(directory);
         }
     }
@@ -2505,6 +2513,13 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
                 Address = existing.Address
             };
         }
+        var provisionalAddress = new ContentAddress(scope, contentId);
+        await File.AppendAllTextAsync(
+            Path.Combine(_rootDirectory, PendingContentFileName),
+            System.Text.Json.JsonSerializer.Serialize(
+                provisionalAddress,
+                CodingToolHarnessJsonContext.Default.ContentAddress) + Environment.NewLine,
+            cancellationToken).ConfigureAwait(false);
         await using var data = new FileStream(
             local.LocalPath,
             FileMode.Open,
@@ -2540,16 +2555,6 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
             },
             cancellationToken).ConfigureAwait(false);
         createdAddresses.Add(contentInfo.Address);
-        // Persist only the exact address returned by a successful create. Recording
-        // intent before Create would allow recovery to delete a concurrently-created
-        // object that this command never owned.
-        await File.AppendAllTextAsync(
-            Path.Combine(_rootDirectory, PendingContentFileName),
-            System.Text.Json.JsonSerializer.Serialize(
-                contentInfo.Address,
-                CodingToolHarnessJsonContext.Default.ContentAddress) + Environment.NewLine,
-            cancellationToken).ConfigureAwait(false);
-
         return local with
         {
             ArtifactPath = null,

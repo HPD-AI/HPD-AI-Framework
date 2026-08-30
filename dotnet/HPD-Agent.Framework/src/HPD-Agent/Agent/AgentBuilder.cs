@@ -86,6 +86,7 @@ public class AgentBuilder
     internal Func<IContentStore>? _implicitContentStoreFactory;
     internal bool _ownsSessionStore;
     internal bool _ownsContentStore;
+    private int _buildState;
     internal ISkillStore? _skillStore;
     // Track explicitly registered ToolHarnesses (for Collapsing manager)
     internal readonly HashSet<string> _explicitlyRegisteredToolHarnesses = new(StringComparer.OrdinalIgnoreCase);
@@ -1861,7 +1862,11 @@ public class AgentBuilder
     /// <param name="cancellationToken">Cancellation token for async operations</param>
     public async Task<Agent> BuildAsync(CancellationToken cancellationToken = default)
     {
+        if (Interlocked.Exchange(ref _buildState, 1) != 0)
+            throw new InvalidOperationException("An AgentBuilder instance can build only one Agent.");
         ResolveEventComposition();
+        try
+        {
         if (_sessionStoreFactory is not null)
         {
             if (_config.SessionStore is not null)
@@ -1939,6 +1944,7 @@ public class AgentBuilder
             if (_contentStore is null)
             {
                 _contentStore = new InMemoryContentStore();
+                _ownsContentStore = true;
                 _logger?.CreateLogger<AgentBuilder>().LogInformation(
                     "Using default InMemoryContentStore (in-memory, ephemeral). " +
                     "Use .WithContentStore() for persistence (e.g., LocalFileContentStore).");
@@ -1958,6 +1964,7 @@ public class AgentBuilder
         if (_config.SessionStore == null)
         {
             _config.SessionStore = new InMemorySessionStore(_config.EventComposition!.Codec);
+            _ownsSessionStore = true;
             _logger?.CreateLogger<AgentBuilder>().LogInformation(
                 "Using default InMemorySessionStore (in-memory, ephemeral). " +
                 "Use .WithSessionStore() for persistence.");
@@ -1975,6 +1982,27 @@ public class AgentBuilder
         ActivateRegisteredFeatures();
         RegisterAutoMiddleware(buildData);
         return CreateAgent(buildData);
+        }
+        catch
+        {
+            if (_ownsContentStore)
+                await DisposeBuilderOwnedAsync(_contentStore).ConfigureAwait(false);
+            if (_ownsSessionStore)
+                await DisposeBuilderOwnedAsync(_config.SessionStore).ConfigureAwait(false);
+            _contentStore = null;
+            _config.SessionStore = null;
+            _ownsContentStore = false;
+            _ownsSessionStore = false;
+            throw;
+        }
+    }
+
+    private static async ValueTask DisposeBuilderOwnedAsync(object? value)
+    {
+        if (value is IAsyncDisposable asyncDisposable)
+            await asyncDisposable.DisposeAsync().ConfigureAwait(false);
+        else
+            (value as IDisposable)?.Dispose();
     }
 
     private void ResolveEventComposition()

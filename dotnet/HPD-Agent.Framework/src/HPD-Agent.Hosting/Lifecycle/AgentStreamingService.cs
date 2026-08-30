@@ -1,6 +1,7 @@
 using HPD.Agent;
 using HPD.Agent.Hosting.Data;
 using Microsoft.Extensions.Logging;
+using HPD.Events.Struct;
 
 namespace HPD.Agent.Hosting.Lifecycle;
 
@@ -15,12 +16,22 @@ public sealed class AgentStreamingService : IAgentStreamingService
         SessionManager sessionManager,
         AgentManager agentManager,
         ILogger<AgentStreamingService>? logger = null,
-        IContentStore? contentStore = null)
+        IContentStore? contentStore = null,
+        IStructEventHub? structEvents = null)
     {
         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
         _agentManager = agentManager ?? throw new ArgumentNullException(nameof(agentManager));
         _logger = logger;
-        _eventContentArchiver = new AgentEventContentArchiver(contentStore);
+        _eventContentArchiver = new AgentEventContentArchiver(contentStore, diagnostic =>
+        {
+            if (structEvents is not null)
+                structEvents.Route<AgentEventArchiveDiagnostic>().CreateEmitter().Emit(in diagnostic);
+            _logger?.LogWarning(
+                diagnostic.Exception,
+                "Agent event content archival skipped or failed for {EventType}: {Reason}",
+                diagnostic.EventType.Name,
+                diagnostic.Reason);
+        });
     }
 
     public async Task<AgentServiceResult<ThreadEventObservationLease>> ObserveThreadEventsAsync(

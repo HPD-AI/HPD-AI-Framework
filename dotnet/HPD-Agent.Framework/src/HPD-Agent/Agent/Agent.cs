@@ -301,11 +301,15 @@ public sealed partial class Agent : IAsyncDisposable
         _ownsContentStore = ownsContentStore;
         _eventContentArchiver = new AgentEventContentArchiver(
             contentStore,
-            diagnostic => _agentLogger?.LogDebug(
-                diagnostic.Exception,
-                "Agent event content archival skipped or failed for {EventType}: {Reason}",
-                diagnostic.EventType.Name,
-                diagnostic.Reason));
+            diagnostic =>
+            {
+                _structEvents.Route<AgentEventArchiveDiagnostic>().CreateEmitter().Emit(in diagnostic);
+                _agentLogger?.LogDebug(
+                    diagnostic.Exception,
+                    "Agent event content archival skipped or failed for {EventType}: {Reason}",
+                    diagnostic.EventType.Name,
+                    diagnostic.Reason);
+            });
         _serviceProvider = serviceProvider;
         _stateFactories = stateFactories?.ToImmutableDictionary()
             ?? ImmutableDictionary<string, MiddlewareStateFactory>.Empty;

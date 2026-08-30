@@ -86,6 +86,44 @@ public class AgentEventContentPersistenceTests
 
         Assert.Empty(await store.QueryAsync(ContentScope.Create("default-scope")));
     }
+
+    [Fact]
+    public async Task ArchiveFailure_IsObservableAndDoesNotEscapePublication()
+    {
+        AgentEventArchiveDiagnostic? observed = null;
+        var archiver = new AgentEventContentArchiver(
+            new ThrowingContentStore(),
+            diagnostic => observed = diagnostic);
+
+        await archiver.ArchiveAsync(Codec, new PersistableContentTestEvent("hello")
+        {
+            EventId = "event-failure",
+            SessionId = "session-1"
+        });
+
+        Assert.True(observed.HasValue);
+        Assert.Equal(typeof(PersistableContentTestEvent), observed.Value.EventType);
+        Assert.Equal("Content archival failed.", observed.Value.Reason);
+        Assert.IsType<InvalidOperationException>(observed.Value.Exception);
+        Assert.Equal(HPD.Events.EventKind.Diagnostic, observed.Value.Kind);
+    }
+
+    private sealed class ThrowingContentStore : IContentStore
+    {
+        public ValueTask<ContentInfo> WriteAsync(ContentScope scope, Stream data, ContentMetadata metadata,
+            ContentWriteOptions options, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("write failed");
+
+        public ValueTask<ContentReadResult?> OpenReadAsync(ContentAddress address, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<ContentReadResult?>(null);
+        public ValueTask<Uri?> CreateReadUriAsync(ContentAddress address, TimeSpan expiresIn, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<Uri?>(null);
+        public ValueTask<ContentInfo?> StatAsync(ContentAddress address, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<ContentInfo?>(null);
+        public ValueTask DeleteAsync(ContentAddress address, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+        public ValueTask<IReadOnlyList<ContentInfo>> QueryAsync(ContentScope scope, ContentQuery? query = null,
+            CancellationToken cancellationToken = default) => ValueTask.FromResult<IReadOnlyList<ContentInfo>>([]);
+    }
 }
 
 internal sealed record PersistableContentTestEvent(string Value) : AgentEvent;

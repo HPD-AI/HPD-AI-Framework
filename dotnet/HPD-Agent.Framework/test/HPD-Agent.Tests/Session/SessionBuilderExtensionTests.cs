@@ -179,6 +179,27 @@ public class SessionBuilderExtensionTests : AgentTestBase
             new AgentBuilder().WithSessionStore(store).WithInMemorySessionStore());
     }
 
+    [Fact]
+    public async Task BuildFailure_DisposesBuilderOwnedContentStore()
+    {
+        var contentStore = new TrackingContentStore();
+        var builder = new AgentBuilder().WithInMemorySessionStore();
+        builder.Config.EventComposition = TestEventApplication.Composition;
+        builder._implicitContentStoreFactory = () => contentStore;
+        builder.Config.Skills.ActivationLifetime = SkillActivationLifetime.Session;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => builder.BuildAsync());
+
+        Assert.True(contentStore.Disposed);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => builder.BuildAsync());
+    }
+
+    private sealed class TrackingContentStore : InMemoryContentStore, IDisposable
+    {
+        public bool Disposed { get; private set; }
+        public void Dispose() => Disposed = true;
+    }
+
     //──────────────────────────────────────────────────────────────────
     // SESSION STORE OPTIONS DEFAULTS
     //──────────────────────────────────────────────────────────────────
