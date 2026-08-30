@@ -23,6 +23,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <AssemblyMetadata Include="HpdTestProjectDirectory" Value="$(MSBuildProjectDirectory)" />
+    <None Update="FirstPartyDurableEventInventory.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../../src/HPD-Agent/HPD-Agent.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.Local/HPD-Agent.Sandbox.Local.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj" />
