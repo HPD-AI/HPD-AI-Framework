@@ -60,6 +60,15 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
+    private static readonly DiagnosticDescriptor HPDAEVT003_InvalidDurableEventTarget = new(
+        id: "HPDAEVT003",
+        title: "Invalid durable event target",
+        messageFormat: "Type '{0}' cannot be marked [DurableEvent]: {1}",
+        category: "HPD.Agent.Serialization",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "Durable events must be concrete, closed, class-based AgentEvent contracts and cannot be input or struct-event contracts.");
+
     #endregion
 
     #region Initialization
@@ -72,6 +81,17 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
                 predicate: static (node, ct) => IsCustomEventCandidate(node),
                 transform: static (ctx, ct) => GetCustomEventInfo(ctx, ct))
             .Where(static evt => evt is not null);
+
+        var durableEventTargets = context.SyntaxProvider.ForAttributeWithMetadataName(
+            "HPD.Agent.Serialization.DurableEventAttribute",
+            static (node, _) => node is TypeDeclarationSyntax,
+            static (ctx, _) => ValidateDurableEventTarget((INamedTypeSymbol)ctx.TargetSymbol, ctx.TargetNode));
+
+        context.RegisterSourceOutput(durableEventTargets, static (spc, diagnostic) =>
+        {
+            if (diagnostic is not null)
+                spc.ReportDiagnostic(diagnostic);
+        });
 
         // Collect all events and generate registration code
         context.RegisterSourceOutput(
@@ -138,10 +158,11 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         // Skip generic types with warning
         if (typeSymbol.IsGenericType)
         {
-            diagnostics.Add(Diagnostic.Create(
-                HPD011_GenericEventNotSupported,
-                recordDecl.Identifier.GetLocation(),
-                typeSymbol.Name));
+            if (!HasAttribute(typeSymbol, "DurableEventAttribute", "DurableEvent"))
+                diagnostics.Add(Diagnostic.Create(
+                    HPD011_GenericEventNotSupported,
+                    recordDecl.Identifier.GetLocation(),
+                    typeSymbol.Name));
             return new CustomEventInfo(
                 Name: typeSymbol.Name,
                 Namespace: namespaceName,
@@ -155,10 +176,11 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         // Skip abstract types with info
         if (typeSymbol.IsAbstract)
         {
-            diagnostics.Add(Diagnostic.Create(
-                HPD012_AbstractEventSkipped,
-                recordDecl.Identifier.GetLocation(),
-                typeSymbol.Name));
+            if (!HasAttribute(typeSymbol, "DurableEventAttribute", "DurableEvent"))
+                diagnostics.Add(Diagnostic.Create(
+                    HPD012_AbstractEventSkipped,
+                    recordDecl.Identifier.GetLocation(),
+                    typeSymbol.Name));
             return new CustomEventInfo(
                 Name: typeSymbol.Name,
                 Namespace: namespaceName,
@@ -191,6 +213,45 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
             Diagnostics: diagnostics,
             Durability: durability,
             ContentPolicy: contentPolicy);
+    }
+
+    private static Diagnostic? ValidateDurableEventTarget(INamedTypeSymbol type, SyntaxNode targetNode)
+    {
+        string? reason = null;
+        if (type.TypeKind is TypeKind.Struct)
+            reason = "struct events are live serialization contracts and cannot enter the canonical journal";
+        else if (InheritsFromHpdContract(type, "AgentInputEvent"))
+            reason = "input contracts are commands into the runtime, not journal events";
+        else if (!InheritsFromHpdContract(type, "AgentEvent"))
+            reason = "the type does not derive from AgentEvent";
+        else if (type.IsAbstract)
+            reason = "the event is abstract";
+        else if (type.IsUnboundGenericType || type.TypeParameters.Length != 0 || HasOpenContainingType(type))
+            reason = "the event is open generic";
+
+        return reason is null
+            ? null
+            : Diagnostic.Create(
+                HPDAEVT003_InvalidDurableEventTarget,
+                targetNode.GetLocation(),
+                type.ToDisplayString(),
+                reason);
+    }
+
+    private static bool HasOpenContainingType(INamedTypeSymbol type)
+    {
+        for (var current = type.ContainingType; current is not null; current = current.ContainingType)
+            if (current.TypeParameters.Length != 0)
+                return true;
+        return false;
+    }
+
+    private static bool InheritsFromHpdContract(INamedTypeSymbol type, string baseTypeName)
+    {
+        for (var current = type.BaseType; current is not null; current = current.BaseType)
+            if (current.Name == baseTypeName && current.ContainingNamespace.ToDisplayString() == "HPD.Agent")
+                return true;
+        return false;
     }
 
     /// <summary>

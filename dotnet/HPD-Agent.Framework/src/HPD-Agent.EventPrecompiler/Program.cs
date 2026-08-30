@@ -9,23 +9,43 @@ var parseOptions = new CSharpParseOptions(
     LanguageVersionFacts.TryParse(arguments.LanguageVersion, out var languageVersion)
         ? languageVersion
         : LanguageVersion.Latest,
-    preprocessorSymbols: arguments.Defines.Split(';', StringSplitOptions.RemoveEmptyEntries));
+    preprocessorSymbols: arguments.Defines.Split([';', ','], StringSplitOptions.RemoveEmptyEntries));
 
-var trees = File.ReadAllLines(arguments.SourcesFile)
-    .Where(File.Exists)
-    .Where(path => !Path.GetFullPath(path).Equals(Path.GetFullPath(arguments.Output), StringComparison.OrdinalIgnoreCase))
-    .Select(path => CSharpSyntaxTree.ParseText(File.ReadAllText(path), parseOptions, path))
+var sources = File.ReadAllLines(arguments.SourcesFile)
+    .Select(SourceItem.Parse)
+    .Where(item => File.Exists(item.PhysicalPath))
+    .Where(item => !Path.GetFullPath(item.PhysicalPath).Equals(Path.GetFullPath(arguments.Output), StringComparison.OrdinalIgnoreCase))
     .ToArray();
-var references = File.ReadAllLines(arguments.ReferencesFile)
+var referencePaths = File.ReadAllLines(arguments.ReferencesFile)
     .Where(File.Exists)
     .Distinct(StringComparer.OrdinalIgnoreCase)
+    .ToArray();
+var analyzerConfigs = File.Exists(arguments.AnalyzerConfigsFile)
+    ? File.ReadAllLines(arguments.AnalyzerConfigsFile).Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+    : [];
+var fingerprint = ComputeFingerprint(arguments, sources, referencePaths, analyzerConfigs);
+var fingerprintPath = arguments.Output + ".fingerprint";
+if (File.Exists(arguments.Output) && File.Exists(fingerprintPath) &&
+    StringComparer.Ordinal.Equals(File.ReadAllText(fingerprintPath), fingerprint))
+    return 0;
+
+var trees = sources
+    .Select(item => CSharpSyntaxTree.ParseText(File.ReadAllText(item.PhysicalPath), parseOptions, item.LogicalPath))
+    .ToArray();
+var references = referencePaths
     .Select(static path => MetadataReference.CreateFromFile(path))
     .ToArray();
 var compilation = CSharpCompilation.Create(
     arguments.AssemblyName,
     trees,
     references,
-    new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+    new CSharpCompilationOptions(
+        ParseOutputKind(arguments.OutputType),
+        optimizationLevel: ParseBoolean(arguments.Optimize) ? OptimizationLevel.Release : OptimizationLevel.Debug,
+        checkOverflow: ParseBoolean(arguments.Checked),
+        allowUnsafe: ParseBoolean(arguments.Unsafe),
+        platform: ParsePlatform(arguments.Platform),
+        nullableContextOptions: ParseNullable(arguments.Nullable)));
 var agentEvent = compilation.GetTypeByMetadataName("HPD.Agent.AgentEvent");
 if (agentEvent is null)
 {
@@ -68,7 +88,85 @@ Directory.CreateDirectory(Path.GetDirectoryName(arguments.Output)!);
 var generated = source.ToString();
 if (!File.Exists(arguments.Output) || !StringComparer.Ordinal.Equals(File.ReadAllText(arguments.Output), generated))
     File.WriteAllText(arguments.Output, generated, new UTF8Encoding(false));
+File.WriteAllText(fingerprintPath, fingerprint, new UTF8Encoding(false));
 return 0;
+
+static string ComputeFingerprint(
+    Arguments arguments,
+    IReadOnlyList<SourceItem> sources,
+    IReadOnlyList<string> references,
+    IReadOnlyList<string> analyzerConfigs)
+{
+    using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+    Append("hpd-agent-event-precompile-v2");
+    Append(arguments.AssemblyName);
+    Append(arguments.LanguageVersion);
+    Append(arguments.Defines);
+    Append(arguments.Nullable);
+    Append(arguments.Unsafe);
+    Append(arguments.Checked);
+    Append(arguments.Optimize);
+    Append(arguments.Platform);
+    Append(arguments.OutputType);
+    Append(arguments.ModuleId);
+    Append(arguments.Application);
+    Append(arguments.NativeLib);
+    foreach (var source in sources.OrderBy(static item => item.LogicalPath, StringComparer.Ordinal))
+    {
+        Append(Path.GetFullPath(source.PhysicalPath));
+        Append(source.LogicalPath);
+        AppendFile(source.PhysicalPath);
+    }
+    foreach (var reference in references.OrderBy(static path => path, StringComparer.Ordinal))
+    {
+        Append(Path.GetFullPath(reference));
+        AppendFile(reference);
+    }
+    foreach (var config in analyzerConfigs.OrderBy(static path => path, StringComparer.Ordinal))
+    {
+        Append(Path.GetFullPath(config));
+        AppendFile(config);
+    }
+    return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+
+    void Append(string value) => hash.AppendData(Encoding.UTF8.GetBytes(value + "\0"));
+    void AppendFile(string path)
+    {
+        using var stream = File.OpenRead(path);
+        var digest = SHA256.HashData(stream);
+        hash.AppendData(digest);
+    }
+}
+
+static bool ParseBoolean(string value) => bool.TryParse(value, out var parsed) && parsed;
+
+static NullableContextOptions ParseNullable(string value) => value.Trim().ToLowerInvariant() switch
+{
+    "enable" => NullableContextOptions.Enable,
+    "warnings" => NullableContextOptions.Warnings,
+    "annotations" => NullableContextOptions.Annotations,
+    _ => NullableContextOptions.Disable
+};
+
+static Platform ParsePlatform(string value) => value.Trim().ToLowerInvariant() switch
+{
+    "x86" => Platform.X86,
+    "x64" => Platform.X64,
+    "arm" => Platform.Arm,
+    "arm64" => Platform.Arm64,
+    "anycpu32bitpreferred" => Platform.AnyCpu32BitPreferred,
+    _ => Platform.AnyCpu
+};
+
+static OutputKind ParseOutputKind(string value) => value.Trim().ToLowerInvariant() switch
+{
+    "exe" => OutputKind.ConsoleApplication,
+    "winexe" => OutputKind.WindowsApplication,
+    "appcontainerexe" => OutputKind.WindowsRuntimeApplication,
+    "module" => OutputKind.NetModule,
+    "winmdobj" => OutputKind.WindowsRuntimeMetadata,
+    _ => OutputKind.DynamicallyLinkedLibrary
+};
 
 static bool InheritsFrom(INamedTypeSymbol type, INamedTypeSymbol expected)
 {
@@ -98,7 +196,17 @@ internal sealed record Arguments(
     string Output,
     string AssemblyName,
     string LanguageVersion,
-    string Defines)
+    string Defines,
+    string AnalyzerConfigsFile,
+    string Nullable,
+    string Unsafe,
+    string Checked,
+    string Optimize,
+    string Platform,
+    string OutputType,
+    string ModuleId,
+    string Application,
+    string NativeLib)
 {
     public static Arguments Parse(string[] values)
     {
@@ -111,6 +219,27 @@ internal sealed record Arguments(
             parsed["--output"],
             parsed["--assembly"],
             parsed.GetValueOrDefault("--language", "latest"),
-            parsed.GetValueOrDefault("--defines", ""));
+            parsed.GetValueOrDefault("--defines", ""),
+            parsed.GetValueOrDefault("--analyzer-configs", ""),
+            parsed.GetValueOrDefault("--nullable", "disable"),
+            parsed.GetValueOrDefault("--unsafe", "false"),
+            parsed.GetValueOrDefault("--checked", "false"),
+            parsed.GetValueOrDefault("--optimize", "false"),
+            parsed.GetValueOrDefault("--platform", "AnyCpu"),
+            parsed.GetValueOrDefault("--output-type", "Library"),
+            parsed.GetValueOrDefault("--module-id", ""),
+            parsed.GetValueOrDefault("--application", ""),
+            parsed.GetValueOrDefault("--native-lib", ""));
+    }
+}
+
+internal sealed record SourceItem(string PhysicalPath, string LogicalPath)
+{
+    public static SourceItem Parse(string value)
+    {
+        var separator = value.IndexOf('|');
+        var physicalPath = separator < 0 ? value : value[..separator];
+        var link = separator < 0 ? "" : value[(separator + 1)..];
+        return new SourceItem(physicalPath, string.IsNullOrWhiteSpace(link) ? physicalPath : link);
     }
 }
