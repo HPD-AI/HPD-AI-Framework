@@ -11,8 +11,6 @@ using HPD.Agent;
 using HPD.Agent.Providers;
 using HPD.Agent.Serialization;
 
-[assembly: HpdAgentApplication]
-
 namespace HPD.Agent.FFI;
 
 /// <summary>

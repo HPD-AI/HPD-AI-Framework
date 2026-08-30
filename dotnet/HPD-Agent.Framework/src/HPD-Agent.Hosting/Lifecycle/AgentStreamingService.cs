@@ -9,15 +9,18 @@ public sealed class AgentStreamingService : IAgentStreamingService
     private readonly SessionManager _sessionManager;
     private readonly AgentManager _agentManager;
     private readonly ILogger<AgentStreamingService>? _logger;
+    private readonly IAgentEventContentArchiver _eventContentArchiver;
 
     public AgentStreamingService(
         SessionManager sessionManager,
         AgentManager agentManager,
-        ILogger<AgentStreamingService>? logger = null)
+        ILogger<AgentStreamingService>? logger = null,
+        IContentStore? contentStore = null)
     {
         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
         _agentManager = agentManager ?? throw new ArgumentNullException(nameof(agentManager));
         _logger = logger;
+        _eventContentArchiver = new AgentEventContentArchiver(contentStore);
     }
 
     public async Task<AgentServiceResult<ThreadEventObservationLease>> ObserveThreadEventsAsync(
@@ -73,7 +76,10 @@ public sealed class AgentStreamingService : IAgentStreamingService
         }
 
         input = ApplyRouteScope(input, agentId, sessionId, threadId, execution.ThreadExecutionId);
-        var publisher = new AgentEventPublisher(_sessionManager.Store, agent.EventCoordinator);
+        var publisher = new AgentEventPublisher(
+            _sessionManager.Store,
+            agent.EventCoordinator,
+            _eventContentArchiver);
         var startCommitted = false;
 
         try
@@ -417,7 +423,7 @@ public sealed class AgentStreamingService : IAgentStreamingService
             var ownsCoordinator = runtimeAgent is null;
             try
             {
-                await new AgentEventPublisher(_sessionManager.Store, coordinator)
+                await new AgentEventPublisher(_sessionManager.Store, coordinator, _eventContentArchiver)
                     .CommitAndPublishAsync(
                         thread,
                         terminalEvents,

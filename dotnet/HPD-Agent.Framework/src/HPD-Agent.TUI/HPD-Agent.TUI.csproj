@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <HpdAgentEventPrecompileRequireAnalyzer>false</HpdAgentEventPrecompileRequireAnalyzer>
     <RootNamespace>HPD.Agent.TUI</RootNamespace>
     <AssemblyName>HPD-Agent.TUI</AssemblyName>
     <IsPackable>true</IsPackable>
@@ -17,5 +18,5 @@
     <PackageReference Include="HPD-TUI" Version="$(HPDTuiVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
   </ItemGroup>
 
-  <PropertyGroup><WarningsAsErrors>$(WarningsAsErrors);HPDAEVT001</WarningsAsErrors></PropertyGroup>
+  <PropertyGroup><WarningsAsErrors>$(WarningsAsErrors)</WarningsAsErrors></PropertyGroup>
 </Project>

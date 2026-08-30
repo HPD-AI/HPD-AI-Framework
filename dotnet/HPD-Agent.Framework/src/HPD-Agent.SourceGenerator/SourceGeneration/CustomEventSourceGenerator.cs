@@ -4,6 +4,7 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Diagnostics;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
@@ -51,18 +52,10 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         isEnabledByDefault: true,
         description: "Abstract event types are valid base classes but cannot be serialized directly.");
 
-    private static readonly DiagnosticDescriptor HPDAEVT001_LiveOnlyDefault = new(
-        id: "HPDAEVT001",
-        title: "Agent event is not part of an immutable event module",
-        messageFormat: "Event '{0}' has no explicit durability classification and defaults to live-only in assembly '{1}'.",
-        category: "HPD.Agent.Serialization",
-        defaultSeverity: DiagnosticSeverity.Warning,
-        isEnabledByDefault: true);
-
     private static readonly DiagnosticDescriptor HPDAEVT002_MissingJsonMetadata = new(
         id: "HPDAEVT002",
         title: "Agent event is missing generated JSON metadata",
-        messageFormat: "Event '{0}' is not declared by [JsonSerializable] on context '{1}'.",
+        messageFormat: "Event '{0}' is not declared by [JsonSerializable] on context '{1}'",
         category: "HPD.Agent.Serialization",
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
@@ -82,8 +75,12 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
 
         // Collect all events and generate registration code
         context.RegisterSourceOutput(
-            context.CompilationProvider.Combine(customEvents.Collect()),
-            (spc, value) => GenerateEventRegistrations(spc, value.Left, value.Right!));
+            context.CompilationProvider.Combine(customEvents.Collect()).Combine(context.AnalyzerConfigOptionsProvider),
+            (spc, value) => GenerateEventRegistrations(
+                spc,
+                value.Left.Left,
+                value.Left.Right!,
+                value.Right));
     }
 
     #endregion
@@ -133,6 +130,8 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         // Skip framework contracts themselves.
         if (typeSymbol.Name == "AgentEvent" || typeSymbol.Name == "AgentStructEvent")
             return null;
+        if (!IsModuleVisible(typeSymbol))
+            return null;
 
         var namespaceName = typeSymbol.ContainingNamespace?.ToDisplayString() ?? "";
 
@@ -175,7 +174,11 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
             return null;
 
         // Check for [EventType("CUSTOM_NAME")] attribute override
-        var (customDiscriminator, durability, hasExplicitDurability) = GetCustomEventTypeAttribute(typeSymbol);
+        var customDiscriminator = GetCustomEventTypeAttribute(typeSymbol);
+        var durability = HasAttribute(typeSymbol, "DurableEventAttribute", "DurableEvent")
+            ? "Durable"
+            : "LiveOnly";
+        var contentPolicy = GetContentPolicy(typeSymbol);
         var discriminator = customDiscriminator ?? ToScreamingSnakeCase(typeSymbol.Name);
 
         return new CustomEventInfo(
@@ -187,7 +190,7 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
             IsValid: true,
             Diagnostics: diagnostics,
             Durability: durability,
-            HasExplicitDurability: hasExplicitDurability);
+            ContentPolicy: contentPolicy);
     }
 
     /// <summary>
@@ -222,10 +225,18 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         return false;
     }
 
+    private static bool IsModuleVisible(INamedTypeSymbol typeSymbol)
+    {
+        for (var current = typeSymbol; current is not null; current = current.ContainingType)
+            if (current.DeclaredAccessibility is not Accessibility.Public and not Accessibility.Internal)
+                return false;
+        return true;
+    }
+
     /// <summary>
     /// Gets custom type discriminator from [EventType("...")] attribute if present.
     /// </summary>
-    private static (string? Discriminator, string Durability, bool HasExplicitDurability) GetCustomEventTypeAttribute(INamedTypeSymbol typeSymbol)
+    private static string? GetCustomEventTypeAttribute(INamedTypeSymbol typeSymbol)
     {
         foreach (var attr in typeSymbol.GetAttributes())
         {
@@ -235,23 +246,38 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
                 if (attr.ConstructorArguments.Length > 0 &&
                     attr.ConstructorArguments[0].Value is string discriminator)
                 {
-                    var durability = "LiveOnly";
-                    var hasExplicitDurability = false;
-                    foreach (var namedArgument in attr.NamedArguments)
-                    {
-                        if (namedArgument.Key == "Durability")
-                        {
-                            hasExplicitDurability = true;
-                            if (namedArgument.Value.Value is int durabilityValue && durabilityValue == 1)
-                                durability = "Durable";
-                        }
-                    }
-
-                    return (discriminator, durability, hasExplicitDurability);
+                    return discriminator;
                 }
             }
         }
-        return (null, "LiveOnly", false);
+        return null;
+    }
+
+    private static bool HasAttribute(INamedTypeSymbol typeSymbol, string longName, string shortName)
+        => typeSymbol.GetAttributes().Any(attr =>
+            attr.AttributeClass?.Name == longName || attr.AttributeClass?.Name == shortName);
+
+    private static EventContentPolicyInfo? GetContentPolicy(INamedTypeSymbol typeSymbol)
+    {
+        var attribute = typeSymbol.GetAttributes().FirstOrDefault(attr =>
+            attr.AttributeClass?.Name is "PersistEventContentAttribute" or "PersistEventContent");
+        if (attribute is null || attribute.ConstructorArguments.Length == 0 ||
+            attribute.ConstructorArguments[0].Value is not string kind)
+            return null;
+
+        var contentType = "application/json";
+        var origin = "Agent";
+        string? scope = null;
+        foreach (var argument in attribute.NamedArguments)
+        {
+            if (argument.Key == "ContentType" && argument.Value.Value is string configuredContentType)
+                contentType = configuredContentType;
+            else if (argument.Key == "Origin" && argument.Value.Value is int originValue)
+                origin = originValue == 0 ? "User" : originValue == 2 ? "System" : "Agent";
+            else if (argument.Key == "Scope" && argument.Value.Value is string configuredScope)
+                scope = configuredScope;
+        }
+        return new EventContentPolicyInfo(kind.Trim(), contentType, origin, scope);
     }
 
     /// <summary>
@@ -287,7 +313,8 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
     private static void GenerateEventRegistrations(
         SourceProductionContext context,
         Compilation compilation,
-        ImmutableArray<CustomEventInfo?> events)
+        ImmutableArray<CustomEventInfo?> events,
+        AnalyzerConfigOptionsProvider options)
     {
         // Filter valid events and report diagnostics
         var validEvents = new List<CustomEventInfo>();
@@ -308,8 +335,10 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         }
 
         var assemblyAttributes = compilation.Assembly.GetAttributes();
-        var isApplication = assemblyAttributes.Any(static attribute =>
-            attribute.AttributeClass?.Name == "HpdAgentApplicationAttribute");
+        options.GlobalOptions.TryGetValue("build_property.HpdAgentApplication", out var applicationOption);
+        var isApplication = bool.TryParse(applicationOption, out var explicitlyApplication)
+            ? explicitlyApplication
+            : compilation.Options.OutputKind is OutputKind.ConsoleApplication or OutputKind.WindowsApplication;
         if (validEvents.Count == 0 && !isApplication)
             return;
 
@@ -346,26 +375,27 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
 
         var hasHandwrittenManifest = assemblyAttributes.Any(static attribute =>
             attribute.AttributeClass?.Name == "HpdAgentEventModuleManifestAttribute");
-        var moduleAttribute = assemblyAttributes.FirstOrDefault(static attribute =>
-            attribute.AttributeClass?.Name == "HpdAgentEventModuleAttribute");
+        options.GlobalOptions.TryGetValue("build_property.HpdAgentEventModuleId", out var configuredModuleId);
+        var moduleId = !string.IsNullOrWhiteSpace(configuredModuleId)
+            ? configuredModuleId!
+            : compilation.AssemblyName
+            ?? "HPD.Agent.Module";
+        var jsonContextType = FindJsonContext(compilation, validAgentEvents);
 
-        foreach (var evt in validAgentEvents.Where(static evt => !evt.HasExplicitDurability))
-            context.ReportDiagnostic(Diagnostic.Create(
-                HPDAEVT001_LiveOnlyDefault,
-                Location.None,
-                evt.FullTypeName,
-                compilation.AssemblyName ?? "unknown"));
-
-        if (validAgentEvents.Count > 0 && !hasHandwrittenManifest && moduleAttribute is not null)
+        if (validAgentEvents.Count > 0 && !hasHandwrittenManifest)
         {
             context.AddSource("CustomEventTypes.g.cs",
                 GenerateEventTypesPartial(validAgentEvents));
 
-            if (moduleAttribute.ConstructorArguments.Length < 2 ||
-                moduleAttribute.ConstructorArguments[0].Value is not string moduleId ||
-                moduleAttribute.ConstructorArguments[1].Value is not INamedTypeSymbol jsonContextType)
+            if (jsonContextType is null)
             {
-                throw new InvalidOperationException("HpdAgentEventModule requires a module ID and JsonSerializerContext type.");
+                foreach (var evt in validAgentEvents)
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        HPDAEVT002_MissingJsonMetadata,
+                        Location.None,
+                        evt.FullTypeName,
+                        "an assembly-local JsonSerializerContext"));
+                return;
             }
 
             var metadataTypes = new HashSet<string>(jsonContextType.GetAttributes()
@@ -391,10 +421,9 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
             AddManifestProviders(compilation.Assembly, providers);
             foreach (var referencedAssembly in compilation.SourceModule.ReferencedAssemblySymbols)
                 AddManifestProviders(referencedAssembly, providers);
-            if (moduleAttribute is not null && !hasHandwrittenManifest && validAgentEvents.Count > 0 &&
-                moduleAttribute.ConstructorArguments[0].Value is string localModuleId)
+            if (!hasHandwrittenManifest && validAgentEvents.Count > 0 && jsonContextType is not null)
             {
-                providers.Add($"global::HPD.Agent.Serialization.{GetGeneratedProviderTypeName(localModuleId)}");
+                providers.Add($"global::HPD.Agent.Serialization.{GetGeneratedProviderTypeName(moduleId)}");
             }
             context.AddSource("GeneratedAgentEventComposition.g.cs",
                 GenerateApplicationComposition(
@@ -410,6 +439,60 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
             context.AddSource("CustomStructEventSerializer.g.cs",
                 GenerateStructSerializerPartial(validStructEvents));
         }
+    }
+
+    private static INamedTypeSymbol? FindJsonContext(
+        Compilation compilation,
+        IReadOnlyList<CustomEventInfo> events)
+    {
+        var required = new HashSet<string>(
+            events.Select(static value => value.FullTypeName),
+            StringComparer.Ordinal);
+        foreach (var type in GetAllTypes(compilation.Assembly.GlobalNamespace))
+        {
+            if (!InheritsFrom(type, "JsonSerializerContext"))
+                continue;
+            var declared = new HashSet<string>(type.GetAttributes()
+                .Where(static attribute => attribute.AttributeClass?.Name == "JsonSerializableAttribute")
+                .Select(static attribute => attribute.ConstructorArguments.FirstOrDefault().Value as INamedTypeSymbol)
+                .Where(static value => value is not null)
+                .Select(static value => value!.ToDisplayString()),
+                StringComparer.Ordinal);
+            if (required.All(declared.Contains))
+                return type;
+        }
+        return null;
+    }
+
+    private static IEnumerable<INamedTypeSymbol> GetAllTypes(INamespaceSymbol namespaceSymbol)
+    {
+        foreach (var type in namespaceSymbol.GetTypeMembers())
+        {
+            yield return type;
+            foreach (var nested in GetNestedTypes(type))
+                yield return nested;
+        }
+        foreach (var child in namespaceSymbol.GetNamespaceMembers())
+        foreach (var type in GetAllTypes(child))
+            yield return type;
+    }
+
+    private static IEnumerable<INamedTypeSymbol> GetNestedTypes(INamedTypeSymbol type)
+    {
+        foreach (var nested in type.GetTypeMembers())
+        {
+            yield return nested;
+            foreach (var descendant in GetNestedTypes(nested))
+                yield return descendant;
+        }
+    }
+
+    private static bool InheritsFrom(INamedTypeSymbol type, string baseName)
+    {
+        for (var current = type.BaseType; current is not null; current = current.BaseType)
+            if (current.Name == baseName)
+                return true;
+        return false;
     }
 
     /// <summary>
@@ -502,6 +585,11 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
             sb.AppendLine($"                JsonTypeInfo = {contextName}.Default.GetTypeInfo(typeof(global::{evt.FullTypeName}))");
             sb.AppendLine($"                    ?? throw new global::System.InvalidOperationException(\"Missing generated JSON metadata for {evt.FullTypeName}.\"),");
             sb.AppendLine($"                Durability = AgentEventDurability.{evt.Durability},");
+            if (evt.ContentPolicy is { } policy)
+            {
+                var scope = policy.Scope is null ? "null" : $"\"{EscapeString(policy.Scope)}\"";
+                sb.AppendLine($"                ContentPolicy = new global::HPD.Agent.Serialization.AgentEventContentPolicy(\"{EscapeString(policy.Kind)}\", \"{EscapeString(policy.ContentType)}\", global::HPD.Agent.ContentSource.{policy.Origin}, {scope}),");
+            }
             sb.AppendLine($"                ModuleId = \"{moduleId}\"");
             sb.AppendLine("            },");
         }
@@ -524,6 +612,9 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         }
         return $"GeneratedAgentEventModule_{sanitized}_{hash:x8}";
     }
+
+    private static string EscapeString(string value) =>
+        value.Replace("\\", "\\\\").Replace("\"", "\\\"");
 
     private static void AddManifestProviders(
         IAssemblySymbol assembly,
@@ -646,7 +737,13 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         bool IsValid,
         List<Diagnostic> Diagnostics,
         string Durability = "LiveOnly",
-        bool HasExplicitDurability = false);
+        EventContentPolicyInfo? ContentPolicy = null);
+
+    private sealed record EventContentPolicyInfo(
+        string Kind,
+        string ContentType,
+        string Origin,
+        string? Scope);
 
     private enum EventRegistrationKind
     {

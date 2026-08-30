@@ -16,7 +16,11 @@ public class AgentEventContentPersistenceTests
                 EventType = typeof(PersistableContentTestEvent),
                 JsonTypeInfo = AgentEventContentPersistenceTestJsonContext.Default.PersistableContentTestEvent,
                 Durability = AgentEventDurability.Durable,
-                ModuleId = "hpd.agent.tests.content"
+                ModuleId = "hpd.agent.tests.content",
+                ContentPolicy = new AgentEventContentPolicy(
+                    "memory-event",
+                    "application/json",
+                    ContentSource.Agent)
             }]
         }
     ]).Codec;
@@ -39,14 +43,17 @@ public class AgentEventContentPersistenceTests
             }
         };
 
-        var info = await AgentEventContentPersistence.PersistAsync(
-            store,
-            Codec,
-            evt,
-            "default-scope");
+        var publisher = new AgentEventPublisher(
+            new InMemorySessionStore(Codec),
+            new HPD.Events.Core.EventCoordinator(),
+            new AgentEventContentArchiver(store));
+        await publisher.PublishLiveAsync(evt);
+        await publisher.PublishLiveAsync(evt);
+        var items = await store.QueryAsync(ContentScope.Create("session-1"));
+        var info = Assert.Single(items);
 
         Assert.NotNull(info);
-        Assert.Equal("event-1.json", info.Name);
+        Assert.Equal("events/PERSISTABLE_CONTENT_TEST/event-1.json", info.Name);
         Assert.Equal("application/json", info.ContentType);
         Assert.Equal(ContentSource.Agent, info.Origin);
         Assert.Equal("memory-event", info.Tags?["kind"]);
@@ -58,7 +65,6 @@ public class AgentEventContentPersistenceTests
         Assert.Equal("span-1", info.Tags?["span"]);
         Assert.Equal("TestAgent", info.Tags?["agent.name"]);
         Assert.Equal("agent-1", info.Tags?["agent.id"]);
-        Assert.Equal("test", info.Tags?["test-tag"]);
 
         await using var opened = await store.OpenReadAsync(info.Address);
         Assert.NotNull(opened);
@@ -74,31 +80,15 @@ public class AgentEventContentPersistenceTests
     {
         var store = new InMemoryContentStore();
 
-        var info = await AgentEventContentPersistence.PersistAsync(
-            store,
+        await new AgentEventContentArchiver(store).ArchiveAsync(
             HPD.Agent.Tests.TestEventApplication.Codec,
-            new TextDeltaEvent("hello", "message-1"),
-            "default-scope");
+            new TextDeltaEvent("hello", "message-1") { SessionId = "default-scope" });
 
-        Assert.Null(info);
         Assert.Empty(await store.QueryAsync(ContentScope.Create("default-scope")));
     }
 }
 
-internal sealed record PersistableContentTestEvent(string Value) : AgentEvent
-{
-    public override ContentPersistenceRequest? GetContentPersistenceRequest() => new()
-    {
-        Kind = "memory-event",
-        Name = "event-1.json",
-        Description = "Persisted test event",
-        Origin = ContentSource.Agent,
-        Tags = new Dictionary<string, string>
-        {
-            ["test-tag"] = "test"
-        }
-    };
-}
+internal sealed record PersistableContentTestEvent(string Value) : AgentEvent;
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

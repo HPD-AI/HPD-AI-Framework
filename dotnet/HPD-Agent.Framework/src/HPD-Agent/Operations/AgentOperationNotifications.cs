@@ -22,7 +22,8 @@ public sealed record AgentOperationNotificationInputEvent(
     IReadOnlyList<AgentOperationNotification> Notifications) : AgentInputEvent;
 
 /// <summary>Records that an operation notification was durably queued.</summary>
-[HPD.Agent.Serialization.EventType("AGENT_OPERATION_NOTIFICATION_QUEUED", Durability = HPD.Agent.Serialization.AgentEventDurability.Durable)]
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("AGENT_OPERATION_NOTIFICATION_QUEUED")]
 public sealed record AgentOperationNotificationQueuedEvent : AgentEvent
 {
     /// <inheritdoc />
@@ -34,7 +35,8 @@ public sealed record AgentOperationNotificationQueuedEvent : AgentEvent
 }
 
 /// <summary>Records successful semantic delivery of one operation notification.</summary>
-[HPD.Agent.Serialization.EventType("AGENT_OPERATION_NOTIFICATION_DELIVERED", Durability = HPD.Agent.Serialization.AgentEventDurability.Durable)]
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("AGENT_OPERATION_NOTIFICATION_DELIVERED")]
 public sealed record AgentOperationNotificationDeliveredEvent : AgentEvent
 {
     /// <inheritdoc />
@@ -46,7 +48,8 @@ public sealed record AgentOperationNotificationDeliveredEvent : AgentEvent
 }
 
 /// <summary>Records a policy or deduplication suppression decision.</summary>
-[HPD.Agent.Serialization.EventType("AGENT_OPERATION_NOTIFICATION_SUPPRESSED", Durability = HPD.Agent.Serialization.AgentEventDurability.Durable)]
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("AGENT_OPERATION_NOTIFICATION_SUPPRESSED")]
 public sealed record AgentOperationNotificationSuppressedEvent : AgentEvent
 {
     /// <inheritdoc />

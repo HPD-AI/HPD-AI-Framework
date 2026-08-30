@@ -34,7 +34,17 @@ public sealed record AgentEventDescriptor
 
     /// <summary>Gets the stable identity of the module that owns the event.</summary>
     public required string ModuleId { get; init; }
+
+    /// <summary>Gets the optional declarative content-archive policy.</summary>
+    public AgentEventContentPolicy? ContentPolicy { get; init; }
 }
+
+/// <summary>Generated content-archive policy for an event contract.</summary>
+public sealed record AgentEventContentPolicy(
+    string Kind,
+    string ContentType,
+    ContentSource Origin,
+    string? Scope = null);
 
 /// <summary>Immutable event declarations owned by one assembly or capability module.</summary>
 public sealed record AgentEventModuleFragment
@@ -62,21 +72,6 @@ public sealed class HpdAgentEventModuleManifestAttribute(
     /// <summary>Gets the explicit transitive fragment dependencies.</summary>
     public IReadOnlyList<Type> DependencyFragmentProviderTypes { get; } = dependencyFragmentProviderTypes;
 }
-
-/// <summary>Identifies an event-owning assembly and its source-generated JSON context.</summary>
-[AttributeUsage(AttributeTargets.Assembly, AllowMultiple = false)]
-public sealed class HpdAgentEventModuleAttribute(string moduleId, Type jsonSerializerContextType) : Attribute
-{
-    /// <summary>Gets the stable module identity.</summary>
-    public string ModuleId { get; } = moduleId;
-
-    /// <summary>Gets the user-authored source-generated JSON context type.</summary>
-    public Type JsonSerializerContextType { get; } = jsonSerializerContextType;
-}
-
-/// <summary>Marks the final compilation that owns a generated closed application event composition.</summary>
-[AttributeUsage(AttributeTargets.Assembly, AllowMultiple = false)]
-public sealed class HpdAgentApplicationAttribute : Attribute;
 
 /// <summary>Safe remotely consumable description of one event contract.</summary>
 public sealed record AgentEventCatalogEntry(
@@ -287,11 +282,13 @@ public sealed class AgentEventComposition
         IReadOnlyList<AgentEventModuleFragment> fragments,
         AgentEventCatalog catalog,
         IReadOnlyDictionary<Type, AgentEventDescriptor> byType,
-        IReadOnlyDictionary<string, AgentEventDescriptor> byDiscriminator)
+        IReadOnlyDictionary<string, AgentEventDescriptor> byDiscriminator,
+        string behaviorDigest)
     {
         Fragments = fragments;
         Catalog = catalog;
         Codec = new AgentEventCodec(byType, byDiscriminator, catalog);
+        BehaviorDigest = behaviorDigest;
     }
 
     /// <summary>Gets the exact immutable module fragments in canonical order.</summary>
@@ -305,6 +302,9 @@ public sealed class AgentEventComposition
 
     /// <summary>Gets the catalog compatibility digest.</summary>
     public string Digest => Catalog.Digest;
+
+    /// <summary>Gets the deterministic runtime-policy digest, including content retention.</summary>
+    public string BehaviorDigest { get; }
 
     /// <summary>Validates and freezes a complete application event graph.</summary>
     public static AgentEventComposition Create(IReadOnlyList<AgentEventModuleFragment> fragments)
@@ -357,6 +357,7 @@ public sealed class AgentEventComposition
                 descriptor.ModuleId))
             .ToArray();
         var digest = ComputeDigest(entries);
+        var behaviorDigest = ComputeBehaviorDigest(byDiscriminator.Values);
         var catalog = new AgentEventCatalog
         {
             Events = Array.AsReadOnly(entries),
@@ -367,7 +368,8 @@ public sealed class AgentEventComposition
             Array.AsReadOnly(modules.Values.OrderBy(static fragment => fragment.ModuleId, StringComparer.Ordinal).ToArray()),
             catalog,
             new ReadOnlyDictionary<Type, AgentEventDescriptor>(byType),
-            new ReadOnlyDictionary<string, AgentEventDescriptor>(byDiscriminator));
+            new ReadOnlyDictionary<string, AgentEventDescriptor>(byDiscriminator),
+            behaviorDigest);
     }
 
     private static void ValidateDescriptor(AgentEventModuleFragment fragment, AgentEventDescriptor descriptor)
@@ -387,6 +389,9 @@ public sealed class AgentEventComposition
         if (string.IsNullOrWhiteSpace(descriptor.Discriminator) ||
             descriptor.Discriminator.Any(static value => !(char.IsAsciiDigit(value) || char.IsAsciiLetterUpper(value) || value == '_')))
             throw new InvalidOperationException($"Event discriminator '{descriptor.Discriminator}' is not canonical SCREAMING_SNAKE_CASE.");
+        if (descriptor.ContentPolicy is { } policy &&
+            (string.IsNullOrWhiteSpace(policy.Kind) || string.IsNullOrWhiteSpace(policy.ContentType)))
+            throw new InvalidOperationException($"Event '{descriptor.Discriminator}' has an invalid content-retention policy.");
     }
 
     private static bool AreEquivalent(AgentEventModuleFragment left, AgentEventModuleFragment right)
@@ -400,6 +405,7 @@ public sealed class AgentEventComposition
             pair.First.EventType == pair.Second.EventType &&
             pair.First.JsonTypeInfo?.Type == pair.Second.JsonTypeInfo?.Type &&
             pair.First.Durability == pair.Second.Durability &&
+            Equals(pair.First.ContentPolicy, pair.Second.ContentPolicy) &&
             StringComparer.Ordinal.Equals(pair.First.ModuleId, pair.Second.ModuleId));
     }
 
@@ -418,6 +424,22 @@ public sealed class AgentEventComposition
                 .Append(entry.ContractName).Append('|').Append(entry.Durability);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString()))).ToLowerInvariant();
     }
+
+    private static string ComputeBehaviorDigest(IEnumerable<AgentEventDescriptor> descriptors)
+    {
+        var canonical = new StringBuilder(WireFormatVersion);
+        foreach (var descriptor in descriptors
+            .OrderBy(static value => value.ModuleId, StringComparer.Ordinal)
+            .ThenBy(static value => value.Discriminator, StringComparer.Ordinal))
+        {
+            canonical.Append('\n').Append(descriptor.ModuleId).Append('|').Append(descriptor.Discriminator)
+                .Append('|').Append(descriptor.Durability);
+            if (descriptor.ContentPolicy is { } policy)
+                canonical.Append('|').Append(policy.Kind).Append('|').Append(policy.ContentType)
+                    .Append('|').Append(policy.Origin).Append('|').Append(policy.Scope);
+        }
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString()))).ToLowerInvariant();
+    }
 }
 
 /// <summary>Keyed convenience publication for complete generated application compositions.</summary>
@@ -432,8 +454,9 @@ public static class AgentEventCompositionHost
         ArgumentNullException.ThrowIfNull(composition);
         ArgumentException.ThrowIfNullOrWhiteSpace(applicationAssemblyIdentity);
         var registered = Applications.GetOrAdd(applicationAssemblyIdentity, composition);
-        if (!StringComparer.Ordinal.Equals(registered.Digest, composition.Digest))
-            throw new InvalidOperationException($"Application '{applicationAssemblyIdentity}' attempted to publish conflicting agent event compositions '{registered.Digest}' and '{composition.Digest}'.");
+        if (!StringComparer.Ordinal.Equals(registered.Digest, composition.Digest) ||
+            !StringComparer.Ordinal.Equals(registered.BehaviorDigest, composition.BehaviorDigest))
+            throw new InvalidOperationException($"Application '{applicationAssemblyIdentity}' attempted to publish conflicting agent event compositions '{registered.Digest}/{registered.BehaviorDigest}' and '{composition.Digest}/{composition.BehaviorDigest}'.");
     }
 
     /// <summary>Gets the composition published by one application identity.</summary>

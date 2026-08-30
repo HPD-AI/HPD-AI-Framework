@@ -3,8 +3,6 @@ using HPD.Agent;
 using HPD.Agent.Serialization;
 using HPDOS.ToolHarnesses.Middleware;
 
-[assembly: HpdAgentApplication]
-
 if (args.Length != 2 || args[0] is not ("write" or "read"))
     return 64;
 

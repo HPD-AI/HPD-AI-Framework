@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <HpdAgentEventPrecompileRequireAnalyzer>false</HpdAgentEventPrecompileRequireAnalyzer>
     <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
     <RootNamespace>HPD.Agent.Bots</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -41,5 +42,5 @@
   <ItemGroup>
     <ProjectReference Include="../../HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
-  <PropertyGroup><WarningsAsErrors>$(WarningsAsErrors);HPDAEVT001</WarningsAsErrors></PropertyGroup>
+  <PropertyGroup><WarningsAsErrors>$(WarningsAsErrors)</WarningsAsErrors></PropertyGroup>
 </Project>

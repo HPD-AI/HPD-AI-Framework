@@ -1019,15 +1019,9 @@ public sealed class ExecuteCommandTuiLifecycleTests
             OutputTruncated = false,
             OutputDrainTimedOut = false,
             OutputEventsSuppressed = false,
-            StdoutArtifactPath = null,
-            StderrArtifactPath = null,
-            CombinedOutputArtifactPath = null,
-            StdoutContentId = null,
-            StderrContentId = null,
-            CombinedOutputContentId = null,
-            StdoutLocalPath = null,
-            StderrLocalPath = null,
-            CombinedOutputLocalPath = null
+            OutputContentState = ExecuteCommandOutputContentState.Unavailable,
+            MaxPersistedOutputBytes = 0,
+            CombinedOutputFormat = "hpd.execute-command.interleaved.v1"
         };
 
     private static ToolCallResultEvent ExecuteCommandResult(

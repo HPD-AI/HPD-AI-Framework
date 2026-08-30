@@ -826,9 +826,6 @@ namespace HPD.Agent.Diagnostics {{
     {
         foreach (var attribute in compilation.Assembly.GetAttributes())
         {
-            if (attribute.AttributeClass?.Name == "HpdAgentEventModuleAttribute")
-                return "global::HPD.Agent.Serialization.GeneratedAgentEventModule";
-
             if (attribute.AttributeClass?.Name == "HpdAgentEventModuleManifestAttribute" &&
                 attribute.ConstructorArguments.Length > 1 &&
                 attribute.ConstructorArguments[1].Value is INamedTypeSymbol providerType)
@@ -837,7 +834,33 @@ namespace HPD.Agent.Diagnostics {{
             }
         }
 
+        var ownsAgentEvents = compilation.SyntaxTrees.Any(tree =>
+            tree.GetRoot().DescendantNodes().OfType<RecordDeclarationSyntax>().Any(declaration =>
+            {
+                if (compilation.GetSemanticModel(tree).GetDeclaredSymbol(declaration) is not INamedTypeSymbol type ||
+                    type.IsAbstract || type.IsGenericType)
+                    return false;
+                for (var current = type.BaseType; current is not null; current = current.BaseType)
+                    if (current.Name == "AgentEvent")
+                        return true;
+                return false;
+            }));
+        if (ownsAgentEvents && !string.IsNullOrWhiteSpace(compilation.AssemblyName))
+            return $"global::HPD.Agent.Serialization.{GetGeneratedEventProviderTypeName(compilation.AssemblyName!)}";
+
         return null;
+    }
+
+    private static string GetGeneratedEventProviderTypeName(string moduleId)
+    {
+        var sanitized = Regex.Replace(moduleId, "[^A-Za-z0-9_]", "_");
+        uint hash = 2166136261;
+        foreach (var value in moduleId)
+        {
+            hash ^= value;
+            hash *= 16777619;
+        }
+        return $"GeneratedAgentEventModule_{sanitized}_{hash:x8}";
     }
 
     /// <summary>

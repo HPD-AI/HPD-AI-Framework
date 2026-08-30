@@ -81,8 +81,10 @@ public sealed class CanonicalCodingEventCodecTests
             OutputTruncated = false,
             OutputDrainTimedOut = false,
             OutputEventsSuppressed = false,
-            StdoutContentId = "stdout-content",
-            CombinedOutputLocalPath = "/tmp/combined.log"
+            OutputContentState = ExecuteCommandOutputContentState.RestartDurable,
+            Stdout = new ContentAddress(ContentScope.Create("session-1"), "stdout-content", "v1", "abc"),
+            MaxPersistedOutputBytes = 1024,
+            CombinedOutputFormat = "hpd.execute-command.interleaved.v1"
         };
 
         var json = CodingEventTestCodec.Codec.Serialize(proposed);
@@ -90,11 +92,10 @@ public sealed class CanonicalCodingEventCodecTests
             .Should().BeOfType<ExecuteCommandProcessExitedEvent>().Subject;
 
         decoded.ExitCode.Should().BeNull();
-        decoded.StdoutArtifactPath.Should().BeNull();
-        decoded.StderrArtifactPath.Should().BeNull();
-        decoded.CombinedOutputArtifactPath.Should().BeNull();
-        decoded.StdoutContentId.Should().Be("stdout-content");
-        decoded.CombinedOutputLocalPath.Should().Be("/tmp/combined.log");
+        decoded.Stdout.Should().NotBeNull();
+        decoded.Stdout!.Value.ContentId.Should().Be("stdout-content");
+        decoded.Stderr.Should().BeNull();
+        decoded.CombinedOutput.Should().BeNull();
     }
 
     [Fact]

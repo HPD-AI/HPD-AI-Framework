@@ -10,5 +10,6 @@ namespace HPD.Agent.Bots;
 /// The fallback plain-text representation is produced by <see cref="CardFallbackText.From"/>
 /// and used for mobile notifications, screen readers, and platforms that can't render blocks.
 /// </summary>
-[EventType("CARD_CONTENT", Durability = AgentEventDurability.Durable)]
+[DurableEvent]
+[EventType("CARD_CONTENT")]
 public record CardContentEvent(CardElement Card) : AgentEvent;

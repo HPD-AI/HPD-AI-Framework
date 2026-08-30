@@ -1307,15 +1307,12 @@ public partial class CodingToolHarness
             OutputTruncated = result.Output.Stdout.Truncated || result.Output.Stderr.Truncated || outputMetadata.Stdout.Truncated || outputMetadata.Stderr.Truncated,
             OutputDrainTimedOut = result.Output.OutputDrainTimedOut,
             OutputEventsSuppressed = false,
-            StdoutArtifactPath = outputMetadata.Stdout.ArtifactPath,
-            StderrArtifactPath = outputMetadata.Stderr.ArtifactPath,
-            CombinedOutputArtifactPath = outputMetadata.Combined.ArtifactPath,
-            StdoutContentId = outputMetadata.Stdout.ContentId,
-            StderrContentId = outputMetadata.Stderr.ContentId,
-            CombinedOutputContentId = outputMetadata.Combined.ContentId,
-            StdoutLocalPath = outputMetadata.Stdout.LocalPath,
-            StderrLocalPath = outputMetadata.Stderr.LocalPath,
-            CombinedOutputLocalPath = outputMetadata.Combined.LocalPath
+            OutputContentState = outputMetadata.ContentState,
+            Stdout = outputMetadata.Stdout.Address,
+            Stderr = outputMetadata.Stderr.Address,
+            CombinedOutput = outputMetadata.Combined.Address,
+            MaxPersistedOutputBytes = outputMetadata.MaxPersistedOutputBytes,
+            CombinedOutputFormat = "hpd.execute-command.interleaved.v1"
         }, cancellationToken).ConfigureAwait(false);
     }
 
@@ -1944,7 +1941,9 @@ internal sealed record ExecuteCommandOutputStoreMetadata(
     ExecuteCommandOutputHandle Combined,
     ExecuteCommandOutputHandle Metadata,
     bool ContentStoreAvailable,
-    string? Warning);
+    string? Warning,
+    ExecuteCommandOutputContentState ContentState,
+    long MaxPersistedOutputBytes);
 
 internal sealed record ExecuteCommandOutputHandle(
     string? ArtifactPath,
@@ -1953,7 +1952,8 @@ internal sealed record ExecuteCommandOutputHandle(
     string ContentType,
     long Bytes,
     bool Truncated,
-    bool Binary);
+    bool Binary,
+    ContentAddress? Address = null);
 
 internal enum ExecuteCommandErrorKind
 {
@@ -2187,7 +2187,9 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
         else
             await _stderr.AppendAsync(bytes, cancellationToken).ConfigureAwait(false);
 
-        await _combined.AppendAsync(bytes, cancellationToken).ConfigureAwait(false);
+        await _combined.AppendAsync(
+            FrameCombinedOutput(stream, bytes, observedAt),
+            cancellationToken).ConfigureAwait(false);
     }
 
     public string CombinedPath => _combined.Path;
@@ -2242,9 +2244,19 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
             metadataBytes.Length,
             false,
             false);
+        var contentState = _contentStore is null
+            ? ExecuteCommandOutputContentState.Unavailable
+            : _contentStore.PersistenceCapability == ContentStorePersistenceCapability.RestartDurable
+                ? ExecuteCommandOutputContentState.RestartDurable
+                : ExecuteCommandOutputContentState.Ephemeral;
 
-        if (_contentStore is not null && _sessionId is not null)
+        if (_contentStore is not null && _sessionId is not null &&
+            contentState == ExecuteCommandOutputContentState.RestartDurable)
         {
+            var localStdout = stdout;
+            var localStderr = stderr;
+            var localCombined = combined;
+            var localMetadata = metadata;
             try
             {
                 stdout = await CommitAsync(stdout, "stdout.txt", "stdout", cancellationToken).ConfigureAwait(false);
@@ -2255,6 +2267,19 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
             catch (Exception ex)
             {
                 warning = $"Failed to commit command output artifacts: {ex.Message}";
+                foreach (var address in new[] { stdout.Address, stderr.Address, combined.Address, metadata.Address })
+                {
+                    if (address is { } committedAddress)
+                    {
+                        try { await _contentStore.DeleteAsync(committedAddress, CancellationToken.None).ConfigureAwait(false); }
+                        catch { }
+                    }
+                }
+                stdout = localStdout;
+                stderr = localStderr;
+                combined = localCombined;
+                metadata = localMetadata;
+                contentState = ExecuteCommandOutputContentState.Unavailable;
             }
         }
 
@@ -2264,7 +2289,9 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
             combined,
             metadata,
             _contentStore is not null,
-            warning);
+            warning,
+            contentState,
+            _options.MaxPersistedOutputBytes);
     }
 
     public async ValueTask DisposeAsync()
@@ -2301,10 +2328,29 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
         if (_combined.Bytes == 0)
         {
             if (result.Output.Stdout.CapturedBytes.Length > 0)
-                await _combined.AppendAsync(result.Output.Stdout.CapturedBytes, cancellationToken).ConfigureAwait(false);
+                await _combined.AppendAsync(
+                    FrameCombinedOutput(ProcessOutputStream.Stdout, result.Output.Stdout.CapturedBytes, DateTimeOffset.UnixEpoch),
+                    cancellationToken).ConfigureAwait(false);
             if (result.Output.Stderr.CapturedBytes.Length > 0)
-                await _combined.AppendAsync(result.Output.Stderr.CapturedBytes, cancellationToken).ConfigureAwait(false);
+                await _combined.AppendAsync(
+                    FrameCombinedOutput(ProcessOutputStream.Stderr, result.Output.Stderr.CapturedBytes, DateTimeOffset.UnixEpoch),
+                    cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private static ReadOnlyMemory<byte> FrameCombinedOutput(
+        ProcessOutputStream stream,
+        ReadOnlyMemory<byte> bytes,
+        DateTimeOffset observedAt)
+    {
+        var streamName = stream == ProcessOutputStream.Stdout ? "stdout" : "stderr";
+        var header = Encoding.UTF8.GetBytes(
+            $"[hpd.execute-command.interleaved.v1:{streamName}:{observedAt.ToUnixTimeMilliseconds()}:{bytes.Length}]\n");
+        var framed = new byte[header.Length + bytes.Length + 1];
+        header.CopyTo(framed, 0);
+        bytes.CopyTo(framed.AsMemory(header.Length));
+        framed[^1] = (byte)'\n';
+        return framed;
     }
 
     private async ValueTask<ExecuteCommandOutputHandle> CommitAsync(
@@ -2317,6 +2363,17 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
             return local;
 
         var artifactName = $"commands/{_commandId}/{fileName}";
+        var contentId = Uri.EscapeDataString(artifactName);
+        var scope = ContentScope.Create(_sessionId);
+        if (await _contentStore.StatAsync(new ContentAddress(scope, contentId), cancellationToken).ConfigureAwait(false) is { } existing)
+        {
+            return local with
+            {
+                ArtifactPath = null,
+                ContentId = existing.Address.ContentId,
+                Address = existing.Address
+            };
+        }
         await using var data = new FileStream(
             local.LocalPath,
             FileMode.Open,
@@ -2325,7 +2382,7 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
             bufferSize: 81920,
             useAsync: true);
         var contentInfo = await _contentStore.WriteAsync(
-            ContentScope.Create(_sessionId),
+            scope,
             data,
             new ContentMetadata
             {
@@ -2343,13 +2400,19 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
                     ["cwd"] = _request.WorkingDirectory
                 }
             },
-            new ContentWriteOptions { Mode = ContentWriteMode.Create },
+            new ContentWriteOptions
+            {
+                Mode = ContentWriteMode.Create,
+                ContentId = contentId,
+                FailIfNameExists = true
+            },
             cancellationToken).ConfigureAwait(false);
 
         return local with
         {
             ArtifactPath = null,
-            ContentId = contentInfo.Address.ContentId
+            ContentId = contentInfo.Address.ContentId,
+            Address = contentInfo.Address
         };
     }
 

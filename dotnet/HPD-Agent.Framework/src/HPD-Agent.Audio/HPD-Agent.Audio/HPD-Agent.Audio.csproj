@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <HpdAgentEventPrecompileRequireAnalyzer>false</HpdAgentEventPrecompileRequireAnalyzer>
     <RootNamespace>HPD.Agent.Audio</RootNamespace>
     <AssemblyName>HPD.Agent.Audio</AssemblyName>
     <IsPackable>true</IsPackable>
@@ -12,7 +13,7 @@
     <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
     <OutputType>Library</OutputType>
     <NoWarn>$(NoWarn);1591;CS8604;HPDA005</NoWarn>
-    <WarningsAsErrors>$(WarningsAsErrors);HPDAEVT001</WarningsAsErrors>
+    <WarningsAsErrors>$(WarningsAsErrors)</WarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>

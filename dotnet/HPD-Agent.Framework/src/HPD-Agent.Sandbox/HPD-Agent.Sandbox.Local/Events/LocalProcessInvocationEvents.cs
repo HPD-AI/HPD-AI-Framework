@@ -16,37 +16,37 @@ public abstract record LocalProcessInvocationEvent : AgentEvent, IObservabilityE
     public TimeSpan? Duration { get; init; }
 }
 
-[EventType("LOCAL_PROCESS_INVOCATION_STARTING", Durability = AgentEventDurability.LiveOnly)]
+[EventType("LOCAL_PROCESS_INVOCATION_STARTING")]
 public sealed record LocalProcessInvocationStartingEvent : LocalProcessInvocationEvent;
 
-[EventType("LOCAL_PROCESS_INVOCATION_STARTED", Durability = AgentEventDurability.LiveOnly)]
+[EventType("LOCAL_PROCESS_INVOCATION_STARTED")]
 public sealed record LocalProcessInvocationStartedEvent : LocalProcessInvocationEvent
 {
     public int SystemProcessId { get; init; }
 }
 
-[EventType("LOCAL_PROCESS_INVOCATION_COMPLETED", Durability = AgentEventDurability.LiveOnly)]
+[EventType("LOCAL_PROCESS_INVOCATION_COMPLETED")]
 public sealed record LocalProcessInvocationCompletedEvent : LocalProcessInvocationEvent
 {
     public int ExitCode { get; init; }
 }
 
-[EventType("LOCAL_PROCESS_INVOCATION_FAILED", Durability = AgentEventDurability.LiveOnly)]
+[EventType("LOCAL_PROCESS_INVOCATION_FAILED")]
 public sealed record LocalProcessInvocationFailedEvent : LocalProcessInvocationEvent
 {
     public string Message { get; init; } = string.Empty;
 }
 
-[EventType("LOCAL_PROCESS_INVOCATION_TIMED_OUT", Durability = AgentEventDurability.LiveOnly)]
+[EventType("LOCAL_PROCESS_INVOCATION_TIMED_OUT")]
 public sealed record LocalProcessInvocationTimedOutEvent : LocalProcessInvocationEvent
 {
     public TimeSpan Timeout { get; init; }
 }
 
-[EventType("LOCAL_PROCESS_INVOCATION_CANCELLED", Durability = AgentEventDurability.LiveOnly)]
+[EventType("LOCAL_PROCESS_INVOCATION_CANCELLED")]
 public sealed record LocalProcessInvocationCancelledEvent : LocalProcessInvocationEvent;
 
-[EventType("LOCAL_PROCESS_INVOCATION_KILLED", Durability = AgentEventDurability.LiveOnly)]
+[EventType("LOCAL_PROCESS_INVOCATION_KILLED")]
 public sealed record LocalProcessInvocationKilledEvent : LocalProcessInvocationEvent
 {
     public string Reason { get; init; } = string.Empty;

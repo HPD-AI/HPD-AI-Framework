@@ -10,7 +10,8 @@ namespace HPD.Agent.Middleware;
 /// This event indicates framework-managed local or ephemeral storage was used.
 /// The hpd-content:// URI will require resolver middleware before being sent to LLM.
 /// </remarks>
-[HPD.Agent.Serialization.EventType("CONTENT_UPLOADED", Durability = HPD.Agent.Serialization.AgentEventDurability.Durable)]
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("CONTENT_UPLOADED")]
 public record ContentUploadedEvent(
     /// <summary>The unique identifier assigned to the uploaded content.</summary>
     string ContentId,
@@ -26,7 +27,8 @@ public record ContentUploadedEvent(
 /// In Auto mode, the middleware will attempt to fall back to HostedFileClient.
 /// In Local mode, original DataContent is kept.
 /// </remarks>
-[HPD.Agent.Serialization.EventType("CONTENT_UPLOAD_FAILED", Durability = HPD.Agent.Serialization.AgentEventDurability.Durable)]
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("CONTENT_UPLOAD_FAILED")]
 public record ContentUploadFailedEvent(
     /// <summary>Error message describing why the upload failed.</summary>
     string ErrorMessage) : AgentEvent, IErrorEvent
@@ -43,7 +45,8 @@ public record ContentUploadFailedEvent(
 /// This event indicates provider-native file storage was used (e.g., OpenAI Files API).
 /// The HostedFileContent is directly compatible with LLM providers and requires no resolver.
 /// </remarks>
-[HPD.Agent.Serialization.EventType("HOSTED_FILE_UPLOADED", Durability = HPD.Agent.Serialization.AgentEventDurability.Durable)]
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("HOSTED_FILE_UPLOADED")]
 public record HostedFileUploadedEvent(
     /// <summary>The provider-specific file identifier.</summary>
     string FileId,
@@ -59,7 +62,8 @@ public record HostedFileUploadedEvent(
 /// In Auto mode, the middleware will fall back to IContentStore.
 /// In Hosted mode, original DataContent is kept and an error is logged.
 /// </remarks>
-[HPD.Agent.Serialization.EventType("HOSTED_FILE_UPLOAD_FAILED", Durability = HPD.Agent.Serialization.AgentEventDurability.Durable)]
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("HOSTED_FILE_UPLOAD_FAILED")]
 public record HostedFileUploadFailedEvent(
     /// <summary>Error message describing why the hosted upload failed.</summary>
     string ErrorMessage) : AgentEvent, IErrorEvent
@@ -86,7 +90,8 @@ public enum ContentReferenceResolutionKind
 /// <summary>
 /// Emitted when an hpd-content:// URI is resolved from IContentStore.
 /// </summary>
-[HPD.Agent.Serialization.EventType("CONTENT_REFERENCE_RESOLVED", Durability = HPD.Agent.Serialization.AgentEventDurability.Durable)]
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("CONTENT_REFERENCE_RESOLVED")]
 public record ContentReferenceResolvedEvent(
     /// <summary>The hpd-content:// URI that was resolved.</summary>
     Uri ContentUri,
@@ -100,7 +105,8 @@ public record ContentReferenceResolvedEvent(
 /// <summary>
 /// Emitted when an hpd-content:// URI cannot be resolved.
 /// </summary>
-[HPD.Agent.Serialization.EventType("CONTENT_REFERENCE_RESOLUTION_FAILED", Durability = HPD.Agent.Serialization.AgentEventDurability.Durable)]
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("CONTENT_REFERENCE_RESOLUTION_FAILED")]
 public record ContentReferenceResolutionFailedEvent(
     /// <summary>The hpd-content:// URI that failed to resolve.</summary>
     Uri ContentUri,

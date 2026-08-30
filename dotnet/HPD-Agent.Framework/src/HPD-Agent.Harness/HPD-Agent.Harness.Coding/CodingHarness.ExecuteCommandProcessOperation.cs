@@ -123,11 +123,12 @@ internal sealed class ExecuteCommandProcessOperation : IAsyncDisposable
             CombinedBytesDiscarded = result.Output.Stdout.BytesDiscarded + result.Output.Stderr.BytesDiscarded,
             OutputTruncated = result.Output.Stdout.Truncated || result.Output.Stderr.Truncated || OutputMetadata.Stdout.Truncated || OutputMetadata.Stderr.Truncated,
             OutputDrainTimedOut = result.Output.OutputDrainTimedOut, OutputEventsSuppressed = false,
-            StdoutArtifactPath = OutputMetadata.Stdout.ArtifactPath, StderrArtifactPath = OutputMetadata.Stderr.ArtifactPath,
-            CombinedOutputArtifactPath = OutputMetadata.Combined.ArtifactPath, StdoutContentId = OutputMetadata.Stdout.ContentId,
-            StderrContentId = OutputMetadata.Stderr.ContentId, CombinedOutputContentId = OutputMetadata.Combined.ContentId,
-            StdoutLocalPath = OutputMetadata.Stdout.LocalPath, StderrLocalPath = OutputMetadata.Stderr.LocalPath,
-            CombinedOutputLocalPath = OutputMetadata.Combined.LocalPath
+            OutputContentState = OutputMetadata.ContentState,
+            Stdout = OutputMetadata.Stdout.Address,
+            Stderr = OutputMetadata.Stderr.Address,
+            CombinedOutput = OutputMetadata.Combined.Address,
+            MaxPersistedOutputBytes = OutputMetadata.MaxPersistedOutputBytes,
+            CombinedOutputFormat = "hpd.execute-command.interleaved.v1"
         }, CancellationToken.None).ConfigureAwait(false);
     }
 

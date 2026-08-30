@@ -1,0 +1,26 @@
+<Project>
+  <PropertyGroup>
+    <HpdAgentEventPrecompilerPath Condition="'$(HpdAgentEventPrecompilerPath)' == ''">$(MSBuildThisFileDirectory)..\tools\net8.0\HPD-Agent.EventPrecompiler.dll</HpdAgentEventPrecompilerPath>
+    <HpdAgentGeneratedEventContext>$(IntermediateOutputPath)HpdGeneratedAgentEventJsonContext.g.cs</HpdAgentGeneratedEventContext>
+    <HpdAgentEventSourcesFile>$(IntermediateOutputPath)hpd-agent-event-sources.rsp</HpdAgentEventSourcesFile>
+    <HpdAgentEventReferencesFile>$(IntermediateOutputPath)hpd-agent-event-references.rsp</HpdAgentEventReferencesFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <CompilerVisibleProperty Include="HpdAgentApplication" />
+    <CompilerVisibleProperty Include="HpdAgentEventModuleId" />
+  </ItemGroup>
+
+  <Target Name="HpdGenerateAgentEventJsonContext"
+          DependsOnTargets="$(HpdAgentEventPrecompileDependsOn)"
+          AfterTargets="ResolveReferences"
+          BeforeTargets="CoreCompile"
+          Condition="'$(DesignTimeBuild)' != 'true' And ('$(HpdAgentEventPrecompileRequireAnalyzer)' != 'true' Or $([System.String]::Copy('@(Analyzer);@(ProjectReference)').Contains('HPD-Agent.SourceGenerator'))) ">
+    <WriteLinesToFile File="$(HpdAgentEventSourcesFile)" Lines="@(Compile)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <WriteLinesToFile File="$(HpdAgentEventReferencesFile)" Lines="@(ReferencePath)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <Exec Command="dotnet exec &quot;$(HpdAgentEventPrecompilerPath)&quot; --sources &quot;$(HpdAgentEventSourcesFile)&quot; --references &quot;$(HpdAgentEventReferencesFile)&quot; --output &quot;$(HpdAgentGeneratedEventContext)&quot; --assembly &quot;$(AssemblyName)&quot; --language &quot;$(LangVersion)&quot; --defines &quot;$(DefineConstants)&quot;" />
+    <ItemGroup Condition="Exists('$(HpdAgentGeneratedEventContext)')">
+      <Compile Include="$(HpdAgentGeneratedEventContext)" />
+      <FileWrites Include="$(HpdAgentGeneratedEventContext);$(HpdAgentEventSourcesFile);$(HpdAgentEventReferencesFile)" />
+    </ItemGroup>
+  </Target>
+</Project>

@@ -81,6 +81,9 @@ public class AgentBuilder
     internal readonly Dictionary<string, IToolMetadata?> _toolharnessContexts = new();
     //  Unified content store for all agent content (skills, knowledge, memory, uploads, artifacts)
     internal IContentStore? _contentStore;
+    internal bool _hasExplicitContentStore;
+    internal Func<AgentEventComposition, ISessionStore>? _sessionStoreFactory;
+    internal Func<IContentStore>? _implicitContentStoreFactory;
     internal ISkillStore? _skillStore;
     // Track explicitly registered ToolHarnesses (for Collapsing manager)
     internal readonly HashSet<string> _explicitlyRegisteredToolHarnesses = new(StringComparer.OrdinalIgnoreCase);
@@ -1033,6 +1036,7 @@ public class AgentBuilder
     public AgentBuilder WithContentStore(IContentStore store)
     {
         _contentStore = store ?? throw new ArgumentNullException(nameof(store));
+        _hasExplicitContentStore = true;
         return this;
     }
 
@@ -1856,6 +1860,14 @@ public class AgentBuilder
     public async Task<Agent> BuildAsync(CancellationToken cancellationToken = default)
     {
         ResolveEventComposition();
+        if (_sessionStoreFactory is not null)
+        {
+            if (_config.SessionStore is not null)
+                throw new InvalidOperationException("An explicit session store cannot be combined with a session-store factory.");
+            _config.SessionStore = _sessionStoreFactory(_config.EventComposition!);
+        }
+        if (!_hasExplicitContentStore && _contentStore is null && _implicitContentStoreFactory is not null)
+            _contentStore = _implicitContentStoreFactory();
         if (_config.Skills.ActivationLifetime != SkillActivationLifetime.MessageTurn)
             throw new InvalidOperationException(
                 $"Skill activation lifetime '{_config.Skills.ActivationLifetime}' is not supported. " +

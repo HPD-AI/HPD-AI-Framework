@@ -14,7 +14,8 @@ public abstract record AssistantAudioEvent : AgentEvent
     }
 }
 
-[EventType("ASSISTANT_AUDIO_OUTPUT_STARTED", Durability = AgentEventDurability.Durable)]
+[DurableEvent]
+[EventType("ASSISTANT_AUDIO_OUTPUT_STARTED")]
 public sealed record AssistantAudioOutputStartedEvent(
     string SessionId,
     string OutputFlowId,
@@ -25,7 +26,8 @@ public sealed record AssistantAudioOutputStartedEvent(
     string? Language,
     string? OutputFormat) : AssistantAudioEvent(SessionId), IObservabilityEvent;
 
-[EventType("ASSISTANT_AUDIO_OUTPUT_STREAM_STARTED", Durability = AgentEventDurability.Durable)]
+[DurableEvent]
+[EventType("ASSISTANT_AUDIO_OUTPUT_STREAM_STARTED")]
 public sealed record AssistantAudioOutputStreamStartedEvent(
     string SessionId,
     string OutputFlowId,
@@ -40,7 +42,8 @@ public sealed record AssistantAudioOutputStreamStartedEvent(
     string MediaType,
     string PayloadKind) : AssistantAudioEvent(SessionId), IObservabilityEvent;
 
-[EventType("ASSISTANT_AUDIO_OUTPUT_CHUNK_READY", Durability = AgentEventDurability.Durable)]
+[DurableEvent]
+[EventType("ASSISTANT_AUDIO_OUTPUT_CHUNK_READY")]
 public sealed record AssistantAudioOutputChunkReadyEvent(
     string SessionId,
     string OutputFlowId,
@@ -59,7 +62,8 @@ public sealed record AssistantAudioOutputChunkReadyEvent(
     bool IsFinalChunk,
     string PayloadKind) : AssistantAudioEvent(SessionId), IObservabilityEvent;
 
-[EventType("ASSISTANT_AUDIO_PUSH_TEXT_STREAM_OPENING", Durability = AgentEventDurability.Durable)]
+[DurableEvent]
+[EventType("ASSISTANT_AUDIO_PUSH_TEXT_STREAM_OPENING")]
 public sealed record AssistantAudioPushTextStreamOpeningEvent(
     string SessionId,
     string OutputFlowId,
@@ -71,7 +75,8 @@ public sealed record AssistantAudioPushTextStreamOpeningEvent(
     string? OutputFormat,
     string InputAggregationMode) : AssistantAudioEvent(SessionId), IObservabilityEvent;
 
-[EventType("ASSISTANT_AUDIO_PUSH_TEXT_STREAM_OPENED", Durability = AgentEventDurability.Durable)]
+[DurableEvent]
+[EventType("ASSISTANT_AUDIO_PUSH_TEXT_STREAM_OPENED")]
 public sealed record AssistantAudioPushTextStreamOpenedEvent(
     string SessionId,
     string OutputFlowId,
@@ -83,7 +88,8 @@ public sealed record AssistantAudioPushTextStreamOpenedEvent(
     string? OutputFormat,
     string InputAggregationMode) : AssistantAudioEvent(SessionId), IObservabilityEvent;
 
-[EventType("ASSISTANT_AUDIO_PUSH_TEXT_INPUT_SENT", Durability = AgentEventDurability.Durable)]
+[DurableEvent]
+[EventType("ASSISTANT_AUDIO_PUSH_TEXT_INPUT_SENT")]
 public sealed record AssistantAudioPushTextInputSentEvent(
     string SessionId,
     string OutputFlowId,
@@ -93,7 +99,8 @@ public sealed record AssistantAudioPushTextInputSentEvent(
     bool IsFinalInput,
     string InputAggregationMode) : AssistantAudioEvent(SessionId), IObservabilityEvent;
 
-[EventType("ASSISTANT_AUDIO_OUTPUT_STREAM_COMPLETED", Durability = AgentEventDurability.Durable)]
+[DurableEvent]
+[EventType("ASSISTANT_AUDIO_OUTPUT_STREAM_COMPLETED")]
 public sealed record AssistantAudioOutputStreamCompletedEvent(
     string SessionId,
     string OutputFlowId,
@@ -105,7 +112,8 @@ public sealed record AssistantAudioOutputStreamCompletedEvent(
     long SizeBytes,
     TimeSpan? Duration) : AssistantAudioEvent(SessionId), IObservabilityEvent;
 
-[EventType("ASSISTANT_AUDIO_OUTPUT_ARTIFACT_CAPTURED", Durability = AgentEventDurability.Durable)]
+[DurableEvent]
+[EventType("ASSISTANT_AUDIO_OUTPUT_ARTIFACT_CAPTURED")]
 public sealed record AssistantAudioOutputArtifactCapturedEvent(
     string SessionId,
     string OutputFlowId,
@@ -118,7 +126,8 @@ public sealed record AssistantAudioOutputArtifactCapturedEvent(
     string? Sha256,
     TimeSpan? Duration) : AssistantAudioEvent(SessionId), IObservabilityEvent;
 
-[EventType("ASSISTANT_AUDIO_OUTPUT_SEGMENT_FAILED", Durability = AgentEventDurability.Durable)]
+[DurableEvent]
+[EventType("ASSISTANT_AUDIO_OUTPUT_SEGMENT_FAILED")]
 public sealed record AssistantAudioOutputSegmentFailedEvent(
     string SessionId,
     string OutputFlowId,
@@ -134,7 +143,8 @@ public sealed record AssistantAudioOutputSegmentFailedEvent(
     string Disposition,
     bool IsFinal) : AssistantAudioEvent(SessionId), IObservabilityEvent;
 
-[EventType("ASSISTANT_AUDIO_OUTPUT_COMPLETED", Durability = AgentEventDurability.Durable)]
+[DurableEvent]
+[EventType("ASSISTANT_AUDIO_OUTPUT_COMPLETED")]
 public sealed record AssistantAudioOutputCompletedEvent(
     string SessionId,
     string OutputFlowId,
@@ -144,7 +154,8 @@ public sealed record AssistantAudioOutputCompletedEvent(
     bool Played,
     bool HeardByUser) : AssistantAudioEvent(SessionId), IObservabilityEvent;
 
-[EventType("ASSISTANT_AUDIO_OUTPUT_FAILED", Durability = AgentEventDurability.Durable)]
+[DurableEvent]
+[EventType("ASSISTANT_AUDIO_OUTPUT_FAILED")]
 public sealed record AssistantAudioOutputFailedEvent(
     string SessionId,
     string OutputFlowId,
@@ -157,7 +168,8 @@ public sealed record AssistantAudioOutputFailedEvent(
     AudioErrorInfo? Error,
     string Disposition) : AssistantAudioEvent(SessionId), IObservabilityEvent;
 
-[EventType("ASSISTANT_AUDIO_PLAYBACK_STARTED", Durability = AgentEventDurability.Durable)]
+[DurableEvent]
+[EventType("ASSISTANT_AUDIO_PLAYBACK_STARTED")]
 public sealed record AssistantAudioPlaybackStartedEvent(
     string SessionId,
     string OutputFlowId,
@@ -166,7 +178,8 @@ public sealed record AssistantAudioPlaybackStartedEvent(
     int SegmentSequence,
     string MediaType) : AssistantAudioEvent(SessionId), IObservabilityEvent;
 
-[EventType("ASSISTANT_AUDIO_PLAYBACK_QUEUED", Durability = AgentEventDurability.Durable)]
+[DurableEvent]
+[EventType("ASSISTANT_AUDIO_PLAYBACK_QUEUED")]
 public sealed record AssistantAudioPlaybackQueuedEvent(
     string SessionId,
     string OutputFlowId,
@@ -177,7 +190,8 @@ public sealed record AssistantAudioPlaybackQueuedEvent(
     bool Played,
     bool HeardByUser) : AssistantAudioEvent(SessionId), IObservabilityEvent;
 
-[EventType("ASSISTANT_AUDIO_PLAYBACK_PROGRESS", Durability = AgentEventDurability.Durable)]
+[DurableEvent]
+[EventType("ASSISTANT_AUDIO_PLAYBACK_PROGRESS")]
 public sealed record AssistantAudioPlaybackProgressEvent(
     string SessionId,
     string OutputFlowId,
@@ -190,7 +204,8 @@ public sealed record AssistantAudioPlaybackProgressEvent(
     bool Played,
     bool HeardByUser) : AssistantAudioEvent(SessionId), IObservabilityEvent;
 
-[EventType("ASSISTANT_AUDIO_PLAYBACK_COMPLETED", Durability = AgentEventDurability.Durable)]
+[DurableEvent]
+[EventType("ASSISTANT_AUDIO_PLAYBACK_COMPLETED")]
 public sealed record AssistantAudioPlaybackCompletedEvent(
     string SessionId,
     string OutputFlowId,
@@ -204,7 +219,8 @@ public sealed record AssistantAudioPlaybackCompletedEvent(
     int PlayedTextLength,
     string Precision) : AssistantAudioEvent(SessionId), IObservabilityEvent;
 
-[EventType("ASSISTANT_AUDIO_PLAYBACK_INTERRUPTED", Durability = AgentEventDurability.Durable)]
+[DurableEvent]
+[EventType("ASSISTANT_AUDIO_PLAYBACK_INTERRUPTED")]
 public sealed record AssistantAudioPlaybackInterruptedEvent(
     string SessionId,
     string OutputFlowId,
@@ -217,7 +233,8 @@ public sealed record AssistantAudioPlaybackInterruptedEvent(
     bool Played,
     bool HeardByUser) : AssistantAudioEvent(SessionId), IObservabilityEvent;
 
-[EventType("ASSISTANT_AUDIO_PLAYBACK_FAILED", Durability = AgentEventDurability.Durable)]
+[DurableEvent]
+[EventType("ASSISTANT_AUDIO_PLAYBACK_FAILED")]
 public sealed record AssistantAudioPlaybackFailedEvent(
     string SessionId,
     string OutputFlowId,

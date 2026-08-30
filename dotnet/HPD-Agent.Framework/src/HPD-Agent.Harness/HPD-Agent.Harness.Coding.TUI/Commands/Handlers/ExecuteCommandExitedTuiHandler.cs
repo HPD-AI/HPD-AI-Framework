@@ -29,15 +29,9 @@ internal sealed class ExecuteCommandExitedTuiHandler : ExecuteCommandTuiHandlerB
         state.DrainTimedOut = evt.OutputDrainTimedOut;
         state.DisplayState = ResolveDisplayState(evt);
 
-        state.Artifacts.StdoutArtifactPath = evt.StdoutArtifactPath;
-        state.Artifacts.StderrArtifactPath = evt.StderrArtifactPath;
-        state.Artifacts.CombinedOutputArtifactPath = evt.CombinedOutputArtifactPath;
-        state.Artifacts.StdoutContentId = evt.StdoutContentId;
-        state.Artifacts.StderrContentId = evt.StderrContentId;
-        state.Artifacts.CombinedOutputContentId = evt.CombinedOutputContentId;
-        state.Artifacts.StdoutLocalPath = evt.StdoutLocalPath;
-        state.Artifacts.StderrLocalPath = evt.StderrLocalPath;
-        state.Artifacts.CombinedOutputLocalPath = evt.CombinedOutputLocalPath;
+        state.Artifacts.StdoutContentId = evt.Stdout?.ContentId;
+        state.Artifacts.StderrContentId = evt.Stderr?.ContentId;
+        state.Artifacts.CombinedOutputContentId = evt.CombinedOutput?.ContentId;
 
         UpdateTranscript(context, state, evt);
         return ValueTask.CompletedTask;

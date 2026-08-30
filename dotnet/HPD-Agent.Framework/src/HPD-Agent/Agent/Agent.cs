@@ -90,8 +90,9 @@ public sealed partial class Agent : IAsyncDisposable
     // Provider registry for runtime provider switching via AgentRunConfig.ProviderKey/ModelId
     private readonly Providers.IProviderRegistry? _providerRegistry;
 
-    // Store used for opt-in event content persistence.
+    // Store and generated-policy archiver used for event content retention.
     private readonly IContentStore? _contentStore;
+    private readonly IAgentEventContentArchiver _eventContentArchiver;
 
     // Service provider for creating new clients
     private readonly IServiceProvider? _serviceProvider;
@@ -266,6 +267,11 @@ public sealed partial class Agent : IAsyncDisposable
     /// <param name="workflowOptions">Options from workflow (may contain handoff tools)</param>
     /// <param name="conversationContext">Additional context to inject (e.g., ConversationId)</param>
     /// <returns>Merged ChatOptions ready for agent execution</returns>
+    private AgentEventPublisher CreateEventPublisher(
+        ISessionStore store,
+        HPD.Events.IEventCoordinator coordinator) =>
+        new(store, coordinator, _eventContentArchiver);
+
     /// <summary>
     /// Initializes a new Agent instance from an AgentConfig object
     /// </summary>
@@ -287,6 +293,13 @@ public sealed partial class Agent : IAsyncDisposable
     {
         _providerRegistry = providerRegistry;
         _contentStore = contentStore;
+        _eventContentArchiver = new AgentEventContentArchiver(
+            contentStore,
+            diagnostic => _agentLogger?.LogDebug(
+                diagnostic.Exception,
+                "Agent event content archival skipped or failed for {EventType}: {Reason}",
+                diagnostic.EventType.Name,
+                diagnostic.Reason));
         _serviceProvider = serviceProvider;
         _stateFactories = stateFactories?.ToImmutableDictionary()
             ?? ImmutableDictionary<string, MiddlewareStateFactory>.Empty;
@@ -333,7 +346,7 @@ public sealed partial class Agent : IAsyncDisposable
         _eventCoordinator = new HPD.Events.Core.EventCoordinator();
         var operationThreadEvents = Config.SessionStore is null
             ? null
-            : new AgentEventPublisher(Config.SessionStore, _eventCoordinator);
+            : CreateEventPublisher(Config.SessionStore, _eventCoordinator);
         _operationRegistry = new AgentOperationRegistry(
             new AgentOperationEventSink(_eventCoordinator, operationThreadEvents),
             Config.OperationRetention);
@@ -842,7 +855,7 @@ public sealed partial class Agent : IAsyncDisposable
             await store.SaveSessionAsync(session, cancellationToken).ConfigureAwait(false);
         }
 
-        var publisher = new AgentEventPublisher(store, eventCoordinator);
+        var publisher = CreateEventPublisher(store, eventCoordinator);
         foreach (var message in newMessages.Where(ShouldCommitMessageSnapshotToThread))
         {
             AgentMessagePolicy.StampDefaults(message);
@@ -964,7 +977,7 @@ public sealed partial class Agent : IAsyncDisposable
         var finalizationEvents = replacements.Concat(appendedEvents).ToArray();
         if (finalizationEvents.Length > 0)
         {
-            var publisher = new AgentEventPublisher(store, eventCoordinator);
+            var publisher = CreateEventPublisher(store, eventCoordinator);
             await publisher.CommitAndPublishAsync(
                 new ThreadKey(thread.SessionId, thread.Id),
                 finalizationEvents,
@@ -1035,7 +1048,7 @@ public sealed partial class Agent : IAsyncDisposable
         evt = EnrichOutputEvent(evt);
         if (thread == null)
         {
-            return await new AgentEventPublisher(_ephemeralEventJournal, eventCoordinator)
+            return await CreateEventPublisher(_ephemeralEventJournal, eventCoordinator)
                 .CommitAndPublishAsync(new ThreadKey($"ephemeral:{AgentId}", "main"), evt, cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -1043,12 +1056,12 @@ public sealed partial class Agent : IAsyncDisposable
         var store = Config?.SessionStore;
         if (store == null)
         {
-            return await new AgentEventPublisher(_ephemeralEventJournal, eventCoordinator)
+            return await CreateEventPublisher(_ephemeralEventJournal, eventCoordinator)
                 .CommitAndPublishAsync(new ThreadKey(thread.SessionId, thread.Id), evt, cancellationToken)
                 .ConfigureAwait(false);
         }
 
-        var publisher = new AgentEventPublisher(store, eventCoordinator);
+        var publisher = CreateEventPublisher(store, eventCoordinator);
         return await publisher.CommitAndPublishAsync(
             new ThreadKey(thread.SessionId, thread.Id),
             evt,
@@ -1168,7 +1181,7 @@ public sealed partial class Agent : IAsyncDisposable
         evt = EnrichOutputEvent(evt);
         if (thread == null)
         {
-            return await new AgentEventPublisher(_ephemeralEventJournal, eventCoordinator)
+            return await CreateEventPublisher(_ephemeralEventJournal, eventCoordinator)
                 .CommitAndPublishAsync(new ThreadKey($"ephemeral:{AgentId}", "main"), evt, cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -1210,7 +1223,7 @@ public sealed partial class Agent : IAsyncDisposable
         var threadEvent = CreateAgentThreadEvent(
             thread, evt, messageTurnId, conversationId, iteration,
             inputMessageCount, isResume, turnMessageCount);
-        var publisher = new AgentEventPublisher(Config!.SessionStore!, eventCoordinator);
+        var publisher = CreateEventPublisher(Config!.SessionStore!, eventCoordinator);
         return await publisher.StageAndPublishDeltaAsync(
             new ThreadKey(thread.SessionId, thread.Id), threadEvent, cancellationToken).ConfigureAwait(false);
     }
@@ -1230,7 +1243,7 @@ public sealed partial class Agent : IAsyncDisposable
         var threadEvent = CreateAgentThreadEvent(
             thread, evt, messageTurnId, conversationId, iteration,
             inputMessageCount, isResume, turnMessageCount);
-        var publisher = new AgentEventPublisher(Config!.SessionStore!, eventCoordinator);
+        var publisher = CreateEventPublisher(Config!.SessionStore!, eventCoordinator);
         var result = await publisher.FinalizeAndPublishDeltasAsync(
             new ThreadKey(thread.SessionId, thread.Id), threadEvent, cancellationToken).ConfigureAwait(false);
         return result.CommittedEvents[^1];
@@ -1293,45 +1306,6 @@ public sealed partial class Agent : IAsyncDisposable
             turnMessageCount)
             ?? throw new InvalidOperationException(
                 $"Canonical event '{evt.GetType().Name}' could not be scoped to thread '{thread.Id}'.");
-    }
-
-    private async Task PersistAgentEventContentAsync(
-        Session? session,
-        AgentEvent evt,
-        CancellationToken cancellationToken)
-        => await PersistAgentEventContentAsync(
-            session?.Id,
-            evt,
-            cancellationToken).ConfigureAwait(false);
-
-    private async Task PersistAgentEventContentAsync(
-        string? sessionId,
-        AgentEvent evt,
-        CancellationToken cancellationToken)
-    {
-        if (_contentStore == null || evt.GetContentPersistenceRequest() == null)
-            return;
-
-        try
-        {
-            await AgentEventContentPersistence.PersistAsync(
-                _contentStore,
-                Config.EventComposition!.Codec,
-                evt,
-                sessionId,
-                cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _agentLogger?.LogDebug(ex,
-                "Agent event content persistence failed for {EventType}",
-                evt.GetType().Name);
-            // Event content persistence is opt-in telemetry/storage and should not break streaming.
-        }
     }
 
     internal AgentInputResult.Control CancelRuntimeExecution(string threadExecutionId)
@@ -1734,7 +1708,7 @@ public sealed partial class Agent : IAsyncDisposable
             return stateless;
         }
 
-        return await new AgentEventPublisher(store, runtimeCoordinator).PublishAsync(
+        return await CreateEventPublisher(store, runtimeCoordinator).PublishAsync(
             new ThreadKey(evt.SessionId, evt.ThreadId),
             EnrichOutputEvent(evt),
             cancellationToken).ConfigureAwait(false);
@@ -1770,7 +1744,7 @@ public sealed partial class Agent : IAsyncDisposable
             runtimeCoordinator = new HPD.Events.Core.EventCoordinator();
             runtimeCoordinator.SetParent(_eventCoordinator);
             runtimeThreadEvents = Config?.SessionStore is { } store
-                ? new AgentEventPublisher(store, runtimeCoordinator)
+                ? CreateEventPublisher(store, runtimeCoordinator)
                 : null;
             runtimeStructEvents = new StructEventHub();
             runtimeInbox = Channel.CreateUnbounded<AgentInputEvent>(new UnboundedChannelOptions
@@ -2273,7 +2247,7 @@ public sealed partial class Agent : IAsyncDisposable
         var store = Config?.SessionStore
             ?? throw new InvalidOperationException(
                 "A scoped response requires the configured session store so it can commit before request completion.");
-        var publisher = new AgentEventPublisher(store, coordinator);
+        var publisher = CreateEventPublisher(store, coordinator);
         var key = new ThreadKey(agentResponse.SessionId, agentResponse.ThreadId);
 
         var result = await coordinator.RespondAsync(
@@ -2595,7 +2569,7 @@ public sealed partial class Agent : IAsyncDisposable
                 initialState: state,
                 eventCoordinator: eventCoordinator,
                 threadEvents: Config?.SessionStore is { } turnStore
-                    ? new AgentEventPublisher(turnStore, eventCoordinator)
+                    ? CreateEventPublisher(turnStore, eventCoordinator)
                     : null,
                 session: session,
                 thread: thread,
@@ -4972,11 +4946,6 @@ public sealed partial class Agent : IAsyncDisposable
                 usageCollector?.TryAcceptCommitted(committedMeasurement);
             }
 
-            await PersistAgentEventContentAsync(
-                session,
-                outputEvent,
-                cancellationToken).ConfigureAwait(false);
-
             // Custom streaming callback if provided
             if (options?.Streaming?.Callback != null)
             {
@@ -6617,7 +6586,7 @@ public sealed partial class Agent : IAsyncDisposable
                 initialState: forkState,
                 eventCoordinator: forkEventCoordinator,
                 threadEvents: Config?.SessionStore is { } forkStore
-                    ? new AgentEventPublisher(forkStore, forkEventCoordinator)
+                    ? CreateEventPublisher(forkStore, forkEventCoordinator)
                     : null,
                 session: sourceThread.Session,
                 thread: newThread,

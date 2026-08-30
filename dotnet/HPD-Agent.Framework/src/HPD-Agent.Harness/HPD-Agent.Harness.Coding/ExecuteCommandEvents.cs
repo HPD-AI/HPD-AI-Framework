@@ -38,6 +38,14 @@ public enum ExecuteCommandCompletionKind
     Faulted
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter<ExecuteCommandOutputContentState>))]
+public enum ExecuteCommandOutputContentState
+{
+    Unavailable,
+    Ephemeral,
+    RestartDurable
+}
+
 public abstract record ExecuteCommandEvent : AgentEvent
 {
     public override EventKind Kind { get; init; } = EventKind.Diagnostic;
@@ -57,7 +65,8 @@ public abstract record ExecuteCommandEvent : AgentEvent
     public required string WorkingDirectory { get; init; }
 }
 
-[EventType("EXECUTE_COMMAND_PROCESS_STARTED", Durability = AgentEventDurability.Durable)]
+[DurableEvent]
+[EventType("EXECUTE_COMMAND_PROCESS_STARTED")]
 public sealed record ExecuteCommandProcessStartedEvent : ExecuteCommandEvent
 {
     public override EventKind Kind { get; init; } = EventKind.Lifecycle;
@@ -75,7 +84,7 @@ public sealed record ExecuteCommandProcessStartedEvent : ExecuteCommandEvent
     public required int TimeoutMilliseconds { get; init; }
 }
 
-[EventType("EXECUTE_COMMAND_OUTPUT_CHUNK", Durability = AgentEventDurability.Durable)]
+[EventType("EXECUTE_COMMAND_OUTPUT_CHUNK")]
 public sealed record ExecuteCommandOutputChunkEvent : ExecuteCommandEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
@@ -100,7 +109,8 @@ public sealed record ExecuteCommandOutputChunkEvent : ExecuteCommandEvent
     public bool Binary { get; init; }
 }
 
-[EventType("EXECUTE_COMMAND_PROGRESS", Durability = AgentEventDurability.Durable)]
+[DurableEvent]
+[EventType("EXECUTE_COMMAND_PROGRESS")]
 public sealed record ExecuteCommandProgressEvent : ExecuteCommandEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
@@ -123,7 +133,8 @@ public sealed record ExecuteCommandProgressEvent : ExecuteCommandEvent
     public required bool OutputEventsSuppressed { get; init; }
 }
 
-[EventType("EXECUTE_COMMAND_PROCESS_EXITED", Durability = AgentEventDurability.Durable)]
+[DurableEvent]
+[EventType("EXECUTE_COMMAND_PROCESS_EXITED")]
 public sealed record ExecuteCommandProcessExitedEvent : ExecuteCommandEvent
 {
     public override EventKind Kind { get; init; } = EventKind.Lifecycle;
@@ -152,26 +163,21 @@ public sealed record ExecuteCommandProcessExitedEvent : ExecuteCommandEvent
 
     public required bool OutputEventsSuppressed { get; init; }
 
-    public string? StdoutArtifactPath { get; init; }
+    public required ExecuteCommandOutputContentState OutputContentState { get; init; }
 
-    public string? StderrArtifactPath { get; init; }
+    public ContentAddress? Stdout { get; init; }
 
-    public string? CombinedOutputArtifactPath { get; init; }
+    public ContentAddress? Stderr { get; init; }
 
-    public string? StdoutContentId { get; init; }
+    public ContentAddress? CombinedOutput { get; init; }
 
-    public string? StderrContentId { get; init; }
+    public required long MaxPersistedOutputBytes { get; init; }
 
-    public string? CombinedOutputContentId { get; init; }
-
-    public string? StdoutLocalPath { get; init; }
-
-    public string? StderrLocalPath { get; init; }
-
-    public string? CombinedOutputLocalPath { get; init; }
+    public required string CombinedOutputFormat { get; init; }
 }
 
-[EventType("EXECUTE_COMMAND_AUTO_BACKGROUNDED", Durability = AgentEventDurability.Durable)]
+[DurableEvent]
+[EventType("EXECUTE_COMMAND_AUTO_BACKGROUNDED")]
 public sealed record ExecuteCommandAutoBackgroundedEvent : ExecuteCommandEvent
 {
     public override EventKind Kind { get; init; } = EventKind.Lifecycle;

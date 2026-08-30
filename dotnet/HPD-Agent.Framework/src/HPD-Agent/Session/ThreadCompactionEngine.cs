@@ -17,7 +17,8 @@ public enum CompactionOrigin
     Fork
 }
 
-[HPD.Agent.Serialization.EventType("COMPACTION", Durability = HPD.Agent.Serialization.AgentEventDurability.Durable)]
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("COMPACTION")]
 public sealed record CompactionEvent(
     string AgentName,
     int Iteration,

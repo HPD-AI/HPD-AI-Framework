@@ -18,7 +18,7 @@ public static class CodingAgentEventModule
         Events = Array.AsReadOnly<AgentEventDescriptor>(
         [
             Create(typeof(ExecuteCommandProcessStartedEvent), "EXECUTE_COMMAND_PROCESS_STARTED", CodingToolHarnessJsonContext.Default.ExecuteCommandProcessStartedEvent),
-            Create(typeof(ExecuteCommandOutputChunkEvent), "EXECUTE_COMMAND_OUTPUT_CHUNK", CodingToolHarnessJsonContext.Default.ExecuteCommandOutputChunkEvent),
+            Create(typeof(ExecuteCommandOutputChunkEvent), "EXECUTE_COMMAND_OUTPUT_CHUNK", CodingToolHarnessJsonContext.Default.ExecuteCommandOutputChunkEvent, AgentEventDurability.LiveOnly),
             Create(typeof(ExecuteCommandProgressEvent), "EXECUTE_COMMAND_PROGRESS", CodingToolHarnessJsonContext.Default.ExecuteCommandProgressEvent),
             Create(typeof(ExecuteCommandProcessExitedEvent), "EXECUTE_COMMAND_PROCESS_EXITED", CodingToolHarnessJsonContext.Default.ExecuteCommandProcessExitedEvent),
             Create(typeof(ExecuteCommandAutoBackgroundedEvent), "EXECUTE_COMMAND_AUTO_BACKGROUNDED", CodingToolHarnessJsonContext.Default.ExecuteCommandAutoBackgroundedEvent),
@@ -76,12 +76,16 @@ public static class CodingAgentEventModule
         ])
     };
 
-    private static AgentEventDescriptor Create(Type type, string discriminator, JsonTypeInfo typeInfo) => new()
+    private static AgentEventDescriptor Create(
+        Type type,
+        string discriminator,
+        JsonTypeInfo typeInfo,
+        AgentEventDurability durability = AgentEventDurability.Durable) => new()
     {
         EventType = type,
         Discriminator = discriminator,
         JsonTypeInfo = typeInfo,
-        Durability = AgentEventDurability.Durable,
+        Durability = durability,
         ModuleId = "hpd.agent.harness.coding"
     };
 }

@@ -1,7 +1,5 @@
 using HPD.Agent.Serialization;
 
-[assembly: HpdAgentApplication]
-
 namespace HPD.Agent.AspNetCore.Tests;
 
 internal static class TestEventApplication

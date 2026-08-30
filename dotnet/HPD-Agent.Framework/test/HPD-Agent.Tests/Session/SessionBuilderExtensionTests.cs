@@ -143,6 +143,41 @@ public class SessionBuilderExtensionTests : AgentTestBase
         }
     }
 
+    [Fact]
+    public void WithInMemorySessionStore_DefersConstructionUntilCompositionResolution()
+    {
+        var builder = new AgentBuilder().WithInMemorySessionStore();
+
+        Assert.Null(builder.Config.SessionStore);
+        Assert.NotNull(builder._sessionStoreFactory);
+        Assert.IsType<InMemorySessionStore>(builder._sessionStoreFactory!(CoreAgentEventComposition.Instance));
+    }
+
+    [Fact]
+    public void WithFileSessionStore_SelectsDeferredRestartDurableContentDefault()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"session-test-{Guid.NewGuid()}");
+        var builder = new AgentBuilder().WithFileSessionStore(path);
+
+        Assert.Null(builder.Config.SessionStore);
+        Assert.NotNull(builder._sessionStoreFactory);
+        Assert.NotNull(builder._implicitContentStoreFactory);
+        Assert.Equal(
+            ContentStorePersistenceCapability.RestartDurable,
+            builder._implicitContentStoreFactory!().PersistenceCapability);
+    }
+
+    [Fact]
+    public void SessionStoreFactory_RejectsExplicitStoreInEitherOrder()
+    {
+        var store = new InMemorySessionStore(TestEventApplication.Codec);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            new AgentBuilder().WithInMemorySessionStore().WithSessionStore(store));
+        Assert.Throws<InvalidOperationException>(() =>
+            new AgentBuilder().WithSessionStore(store).WithInMemorySessionStore());
+    }
+
     //──────────────────────────────────────────────────────────────────
     // SESSION STORE OPTIONS DEFAULTS
     //──────────────────────────────────────────────────────────────────

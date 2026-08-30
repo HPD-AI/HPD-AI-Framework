@@ -33,12 +33,6 @@ public sealed class EventTypeAttribute : Attribute
     public string Discriminator { get; }
 
     /// <summary>
-    /// Gets or sets whether this event may enter the canonical thread journal.
-    /// Unspecified custom events are live-only.
-    /// </summary>
-    public AgentEventDurability Durability { get; set; } = AgentEventDurability.LiveOnly;
-
-    /// <summary>
     /// Creates a new EventTypeAttribute with the specified discriminator.
     /// </summary>
     /// <param name="discriminator">

@@ -16,8 +16,6 @@ using HPD.Agent.Providers.Audio.Meai;
 using HPD.Agent.Providers.Audio.OpenAI;
 using Microsoft.Extensions.AI;
 
-[assembly: HPD.Agent.Serialization.HpdAgentApplication]
-
 #pragma warning disable MEAI001
 
 AudioCliOptions options;

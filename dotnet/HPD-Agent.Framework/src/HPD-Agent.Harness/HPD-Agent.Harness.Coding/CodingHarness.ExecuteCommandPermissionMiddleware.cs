@@ -1692,7 +1692,8 @@ public sealed record PersistRuleChoice : ExecuteCommandPermissionChoice
 public sealed record DenyChoice : ExecuteCommandPermissionChoice;
 public sealed record FeedbackChoice : ExecuteCommandPermissionChoice;
 
-[EventType("EXECUTE_COMMAND_PERMISSION_REQUEST", Durability = AgentEventDurability.Durable)]
+[DurableEvent]
+[EventType("EXECUTE_COMMAND_PERMISSION_REQUEST")]
 public sealed record ExecuteCommandPermissionRequestEvent(
     string PermissionId,
     string SourceName,
@@ -1707,7 +1708,8 @@ public sealed record ExecuteCommandPermissionRequestEvent(
     public string RequestId => PermissionId;
 }
 
-[EventType("EXECUTE_COMMAND_PERMISSION_RESPONSE", Durability = AgentEventDurability.Durable)]
+[DurableEvent]
+[EventType("EXECUTE_COMMAND_PERMISSION_RESPONSE")]
 public sealed record ExecuteCommandPermissionResponseEvent(
     string PermissionId,
     string SourceName,
@@ -1720,7 +1722,8 @@ public sealed record ExecuteCommandPermissionResponseEvent(
     public string RequestId => PermissionId;
 }
 
-[EventType("EXECUTE_COMMAND_PERMISSION_RULE_PERSISTED", Durability = AgentEventDurability.Durable)]
+[DurableEvent]
+[EventType("EXECUTE_COMMAND_PERMISSION_RULE_PERSISTED")]
 public sealed record ExecuteCommandPermissionRulePersistedEvent(
     string PermissionId,
     string SourceName,

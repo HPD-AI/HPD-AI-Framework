@@ -23,7 +23,8 @@ public abstract record FileMutationAppliedEvent : AgentEvent
     public IReadOnlyList<FileMutationNote> Notes { get; init; } = [];
 }
 
-[EventType("FILE_EDIT_APPLIED", Durability = AgentEventDurability.Durable)]
+[DurableEvent]
+[EventType("FILE_EDIT_APPLIED")]
 public sealed record FileEditAppliedEvent : FileMutationAppliedEvent
 {
     public required int EditCount { get; init; }
@@ -32,7 +33,8 @@ public sealed record FileEditAppliedEvent : FileMutationAppliedEvent
     public required IReadOnlyList<FileEditNormalizationNote> Normalizations { get; init; }
 }
 
-[EventType("FILE_WRITE_APPLIED", Durability = AgentEventDurability.Durable)]
+[DurableEvent]
+[EventType("FILE_WRITE_APPLIED")]
 public sealed record FileWriteAppliedEvent : FileMutationAppliedEvent
 {
     public required FileWriteMode Mode { get; init; }

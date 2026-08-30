@@ -442,7 +442,8 @@ public sealed class ExecuteCommandTests : IDisposable
             coordinator,
             session,
             thread,
-            CancellationToken.None);
+            CancellationToken.None,
+            config: CreateTestAgentConfig());
         RegisterProcessExecution(agentContext.RuntimeCapabilities, runner);
         var runConfig = CreateWorkspaceRunConfig();
         var arguments = RunArguments("node server.js");
@@ -732,7 +733,7 @@ public sealed class ExecuteCommandTests : IDisposable
     public async Task ExecuteCommand_ForegroundRun_CommitsArtifactsWhenSessionContentStoreExists()
     {
         var store = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
-        var contentStore = new InMemoryContentStore();
+        var contentStore = new LocalFileContentStore(Path.Combine(_tempRoot, "content"));
         var runner = new FakeProcessProvider
         {
             Result = CreateResult(stdout: "artifact stdout\n", stderr: "artifact stderr\n", exitCode: 0)
@@ -1190,7 +1191,8 @@ public sealed class ExecuteCommandTests : IDisposable
             coordinator,
             new Session("session-1"),
             new Thread("session-1", "test-agent") { Id = "thread-1" },
-            CancellationToken.None);
+            CancellationToken.None,
+            config: CreateTestAgentConfig());
         RegisterProcessExecution(agentContext.RuntimeCapabilities, runner);
         var requestArguments = new Dictionary<string, object?>
         {
@@ -1542,6 +1544,7 @@ public sealed class ExecuteCommandTests : IDisposable
             session,
             thread,
             CancellationToken.None,
+            config: CreateTestAgentConfig(),
             contentStore: contentStore);
         if (runner is not null)
             RegisterProcessExecution(agentContext.RuntimeCapabilities, runner);
@@ -1591,7 +1594,8 @@ public sealed class ExecuteCommandTests : IDisposable
             coordinator,
             session,
             thread,
-            CancellationToken.None);
+            CancellationToken.None,
+            config: CreateTestAgentConfig());
         RegisterProcessExecution(agentContext.RuntimeCapabilities, runner);
 
         var arguments = new Dictionary<string, object?>
@@ -1689,6 +1693,16 @@ public sealed class ExecuteCommandTests : IDisposable
             } }
         };
     }
+
+    private static AgentConfig CreateTestAgentConfig()
+        => new()
+        {
+            EventComposition = AgentEventComposition.Create(
+            [
+                CoreAgentEventModule.Fragment,
+                CodingAgentEventModule.Fragment
+            ])
+        };
 
     private static string ExtractAttribute(string xml, string name)
     {
@@ -1943,6 +1957,9 @@ public sealed class ExecuteCommandTests : IDisposable
 
     private sealed class ThrowingContentStore : IContentStore
     {
+        public ContentStorePersistenceCapability PersistenceCapability
+            => ContentStorePersistenceCapability.RestartDurable;
+
         public ValueTask<ContentInfo> WriteAsync(
             ContentScope scope,
             Stream data,

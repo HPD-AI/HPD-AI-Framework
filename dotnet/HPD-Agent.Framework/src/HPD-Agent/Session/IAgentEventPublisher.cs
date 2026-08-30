@@ -47,12 +47,17 @@ public sealed class AgentEventPublisher : IAgentEventPublisher
 {
     private readonly ISessionStore _store;
     private readonly IEventCoordinator _coordinator;
+    private readonly IAgentEventContentArchiver _archiver;
 
     /// <summary>Creates a publisher whose serialization authority is derived exclusively from its store.</summary>
-    public AgentEventPublisher(ISessionStore store, IEventCoordinator coordinator)
+    public AgentEventPublisher(
+        ISessionStore store,
+        IEventCoordinator coordinator,
+        IAgentEventContentArchiver? archiver = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
+        _archiver = archiver ?? NullAgentEventContentArchiver.Instance;
     }
 
     /// <inheritdoc />
@@ -86,6 +91,7 @@ public sealed class AgentEventPublisher : IAgentEventPublisher
             throw new InvalidOperationException($"Agent event type '{value.GetType().FullName}' is not present in codec '{EventCodec.Digest}'.");
         var live = value with { ThreadSequenceNumber = 0 };
         await _coordinator.EmitAsync(live, cancellationToken).ConfigureAwait(false);
+        await _archiver.ArchiveAsync(EventCodec, live, cancellationToken).ConfigureAwait(false);
         return live;
     }
 
@@ -117,7 +123,10 @@ public sealed class AgentEventPublisher : IAgentEventPublisher
         var result = await _store.AppendThreadEventsAsync(thread, scoped, condition, cancellationToken)
             .ConfigureAwait(false);
         foreach (var committed in result.CommittedEvents)
+        {
             await _coordinator.EmitAsync(committed, cancellationToken).ConfigureAwait(false);
+            await _archiver.ArchiveAsync(EventCodec, committed, cancellationToken).ConfigureAwait(false);
+        }
         return result;
     }
 
@@ -152,7 +161,11 @@ public sealed class AgentEventPublisher : IAgentEventPublisher
         var scoped = ThreadEventValidation.PrepareForAppend(thread.SessionId, thread.ThreadId, messageEnd);
         var result = await deltaStore.FinalizeThreadDeltasAsync(thread, scoped, cancellationToken)
             .ConfigureAwait(false);
-        await _coordinator.EmitAsync(result.CommittedEvents[^1], cancellationToken).ConfigureAwait(false);
+        foreach (var committed in result.CommittedEvents)
+        {
+            await _coordinator.EmitAsync(committed, cancellationToken).ConfigureAwait(false);
+            await _archiver.ArchiveAsync(EventCodec, committed, cancellationToken).ConfigureAwait(false);
+        }
         return result;
     }
 
@@ -173,7 +186,10 @@ public sealed class AgentEventPublisher : IAgentEventPublisher
         var result = await _store.ReplaceThreadEventsAsync(thread, scoped, expectedCursor, cancellationToken)
             .ConfigureAwait(false);
         foreach (var committed in result.CommittedEvents)
+        {
             await _coordinator.EmitAsync(committed, cancellationToken).ConfigureAwait(false);
+            await _archiver.ArchiveAsync(EventCodec, committed, cancellationToken).ConfigureAwait(false);
+        }
         return result;
     }
 }

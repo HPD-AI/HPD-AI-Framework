@@ -73,7 +73,7 @@ public abstract record AgentTuiPerformanceEvent : AgentEvent, IObservabilityEven
         => $"tui {GetType().Name} kind={Kind} channel={Channel}";
 }
 
-[EventType("TRANSCRIPT_VIEW_RENDERED", Durability = AgentEventDurability.LiveOnly)]
+[EventType("TRANSCRIPT_VIEW_RENDERED")]
 public sealed record TranscriptViewRendered(
     string? AgentId,
     int EntriesVisited,
@@ -87,7 +87,7 @@ public sealed record TranscriptViewRendered(
         => $"transcript render {Duration.TotalMilliseconds:0.###}ms rows={RowsRendered} captured={RowsCaptured} visited={EntriesVisited} cache={CacheHits}/{CacheMisses}";
 }
 
-[EventType("AGENT_TUI_EVENT_BATCH_APPLIED", Durability = AgentEventDurability.LiveOnly)]
+[EventType("AGENT_TUI_EVENT_BATCH_APPLIED")]
 public sealed record AgentTuiEventBatchApplied(
     string? AgentId,
     AgentTuiEventDeliveryMode DeliveryMode,
