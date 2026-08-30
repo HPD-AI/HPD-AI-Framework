@@ -21,6 +21,7 @@ public static class CodingAgentEventModule
             Create(typeof(ExecuteCommandOutputChunkEvent), "EXECUTE_COMMAND_OUTPUT_CHUNK", CodingToolHarnessJsonContext.Default.ExecuteCommandOutputChunkEvent, AgentEventDurability.LiveOnly),
             Create(typeof(ExecuteCommandProgressEvent), "EXECUTE_COMMAND_PROGRESS", CodingToolHarnessJsonContext.Default.ExecuteCommandProgressEvent),
             Create(typeof(ExecuteCommandProcessExitedEvent), "EXECUTE_COMMAND_PROCESS_EXITED", CodingToolHarnessJsonContext.Default.ExecuteCommandProcessExitedEvent),
+            Create(typeof(ExecuteCommandContentWriteFailedEvent), "EXECUTE_COMMAND_CONTENT_WRITE_FAILED", CodingToolHarnessJsonContext.Default.ExecuteCommandContentWriteFailedEvent),
             Create(typeof(ExecuteCommandAutoBackgroundedEvent), "EXECUTE_COMMAND_AUTO_BACKGROUNDED", CodingToolHarnessJsonContext.Default.ExecuteCommandAutoBackgroundedEvent),
             Create(typeof(ExecuteCommandPermissionRequestEvent), "EXECUTE_COMMAND_PERMISSION_REQUEST", CodingToolHarnessJsonContext.Default.ExecuteCommandPermissionRequestEvent),
             Create(typeof(ExecuteCommandPermissionResponseEvent), "EXECUTE_COMMAND_PERMISSION_RESPONSE", CodingToolHarnessJsonContext.Default.ExecuteCommandPermissionResponseEvent),

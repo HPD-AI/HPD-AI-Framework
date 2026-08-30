@@ -24,6 +24,8 @@ using HPDOS.ToolHarnesses.Middleware;
 [JsonSerializable(typeof(ExecuteCommandOutputChunkEvent))]
 [JsonSerializable(typeof(ExecuteCommandProgressEvent))]
 [JsonSerializable(typeof(ExecuteCommandProcessExitedEvent))]
+[JsonSerializable(typeof(ExecuteCommandContentWriteFailedEvent))]
+[JsonSerializable(typeof(ContentAddress))]
 [JsonSerializable(typeof(ExecuteCommandAutoBackgroundedEvent))]
 [JsonSerializable(typeof(ExecuteCommandPermissionRequestEvent))]
 [JsonSerializable(typeof(ExecuteCommandPermissionResponseEvent))]

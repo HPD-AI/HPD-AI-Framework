@@ -46,6 +46,14 @@ public enum ExecuteCommandOutputContentState
     RestartDurable
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter<ExecuteCommandContentWriteFailureKind>))]
+public enum ExecuteCommandContentWriteFailureKind
+{
+    StoreUnavailable,
+    WriteRejected,
+    CleanupFailed
+}
+
 public abstract record ExecuteCommandEvent : AgentEvent
 {
     public override EventKind Kind { get; init; } = EventKind.Diagnostic;
@@ -174,6 +182,23 @@ public sealed record ExecuteCommandProcessExitedEvent : ExecuteCommandEvent
     public required long MaxPersistedOutputBytes { get; init; }
 
     public required string CombinedOutputFormat { get; init; }
+}
+
+[DurableEvent]
+[EventType("EXECUTE_COMMAND_CONTENT_WRITE_FAILED")]
+public sealed record ExecuteCommandContentWriteFailedEvent : ExecuteCommandEvent
+{
+    public required ExecuteCommandContentWriteFailureKind FailureKind { get; init; }
+
+    public string? ArtifactRole { get; init; }
+
+    public required string Message { get; init; }
+
+    public required string StdoutTail { get; init; }
+
+    public required string StderrTail { get; init; }
+
+    public required long MaxPersistedOutputBytes { get; init; }
 }
 
 [DurableEvent]
