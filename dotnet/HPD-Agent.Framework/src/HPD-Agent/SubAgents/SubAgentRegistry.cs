@@ -185,8 +185,17 @@ public static class SubAgentControllerAuthority
         if (grant is null || grant.Revoked) return false;
         var operation = await new JournalThreadForkOperationStore(store, grant.ForkOperationSource)
             .GetThreadForkOperationAsync(grant.ForkOperationId, cancellationToken).ConfigureAwait(false);
-        return operation?.Status is ThreadForkOperationStatus.Committed or
-            ThreadForkOperationStatus.ReconciliationRequired;
+        return operation is
+            {
+                Status: ThreadForkOperationStatus.Committed or ThreadForkOperationStatus.ReconciliationRequired,
+                SubAgentPolicy: SubAgentForkPolicy.Share
+            } &&
+            operation.Target == controller &&
+            operation.ChildOutcomes.Any(outcome =>
+                string.Equals(outcome.LocalId, localId.Value, StringComparison.Ordinal) &&
+                outcome.Policy == SubAgentForkPolicy.Share &&
+                outcome.Target == child &&
+                outcome.Availability == SubAgentChildAvailability.Available);
     }
 
     private static async ValueTask<SubAgentChildControllerAuthorityEvent?> ReadLatestAsync(

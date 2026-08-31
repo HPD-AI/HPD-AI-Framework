@@ -349,10 +349,6 @@ public static class SubAgentRuntime
             SubAgentCreationPhase.InitialExecutionAdmitted,
             cancellationToken).ConfigureAwait(false);
         var threadExecutionId = admission.Creation.ThreadExecutionId;
-        var publisher = new AgentEventPublisher(
-            agent.Config.SessionStore ?? throw new InvalidOperationException("No session store configured."),
-            agent.EventCoordinator);
-        var childRunStarted = false;
 
         try
         {
@@ -368,11 +364,6 @@ public static class SubAgentRuntime
                     contextPolicy,
                     invocationMode), cancellationToken).ConfigureAwait(false);
             }
-            await publisher.CommitAndPublishAsync(
-                new ThreadKey(route.SessionId, route.ThreadId),
-                new ThreadExecutionStartedEvent(threadExecutionId, definition.AgentId, DateTimeOffset.UtcNow),
-                cancellationToken).ConfigureAwait(false);
-            childRunStarted = true;
             var initialMessageCount = await ResolveMessageCountAsync(
                 agent,
                 route,
@@ -404,15 +395,6 @@ public static class SubAgentRuntime
                 throw new InvalidOperationException(
                     $"Subagent '{definition.Name}' completed without an assistant response.");
             }
-            await publisher.CommitAndPublishAsync(
-                new ThreadKey(route.SessionId, route.ThreadId),
-                new ThreadExecutionFinishedEvent(
-                    threadExecutionId,
-                    definition.AgentId,
-                    ThreadExecutionOutcome.Succeeded,
-                    DateTimeOffset.UtcNow),
-                CancellationToken.None).ConfigureAwait(false);
-            childRunStarted = false;
             if (request.ParentContext is not null)
             {
                 await request.ParentContext.PublishAsync(
@@ -440,22 +422,6 @@ public static class SubAgentRuntime
         }
         catch (Exception ex)
         {
-            if (childRunStarted)
-            {
-                await publisher.CommitAndPublishAsync(
-                    new ThreadKey(route.SessionId, route.ThreadId),
-                    new ThreadExecutionFinishedEvent(
-                        threadExecutionId,
-                        definition.AgentId,
-                        ex is OperationCanceledException
-                            ? ThreadExecutionOutcome.Cancelled
-                            : ThreadExecutionOutcome.Failed,
-                        DateTimeOffset.UtcNow,
-                        ex is OperationCanceledException
-                            ? null
-                            : new ThreadExecutionError(ex.GetType().Name, ex.Message)),
-                    CancellationToken.None).ConfigureAwait(false);
-            }
             if (request.ParentContext is not null)
             {
                 AgentEvent terminal = ex is OperationCanceledException
@@ -761,6 +727,19 @@ public static class SubAgentRuntime
                             AgentOperationId = operationId
                         };
                     }
+                    await Task.Yield();
+                    active = await controller.FindActiveAsync(route, cancellationToken).ConfigureAwait(false);
+                    if (active.IsActive && string.Equals(active.ThreadExecutionId, executionId, StringComparison.Ordinal))
+                    {
+                        return new SubAgentOperationResult
+                        {
+                            Status = SubAgentOperationStatus.Running,
+                            Child = child.LocalId.Value,
+                            InvocationId = invocationId,
+                            ThreadExecutionId = executionId,
+                            AgentOperationId = operationId
+                        };
+                    }
                     return new SubAgentOperationResult
                     {
                         Status = SubAgentOperationStatus.Failed,
@@ -826,20 +805,15 @@ public static class SubAgentRuntime
             }
             try
             {
-                await ContinueChildAsync(
+                var output = await ContinueChildAsync(
                     resolver, store, child, route, input, executionId, cancellationToken).ConfigureAwait(false);
-                var projected = await store.ProjectThreadAsync(
-                    route.SessionId,
-                    route.ThreadId,
-                    ThreadProjectionPurpose.ThreadHistory,
-                    CancellationToken.None).ConfigureAwait(false);
                 return new SubAgentOperationResult
                 {
                     Status = SubAgentOperationStatus.Completed,
                     Child = child.LocalId.Value,
                     InvocationId = invocationId,
                     ThreadExecutionId = executionId,
-                    Output = projected?.Messages.LastOrDefault(static message => message.Role == ChatRole.Assistant)?.Text
+                    Output = output
                 };
             }
             catch { throw; }
@@ -895,7 +869,7 @@ public static class SubAgentRuntime
         };
     }
 
-    private static async Task ContinueChildAsync(
+    private static async Task<string?> ContinueChildAsync(
         IAgentRuntimeResolver resolver,
         ISessionStore store,
         SubAgentChildReference child,
@@ -906,7 +880,6 @@ public static class SubAgentRuntime
     {
         await using var lease = await resolver.GetOrBuildAsync(
             child.ChildAgentId, route.SessionId, route.ThreadId, cancellationToken).ConfigureAwait(false);
-        var publisher = new AgentEventPublisher(store, lease.Agent.EventCoordinator);
         try
         {
             await lease.Agent.RunAsync(new UserMessagesInputEvent
@@ -916,32 +889,35 @@ public static class SubAgentRuntime
                 ThreadId = route.ThreadId,
                 ThreadExecutionId = executionId
             }, cancellationToken).ConfigureAwait(false);
-            var projected = await store.ProjectThreadAsync(
-                route.SessionId, route.ThreadId, ThreadProjectionPurpose.ThreadHistory, CancellationToken.None)
+            var output = await ReadExecutionTextAsync(store, route, executionId, CancellationToken.None)
                 .ConfigureAwait(false);
-            var output = projected?.Messages.LastOrDefault(static message => message.Role == ChatRole.Assistant)?.Text;
             await store.AppendThreadEventsAsync(
                 route,
-                [
-                    new SubAgentContinuationReceiptEvent(executionId, output),
-                    new ThreadExecutionFinishedEvent(
-                        executionId, child.ChildAgentId, ThreadExecutionOutcome.Succeeded, DateTimeOffset.UtcNow)
-                ],
+                [new SubAgentContinuationReceiptEvent(executionId, output)],
                 cancellationToken: CancellationToken.None).ConfigureAwait(false);
+            return output;
         }
-        catch (Exception exception)
-        {
-            await publisher.CommitAndPublishAsync(
-                route,
-                new ThreadExecutionFinishedEvent(
-                    executionId,
-                    child.ChildAgentId,
-                    exception is OperationCanceledException ? ThreadExecutionOutcome.Cancelled : ThreadExecutionOutcome.Failed,
-                    DateTimeOffset.UtcNow,
-                    exception is OperationCanceledException ? null : new ThreadExecutionError(exception.GetType().Name, exception.Message)),
-                CancellationToken.None).ConfigureAwait(false);
-            throw;
-        }
+        catch { throw; }
+    }
+
+    private static async ValueTask<string?> ReadExecutionTextAsync(
+        ISessionStore store,
+        ThreadKey route,
+        string executionId,
+        CancellationToken cancellationToken)
+    {
+        var head = await store.GetThreadEventHeadAsync(route, cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("subagent_child_route_invalid");
+        var text = new StringBuilder();
+        await foreach (var batch in store.ReadThreadEventsAsync(
+                           route,
+                           new ThreadEventReadRequest(ThreadJournalCursor.Start(head.Generation), head.ThreadSequenceNumber),
+                           cancellationToken).ConfigureAwait(false))
+            foreach (var evt in batch.Events)
+                if (evt is TextDeltaEvent delta &&
+                    string.Equals(evt.ThreadExecutionId, executionId, StringComparison.Ordinal))
+                    text.Append(delta.Text);
+        return text.Length == 0 ? null : text.ToString();
     }
 
     private static async ValueTask<(bool Reserved, ThreadExecutionOutcome? Outcome, SubAgentOperationError? Error, string? Output)>

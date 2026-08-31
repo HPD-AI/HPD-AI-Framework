@@ -104,7 +104,7 @@ internal sealed class InProcessThreadExecutionController(ISessionStore store) : 
     private readonly ConcurrentDictionary<ThreadKey, ThreadExecutionLease> _active = new();
     private long _fence;
 
-    public ValueTask<ThreadExecutionLeaseResult> TryAcquireAsync(
+    public async ValueTask<ThreadExecutionLeaseResult> TryAcquireAsync(
         ThreadExecutionStartRequest request,
         CancellationToken cancellationToken = default)
     {
@@ -116,12 +116,23 @@ internal sealed class InProcessThreadExecutionController(ISessionStore store) : 
             request.Agent,
             Interlocked.Increment(ref _fence));
         if (_active.TryAdd(request.Thread, lease))
-            return ValueTask.FromResult(new ThreadExecutionLeaseResult(true, lease, null));
+        {
+            try
+            {
+                await EnsureStartedAsync(request, cancellationToken).ConfigureAwait(false);
+                return new ThreadExecutionLeaseResult(true, lease, null);
+            }
+            catch
+            {
+                _active.TryRemove(new KeyValuePair<ThreadKey, ThreadExecutionLease>(request.Thread, lease));
+                throw;
+            }
+        }
         var current = _active.GetValueOrDefault(request.Thread);
-        return ValueTask.FromResult(new ThreadExecutionLeaseResult(
+        return new ThreadExecutionLeaseResult(
             false,
             null,
-            current?.ThreadExecutionId));
+            current?.ThreadExecutionId);
     }
 
     public ValueTask<ActiveThreadExecutionLookup> FindActiveAsync(
@@ -177,15 +188,17 @@ internal sealed class InProcessThreadExecutionController(ISessionStore store) : 
             result.Disposition));
     }
 
-    public ValueTask ReleaseAsync(
+    public async ValueTask ReleaseAsync(
         ThreadExecutionLease lease,
         ThreadExecutionTerminalResult terminal,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (_active.TryGetValue(lease.Thread, out var current) && current.Fence == lease.Fence)
+        {
+            await EnsureFinishedAsync(lease, terminal, cancellationToken).ConfigureAwait(false);
             _active.TryRemove(new KeyValuePair<ThreadKey, ThreadExecutionLease>(lease.Thread, current));
-        return ValueTask.CompletedTask;
+        }
     }
 
     public async IAsyncEnumerable<ThreadExecutionObservation> ObserveAsync(
@@ -221,5 +234,80 @@ internal sealed class InProcessThreadExecutionController(ISessionStore store) : 
                 if (evt is ThreadExecutionFinishedEvent) yield break;
             }
         }
+    }
+
+    private async ValueTask EnsureStartedAsync(
+        ThreadExecutionStartRequest request,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; attempt < 16; attempt++)
+        {
+            var head = await _store.GetThreadEventHeadAsync(request.Thread, cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("thread_execution_thread_missing");
+            if (await ContainsExecutionEventAsync<ThreadExecutionStartedEvent>(
+                    request.Thread, request.ThreadExecutionId, head, cancellationToken).ConfigureAwait(false))
+                return;
+            try
+            {
+                await _store.AppendThreadEventsAsync(
+                    request.Thread,
+                    [new ThreadExecutionStartedEvent(
+                        request.ThreadExecutionId, request.Agent.AgentId, DateTimeOffset.UtcNow)],
+                    new ThreadAppendCondition(head.Cursor),
+                    cancellationToken).ConfigureAwait(false);
+                return;
+            }
+            catch (ThreadAppendConflictException) when (attempt < 15) { }
+        }
+        throw new InvalidOperationException("thread_execution_start_conflict");
+    }
+
+    private async ValueTask EnsureFinishedAsync(
+        ThreadExecutionLease lease,
+        ThreadExecutionTerminalResult terminal,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; attempt < 16; attempt++)
+        {
+            var head = await _store.GetThreadEventHeadAsync(lease.Thread, cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("thread_execution_thread_missing");
+            if (await ContainsExecutionEventAsync<ThreadExecutionFinishedEvent>(
+                    lease.Thread, lease.ThreadExecutionId, head, cancellationToken).ConfigureAwait(false))
+                return;
+            var error = terminal.Outcome == ThreadExecutionOutcome.Failed
+                ? new ThreadExecutionError(
+                    terminal.ErrorType ?? "ThreadExecutionFailed",
+                    terminal.ErrorMessage ?? "Thread execution failed.")
+                : null;
+            try
+            {
+                await _store.AppendThreadEventsAsync(
+                    lease.Thread,
+                    [new ThreadExecutionFinishedEvent(
+                        lease.ThreadExecutionId, lease.Agent.AgentId, terminal.Outcome, DateTimeOffset.UtcNow, error)],
+                    new ThreadAppendCondition(head.Cursor),
+                    cancellationToken).ConfigureAwait(false);
+                return;
+            }
+            catch (ThreadAppendConflictException) when (attempt < 15) { }
+        }
+        throw new InvalidOperationException("thread_execution_finish_conflict");
+    }
+
+    private async ValueTask<bool> ContainsExecutionEventAsync<TEvent>(
+        ThreadKey thread,
+        string executionId,
+        ThreadEventHead head,
+        CancellationToken cancellationToken)
+        where TEvent : AgentEvent
+    {
+        await foreach (var batch in _store.ReadThreadEventsAsync(
+                           thread,
+                           new ThreadEventReadRequest(ThreadJournalCursor.Start(head.Generation), head.ThreadSequenceNumber),
+                           cancellationToken).ConfigureAwait(false))
+            if (batch.Events.Any(evt => evt is TEvent &&
+                string.Equals(evt.ThreadExecutionId, executionId, StringComparison.Ordinal)))
+                return true;
+        return false;
     }
 }

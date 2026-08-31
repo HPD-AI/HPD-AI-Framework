@@ -187,7 +187,12 @@ public sealed class SubAgentDurabilityTests
             Status = ThreadForkOperationStatus.Committed,
             Revision = 1,
             PreparedChildren = [],
-            ChildOutcomes = []
+            ChildOutcomes = [new SubAgentForkChildOutcome(
+                "reviewer-1",
+                SubAgentForkPolicy.Share,
+                child,
+                child,
+                SubAgentChildAvailability.Available)]
         }, new ThreadForkOperationWriteCondition(0));
 
         await SubAgentControllerAuthority.GrantAsync(
