@@ -67,10 +67,11 @@ public sealed class ActionScopedFunctionInvocationTests
             """);
 
         var schema = AgentInvocationModes.CreateActionSchema(document.RootElement, Contract());
-        var definitions = schema.GetProperty("$defs");
+        var branches = schema.GetProperty("properties").GetProperty("request").GetProperty("oneOf");
 
-        Assert.False(definitions.GetProperty("read").GetProperty("properties").TryGetProperty("invocationMode", out _));
-        Assert.True(definitions.GetProperty("run").GetProperty("properties").TryGetProperty("invocationMode", out _));
+        Assert.False(schema.TryGetProperty("$defs", out _));
+        Assert.False(branches[0].GetProperty("properties").TryGetProperty("invocationMode", out _));
+        Assert.True(branches[1].GetProperty("properties").TryGetProperty("invocationMode", out _));
         AgentInvocationModes.ValidateActionSchema(schema, Contract());
     }
 

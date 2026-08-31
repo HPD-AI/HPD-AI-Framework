@@ -118,6 +118,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                     function,
                     functionName,
                     funcInfo.Arguments,
+                    validatedAction: null,
                     out var permissionKey,
                     out _))
             {
@@ -194,6 +195,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                 function,
                 functionName,
                 context.Arguments,
+                context.InvocationMode?.ValidatedAction,
                 out var permissionKey,
                 out var resolutionError))
         {
@@ -532,9 +534,17 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         AIFunction function,
         string functionName,
         IReadOnlyDictionary<string, object?>? arguments,
+        ValidatedFunctionAction? validatedAction,
         out string permissionKey,
         out string? validationError)
     {
+        if (validatedAction is not null)
+        {
+            permissionKey = $"{functionName}:{validatedAction.Action}";
+            validationError = null;
+            return true;
+        }
+
         if (arguments is null)
         {
             permissionKey = functionName;
