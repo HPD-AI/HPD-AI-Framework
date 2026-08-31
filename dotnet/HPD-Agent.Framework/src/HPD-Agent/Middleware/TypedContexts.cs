@@ -481,6 +481,12 @@ public sealed class AfterFunctionContext : HookContext
 {
     /// <summary>Gets the immutable action and invocation-mode facts for the completed call.</summary>
     public ResolvedFunctionInvocation? InvocationMode { get; }
+
+    /// <summary>Gets an operation committed by a ToolBody call before completion or failure.</summary>
+    public CommittedToolBodyOperation? CommittedToolBodyOperation { get; private set; }
+
+    internal void SetCommittedToolBodyOperation(CommittedToolBodyOperation? operation) =>
+        CommittedToolBodyOperation = operation;
     /// <summary>
     /// The function that was invoked.
     ///   Can be NULL when an unknown function was called

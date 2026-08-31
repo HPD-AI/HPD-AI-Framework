@@ -36,7 +36,8 @@ internal sealed record FunctionBodyExecutionResult(
     FunctionExecutionPreparation Preparation,
     object? Result,
     ToolResultMetadata ResultMetadata,
-    Exception? Exception);
+    Exception? Exception,
+    CommittedToolBodyOperation? CommittedToolBodyOperation = null);
 
 internal interface IFunctionExecutionCore
 {
@@ -350,10 +351,16 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
         ResolvedFunctionInvocation? resolvedInvocation = null;
         if (function is HPDAIFunctionFactory.HPDAIFunction hpdFunction)
         {
-            if (functionCall.Arguments is not AIFunctionArguments source ||
-                source.GetJson().ValueKind == JsonValueKind.Undefined)
-                return CreatePreparationRejection(functionCall, invocation, function, toolharnessName, callType,
-                    "raw_json_required", "Generated AI functions require authoritative or HPD-canonical JSON arguments.");
+            var ingressProvenance = FunctionArgumentIngressProvenance.Original;
+            AIFunctionArguments source;
+            if (functionCall.Arguments is AIFunctionArguments supplied &&
+                supplied.GetJson().ValueKind != JsonValueKind.Undefined)
+                source = supplied;
+            else
+            {
+                source = CreateInvocationArguments(arguments);
+                ingressProvenance = FunctionArgumentIngressProvenance.Canonicalized;
+            }
             if (hpdFunction.CanonicalInputContract is { } canonicalContract)
             {
                 var validation = canonicalContract.Bind(source.GetJson());
@@ -374,7 +381,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 try
                 {
                     resolvedInvocation = AgentInvocationModes.ResolveAction(
-                        source, operationContract, out sanitized);
+                        source, operationContract, out sanitized, ingressProvenance);
                 }
                 catch (InvalidOperationException exception)
                 {
@@ -407,7 +414,8 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                     RequestedMode = requested,
                     Mode = mode,
                     Policy = hpdFunction.HPDOptions.InvocationModePolicy,
-                    Handling = hpdFunction.HPDOptions.InvocationModeHandling
+                    Handling = hpdFunction.HPDOptions.InvocationModeHandling,
+                    IngressProvenance = ingressProvenance
                 };
                 arguments = sanitized
                     .Where(pair => pair.Key != AIFunctionArgumentsExtensions.JsonKey &&
@@ -519,6 +527,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
         var functionCall = preparation.FunctionCall;
         var beforeFunctionContext = preparation.BeforeFunctionContext
             ?? throw new InvalidOperationException("Function preparation is missing BeforeFunction context.");
+        FunctionOperationCommitGate? operationCommitGate = null;
 
         try
         {
@@ -534,7 +543,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             }
 
             var resultMetadata = new ToolResultMetadata();
-            var operationCommitGate = preparation.ResolvedInvocation is
+            operationCommitGate = preparation.ResolvedInvocation is
                 { Mode: AgentInvocationMode.Background, Handling: AgentInvocationModeHandling.ToolBody }
                 ? new FunctionOperationCommitGate()
                 : null;
@@ -561,6 +570,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 ? new SemaphoreSlim(1, 1)
                 : null;
             object? committedBackgroundResult = null;
+            Exception? committedBackgroundException = null;
             JsonElement committedBackgroundRequest = default;
             var backgroundCommitted = false;
             var executionResult = await _middlewarePipeline.ExecuteFunctionCallAsync(
@@ -579,6 +589,8 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                         {
                             if (!JsonElement.DeepEquals(committedBackgroundRequest, canonicalRequest))
                                 throw new InvalidOperationException("background_invocation_already_committed");
+                            if (committedBackgroundException is not null)
+                                throw committedBackgroundException;
                             return committedBackgroundResult;
                         }
                         try
@@ -592,9 +604,9 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                         catch (Exception exception) when (operationCommitGate?.CommittedReceipt is not null)
                         {
                             committedBackgroundRequest = canonicalRequest.Clone();
-                            committedBackgroundResult = $"tool_body_failed_after_operation_commit: {exception.Message}";
+                            committedBackgroundException = exception;
                             backgroundCommitted = true;
-                            return committedBackgroundResult;
+                            throw;
                         }
                     }
                     finally { backgroundGate.Release(); }
@@ -618,7 +630,15 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 preparation,
                 executionResult,
                 resultMetadata,
-                Exception: null);
+                Exception: null,
+                CommittedToolBodyOperation: operationCommitGate?.CommittedReceipt is { } committedReceipt
+                    ? new CommittedToolBodyOperation
+                    {
+                        Receipt = committedReceipt,
+                        FunctionName = preparation.Function.Name,
+                        FunctionCallId = functionCall.CallId
+                    }
+                    : null);
         }
         catch (Exception ex)
         {
@@ -627,7 +647,15 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 preparation,
                 errorResult,
                 new ToolResultMetadata(),
-                ex);
+                ex,
+                operationCommitGate?.CommittedReceipt is { } committedReceipt
+                    ? new CommittedToolBodyOperation
+                    {
+                        Receipt = committedReceipt,
+                        FunctionName = preparation.Function?.Name ?? functionCall.Name ?? "unknown",
+                        FunctionCallId = functionCall.CallId
+                    }
+                    : null);
         }
     }
 
@@ -721,6 +749,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             skillName: null,
             invocation: preparation.Invocation,
             resultMetadata: bodyResult.ResultMetadata);
+        afterFunctionContext.SetCommittedToolBodyOperation(bodyResult.CommittedToolBodyOperation);
 
         try
         {

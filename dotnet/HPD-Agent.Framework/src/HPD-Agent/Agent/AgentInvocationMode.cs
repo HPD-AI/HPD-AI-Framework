@@ -106,6 +106,29 @@ public sealed record ResolvedFunctionInvocation
 
     /// <summary>Gets the constructor-free validated action projection, when applicable.</summary>
     public ValidatedFunctionAction? ValidatedAction { get; init; }
+
+    /// <summary>Gets how the authoritative argument document entered HPD.</summary>
+    public FunctionArgumentIngressProvenance IngressProvenance { get; init; }
+}
+
+/// <summary>Identifies whether function JSON was preserved or canonically reconstructed.</summary>
+public enum FunctionArgumentIngressProvenance
+{
+    /// <summary>The provider supplied the original JSON document.</summary>
+    Original,
+    /// <summary>HPD reconstructed a canonical document from already-parsed arguments.</summary>
+    Canonicalized
+}
+
+/// <summary>Describes a ToolBody operation that committed before the tool call completed.</summary>
+public sealed record CommittedToolBodyOperation
+{
+    /// <summary>Gets the authoritative operation receipt.</summary>
+    public required AgentOperationReceipt Receipt { get; init; }
+    /// <summary>Gets the function name.</summary>
+    public required string FunctionName { get; init; }
+    /// <summary>Gets the model tool-call identifier.</summary>
+    public required string FunctionCallId { get; init; }
 }
 
 /// <summary>Provides a detached constructor-free view of a structurally validated action.</summary>
@@ -288,7 +311,8 @@ public static class AgentInvocationModes
     public static ResolvedFunctionInvocation ResolveAction(
         AIFunctionArguments arguments,
         AIFunctionOperationContract contract,
-        out AIFunctionArguments sanitizedArguments)
+        out AIFunctionArguments sanitizedArguments,
+        FunctionArgumentIngressProvenance ingressProvenance = FunctionArgumentIngressProvenance.Original)
     {
         ArgumentNullException.ThrowIfNull(arguments);
         ArgumentNullException.ThrowIfNull(contract);
@@ -323,6 +347,7 @@ public static class AgentInvocationModes
             Mode = mode,
             Policy = policy.InvocationModePolicy,
             Handling = policy.InvocationModeHandling,
+            IngressProvenance = ingressProvenance,
             ValidatedAction = new ValidatedFunctionAction
             {
                 Action = action,
@@ -623,6 +648,35 @@ public static class AgentInvocationModes
         if (seen.Count != contract.Actions.Count)
             throw new InvalidOperationException("The action schema and action contract contain different branches.");
         return JsonSerializer.SerializeToElement(root, HPDJsonContext.Default.JsonObject);
+    }
+
+    /// <summary>Verifies that a precomposed generated schema exactly exposes its declared action controls.</summary>
+    /// <param name="schema">The generated composed schema.</param>
+    /// <param name="contract">The effective action contract.</param>
+    public static void ValidateActionSchema(JsonElement schema, AIFunctionOperationContract contract)
+    {
+        if (schema.ValueKind != JsonValueKind.Object ||
+            !schema.TryGetProperty("properties", out var properties) ||
+            !properties.TryGetProperty(contract.ActionArgumentName, out var actionSchema) ||
+            !actionSchema.TryGetProperty("oneOf", out var branches) || branches.ValueKind != JsonValueKind.Array)
+            throw new InvalidOperationException("The generated action schema is not a direct closed union.");
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var branch in branches.EnumerateArray())
+        {
+            if (!branch.TryGetProperty("properties", out var branchProperties) ||
+                !branchProperties.TryGetProperty(contract.Discriminator, out var discriminator) ||
+                !discriminator.TryGetProperty("const", out var constant) || constant.ValueKind != JsonValueKind.String ||
+                constant.GetString() is not { Length: > 0 } action ||
+                !contract.Actions.TryGetValue(action, out var policy) || !seen.Add(action))
+                throw new InvalidOperationException("The generated action schema does not match its action contract.");
+            var exposesControl = branchProperties.TryGetProperty("invocationMode", out var control);
+            if (exposesControl != (policy.InvocationModePolicy == AgentInvocationModePolicy.ModelChoice))
+                throw new InvalidOperationException($"Action '{action}' exposes an invocation control inconsistent with its policy.");
+            if (exposesControl && (!control.TryGetProperty("enum", out var values) || values.GetArrayLength() != 2))
+                throw new InvalidOperationException($"Action '{action}' has an invalid invocation control.");
+        }
+        if (seen.Count != contract.Actions.Count)
+            throw new InvalidOperationException("The generated action schema omits a declared action.");
     }
 
     private static JsonObject CreateInvocationModeSchema() =>

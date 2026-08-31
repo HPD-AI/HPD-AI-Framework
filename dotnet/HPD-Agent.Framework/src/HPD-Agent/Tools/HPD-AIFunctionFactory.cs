@@ -7,6 +7,7 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using HPD.Agent.Middleware;
 
 namespace HPD.Agent;
@@ -60,6 +61,8 @@ public class HPDAIFunctionFactory
                 : options.OperationContract is null
                     ? AgentInvocationModes.CreateSchema(methodSchema, options.InvocationModePolicy)
                     : methodSchema.Clone();
+            if (options.OperationContractSchemaComposed && options.OperationContract is { } composedContract)
+                AgentInvocationModes.ValidateActionSchema(JsonSchema, composedContract);
             Name = options.Name ?? _method?.Name ?? "Unknown";
             Description = options.Description ?? "";
             ContractDescriptor = JsonSchema.ValueKind == JsonValueKind.Undefined
@@ -611,7 +614,8 @@ public class HPDAIFunctionFactoryOptions
     /// <summary>Gets or sets the generated closed-union action contract for this function.</summary>
     public AIFunctionOperationContract? OperationContract { get; set; }
 
-    /// <summary>Gets or sets whether the supplied schema already contains generated action controls.</summary>
+    /// <summary>Gets or sets whether a source-generated schema already contains verified action controls.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public bool OperationContractSchemaComposed { get; set; }
     public AgentOperationNotificationPolicy OperationNotification { get; set; } =
         new AgentOperationNotificationPolicy();
