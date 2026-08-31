@@ -6,6 +6,30 @@ using System.ComponentModel;
 
 namespace HPD.Agent.Middleware;
 
+internal sealed class FunctionOperationCommitGate
+{
+    private readonly SemaphoreSlim _gate = new(1, 1);
+    private AgentOperationReceipt? _committed;
+
+    internal AgentOperationReceipt? CommittedReceipt => Volatile.Read(ref _committed);
+
+    internal async ValueTask<AgentOperationReceipt> StartOperationAsync(
+        Func<ValueTask<AgentOperationReceipt>> start,
+        CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_committed is not null)
+                throw new InvalidOperationException("tool_body_operation_already_committed");
+            var receipt = await start().ConfigureAwait(false);
+            Volatile.Write(ref _committed, receipt);
+            return receipt;
+        }
+        finally { _gate.Release(); }
+    }
+}
+
 /// <summary>
 /// Narrow context exposed to AIFunction bodies during function execution.
 /// </summary>
@@ -26,6 +50,7 @@ public sealed class FunctionExecutionContext
     private readonly AgentConfig? _parentConfig;
     private readonly AgentClientSet? _clientSet;
     private readonly ToolHarnessExecutionScope? _toolHarnessExecutionScope;
+    private readonly FunctionOperationCommitGate? _operationCommitGate;
 
     internal FunctionExecutionContext(
         HookContext hookContext,
@@ -63,6 +88,7 @@ public sealed class FunctionExecutionContext
         _parentConfig = hookContext.Config;
         _clientSet = hookContext.Base.ClientSet;
         _toolHarnessExecutionScope = hookContext.Base.ToolHarnessExecutionScope;
+        _operationCommitGate = request.OperationCommitGate;
     }
 
     private FunctionExecutionContext(FunctionExecutionContext source)
@@ -85,6 +111,7 @@ public sealed class FunctionExecutionContext
         _clientSet = source._clientSet;
         _effectiveChatClient = null;
         _toolHarnessExecutionScope = null;
+        _operationCommitGate = source._operationCommitGate;
     }
 
     /// <summary>Creates a context projection that does not retain foreground result or harness state.</summary>
@@ -183,7 +210,7 @@ public sealed class FunctionExecutionContext
             "Function execution does not have an active operation registry.");
         if (string.IsNullOrWhiteSpace(SessionId) || string.IsNullOrWhiteSpace(ThreadId))
             throw new InvalidOperationException("Operations require a session and thread address.");
-        return AgentLocalOperationScheduler.StartAsync(
+        ValueTask<AgentOperationReceipt> StartAsync() => AgentLocalOperationScheduler.StartAsync(
             registry,
             AgentOperationSourceKind.LocalTool,
             name,
@@ -195,6 +222,9 @@ public sealed class FunctionExecutionContext
             work,
             _toolHarnessExecutionScope,
             cancellationToken);
+        return _operationCommitGate is null
+            ? StartAsync()
+            : _operationCommitGate.StartOperationAsync(StartAsync, cancellationToken);
     }
 
 

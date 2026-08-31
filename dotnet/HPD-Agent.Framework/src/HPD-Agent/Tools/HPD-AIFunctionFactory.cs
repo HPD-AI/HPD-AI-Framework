@@ -55,14 +55,19 @@ public class HPDAIFunctionFactory
             HPDOptions = options;
 
             var methodSchema = options.SchemaProvider?.Invoke() ?? default;
-            JsonSchema = options.OperationContract is { } operationContract
+            JsonSchema = options.OperationContract is { } operationContract && !options.OperationContractSchemaComposed
                 ? AgentInvocationModes.CreateActionSchema(methodSchema, operationContract)
-                : AgentInvocationModes.CreateSchema(methodSchema, options.InvocationModePolicy);
+                : options.OperationContract is null
+                    ? AgentInvocationModes.CreateSchema(methodSchema, options.InvocationModePolicy)
+                    : methodSchema.Clone();
             Name = options.Name ?? _method?.Name ?? "Unknown";
             Description = options.Description ?? "";
             ContractDescriptor = JsonSchema.ValueKind == JsonValueKind.Undefined
                 ? null
                 : AIFunctionContractDescriptor.Create(Name, JsonSchema);
+            CanonicalInputContract = JsonSchema.ValueKind == JsonValueKind.Undefined
+                ? null
+                : CanonicalJsonInputContract.Create(JsonSchema);
         }
 
         private static AIFunctionOperationContract NormalizeOperationContract(
@@ -94,6 +99,8 @@ public class HPDAIFunctionFactory
 
         /// <summary>Gets the immutable composed contract published by this generated function.</summary>
         public AIFunctionContractDescriptor? ContractDescriptor { get; }
+
+        internal IAIInputContract? CanonicalInputContract { get; }
 
         public ValueTask<object?> InvokeAsync(
             AIFunctionArguments arguments,
@@ -603,6 +610,9 @@ public class HPDAIFunctionFactoryOptions
 
     /// <summary>Gets or sets the generated closed-union action contract for this function.</summary>
     public AIFunctionOperationContract? OperationContract { get; set; }
+
+    /// <summary>Gets or sets whether the supplied schema already contains generated action controls.</summary>
+    public bool OperationContractSchemaComposed { get; set; }
     public AgentOperationNotificationPolicy OperationNotification { get; set; } =
         new AgentOperationNotificationPolicy();
 

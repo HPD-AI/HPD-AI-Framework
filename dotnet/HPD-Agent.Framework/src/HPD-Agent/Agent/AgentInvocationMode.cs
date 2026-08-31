@@ -57,7 +57,8 @@ public enum AgentInvocationModeHandling
     Runtime,
 
     /// <summary>
-    /// The function body receives and handles the model-facing <c>invocationMode</c> argument itself.
+    /// HPD resolves and sanitizes invocation mode, then the function body handles the resolved mode
+    /// through <see cref="FunctionExecutionContext.ResolvedInvocationMode"/>.
     /// </summary>
     ToolBody
 }
@@ -102,6 +103,35 @@ public sealed record ResolvedFunctionInvocation
 
     /// <summary>Gets the effective handling strategy.</summary>
     public required AgentInvocationModeHandling Handling { get; init; }
+
+    /// <summary>Gets the constructor-free validated action projection, when applicable.</summary>
+    public ValidatedFunctionAction? ValidatedAction { get; init; }
+}
+
+/// <summary>Provides a detached constructor-free view of a structurally validated action.</summary>
+public sealed record ValidatedFunctionAction
+{
+    /// <summary>Gets the exact validated discriminator.</summary>
+    public required string Action { get; init; }
+
+    /// <summary>Gets detached canonical JSON for the validated action object.</summary>
+    public required JsonElement CanonicalJson { get; init; }
+
+    /// <summary>Attempts to read a validated primitive field without constructing an author DTO.</summary>
+    /// <param name="name">The exact serialized property name.</param>
+    /// <param name="value">Receives a detached JSON value.</param>
+    /// <returns><see langword="true"/> when the field exists.</returns>
+    public bool TryGetProperty(string name, out JsonElement value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        if (CanonicalJson.TryGetProperty(name, out var found))
+        {
+            value = found.Clone();
+            return true;
+        }
+        value = default;
+        return false;
+    }
 }
 
 /// <summary>
@@ -285,13 +315,19 @@ public static class AgentInvocationModes
             : ReadRequestedModeFromValue(requestedElement);
         var mode = Resolve(policy.InvocationModePolicy, requested);
         sanitizedArguments = CloneWithNestedControlRemoved(arguments, root, contract.ActionArgumentName);
+        var sanitizedAction = sanitizedArguments.GetJson().GetProperty(contract.ActionArgumentName);
         return new ResolvedFunctionInvocation
         {
             Action = action,
             RequestedMode = requested,
             Mode = mode,
             Policy = policy.InvocationModePolicy,
-            Handling = policy.InvocationModeHandling
+            Handling = policy.InvocationModeHandling,
+            ValidatedAction = new ValidatedFunctionAction
+            {
+                Action = action,
+                CanonicalJson = sanitizedAction.Clone()
+            }
         };
     }
 

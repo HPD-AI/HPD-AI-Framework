@@ -199,7 +199,10 @@ $@"({asyncKeyword} (arguments, functionContext, cancellationToken) =>
         options.AppendLine($"                InvocationModeHandling = global::HPD.Agent.AgentInvocationModeHandling.{InvocationModeHandling},");
         var operationContract = GenerateOperationContractCode(relevantParams);
         if (operationContract is not null)
+        {
             options.AppendLine($"                OperationContract = {operationContract},");
+            options.AppendLine("                OperationContractSchemaComposed = true,");
+        }
         options.AppendLine($"                ArgumentBinder = Bind{Name}Arguments,");
         options.AppendLine($"                SchemaProvider = {schemaProviderCode},");
         options.AppendLine("                SerializerOptions = serialization?.SerializerOptions,");
@@ -281,9 +284,28 @@ $@"HPDAIFunctionFactory.Create(
         var parameters = relevantParams.Select(param => new AIFunctionContractParameter(
             param.Symbol!,
             param.Name,
-            param.Contract!,
+            ComposeActionContract(param.Contract!),
             IsRequired: !param.HasDefaultValue)).ToImmutableArray();
         return AICanonicalSchemaEmitter.Emit(new AIFunctionMethodContract(parameters));
+    }
+
+    private AIContractNode ComposeActionContract(AIContractNode contract)
+    {
+        if (contract is not UnionContractNode union || !union.Cases.Any(unionCase =>
+                unionCase.ConcreteType.GetAttributes().Any(data => data.AttributeClass?.Name == "AIFunctionActionAttribute")))
+            return contract;
+        var cases = union.Cases.Select(unionCase =>
+        {
+            var attribute = unionCase.ConcreteType.GetAttributes().SingleOrDefault(data =>
+                data.AttributeClass?.Name == "AIFunctionActionAttribute")
+                ?? throw new InvalidOperationException($"Action type '{unionCase.ConcreteType.Name}' requires AIFunctionActionAttribute.");
+            var policy = ResolveActionOverride(attribute, "InvocationModePolicy", InvocationModePolicy,
+                "SynchronousOnly", "BackgroundOnly", "ModelChoice");
+            var handling = ResolveActionOverride(attribute, "InvocationModeHandling", InvocationModeHandling,
+                "Runtime", "ToolBody");
+            return unionCase with { InvocationModePolicy = policy, InvocationModeHandling = handling };
+        }).ToImmutableArray();
+        return union with { Cases = cases };
     }
 
     private string? GenerateOperationContractCode(List<ParameterInfo> relevantParams)

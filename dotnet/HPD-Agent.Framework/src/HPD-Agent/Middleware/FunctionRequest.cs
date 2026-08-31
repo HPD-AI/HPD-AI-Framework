@@ -47,6 +47,7 @@ namespace HPD.Agent.Middleware;
 public sealed record FunctionRequest
 {
     internal AgentContext? ExecutionContext { get; init; }
+    internal FunctionOperationCommitGate? OperationCommitGate { get; init; }
     /// <summary>
     /// The function being invoked.
     ///   Always available (never NULL)

@@ -350,12 +350,37 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
         ResolvedFunctionInvocation? resolvedInvocation = null;
         if (function is HPDAIFunctionFactory.HPDAIFunction hpdFunction)
         {
-            var source = functionCall.Arguments as AIFunctionArguments
-                ?? CreateInvocationArguments(arguments);
+            if (functionCall.Arguments is not AIFunctionArguments source ||
+                source.GetJson().ValueKind == JsonValueKind.Undefined)
+                return CreatePreparationRejection(functionCall, invocation, function, toolharnessName, callType,
+                    "raw_json_required", "Generated AI functions require authoritative or HPD-canonical JSON arguments.");
+            if (hpdFunction.CanonicalInputContract is { } canonicalContract)
+            {
+                var validation = canonicalContract.Bind(source.GetJson());
+                if (validation.Errors.Count != 0)
+                {
+                    var error = validation.Errors[0];
+                    return CreatePreparationRejection(functionCall, invocation, function, toolharnessName, callType,
+                        error.ErrorCode, error.ErrorMessage, error.Property);
+                }
+                var canonical = new AIFunctionArguments(source);
+                canonical.SetJsonSerializerOptions(source.GetJsonSerializerOptions());
+                canonical.SetJson(validation.EffectiveJson);
+                source = canonical;
+            }
             if (hpdFunction.HPDOptions.OperationContract is { } operationContract)
             {
-                resolvedInvocation = AgentInvocationModes.ResolveAction(
-                    source, operationContract, out var sanitized);
+                AIFunctionArguments sanitized;
+                try
+                {
+                    resolvedInvocation = AgentInvocationModes.ResolveAction(
+                        source, operationContract, out sanitized);
+                }
+                catch (InvalidOperationException exception)
+                {
+                    return CreatePreparationRejection(functionCall, invocation, function, toolharnessName, callType,
+                        "invalid_function_action", exception.Message);
+                }
                 arguments = sanitized
                     .Where(pair => pair.Key != AIFunctionArgumentsExtensions.JsonKey &&
                         pair.Key != AIFunctionArgumentsExtensions.JsonSerializerOptionsKey &&
@@ -364,8 +389,19 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             }
             else
             {
-                var sanitized = AgentInvocationModes.CreateSanitizedArguments(source, out var requested);
-                var mode = AgentInvocationModes.Resolve(hpdFunction.HPDOptions.InvocationModePolicy, requested);
+                AIFunctionArguments sanitized;
+                AgentInvocationMode? requested;
+                AgentInvocationMode mode;
+                try
+                {
+                    sanitized = AgentInvocationModes.CreateSanitizedArguments(source, out requested);
+                    mode = AgentInvocationModes.Resolve(hpdFunction.HPDOptions.InvocationModePolicy, requested);
+                }
+                catch (InvalidOperationException exception)
+                {
+                    return CreatePreparationRejection(functionCall, invocation, function, toolharnessName, callType,
+                        "invalid_invocation_mode", exception.Message);
+                }
                 resolvedInvocation = new ResolvedFunctionInvocation
                 {
                     RequestedMode = requested,
@@ -439,6 +475,33 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             CallType: callType);
     }
 
+    private static FunctionExecutionPreparation CreatePreparationRejection(
+        FunctionCallContent functionCall,
+        ToolInvocationInfo? invocation,
+        AIFunction function,
+        string? toolharnessName,
+        ToolCallType? callType,
+        string errorCode,
+        string message,
+        string property = "")
+    {
+        var response = new ValidationErrorResponse();
+        response.Errors.Add(new ValidationError
+        {
+            Property = property,
+            ErrorCode = errorCode,
+            ErrorMessage = message
+        });
+        var result = JsonSerializer.SerializeToElement(response, HPDJsonContext.Default.ValidationErrorResponse);
+        var outcome = new FunctionExecutionOutcome(
+            functionCall.CallId, functionCall.Name, function, result, ToolResultPayload.FromResult(result),
+            Exception: null, WasBlocked: true, WasUnknown: false, WasOutputTool: false,
+            ShouldTerminate: false, toolharnessName, callType, new ToolResultMetadata(), invocation);
+        return new FunctionExecutionPreparation(
+            functionCall, invocation, function, new Dictionary<string, object?>(), null, null,
+            outcome, toolharnessName, callType);
+    }
+
     internal async Task<FunctionBodyExecutionResult> ExecuteFunctionBodyAsync(
         FunctionExecutionPreparation preparation,
         AgentContext agentContext,
@@ -471,9 +534,14 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             }
 
             var resultMetadata = new ToolResultMetadata();
+            var operationCommitGate = preparation.ResolvedInvocation is
+                { Mode: AgentInvocationMode.Background, Handling: AgentInvocationModeHandling.ToolBody }
+                ? new FunctionOperationCommitGate()
+                : null;
             var functionRequest = new Middleware.FunctionRequest
             {
                 ExecutionContext = agentContext,
+                OperationCommitGate = operationCommitGate,
                 Function = preparation.Function,
                 CallId = functionCall.CallId,
                 Arguments = preparation.Arguments,
@@ -513,11 +581,21 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                                 throw new InvalidOperationException("background_invocation_already_committed");
                             return committedBackgroundResult;
                         }
-                        var result = await InvokePreparedCoreAsync(req).ConfigureAwait(false);
-                        committedBackgroundRequest = canonicalRequest.Clone();
-                        committedBackgroundResult = result;
-                        backgroundCommitted = true;
-                        return result;
+                        try
+                        {
+                            var result = await InvokePreparedCoreAsync(req).ConfigureAwait(false);
+                            committedBackgroundRequest = canonicalRequest.Clone();
+                            committedBackgroundResult = result;
+                            backgroundCommitted = true;
+                            return result;
+                        }
+                        catch (Exception exception) when (operationCommitGate?.CommittedReceipt is not null)
+                        {
+                            committedBackgroundRequest = canonicalRequest.Clone();
+                            committedBackgroundResult = $"tool_body_failed_after_operation_commit: {exception.Message}";
+                            backgroundCommitted = true;
+                            return committedBackgroundResult;
+                        }
                     }
                     finally { backgroundGate.Release(); }
 

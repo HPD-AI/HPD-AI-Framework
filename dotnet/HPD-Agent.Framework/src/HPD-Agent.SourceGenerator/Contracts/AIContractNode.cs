@@ -77,7 +77,9 @@ internal sealed record AIContractProperty(
 internal sealed record AIUnionCase(
     string Discriminator,
     INamedTypeSymbol ConcreteType,
-    ObjectContractNode Contract);
+    ObjectContractNode Contract,
+    string? InvocationModePolicy = null,
+    string? InvocationModeHandling = null);
 
 internal sealed record AIContractConstructionPlan(
     IMethodSymbol? Constructor,

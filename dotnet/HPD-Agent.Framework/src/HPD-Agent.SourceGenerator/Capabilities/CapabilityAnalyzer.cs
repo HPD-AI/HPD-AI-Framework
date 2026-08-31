@@ -3,6 +3,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using System.Collections.Generic;
 using System.Linq;
+using HPD.Agent.SourceGenerator.Contracts;
 
 namespace HPD.Agent.SourceGenerator.Capabilities;
 
@@ -969,6 +970,9 @@ internal static class CapabilityAnalyzer
         var invocationModePolicy = GetInvocationModePolicy(attrs);
         var invocationModeHandling = GetInvocationModeHandling(attrs);
 
+        if (!ValidateActionContract(parameters, kind, diagnostics, method.GetLocation()))
+            return null;
+
         var functionCapability = new FunctionCapability
         {
             Name = methodName,
@@ -996,6 +1000,78 @@ internal static class CapabilityAnalyzer
 
         diagnostics.AddRange(parameterDiagnostics);
         return functionCapability;
+    }
+
+    private static bool ValidateActionContract(
+        IReadOnlyList<ParameterInfo> parameters,
+        string toolKind,
+        List<Diagnostic> diagnostics,
+        Location location)
+    {
+        var candidates = parameters.Where(parameter => parameter.Contract is UnionContractNode union &&
+            union.Cases.Any(unionCase => unionCase.ConcreteType.GetAttributes().Any(attribute =>
+                attribute.AttributeClass?.Name == "AIFunctionActionAttribute"))).ToArray();
+        if (candidates.Length == 0) return true;
+        if (candidates.Length != 1)
+        {
+            diagnostics.Add(Diagnostic.Create(ActionFunctionDiagnostics.InvalidContract, location,
+                "exactly one direct closed-union action parameter is required"));
+            return false;
+        }
+        if (string.Equals(toolKind, "Output", StringComparison.Ordinal))
+        {
+            diagnostics.Add(Diagnostic.Create(ActionFunctionDiagnostics.InvalidContract, location,
+                "output tools cannot declare action invocation metadata"));
+            return false;
+        }
+        var valid = true;
+        var union = (UnionContractNode)candidates[0].Contract!;
+        var actions = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var unionCase in union.Cases)
+        {
+            var attributes = unionCase.ConcreteType.GetAttributes().Where(attribute =>
+                attribute.AttributeClass?.Name == "AIFunctionActionAttribute").ToArray();
+            if (attributes.Length != 1)
+            {
+                diagnostics.Add(Diagnostic.Create(ActionFunctionDiagnostics.InvalidContract, location,
+                    $"action type '{unionCase.ConcreteType.Name}' must declare exactly one AIFunctionActionAttribute"));
+                valid = false;
+                continue;
+            }
+            var declared = attributes[0].ConstructorArguments.FirstOrDefault().Value as string;
+            if (string.IsNullOrWhiteSpace(declared) ||
+                !string.Equals(declared, unionCase.Discriminator, StringComparison.Ordinal))
+            {
+                diagnostics.Add(Diagnostic.Create(ActionFunctionDiagnostics.InvalidContract, location,
+                    $"action '{declared}' does not match serializer discriminator '{unionCase.Discriminator}'"));
+                valid = false;
+            }
+            if (!actions.Add(unionCase.Discriminator))
+            {
+                diagnostics.Add(Diagnostic.Create(ActionFunctionDiagnostics.InvalidContract, location,
+                    $"duplicate action discriminator '{unionCase.Discriminator}'"));
+                valid = false;
+            }
+            if (unionCase.Contract.Properties.Any(property =>
+                    string.Equals(property.JsonName, "invocationMode", StringComparison.Ordinal)))
+            {
+                diagnostics.Add(Diagnostic.Create(ActionFunctionDiagnostics.InvalidContract, location,
+                    $"action '{unionCase.Discriminator}' declares reserved property 'invocationMode'"));
+                valid = false;
+            }
+        }
+        return valid;
+    }
+
+    private static class ActionFunctionDiagnostics
+    {
+        internal static readonly DiagnosticDescriptor InvalidContract = new(
+            "HPD070",
+            "Invalid action-scoped function contract",
+            "Invalid action-scoped function contract: {0}",
+            "HPD.Agent.SourceGeneration",
+            DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
     }
 
     // ========== Helper Methods ==========

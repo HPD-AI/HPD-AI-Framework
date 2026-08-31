@@ -219,6 +219,67 @@ namespace TestToolHarnesses
         Assert.DoesNotContain("JsonSerializer.Deserialize", generatedCode);
     }
 
+    [Fact]
+    public void GeneratedToolHarness_ActionUnion_ComposesBranchPolicyBeforeFactory()
+    {
+        var source = """
+            using System.Text.Json.Serialization;
+            using HPD.Agent;
+            namespace GeneratedContracts
+            {
+                [JsonPolymorphic(TypeDiscriminatorPropertyName = "action")]
+                [JsonDerivedType(typeof(Read), "read")]
+                [JsonDerivedType(typeof(Run), "run")]
+                public abstract record Request;
+                [AIFunctionAction("read")]
+                public sealed record Read(string Id) : Request;
+                [AIFunctionAction("run", InvocationModePolicy = AIFunctionActionInvocationModePolicy.ModelChoice,
+                    InvocationModeHandling = AIFunctionActionInvocationModeHandling.ToolBody)]
+                public sealed record Run(string Id) : Request;
+                [Collapse("Action", FunctionResult = "ok")]
+                public partial class Harness
+                {
+                    [AIFunction]
+                    public string Execute(Request request) => "ok";
+                }
+            }
+            """;
+
+        var (generatedCode, diagnostics) = RunGenerator(source);
+
+        Assert.Empty(diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Contains("OperationContractSchemaComposed = true", generatedCode);
+        Assert.Contains("AIFunctionOperationContract", generatedCode);
+        Assert.Contains("\\\"invocationMode\\\"", generatedCode);
+    }
+
+    [Fact]
+    public void GeneratedToolHarness_ActionMismatch_ReportsDiagnostic()
+    {
+        var source = """
+            using System.Text.Json.Serialization;
+            using HPD.Agent;
+            namespace GeneratedContracts
+            {
+                [JsonPolymorphic(TypeDiscriminatorPropertyName = "action")]
+                [JsonDerivedType(typeof(Read), "read")]
+                public abstract record Request;
+                [AIFunctionAction("wrong")]
+                public sealed record Read(string Id) : Request;
+                [Collapse("Action", FunctionResult = "ok")]
+                public partial class Harness
+                {
+                    [AIFunction]
+                    public string Execute(Request request) => "ok";
+                }
+            }
+            """;
+
+        var (_, diagnostics) = RunGenerator(source);
+
+        Assert.Contains(diagnostics, diagnostic => diagnostic.Id == "HPD070");
+    }
+
     // ── T047 ─────────────────────────────────────────────────────────────────
     // Config constructors become generated execution-owned descriptors.
     [Fact]
