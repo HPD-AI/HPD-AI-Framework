@@ -6908,13 +6908,40 @@ public sealed partial class Agent : IAsyncDisposable
                 evt.Child.ChildThread,
                 evt.Child.Availability))
             .ToArray();
-        var targetSeedFingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('|',
-            requestFingerprint,
-            AgentId,
-            targetKey.SessionId,
-            targetKey.ThreadId,
-            string.Join(';', outcomes.Select(static outcome =>
-                $"{outcome.LocalId}:{outcome.Policy}:{outcome.Source}:{outcome.Target}:{outcome.Availability}"))))));
+        newThread.Preparation = new ThreadPreparationDescriptor(
+            forkOperationId, sourceKey, requestFingerprint);
+        List<AgentEvent> plannedTargetEvents;
+        if (targetJournalEvents is not null)
+        {
+            if (targetJournalEvents.Any(IsThreadStructuralEvent))
+                throw new InvalidOperationException("thread_fork_middleware_structural_event_forbidden");
+            plannedTargetEvents = [ThreadEventFactory.ThreadCreated(newThread)];
+            plannedTargetEvents.AddRange(targetJournalEvents.Select(evt =>
+                CloneEventForThread(evt, newThread.SessionId, newThread.Id)));
+            if (newThread.MiddlewareState.Count > 0)
+            {
+                plannedTargetEvents.Add(ThreadEventFactory.ThreadMiddlewareStateCommitted(
+                    newThread.SessionId,
+                    newThread.Id,
+                    newThread.MiddlewareState));
+            }
+        }
+        else if (copyThroughMessageIndex is int copiedIndex)
+        {
+            plannedTargetEvents = (await BuildForkedThreadEventsFromSourceAsync(
+                store, sourceThread, newThread, copiedIndex, cancellationToken).ConfigureAwait(false)).ToList();
+        }
+        else
+        {
+            plannedTargetEvents = [ThreadEventFactory.ThreadCreated(newThread)];
+            if (newThread.MiddlewareState.Count > 0)
+            {
+                plannedTargetEvents.Add(ThreadEventFactory.ThreadMiddlewareStateCommitted(
+                    newThread.SessionId, newThread.Id, newThread.MiddlewareState));
+            }
+        }
+        plannedTargetEvents.AddRange(registryEvents);
+        var targetSeedFingerprint = ComputeTargetSeedFingerprint(store.EventCodec, plannedTargetEvents);
         if (forkOperation.Status == ThreadForkOperationStatus.ChildrenPreparing)
         {
             forkOperation = forkOperation with
@@ -6944,50 +6971,15 @@ public sealed partial class Agent : IAsyncDisposable
         }
         newThread.Preparation = new ThreadPreparationDescriptor(
             forkOperationId, sourceKey, requestFingerprint, forkOperation.TargetSeedFingerprint);
+        plannedTargetEvents[0] = ThreadEventFactory.ThreadCreated(newThread);
 
         try
         {
-            if (targetJournalEvents is not null)
-            {
-                if (targetJournalEvents.Any(IsThreadStructuralEvent))
-                    throw new InvalidOperationException("thread_fork_middleware_structural_event_forbidden");
-                var events = new List<AgentEvent> { ThreadEventFactory.ThreadCreated(newThread) };
-                events.AddRange(targetJournalEvents.Select(evt =>
-                    CloneEventForThread(evt, newThread.SessionId, newThread.Id)));
-                if (newThread.MiddlewareState.Count > 0)
-                {
-                    events.Add(ThreadEventFactory.ThreadMiddlewareStateCommitted(
-                        newThread.SessionId,
-                        newThread.Id,
-                        newThread.MiddlewareState));
-                }
-                events.AddRange(registryEvents);
-                await store.AppendThreadEventsAsync(
-                    targetKey,
-                    events,
-                    new ThreadAppendCondition(ThreadJournalCursor.Start(1)),
-                    cancellationToken).ConfigureAwait(false);
-            }
-            else if (copyThroughMessageIndex is int copiedIndex)
-            {
-                var events = (await BuildForkedThreadEventsFromSourceAsync(
-                    store, sourceThread, newThread, copiedIndex, cancellationToken).ConfigureAwait(false)).ToList();
-                events.AddRange(registryEvents);
-                await store.AppendThreadEventsAsync(
-                    targetKey, events, new ThreadAppendCondition(ThreadJournalCursor.Start(1)), cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            else
-            {
-                var events = new List<AgentEvent> { ThreadEventFactory.ThreadCreated(newThread) };
-                if (newThread.MiddlewareState.Count > 0)
-                    events.Add(ThreadEventFactory.ThreadMiddlewareStateCommitted(
-                        newThread.SessionId, newThread.Id, newThread.MiddlewareState));
-                events.AddRange(registryEvents);
-                await store.AppendThreadEventsAsync(
-                    targetKey, events, new ThreadAppendCondition(ThreadJournalCursor.Start(1)), cancellationToken)
-                    .ConfigureAwait(false);
-            }
+            await store.AppendThreadEventsAsync(
+                targetKey,
+                plannedTargetEvents,
+                new ThreadAppendCondition(ThreadJournalCursor.Start(1)),
+                cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception)
         {
@@ -7500,6 +7492,24 @@ public sealed partial class Agent : IAsyncDisposable
         _ => value.GetRawText()
     };
 
+    private static string ComputeTargetSeedFingerprint(
+        Serialization.AgentEventCodec codec,
+        IReadOnlyList<AgentEvent> events)
+    {
+        var canonical = events.Select(evt =>
+        {
+            AgentEvent normalized = evt with { ThreadSequenceNumber = 0 };
+            if (normalized is ThreadCreatedEvent { Preparation: { } preparation } created)
+                normalized = created with
+                {
+                    ThreadSequenceNumber = 0,
+                    Preparation = preparation with { TargetSeedFingerprint = null }
+                };
+            return codec.Serialize(normalized);
+        });
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', canonical))));
+    }
+
     private static async ValueTask ValidateForkTargetOwnershipAsync(
         ISessionStore store,
         ThreadKey target,
@@ -7508,21 +7518,26 @@ public sealed partial class Agent : IAsyncDisposable
     {
         var head = await store.GetThreadEventHeadAsync(target, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException("thread_fork_target_missing");
-        ThreadCreatedEvent? created = null;
+        var staged = new List<AgentEvent>();
         await foreach (var batch in store.ReadThreadEventsAsync(
-                           target,
-                           new ThreadEventReadRequest(ThreadJournalCursor.Start(head.Generation), head.ThreadSequenceNumber),
-                           cancellationToken).ConfigureAwait(false))
+            target,
+            new ThreadEventReadRequest(ThreadJournalCursor.Start(head.Generation), head.ThreadSequenceNumber),
+            cancellationToken).ConfigureAwait(false))
         {
-            created = batch.Events.OfType<ThreadCreatedEvent>().FirstOrDefault();
-            if (created is not null) break;
+            staged.AddRange(batch.Events);
         }
+        var created = staged.OfType<ThreadCreatedEvent>().FirstOrDefault();
         if (created?.Preparation is not { } preparation ||
             !string.Equals(preparation.OperationId, operation.OperationId, StringComparison.Ordinal) ||
             preparation.Source != operation.Source ||
             !string.Equals(preparation.RequestFingerprint, operation.RequestFingerprint, StringComparison.Ordinal) ||
             !string.Equals(preparation.TargetSeedFingerprint, operation.TargetSeedFingerprint, StringComparison.Ordinal))
             throw new InvalidOperationException("thread_fork_target_collision");
+        if (!string.Equals(
+                ComputeTargetSeedFingerprint(store.EventCodec, staged),
+                operation.TargetSeedFingerprint,
+                StringComparison.Ordinal))
+            throw new InvalidOperationException("thread_fork_target_seed_mismatch");
     }
 
     private static async ValueTask<IReadOnlyList<AgentEvent>> PlanSubAgentRegistryForForkAsync(
