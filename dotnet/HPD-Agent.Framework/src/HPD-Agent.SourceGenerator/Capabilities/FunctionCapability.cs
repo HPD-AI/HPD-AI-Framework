@@ -428,8 +428,9 @@ $@"HPDAIFunctionFactory.Create(
             var interactionFactory = pair.Value.Interaction
                 ? CreateInteractionFactory(pair.Key, pair.Value.InteractionType)
                 : string.Empty;
+            var interactionEvents = CreateInteractionEventContract(pair.Value.InteractionType);
             var presentation = CreatePresentationDescriptor(pair.Value.PolicyType);
-            return $"[\"{Escape(pair.Key)}\"] = new global::HPD.Agent.Permissions.AIFunctionPermissionDescriptor {{ DescriptorId = \"{Escape(pair.Key)}\", {policyFactory} {interactionFactory} {presentation} }}";
+            return $"[\"{Escape(pair.Key)}\"] = new global::HPD.Agent.Permissions.AIFunctionPermissionDescriptor {{ DescriptorId = \"{Escape(pair.Key)}\", {policyFactory} {interactionFactory} {interactionEvents} {presentation} }}";
         });
         return $"new global::System.Collections.Generic.Dictionary<string, global::HPD.Agent.Permissions.AIFunctionPermissionDescriptor>(global::System.StringComparer.Ordinal) {{ {string.Join(", ", entries)} }}";
 
@@ -467,6 +468,17 @@ $@"HPDAIFunctionFactory.Create(
         return $"InteractionFactory = static services => (global::HPD.Agent.Permissions.IPermissionInteraction)(services.GetService(typeof({typeName})) ?? throw new global::System.InvalidOperationException(\"Permission interaction service '{Escape(typeName)}' is not registered.\")),";
     }
 
+    private static string CreateInteractionEventContract(ITypeSymbol? interactionType)
+    {
+        if (interactionType is not INamedTypeSymbol named) return string.Empty;
+        var contract = named.AllInterfaces.FirstOrDefault(static candidate =>
+            candidate.IsGenericType && candidate.Name == "IPermissionInteractionEventContract" &&
+            candidate.TypeArguments.Length == 2);
+        return contract is null
+            ? string.Empty
+            : $"RequestEventType = typeof({contract.TypeArguments[0].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}), ResponseEventType = typeof({contract.TypeArguments[1].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}),";
+    }
+
     private static ITypeSymbol? GetNamedType(AttributeData attribute, string name) =>
         attribute.NamedArguments.FirstOrDefault(pair => pair.Key == name).Value.Value as ITypeSymbol;
 
@@ -484,7 +496,7 @@ $@"HPDAIFunctionFactory.Create(
                 var id = attribute?.ConstructorArguments.FirstOrDefault().Value as string;
                 if (string.IsNullOrWhiteSpace(id)) return string.Empty;
                 var typeName = presentationType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                return $"Presentation = new global::HPD.Agent.Permissions.PermissionPresentationDescriptor {{ PresentationId = \"{Escape(id)}\", PresentationType = typeof({typeName}), Serialize = static value => global::System.Text.Json.JsonSerializer.SerializeToElement(({typeName})value) }},";
+                return $"Presentation = new global::HPD.Agent.Permissions.PermissionPresentationDescriptor {{ PresentationId = \"{Escape(id)}\", PresentationType = typeof({typeName}), TypeInfo = (serialization?.SerializerOptions ?? global::Microsoft.Extensions.AI.AIJsonUtilities.DefaultOptions).GetTypeInfo(typeof({typeName})) ?? throw new global::System.InvalidOperationException(\"Source-generated JSON metadata for permission presentation '{Escape(id)}' is required.\"), Serialize = value => global::System.Text.Json.JsonSerializer.SerializeToElement(value, (serialization?.SerializerOptions ?? global::Microsoft.Extensions.AI.AIJsonUtilities.DefaultOptions).GetTypeInfo(typeof({typeName})) ?? throw new global::System.InvalidOperationException(\"Source-generated JSON metadata for permission presentation '{Escape(id)}' is required.\")) }},";
             }
             current = current.BaseType;
         }

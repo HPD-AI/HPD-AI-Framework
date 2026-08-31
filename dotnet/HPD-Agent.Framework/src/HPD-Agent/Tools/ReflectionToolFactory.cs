@@ -192,7 +192,8 @@ internal static class ReflectionToolFactory
         MethodInfo method,
         object? instance,
         IToolMetadata? context,
-        JsonSerializerOptions serializerOptions)
+        JsonSerializerOptions serializerOptions,
+        IReadOnlyDictionary<string, HPD.Agent.Permissions.AIFunctionPermissionDescriptor>? permissionDescriptors = null)
     {
         var parameters = GetModelParameters(method).ToArray();
         var parameterNames = parameters.Select(parameter => parameter.Name!).ToArray();
@@ -202,11 +203,11 @@ internal static class ReflectionToolFactory
         var invocationModeHandling = GetInvocationModeHandling(functionAttribute);
         var permissionAttribute = method.GetCustomAttribute<RequiresPermissionAttribute>(inherit: false);
         var requiresPermission = permissionAttribute is not null;
-        if (permissionAttribute is { PermissionPolicy: not null } or { PermissionInteraction: not null })
-            throw new InvalidOperationException(
-                $"Reflection-created function '{method.DeclaringType?.FullName}.{method.Name}' uses a custom permission policy or interaction. Register an explicit AIFunction permission descriptor instead of reflection activation.");
+        ValidatePermissionScope(permissionAttribute?.PermissionScope);
+        var policyDescriptorId = ResolveExplicitDescriptor(permissionAttribute?.PermissionPolicy, permissionDescriptors, policy: true);
+        var interactionDescriptorId = ResolveExplicitDescriptor(permissionAttribute?.PermissionInteraction, permissionDescriptors, policy: false);
         var operationContract = CreateOperationContract(
-            parameters, invocationModePolicy, invocationModeHandling, requiresPermission);
+            parameters, invocationModePolicy, invocationModeHandling, requiresPermission, permissionDescriptors);
         var actionSchema = operationContract is null
             ? default
             : CreateSchema(method, parameters, serializerOptions);
@@ -232,6 +233,8 @@ internal static class ReflectionToolFactory
                         RequiresPermission = true,
                         Scope = permissionAttribute!.PermissionScope ??
                             $"function/{Uri.EscapeDataString(GetFunctionName(method))}",
+                        PolicyDescriptorId = policyDescriptorId,
+                        InteractionDescriptorId = interactionDescriptorId,
                         Source = PermissionDeclarationSource.FunctionAttribute
                     }
                     : null,
@@ -241,6 +244,8 @@ internal static class ReflectionToolFactory
                 VerifiedActionComposition = operationContract is null
                     ? null
                     : new VerifiedAIFunctionActionComposition(actionSchema, operationContract),
+                PermissionDescriptors = permissionDescriptors ??
+                    new Dictionary<string, HPD.Agent.Permissions.AIFunctionPermissionDescriptor>(StringComparer.Ordinal),
                 SerializerOptions = serializerOptions,
                 ResultType = resultType,
                 Validator = (json, options) => ValidateArguments(json, options, parameters, parameterNames),
@@ -256,6 +261,15 @@ internal static class ReflectionToolFactory
                 }
             });
     }
+
+    [RequiresUnreferencedCode(ReflectionRequiresUnreferencedCodeMessage)]
+    [RequiresDynamicCode("Reflection tool registration uses runtime method invocation and System.Text.Json runtime type metadata.")]
+    internal static AIFunction CreateExplicitFunction(
+        MethodInfo method,
+        object? instance,
+        IReadOnlyDictionary<string, HPD.Agent.Permissions.AIFunctionPermissionDescriptor> permissionDescriptors,
+        JsonSerializerOptions serializerOptions) =>
+        CreateFunction(method, instance, context: null, serializerOptions, permissionDescriptors);
 
     private static AIFunction CreateMultiAgent(
         MethodInfo method,
@@ -834,7 +848,8 @@ internal static class ReflectionToolFactory
         ParameterInfo[] parameters,
         AgentInvocationModePolicy defaultPolicy,
         AgentInvocationModeHandling defaultHandling,
-        bool requiresPermissionByDefault)
+        bool requiresPermissionByDefault,
+        IReadOnlyDictionary<string, HPD.Agent.Permissions.AIFunctionPermissionDescriptor>? permissionDescriptors = null)
     {
         var analyzed = parameters.Select(parameter => new
         {
@@ -871,9 +886,9 @@ internal static class ReflectionToolFactory
                 throw new InvalidOperationException("Every action union case requires a non-empty string discriminator.");
             var declaration = unionCase.DerivedType.GetCustomAttribute<AIFunctionActionAttribute>(inherit: false)
                 ?? throw new InvalidOperationException($"Action type '{unionCase.DerivedType.FullName}' requires AIFunctionActionAttribute.");
-            if (declaration.PermissionPolicy is not null || declaration.PermissionInteraction is not null)
-                throw new InvalidOperationException(
-                    $"Reflection-created action '{unionCase.DerivedType.FullName}' uses a custom permission policy or interaction. Register an explicit AIFunction permission descriptor instead of reflection activation.");
+            ValidatePermissionScope(declaration.PermissionScope);
+            var policyDescriptorId = ResolveExplicitDescriptor(declaration.PermissionPolicy, permissionDescriptors, policy: true);
+            var interactionDescriptorId = ResolveExplicitDescriptor(declaration.PermissionInteraction, permissionDescriptors, policy: false);
             if (!string.Equals(declaration.Action, serialized, StringComparison.Ordinal))
                 throw new InvalidOperationException($"Action declaration '{declaration.Action}' does not match serializer discriminator '{serialized}'.");
             var policy = declaration.InvocationModePolicy switch
@@ -907,6 +922,8 @@ internal static class ReflectionToolFactory
                         RequiresPermission = requiresPermission,
                         Scope = declaration.PermissionScope ??
                             $"function/{Uri.EscapeDataString(GetFunctionName(candidate.Parameter.Member as MethodInfo ?? throw new InvalidOperationException()))}/action/{Uri.EscapeDataString(serialized)}",
+                        PolicyDescriptorId = policyDescriptorId,
+                        InteractionDescriptorId = interactionDescriptorId,
                         Source = declaration.Permission == PermissionRequirement.Inherit
                             ? PermissionDeclarationSource.FunctionAttribute
                             : PermissionDeclarationSource.ActionOverride
@@ -922,8 +939,32 @@ internal static class ReflectionToolFactory
         };
     }
 
+    private static string? ResolveExplicitDescriptor(
+        Type? declaredType,
+        IReadOnlyDictionary<string, HPD.Agent.Permissions.AIFunctionPermissionDescriptor>? descriptors,
+        bool policy)
+    {
+        if (declaredType is null) return null;
+        var descriptor = declaredType.FullName is { } id && descriptors?.TryGetValue(id, out var found) == true
+            ? found
+            : null;
+        if (descriptor is null || policy && descriptor.PolicyFactory is null ||
+            !policy && descriptor.InteractionFactory is null)
+            throw new InvalidOperationException(
+                $"Reflection-created permission type '{declaredType.FullName}' requires an explicit descriptor keyed by its full type name.");
+        return descriptor.DescriptorId;
+    }
+
     private static string GetSerializedParameterName(ParameterInfo parameter) =>
         parameter.Name ?? throw new InvalidOperationException("Model-facing parameters require a serialized name.");
+
+    private static void ValidatePermissionScope(string? scope)
+    {
+        if (scope is not null && (scope.Length == 0 || scope != scope.Trim() ||
+            scope.Any(char.IsControl) || Encoding.UTF8.GetByteCount(scope) > 512))
+            throw new InvalidOperationException(
+                "Permission scope must be canonical, non-empty, control-free, and at most 512 UTF-8 bytes.");
+    }
 
     private static IEnumerable<Type> GetLoadableTypes(Assembly assembly)
     {

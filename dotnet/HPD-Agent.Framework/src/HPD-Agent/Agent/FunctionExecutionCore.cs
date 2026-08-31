@@ -714,6 +714,9 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 HPDJsonContext.Default.DictionaryStringObject);
             if (!JsonElement.DeepEquals(grant.Authority.CanonicalArguments, actualArguments))
                 throw new InvalidOperationException("permission_authority_drift: wrapping middleware changed protected arguments.");
+            if (request.Function is not HPDAIFunctionFactory.HPDAIFunction grantedFunction ||
+                !Equals(ResolvePermissionDeclaration(grantedFunction, grant.Action), grant.Authority.Declaration))
+                throw new InvalidOperationException("permission_authority_drift: the effective permission declaration changed after approval.");
         }
 
         if (preparation.AuthorityStamp is not { } stamp ||
@@ -736,6 +739,13 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             ContainsExactProperty(actualJson, "invocationMode"))
             throw new InvalidOperationException("function_authority_drift: wrapping middleware changed the authorized action.");
     }
+
+    private static AIFunctionPermissionDeclaration? ResolvePermissionDeclaration(
+        HPDAIFunctionFactory.HPDAIFunction function,
+        string? action) =>
+        action is not null && function.HPDOptions.OperationContract?.Actions.TryGetValue(action, out var policy) == true
+            ? policy.Permission
+            : function.HPDOptions.FunctionPermission;
 
     private static JsonElement ToCanonicalElement(object? value) => value switch
     {

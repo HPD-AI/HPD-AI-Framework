@@ -8,6 +8,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
 using HPD.Agent.Middleware;
 
 namespace HPD.Agent;
@@ -30,6 +31,25 @@ public class HPDAIFunctionFactory
             invocation,
             options ?? _defaultOptions);
     }
+
+    /// <summary>Creates a reflection-backed function with an explicit closed permission descriptor registry.</summary>
+    /// <remarks>Generated registration remains the Native-AOT path. Reflection never activates permission types implicitly.</remarks>
+    /// <param name="method">The attributed function method.</param>
+    /// <param name="instance">The target instance for an instance method.</param>
+    /// <param name="permissionDescriptors">Explicit policy, interaction, presentation, and event activation authority.</param>
+    /// <param name="serializerOptions">Runtime reflection serializer options.</param>
+    [RequiresUnreferencedCode("Reflection function registration inspects method attributes and runtime JSON metadata.")]
+    [RequiresDynamicCode("Reflection function registration invokes runtime methods and JSON metadata.")]
+    public static AIFunction CreateReflection(
+        MethodInfo method,
+        object? instance,
+        IReadOnlyDictionary<string, HPD.Agent.Permissions.AIFunctionPermissionDescriptor> permissionDescriptors,
+        JsonSerializerOptions? serializerOptions = null) =>
+        ReflectionToolFactory.CreateExplicitFunction(
+            method,
+            instance,
+            permissionDescriptors ?? throw new ArgumentNullException(nameof(permissionDescriptors)),
+            serializerOptions ?? HPDToolArgumentBinder.DefaultSerializerOptions);
 
     /// <summary>Creates an action function from one fully verified runtime composition.</summary>
     /// <param name="invocation">The admitted function body.</param>
@@ -63,6 +83,7 @@ public class HPDAIFunctionFactory
         {
             _invocationHandler = invocationHandler ?? throw new ArgumentNullException(nameof(invocationHandler));
             _method = invocationHandler.Method; // For metadata
+            options = SnapshotOptions(options);
             if (options.OperationContract is not null &&
                 options.AdditionalProperties?.TryGetValue("Kind", out var kind) == true &&
                 string.Equals(kind?.ToString(), "Output", StringComparison.Ordinal))
@@ -89,12 +110,40 @@ public class HPDAIFunctionFactory
             Description = options.Description ?? "";
             ContractDescriptor = JsonSchema.ValueKind == JsonValueKind.Undefined
                 ? null
-                : AIFunctionContractDescriptor.Create(Name, JsonSchema, options.OperationContract);
+                : AIFunctionContractDescriptor.Create(
+                    Name, JsonSchema, options.OperationContract, options.FunctionPermission, options.PermissionDescriptors);
             CanonicalInputContract = options.VerifiedActionComposition?.InputContract ??
                 (JsonSchema.ValueKind == JsonValueKind.Undefined
                     ? null
                     : CanonicalJsonInputContract.Create(JsonSchema));
         }
+
+        private static HPDAIFunctionFactoryOptions SnapshotOptions(HPDAIFunctionFactoryOptions source) => new()
+        {
+            Name = source.Name,
+            Description = source.Description,
+            ParameterDescriptions = source.ParameterDescriptions is null
+                ? null
+                : new Dictionary<string, string>(source.ParameterDescriptions, StringComparer.Ordinal),
+            FunctionPermission = source.FunctionPermission,
+            PermissionDescriptors = new ReadOnlyDictionary<string, HPD.Agent.Permissions.AIFunctionPermissionDescriptor>(
+                new Dictionary<string, HPD.Agent.Permissions.AIFunctionPermissionDescriptor>(
+                    source.PermissionDescriptors, StringComparer.Ordinal)),
+            SerializerOptions = source.SerializerOptions,
+            ResultType = source.ResultType,
+            MarshalResult = source.MarshalResult,
+            InvocationModePolicy = source.InvocationModePolicy,
+            InvocationModeHandling = source.InvocationModeHandling,
+            OperationContract = source.OperationContract,
+            VerifiedActionComposition = source.VerifiedActionComposition,
+            OperationNotification = source.OperationNotification,
+            Validator = source.Validator,
+            ArgumentBinder = source.ArgumentBinder,
+            SchemaProvider = source.SchemaProvider,
+            AdditionalProperties = source.AdditionalProperties is null
+                ? null
+                : new Dictionary<string, object?>(source.AdditionalProperties, StringComparer.Ordinal)
+        };
 
         private static AIFunctionOperationContract NormalizeOperationContract(
             AIFunctionOperationContract contract)
@@ -368,7 +417,9 @@ public sealed record AIFunctionContractDescriptor
     internal static AIFunctionContractDescriptor Create(
         string functionName,
         JsonElement schema,
-        AIFunctionOperationContract? operationContract = null)
+        AIFunctionOperationContract? operationContract = null,
+        AIFunctionPermissionDeclaration? functionPermission = null,
+        IReadOnlyDictionary<string, HPD.Agent.Permissions.AIFunctionPermissionDescriptor>? permissionDescriptors = null)
     {
         var canonical = new StringBuilder(schema.GetRawText());
         if (operationContract is not null)
@@ -376,10 +427,22 @@ public sealed record AIFunctionContractDescriptor
             canonical.Append('|').Append(operationContract.ActionArgumentName)
                 .Append('|').Append(operationContract.Discriminator);
             foreach (var (action, policy) in operationContract.Actions.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+            {
                 canonical.Append('|').Append(action).Append(':')
                     .Append((int)policy.InvocationModePolicy).Append(':')
                     .Append((int)policy.InvocationModeHandling);
+                AppendPermission(canonical, policy.Permission);
+            }
         }
+        AppendPermission(canonical, functionPermission);
+        if (permissionDescriptors is not null)
+            foreach (var descriptor in permissionDescriptors.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
+                canonical.Append("|descriptor:").Append(descriptor.Key)
+                    .Append(':').Append(descriptor.Value.DescriptorId)
+                    .Append(':').Append(descriptor.Value.PolicyFactory?.Method.DeclaringType?.AssemblyQualifiedName)
+                    .Append(':').Append(descriptor.Value.InteractionFactory?.Method.DeclaringType?.AssemblyQualifiedName)
+                    .Append(':').Append(descriptor.Value.Presentation?.PresentationId)
+                    .Append(':').Append(descriptor.Value.Presentation?.PresentationType.AssemblyQualifiedName);
         var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString())))
             .ToLowerInvariant();
         return new AIFunctionContractDescriptor
@@ -388,6 +451,16 @@ public sealed record AIFunctionContractDescriptor
             CanonicalSchemaFingerprint = fingerprint,
             CanonicalSchema = schema.Clone()
         };
+
+        static void AppendPermission(StringBuilder builder, AIFunctionPermissionDeclaration? permission)
+        {
+            if (permission is null) return;
+            builder.Append("|permission:").Append(permission.RequiresPermission ? '1' : '0')
+                .Append(':').Append(permission.Scope)
+                .Append(':').Append(permission.PolicyDescriptorId)
+                .Append(':').Append(permission.InteractionDescriptorId)
+                .Append(':').Append((int)permission.Source);
+        }
     }
 }
 

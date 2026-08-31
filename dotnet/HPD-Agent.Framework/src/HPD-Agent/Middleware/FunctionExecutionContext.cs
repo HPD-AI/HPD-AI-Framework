@@ -31,6 +31,50 @@ internal sealed class FunctionOperationCommitGate
     }
 }
 
+/// <summary>Exposes the immutable permission authority admitted for one function invocation.</summary>
+public sealed class FunctionExecutionPermission
+{
+    internal FunctionExecutionPermission(bool isRequired, FunctionPermissionGrant? grant)
+    {
+        IsRequired = isRequired;
+        Grant = grant;
+    }
+
+    /// <summary>Gets whether the effective function/action declaration required permission.</summary>
+    public bool IsRequired { get; }
+
+    /// <summary>Gets whether an invocation-bound approval grant is present.</summary>
+    public bool IsApproved => Grant is not null;
+
+    /// <summary>Gets the invocation-bound grant, when approval was required and issued.</summary>
+    public FunctionPermissionGrant? Grant { get; }
+
+    /// <summary>Returns the grant or throws when this invocation was not approved.</summary>
+    public FunctionPermissionGrant DemandApproved() => Grant ??
+        throw new InvalidOperationException("This invocation does not carry an approved permission grant.");
+
+    /// <summary>Returns the grant only when it authorizes the exact expected scope.</summary>
+    public FunctionPermissionGrant DemandScope(string expectedScope)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(expectedScope);
+        var grant = DemandApproved();
+        return string.Equals(grant.Key.Scope, expectedScope, StringComparison.Ordinal)
+            ? grant
+            : throw new InvalidOperationException($"The permission grant does not authorize scope '{expectedScope}'.");
+    }
+
+    /// <summary>Returns the grant only when it was issued by the exact expected policy and revision.</summary>
+    public FunctionPermissionGrant DemandPolicy(string expectedPolicyId, string? expectedRevision = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(expectedPolicyId);
+        var grant = DemandApproved();
+        if (!string.Equals(grant.Key.PolicyId, expectedPolicyId, StringComparison.Ordinal) ||
+            expectedRevision is not null && !string.Equals(grant.Key.PolicyRevision, expectedRevision, StringComparison.Ordinal))
+            throw new InvalidOperationException($"The permission grant was not issued by policy '{expectedPolicyId}'.");
+        return grant;
+    }
+}
+
 /// <summary>
 /// Narrow context exposed to AIFunction bodies during function execution.
 /// </summary>
@@ -76,6 +120,12 @@ public sealed class FunctionExecutionContext
         RunConfig = request.RunConfig;
         InvocationMode = request.InvocationMode;
         PermissionGrant = request.PermissionGrant;
+        Permission = new FunctionExecutionPermission(
+            request.PermissionGrant is not null || request.Function is HPDAIFunctionFactory.HPDAIFunction hpd &&
+                (request.InvocationMode?.Action is { } action && hpd.HPDOptions.OperationContract?.Actions.TryGetValue(action, out var policy) == true
+                    ? policy.Permission.RequiresPermission
+                    : hpd.HPDOptions.FunctionPermission?.RequiresPermission == true),
+            request.PermissionGrant);
         ResultMetadata = request.ResultMetadata;
         EventCoordinator = request.EventCoordinator;
         ThreadEvents = hookContext.Base.ThreadEvents;
@@ -98,6 +148,7 @@ public sealed class FunctionExecutionContext
         InvocationSnapshot = source.InvocationSnapshot;
         InvocationMode = source.InvocationMode;
         PermissionGrant = source.PermissionGrant;
+        Permission = source.Permission;
         _stateSnapshot = source._stateSnapshot;
         RunConfig = source.RunConfig;
         ResultMetadata = new ToolResultMetadata();
@@ -150,6 +201,9 @@ public sealed class FunctionExecutionContext
 
     /// <summary>Gets approval bound to this exact protected invocation, when one was issued.</summary>
     public FunctionPermissionGrant? PermissionGrant { get; }
+
+    /// <summary>Gets the defense-in-depth permission view for this invocation.</summary>
+    public FunctionExecutionPermission Permission { get; }
 
     /// <summary>Returns the invocation grant or throws when permission was not approved.</summary>
     public FunctionPermissionGrant DemandApproved() => PermissionGrant ??

@@ -1,10 +1,60 @@
 using System.Text.Json;
 using HPD.Agent.Permissions;
+using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Tests.Permissions;
 
 public sealed class GeneratedPermissionArchitectureTests
 {
+    [Fact]
+    public void Composition_fingerprint_changes_with_permission_authority()
+    {
+        using var schema = JsonDocument.Parse("""{"type":"object","properties":{},"additionalProperties":false}""");
+        var first = CreateFunction("scope/one");
+        var second = CreateFunction("scope/two");
+
+        Assert.NotEqual(first.ContractDescriptor!.CanonicalSchemaFingerprint,
+            second.ContractDescriptor!.CanonicalSchemaFingerprint);
+
+        HPDAIFunctionFactory.HPDAIFunction CreateFunction(string scope) =>
+            (HPDAIFunctionFactory.HPDAIFunction)HPDAIFunctionFactory.Create(
+                static (_, _, _) => Task.FromResult<object?>(null),
+                new HPDAIFunctionFactoryOptions
+                {
+                    Name = "secured",
+                    SchemaProvider = () => schema.RootElement,
+                    FunctionPermission = new AIFunctionPermissionDeclaration
+                    {
+                        RequiresPermission = true,
+                        Scope = scope,
+                        Source = PermissionDeclarationSource.FunctionAttribute
+                    }
+                });
+    }
+
+    [Fact]
+    public void Function_snapshots_permission_options_at_creation()
+    {
+        using var schema = JsonDocument.Parse("""{"type":"object","properties":{},"additionalProperties":false}""");
+        var options = new HPDAIFunctionFactoryOptions
+        {
+            Name = "secured",
+            SchemaProvider = () => schema.RootElement,
+            FunctionPermission = new AIFunctionPermissionDeclaration
+            {
+                RequiresPermission = true,
+                Scope = "scope/original",
+                Source = PermissionDeclarationSource.FunctionAttribute
+            }
+        };
+        var function = (HPDAIFunctionFactory.HPDAIFunction)HPDAIFunctionFactory.Create(
+            static (_, _, _) => Task.FromResult<object?>(null), options);
+
+        options.FunctionPermission = options.FunctionPermission with { Scope = "scope/mutated" };
+
+        Assert.Equal("scope/original", function.HPDOptions.FunctionPermission!.Scope);
+    }
+
     [Fact]
     public void Verified_action_composition_defers_author_clr_binding()
     {

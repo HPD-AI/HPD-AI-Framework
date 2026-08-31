@@ -1267,6 +1267,51 @@ public sealed record PermissionPreferenceChangedEvent(
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 }
 
+/// <summary>Records the bounded result of evaluating one protected invocation.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("PERMISSION_EVALUATED")]
+public sealed record PermissionEvaluatedEvent(string FunctionCallId, PermissionKey Key, PermissionRisk Risk, string? RequestFingerprint) : AgentEvent
+{
+    /// <inheritdoc />
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
+
+/// <summary>Records that an interaction was opened for one evaluated invocation.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("PERMISSION_REQUESTED")]
+public sealed record PermissionRequestedAuditEvent(string PermissionId, string FunctionCallId, PermissionKey Key) : AgentEvent
+{
+    /// <inheritdoc />
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
+
+/// <summary>Records the normalized server-validated permission decision.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("PERMISSION_DECIDED")]
+public sealed record PermissionDecidedEvent(string? PermissionId, string FunctionCallId, PermissionKey Key, PermissionDecisionKind Decision, string ChoiceId) : AgentEvent
+{
+    /// <inheritdoc />
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
+
+/// <summary>Records issuance of an invocation-bound permission grant.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("PERMISSION_GRANT_ISSUED")]
+public sealed record PermissionGrantIssuedEvent(string FunctionCallId, PermissionKey Key, PermissionGrantSource Source, string ChoiceId) : AgentEvent
+{
+    /// <inheritdoc />
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
+
+/// <summary>Records rejection of one protected invocation.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("PERMISSION_DENIED")]
+public sealed record PermissionDeniedEvent(string FunctionCallId, PermissionKey Key, string ChoiceId, string? Reason) : AgentEvent
+{
+    /// <inheritdoc />
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
+
 /// <summary>
 /// Middleware requests permission to continue beyond max iterations.
 /// </summary>

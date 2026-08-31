@@ -155,7 +155,8 @@ public sealed class ExecuteCommandPermissionPolicy :
 }
 
 /// <summary>Maps ExecuteCommand's rich typed request protocol to one normalized framework decision.</summary>
-public sealed class ExecuteCommandPermissionInteraction : IPermissionInteraction
+public sealed class ExecuteCommandPermissionInteraction :
+    IPermissionInteractionEventContract<ExecuteCommandPermissionRequestEvent, ExecuteCommandPermissionResponseEvent>
 {
     /// <inheritdoc />
     public async ValueTask<PermissionDecision> RequestAsync(

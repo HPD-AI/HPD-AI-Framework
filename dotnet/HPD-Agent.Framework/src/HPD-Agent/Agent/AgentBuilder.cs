@@ -2094,6 +2094,27 @@ public class AgentBuilder
                 StringComparer.Ordinal.Equals(pair.First.ModuleId, pair.Second.ModuleId));
     }
 
+    private void ValidatePermissionEventAuthority(IEnumerable<AIFunction> functions)
+    {
+        var codec = _config.EventComposition?.Codec
+            ?? throw new InvalidOperationException("Permission descriptor validation requires an event composition.");
+        foreach (var function in functions.OfType<HPDAIFunctionFactory.HPDAIFunction>())
+        foreach (var descriptor in function.HPDOptions.PermissionDescriptors.Values.Where(
+                     static descriptor => descriptor.InteractionFactory is not null))
+        {
+            if (descriptor.RequestEventType is null || descriptor.ResponseEventType is null)
+                throw new InvalidOperationException(
+                    $"Permission interaction descriptor '{descriptor.DescriptorId}' does not declare its durable event pair.");
+            if (!codec.TryGetByType(descriptor.RequestEventType, out var request) ||
+                request.Durability != AgentEventDurability.Durable ||
+                !codec.TryGetByType(descriptor.ResponseEventType, out var response) ||
+                response.Durability != AgentEventDurability.Durable)
+                throw new InvalidOperationException(
+                    $"Permission interaction descriptor '{descriptor.DescriptorId}' requires durable events " +
+                    $"'{descriptor.RequestEventType.FullName}' and '{descriptor.ResponseEventType.FullName}' in the selected application composition.");
+        }
+    }
+
     private IProviderExternalIdentityRegistry ResolveExternalIdentityRegistry(IServiceProvider? services)
     {
         if (_externalIdentityRegistrations.Count == 0 &&
@@ -2500,6 +2521,8 @@ public class AgentBuilder
         // Instance-based ToolHarnesses (requiring DI) use their own direct delegate calls.
         // No reflection fallback - the catalog is required.
         var toolFunctions = CreateFunctionsFromCatalog();
+        ValidatePermissionEventAuthority(toolFunctions.Concat(
+            _config.ServerConfiguredTools?.OfType<AIFunction>() ?? []));
         var staticFunctions = toolFunctions.ToArray();
         var staticMetadata = staticFunctions
             .Where(function => TryGetCapabilityMetadata(function, out _))

@@ -414,6 +414,7 @@ internal static class CapabilityAnalyzer
         var conditionalExpression = GetConditionalExpression(attrs);
         var contextTypeName = GetMetadataTypeName(method, semanticModel);
         var requiresPermission = HasAttribute(attrs, "RequiresPermission");
+        DiagnoseUnsupportedPermissionCustomization(attrs, diagnostics);
 
         System.Diagnostics.Debug.WriteLine($"[AnalyzeSkillCapability] Skill={name}, Description={description}");
         System.Diagnostics.Debug.WriteLine($"[AnalyzeSkillCapability] ContextTypeName={contextTypeName ?? "NULL"}");
@@ -832,6 +833,7 @@ internal static class CapabilityAnalyzer
 
         // Use standalone [RequiresPermission] attribute (same pattern as AIFunction/Skill)
         var requiresPermission = HasAttribute(attrs, "RequiresPermission");
+        DiagnoseUnsupportedPermissionCustomization(attrs, diagnostics);
 
         System.Diagnostics.Debug.WriteLine($"[CapabilityAnalyzer] Analyzed MCPServer: {methodName}, Name={effectiveName}, FromManifest={fromManifest}, CollapseWithinToolHarness={collapseWithinToolHarness}");
 
@@ -913,6 +915,7 @@ internal static class CapabilityAnalyzer
 
         // Use standalone [RequiresPermission] attribute (same pattern as AIFunction/Skill/MCPServer)
         var requiresPermission = HasAttribute(attrs, "RequiresPermission");
+        DiagnoseUnsupportedPermissionCustomization(attrs, diagnostics);
 
         System.Diagnostics.Debug.WriteLine($"[CapabilityAnalyzer] Analyzed OpenApi: {methodName}, Prefix={prefix}, RequiresPermission={requiresPermission}");
 
@@ -1075,6 +1078,15 @@ internal static class CapabilityAnalyzer
                         }
                         break;
                     }
+                }
+                if (property == "PermissionInteraction" &&
+                    !type.AllInterfaces.Any(static candidate => candidate.IsGenericType &&
+                        candidate.Name == "IPermissionInteractionEventContract" &&
+                        candidate.TypeArguments.Length == 2))
+                {
+                    diagnostics.Add(Diagnostic.Create(PermissionDiagnostics.InvalidDeclaration, location,
+                        $"interaction type '{type.ToDisplayString()}' must implement IPermissionInteractionEventContract<TRequest,TResponse> so durable event composition can be verified"));
+                    return false;
                 }
                 return true;
             }
@@ -1248,7 +1260,33 @@ internal static class CapabilityAnalyzer
     /// </summary>
     private static bool HasAttribute(List<AttributeSyntax> attrs, string name)
     {
-        return attrs.Any(attr => attr.Name.ToString().Contains(name));
+        return attrs.Any(attr =>
+        {
+            var actual = attr.Name switch
+            {
+                IdentifierNameSyntax identifier => identifier.Identifier.ValueText,
+                QualifiedNameSyntax qualified => qualified.Right.Identifier.ValueText,
+                AliasQualifiedNameSyntax alias => alias.Name.Identifier.ValueText,
+                _ => attr.Name.ToString().Split('.').Last()
+            };
+            return string.Equals(actual, name, System.StringComparison.Ordinal) ||
+                string.Equals(actual, name + "Attribute", System.StringComparison.Ordinal);
+        });
+    }
+
+    private static void DiagnoseUnsupportedPermissionCustomization(
+        List<AttributeSyntax> attrs,
+        List<Diagnostic> diagnostics)
+    {
+        var attribute = attrs.FirstOrDefault(attr =>
+        {
+            var text = attr.Name.ToString().Split('.').Last();
+            return text is "RequiresPermission" or "RequiresPermissionAttribute";
+        });
+        if (attribute?.ArgumentList?.Arguments.Any(argument =>
+                argument.NameEquals?.Name.Identifier.ValueText is "PermissionScope" or "PermissionPolicy" or "PermissionInteraction") == true)
+            diagnostics.Add(Diagnostic.Create(PermissionDiagnostics.InvalidDeclaration, attribute.GetLocation(),
+                "custom permission scope, policy, and interaction properties are supported only on AIFunction capabilities"));
     }
 
     private static AttributeArgumentSyntax? GetNamedArgument(AttributeSyntax attr, string name) =>

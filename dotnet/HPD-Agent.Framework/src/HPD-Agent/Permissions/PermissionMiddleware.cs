@@ -5,6 +5,8 @@ using System.Text.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
+using HPD.Agent.Serialization;
 
 namespace HPD.Agent.Permissions;
 
@@ -46,8 +48,10 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
     private readonly AgentConfig? _config;
     private readonly string _middlewareName;
     private readonly PermissionOverrideRegistry? _overrideRegistry;
-    private readonly ConcurrentDictionary<string, BatchPermissionOutcome> _batchOutcomes =
-        new(StringComparer.Ordinal);
+    // Batch mediation is owned by one AgentContext (one RunAsync execution). A middleware
+    // instance may be shared by concurrent runs, so provider call IDs are not globally unique.
+    private readonly ConditionalWeakTable<AgentContext, ConcurrentDictionary<string, BatchPermissionOutcome>>
+        _batchOutcomes = new();
 
     /// <summary>
     /// Creates a new permission middleware.
@@ -140,7 +144,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                 funcInfo.ResolvedInvocation,
                 cancellationToken).ConfigureAwait(false);
 
-            _batchOutcomes[funcInfo.CallId] = new BatchPermissionOutcome(
+            GetBatchOutcomes(context.Base)[funcInfo.CallId] = new BatchPermissionOutcome(
                 permissionKey,
                 permissionResult.IsApproved,
                 permissionResult.DenialReason,
@@ -213,6 +217,8 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             context.Session?.Store is IPermissionPreferenceStore &&
             context.Base.ThreadEvents is not null &&
             context.SessionId is not null && context.ThreadId is not null);
+        await context.PublishAsync(new PermissionEvaluatedEvent(
+            context.FunctionCallId, evaluation.Key, evaluation.Risk, evaluation.RequestFingerprint), cancellationToken).ConfigureAwait(false);
 
         if (context.RunConfig.Security.Approval == AgentApprovalPolicy.AutoApprove)
         {
@@ -223,6 +229,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                 PermissionGrantSource.HostAutoApprove,
                 choiceId: "host_auto_approve",
                 evaluation: evaluation);
+            await PublishGrantAsync(context, context.PermissionGrant, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -233,19 +240,24 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         // CHECK BATCH PERMISSION STATE (for parallel execution optimization)
         //     
 
-        if (_batchOutcomes.TryRemove(callId, out var batchOutcome))
+        if (GetBatchOutcomes(context.Base).TryRemove(callId, out var batchOutcome))
         {
             if (!string.Equals(batchOutcome.PermissionKey, permissionKey, StringComparison.Ordinal) ||
                 !JsonElement.DeepEquals(batchOutcome.CanonicalArguments, CanonicalizeArguments(context.Arguments)))
                 throw new InvalidOperationException("permission_authority_drift: prepared batch authority no longer matches admission.");
             if (batchOutcome.IsApproved)
+            {
                 context.PermissionGrant = CreateGrant(
                     context, function, permissionKey, batchOutcome.Source,
                     batchOutcome.ChoiceId, batchOutcome.PermissionId, batchOutcome.Evaluation);
+                await PublishGrantAsync(context, context.PermissionGrant, cancellationToken).ConfigureAwait(false);
+            }
             else
             {
                 context.BlockExecution = true;
                 context.OverrideResult = BlockedResult("denied", permissionKey, batchOutcome.DenialReason);
+                await context.PublishAsync(new PermissionDeniedEvent(
+                    callId, evaluation.Key, batchOutcome.ChoiceId, batchOutcome.DenialReason), cancellationToken).ConfigureAwait(false);
                 if (batchOutcome.DeniedBehavior == PermissionDeniedBehavior.InterruptTurn)
                     await InterruptDeniedPermissionAsync(context, batchOutcome.DenialReason, cancellationToken).ConfigureAwait(false);
             }
@@ -268,6 +280,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                     PermissionGrantSource.StoredPreference,
                     choiceId: "always_allow",
                     evaluation: evaluation);
+                await PublishGrantAsync(context, context.PermissionGrant, cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -276,6 +289,8 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                 var denialReason = $"Execution of '{permissionKey}' was denied by a stored user preference.";
                 context.BlockExecution = true;
                 context.OverrideResult = BlockedResult("denied", permissionKey, denialReason);
+                await context.PublishAsync(new PermissionDeniedEvent(
+                    callId, evaluation.Key, "always_deny", denialReason), cancellationToken).ConfigureAwait(false);
                 await InterruptDeniedPermissionAsync(context, denialReason, cancellationToken).ConfigureAwait(false);
                 return;
             }
@@ -286,6 +301,8 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         //
 
         var permissionId = Guid.NewGuid().ToString();
+        await context.PublishAsync(new PermissionRequestedAuditEvent(
+            permissionId, callId, evaluation.Key), cancellationToken).ConfigureAwait(false);
         // Wait for response from external handler
         PermissionResponseEvent response;
         try
@@ -323,6 +340,8 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         //     
 
         var selectedChoice = ResolveChoice(evaluation, response);
+        await context.PublishAsync(new PermissionDecidedEvent(
+            permissionId, callId, evaluation.Key, selectedChoice.Decision, selectedChoice.Id), cancellationToken).ConfigureAwait(false);
         if (selectedChoice.Decision == PermissionDecisionKind.Allow)
         {
             context.PermissionGrant = CreateGrant(
@@ -333,6 +352,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                 choiceId: selectedChoice.Id,
                 permissionId,
                 evaluation);
+            await PublishGrantAsync(context, context.PermissionGrant, cancellationToken).ConfigureAwait(false);
             if (selectedChoice.Persistence is not null)
                 await PersistPreferenceAsync(
                     context.Session?.Store,
@@ -355,6 +375,8 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             // Block execution with denial reason
             context.BlockExecution = true;
             context.OverrideResult = BlockedResult("denied", permissionKey, denialReason);
+            await context.PublishAsync(new PermissionDeniedEvent(
+                callId, evaluation.Key, selectedChoice.Id, denialReason), cancellationToken).ConfigureAwait(false);
             if (selectedChoice.DeniedBehavior == PermissionDeniedBehavior.InterruptTurn)
                 await InterruptDeniedPermissionAsync(context, denialReason, cancellationToken).ConfigureAwait(false);
             if (selectedChoice.Persistence is not null)
@@ -397,6 +419,13 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                 cancellationToken)
             .ConfigureAwait(false);
     }
+
+    private static async ValueTask PublishGrantAsync(
+        BeforeFunctionContext context,
+        FunctionPermissionGrant grant,
+        CancellationToken cancellationToken) =>
+        _ = await context.PublishAsync(new PermissionGrantIssuedEvent(
+            grant.FunctionCallId, grant.Key, grant.Source, grant.ChoiceId), cancellationToken).ConfigureAwait(false);
 
     /// <summary>
     /// Helper method that checks permission for a single function.
@@ -998,6 +1027,14 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             where TResponse : AgentEvent, IAgentResponseEvent
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var codec = context.Config?.EventComposition?.Codec
+                ?? throw new InvalidOperationException("Custom permission interaction requires an application event composition.");
+            if (!codec.TryGetByType(typeof(TRequest), out var requestDescriptor) ||
+                requestDescriptor.Durability != AgentEventDurability.Durable ||
+                !codec.TryGetByType(typeof(TResponse), out var responseDescriptor) ||
+                responseDescriptor.Durability != AgentEventDurability.Durable)
+                throw new InvalidOperationException(
+                    $"Custom permission event pair '{typeof(TRequest).FullName}'/'{typeof(TResponse).FullName}' must be present as durable events in the application composition.");
             return await context.RequestAsync<TRequest, TResponse>(request).ConfigureAwait(false);
         }
     }
@@ -1056,4 +1093,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             return policy.Permission;
         return hpdFunction.HPDOptions.FunctionPermission;
     }
+
+    private ConcurrentDictionary<string, BatchPermissionOutcome> GetBatchOutcomes(AgentContext context) =>
+        _batchOutcomes.GetValue(context, static _ => new ConcurrentDictionary<string, BatchPermissionOutcome>(StringComparer.Ordinal));
 }

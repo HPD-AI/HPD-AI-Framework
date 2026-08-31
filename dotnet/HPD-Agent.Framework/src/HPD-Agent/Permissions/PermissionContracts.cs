@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using HPD.Events;
 
 namespace HPD.Agent.Permissions;
@@ -54,6 +55,13 @@ public interface IPermissionInteraction
         CancellationToken cancellationToken);
 }
 
+/// <summary>Declares the exact durable request/response event pair owned by a custom interaction.</summary>
+/// <typeparam name="TRequest">The correlation-bearing durable request event.</typeparam>
+/// <typeparam name="TResponse">The matching durable response event.</typeparam>
+public interface IPermissionInteractionEventContract<TRequest, TResponse> : IPermissionInteraction
+    where TRequest : AgentEvent, IAgentRequestEvent<TResponse>
+    where TResponse : AgentEvent, IAgentResponseEvent;
+
 /// <summary>
 /// Contains generated activation authority for one permission policy or interaction descriptor.
 /// CLR types alone never authorize reflection-based activation.
@@ -69,6 +77,12 @@ public sealed record AIFunctionPermissionDescriptor
     /// <summary>Gets the generated interaction factory when this descriptor provides an interaction.</summary>
     public Func<IServiceProvider, IPermissionInteraction>? InteractionFactory { get; init; }
 
+    /// <summary>Gets the declared custom request event type, when the interaction owns a custom protocol.</summary>
+    public Type? RequestEventType { get; init; }
+
+    /// <summary>Gets the declared custom response event type, when the interaction owns a custom protocol.</summary>
+    public Type? ResponseEventType { get; init; }
+
     /// <summary>Gets the generated descriptor for the policy's one legal presentation type.</summary>
     public PermissionPresentationDescriptor? Presentation { get; init; }
 }
@@ -80,6 +94,8 @@ public sealed record PermissionPresentationDescriptor
     public required string PresentationId { get; init; }
     /// <summary>Gets the exact CLR type accepted from the policy.</summary>
     public required Type PresentationType { get; init; }
+    /// <summary>Gets the exact source-generated serializer metadata used for this presentation.</summary>
+    public required JsonTypeInfo TypeInfo { get; init; }
     /// <summary>Serializes only the exact generated presentation type.</summary>
     public required Func<object, JsonElement> Serialize { get; init; }
 }
