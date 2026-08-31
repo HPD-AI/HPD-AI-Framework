@@ -722,8 +722,11 @@ public static class SubAgentRuntime
             var active = await controller.FindActiveAsync(route, cancellationToken).ConfigureAwait(false);
             if (active.IsActive)
                 return Failure("subagent_busy", "This child already has an active execution.", child.LocalId.Value);
-            var executionId = Guid.NewGuid().ToString("N");
-            var invocationId = Guid.NewGuid().ToString("N");
+            var continueKey = $"{functionContext.SessionId}|{functionContext.ThreadId}|{functionContext.FunctionCallId}|{child.LocalId.Value}|{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(input)))}";
+            var continueDigest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(continueKey))).ToLowerInvariant();
+            var executionId = $"continue-{continueDigest[..24]}";
+            var invocationId = $"continue-{continueDigest[24..48]}";
+            var operationId = $"subagent-continue-{continueDigest[..32]}";
             var requestedMode = functionContext.ResolvedInvocationMode;
             if (requestedMode == AgentInvocationMode.Background)
             {
@@ -741,7 +744,8 @@ public static class SubAgentRuntime
                         await ContinueChildAsync(
                             resolver, store, child, route, input, executionId, runtimeToken).ConfigureAwait(false);
                         return new AgentOperationCompletion("Subagent continuation completed.");
-                    }).ConfigureAwait(false);
+                    },
+                    operationId: operationId).ConfigureAwait(false);
                 return new SubAgentOperationResult
                 {
                     Status = SubAgentOperationStatus.Running,

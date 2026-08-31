@@ -6640,6 +6640,9 @@ public sealed partial class Agent : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(sourceThread);
         ArgumentNullException.ThrowIfNull(forkOptions);
         ArgumentException.ThrowIfNullOrWhiteSpace(newThreadId);
+        if (forkOptions.Metadata?.Keys.Any(static key => key is
+                "forkOperationId" or "forkSourceSessionId" or "forkSourceThreadId" or "forkRequestFingerprint") == true)
+            throw new InvalidOperationException("thread_fork_reserved_metadata_key");
         var store = Config.SessionStore
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
@@ -6756,7 +6759,11 @@ public sealed partial class Agent : IAsyncDisposable
         {
             throw new InvalidOperationException("thread_fork_operation_payload_conflict");
         }
-        else if (forkOperation.Status == ThreadForkOperationStatus.Committed)
+        else if (forkOperation.Status == ThreadForkOperationStatus.Aborted)
+        {
+            throw new InvalidOperationException($"thread_fork_operation_aborted:{forkOperation.Error}");
+        }
+        else if (forkOperation.Status is ThreadForkOperationStatus.Committed or ThreadForkOperationStatus.ReconciliationRequired)
         {
             var existing = await store.ProjectThreadAsync(
                 forkOperation.Target.SessionId,
@@ -6790,8 +6797,6 @@ public sealed partial class Agent : IAsyncDisposable
         newThread.Metadata["forkSourceSessionId"] = sourceKey.SessionId;
         newThread.Metadata["forkSourceThreadId"] = sourceKey.ThreadId;
         newThread.Metadata["forkRequestFingerprint"] = requestFingerprint;
-        newThread.Preparation = new ThreadPreparationDescriptor(
-            forkOperationId, sourceKey, requestFingerprint);
 
         // Copy thread-scoped middleware state (session-scoped state is shared via Session object)
         foreach (var kvp in sourceThread.MiddlewareState)
@@ -6801,9 +6806,6 @@ public sealed partial class Agent : IAsyncDisposable
 
         if (forkOptions.Metadata != null)
         {
-            if (forkOptions.Metadata.Keys.Any(static key => key is
-                    "forkOperationId" or "forkSourceSessionId" or "forkSourceThreadId" or "forkRequestFingerprint"))
-                throw new InvalidOperationException("thread_fork_reserved_metadata_key");
             var extensionMetadata = new Dictionary<string, object>(forkOptions.Metadata, StringComparer.Ordinal);
             newThread.ApplyRuntimeMetadata(extensionMetadata);
             foreach (var kvp in extensionMetadata)
@@ -6906,6 +6908,13 @@ public sealed partial class Agent : IAsyncDisposable
                 evt.Child.ChildThread,
                 evt.Child.Availability))
             .ToArray();
+        var targetSeedFingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('|',
+            requestFingerprint,
+            AgentId,
+            targetKey.SessionId,
+            targetKey.ThreadId,
+            string.Join(';', outcomes.Select(static outcome =>
+                $"{outcome.LocalId}:{outcome.Policy}:{outcome.Source}:{outcome.Target}:{outcome.Availability}"))))));
         if (forkOperation.Status == ThreadForkOperationStatus.ChildrenPreparing)
         {
             forkOperation = forkOperation with
@@ -6913,7 +6922,8 @@ public sealed partial class Agent : IAsyncDisposable
                 Status = ThreadForkOperationStatus.ParentPreparing,
                 Revision = forkOperation.Revision + 1,
                 PreparedChildren = preparedChildren,
-                ChildOutcomes = outcomes
+                ChildOutcomes = outcomes,
+                TargetSeedFingerprint = targetSeedFingerprint
             };
             await forkOperationStore.WriteThreadForkOperationAsync(
                 forkOperation,
@@ -6932,6 +6942,8 @@ public sealed partial class Agent : IAsyncDisposable
                 new ThreadForkOperationWriteCondition(forkOperation.Revision - 1),
                 cancellationToken).ConfigureAwait(false);
         }
+        newThread.Preparation = new ThreadPreparationDescriptor(
+            forkOperationId, sourceKey, requestFingerprint, forkOperation.TargetSeedFingerprint);
 
         try
         {
@@ -7433,18 +7445,49 @@ public sealed partial class Agent : IAsyncDisposable
         string text => QuoteJson(text),
         bool flag => flag ? "true" : "false",
         byte number => number.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        sbyte number => number.ToString(System.Globalization.CultureInfo.InvariantCulture),
         short number => number.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        ushort number => number.ToString(System.Globalization.CultureInfo.InvariantCulture),
         int number => number.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        uint number => number.ToString(System.Globalization.CultureInfo.InvariantCulture),
         long number => number.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        ulong number => number.ToString(System.Globalization.CultureInfo.InvariantCulture),
         float number => number.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
         double number => number.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
         decimal number => number.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        char character => QuoteJson(character.ToString()),
+        Guid guid => QuoteJson(guid.ToString("D")),
+        DateTime dateTime => QuoteJson(dateTime.ToUniversalTime().ToString("O", System.Globalization.CultureInfo.InvariantCulture)),
+        DateTimeOffset dateTimeOffset => QuoteJson(dateTimeOffset.ToUniversalTime().ToString("O", System.Globalization.CultureInfo.InvariantCulture)),
+        Enum enumValue => QuoteJson(enumValue.ToString()),
         IReadOnlyDictionary<string, object> dictionary => CanonicalizeForkMetadata(dictionary),
         IDictionary<string, object> dictionary => CanonicalizeForkMetadata(
             new Dictionary<string, object>(dictionary, StringComparer.Ordinal)),
-        IEnumerable<object?> sequence => "[" + string.Join(',', sequence.Select(CanonicalizeMetadataValue)) + "]",
+        System.Collections.IDictionary dictionary => CanonicalizeUntypedMetadataDictionary(dictionary),
+        System.Collections.IEnumerable sequence => CanonicalizeUntypedMetadataSequence(sequence),
         _ => throw new InvalidOperationException($"thread_fork_metadata_type_unsupported:{value.GetType().FullName}")
     };
+
+    private static string CanonicalizeUntypedMetadataDictionary(System.Collections.IDictionary dictionary)
+    {
+        var entries = new List<KeyValuePair<string, object?>>();
+        foreach (System.Collections.DictionaryEntry entry in dictionary)
+        {
+            if (entry.Key is not string key)
+                throw new InvalidOperationException("thread_fork_metadata_dictionary_key_invalid");
+            entries.Add(new KeyValuePair<string, object?>(key, entry.Value));
+        }
+        return "{" + string.Join(',', entries.OrderBy(static entry => entry.Key, StringComparer.Ordinal)
+            .Select(entry => QuoteJson(entry.Key) + ":" + CanonicalizeMetadataValue(entry.Value))) + "}";
+    }
+
+    private static string CanonicalizeUntypedMetadataSequence(System.Collections.IEnumerable sequence)
+    {
+        var values = new List<string>();
+        foreach (var item in sequence)
+            values.Add(CanonicalizeMetadataValue(item));
+        return "[" + string.Join(',', values) + "]";
+    }
 
     private static string QuoteJson(string value) => $"\"{JsonEncodedText.Encode(value)}\"";
 
@@ -7477,7 +7520,8 @@ public sealed partial class Agent : IAsyncDisposable
         if (created?.Preparation is not { } preparation ||
             !string.Equals(preparation.OperationId, operation.OperationId, StringComparison.Ordinal) ||
             preparation.Source != operation.Source ||
-            !string.Equals(preparation.RequestFingerprint, operation.RequestFingerprint, StringComparison.Ordinal))
+            !string.Equals(preparation.RequestFingerprint, operation.RequestFingerprint, StringComparison.Ordinal) ||
+            !string.Equals(preparation.TargetSeedFingerprint, operation.TargetSeedFingerprint, StringComparison.Ordinal))
             throw new InvalidOperationException("thread_fork_target_collision");
     }
 

@@ -107,6 +107,39 @@ public sealed class SubAgentDurabilityTests
         Assert.Equal(operation.Target, replay.Target);
     }
 
+    [Fact]
+    public async Task CreationOrdinalContinuesFromDurableRegistryAfterReceiptRetention()
+    {
+        var store = new InMemorySessionStore(CoreAgentEventComposition.Instance.Codec);
+        var parent = new ThreadKey("session", "parent");
+        await CreateThreadAsync(store, parent);
+        await new SubAgentChildRegistry(store).RegisterAsync(parent, new SubAgentChildReference
+        {
+            LocalId = new SubAgentLocalId("reviewer-129"),
+            RoleName = "reviewer",
+            CapabilityId = CapabilityId.Create("test:old-role"),
+            ChildAgentId = "reviewer-agent",
+            Availability = SubAgentChildAvailability.Available,
+            ChildThread = new ThreadKey("session", "old-child"),
+            CreationContext = SubAgentCreationContext.Fresh,
+            CreationInvocationId = "old-invocation",
+            ParentToolCallId = "old-call",
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+
+        var reservation = await new JournalSubAgentCreationStore(store).TryReserveSubAgentCreationAsync(
+            new SubAgentCreationKey(parent, "new-call", CapabilityId.Create("test:new-role")),
+            new SubAgentCreationRequest
+            {
+                RoleName = "reviewer",
+                ChildAgentId = "reviewer-agent",
+                Context = SubAgentCreationContext.Fresh,
+                InputFingerprint = "ABC"
+            });
+
+        Assert.Equal("reviewer-130", reservation.Record.LocalId.Value);
+    }
+
     private static async Task CreateThreadAsync(InMemorySessionStore store, ThreadKey key) =>
         _ = await store.AppendThreadEventsAsync(
             key,

@@ -37,6 +37,10 @@ var subAgentFunction = SubAgentsFunctionFactory.Create([new SubAgentActionDescri
 }]);
 if (!subAgentFunction.JsonSchema.GetRawText().Contains("reviewer", StringComparison.Ordinal))
     return 4;
+using var subAgentBranch = JsonDocument.Parse("""{"input":"inspect"}""");
+var subAgentBinding = SubAgentGeneratedBranchBinder.Bind(subAgentBranch.RootElement, allowContext: false);
+if (subAgentBinding.Value is not BoundSubAgentStartAction { Input: "inspect", Context: null })
+    return 6;
 var operationJson = JsonSerializer.Serialize<SubAgentActionResult>(new SubAgentOperationResult
 {
     Status = SubAgentOperationStatus.Completed,

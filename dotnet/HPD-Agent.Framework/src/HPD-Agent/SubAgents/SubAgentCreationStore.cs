@@ -132,9 +132,18 @@ public sealed class JournalSubAgentCreationStore(ISessionStore store) : ISubAgen
                 return new SubAgentCreationReservationResult(existing, Created: false);
             }
 
-            var ordinal = projection.Records.Values.Count(record =>
-                string.Equals(record.Request.RoleName, request.RoleName, StringComparison.Ordinal)) + 1;
-            var localId = new SubAgentLocalId($"{Normalize(request.RoleName)}-{ordinal}");
+            var rolePrefix = $"{Normalize(request.RoleName)}-";
+            var registry = await new SubAgentChildRegistry(_store)
+                .ProjectAsync(key.Parent, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var ordinal = projection.Records.Values
+                .Where(record => string.Equals(record.Request.RoleName, request.RoleName, StringComparison.Ordinal))
+                .Select(record => ParseOrdinal(record.LocalId.Value, rolePrefix))
+                .Concat(registry.Children.Values
+                    .Where(child => string.Equals(child.RoleName, request.RoleName, StringComparison.Ordinal))
+                    .Select(child => ParseOrdinal(child.LocalId.Value, rolePrefix)))
+                .DefaultIfEmpty(0)
+                .Max() + 1;
+            var localId = new SubAgentLocalId($"{rolePrefix}{ordinal}");
             var invocationId = Guid.NewGuid().ToString("N");
             var sessionId = request.Context == SubAgentCreationContext.Isolated
                 ? $"subagent/{Normalize(request.RoleName)}/{invocationId[..12]}"
@@ -244,6 +253,12 @@ public sealed class JournalSubAgentCreationStore(ISessionStore store) : ISubAgen
     private static string Normalize(string value) => new(value.Trim().ToLowerInvariant()
         .Select(static character => char.IsLetterOrDigit(character) ? character : '-')
         .ToArray());
+
+    private static int ParseOrdinal(string localId, string rolePrefix) =>
+        localId.StartsWith(rolePrefix, StringComparison.Ordinal) &&
+        int.TryParse(localId.AsSpan(rolePrefix.Length), out var ordinal)
+            ? ordinal
+            : 0;
 }
 
 /// <summary>Commits a newly allocated child creation.</summary>

@@ -6,7 +6,8 @@ namespace HPD.Agent;
 public sealed record ThreadPreparationDescriptor(
     string OperationId,
     ThreadKey Source,
-    string RequestFingerprint);
+    string RequestFingerprint,
+    string? TargetSeedFingerprint = null);
 
 /// <summary>Typed immutable preparation authority embedded in a staged isolated session.</summary>
 public sealed record SessionPreparationDescriptor(
@@ -48,6 +49,8 @@ public sealed record ThreadForkOperationRecord
     public required IReadOnlyList<ThreadKey> PreparedChildren { get; init; }
     /// <summary>Gets the authoritative deterministic direct-child outcomes.</summary>
     public required IReadOnlyList<SubAgentForkChildOutcome> ChildOutcomes { get; init; }
+    /// <summary>Gets the immutable target seed hash once planning is complete.</summary>
+    public string? TargetSeedFingerprint { get; init; }
     /// <summary>Gets a bounded terminal or reconciliation error.</summary>
     public string? Error { get; init; }
 }
@@ -184,12 +187,7 @@ public sealed class ThreadForkOperationRebaseSeedProvider(ISessionStore store)
         await foreach (var operation in operationStore.ReadThreadForkOperationsAsync(thread, cancellationToken)
                            .ConfigureAwait(false))
             records.Add(operation);
-        foreach (var operation in records
-                     .Where(static operation => operation.Status is not ThreadForkOperationStatus.Committed and not ThreadForkOperationStatus.Aborted)
-                     .Concat(records.Where(static operation => operation.Status is ThreadForkOperationStatus.Committed or ThreadForkOperationStatus.Aborted)
-                         .OrderByDescending(static operation => operation.Revision)
-                         .Take(128))
-                     .OrderBy(static operation => operation.OperationId, StringComparer.Ordinal))
+        foreach (var operation in records.OrderBy(static operation => operation.OperationId, StringComparer.Ordinal))
         {
             events.Add(new ThreadForkOperationChangedEvent(operation)
             {
@@ -220,7 +218,7 @@ internal static class ThreadForkVisibility
             {
                 return false;
             }
-            return preparedOperation?.Status == ThreadForkOperationStatus.Committed &&
+            return (preparedOperation?.Status is ThreadForkOperationStatus.Committed or ThreadForkOperationStatus.ReconciliationRequired) &&
                    string.Equals(preparedOperation.RequestFingerprint, preparation.RequestFingerprint, StringComparison.Ordinal);
         }
         if (!session.Metadata.TryGetValue("forkOperationId", out var rawOperationId) ||
@@ -232,7 +230,7 @@ internal static class ThreadForkVisibility
         var source = new ThreadKey(Convert.ToString(rawSession)!, Convert.ToString(rawThread)!);
         var operation = await new JournalThreadForkOperationStore(store, source)
             .GetThreadForkOperationAsync(operationId, cancellationToken).ConfigureAwait(false);
-        return operation?.Status == ThreadForkOperationStatus.Committed;
+        return operation?.Status is ThreadForkOperationStatus.Committed or ThreadForkOperationStatus.ReconciliationRequired;
     }
 
     internal static async ValueTask<bool> IsVisibleAsync(
@@ -252,7 +250,7 @@ internal static class ThreadForkVisibility
             {
                 return false;
             }
-            return preparedOperation?.Status == ThreadForkOperationStatus.Committed &&
+            return (preparedOperation?.Status is ThreadForkOperationStatus.Committed or ThreadForkOperationStatus.ReconciliationRequired) &&
                    string.Equals(preparedOperation.RequestFingerprint, preparation.RequestFingerprint, StringComparison.Ordinal);
         }
         if (!descriptor.Metadata.TryGetValue("forkOperationId", out var rawOperationId) ||
@@ -264,6 +262,6 @@ internal static class ThreadForkVisibility
         var source = new ThreadKey(Convert.ToString(rawSession)!, Convert.ToString(rawThread)!);
         var operation = await new JournalThreadForkOperationStore(store, source)
             .GetThreadForkOperationAsync(operationId, cancellationToken).ConfigureAwait(false);
-        return operation?.Status == ThreadForkOperationStatus.Committed;
+        return operation?.Status is ThreadForkOperationStatus.Committed or ThreadForkOperationStatus.ReconciliationRequired;
     }
 }
