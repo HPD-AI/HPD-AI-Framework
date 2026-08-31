@@ -43,7 +43,7 @@ public sealed class ExecuteCommandPermissionPolicy :
         {
             PolicyId = "hpd.coding.execute-command",
             PolicyRevision = "2",
-            Scope = context.Scope,
+            Authority = context.Authority,
             Title = plan.Action == ExecuteCommandAction.Run
                 ? "Allow this command?"
                 : $"Allow ExecuteCommand {plan.Action}?",

@@ -203,7 +203,7 @@ internal static class ReflectionToolFactory
         var invocationModeHandling = GetInvocationModeHandling(functionAttribute);
         var permissionAttribute = method.GetCustomAttribute<RequiresPermissionAttribute>(inherit: false);
         var requiresPermission = permissionAttribute is not null;
-        ValidatePermissionScope(permissionAttribute?.PermissionScope);
+        ValidatePermissionAuthority(permissionAttribute?.PermissionAuthority);
         var policyDescriptorId = ResolveExplicitDescriptor(permissionAttribute?.PermissionPolicy, permissionDescriptors, policy: true);
         var interactionDescriptorId = ResolveExplicitDescriptor(permissionAttribute?.PermissionInteraction, permissionDescriptors, policy: false);
         var operationContract = CreateOperationContract(
@@ -231,7 +231,7 @@ internal static class ReflectionToolFactory
                     ? new AIFunctionPermissionDeclaration
                     {
                         RequiresPermission = true,
-                        Scope = permissionAttribute!.PermissionScope ??
+                        Authority = permissionAttribute!.PermissionAuthority ??
                             $"function/{Uri.EscapeDataString(GetFunctionName(method))}",
                         PolicyDescriptorId = policyDescriptorId,
                         InteractionDescriptorId = interactionDescriptorId,
@@ -318,7 +318,7 @@ internal static class ReflectionToolFactory
                 FunctionPermission = new AIFunctionPermissionDeclaration
                 {
                     RequiresPermission = true,
-                    Scope = $"multiagent/{Uri.EscapeDataString(name)}",
+                    Authority = $"multiagent/{Uri.EscapeDataString(name)}",
                     Source = PermissionDeclarationSource.FrameworkDefault
                 },
                 SerializerOptions = serializerOptions,
@@ -886,7 +886,7 @@ internal static class ReflectionToolFactory
                 throw new InvalidOperationException("Every action union case requires a non-empty string discriminator.");
             var declaration = unionCase.DerivedType.GetCustomAttribute<AIFunctionActionAttribute>(inherit: false)
                 ?? throw new InvalidOperationException($"Action type '{unionCase.DerivedType.FullName}' requires AIFunctionActionAttribute.");
-            ValidatePermissionScope(declaration.PermissionScope);
+            ValidatePermissionAuthority(declaration.PermissionAuthority);
             var policyDescriptorId = ResolveExplicitDescriptor(declaration.PermissionPolicy, permissionDescriptors, policy: true);
             var interactionDescriptorId = ResolveExplicitDescriptor(declaration.PermissionInteraction, permissionDescriptors, policy: false);
             if (!string.Equals(declaration.Action, serialized, StringComparison.Ordinal))
@@ -920,7 +920,7 @@ internal static class ReflectionToolFactory
                     Permission = new AIFunctionPermissionDeclaration
                     {
                         RequiresPermission = requiresPermission,
-                        Scope = declaration.PermissionScope ??
+                        Authority = declaration.PermissionAuthority ??
                             $"function/{Uri.EscapeDataString(GetFunctionName(candidate.Parameter.Member as MethodInfo ?? throw new InvalidOperationException()))}/action/{Uri.EscapeDataString(serialized)}",
                         PolicyDescriptorId = policyDescriptorId,
                         InteractionDescriptorId = interactionDescriptorId,
@@ -958,12 +958,12 @@ internal static class ReflectionToolFactory
     private static string GetSerializedParameterName(ParameterInfo parameter) =>
         parameter.Name ?? throw new InvalidOperationException("Model-facing parameters require a serialized name.");
 
-    private static void ValidatePermissionScope(string? scope)
+    private static void ValidatePermissionAuthority(string? authority)
     {
-        if (scope is not null && (scope.Length == 0 || scope != scope.Trim() ||
-            scope.Any(char.IsControl) || Encoding.UTF8.GetByteCount(scope) > 512))
+        if (authority is not null && (authority.Length == 0 || authority != authority.Trim() ||
+            authority.Any(char.IsControl) || Encoding.UTF8.GetByteCount(authority) > 512))
             throw new InvalidOperationException(
-                "Permission scope must be canonical, non-empty, control-free, and at most 512 UTF-8 bytes.");
+                "Permission authority must be canonical, non-empty, control-free, and at most 512 UTF-8 bytes.");
     }
 
     private static IEnumerable<Type> GetLoadableTypes(Assembly assembly)

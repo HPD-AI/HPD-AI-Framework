@@ -270,7 +270,7 @@ public sealed class ActionScopedFunctionInvocationTests
                 Permission = new AIFunctionPermissionDeclaration
                 {
                     RequiresPermission = false,
-                    Scope = "read",
+                    Authority = "read",
                     Source = PermissionDeclarationSource.FrameworkDefault
                 }
             },
@@ -281,7 +281,7 @@ public sealed class ActionScopedFunctionInvocationTests
                 Permission = new AIFunctionPermissionDeclaration
                 {
                     RequiresPermission = false,
-                    Scope = "run",
+                    Authority = "run",
                     Source = PermissionDeclarationSource.FrameworkDefault
                 }
             }

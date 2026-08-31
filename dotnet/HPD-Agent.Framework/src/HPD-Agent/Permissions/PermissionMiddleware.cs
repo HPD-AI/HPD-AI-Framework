@@ -596,11 +596,11 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
     private bool GetEffectivePermissionRequirement(
         AgentRunConfig runConfig,
         string functionName,
-        string permissionScope,
+        string permissionAuthority,
         bool attributeRequiresPermission,
         string? action)
     {
-        var selector = new PermissionOverrideSelector(functionName, action, permissionScope);
+        var selector = new PermissionOverrideSelector(functionName, action, permissionAuthority);
         var scopedRunOverride = runConfig.Security.PermissionOverrides?
             .LastOrDefault(value => value.Selector == selector);
         if (scopedRunOverride is not null)
@@ -631,7 +631,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             var resolved = arguments is null ? null : clientDefinition.ResolveOperation(arguments);
             var declaration = resolved?.Policy.Permission ??
                 HPD.Agent.ClientTools.ClientToolPolicy.Resolve(clientDefinition.DefaultPolicy).Permission;
-            permissionKey = declaration?.Scope ?? $"function/{Uri.EscapeDataString(functionName)}";
+            permissionKey = declaration?.Authority ?? $"function/{Uri.EscapeDataString(functionName)}";
             validationError = null;
             return true;
         }
@@ -642,13 +642,13 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                 hpdFunction.HPDOptions.OperationContract is { } operationContract &&
                 operationContract.Actions.TryGetValue(validatedAction.Action, out var actionPolicy))
             {
-                permissionKey = actionPolicy.Permission.Scope;
+                permissionKey = actionPolicy.Permission.Authority;
                 validationError = null;
                 return true;
             }
             if (hpdFunction.HPDOptions.FunctionPermission is { } functionPermission)
             {
-                permissionKey = functionPermission.Scope;
+                permissionKey = functionPermission.Authority;
                 validationError = null;
                 return true;
             }
@@ -699,7 +699,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
 
     private static PermissionEvaluationEnvelope CreateDefaultEvaluation(
         AIFunction function,
-        string scope,
+        string authority,
         string? action)
     {
         const string policyId = "hpd.permission.default";
@@ -737,7 +737,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         {
             PolicyId = policyId,
             PolicyRevision = policyRevision,
-            Key = new PermissionKey(function.Name, action, scope, policyId, policyRevision),
+            Key = new PermissionKey(function.Name, action, authority, policyId, policyRevision),
             Title = $"Allow {function.Name}{(action is null ? string.Empty : $" ({action})")}?",
             Summary = function.Description,
             Risk = PermissionRisk.Medium,
@@ -747,7 +747,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
 
     private static async ValueTask<EvaluatedPermission> EvaluatePermissionAsync(
         AIFunction function,
-        string scope,
+        string authority,
         ResolvedFunctionInvocation? invocation,
         IReadOnlyDictionary<string, object?> arguments,
         string functionCallId,
@@ -758,7 +758,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         var declaration = ResolveDeclaration(function, invocation?.Action);
         if (declaration?.PolicyDescriptorId is null)
             return new EvaluatedPermission(
-                CreateDefaultEvaluation(function, scope, invocation?.Action), null, null, null, null);
+                CreateDefaultEvaluation(function, authority, invocation?.Action), null, null, null, null);
         if (function is not HPDAIFunctionFactory.HPDAIFunction hpdFunction ||
             !hpdFunction.HPDOptions.PermissionDescriptors.TryGetValue(
                 declaration.PolicyDescriptorId,
@@ -784,7 +784,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                 FunctionName = function.Name,
                 Action = invocation.Action,
                 FunctionCallId = functionCallId,
-                Scope = declaration.Scope,
+                Authority = declaration.Authority,
                 Input = input,
                 RunConfig = runConfig,
                 Services = services
@@ -792,7 +792,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         var evaluation = await policy.EvaluateAsync(
             evaluationContext,
             cancellationToken).ConfigureAwait(false);
-        ValidateEvaluation(evaluation, declaration.Scope);
+        ValidateEvaluation(evaluation, declaration.Authority);
         PermissionPresentationEnvelope? presentation = null;
         if (evaluation.Presentation is not null)
         {
@@ -813,7 +813,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             Key = new PermissionKey(
                 function.Name,
                 invocation.Action,
-                declaration.Scope,
+                declaration.Authority,
                 evaluation.PolicyId,
                 evaluation.PolicyRevision),
             Title = evaluation.Title,
@@ -825,12 +825,12 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         }, policy, input, evaluationContext, evaluation);
     }
 
-    private static void ValidateEvaluation(PermissionEvaluation evaluation, string scope)
+    private static void ValidateEvaluation(PermissionEvaluation evaluation, string authority)
     {
         ArgumentNullException.ThrowIfNull(evaluation);
         if (string.IsNullOrWhiteSpace(evaluation.PolicyId) ||
             string.IsNullOrWhiteSpace(evaluation.PolicyRevision) ||
-            !string.Equals(evaluation.Scope, scope, StringComparison.Ordinal) ||
+            !string.Equals(evaluation.Authority, authority, StringComparison.Ordinal) ||
             evaluation.Choices.Items.Count == 0)
             throw new InvalidOperationException("Permission policy returned an invalid evaluation.");
         var ids = new HashSet<string>(StringComparer.Ordinal);
@@ -935,9 +935,9 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             sessionId is null || threadId is null || choice.Persistence is null)
             throw new InvalidOperationException("Permission persistence is unavailable for this invocation.");
         var proposal = choice.Persistence;
-        var identity = $"{evaluation.Key.FunctionName}\n{evaluation.Key.Action}\n{evaluation.Key.Scope}\n" +
+        var identity = $"{evaluation.Key.FunctionName}\n{evaluation.Key.Action}\n{evaluation.Key.Authority}\n" +
             $"{evaluation.Key.PolicyId}\n{evaluation.Key.PolicyRevision}\n{proposal.Kind}\n" +
-            $"{proposal.ResourceScope}\n{proposal.RequestFingerprint}\n{proposal.RuleTypeId}";
+            $"{proposal.ResourceSelector}\n{proposal.RequestFingerprint}\n{proposal.RuleTypeId}";
         var preferenceId = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity)))
             .ToLowerInvariant();
         for (var attempt = 0; attempt < 5; attempt++)
@@ -947,7 +947,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             var record = new PermissionPreferenceRecord
             {
                 PreferenceId = preferenceId,
-                Key = evaluation.Key with { ResourceScope = proposal.ResourceScope },
+                Key = evaluation.Key with { ResourceSelector = proposal.ResourceSelector },
                 Decision = choice.Decision,
                 Kind = proposal.Kind,
                 RequestFingerprint = proposal.RequestFingerprint ?? evaluation.RequestFingerprint,
@@ -1026,7 +1026,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             {
                 PolicyId = evaluation.PolicyId,
                 PolicyRevision = evaluation.PolicyRevision,
-                Scope = evaluation.Key.Scope,
+                Authority = evaluation.Key.Authority,
                 Title = evaluation.Title,
                 Summary = evaluation.Summary,
                 Risk = evaluation.Risk,
@@ -1071,7 +1071,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
     private static FunctionPermissionGrant CreateGrant(
         BeforeFunctionContext context,
         AIFunction function,
-        string scope,
+        string authority,
         PermissionGrantSource source,
         string choiceId,
         string? permissionId = null,
@@ -1081,7 +1081,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         var declaration = ResolveDeclaration(function, action) ?? new AIFunctionPermissionDeclaration
         {
             RequiresPermission = true,
-            Scope = scope,
+            Authority = authority,
             Source = PermissionDeclarationSource.FrameworkDefault
         };
         var canonicalArguments = JsonSerializer.SerializeToElement(
@@ -1090,7 +1090,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         const string defaultPolicyId = "hpd.permission.default";
         const string defaultPolicyRevision = "1";
         var key = evaluation?.Key ?? new PermissionKey(
-            function.Name, action, declaration.Scope,
+            function.Name, action, declaration.Authority,
             declaration.PolicyDescriptorId ?? defaultPolicyId, defaultPolicyRevision);
         return new FunctionPermissionGrant
         {

@@ -32,7 +32,7 @@ internal sealed class DebugPermissionAuthorizationService
             !string.Equals(grant.Action, action, StringComparison.Ordinal))
             throw new UnauthorizedAccessException(
                 "The debugger invocation has no matching invocation-bound permission grant.");
-        var permissionClass = grant.Key.Scope switch
+        var permissionClass = grant.Key.Authority switch
         {
             "debug/inspection" => DebugPermissionClass.Inspection,
             "debug/execution-control" => DebugPermissionClass.ExecutionControl,
@@ -43,7 +43,7 @@ internal sealed class DebugPermissionAuthorizationService
             "debug/evaluation" => DebugPermissionClass.Evaluation,
             "debug/state-mutation" => DebugPermissionClass.StateMutation,
             "debug/memory-write" => DebugPermissionClass.MemoryWrite,
-            _ => throw new UnauthorizedAccessException("The debugger grant has an unknown generated permission scope.")
+            _ => throw new UnauthorizedAccessException("The debugger grant has an unknown generated permission authority.")
         };
         return new DebugPermissionDecision(callId, action, permissionClass);
     }

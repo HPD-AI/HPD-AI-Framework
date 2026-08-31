@@ -97,7 +97,7 @@ public sealed record AIFunctionPermissionDeclaration
         return new AIFunctionPermissionDeclaration
         {
             RequiresPermission = true,
-            Scope = $"function/{Uri.EscapeDataString(functionName)}",
+            Authority = $"function/{Uri.EscapeDataString(functionName)}",
             Source = PermissionDeclarationSource.FrameworkDefault
         };
     }
@@ -105,8 +105,8 @@ public sealed record AIFunctionPermissionDeclaration
     /// <summary>Gets whether permission mediation is required.</summary>
     public required bool RequiresPermission { get; init; }
 
-    /// <summary>Gets the canonical generated or application-owned permission scope.</summary>
-    public required string Scope { get; init; }
+    /// <summary>Gets the canonical generated or application-owned permission authority.</summary>
+    public required string Authority { get; init; }
 
     /// <summary>Gets the stable permission-policy descriptor ID, when custom policy is selected.</summary>
     public string? PolicyDescriptorId { get; init; }

@@ -166,10 +166,10 @@ internal static class ClientToolContractValidator
             if (policy.Destructive is true && policy.Permission?.RequiresPermission is not true)
                 throw new ArgumentException($"Destructive action '{action}' must require permission.");
             if (policy.Permission is { RequiresPermission: true } permission &&
-                string.IsNullOrWhiteSpace(permission.Scope))
+                string.IsNullOrWhiteSpace(permission.Authority))
             {
                 throw new ArgumentException(
-                    $"Permissioned action '{action}' requires a permission scope.");
+                    $"Permissioned action '{action}' requires a permission authority.");
             }
             if (policy.MutatesState is true &&
                 (policy.Permission is null || policy.RequiresFreshContext is null))

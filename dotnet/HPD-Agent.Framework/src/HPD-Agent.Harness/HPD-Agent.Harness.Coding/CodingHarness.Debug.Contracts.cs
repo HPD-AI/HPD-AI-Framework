@@ -153,7 +153,7 @@ public sealed record EndpointDebugAttachTarget(string EndpointId) : DebugAttachT
 /// <param name="InitialConfiguration">
 /// Initial source, function, and exception breakpoints that can establish a stopping strategy.
 /// </param>
-[AIFunctionAction("launch", Permission = PermissionRequirement.Required, PermissionScope = "debug/launch")]
+[AIFunctionAction("launch", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/launch")]
 public sealed record LaunchDebugOperation(
     DebugTarget Target,
     string? AdapterId = null,
@@ -170,7 +170,7 @@ public sealed record LaunchDebugOperation(
 /// </param>
 /// <param name="Language">Optional language hint used for deterministic adapter selection.</param>
 /// <param name="InitialConfiguration">Initial source, function, and exception breakpoints.</param>
-[AIFunctionAction("attach", Permission = PermissionRequirement.Required, PermissionScope = "debug/attach")]
+[AIFunctionAction("attach", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/attach")]
 public sealed record AttachDebugOperation(
     DebugAttachTarget Target,
     string? AdapterId = null,
@@ -178,19 +178,19 @@ public sealed record AttachDebugOperation(
     string? Language = null,
     DebugInitialConfigurationInput? InitialConfiguration = null) : DebugOperation;
 
-[AIFunctionAction("listSessions", Permission = PermissionRequirement.Required, PermissionScope = "debug/inspection")]
+[AIFunctionAction("listSessions", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/inspection")]
 public sealed record ListDebugSessionsOperation : DebugOperation;
-[AIFunctionAction("getStatus", Permission = PermissionRequirement.Required, PermissionScope = "debug/inspection")]
+[AIFunctionAction("getStatus", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/inspection")]
 public sealed record GetDebugStatusOperation(string DebugTreeId, string? DebugSessionId = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
-[AIFunctionAction("getHealth", Permission = PermissionRequirement.Required, PermissionScope = "debug/inspection")]
+[AIFunctionAction("getHealth", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/inspection")]
 public sealed record GetDebugHealthOperation(string DebugTreeId, string? DebugSessionId = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
-[AIFunctionAction("snapshot", Permission = PermissionRequirement.Required, PermissionScope = "debug/inspection")]
+[AIFunctionAction("snapshot", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/inspection")]
 public sealed record SnapshotDebugOperation(string DebugTreeId, string? DebugSessionId = null, int MaximumOutputBytes = 4096) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 /// <summary>
 /// Inspects a stopped thread. When <paramref name="ThreadId"/> is omitted, HPD uses the
 /// adapter-designated focal thread from the most recent stopped event.
 /// </summary>
-[AIFunctionAction("inspectStop", Permission = PermissionRequirement.Required, PermissionScope = "debug/inspection")]
+[AIFunctionAction("inspectStop", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/inspection")]
 public sealed record InspectDebugStopOperation(
     string DebugTreeId, string? DebugSessionId = null, int? ThreadId = null,
     int MaximumFrames = 10, bool IncludeScopes = true, bool IncludeVariables = true,
@@ -199,15 +199,15 @@ public sealed record InspectDebugStopOperation(
 
 public enum DebugDisconnectMode { Detach, TerminateDebuggee, SuspendDebuggee }
 public enum DebugTerminationTarget { Tree, Session, Debuggee }
-[AIFunctionAction("disconnect", Permission = PermissionRequirement.Required, PermissionScope = "debug/lifecycle")]
+[AIFunctionAction("disconnect", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/lifecycle")]
 public sealed record DisconnectDebugOperation(string DebugTreeId, string? DebugSessionId = null, DebugDisconnectMode Mode = DebugDisconnectMode.Detach) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 /// <summary>
 /// Terminates a live owned debugger boundary. Repeating this operation for retained terminal
 /// evidence is a successful no-op while that bounded evidence remains available.
 /// </summary>
-[AIFunctionAction("terminate", Permission = PermissionRequirement.Required, PermissionScope = "debug/lifecycle")]
+[AIFunctionAction("terminate", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/lifecycle")]
 public sealed record TerminateDebugOperation(string DebugTreeId, string? DebugSessionId = null, DebugTerminationTarget Target = DebugTerminationTarget.Tree) : DebugTreeOperation(DebugTreeId, DebugSessionId);
-[AIFunctionAction("restart", Permission = PermissionRequirement.Required, PermissionScope = "debug/lifecycle")]
+[AIFunctionAction("restart", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/lifecycle")]
 public sealed record RestartDebugOperation(string DebugTreeId, string? DebugSessionId = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 
 /// <summary>Policy applied to adapter acknowledgements for initial breakpoints.</summary>
@@ -242,57 +242,57 @@ public sealed record DebugInstructionBreakpointInput(string InstructionReference
 public enum DebugDataBreakpointAccessType { Read, Write, ReadWrite }
 public sealed record DebugDataBreakpointInput(string DataBreakpointToken, DebugDataBreakpointAccessType? AccessType = null, string? Condition = null, string? HitCondition = null);
 
-[AIFunctionAction("setSourceBreakpoints", Permission = PermissionRequirement.Required, PermissionScope = "debug/breakpoint-mutation")]
+[AIFunctionAction("setSourceBreakpoints", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/breakpoint-mutation")]
 public sealed record SetSourceBreakpointsOperation(string DebugTreeId, IReadOnlyList<DebugSourceBreakpointInput> Breakpoints, string? DebugSessionId = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
-[AIFunctionAction("setFunctionBreakpoints", Permission = PermissionRequirement.Required, PermissionScope = "debug/breakpoint-mutation")]
+[AIFunctionAction("setFunctionBreakpoints", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/breakpoint-mutation")]
 public sealed record SetFunctionBreakpointsOperation(string DebugTreeId, IReadOnlyList<DebugFunctionBreakpointInput> Breakpoints, string? DebugSessionId = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
-[AIFunctionAction("setExceptionBreakpoints", Permission = PermissionRequirement.Required, PermissionScope = "debug/breakpoint-mutation")]
+[AIFunctionAction("setExceptionBreakpoints", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/breakpoint-mutation")]
 public sealed record SetExceptionBreakpointsOperation(string DebugTreeId, IReadOnlyList<DebugExceptionBreakpointInput> Breakpoints, string? DebugSessionId = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
-[AIFunctionAction("setInstructionBreakpoints", Permission = PermissionRequirement.Required, PermissionScope = "debug/breakpoint-mutation")]
+[AIFunctionAction("setInstructionBreakpoints", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/breakpoint-mutation")]
 public sealed record SetInstructionBreakpointsOperation(string DebugTreeId, IReadOnlyList<DebugInstructionBreakpointInput> Breakpoints, string? DebugSessionId = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
-[AIFunctionAction("discoverDataBreakpoint", Permission = PermissionRequirement.Required, PermissionScope = "debug/breakpoint-mutation")]
+[AIFunctionAction("discoverDataBreakpoint", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/breakpoint-mutation")]
 public sealed record DiscoverDataBreakpointOperation(
     string DebugTreeId, string Name, string? DebugSessionId = null,
     string? VariablesToken = null, string? FrameToken = null, long? Bytes = null,
     bool? AsAddress = null, string? Mode = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
-[AIFunctionAction("setDataBreakpoints", Permission = PermissionRequirement.Required, PermissionScope = "debug/breakpoint-mutation")]
+[AIFunctionAction("setDataBreakpoints", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/breakpoint-mutation")]
 public sealed record SetDataBreakpointsOperation(string DebugTreeId, IReadOnlyList<DebugDataBreakpointInput> Breakpoints, string? DebugSessionId = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
-[AIFunctionAction("getBreakpoints", Permission = PermissionRequirement.Required, PermissionScope = "debug/inspection")]
+[AIFunctionAction("getBreakpoints", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/inspection")]
 public sealed record GetDebugBreakpointsOperation(string DebugTreeId, string? DebugSessionId = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
-[AIFunctionAction("getBreakpointLocations", Permission = PermissionRequirement.Required, PermissionScope = "debug/inspection")]
+[AIFunctionAction("getBreakpointLocations", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/inspection")]
 public sealed record GetBreakpointLocationsOperation(
     string DebugTreeId, string SourceToken, int StartLine, string? DebugSessionId = null,
     int? StartColumn = null, int? EndLine = null, int? EndColumn = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 
 public enum DebugStepGranularity { Statement, Line, Instruction }
 /// <summary>Continues the supplied stopped thread, or the adapter-designated focal thread when omitted.</summary>
-[AIFunctionAction("continue", Permission = PermissionRequirement.Required, PermissionScope = "debug/execution-control")]
+[AIFunctionAction("continue", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/execution-control")]
 public sealed record ContinueDebugOperation(string DebugTreeId, int? ThreadId = null, string? DebugSessionId = null, bool SingleThread = false, int WaitTimeoutMilliseconds = 30_000) : DebugTreeOperation(DebugTreeId, DebugSessionId);
-[AIFunctionAction("pause", Permission = PermissionRequirement.Required, PermissionScope = "debug/execution-control")]
+[AIFunctionAction("pause", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/execution-control")]
 public sealed record PauseDebugOperation(string DebugTreeId, int ThreadId, string? DebugSessionId = null, int WaitTimeoutMilliseconds = 30_000) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 /// <summary>Steps over on the supplied stopped thread, or the adapter-designated focal thread when omitted.</summary>
-[AIFunctionAction("stepOver", Permission = PermissionRequirement.Required, PermissionScope = "debug/execution-control")]
+[AIFunctionAction("stepOver", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/execution-control")]
 public sealed record StepOverDebugOperation(string DebugTreeId, int? ThreadId = null, string? DebugSessionId = null, DebugStepGranularity? Granularity = null, bool SingleThread = false, int WaitTimeoutMilliseconds = 30_000) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 /// <summary>Steps into on the supplied stopped thread, or the adapter-designated focal thread when omitted.</summary>
-[AIFunctionAction("stepIn", Permission = PermissionRequirement.Required, PermissionScope = "debug/execution-control")]
+[AIFunctionAction("stepIn", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/execution-control")]
 public sealed record StepInDebugOperation(string DebugTreeId, int? ThreadId = null, string? DebugSessionId = null, string? TargetToken = null, DebugStepGranularity? Granularity = null, bool SingleThread = false, int WaitTimeoutMilliseconds = 30_000) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 /// <summary>Steps out on the supplied stopped thread, or the adapter-designated focal thread when omitted.</summary>
-[AIFunctionAction("stepOut", Permission = PermissionRequirement.Required, PermissionScope = "debug/execution-control")]
+[AIFunctionAction("stepOut", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/execution-control")]
 public sealed record StepOutDebugOperation(string DebugTreeId, int? ThreadId = null, string? DebugSessionId = null, DebugStepGranularity? Granularity = null, bool SingleThread = false, int WaitTimeoutMilliseconds = 30_000) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 /// <summary>Steps backward on the supplied stopped thread, or the adapter-designated focal thread when omitted.</summary>
-[AIFunctionAction("stepBack", Permission = PermissionRequirement.Required, PermissionScope = "debug/execution-control")]
+[AIFunctionAction("stepBack", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/execution-control")]
 public sealed record StepBackDebugOperation(string DebugTreeId, int? ThreadId = null, string? DebugSessionId = null, DebugStepGranularity? Granularity = null, bool SingleThread = false, int WaitTimeoutMilliseconds = 30_000) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 /// <summary>Reverse-continues the supplied stopped thread, or the adapter-designated focal thread when omitted.</summary>
-[AIFunctionAction("reverseContinue", Permission = PermissionRequirement.Required, PermissionScope = "debug/execution-control")]
+[AIFunctionAction("reverseContinue", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/execution-control")]
 public sealed record ReverseContinueDebugOperation(string DebugTreeId, int? ThreadId = null, string? DebugSessionId = null, bool SingleThread = false, int WaitTimeoutMilliseconds = 30_000) : DebugTreeOperation(DebugTreeId, DebugSessionId);
-[AIFunctionAction("restartFrame", Permission = PermissionRequirement.Required, PermissionScope = "debug/execution-control")]
+[AIFunctionAction("restartFrame", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/execution-control")]
 public sealed record RestartFrameDebugOperation(string DebugTreeId, string FrameToken, string? DebugSessionId = null, int WaitTimeoutMilliseconds = 30_000) : DebugTreeOperation(DebugTreeId, DebugSessionId);
-[AIFunctionAction("goto", Permission = PermissionRequirement.Required, PermissionScope = "debug/execution-control")]
+[AIFunctionAction("goto", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/execution-control")]
 public sealed record GotoDebugOperation(string DebugTreeId, int ThreadId, string TargetToken, string? DebugSessionId = null, int WaitTimeoutMilliseconds = 30_000) : DebugTreeOperation(DebugTreeId, DebugSessionId);
-[AIFunctionAction("terminateThreads", Permission = PermissionRequirement.Required, PermissionScope = "debug/execution-control")]
+[AIFunctionAction("terminateThreads", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/execution-control")]
 public sealed record TerminateThreadsDebugOperation(string DebugTreeId, IReadOnlyList<int> ThreadIds, string? DebugSessionId = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 
-[AIFunctionAction("getThreads", Permission = PermissionRequirement.Required, PermissionScope = "debug/inspection")]
+[AIFunctionAction("getThreads", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/inspection")]
 public sealed record GetThreadsOperation(string DebugTreeId, string? DebugSessionId = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 /// <summary>Gets the stack for the supplied stopped thread, or the adapter-designated focal thread when omitted.</summary>
 /// <param name="DebugTreeId">The opaque debug-tree identifier.</param>
@@ -300,9 +300,9 @@ public sealed record GetThreadsOperation(string DebugTreeId, string? DebugSessio
 /// <param name="DebugSessionId">The optional protocol-session identifier within the tree.</param>
 /// <param name="Levels">The requested page size, from 1 through 100. Preserve it exactly when continuing the query.</param>
 /// <param name="ContinuationToken">An opaque token from the immediately preceding compatible page. When supplied, repeat every other query argument unchanged.</param>
-[AIFunctionAction("getStackTrace", Permission = PermissionRequirement.Required, PermissionScope = "debug/inspection")]
+[AIFunctionAction("getStackTrace", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/inspection")]
 public sealed record GetStackTraceOperation(string DebugTreeId, int? ThreadId = null, string? DebugSessionId = null, int Levels = 20, string? ContinuationToken = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
-[AIFunctionAction("getScopes", Permission = PermissionRequirement.Required, PermissionScope = "debug/inspection")]
+[AIFunctionAction("getScopes", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/inspection")]
 public sealed record GetScopesOperation(string DebugTreeId, string FrameToken, string? DebugSessionId = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 public enum DebugVariableFilter { Indexed, Named }
 /// <summary>Returns one bounded page of children for an opaque variables reference.</summary>
@@ -312,32 +312,32 @@ public enum DebugVariableFilter { Indexed, Named }
 /// <param name="Filter">An optional named- or indexed-variable filter. Preserve it exactly when continuing the query.</param>
 /// <param name="Count">The requested page size, from 1 through 200. Preserve it exactly when continuing the query.</param>
 /// <param name="ContinuationToken">An opaque token from the immediately preceding compatible page. When supplied, repeat every other query argument unchanged.</param>
-[AIFunctionAction("getVariables", Permission = PermissionRequirement.Required, PermissionScope = "debug/inspection")]
+[AIFunctionAction("getVariables", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/inspection")]
 public sealed record GetVariablesOperation(string DebugTreeId, string VariablesToken, string? DebugSessionId = null, DebugVariableFilter? Filter = null, int Count = 100, string? ContinuationToken = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 public enum DebugEvaluationContext { Repl, Watch, Hover, Clipboard, Variables }
-[AIFunctionAction("evaluate", Permission = PermissionRequirement.Required, PermissionScope = "debug/evaluation")]
+[AIFunctionAction("evaluate", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/evaluation")]
 public sealed record EvaluateDebugOperation(string DebugTreeId, string Expression, string? DebugSessionId = null, string? FrameToken = null, DebugEvaluationContext Context = DebugEvaluationContext.Repl) : DebugTreeOperation(DebugTreeId, DebugSessionId);
-[AIFunctionAction("getExceptionInfo", Permission = PermissionRequirement.Required, PermissionScope = "debug/inspection")]
+[AIFunctionAction("getExceptionInfo", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/inspection")]
 public sealed record GetExceptionInfoOperation(string DebugTreeId, int ThreadId, string? DebugSessionId = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 /// <summary>Returns one bounded page of modules known to the selected debug session.</summary>
 /// <param name="DebugTreeId">The opaque debug-tree identifier returned by launch or attach.</param>
 /// <param name="DebugSessionId">The optional protocol-session identifier within the tree.</param>
 /// <param name="Count">The requested page size, from 1 through 200. Preserve it exactly when continuing the query.</param>
 /// <param name="ContinuationToken">An opaque token from the immediately preceding compatible page. When supplied, repeat every other query argument unchanged.</param>
-[AIFunctionAction("getModules", Permission = PermissionRequirement.Required, PermissionScope = "debug/inspection")]
+[AIFunctionAction("getModules", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/inspection")]
 public sealed record GetModulesOperation(string DebugTreeId, string? DebugSessionId = null, int Count = 100, string? ContinuationToken = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 /// <summary>Returns one bounded page of sources loaded by the selected debug session.</summary>
 /// <param name="DebugTreeId">The opaque debug-tree identifier.</param>
 /// <param name="DebugSessionId">The optional protocol-session identifier within the tree.</param>
 /// <param name="Count">The requested page size, from 1 through 200. Preserve it exactly when continuing the query.</param>
 /// <param name="ContinuationToken">An opaque token from the immediately preceding compatible page. When supplied, repeat every other query argument unchanged.</param>
-[AIFunctionAction("getLoadedSources", Permission = PermissionRequirement.Required, PermissionScope = "debug/inspection")]
+[AIFunctionAction("getLoadedSources", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/inspection")]
 public sealed record GetLoadedSourcesOperation(string DebugTreeId, string? DebugSessionId = null, int Count = 100, string? ContinuationToken = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
-[AIFunctionAction("getSource", Permission = PermissionRequirement.Required, PermissionScope = "debug/inspection")]
+[AIFunctionAction("getSource", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/inspection")]
 public sealed record GetSourceOperation(string DebugTreeId, string SourceToken, string? DebugSessionId = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
-[AIFunctionAction("getStepInTargets", Permission = PermissionRequirement.Required, PermissionScope = "debug/inspection")]
+[AIFunctionAction("getStepInTargets", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/inspection")]
 public sealed record GetStepInTargetsOperation(string DebugTreeId, string FrameToken, string? DebugSessionId = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
-[AIFunctionAction("getGotoTargets", Permission = PermissionRequirement.Required, PermissionScope = "debug/inspection")]
+[AIFunctionAction("getGotoTargets", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/inspection")]
 public sealed record GetGotoTargetsOperation(string DebugTreeId, int ThreadId, string SourceToken, int Line, string? DebugSessionId = null, int? Column = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 /// <summary>Returns one bounded page of adapter completions for a stopped evaluation context.</summary>
 /// <param name="DebugTreeId">The opaque debug-tree identifier.</param>
@@ -348,18 +348,18 @@ public sealed record GetGotoTargetsOperation(string DebugTreeId, int ThreadId, s
 /// <param name="FrameToken">The optional opaque frame token. Preserve it exactly when continuing the query.</param>
 /// <param name="Count">The requested page size, from 1 through 200. Preserve it exactly when continuing the query.</param>
 /// <param name="ContinuationToken">An opaque token from the immediately preceding compatible page. When supplied, repeat every other query argument unchanged.</param>
-[AIFunctionAction("getCompletions", Permission = PermissionRequirement.Required, PermissionScope = "debug/inspection")]
+[AIFunctionAction("getCompletions", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/inspection")]
 public sealed record GetCompletionsOperation(string DebugTreeId, string Text, int Column, string? DebugSessionId = null, int? Line = null, string? FrameToken = null, int Count = 100, string? ContinuationToken = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
-[AIFunctionAction("resolveLocation", Permission = PermissionRequirement.Required, PermissionScope = "debug/inspection")]
+[AIFunctionAction("resolveLocation", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/inspection")]
 public sealed record ResolveDebugLocationOperation(string DebugTreeId, string LocationToken, string? DebugSessionId = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 
-[AIFunctionAction("setVariable", Permission = PermissionRequirement.Required, PermissionScope = "debug/state-mutation")]
+[AIFunctionAction("setVariable", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/state-mutation")]
 public sealed record SetDebugVariableOperation(string DebugTreeId, string VariablesToken, string Name, string Value, string? DebugSessionId = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
-[AIFunctionAction("setExpression", Permission = PermissionRequirement.Required, PermissionScope = "debug/state-mutation")]
+[AIFunctionAction("setExpression", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/state-mutation")]
 public sealed record SetDebugExpressionOperation(string DebugTreeId, string Expression, string Value, string? DebugSessionId = null, string? FrameToken = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
-[AIFunctionAction("readMemory", Permission = PermissionRequirement.Required, PermissionScope = "debug/inspection")]
+[AIFunctionAction("readMemory", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/inspection")]
 public sealed record ReadDebugMemoryOperation(string DebugTreeId, string MemoryToken, int Count, string? DebugSessionId = null, long Offset = 0) : DebugTreeOperation(DebugTreeId, DebugSessionId);
-[AIFunctionAction("writeMemory", Permission = PermissionRequirement.Required, PermissionScope = "debug/memory-write")]
+[AIFunctionAction("writeMemory", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/memory-write")]
 public sealed record WriteDebugMemoryOperation(string DebugTreeId, string MemoryToken, string Base64Data, string? DebugSessionId = null, long Offset = 0, bool AllowPartial = false) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 /// <summary>Returns one bounded page of disassembled instructions.</summary>
 /// <param name="DebugTreeId">The opaque debug-tree identifier.</param>
@@ -370,13 +370,13 @@ public sealed record WriteDebugMemoryOperation(string DebugTreeId, string Memory
 /// <param name="InstructionOffset">The initial instruction offset. Preserve it exactly when continuing the query.</param>
 /// <param name="ResolveSymbols">Whether the adapter should resolve symbols. Preserve it exactly when continuing the query.</param>
 /// <param name="ContinuationToken">An opaque token from the immediately preceding compatible page. When supplied, repeat every other query argument unchanged.</param>
-[AIFunctionAction("disassemble", Permission = PermissionRequirement.Required, PermissionScope = "debug/inspection")]
+[AIFunctionAction("disassemble", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/inspection")]
 public sealed record DisassembleDebugOperation(string DebugTreeId, string MemoryToken, int InstructionCount = 100, string? DebugSessionId = null, long ByteOffset = 0, long InstructionOffset = 0, bool ResolveSymbols = false, string? ContinuationToken = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 
 public enum DebugOutputFilter { Console, Stdout, Stderr, Important }
-[AIFunctionAction("getOutput", Permission = PermissionRequirement.Required, PermissionScope = "debug/inspection")]
+[AIFunctionAction("getOutput", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/inspection")]
 public sealed record GetDebugOutputOperation(string DebugTreeId, string? DebugSessionId = null, long? AfterSequence = null, int MaximumRecords = 100, int MaximumBytes = 16 * 1024, IReadOnlyList<DebugOutputFilter>? Categories = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
-[AIFunctionAction("persistOutput", Permission = PermissionRequirement.Required, PermissionScope = "debug/inspection")]
+[AIFunctionAction("persistOutput", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/inspection")]
 public sealed record PersistDebugOutputOperation(string DebugTreeId, string? DebugSessionId = null, long? FromSequence = null, long? ToSequence = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
-[AIFunctionAction("cancelProgress", Permission = PermissionRequirement.Required, PermissionScope = "debug/inspection")]
+[AIFunctionAction("cancelProgress", Permission = PermissionRequirement.Required, PermissionAuthority = "debug/inspection")]
 public sealed record CancelDebugProgressOperation(string DebugTreeId, string ProgressId, string? DebugSessionId = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);

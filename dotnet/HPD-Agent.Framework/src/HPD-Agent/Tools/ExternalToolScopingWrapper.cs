@@ -366,7 +366,7 @@ public static class ExternalToolCollapsingWrapper
                     : new AIFunctionPermissionDeclaration
                     {
                         RequiresPermission = true,
-                        Scope = $"function/{Uri.EscapeDataString(tool.Name)}",
+                        Authority = $"function/{Uri.EscapeDataString(tool.Name)}",
                         Source = PermissionDeclarationSource.FrameworkDefault
                     },
                 Validator = (_, _) => new List<ValidationError>(), // Original tool handles validation

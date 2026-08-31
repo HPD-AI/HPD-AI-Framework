@@ -10,8 +10,8 @@ using System;
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
 public sealed class RequiresPermissionAttribute : Attribute
 {
-    /// <summary>Gets or sets an application-owned stable permission scope.</summary>
-    public string? PermissionScope { get; set; }
+    /// <summary>Gets or sets the application-owned stable permission authority identifier.</summary>
+    public string? PermissionAuthority { get; set; }
 
     /// <summary>Gets or sets the permission policy implementation for this function.</summary>
     public Type? PermissionPolicy { get; set; }

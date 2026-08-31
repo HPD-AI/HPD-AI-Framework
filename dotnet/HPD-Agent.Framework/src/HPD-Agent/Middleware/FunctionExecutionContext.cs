@@ -53,14 +53,14 @@ public sealed class FunctionExecutionPermission
     public FunctionPermissionGrant DemandApproved() => Grant ??
         throw new InvalidOperationException("This invocation does not carry an approved permission grant.");
 
-    /// <summary>Returns the grant only when it authorizes the exact expected scope.</summary>
-    public FunctionPermissionGrant DemandScope(string expectedScope)
+    /// <summary>Returns the grant only when it authorizes the exact expected authority.</summary>
+    public FunctionPermissionGrant DemandAuthority(string expectedAuthority)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(expectedScope);
+        ArgumentException.ThrowIfNullOrWhiteSpace(expectedAuthority);
         var grant = DemandApproved();
-        return string.Equals(grant.Key.Scope, expectedScope, StringComparison.Ordinal)
+        return string.Equals(grant.Key.Authority, expectedAuthority, StringComparison.Ordinal)
             ? grant
-            : throw new InvalidOperationException($"The permission grant does not authorize scope '{expectedScope}'.");
+            : throw new InvalidOperationException($"The permission grant does not authorize authority '{expectedAuthority}'.");
     }
 
     /// <summary>Returns the grant only when it was issued by the exact expected policy and revision.</summary>

@@ -1809,7 +1809,7 @@ public abstract record ExecuteCommandOperation;
 [AIFunctionAction(
     "run",
     Permission = PermissionRequirement.Required,
-    PermissionScope = "coding/execute-command/run",
+    PermissionAuthority = "coding/execute-command/run",
     PermissionPolicy = typeof(ExecuteCommandPermissionPolicy),
     PermissionInteraction = typeof(ExecuteCommandPermissionInteraction))]
 public sealed record RunCommandOperation(

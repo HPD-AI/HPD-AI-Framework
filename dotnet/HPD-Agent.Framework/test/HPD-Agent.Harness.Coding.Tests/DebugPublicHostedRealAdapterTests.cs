@@ -1089,16 +1089,16 @@ public sealed class DebugPublicHostedRealAdapterTests
                 new Dictionary<string, object?>(),
                 runConfig,
                 nameof(CodingToolHarness));
-            var scope = typeof(DebugOperation).GetCustomAttributes<JsonDerivedTypeAttribute>()
+            var authority = typeof(DebugOperation).GetCustomAttributes<JsonDerivedTypeAttribute>()
                 .Single(attribute => Equals(attribute.TypeDiscriminator, action)).DerivedType
                 .GetCustomAttributes(typeof(AIFunctionActionAttribute), false)
-                .Cast<AIFunctionActionAttribute>().Single().PermissionScope!;
+                .Cast<AIFunctionActionAttribute>().Single().PermissionAuthority!;
             var grant = new FunctionPermissionGrant
             {
                 FunctionCallId = callId,
                 FunctionName = "Debug",
                 Action = action,
-                Key = new PermissionKey("Debug", action, scope, "hpd.permission.default", "1"),
+                Key = new PermissionKey("Debug", action, authority, "hpd.permission.default", "1"),
                 ChoiceId = "allow_once",
                 GrantedAt = DateTimeOffset.UtcNow,
                 Source = PermissionGrantSource.UserDecision,
@@ -1108,7 +1108,7 @@ public sealed class DebugPublicHostedRealAdapterTests
                     Declaration = new AIFunctionPermissionDeclaration
                     {
                         RequiresPermission = true,
-                        Scope = scope,
+                        Authority = authority,
                         Source = PermissionDeclarationSource.ActionOverride
                     },
                     PolicyId = "hpd.permission.default",

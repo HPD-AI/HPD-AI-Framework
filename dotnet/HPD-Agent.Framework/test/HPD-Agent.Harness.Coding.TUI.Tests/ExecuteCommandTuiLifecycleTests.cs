@@ -55,7 +55,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
     }
 
     [Fact]
-    public void AddCodingHarnessTui_AppliesConfiguredPermissionScopeOnlyToInteractions()
+    public void AddCodingHarnessTui_AppliesConfiguredPermissionAuthorityOnlyToInteractions()
     {
         var registry = new HpdAgentTuiBuilder()
             .AddCodingHarnessTui(

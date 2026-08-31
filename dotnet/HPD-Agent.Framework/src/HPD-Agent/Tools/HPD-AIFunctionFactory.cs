@@ -469,7 +469,7 @@ public sealed record AIFunctionContractDescriptor
         {
             if (permission is null) return;
             builder.Append("|permission:").Append(permission.RequiresPermission ? '1' : '0')
-                .Append(':').Append(permission.Scope)
+                .Append(':').Append(permission.Authority)
                 .Append(':').Append(permission.PolicyDescriptorId)
                 .Append(':').Append(permission.InteractionDescriptorId)
                 .Append(':').Append((int)permission.Source);

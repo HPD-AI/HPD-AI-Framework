@@ -72,7 +72,7 @@ public class PermissionOverrideRegistry
             : null;
     }
 
-    /// <summary>Sets an exact typed function/action/scope override.</summary>
+    /// <summary>Sets an exact typed function/action/authority override.</summary>
     public void Set(PermissionOverrideSelector selector, bool requiresPermission)
     {
         ArgumentNullException.ThrowIfNull(selector);
@@ -101,13 +101,13 @@ public class PermissionOverrideRegistry
 }
 
 /// <summary>Identifies one generated permission declaration without concatenated security keys.</summary>
-public sealed record PermissionOverrideSelector(string FunctionName, string? Action = null, string? Scope = null)
+public sealed record PermissionOverrideSelector(string FunctionName, string? Action = null, string? Authority = null)
 {
     internal void Validate()
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(FunctionName);
         if (Action is not null) ArgumentException.ThrowIfNullOrWhiteSpace(Action);
-        if (Scope is not null) ArgumentException.ThrowIfNullOrWhiteSpace(Scope);
+        if (Authority is not null) ArgumentException.ThrowIfNullOrWhiteSpace(Authority);
     }
 }
 

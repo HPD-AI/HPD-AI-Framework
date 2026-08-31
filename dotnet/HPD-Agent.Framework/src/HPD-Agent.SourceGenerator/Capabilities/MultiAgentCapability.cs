@@ -123,7 +123,7 @@ internal class MultiAgentCapability : BaseCapability
         sb.AppendLine($"        Name = \"{Name}\",");
         sb.AppendLine($"        Description = \"{EscapeString(Description)}\",");
         if (RequiresPermission)
-            sb.AppendLine($"        FunctionPermission = new global::HPD.Agent.AIFunctionPermissionDeclaration {{ RequiresPermission = true, Scope = \"function/{Uri.EscapeDataString(Name)}\", Source = global::HPD.Agent.PermissionDeclarationSource.FrameworkDefault }},");
+            sb.AppendLine($"        FunctionPermission = new global::HPD.Agent.AIFunctionPermissionDeclaration {{ RequiresPermission = true, Authority = \"function/{Uri.EscapeDataString(Name)}\", Source = global::HPD.Agent.PermissionDeclarationSource.FrameworkDefault }},");
         sb.AppendLine("        SchemaProvider = () =>");
         sb.AppendLine("        {");
         var multiAgentSchema = InvocationModePolicy == "ModelChoice"

@@ -59,8 +59,8 @@ public sealed class AIFunctionActionAttribute : Attribute
     public PermissionRequirement Permission { get; set; }
         = PermissionRequirement.Inherit;
 
-    /// <summary>Gets or sets an application-owned stable scope for this action.</summary>
-    public string? PermissionScope { get; set; }
+    /// <summary>Gets or sets the application-owned stable permission authority identifier for this action.</summary>
+    public string? PermissionAuthority { get; set; }
 
     /// <summary>Gets or sets the permission policy implementation for this action.</summary>
     public Type? PermissionPolicy { get; set; }

@@ -85,7 +85,7 @@ public sealed class ExecuteCommandPermissionPolicyTests
             FunctionName = nameof(CodingToolHarness.ExecuteCommand),
             Action = "run",
             FunctionCallId = "call-1",
-            Scope = "coding/execute-command/run",
+            Authority = "coding/execute-command/run",
             Input = input,
             RunConfig = CreateRunConfig(),
             Services = EmptyServiceProvider.Instance

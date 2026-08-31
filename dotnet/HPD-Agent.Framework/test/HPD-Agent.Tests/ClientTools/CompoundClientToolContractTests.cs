@@ -16,7 +16,7 @@ public sealed class CompoundClientToolContractTests
 
         Assert.NotNull(operation);
         Assert.Equal("updateNodes", operation.Action);
-        Assert.Equal("penpot.write.updateNodes", operation.Policy.Permission!.Scope);
+        Assert.Equal("penpot.write.updateNodes", operation.Policy.Permission!.Authority);
         Assert.True(operation.Policy.Permission.RequiresPermission);
         Assert.True(operation.Policy.RequiresFreshContext);
         Assert.Equal(AgentInvocationModePolicy.SynchronousOnly, operation.Policy.InvocationModePolicy);
@@ -49,7 +49,7 @@ public sealed class CompoundClientToolContractTests
         var operation = definition.ResolveOperation(
             new Dictionary<string, object?> { ["action"] = "updateNodes" });
 
-        Assert.Equal("penpot.write.updateNodes", operation!.Policy.Permission!.Scope);
+        Assert.Equal("penpot.write.updateNodes", operation!.Policy.Permission!.Authority);
     }
 
     [Fact]
@@ -141,7 +141,7 @@ public sealed class CompoundClientToolContractTests
                         Permission = new AIFunctionPermissionDeclaration
                         {
                             RequiresPermission = true,
-                            Scope = "penpot.write.updateNodes",
+                            Authority = "penpot.write.updateNodes",
                             Source = PermissionDeclarationSource.ActionOverride
                         },
                         MutatesState = true,

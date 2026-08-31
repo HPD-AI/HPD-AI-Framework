@@ -56,7 +56,7 @@ public static class SubAgentsFunctionFactory
                 Permission = new AIFunctionPermissionDeclaration
                 {
                     RequiresPermission = descriptor.RequiresPermission,
-                    Scope = descriptor.Action,
+                    Authority = $"function/{FunctionName}/action/{Uri.EscapeDataString(descriptor.Action)}",
                     Source = PermissionDeclarationSource.ActionOverride
                 }
             });
@@ -72,7 +72,7 @@ public static class SubAgentsFunctionFactory
                 Permission = new AIFunctionPermissionDeclaration
                 {
                     RequiresPermission = true,
-                    Scope = action,
+                    Authority = $"function/{FunctionName}/action/{Uri.EscapeDataString(action)}",
                     Source = PermissionDeclarationSource.ActionOverride
                 }
             });
@@ -96,7 +96,7 @@ public static class SubAgentsFunctionFactory
                 FunctionPermission = new AIFunctionPermissionDeclaration
                 {
                     RequiresPermission = true,
-                    Scope = "function/SubAgent",
+                    Authority = $"function/{FunctionName}",
                     Source = PermissionDeclarationSource.FunctionAttribute
                 },
                 InvocationModePolicy = AgentInvocationModePolicy.SynchronousOnly,

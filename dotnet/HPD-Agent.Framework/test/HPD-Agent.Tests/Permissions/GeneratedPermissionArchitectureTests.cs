@@ -26,7 +26,7 @@ public sealed class GeneratedPermissionArchitectureTests
                     FunctionPermission = new AIFunctionPermissionDeclaration
                     {
                         RequiresPermission = true,
-                        Scope = scope,
+                        Authority = scope,
                         Source = PermissionDeclarationSource.FunctionAttribute
                     }
                 });
@@ -57,7 +57,7 @@ public sealed class GeneratedPermissionArchitectureTests
                         Permission = new AIFunctionPermissionDeclaration
                         {
                             RequiresPermission = true,
-                            Scope = scope,
+                            Authority = scope,
                             PolicyDescriptorId = "policy",
                             InteractionDescriptorId = "interaction",
                             Source = PermissionDeclarationSource.ActionOverride
@@ -78,16 +78,16 @@ public sealed class GeneratedPermissionArchitectureTests
             FunctionPermission = new AIFunctionPermissionDeclaration
             {
                 RequiresPermission = true,
-                Scope = "scope/original",
+                Authority = "scope/original",
                 Source = PermissionDeclarationSource.FunctionAttribute
             }
         };
         var function = (HPDAIFunctionFactory.HPDAIFunction)HPDAIFunctionFactory.Create(
             static (_, _, _) => Task.FromResult<object?>(null), options);
 
-        options.FunctionPermission = options.FunctionPermission with { Scope = "scope/mutated" };
+        options.FunctionPermission = options.FunctionPermission with { Authority = "scope/mutated" };
 
-        Assert.Equal("scope/original", function.PermissionDeclaration!.Scope);
+        Assert.Equal("scope/original", function.PermissionDeclaration!.Authority);
         Assert.Null(typeof(HPDAIFunctionFactory.HPDAIFunction).GetProperty("HPDOptions"));
     }
 
@@ -129,7 +129,7 @@ public sealed class GeneratedPermissionArchitectureTests
                         Permission = new AIFunctionPermissionDeclaration
                         {
                             RequiresPermission = true,
-                            Scope = "function/Test/action/read",
+                            Authority = "function/Test/action/read",
                             Source = PermissionDeclarationSource.ActionOverride
                         }
                     }

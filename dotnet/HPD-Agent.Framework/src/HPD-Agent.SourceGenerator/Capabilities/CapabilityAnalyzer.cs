@@ -972,7 +972,7 @@ internal static class CapabilityAnalyzer
         var permissionAttribute = symbol.GetAttributes().FirstOrDefault(attribute =>
             permissionType is not null && SymbolEqualityComparer.Default.Equals(attribute.AttributeClass, permissionType));
         var requiresPermission = permissionAttribute is not null;
-        var permissionScope = GetNamedString(permissionAttribute, "PermissionScope");
+        var permissionAuthority = GetNamedString(permissionAttribute, "PermissionAuthority");
         var permissionPolicyDescriptorId = GetNamedTypeId(permissionAttribute, "PermissionPolicy");
         var permissionInteractionDescriptorId = GetNamedTypeId(permissionAttribute, "PermissionInteraction");
         if (!ValidatePermissionAttribute(
@@ -1008,7 +1008,7 @@ internal static class CapabilityAnalyzer
             ReturnType = returnType,
             IsAsync = isAsync,
             RequiresPermission = requiresPermission,
-            PermissionScope = permissionScope,
+            PermissionAuthority = permissionAuthority,
             PermissionPolicyDescriptorId = permissionPolicyDescriptorId,
             PermissionPolicyType = permissionAttribute?.NamedArguments
                 .FirstOrDefault(pair => pair.Key == "PermissionPolicy").Value.Value as ITypeSymbol,
@@ -1042,12 +1042,12 @@ internal static class CapabilityAnalyzer
     {
         if (attribute is null) return true;
         var valid = true;
-        var scope = GetNamedString(attribute, "PermissionScope");
-        if (scope is not null && (scope.Length == 0 || scope != scope.Trim() ||
-            scope.Any(char.IsControl) || Encoding.UTF8.GetByteCount(scope) > 512))
+        var authority = GetNamedString(attribute, "PermissionAuthority");
+        if (authority is not null && (authority.Length == 0 || authority != authority.Trim() ||
+            authority.Any(char.IsControl) || Encoding.UTF8.GetByteCount(authority) > 512))
         {
             diagnostics.Add(Diagnostic.Create(PermissionDiagnostics.InvalidDeclaration, location,
-                "permission scope must be canonical, non-empty, control-free, and at most 512 UTF-8 bytes"));
+                "permission authority must be canonical, non-empty, control-free, and at most 512 UTF-8 bytes"));
             valid = false;
         }
         valid &= ValidateServiceType(attribute, "PermissionPolicy", "HPD.Agent.Permissions.IPermissionPolicy");
@@ -1209,7 +1209,7 @@ internal static class CapabilityAnalyzer
                 ? 0
                 : Convert.ToInt32(requirement.Value.Value, System.Globalization.CultureInfo.InvariantCulture);
             var hasPermissionDetails = actionAttribute.NamedArguments.Any(static pair =>
-                pair.Key is "PermissionScope" or "PermissionPolicy" or "PermissionInteraction");
+                pair.Key is "PermissionAuthority" or "PermissionPolicy" or "PermissionInteraction");
             if (requirementValue == 2 && hasPermissionDetails)
             {
                 diagnostics.Add(Diagnostic.Create(ActionFunctionDiagnostics.InvalidContract, location,
@@ -1311,10 +1311,10 @@ internal static class CapabilityAnalyzer
         var attribute = semanticModel.GetDeclaredSymbol(method)?.GetAttributes().FirstOrDefault(candidate =>
             permissionType is not null && SymbolEqualityComparer.Default.Equals(candidate.AttributeClass, permissionType));
         if (attribute?.NamedArguments.Any(pair =>
-                pair.Key is "PermissionScope" or "PermissionPolicy" or "PermissionInteraction") == true)
+                pair.Key is "PermissionAuthority" or "PermissionPolicy" or "PermissionInteraction") == true)
             diagnostics.Add(Diagnostic.Create(PermissionDiagnostics.InvalidDeclaration,
                 attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation() ?? method.GetLocation(),
-                "custom permission scope, policy, and interaction properties are supported only on AIFunction capabilities"));
+                "custom permission authority, policy, and interaction properties are supported only on AIFunction capabilities"));
     }
 
     private static AttributeArgumentSyntax? GetNamedArgument(AttributeSyntax attr, string name) =>

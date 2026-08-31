@@ -48,8 +48,8 @@ internal class FunctionCapability : BaseCapability
     /// </summary>
     public bool RequiresPermission { get; set; }
 
-    /// <summary>Explicit stable permission scope declared by the function.</summary>
-    public string? PermissionScope { get; set; }
+    /// <summary>Explicit stable permission authority declared by the function.</summary>
+    public string? PermissionAuthority { get; set; }
 
     /// <summary>Stable descriptor ID of the function permission policy.</summary>
     public string? PermissionPolicyDescriptorId { get; set; }
@@ -210,7 +210,7 @@ $@"({asyncKeyword} (arguments, functionContext, cancellationToken) =>
         options.AppendLine($"                Name = {nameCode},");
         options.AppendLine($"                Description = {descriptionCode},");
         if (RequiresPermission)
-            options.AppendLine($"                FunctionPermission = {CreatePermissionDeclaration(true, PermissionScope ?? GeneratedScope(FunctionName), PermissionPolicyDescriptorId, PermissionInteractionDescriptorId, "FunctionAttribute")},");
+            options.AppendLine($"                FunctionPermission = {CreatePermissionDeclaration(true, PermissionAuthority ?? GeneratedScope(FunctionName), PermissionPolicyDescriptorId, PermissionInteractionDescriptorId, "FunctionAttribute")},");
         options.AppendLine($"                PermissionDescriptors = {GeneratePermissionDescriptorsCode(relevantParams)},");
         options.AppendLine($"                InvocationModePolicy = global::HPD.Agent.AgentInvocationModePolicy.{InvocationModePolicy},");
         options.AppendLine($"                InvocationModeHandling = global::HPD.Agent.AgentInvocationModeHandling.{InvocationModeHandling},");
@@ -358,15 +358,15 @@ $@"HPDAIFunctionFactory.Create(
     private string ResolveActionPermissionOverride(AttributeData attribute, string action)
     {
         var permission = attribute.NamedArguments.FirstOrDefault(pair => pair.Key == "Permission");
-        var scope = attribute.NamedArguments.FirstOrDefault(pair => pair.Key == "PermissionScope");
+        var authority = attribute.NamedArguments.FirstOrDefault(pair => pair.Key == "PermissionAuthority");
         var policy = attribute.NamedArguments.FirstOrDefault(pair => pair.Key == "PermissionPolicy");
         var interaction = attribute.NamedArguments.FirstOrDefault(pair => pair.Key == "PermissionInteraction");
-        var hasOverride = permission.Key is not null || scope.Key is not null ||
+        var hasOverride = permission.Key is not null || authority.Key is not null ||
             policy.Key is not null || interaction.Key is not null;
         if (!hasOverride)
             return CreatePermissionDeclaration(
                 RequiresPermission,
-                PermissionScope ?? GeneratedScope(FunctionName, action),
+                PermissionAuthority ?? GeneratedScope(FunctionName, action),
                 PermissionPolicyDescriptorId,
                 PermissionInteractionDescriptorId,
                 RequiresPermission ? "FunctionAttribute" : "FrameworkDefault");
@@ -382,7 +382,7 @@ $@"HPDAIFunctionFactory.Create(
         };
         return CreatePermissionDeclaration(
             required,
-            scope.Value.Value as string ?? GeneratedScope(FunctionName, action),
+            authority.Value.Value as string ?? GeneratedScope(FunctionName, action),
             (policy.Value.Value as ITypeSymbol)?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             (interaction.Value.Value as ITypeSymbol)?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             "ActionOverride");
@@ -394,11 +394,11 @@ $@"HPDAIFunctionFactory.Create(
 
     private static string CreatePermissionDeclaration(
         bool required,
-        string scope,
+        string authority,
         string? policy,
         string? interaction,
         string source) =>
-        $"new global::HPD.Agent.AIFunctionPermissionDeclaration {{ RequiresPermission = {required.ToString().ToLowerInvariant()}, Scope = \"{Escape(scope)}\", PolicyDescriptorId = {Literal(policy)}, InteractionDescriptorId = {Literal(interaction)}, Source = global::HPD.Agent.PermissionDeclarationSource.{source} }}";
+        $"new global::HPD.Agent.AIFunctionPermissionDeclaration {{ RequiresPermission = {required.ToString().ToLowerInvariant()}, Authority = \"{Escape(authority)}\", PolicyDescriptorId = {Literal(policy)}, InteractionDescriptorId = {Literal(interaction)}, Source = global::HPD.Agent.PermissionDeclarationSource.{source} }}";
 
     private static string Literal(string? value) => value is null ? "null" : $"\"{Escape(value)}\"";
 

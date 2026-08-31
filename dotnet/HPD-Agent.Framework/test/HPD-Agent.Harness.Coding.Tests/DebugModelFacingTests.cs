@@ -231,7 +231,7 @@ public sealed class DebugModelFacingTests
     }
 
     [Fact]
-    public void GeneratedDebugActions_DeclareDistinctStaticPermissionScopes()
+    public void GeneratedDebugActions_DeclareDistinctStaticPermissionAuthoritys()
     {
         var inspect = typeof(GetVariablesOperation)
             .GetCustomAttributes(typeof(AIFunctionActionAttribute), false)
@@ -240,8 +240,8 @@ public sealed class DebugModelFacingTests
             .GetCustomAttributes(typeof(AIFunctionActionAttribute), false)
             .Cast<AIFunctionActionAttribute>().Single();
 
-        inspect.PermissionScope.Should().Be("debug/inspection");
-        mutation.PermissionScope.Should().Be("debug/memory-write");
+        inspect.PermissionAuthority.Should().Be("debug/inspection");
+        mutation.PermissionAuthority.Should().Be("debug/memory-write");
         inspect.Permission.Should().Be(PermissionRequirement.Required);
         mutation.Permission.Should().Be(PermissionRequirement.Required);
     }
@@ -508,7 +508,7 @@ public sealed class DebugModelFacingTests
         var before = agentContext.AsBeforeFunction(
             function, callId, new Dictionary<string, object?>(),
             new AgentRunConfig(), nameof(CodingToolHarness), null);
-        var scope = GetActionAttribute(action).PermissionScope!;
+        var scope = GetActionAttribute(action).PermissionAuthority!;
         var grant = new FunctionPermissionGrant
         {
             FunctionCallId = decisionCallId ?? callId,
@@ -524,7 +524,7 @@ public sealed class DebugModelFacingTests
                 Declaration = new AIFunctionPermissionDeclaration
                 {
                     RequiresPermission = true,
-                    Scope = scope,
+                    Authority = scope,
                     Source = PermissionDeclarationSource.ActionOverride
                 },
                 PolicyId = "hpd.permission.default",
@@ -551,7 +551,7 @@ public sealed class DebugModelFacingTests
             .Cast<AIFunctionActionAttribute>().Single();
 
     private static DebugPermissionClass GetPermissionClass(string action)
-        => GetActionAttribute(action).PermissionScope switch
+        => GetActionAttribute(action).PermissionAuthority switch
         {
             "debug/inspection" => DebugPermissionClass.Inspection,
             "debug/execution-control" => DebugPermissionClass.ExecutionControl,

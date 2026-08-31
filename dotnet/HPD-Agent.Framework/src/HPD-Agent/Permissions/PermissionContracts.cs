@@ -178,8 +178,8 @@ public sealed class PermissionEvaluationContext
     public string? Action { get; init; }
     /// <summary>Gets the unique function-call ID.</summary>
     public required string FunctionCallId { get; init; }
-    /// <summary>Gets the effective permission scope.</summary>
-    public required string Scope { get; init; }
+    /// <summary>Gets the effective permission authority.</summary>
+    public required string Authority { get; init; }
     /// <summary>Gets the constructor-free validated input.</summary>
     public required ValidatedPermissionInput Input { get; init; }
     /// <summary>Gets the immutable run configuration.</summary>
@@ -267,8 +267,8 @@ public sealed record PermissionEvaluation
 {
     /// <summary>Gets the stable policy ID.</summary>
     public required string PolicyId { get; init; }
-    /// <summary>Gets the effective permission scope.</summary>
-    public required string Scope { get; init; }
+    /// <summary>Gets the effective permission authority.</summary>
+    public required string Authority { get; init; }
     /// <summary>Gets the safe request title.</summary>
     public required string Title { get; init; }
     /// <summary>Gets an optional safe request summary.</summary>
@@ -313,7 +313,7 @@ public sealed record PermissionPersistenceProposal
     /// <summary>Gets the persistence kind.</summary>
     public required PermissionPersistenceKind Kind { get; init; }
     /// <summary>Gets optional invocation-specific resource narrowing.</summary>
-    public string? ResourceScope { get; init; }
+    public string? ResourceSelector { get; init; }
     /// <summary>Gets the exact request fingerprint for exact-request persistence.</summary>
     public string? RequestFingerprint { get; init; }
     /// <summary>Gets the optional expiration.</summary>
@@ -395,10 +395,10 @@ public enum PermissionGrantSource
 public sealed record PermissionKey(
     string FunctionName,
     string? Action,
-    string Scope,
+    string Authority,
     string PolicyId,
     string PolicyRevision,
-    string? ResourceScope = null);
+    string? ResourceSelector = null);
 
 /// <summary>Freezes the complete policy-visible authority for a protected invocation.</summary>
 public sealed record PermissionAuthorityStamp
