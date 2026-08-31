@@ -50,6 +50,12 @@
     <WriteLinesToFile File="$(HpdAgentEventSourcesFile)" Lines="@(Compile->'%(FullPath)|%(Link)');@(HpdAgentEventPrecompileDeclaration->'%(FullPath)|%(Link)|%(DeclarationId)|%(Producer)')" Overwrite="true" WriteOnlyWhenDifferent="true" />
     <WriteLinesToFile File="$(HpdAgentEventReferencesFile)" Lines="@(ReferencePath)" Overwrite="true" WriteOnlyWhenDifferent="true" />
     <WriteLinesToFile File="$(HpdAgentEventAnalyzerConfigsFile)" Lines="@(EditorConfigFiles);@(GlobalAnalyzerConfigFiles)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <ItemGroup>
+      <!-- The declaration is real compiler input, not merely a precompiler shadow. -->
+      <Compile Remove="@(HpdAgentEventPrecompileDeclaration)" />
+      <Compile Include="@(HpdAgentEventPrecompileDeclaration)"
+               Condition="'%(HpdAgentEventPrecompileDeclaration.Identity)' != ''" />
+    </ItemGroup>
     <Exec Command="dotnet exec &quot;$(HpdAgentEventPrecompilerPath)&quot; --sources &quot;$(HpdAgentEventSourcesFile)&quot; --references &quot;$(HpdAgentEventReferencesFile)&quot; --analyzer-configs &quot;$(HpdAgentEventAnalyzerConfigsFile)&quot; --output &quot;$(HpdAgentGeneratedEventContext)&quot; --assembly &quot;$(AssemblyName)&quot; --language &quot;$(LangVersion)&quot; --defines &quot;$(DefineConstants)&quot; --nullable &quot;$(Nullable)&quot; --unsafe &quot;$(AllowUnsafeBlocks)&quot; --checked &quot;$(CheckForOverflowUnderflow)&quot; --optimize &quot;$(Optimize)&quot; --platform &quot;$(PlatformTarget)&quot; --output-type &quot;$(OutputType)&quot; --module-id &quot;$(HpdAgentEventModuleId)&quot; --application &quot;$(HpdAgentApplication)&quot; --native-lib &quot;$(NativeLib)&quot;" />
     <ItemGroup Condition="Exists('$(HpdAgentGeneratedEventContext)')">
       <Compile Include="$(HpdAgentGeneratedEventContext)" />
