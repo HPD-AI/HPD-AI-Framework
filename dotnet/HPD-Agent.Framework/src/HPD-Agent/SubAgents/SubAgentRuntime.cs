@@ -721,8 +721,13 @@ public static class SubAgentRuntime
         var ownedByParent =
             string.Equals(childDescriptor.RuntimeChild?.ParentSessionId, projection.Parent.SessionId, StringComparison.Ordinal) &&
             string.Equals(childDescriptor.RuntimeChild?.ParentThreadId, projection.Parent.ThreadId, StringComparison.Ordinal);
-        if (!ownedByParent && !projection.ControllerGrants.Contains(child.LocalId))
-            return Failure("subagent_controller_grant_required", "This parent has no durable controller grant for the shared child.", child.LocalId.Value);
+        if (!ownedByParent && !await SubAgentControllerAuthority.IsGrantedAsync(
+                store,
+                child.ChildThread.Value,
+                projection.Parent,
+                child.LocalId,
+                cancellationToken).ConfigureAwait(false))
+            return Failure("subagent_controller_grant_required", "This parent has no durable child-keyed controller grant for the shared child.", child.LocalId.Value);
 
         if (string.Equals(action, "continue", StringComparison.Ordinal))
         {

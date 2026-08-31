@@ -118,6 +118,98 @@ public sealed record SubAgentControllerGrantedEvent(
     SubAgentLocalId LocalId,
     ThreadKey ChildThread) : AgentEvent;
 
+/// <summary>Child-journal authority granting or revoking one exact parent controller.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("SUBAGENT_CHILD_CONTROLLER_AUTHORITY")]
+public sealed record SubAgentChildControllerAuthorityEvent(
+    ThreadKey Controller,
+    SubAgentLocalId LocalId,
+    string ForkOperationId,
+    ThreadKey ForkOperationSource,
+    bool Revoked) : AgentEvent;
+
+/// <summary>Conditional child-keyed authority for shared-subagent control.</summary>
+public static class SubAgentControllerAuthority
+{
+    /// <summary>Idempotently grants one parent control through the owning fork operation.</summary>
+    public static async ValueTask GrantAsync(
+        ISessionStore store,
+        ThreadKey child,
+        ThreadKey controller,
+        SubAgentLocalId localId,
+        string forkOperationId,
+        ThreadKey forkOperationSource,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        for (var attempt = 0; attempt < 16; attempt++)
+        {
+            var head = await store.GetThreadEventHeadAsync(child, cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("subagent_shared_child_missing");
+            var existing = await ReadLatestAsync(store, child, controller, localId, head, cancellationToken)
+                .ConfigureAwait(false);
+            if (existing is { Revoked: false } &&
+                string.Equals(existing.ForkOperationId, forkOperationId, StringComparison.Ordinal))
+                return;
+            try
+            {
+                await store.AppendThreadEventsAsync(
+                    child,
+                    [new SubAgentChildControllerAuthorityEvent(
+                        controller, localId, forkOperationId, forkOperationSource, Revoked: false)
+                    {
+                        SessionId = child.SessionId,
+                        ThreadId = child.ThreadId
+                    }],
+                    new ThreadAppendCondition(head.Cursor),
+                    cancellationToken).ConfigureAwait(false);
+                return;
+            }
+            catch (ThreadAppendConflictException) when (attempt < 15) { }
+        }
+        throw new InvalidOperationException("subagent_controller_grant_conflict");
+    }
+
+    /// <summary>Checks the latest exact child/controller grant and its committed fork authority.</summary>
+    public static async ValueTask<bool> IsGrantedAsync(
+        ISessionStore store,
+        ThreadKey child,
+        ThreadKey controller,
+        SubAgentLocalId localId,
+        CancellationToken cancellationToken = default)
+    {
+        var head = await store.GetThreadEventHeadAsync(child, cancellationToken).ConfigureAwait(false);
+        if (head is null) return false;
+        var grant = await ReadLatestAsync(store, child, controller, localId, head, cancellationToken)
+            .ConfigureAwait(false);
+        if (grant is null || grant.Revoked) return false;
+        var operation = await new JournalThreadForkOperationStore(store, grant.ForkOperationSource)
+            .GetThreadForkOperationAsync(grant.ForkOperationId, cancellationToken).ConfigureAwait(false);
+        return operation?.Status is ThreadForkOperationStatus.Committed or
+            ThreadForkOperationStatus.ReconciliationRequired;
+    }
+
+    private static async ValueTask<SubAgentChildControllerAuthorityEvent?> ReadLatestAsync(
+        ISessionStore store,
+        ThreadKey child,
+        ThreadKey controller,
+        SubAgentLocalId localId,
+        ThreadEventHead head,
+        CancellationToken cancellationToken)
+    {
+        SubAgentChildControllerAuthorityEvent? latest = null;
+        await foreach (var batch in store.ReadThreadEventsAsync(
+                           child,
+                           new ThreadEventReadRequest(ThreadJournalCursor.Start(head.Generation), head.ThreadSequenceNumber),
+                           cancellationToken).ConfigureAwait(false))
+            foreach (var evt in batch.Events)
+                if (evt is SubAgentChildControllerAuthorityEvent authority &&
+                    authority.Controller == controller && authority.LocalId == localId)
+                    latest = authority;
+        return latest;
+    }
+}
+
 /// <summary>Projects and conditionally mutates a parent-local registry using its canonical thread journal.</summary>
 public sealed class SubAgentChildRegistry
 {

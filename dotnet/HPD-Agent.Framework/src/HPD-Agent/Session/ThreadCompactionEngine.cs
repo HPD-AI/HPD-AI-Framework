@@ -74,9 +74,10 @@ public sealed class CompositeThreadJournalRebaseSeedProvider(
         var registry = new SubAgentRegistryRebaseSeedProvider(new SubAgentChildRegistry(store));
         var forks = new ThreadForkOperationRebaseSeedProvider(store);
         var continuations = new SubAgentContinuationRebaseSeedProvider(store);
+        var controllerAuthorities = new SubAgentControllerAuthorityRebaseSeedProvider(store);
         return hostProvider is null
-            ? new CompositeThreadJournalRebaseSeedProvider([registry, forks, continuations])
-            : new CompositeThreadJournalRebaseSeedProvider([hostProvider, registry, forks, continuations]);
+            ? new CompositeThreadJournalRebaseSeedProvider([registry, forks, continuations, controllerAuthorities])
+            : new CompositeThreadJournalRebaseSeedProvider([hostProvider, registry, forks, continuations, controllerAuthorities]);
     }
 
     /// <inheritdoc />
@@ -88,6 +89,41 @@ public sealed class CompositeThreadJournalRebaseSeedProvider(
         foreach (var provider in _providers)
             events.AddRange(await provider.CreateSeedEventsAsync(thread, cancellationToken).ConfigureAwait(false));
         return events;
+    }
+}
+
+/// <summary>Preserves the latest exact child/controller authority through journal rebase.</summary>
+public sealed class SubAgentControllerAuthorityRebaseSeedProvider(ISessionStore store)
+    : IThreadJournalRebaseSeedProvider
+{
+    private readonly ISessionStore _store = store ?? throw new ArgumentNullException(nameof(store));
+
+    /// <inheritdoc />
+    public async ValueTask<IReadOnlyList<AgentEvent>> CreateSeedEventsAsync(
+        ThreadKey thread,
+        CancellationToken cancellationToken = default)
+    {
+        var head = await _store.GetThreadEventHeadAsync(thread, cancellationToken).ConfigureAwait(false);
+        if (head is null) return [];
+        var latest = new Dictionary<(ThreadKey Controller, SubAgentLocalId LocalId), SubAgentChildControllerAuthorityEvent>();
+        await foreach (var batch in _store.ReadThreadEventsAsync(
+                           thread,
+                           new ThreadEventReadRequest(ThreadJournalCursor.Start(head.Generation), head.ThreadSequenceNumber),
+                           cancellationToken).ConfigureAwait(false))
+            foreach (var evt in batch.Events)
+                if (evt is SubAgentChildControllerAuthorityEvent authority)
+                    latest[(authority.Controller, authority.LocalId)] = authority;
+        return latest.Values
+            .OrderBy(static authority => authority.Controller.SessionId, StringComparer.Ordinal)
+            .ThenBy(static authority => authority.Controller.ThreadId, StringComparer.Ordinal)
+            .ThenBy(static authority => authority.LocalId.Value, StringComparer.Ordinal)
+            .Select(authority => (AgentEvent)(authority with
+            {
+                SessionId = thread.SessionId,
+                ThreadId = thread.ThreadId,
+                ThreadSequenceNumber = 0
+            }))
+            .ToArray();
     }
 }
 

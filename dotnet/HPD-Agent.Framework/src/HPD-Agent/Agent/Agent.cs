@@ -7653,6 +7653,14 @@ public sealed partial class Agent : IAsyncDisposable
             });
             if (options.Policy == SubAgentForkPolicy.Share && projected.ChildThread is { } sharedRoute)
             {
+                await SubAgentControllerAuthority.GrantAsync(
+                    store,
+                    sharedRoute,
+                    target,
+                    projected.LocalId,
+                    forkOperationId,
+                    source,
+                    cancellationToken).ConfigureAwait(false);
                 events.Add(new SubAgentControllerGrantedEvent(projected.LocalId, sharedRoute)
                 {
                     SessionId = target.SessionId,

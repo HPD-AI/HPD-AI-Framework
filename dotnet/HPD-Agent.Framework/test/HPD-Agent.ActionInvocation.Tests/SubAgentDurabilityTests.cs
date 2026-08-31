@@ -166,6 +166,39 @@ public sealed class SubAgentDurabilityTests
             value => Assert.Equal("continue-abc", Assert.IsType<ThreadExecutionFinishedEvent>(value).ThreadExecutionId));
     }
 
+    [Fact]
+    public async Task SharedControlGrantIsChildKeyedAndRequiresCommittedForkAuthority()
+    {
+        var store = new InMemorySessionStore(CoreAgentEventComposition.Instance.Codec);
+        var source = new ThreadKey("session", "source");
+        var child = new ThreadKey("session", "child");
+        var controller = new ThreadKey("session", "fork");
+        await CreateThreadAsync(store, source);
+        await CreateThreadAsync(store, child);
+        var operationStore = new JournalThreadForkOperationStore(store, source);
+        await operationStore.WriteThreadForkOperationAsync(new ThreadForkOperationRecord
+        {
+            OperationId = "fork-share",
+            Source = source,
+            Target = controller,
+            SourceBoundary = new ThreadJournalCursor(1, 1),
+            RequestFingerprint = "ABC",
+            SubAgentPolicy = SubAgentForkPolicy.Share,
+            Status = ThreadForkOperationStatus.Committed,
+            Revision = 1,
+            PreparedChildren = [],
+            ChildOutcomes = []
+        }, new ThreadForkOperationWriteCondition(0));
+
+        await SubAgentControllerAuthority.GrantAsync(
+            store, child, controller, new SubAgentLocalId("reviewer-1"), "fork-share", source);
+
+        Assert.True(await SubAgentControllerAuthority.IsGrantedAsync(
+            store, child, controller, new SubAgentLocalId("reviewer-1")));
+        Assert.False(await SubAgentControllerAuthority.IsGrantedAsync(
+            store, child, new ThreadKey("session", "other"), new SubAgentLocalId("reviewer-1")));
+    }
+
     private static async Task CreateThreadAsync(InMemorySessionStore store, ThreadKey key) =>
         _ = await store.AppendThreadEventsAsync(
             key,
