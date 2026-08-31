@@ -41,6 +41,23 @@ using var subAgentBranch = JsonDocument.Parse("""{"input":"inspect"}""");
 var subAgentBinding = SubAgentGeneratedBranchBinder.Bind(subAgentBranch.RootElement, allowContext: false);
 if (subAgentBinding.Value is not BoundSubAgentStartAction { Input: "inspect", Context: null })
     return 6;
+using var subAgentInvocationDocument = JsonDocument.Parse("""{"request":{"action":"reviewer","input":"inspect"}}""");
+var subAgentArguments = new AIFunctionArguments();
+subAgentArguments.SetJson(subAgentInvocationDocument.RootElement.Clone());
+try
+{
+    _ = await ((HPDAIFunctionFactory.HPDAIFunction)subAgentFunction).InvokeAsync(
+        subAgentArguments,
+        CreateContext(subAgentFunction, subAgentInvocationDocument.RootElement.GetProperty("request")),
+        CancellationToken.None);
+    return 7;
+}
+catch (InvalidOperationException exception) when (
+    exception.Message.Contains("subagent_creation_requires_session_store", StringComparison.Ordinal))
+{
+    // Verified action selection and the final generated branch binder executed. The
+    // smoke context intentionally has no durable subagent runtime, so dispatch stops here.
+}
 var operationJson = JsonSerializer.Serialize<SubAgentActionResult>(new SubAgentOperationResult
 {
     Status = SubAgentOperationStatus.Completed,
@@ -63,7 +80,9 @@ if (!operationJson.Contains("reviewer-1", StringComparison.Ordinal) ||
 
 return result as string == "worker:2" && harness.InvocationCount == 1 ? 0 : 2;
 
-static global::HPD.Agent.Middleware.FunctionExecutionContext CreateContext(AIFunction function)
+static global::HPD.Agent.Middleware.FunctionExecutionContext CreateContext(
+    AIFunction function,
+    JsonElement? validatedAction = null)
 {
     var state = AgentLoopState.InitialSafe([], "aot-run", "aot-conversation", "AotAgent");
     var session = new global::HPD.Agent.Session("aot-session");
@@ -92,7 +111,22 @@ static global::HPD.Agent.Middleware.FunctionExecutionContext CreateContext(AIFun
             Arguments = new Dictionary<string, object?>(),
             State = state,
             ResultMetadata = new ToolResultMetadata(),
-            EventCoordinator = agentContext.EventCoordinator
+            EventCoordinator = agentContext.EventCoordinator,
+            InvocationMode = validatedAction is { } action
+                ? new ResolvedFunctionInvocation
+                {
+                    Action = "reviewer",
+                    Mode = AgentInvocationMode.Synchronous,
+                    Policy = AgentInvocationModePolicy.SynchronousOnly,
+                    Handling = AgentInvocationModeHandling.ToolBody,
+                    ValidatedAction = new ValidatedFunctionAction
+                    {
+                        Action = "reviewer",
+                        CanonicalJson = action.Clone()
+                    },
+                    IngressProvenance = FunctionArgumentIngressProvenance.Original
+                }
+                : null
         });
 }
 

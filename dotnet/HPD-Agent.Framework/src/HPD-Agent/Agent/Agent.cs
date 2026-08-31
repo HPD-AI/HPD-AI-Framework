@@ -6942,6 +6942,9 @@ public sealed partial class Agent : IAsyncDisposable
         }
         plannedTargetEvents.AddRange(registryEvents);
         var targetSeedFingerprint = ComputeTargetSeedFingerprint(store.EventCodec, plannedTargetEvents);
+        if (forkOperation.TargetSeedFingerprint is { } admittedTargetSeed &&
+            !string.Equals(admittedTargetSeed, targetSeedFingerprint, StringComparison.Ordinal))
+            throw new InvalidOperationException("thread_fork_target_seed_changed");
         if (forkOperation.Status == ThreadForkOperationStatus.ChildrenPreparing)
         {
             forkOperation = forkOperation with
@@ -7498,11 +7501,21 @@ public sealed partial class Agent : IAsyncDisposable
     {
         var canonical = events.Select(evt =>
         {
-            AgentEvent normalized = evt with { ThreadSequenceNumber = 0 };
+            AgentEvent normalized = evt with
+            {
+                EventId = string.Empty,
+                ThreadSequenceNumber = 0,
+                Timestamp = DateTimeOffset.UnixEpoch,
+                ExchangeTimestampNs = 0
+            };
             if (normalized is ThreadCreatedEvent { Preparation: { } preparation } created)
                 normalized = created with
                 {
+                    EventId = string.Empty,
                     ThreadSequenceNumber = 0,
+                    Timestamp = DateTimeOffset.UnixEpoch,
+                    ExchangeTimestampNs = 0,
+                    CreatedAt = DateTime.UnixEpoch,
                     Preparation = preparation with { TargetSeedFingerprint = null }
                 };
             return codec.Serialize(normalized);
