@@ -461,7 +461,6 @@ public sealed class AgentThreadService : IAgentThreadService
                 thread.Kind,
                 thread.Visibility,
                 thread.RuntimeChild?.SubAgentName,
-                thread.RuntimeChild?.SubAgentTaskName,
                 thread.RuntimeChild?.InvocationId,
                 thread.RuntimeChild?.SubAgentSourceKind,
                 thread.RuntimeChild?.ParentToolCallId,

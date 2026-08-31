@@ -3,6 +3,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using HPD.Agent.SourceGenerator.Contracts;
 
 namespace HPD.Agent.SourceGenerator.Capabilities;
@@ -961,8 +962,20 @@ internal static class CapabilityAnalyzer
         var returnType = method.ReturnType.ToString();
         var isAsync = returnType.Contains("Task");
 
-        // Check for permissions
-        var requiresPermission = HasAttribute(attrs, "RequiresPermission");
+        // Resolve the canonical attribute by semantic identity; same-named attributes are not permission authority.
+        var permissionAttribute = symbol.GetAttributes().FirstOrDefault(static attribute =>
+            attribute.AttributeClass?.Name == "RequiresPermissionAttribute" &&
+            attribute.AttributeClass.ContainingNamespace.IsGlobalNamespace);
+        var requiresPermission = permissionAttribute is not null;
+        var permissionScope = GetNamedString(permissionAttribute, "PermissionScope");
+        var permissionPolicyDescriptorId = GetNamedTypeId(permissionAttribute, "PermissionPolicy");
+        var permissionInteractionDescriptorId = GetNamedTypeId(permissionAttribute, "PermissionInteraction");
+        if (!ValidatePermissionAttribute(
+                permissionAttribute,
+                semanticModel.Compilation,
+                diagnostics,
+                method.GetLocation()))
+            return null;
         var requiredPermissions = GetRequiredPermissions(attrs);
 
         // Extract Kind from [AIFunction(Kind = ...)]
@@ -990,6 +1003,13 @@ internal static class CapabilityAnalyzer
             ReturnType = returnType,
             IsAsync = isAsync,
             RequiresPermission = requiresPermission,
+            PermissionScope = permissionScope,
+            PermissionPolicyDescriptorId = permissionPolicyDescriptorId,
+            PermissionPolicyType = permissionAttribute?.NamedArguments
+                .FirstOrDefault(pair => pair.Key == "PermissionPolicy").Value.Value as ITypeSymbol,
+            PermissionInteractionDescriptorId = permissionInteractionDescriptorId,
+            PermissionInteractionType = permissionAttribute?.NamedArguments
+                .FirstOrDefault(pair => pair.Key == "PermissionInteraction").Value.Value as ITypeSymbol,
             RequiredPermissions = requiredPermissions.ToList(),
             Kind = kind,
             InvocationModePolicy = invocationModePolicy,
@@ -1000,6 +1020,68 @@ internal static class CapabilityAnalyzer
 
         diagnostics.AddRange(parameterDiagnostics);
         return functionCapability;
+    }
+
+    private static string? GetNamedString(AttributeData? attribute, string name) =>
+        attribute?.NamedArguments.FirstOrDefault(pair => pair.Key == name).Value.Value as string;
+
+    private static string? GetNamedTypeId(AttributeData? attribute, string name) =>
+        (attribute?.NamedArguments.FirstOrDefault(pair => pair.Key == name).Value.Value as ITypeSymbol)?
+            .ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+
+    private static bool ValidatePermissionAttribute(
+        AttributeData? attribute,
+        Compilation compilation,
+        List<Diagnostic> diagnostics,
+        Location location)
+    {
+        if (attribute is null) return true;
+        var valid = true;
+        var scope = GetNamedString(attribute, "PermissionScope");
+        if (scope is not null && (scope.Length == 0 || scope != scope.Trim() ||
+            scope.Any(char.IsControl) || Encoding.UTF8.GetByteCount(scope) > 512))
+        {
+            diagnostics.Add(Diagnostic.Create(PermissionDiagnostics.InvalidDeclaration, location,
+                "permission scope must be canonical, non-empty, control-free, and at most 512 UTF-8 bytes"));
+            valid = false;
+        }
+        valid &= ValidateServiceType(attribute, "PermissionPolicy", "HPD.Agent.Permissions.IPermissionPolicy");
+        valid &= ValidateServiceType(attribute, "PermissionInteraction", "HPD.Agent.Permissions.IPermissionInteraction");
+        return valid;
+
+        bool ValidateServiceType(AttributeData source, string property, string contractName)
+        {
+            var type = source.NamedArguments.FirstOrDefault(pair => pair.Key == property).Value.Value as ITypeSymbol;
+            if (type is null) return true;
+            var contract = compilation.GetTypeByMetadataName(contractName);
+            if (contract is not null && type.AllInterfaces.Any(candidate =>
+                    SymbolEqualityComparer.Default.Equals(candidate, contract)))
+            {
+                if (property == "PermissionPolicy" && type is INamedTypeSymbol policyType)
+                {
+                    for (var current = policyType; current is not null; current = current.BaseType)
+                    {
+                        if (!current.IsGenericType || current.Name != "PermissionPolicy" ||
+                            current.TypeArguments.Length != 1) continue;
+                        var presentation = current.TypeArguments[0];
+                        var presentationAttribute = presentation.GetAttributes().FirstOrDefault(data =>
+                            data.AttributeClass?.Name == "PermissionPresentationAttribute");
+                        var presentationId = presentationAttribute?.ConstructorArguments.FirstOrDefault().Value as string;
+                        if (string.IsNullOrWhiteSpace(presentationId))
+                        {
+                            diagnostics.Add(Diagnostic.Create(PermissionDiagnostics.InvalidDeclaration, location,
+                                $"presentation type '{presentation.ToDisplayString()}' must declare a non-empty PermissionPresentationAttribute"));
+                            return false;
+                        }
+                        break;
+                    }
+                }
+                return true;
+            }
+            diagnostics.Add(Diagnostic.Create(PermissionDiagnostics.InvalidDeclaration, location,
+                $"{property} type '{type.ToDisplayString()}' must implement {contractName}"));
+            return false;
+        }
     }
 
     private static bool ValidateActionContract(
@@ -1074,13 +1156,13 @@ internal static class CapabilityAnalyzer
                 continue;
             }
             var declared = attributes[0].ConstructorArguments.FirstOrDefault().Value as string;
-            foreach (var named in attributes[0].NamedArguments)
+            foreach (var named in attributes[0].NamedArguments.Where(static named =>
+                         named.Key is "InvocationModePolicy" or "InvocationModeHandling" or "Permission"))
             {
                 var numeric = named.Value.Value is null
                     ? 0
                     : Convert.ToInt32(named.Value.Value, System.Globalization.CultureInfo.InvariantCulture);
-                var maximum = named.Key == "InvocationModePolicy" ? 3 :
-                    named.Key == "InvocationModeHandling" ? 2 : int.MaxValue;
+                var maximum = named.Key == "InvocationModePolicy" ? 3 : 2;
                 if (numeric < 0 || numeric > maximum)
                 {
                     diagnostics.Add(Diagnostic.Create(ActionFunctionDiagnostics.InvalidContract, location,
@@ -1088,6 +1170,21 @@ internal static class CapabilityAnalyzer
                     valid = false;
                 }
             }
+            var actionAttribute = attributes[0];
+            var requirement = actionAttribute.NamedArguments.FirstOrDefault(static pair => pair.Key == "Permission");
+            var requirementValue = requirement.Key is null || requirement.Value.Value is null
+                ? 0
+                : Convert.ToInt32(requirement.Value.Value, System.Globalization.CultureInfo.InvariantCulture);
+            var hasPermissionDetails = actionAttribute.NamedArguments.Any(static pair =>
+                pair.Key is "PermissionScope" or "PermissionPolicy" or "PermissionInteraction");
+            if (requirementValue == 2 && hasPermissionDetails)
+            {
+                diagnostics.Add(Diagnostic.Create(ActionFunctionDiagnostics.InvalidContract, location,
+                    $"action '{unionCase.Discriminator}' cannot combine NotRequired with permission details"));
+                valid = false;
+            }
+            if (!ValidatePermissionAttribute(actionAttribute, semanticModel.Compilation, diagnostics, location))
+                valid = false;
             if (string.IsNullOrWhiteSpace(declared) ||
                 !string.Equals(declared, unionCase.Discriminator, StringComparison.Ordinal))
             {
@@ -1128,6 +1225,17 @@ internal static class CapabilityAnalyzer
             "HPD070",
             "Invalid action-scoped function contract",
             "Invalid action-scoped function contract: {0}",
+            "HPD.Agent.SourceGeneration",
+            DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
+    }
+
+    private static class PermissionDiagnostics
+    {
+        internal static readonly DiagnosticDescriptor InvalidDeclaration = new(
+            "HPD071",
+            "Invalid function permission declaration",
+            "Invalid function permission declaration: {0}",
             "HPD.Agent.SourceGeneration",
             DiagnosticSeverity.Error,
             isEnabledByDefault: true);

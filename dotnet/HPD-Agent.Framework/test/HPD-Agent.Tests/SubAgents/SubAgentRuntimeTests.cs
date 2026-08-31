@@ -37,7 +37,7 @@ public class SubAgentRuntimeTests
             {
                 Definition = subAgent,
                 Input = "review this",
-                TaskName = "review-current-change",
+                CapabilityId = CapabilityId.Create("test:reviewer"),
                 ParentContext = null
             },
             CancellationToken.None);
@@ -48,7 +48,7 @@ public class SubAgentRuntimeTests
     }
 
     [Fact]
-    public async Task InvokeAsync_AllowsAgentAsTaskName()
+    public async Task InvokeAsync_UsesCapabilityIdentityWithoutModelAuthoredTaskName()
     {
         var subAgent = SubAgent.FromConfig(
             "test/reviewer",
@@ -65,7 +65,7 @@ public class SubAgentRuntimeTests
             {
                 Definition = subAgent,
                 Input = "review this",
-                TaskName = "agent",
+                CapabilityId = CapabilityId.Create("test:reviewer"),
                 ParentContext = null
             },
             CancellationToken.None);
@@ -74,7 +74,7 @@ public class SubAgentRuntimeTests
     }
 
     [Fact]
-    public async Task InvokeAsync_RejectsTaskNameWithoutLettersOrNumbers()
+    public async Task InvokeAsync_DoesNotValidateRemovedTaskNameVocabulary()
     {
         var subAgent = SubAgent.FromConfig(
             "test/reviewer",
@@ -86,18 +86,17 @@ public class SubAgentRuntimeTests
             invocationModePolicy: AgentInvocationModePolicy.BackgroundOnly,
             operationNotification: null);
 
-        Func<Task> act = async () => await SubAgentRuntime.InvokeAsync(
+        var result = await SubAgentRuntime.InvokeAsync(
             new SubAgentRuntime.SubAgentInvocationRequest
             {
                 Definition = subAgent,
                 Input = "review this",
-                TaskName = "---",
+                CapabilityId = CapabilityId.Create("test:reviewer"),
                 ParentContext = null
             },
             CancellationToken.None);
 
-        await act.Should().ThrowAsync<ArgumentException>()
-            .WithMessage("*at least one letter or number*");
+        result.Text.Should().StartWith("background_unavailable:");
     }
 
     [Fact]
@@ -129,7 +128,7 @@ public class SubAgentRuntimeTests
             {
                 Definition = subAgent,
                 Input = "Review this input.",
-                TaskName = "review-output",
+                CapabilityId = CapabilityId.Create("test:reviewer"),
                 ParentContext = context
             },
             CancellationToken.None);
@@ -166,7 +165,7 @@ public class SubAgentRuntimeTests
             {
                 Definition = subAgent,
                 Input = "Do not echo this input.",
-                TaskName = "review-without-output",
+                CapabilityId = CapabilityId.Create("test:reviewer"),
                 ParentContext = context
             },
             CancellationToken.None);
@@ -207,7 +206,6 @@ public class SubAgentRuntimeTests
         childThread!.Messages.Should().HaveCount(parentThread.Messages.Count);
         childThread.Kind.Should().Be(ThreadKind.SubAgent);
         childThread.SubAgentName.Should().Be("Reviewer");
-        childThread.SubAgentTaskName.Should().Be("review-storage");
         childThread.ParentSessionId.Should().Be("parent-session");
         childThread.ParentThreadId.Should().Be("main");
         childThread.Visibility.Should().Be(ThreadVisibility.Hidden);
@@ -217,7 +215,6 @@ public class SubAgentRuntimeTests
 
         var descriptor = await store.GetThreadAsync(new ThreadKey(route.SessionId, route.ThreadId));
         descriptor!.RuntimeChild!.SubAgentName.Should().Be("Reviewer");
-        descriptor.RuntimeChild.SubAgentTaskName.Should().Be("review-storage");
 
         await store.AppendThreadEventsAsync(
             new ThreadKey(route.SessionId, route.ThreadId),

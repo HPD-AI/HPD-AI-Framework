@@ -361,7 +361,7 @@ public partial class DiscordBot(
                         await agent.AnswerRequestAsync(new PermissionResponseEvent(
                             PermissionId: req.PermissionId,
                             SourceName: "discord",
-                            Approved: false), token),
+                            ChoiceId: "deny_once"), token),
                 },
                 ct);
         }

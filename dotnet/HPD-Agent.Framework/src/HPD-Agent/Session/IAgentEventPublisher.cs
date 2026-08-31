@@ -1,5 +1,6 @@
 using HPD.Agent.Serialization;
 using HPD.Events;
+using HPD.Agent.Permissions;
 
 namespace HPD.Agent;
 
@@ -40,6 +41,14 @@ public interface IAgentEventPublisher
         IReadOnlyList<AgentEvent> replacementEvents,
         ThreadJournalCursor expectedCursor,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Atomically commits a permission preference and publishes its exact store-returned audit event.</summary>
+    ValueTask<PermissionPreferenceCommitResult> CommitPermissionPreferenceAsync(
+        PermissionPreferenceCommit commit,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromException<PermissionPreferenceCommitResult>(
+            new InvalidOperationException(
+                "This event publisher does not provide atomic permission-preference settlement."));
 }
 
 /// <summary>Coordinator-scoped event publisher backed by one codec-owned session store.</summary>
@@ -66,6 +75,34 @@ public sealed class AgentEventPublisher : IAgentEventPublisher
     /// <inheritdoc />
     public ValueTask<ThreadEventHead?> GetHeadAsync(ThreadKey thread, CancellationToken cancellationToken = default) =>
         _store.GetThreadEventHeadAsync(thread, cancellationToken);
+
+    /// <inheritdoc />
+    public async ValueTask<PermissionPreferenceCommitResult> CommitPermissionPreferenceAsync(
+        PermissionPreferenceCommit commit,
+        CancellationToken cancellationToken = default)
+    {
+        if (_store is not IPermissionPreferenceStore preferences)
+            throw new InvalidOperationException(
+                $"Session store '{_store.GetType().FullName}' does not support atomic permission preferences.");
+        var result = await preferences.CommitAsync(commit, cancellationToken).ConfigureAwait(false);
+        if (result.Outbox is not { State: PermissionPreferenceOutboxState.Claimed, ClaimToken: { } claimToken } outbox ||
+            !string.Equals(outbox.ClaimantId, commit.PublisherClaimantId, StringComparison.Ordinal))
+            return result;
+        await _coordinator.EmitAsync(outbox.CommittedEvent, cancellationToken).ConfigureAwait(false);
+        await _archiver.ArchiveAsync(EventCodec, outbox.CommittedEvent, cancellationToken).ConfigureAwait(false);
+        if (!await preferences.AcknowledgePublicationAsync(
+                outbox.SettlementId, claimToken, cancellationToken).ConfigureAwait(false))
+            throw new InvalidOperationException("Permission preference publication acknowledgement was rejected.");
+        return result with
+        {
+            Outbox = outbox with
+            {
+                State = PermissionPreferenceOutboxState.Acknowledged,
+                ClaimToken = null,
+                ClaimantId = null
+            }
+        };
+    }
 
     /// <inheritdoc />
     public ValueTask<AgentEvent> PublishAsync(

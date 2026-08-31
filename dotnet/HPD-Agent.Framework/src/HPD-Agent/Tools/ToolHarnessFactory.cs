@@ -189,7 +189,10 @@ public record ToolHarnessFactory(
     /// Gets the immutable event module owned by this harness assembly, when it declares events.
     /// Hosted durable use requires this exact module to be present in the application composition.
     /// </summary>
-    AgentEventModuleFragment? EventModule = null
+    AgentEventModuleFragment? EventModule = null,
+
+    /// <summary>Creates immutable subagent role descriptors without emitting independent functions.</summary>
+    Func<object, IReadOnlyList<SubAgentActionDescriptor>>? CreateSubAgentActions = null
 )
 {
     /// <summary>Gets the non-empty stable activation identity.</summary>

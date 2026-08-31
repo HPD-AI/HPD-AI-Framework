@@ -25,6 +25,17 @@ public enum AIFunctionActionInvocationModeHandling
     ToolBody
 }
 
+/// <summary>Declares how an action overrides its containing function's permission requirement.</summary>
+public enum PermissionRequirement
+{
+    /// <summary>Uses the permission requirement declared by the containing function.</summary>
+    Inherit,
+    /// <summary>Requires permission for this action.</summary>
+    Required,
+    /// <summary>Does not require permission for this action unless configuration overrides it.</summary>
+    NotRequired
+}
+
 /// <summary>Associates one closed-union discriminator with invocation-mode overrides.</summary>
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
 public sealed class AIFunctionActionAttribute : Attribute
@@ -43,6 +54,19 @@ public sealed class AIFunctionActionAttribute : Attribute
     /// <summary>Gets or sets the action's handling override.</summary>
     public AIFunctionActionInvocationModeHandling InvocationModeHandling { get; set; }
         = AIFunctionActionInvocationModeHandling.Inherit;
+
+    /// <summary>Gets or sets this action's permission-requirement override.</summary>
+    public PermissionRequirement Permission { get; set; }
+        = PermissionRequirement.Inherit;
+
+    /// <summary>Gets or sets an application-owned stable scope for this action.</summary>
+    public string? PermissionScope { get; set; }
+
+    /// <summary>Gets or sets the permission policy implementation for this action.</summary>
+    public Type? PermissionPolicy { get; set; }
+
+    /// <summary>Gets or sets the permission interaction implementation for this action.</summary>
+    public Type? PermissionInteraction { get; set; }
 }
 
 /// <summary>

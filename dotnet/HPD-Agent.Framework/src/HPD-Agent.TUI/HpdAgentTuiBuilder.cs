@@ -21,6 +21,7 @@ public sealed class HpdAgentTuiBuilder
     private readonly Dictionary<string, AgentTuiEventHandlerRegistration> _eventHandlers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, AgentTuiInteractionHandlerRegistration> _interactionHandlers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, IAgentTuiTranscriptRendererAdapter> _transcriptRenderers = new(StringComparer.Ordinal);
+    private readonly PermissionPresentationRendererRegistry _permissionPresentationRenderers = new();
     private readonly HashSet<KeyGesture> _shortcutGestures = [];
     private IAgentTuiShellComponent? _header;
     private IAgentTuiShellComponent? _promptStatus;
@@ -49,7 +50,26 @@ public sealed class HpdAgentTuiBuilder
             .AddDefaultPrompt()
             .AddDefaultTranscriptRenderers()
             .AddDefaultCommandSupport()
-            .AddDefaultShellCommands();
+            .AddDefaultShellCommands()
+            .AddDefaultPermissionInteraction();
+
+    /// <summary>Adds the standard permission request handler and its typed renderer dispatch.</summary>
+    public HpdAgentTuiBuilder AddDefaultPermissionInteraction()
+    {
+        TryAddInteractionHandler<PermissionRequestEvent>(
+            "hpd.permission",
+            new PermissionRequestInteractionHandler(_permissionPresentationRenderers));
+        return this;
+    }
+
+    /// <summary>Adds one exact typed permission-presentation renderer.</summary>
+    public HpdAgentTuiBuilder AddPermissionPresentationRenderer<TPresentation>(
+        string presentationId,
+        IPermissionPresentationRenderer<TPresentation> renderer)
+    {
+        _permissionPresentationRenderers.Add(presentationId, renderer);
+        return this;
+    }
 
     public HpdAgentTuiBuilder AddDefaultShell()
         => AddDefaultHeader()
@@ -1000,7 +1020,9 @@ public sealed class HpdAgentTuiBuilder
     }
 
     public HpdAgentTuiRegistry Build()
-        => new(
+    {
+        _permissionPresentationRenderers.Freeze();
+        return new(
             _commands.Values,
             _pages.Values,
             _footerItems,
@@ -1021,5 +1043,6 @@ public sealed class HpdAgentTuiBuilder
             _runConfigComposer,
             _threadStateReconciler,
             _transcriptHistoryPresentation);
+    }
 
 }

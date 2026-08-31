@@ -85,8 +85,8 @@ public sealed record ClientToolOperationContract
 /// <summary>Defines security and invocation behavior for a client tool operation.</summary>
 public sealed record ClientToolPolicy
 {
-    public bool? RequiresPermission { get; init; }
-    public string? PermissionScope { get; init; }
+    /// <summary>Gets the complete normalized permission declaration for this transport operation.</summary>
+    public AIFunctionPermissionDeclaration? Permission { get; init; }
     public bool? MutatesState { get; init; }
     public bool? RequiresFreshContext { get; init; }
     public bool? Destructive { get; init; }
@@ -99,9 +99,7 @@ public sealed record ClientToolPolicy
         ClientToolPolicy? operationPolicy = null) =>
         new()
         {
-            RequiresPermission = operationPolicy?.RequiresPermission ??
-                basePolicy?.RequiresPermission ?? false,
-            PermissionScope = operationPolicy?.PermissionScope ?? basePolicy?.PermissionScope,
+            Permission = operationPolicy?.Permission ?? basePolicy?.Permission,
             MutatesState = operationPolicy?.MutatesState ?? basePolicy?.MutatesState ?? false,
             RequiresFreshContext = operationPolicy?.RequiresFreshContext ??
                 basePolicy?.RequiresFreshContext ?? false,
@@ -165,16 +163,16 @@ internal static class ClientToolContractValidator
 
         foreach (var (action, policy) in contract.Actions)
         {
-            if (policy.Destructive is true && policy.RequiresPermission is not true)
+            if (policy.Destructive is true && policy.Permission?.RequiresPermission is not true)
                 throw new ArgumentException($"Destructive action '{action}' must require permission.");
-            if (policy.RequiresPermission is true &&
-                string.IsNullOrWhiteSpace(policy.PermissionScope))
+            if (policy.Permission is { RequiresPermission: true } permission &&
+                string.IsNullOrWhiteSpace(permission.Scope))
             {
                 throw new ArgumentException(
                     $"Permissioned action '{action}' requires a permission scope.");
             }
             if (policy.MutatesState is true &&
-                (policy.RequiresPermission is null || policy.RequiresFreshContext is null))
+                (policy.Permission is null || policy.RequiresFreshContext is null))
             {
                 throw new ArgumentException(
                     $"Mutating action '{action}' must explicitly declare permission and freshness.");

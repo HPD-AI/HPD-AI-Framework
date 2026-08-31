@@ -273,7 +273,10 @@ internal static class AgentRunConfigInheritance
             {
                 PermissionOverrides = source.Security.PermissionOverrides is null
                     ? null
-                    : new Dictionary<string, bool>(source.Security.PermissionOverrides),
+                    : source.Security.PermissionOverrides.Select(static value => value with
+                    {
+                        Selector = value.Selector with { }
+                    }).ToArray(),
                 Sandbox = source.Security.Sandbox with
                 {
                     Capabilities = source.Security.Sandbox.Capabilities with

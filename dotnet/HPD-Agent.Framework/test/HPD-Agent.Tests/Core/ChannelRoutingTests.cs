@@ -251,7 +251,7 @@ public class ChannelRoutingTests
         { new ReasoningDeltaEvent("thinking", "msg1"), EventChannel.Streaming, EventKind.Content },
         { new ToolCallStartEvent("call1", "tool", "msg1"), EventChannel.Synchronous, EventKind.Lifecycle },
         { new PermissionRequestEvent("perm1", "source", "tool", null, "call1", null), EventChannel.Interactive, EventKind.Control },
-        { new PermissionResponseEvent("perm1", "source", true), EventChannel.Interactive, EventKind.Control },
+        { new PermissionResponseEvent("perm1", "source", "allow_once"), EventChannel.Interactive, EventKind.Control },
         { new ClarificationRequestEvent("req1", "source", "question"), EventChannel.Interactive, EventKind.Control },
         { new HPD.Agent.ClientTools.ClientToolInvokeOutcomeEvent
             {

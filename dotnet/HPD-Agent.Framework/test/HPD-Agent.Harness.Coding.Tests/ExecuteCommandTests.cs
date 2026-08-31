@@ -4,6 +4,7 @@ using System.Xml.Linq;
 using HPD.Agent;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.Middleware;
+using HPD.Agent.Permissions;
 using HPD.Agent.Security;
 using HPD.Agent.Serialization;
 using HPD.Environment.Contracts;
@@ -42,7 +43,7 @@ public sealed class ExecuteCommandTests : IDisposable
         method!.GetCustomAttributes(typeof(AIFunctionAttribute), inherit: false)
             .Should().ContainSingle();
         method.GetCustomAttributes(typeof(RequiresPermissionAttribute), inherit: false)
-            .Should().BeEmpty("ExecuteCommand is guarded by ExecuteCommandPermissionMiddleware, not generic function-level permission");
+            .Should().BeEmpty("the generated run action owns the complete permission declaration");
         method.GetCustomAttributes(inherit: false)
             .Select(attribute => attribute.GetType().Name)
             .Should().NotContain(name => name.Contains("Sandbox", StringComparison.Ordinal));
@@ -52,7 +53,7 @@ public sealed class ExecuteCommandTests : IDisposable
             .Should().ContainSingle()
             .Subject as CollapseAttribute;
 
-        collapse!.Middlewares.Should().Contain(typeof(ExecuteCommandPermissionMiddleware));
+        collapse!.Middlewares.Should().NotContain(typeof(PermissionMiddleware));
     }
 
     [Fact]
@@ -169,7 +170,7 @@ public sealed class ExecuteCommandTests : IDisposable
         };
         var evt = new ExecuteCommandPermissionRequestEvent(
             "perm-1",
-            "ExecuteCommandPermissionMiddleware",
+            "ExecuteCommandPermissionInteraction",
             "call-1",
             plan,
             [],
@@ -382,7 +383,7 @@ public sealed class ExecuteCommandTests : IDisposable
             "git status -sb",
             _ => "deny");
 
-        result.ToString().Should().Contain("<execute_command_permission_denied");
+        result.ToString().Should().Contain("<tool_permission outcome=\"denied\"");
         runner.StartCalls.Should().Be(0);
         runner.LastSpec.Should().BeNull();
     }
@@ -443,6 +444,7 @@ public sealed class ExecuteCommandTests : IDisposable
             session,
             thread,
             CancellationToken.None,
+            services: EmptyServiceProvider.Instance,
             config: CreateTestAgentConfig());
         RegisterProcessExecution(agentContext.RuntimeCapabilities, runner);
         var runConfig = CreateWorkspaceRunConfig();
@@ -453,9 +455,10 @@ public sealed class ExecuteCommandTests : IDisposable
             arguments,
             runConfig,
             toolharnessName: nameof(CodingToolHarness),
-            skillName: null);
+            skillName: null,
+            invocationMode: CreateResolvedInvocation(arguments));
 
-        await new ExecuteCommandPermissionMiddleware()
+        await new PermissionMiddleware()
             .BeforeFunctionAsync(beforeContext, CancellationToken.None)
             .ConfigureAwait(false);
 
@@ -533,7 +536,7 @@ public sealed class ExecuteCommandTests : IDisposable
     [Fact]
     public void ExecuteCommandPermissionBoundary_SandboxModeChangesPermissionFingerprint()
     {
-        var sandboxed = ExecuteCommandPermissionMiddleware.ExecuteCommandPermissionAnalyzer.Analyze(
+        var sandboxed = ExecuteCommandPermissionAnalyzer.Analyze(
             RunArguments("npm install"),
             CreateWorkspaceRunConfig(),
             new ExecuteCommandOptions(),
@@ -543,7 +546,7 @@ public sealed class ExecuteCommandTests : IDisposable
         {
             Sandbox = new AgentSandboxRunConfig { Mode = AgentSandboxPolicy.Disabled }
         };
-        var unsandboxed = ExecuteCommandPermissionMiddleware.ExecuteCommandPermissionAnalyzer.Analyze(
+        var unsandboxed = ExecuteCommandPermissionAnalyzer.Analyze(
             RunArguments("npm install"),
             unsandboxedConfig,
             new ExecuteCommandOptions(),
@@ -1192,6 +1195,7 @@ public sealed class ExecuteCommandTests : IDisposable
             new Session("session-1"),
             new Thread("session-1", "test-agent") { Id = "thread-1" },
             CancellationToken.None,
+            services: EmptyServiceProvider.Instance,
             config: CreateTestAgentConfig());
         RegisterProcessExecution(agentContext.RuntimeCapabilities, runner);
         var requestArguments = new Dictionary<string, object?>
@@ -1214,8 +1218,9 @@ public sealed class ExecuteCommandTests : IDisposable
             arguments,
             runConfig,
             toolharnessName: nameof(CodingToolHarness),
-            skillName: null);
-        await new ExecuteCommandPermissionMiddleware()
+            skillName: null,
+            invocationMode: CreateResolvedInvocation(arguments));
+        await new PermissionMiddleware()
             .BeforeFunctionAsync(beforeContext, CancellationToken.None)
             .ConfigureAwait(false);
 
@@ -1595,6 +1600,7 @@ public sealed class ExecuteCommandTests : IDisposable
             session,
             thread,
             CancellationToken.None,
+            services: EmptyServiceProvider.Instance,
             config: CreateTestAgentConfig());
         RegisterProcessExecution(agentContext.RuntimeCapabilities, runner);
 
@@ -1612,8 +1618,9 @@ public sealed class ExecuteCommandTests : IDisposable
             arguments,
             runConfig,
             toolharnessName: nameof(CodingToolHarness),
-            skillName: null);
-        await new ExecuteCommandPermissionMiddleware()
+            skillName: null,
+            invocationMode: CreateResolvedInvocation(arguments));
+        await new PermissionMiddleware()
             .BeforeFunctionAsync(beforeContext, CancellationToken.None)
             .ConfigureAwait(false);
 
@@ -1637,14 +1644,29 @@ public sealed class ExecuteCommandTests : IDisposable
             .ConfigureAwait(false);
     }
 
-    private static AIFunction CreateExecuteCommandFunction()
-        => AIFunctionFactory.Create(
-            () => "ok",
-            new AIFunctionFactoryOptions
+    private static AIFunction CreateExecuteCommandFunction() =>
+        CodingToolHarnessRegistration.CreateToolHarness(new CodingToolHarness())
+            .Single(function => function.Name == nameof(CodingToolHarness.ExecuteCommand));
+
+    private static ResolvedFunctionInvocation CreateResolvedInvocation(
+        IReadOnlyDictionary<string, object?> arguments)
+    {
+        var request = JsonSerializer.SerializeToElement(arguments["request"]);
+        var action = request.GetProperty("action").GetString()!;
+        return new ResolvedFunctionInvocation
+        {
+            Action = action,
+            Mode = AgentInvocationMode.Synchronous,
+            Policy = AgentInvocationModePolicy.SynchronousOnly,
+            Handling = AgentInvocationModeHandling.Runtime,
+            ValidatedAction = new ValidatedFunctionAction
             {
-                Name = nameof(CodingToolHarness.ExecuteCommand),
-                Description = "Test ExecuteCommand function"
-            });
+                Action = action,
+                CanonicalJson = request
+            },
+            IngressProvenance = FunctionArgumentIngressProvenance.Canonicalized
+        };
+    }
 
     private static IReadOnlyDictionary<string, object?> RunArguments(string command)
         => new Dictionary<string, object?>
@@ -1703,6 +1725,12 @@ public sealed class ExecuteCommandTests : IDisposable
                 GeneratedAgentEventModule_HPD_Agent_Harness_Coding_ab3285cb.Fragment
             ])
         };
+
+    private sealed class EmptyServiceProvider : IServiceProvider
+    {
+        public static EmptyServiceProvider Instance { get; } = new();
+        public object? GetService(Type serviceType) => null;
+    }
 
     private static string ExtractAttribute(string xml, string name)
     {

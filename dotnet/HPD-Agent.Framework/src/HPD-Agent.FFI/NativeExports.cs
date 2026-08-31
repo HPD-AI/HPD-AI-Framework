@@ -341,7 +341,14 @@ public static partial class NativeExports
             {
                 Name = nativeFunc.Name,
                 Description = nativeFunc.Description,
-                RequiresPermission = nativeFunc.RequiresPermission,
+                FunctionPermission = nativeFunc.RequiresPermission
+                    ? new AIFunctionPermissionDeclaration
+                    {
+                        RequiresPermission = true,
+                        Scope = $"function/{Uri.EscapeDataString(nativeFunc.Name)}",
+                        Source = PermissionDeclarationSource.FrameworkDefault
+                    }
+                    : null,
                 SchemaProvider = () =>
                 {
                     try
@@ -967,11 +974,11 @@ public static partial class NativeExports
             if (string.IsNullOrEmpty(permissionId)) return 0;
 
             // Map integer to PermissionChoice enum
-            PermissionChoice choice = permissionChoice switch
+            var choiceId = permissionChoice switch
             {
-                1 => PermissionChoice.AlwaysAllow,
-                2 => PermissionChoice.AlwaysDeny,
-                _ => PermissionChoice.Ask
+                1 => "always_allow",
+                2 => "always_deny",
+                _ => approved == 1 ? "allow_once" : "deny_once"
             };
 
             // Send response back to the agent
@@ -979,9 +986,8 @@ public static partial class NativeExports
                 new PermissionResponseEvent(
                     permissionId,
                     "FFI",  // Source name
-                    approved == 1,
-                    approved == 1 ? null : "User denied permission via FFI",
-                    choice
+                    choiceId,
+                    approved == 1 ? null : "User denied permission via FFI"
                 )
             ).GetAwaiter().GetResult();
 

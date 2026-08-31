@@ -1806,6 +1806,12 @@ public abstract record ExecuteCommandOperation;
 /// <param name="TimeoutMilliseconds">The foreground timeout in milliseconds.</param>
 /// <param name="ExecutionMode">Whether the spawned command remains attached or returns a background handle.</param>
 /// <param name="Environment">Environment variables to add or override.</param>
+[AIFunctionAction(
+    "run",
+    Permission = PermissionRequirement.Required,
+    PermissionScope = "coding/execute-command/run",
+    PermissionPolicy = typeof(ExecuteCommandPermissionPolicy),
+    PermissionInteraction = typeof(ExecuteCommandPermissionInteraction))]
 public sealed record RunCommandOperation(
     [property: Description("The shell command to execute.")]
     string Command,
@@ -1820,12 +1826,14 @@ public sealed record RunCommandOperation(
     : ExecuteCommandOperation;
 
 /// <summary>Lists background commands owned by the current session.</summary>
+[AIFunctionAction("listBackground", Permission = PermissionRequirement.NotRequired)]
 public sealed record ListBackgroundCommandsOperation : ExecuteCommandOperation;
 
 /// <summary>Reads recent output from a background command.</summary>
 /// <param name="OperationId">The handle returned by a background run.</param>
 /// <param name="TailLines">The maximum number of recent combined output lines.</param>
 /// <param name="DelayMilliseconds">An optional delay before reading output.</param>
+[AIFunctionAction("readOutput", Permission = PermissionRequirement.NotRequired)]
 public sealed record ReadCommandOutputOperation(
     [property: Description("Background handle id returned by a previous background run.")]
     string OperationId,
@@ -1837,6 +1845,7 @@ public sealed record ReadCommandOutputOperation(
 
 /// <summary>Stops a background command.</summary>
 /// <param name="OperationId">The handle returned by a background run.</param>
+[AIFunctionAction("stop", Permission = PermissionRequirement.NotRequired)]
 public sealed record StopCommandOperation(
     [property: Description("Background handle id returned by a previous background run.")]
     string OperationId)

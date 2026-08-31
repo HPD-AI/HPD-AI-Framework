@@ -57,7 +57,6 @@ public sealed record ThreadRuntimeChildDescriptor(
     string? ParentSessionId,
     string? ParentThreadId,
     string? SubAgentName,
-    string? SubAgentTaskName,
     string? InvocationId,
     string? SubAgentSourceKind,
     string? ParentToolCallId,

@@ -52,7 +52,7 @@ public class Session
     /// <remarks>
     /// <para><b>Examples of session-scoped persistent state:</b></para>
     /// <list type="bullet">
-    /// <item>PermissionPersistentState: "Always Allow Bash" applies to all threads</item>
+    /// <item>Versioned permission preferences may apply across threads in this session.</item>
     /// <item>User preferences: Theme, language, etc.</item>
     /// </list>
     /// </remarks>

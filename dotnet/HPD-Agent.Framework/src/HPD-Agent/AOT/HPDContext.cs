@@ -155,7 +155,6 @@ using Microsoft.Extensions.AI;
 [JsonSerializable(typeof(LocalContentMetadata))]
 
 // --- Conversation storage and serialization types ---
-[JsonSerializable(typeof(BatchPermissionStateData))]
 [JsonSerializable(typeof(CircuitBreakerStateData))]
 [JsonSerializable(typeof(ContinuationPermissionStateData))]
 [JsonSerializable(typeof(ErrorTrackingStateData))]
@@ -187,7 +186,6 @@ using Microsoft.Extensions.AI;
 [JsonSerializable(typeof(ApplyThreadForkCompaction))]
 [JsonSerializable(typeof(ThreadJournalCursor))]
 [JsonSerializable(typeof(ThreadJournalReplaceResult))]
-[JsonSerializable(typeof(PermissionPersistentStateData))]
 [JsonSerializable(typeof(TotalErrorThresholdStateData))]
 [JsonSerializable(typeof(PlanModePersistentStateData))]
 [JsonSerializable(typeof(AgentPlanData))]

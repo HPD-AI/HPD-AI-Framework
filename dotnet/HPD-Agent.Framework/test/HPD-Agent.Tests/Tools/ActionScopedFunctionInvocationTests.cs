@@ -266,12 +266,24 @@ public sealed class ActionScopedFunctionInvocationTests
             ["read"] = new()
             {
                 InvocationModePolicy = AgentInvocationModePolicy.SynchronousOnly,
-                InvocationModeHandling = AgentInvocationModeHandling.Runtime
+                InvocationModeHandling = AgentInvocationModeHandling.Runtime,
+                Permission = new AIFunctionPermissionDeclaration
+                {
+                    RequiresPermission = false,
+                    Scope = "read",
+                    Source = PermissionDeclarationSource.FrameworkDefault
+                }
             },
             ["run"] = new()
             {
                 InvocationModePolicy = AgentInvocationModePolicy.ModelChoice,
-                InvocationModeHandling = AgentInvocationModeHandling.ToolBody
+                InvocationModeHandling = AgentInvocationModeHandling.ToolBody,
+                Permission = new AIFunctionPermissionDeclaration
+                {
+                    RequiresPermission = false,
+                    Scope = "run",
+                    Source = PermissionDeclarationSource.FrameworkDefault
+                }
             }
         }
     };

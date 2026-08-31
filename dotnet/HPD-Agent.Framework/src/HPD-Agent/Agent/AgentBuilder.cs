@@ -618,6 +618,7 @@ public class AgentBuilder
     private List<AIFunction> CreateFunctionsFromCatalog()
     {
         var allFunctions = new List<AIFunction>();
+        var subAgentActions = new List<SubAgentActionDescriptor>();
 
         // Process catalog-based ToolHarnesses (zero reflection in hot path)
         foreach (var factory in _selectedToolHarnessFactories)
@@ -662,6 +663,9 @@ public class AgentBuilder
                 instance = factory.CreateInstance();
 
             HaveInstance:
+                if (factory.CreateSubAgentActions is not null)
+                    subAgentActions.AddRange(factory.CreateSubAgentActions(instance));
+
                 if (factory.CollectMcpServers != null)
                 {
                     factory.CollectMcpServers(instance, source =>
@@ -732,6 +736,9 @@ public class AgentBuilder
 
                 _toolharnessContexts.TryGetValue(registration.ToolTypeName, out var ctx);
 
+                if (factory.CreateSubAgentActions is not null)
+                    subAgentActions.AddRange(factory.CreateSubAgentActions(registration.Instance));
+
                 if (factory.CollectOpenApiSources != null)
                 {
                     factory.CollectOpenApiSources(registration.Instance, (name, config, parentContainer) =>
@@ -761,6 +768,14 @@ public class AgentBuilder
                 _logger?.CreateLogger<AgentBuilder>()
                     .LogWarning(ex, "Failed to create functions for instance ToolHarness {ToolHarnessName}", registration.ToolTypeName);
             }
+        }
+
+        if (subAgentActions.Count > 0)
+        {
+            if (allFunctions.Any(static function =>
+                    string.Equals(function.Name, SubAgentsFunctionFactory.FunctionName, StringComparison.Ordinal)))
+                throw new InvalidOperationException("'SubAgents' is reserved while subagent roles are active.");
+            allFunctions.Add((AIFunction)SubAgentsFunctionFactory.Create(subAgentActions));
         }
 
         return allFunctions;

@@ -87,8 +87,12 @@ internal sealed class CodingSubAgentTuiHandler : IAgentTuiEventHandler, IAgentTu
         {
             using var document = JsonDocument.Parse(json);
             var root = document.RootElement;
-            if (root.TryGetProperty("taskName", out var task) && task.ValueKind == JsonValueKind.String)
-                entry.TaskName = task.GetString();
+            if (root.TryGetProperty("request", out var request) && request.ValueKind == JsonValueKind.Object)
+                root = request;
+            if (root.TryGetProperty("child", out var child) && child.ValueKind == JsonValueKind.String)
+                entry.TaskName = child.GetString();
+            else if (root.TryGetProperty("action", out var action) && action.ValueKind == JsonValueKind.String)
+                entry.TaskName = action.GetString();
             if (root.TryGetProperty("input", out var input) && input.ValueKind == JsonValueKind.String)
                 entry.Detail = Limit(input.GetString(), PromptLimit);
         }

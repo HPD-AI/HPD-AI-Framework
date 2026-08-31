@@ -257,7 +257,8 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
         AgentRunConfig runConfig,
         AgentContext agentContext,
         ToolInvocationInfo? invocation,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool admit = true)
     {
         if (string.IsNullOrEmpty(functionCall.Name))
         {
@@ -465,41 +466,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             invocation: invocation,
             clientToolOperations: clientToolOperations);
 
-        await _middlewarePipeline.ExecuteBeforeFunctionAsync(
-            beforeFunctionContext, cancellationToken).ConfigureAwait(false);
-
-        if (beforeFunctionContext.BlockExecution)
-        {
-            var outcome = new FunctionExecutionOutcome(
-                functionCall.CallId,
-                functionCall.Name,
-                function,
-                Result: beforeFunctionContext.OverrideResult ?? "Permission denied",
-                ResultPayload: ToolResultPayload.FromResult(beforeFunctionContext.OverrideResult ?? "Permission denied"),
-                Exception: null,
-                WasBlocked: true,
-                WasUnknown: function == null,
-                WasOutputTool: false,
-                ShouldTerminate: false,
-                ToolHarnessName: toolharnessName,
-                CallType: callType,
-                ResultMetadata: new ToolResultMetadata(),
-                Invocation: invocation);
-
-            return new FunctionExecutionPreparation(
-                functionCall,
-                invocation,
-                function,
-                arguments,
-                resolvedInvocation,
-                authorityStamp,
-                beforeFunctionContext,
-                ImmediateOutcome: outcome,
-                ToolHarnessName: toolharnessName,
-                CallType: callType);
-        }
-
-        return new FunctionExecutionPreparation(
+        var authorityPreparation = new FunctionExecutionPreparation(
             functionCall,
             invocation,
             function,
@@ -510,6 +477,49 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             ImmediateOutcome: null,
             ToolHarnessName: toolharnessName,
             CallType: callType);
+
+        if (!admit)
+            return authorityPreparation;
+
+        return await AdmitPreparedFunctionAsync(
+            authorityPreparation,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    internal async Task<FunctionExecutionPreparation> AdmitPreparedFunctionAsync(
+        FunctionExecutionPreparation preparation,
+        CancellationToken cancellationToken)
+    {
+        if (preparation.ImmediateOutcome is not null)
+            return preparation;
+        var beforeFunctionContext = preparation.BeforeFunctionContext
+            ?? throw new InvalidOperationException("Authority preparation is missing BeforeFunction context.");
+
+        await _middlewarePipeline.ExecuteBeforeFunctionAsync(
+            beforeFunctionContext, cancellationToken).ConfigureAwait(false);
+
+        if (beforeFunctionContext.BlockExecution)
+        {
+            var outcome = new FunctionExecutionOutcome(
+                preparation.FunctionCall.CallId,
+                preparation.FunctionCall.Name,
+                preparation.Function,
+                Result: beforeFunctionContext.OverrideResult ?? "Permission denied",
+                ResultPayload: ToolResultPayload.FromResult(beforeFunctionContext.OverrideResult ?? "Permission denied"),
+                Exception: null,
+                WasBlocked: true,
+                WasUnknown: preparation.Function == null,
+                WasOutputTool: false,
+                ShouldTerminate: false,
+                ToolHarnessName: preparation.ToolHarnessName,
+                CallType: preparation.CallType,
+                ResultMetadata: new ToolResultMetadata(),
+                Invocation: preparation.Invocation);
+
+            return preparation with { ImmediateOutcome = outcome };
+        }
+
+        return preparation;
     }
 
     private static FunctionExecutionPreparation CreatePreparationRejection(
@@ -587,6 +597,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 RunConfig = beforeFunctionContext.RunConfig,
                 Invocation = preparation.Invocation,
                 InvocationMode = preparation.ResolvedInvocation,
+                PermissionGrant = beforeFunctionContext.PermissionGrant,
                 ResultMetadata = resultMetadata,
                 ToolHarnessName = preparation.ToolHarnessName,
                 SkillName = null,
@@ -692,6 +703,19 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
         FunctionExecutionPreparation preparation,
         Middleware.FunctionRequest request)
     {
+        if (preparation.BeforeFunctionContext?.PermissionGrant is { } grant)
+        {
+            if (request.PermissionGrant != grant ||
+                !string.Equals(grant.FunctionCallId, preparation.FunctionCall.CallId, StringComparison.Ordinal) ||
+                !string.Equals(grant.FunctionName, request.Function.Name, StringComparison.Ordinal))
+                throw new InvalidOperationException("permission_authority_drift: wrapping middleware replaced the invocation grant.");
+            var actualArguments = JsonSerializer.SerializeToElement(
+                request.Arguments.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal),
+                HPDJsonContext.Default.DictionaryStringObject);
+            if (!JsonElement.DeepEquals(grant.Authority.CanonicalArguments, actualArguments))
+                throw new InvalidOperationException("permission_authority_drift: wrapping middleware changed protected arguments.");
+        }
+
         if (preparation.AuthorityStamp is not { } stamp ||
             preparation.Function is not HPDAIFunctionFactory.HPDAIFunction prepared ||
             prepared.HPDOptions.OperationContract is not { } contract)

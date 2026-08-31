@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using HPD.Agent.ClientTools;
+using HPD.Agent.Permissions;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Middleware;
@@ -359,6 +360,8 @@ public sealed class BeforeParallelBatchContext : HookContext
 /// </summary>
 public sealed class BeforeFunctionContext : HookContext
 {
+    /// <summary>Gets the invocation-bound grant issued during permission admission.</summary>
+    public FunctionPermissionGrant? PermissionGrant { get; internal set; }
     /// <summary>Gets the immutable action and invocation-mode facts resolved before this hook.</summary>
     public ResolvedFunctionInvocation? InvocationMode { get; }
     /// <summary>
@@ -715,7 +718,8 @@ public sealed record ParallelFunctionInfo(
     AIFunction Function,
     string CallId,
     IReadOnlyDictionary<string, object?> Arguments,
-    ToolInvocationInfo? Invocation = null)
+    ToolInvocationInfo? Invocation = null,
+    ResolvedFunctionInvocation? ResolvedInvocation = null)
 {
     /// <summary>
     /// Name of the function being called.

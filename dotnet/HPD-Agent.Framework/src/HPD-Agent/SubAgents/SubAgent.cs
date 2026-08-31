@@ -435,7 +435,10 @@ public enum SubAgentContext
     Fork,
 
     /// <summary>Starts with only the delegated input.</summary>
-    Fresh
+    Fresh,
+
+    /// <summary>Starts in a new isolated session.</summary>
+    Isolated
 }
 
 /// <summary>
@@ -457,7 +460,8 @@ public static class SubAgentContexts
         {
             "fork" => SubAgentContext.Fork,
             "fresh" => SubAgentContext.Fresh,
-            _ => throw new InvalidOperationException("context must be either 'fork' or 'fresh'.")
+            "isolated" => SubAgentContext.Isolated,
+            _ => throw new InvalidOperationException("context must be 'fork', 'fresh', or 'isolated'.")
         };
     }
 
@@ -479,7 +483,7 @@ public static class SubAgentContexts
         properties["context"] = new JsonObject
         {
             ["type"] = "string",
-            ["enum"] = new JsonArray("fork", "fresh"),
+            ["enum"] = new JsonArray("fork", "fresh", "isolated"),
             ["description"] = "Whether the child should inherit the current conversation or start fresh. Use fresh unless prior conversation is required."
         };
         var buffer = new System.Buffers.ArrayBufferWriter<byte>();
@@ -499,18 +503,21 @@ public static class SubAgentContexts
         SubAgentContextPolicy policy,
         SubAgentContext? requestedContext) => policy switch
         {
-            SubAgentContextPolicy.Fork when requestedContext == SubAgentContext.Fresh =>
+            SubAgentContextPolicy.Fork when requestedContext is not null and not SubAgentContext.Fork =>
                 throw new InvalidOperationException("This subagent always forks parent context."),
             SubAgentContextPolicy.Fork => SubAgentContextPolicy.Fork,
-            SubAgentContextPolicy.Fresh when requestedContext == SubAgentContext.Fork =>
+            SubAgentContextPolicy.Fresh when requestedContext is not null and not SubAgentContext.Fresh =>
                 throw new InvalidOperationException("This subagent always starts with fresh context."),
             SubAgentContextPolicy.Fresh => SubAgentContextPolicy.Fresh,
             SubAgentContextPolicy.Isolated when requestedContext is not null =>
                 throw new InvalidOperationException("This subagent always uses isolated context."),
             SubAgentContextPolicy.Isolated => SubAgentContextPolicy.Isolated,
-            SubAgentContextPolicy.ModelChoice => requestedContext == SubAgentContext.Fork
-                ? SubAgentContextPolicy.Fork
-                : SubAgentContextPolicy.Fresh,
+            SubAgentContextPolicy.ModelChoice => requestedContext switch
+            {
+                SubAgentContext.Fork => SubAgentContextPolicy.Fork,
+                SubAgentContext.Isolated => SubAgentContextPolicy.Isolated,
+                _ => SubAgentContextPolicy.Fresh
+            },
             _ => throw new ArgumentOutOfRangeException(nameof(policy))
         };
 

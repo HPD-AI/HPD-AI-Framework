@@ -139,8 +139,8 @@ public sealed class TeamsBot(
         await agent.TryAnswerRequestAsync(new PermissionResponseEvent(
             PermissionId: permissionId,
             SourceName: "teams",
-            Approved: approved,
-            Reason: approved ? null : "Denied from Teams"), ct);
+            ChoiceId: approved ? "allow_once" : "deny_once",
+            Feedback: approved ? null : "Denied from Teams"), ct);
     }
 
     public Task<string> OpenDmAsync(string userId, CancellationToken ct = default)
@@ -292,19 +292,14 @@ public sealed class TeamsBot(
         var body = new List<object>
         {
             new TeamsTextBlock("Permission requested", Weight: "Bolder", Size: "Medium"),
-            new TeamsTextBlock(permission.Description ?? $"Allow {permission.FunctionName}?", Wrap: true),
+            new TeamsTextBlock(permission.Evaluation.Summary ?? permission.Evaluation.Title, Wrap: true),
             new TeamsFactSet(
             [
                 new TeamsFact("Function", permission.FunctionName),
+                new TeamsFact("Risk", permission.Evaluation.Risk.ToString()),
                 new TeamsFact("Source", permission.SourceName),
             ]),
         };
-
-        if (permission.Arguments?.Count > 0)
-        {
-            body.Add(new TeamsTextBlock("Arguments", Weight: "Bolder"));
-            body.Add(new TeamsTextBlock(FormatPermissionArguments(permission.Arguments), Wrap: true));
-        }
 
         return new TeamsAdaptiveCard(
             Body: body,

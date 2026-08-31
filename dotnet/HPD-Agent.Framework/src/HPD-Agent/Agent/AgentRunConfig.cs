@@ -10,6 +10,7 @@ using HPD.Agent.Audio;
 using HPD.Agent.Audio.Output;
 using Microsoft.Extensions.AI;
 using HPD.Agent.Middleware;
+using HPD.Agent.Permissions;
 using HPD.Agent.Providers;
 using HPD.Agent.StructuredOutput;
 
@@ -91,7 +92,7 @@ public sealed record AgentSecurityRunConfig
     public AgentSandboxRunConfig Sandbox { get; init; } = new();
 
     /// <summary>Gets per-tool permission decisions for this run.</summary>
-    public IReadOnlyDictionary<string, bool>? PermissionOverrides { get; init; }
+    public IReadOnlyList<PermissionOverride>? PermissionOverrides { get; init; }
 }
 
 /// <summary>Sandbox policy and host capabilities applied to one agent run.</summary>

@@ -28,7 +28,7 @@ public sealed class MockPermissionHandler : IDisposable
     public record PermissionResponse(
         bool Approved,
         string? DenialReason = null,
-        PermissionChoice Choice = PermissionChoice.Ask);
+        string? ChoiceId = null);
 
         internal MockPermissionHandler(Agent agent, IAsyncEnumerable<AgentEvent> eventStream)
     {
@@ -111,11 +111,11 @@ public sealed class MockPermissionHandler : IDisposable
     /// <summary>
     /// Queues a specific response for the next permission request.
     /// </summary>
-    public MockPermissionHandler EnqueueResponse(bool approved, string? denialReason = null, PermissionChoice choice = PermissionChoice.Ask)
+    public MockPermissionHandler EnqueueResponse(bool approved, string? denialReason = null, string? choiceId = null)
     {
         lock (_lock)
         {
-            _queuedResponses.Enqueue(new PermissionResponse(approved, denialReason, choice));
+            _queuedResponses.Enqueue(new PermissionResponse(approved, denialReason, choiceId));
         }
         return this;
     }
@@ -199,10 +199,9 @@ public sealed class MockPermissionHandler : IDisposable
 
             await _agent.AnswerRequestAsync(new PermissionResponseEvent(
                 permissionRequest.PermissionId,
-                "MockPermissionHandler",
-                response.Approved,
-                response.DenialReason,
-                response.Choice));
+                permissionRequest.SourceName,
+                response.ChoiceId ?? (response.Approved ? "allow_once" : "deny_once"),
+                response.DenialReason));
         }
         else if (evt is ContinuationRequestEvent continuationRequest)
         {

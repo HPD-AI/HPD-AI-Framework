@@ -48,6 +48,21 @@ internal class FunctionCapability : BaseCapability
     /// </summary>
     public bool RequiresPermission { get; set; }
 
+    /// <summary>Explicit stable permission scope declared by the function.</summary>
+    public string? PermissionScope { get; set; }
+
+    /// <summary>Stable descriptor ID of the function permission policy.</summary>
+    public string? PermissionPolicyDescriptorId { get; set; }
+
+    /// <summary>Semantic policy type used to emit its presentation descriptor.</summary>
+    public ITypeSymbol? PermissionPolicyType { get; set; }
+
+    /// <summary>Stable descriptor ID of the function permission interaction.</summary>
+    public string? PermissionInteractionDescriptorId { get; set; }
+
+    /// <summary>Semantic interaction type used to emit its generated activation factory.</summary>
+    public ITypeSymbol? PermissionInteractionType { get; set; }
+
     /// <summary>
     /// The list of required permissions from [RequiresPermission(...)] attribute.
     /// </summary>
@@ -194,14 +209,15 @@ $@"({asyncKeyword} (arguments, functionContext, cancellationToken) =>
         var options = new StringBuilder();
         options.AppendLine($"                Name = {nameCode},");
         options.AppendLine($"                Description = {descriptionCode},");
-        options.AppendLine($"                RequiresPermission = {RequiresPermission.ToString().ToLower()},");
+        if (RequiresPermission)
+            options.AppendLine($"                FunctionPermission = {CreatePermissionDeclaration(true, PermissionScope ?? GeneratedScope(FunctionName), PermissionPolicyDescriptorId, PermissionInteractionDescriptorId, "FunctionAttribute")},");
+        options.AppendLine($"                PermissionDescriptors = {GeneratePermissionDescriptorsCode(relevantParams)},");
         options.AppendLine($"                InvocationModePolicy = global::HPD.Agent.AgentInvocationModePolicy.{InvocationModePolicy},");
         options.AppendLine($"                InvocationModeHandling = global::HPD.Agent.AgentInvocationModeHandling.{InvocationModeHandling},");
         var operationContract = GenerateOperationContractCode(relevantParams);
         if (operationContract is not null)
         {
-            options.AppendLine($"                OperationContract = {operationContract},");
-            options.AppendLine("                OperationContractSchemaComposed = true,");
+            options.AppendLine($"                VerifiedActionComposition = new global::HPD.Agent.VerifiedAIFunctionActionComposition(((global::System.Func<global::System.Text.Json.JsonElement>)({schemaProviderCode}))(), {operationContract}, Bind{Name}Arguments),");
         }
         options.AppendLine($"                ArgumentBinder = Bind{Name}Arguments,");
         options.AppendLine($"                SchemaProvider = {schemaProviderCode},");
@@ -333,10 +349,151 @@ $@"HPDAIFunctionFactory.Create(
                 "SynchronousOnly", "BackgroundOnly", "ModelChoice");
             var handling = ResolveActionOverride(attribute, "InvocationModeHandling", InvocationModeHandling,
                 "Runtime", "ToolBody");
-            entries.Add($"[\"{Escape(unionCase.Discriminator)}\"] = new global::HPD.Agent.AIFunctionActionPolicy {{ InvocationModePolicy = global::HPD.Agent.AgentInvocationModePolicy.{policy}, InvocationModeHandling = global::HPD.Agent.AgentInvocationModeHandling.{handling} }}");
+            var permission = ResolveActionPermissionOverride(attribute, unionCase.Discriminator);
+            entries.Add($"[\"{Escape(unionCase.Discriminator)}\"] = new global::HPD.Agent.AIFunctionActionPolicy {{ InvocationModePolicy = global::HPD.Agent.AgentInvocationModePolicy.{policy}, InvocationModeHandling = global::HPD.Agent.AgentInvocationModeHandling.{handling}, Permission = {permission} }}");
         }
         return $"new global::HPD.Agent.AIFunctionOperationContract {{ ActionArgumentName = \"{Escape(parameter.JsonName)}\", Discriminator = \"{Escape(union.DiscriminatorPropertyName)}\", Actions = new global::System.Collections.Generic.Dictionary<string, global::HPD.Agent.AIFunctionActionPolicy>(global::System.StringComparer.Ordinal) {{ {string.Join(", ", entries)} }} }}";
     }
+
+    private string ResolveActionPermissionOverride(AttributeData attribute, string action)
+    {
+        var permission = attribute.NamedArguments.FirstOrDefault(pair => pair.Key == "Permission");
+        var scope = attribute.NamedArguments.FirstOrDefault(pair => pair.Key == "PermissionScope");
+        var policy = attribute.NamedArguments.FirstOrDefault(pair => pair.Key == "PermissionPolicy");
+        var interaction = attribute.NamedArguments.FirstOrDefault(pair => pair.Key == "PermissionInteraction");
+        var hasOverride = permission.Key is not null || scope.Key is not null ||
+            policy.Key is not null || interaction.Key is not null;
+        if (!hasOverride)
+            return CreatePermissionDeclaration(
+                RequiresPermission,
+                PermissionScope ?? GeneratedScope(FunctionName, action),
+                PermissionPolicyDescriptorId,
+                PermissionInteractionDescriptorId,
+                RequiresPermission ? "FunctionAttribute" : "FrameworkDefault");
+        var numeric = permission.Key is null || permission.Value.Value is null
+            ? 1
+            : Convert.ToInt32(permission.Value.Value, System.Globalization.CultureInfo.InvariantCulture);
+        var required = numeric switch
+        {
+            0 => true,
+            1 => true,
+            2 => false,
+            var value => throw new InvalidOperationException($"Unsupported RequiresPermission value '{value}'.")
+        };
+        return CreatePermissionDeclaration(
+            required,
+            scope.Value.Value as string ?? GeneratedScope(FunctionName, action),
+            (policy.Value.Value as ITypeSymbol)?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            (interaction.Value.Value as ITypeSymbol)?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            "ActionOverride");
+    }
+
+    private static string GeneratedScope(string function, string? action = null) => action is null
+        ? $"function/{Uri.EscapeDataString(function)}"
+        : $"function/{Uri.EscapeDataString(function)}/action/{Uri.EscapeDataString(action)}";
+
+    private static string CreatePermissionDeclaration(
+        bool required,
+        string scope,
+        string? policy,
+        string? interaction,
+        string source) =>
+        $"new global::HPD.Agent.AIFunctionPermissionDeclaration {{ RequiresPermission = {required.ToString().ToLowerInvariant()}, Scope = \"{Escape(scope)}\", PolicyDescriptorId = {Literal(policy)}, InteractionDescriptorId = {Literal(interaction)}, Source = global::HPD.Agent.PermissionDeclarationSource.{source} }}";
+
+    private static string Literal(string? value) => value is null ? "null" : $"\"{Escape(value)}\"";
+
+    private string GeneratePermissionDescriptorsCode(IReadOnlyList<ParameterInfo> parameters)
+    {
+        var descriptors = new Dictionary<string, (bool Policy, bool Interaction, ITypeSymbol? PolicyType, ITypeSymbol? InteractionType)>(StringComparer.Ordinal);
+        Add(PermissionPolicyDescriptorId, policy: true, PermissionPolicyType);
+        Add(PermissionInteractionDescriptorId, policy: false, PermissionInteractionType);
+        foreach (var union in parameters.Select(static parameter => parameter.Contract).OfType<UnionContractNode>())
+        {
+            foreach (var unionCase in union.Cases)
+            {
+                var attribute = unionCase.ConcreteType.GetAttributes().SingleOrDefault(data =>
+                    data.AttributeClass?.Name == "AIFunctionActionAttribute");
+                if (attribute is null) continue;
+                var actionPolicyType = GetNamedType(attribute, "PermissionPolicy");
+                Add(GetNamedTypeId(attribute, "PermissionPolicy"), policy: true, actionPolicyType);
+                Add(GetNamedTypeId(attribute, "PermissionInteraction"), policy: false,
+                    GetNamedType(attribute, "PermissionInteraction"));
+            }
+        }
+        var entries = descriptors.Select(pair =>
+        {
+            var policyFactory = pair.Value.Policy
+                ? CreatePolicyFactory(pair.Key, pair.Value.PolicyType)
+                : string.Empty;
+            var interactionFactory = pair.Value.Interaction
+                ? CreateInteractionFactory(pair.Key, pair.Value.InteractionType)
+                : string.Empty;
+            var presentation = CreatePresentationDescriptor(pair.Value.PolicyType);
+            return $"[\"{Escape(pair.Key)}\"] = new global::HPD.Agent.Permissions.AIFunctionPermissionDescriptor {{ DescriptorId = \"{Escape(pair.Key)}\", {policyFactory} {interactionFactory} {presentation} }}";
+        });
+        return $"new global::System.Collections.Generic.Dictionary<string, global::HPD.Agent.Permissions.AIFunctionPermissionDescriptor>(global::System.StringComparer.Ordinal) {{ {string.Join(", ", entries)} }}";
+
+        void Add(string? id, bool policy, ITypeSymbol? serviceType = null)
+        {
+            if (id is null) return;
+            descriptors.TryGetValue(id, out var current);
+            descriptors[id] = policy
+                ? (true, current.Interaction, serviceType ?? current.PolicyType, current.InteractionType)
+                : (current.Policy, true, current.PolicyType, serviceType ?? current.InteractionType);
+        }
+    }
+
+    private static string CreatePolicyFactory(string typeName, ITypeSymbol? policyType)
+    {
+        if (policyType is INamedTypeSymbol named && named.InstanceConstructors.Any(static constructor =>
+                constructor.Parameters.Length == 0 &&
+                constructor.DeclaredAccessibility is Accessibility.Public or Accessibility.Internal))
+        {
+            return $"PolicyFactory = static services => new {typeName}(),";
+        }
+
+        return $"PolicyFactory = static services => (global::HPD.Agent.Permissions.IPermissionPolicy)(services.GetService(typeof({typeName})) ?? throw new global::System.InvalidOperationException(\"Permission policy service '{Escape(typeName)}' is not registered.\")),";
+    }
+
+    private static string CreateInteractionFactory(string typeName, ITypeSymbol? interactionType)
+    {
+        if (interactionType is INamedTypeSymbol named && named.InstanceConstructors.Any(static constructor =>
+                constructor.Parameters.Length == 0 &&
+                constructor.DeclaredAccessibility is Accessibility.Public or Accessibility.Internal))
+        {
+            return $"InteractionFactory = static services => new {typeName}(),";
+        }
+
+        return $"InteractionFactory = static services => (global::HPD.Agent.Permissions.IPermissionInteraction)(services.GetService(typeof({typeName})) ?? throw new global::System.InvalidOperationException(\"Permission interaction service '{Escape(typeName)}' is not registered.\")),";
+    }
+
+    private static ITypeSymbol? GetNamedType(AttributeData attribute, string name) =>
+        attribute.NamedArguments.FirstOrDefault(pair => pair.Key == name).Value.Value as ITypeSymbol;
+
+    private static string CreatePresentationDescriptor(ITypeSymbol? policyType)
+    {
+        if (policyType is not INamedTypeSymbol named) return string.Empty;
+        INamedTypeSymbol? current = named;
+        while (current is not null)
+        {
+            if (current.IsGenericType && current.Name == "PermissionPolicy" && current.TypeArguments.Length == 1)
+            {
+                var presentationType = current.TypeArguments[0];
+                var attribute = presentationType.GetAttributes().FirstOrDefault(static data =>
+                    data.AttributeClass?.Name == "PermissionPresentationAttribute");
+                var id = attribute?.ConstructorArguments.FirstOrDefault().Value as string;
+                if (string.IsNullOrWhiteSpace(id)) return string.Empty;
+                var typeName = presentationType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                return $"Presentation = new global::HPD.Agent.Permissions.PermissionPresentationDescriptor {{ PresentationId = \"{Escape(id)}\", PresentationType = typeof({typeName}), Serialize = static value => global::System.Text.Json.JsonSerializer.SerializeToElement(({typeName})value) }},";
+            }
+            current = current.BaseType;
+        }
+        return string.Empty;
+    }
+
+    private static string? GetNamedTypeId(AttributeData attribute, string name) =>
+        (attribute.NamedArguments.FirstOrDefault(pair => pair.Key == name).Value.Value as ITypeSymbol)?
+            .ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
     private static string ResolveActionOverride(
         AttributeData attribute, string name, string inherited, params string[] values)

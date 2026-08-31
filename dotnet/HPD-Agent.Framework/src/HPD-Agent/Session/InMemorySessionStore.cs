@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using HPD.Agent.Serialization;
+using HPD.Agent.Permissions;
 
 namespace HPD.Agent;
 
@@ -8,8 +9,9 @@ namespace HPD.Agent;
 /// Append-oriented in-memory implementation of the canonical thread journal.
 /// Data is lost on process restart.
 /// </summary>
-public sealed class InMemorySessionStore : ISessionStore, IThreadDeltaStore
+public sealed class InMemorySessionStore : ISessionStore, IThreadDeltaStore, HPD.Agent.Permissions.IPermissionPreferenceStore
 {
+    private readonly ConcurrentDictionary<string, PreferenceState> _permissionPreferences = new(StringComparer.Ordinal);
     private const int SegmentCapacity = 256;
 
     private readonly ConcurrentDictionary<string, Session> _sessions = new();
@@ -317,6 +319,169 @@ public sealed class InMemorySessionStore : ISessionStore, IThreadDeltaStore
             throw new ArgumentOutOfRangeException(nameof(request), "Through cannot be less than After.");
         if (request.MaxBatchEventCount <= 0)
             throw new ArgumentOutOfRangeException(nameof(request), "MaxBatchEventCount must be positive.");
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<PermissionPreferenceSnapshot> ReadAsync(
+        string sessionId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        var state = _permissionPreferences.GetOrAdd(sessionId, static _ => new PreferenceState());
+        await state.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try { return state.Snapshot with { Records = state.Snapshot.Records.ToArray() }; }
+        finally { state.Gate.Release(); }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<PermissionPreferenceCommitResult> CommitAsync(
+        PermissionPreferenceCommit commit,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(commit);
+        if (commit.AuditThread.SessionId != commit.SessionId)
+            throw new InvalidOperationException("Permission audit thread must belong to the preference session.");
+        var state = _permissionPreferences.GetOrAdd(commit.SessionId, static _ => new PreferenceState());
+        await state.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (state.Idempotency.TryGetValue(commit.IdempotencyKey, out var replay))
+            {
+                if (replay.State == PermissionPreferenceOutboxState.Pending ||
+                    replay is { State: PermissionPreferenceOutboxState.Claimed, ClaimExpiresAt: { } expiry } &&
+                    expiry <= DateTimeOffset.UtcNow)
+                {
+                    replay = replay with
+                    {
+                        State = PermissionPreferenceOutboxState.Claimed,
+                        ClaimToken = Guid.NewGuid().ToString("N"),
+                        ClaimantId = commit.PublisherClaimantId,
+                        ClaimExpiresAt = DateTimeOffset.UtcNow.AddMinutes(1)
+                    };
+                    state.Outbox[replay.SettlementId] = replay;
+                    state.Idempotency[replay.IdempotencyKey] = replay;
+                }
+                return new PermissionPreferenceCommitResult
+                {
+                    Status = PermissionPreferenceCommitStatus.AlreadyCommitted,
+                    CurrentVersion = state.Snapshot.Version,
+                    Outbox = replay
+                };
+            }
+            if (state.Snapshot.Version != commit.ExpectedVersion)
+                return new PermissionPreferenceCommitResult
+                {
+                    Status = PermissionPreferenceCommitStatus.VersionConflict,
+                    CurrentVersion = state.Snapshot.Version
+                };
+            if (commit.Replacement.Version != commit.ExpectedVersion + 1)
+                throw new InvalidOperationException("Permission replacement version must advance exactly once.");
+            var appended = await AppendThreadEventsAsync(
+                commit.AuditThread,
+                [commit.Event],
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            var committedEvent = (PermissionPreferenceChangedEvent)appended.CommittedEvents.Single();
+            var outbox = new PermissionPreferenceOutboxRecord
+            {
+                SettlementId = Guid.NewGuid().ToString("N"),
+                ClaimToken = Guid.NewGuid().ToString("N"),
+                ClaimantId = commit.PublisherClaimantId,
+                ClaimExpiresAt = DateTimeOffset.UtcNow.AddMinutes(1),
+                State = PermissionPreferenceOutboxState.Claimed,
+                SessionId = commit.SessionId,
+                AuditThread = commit.AuditThread,
+                CommittedEvent = committedEvent,
+                ThreadSequenceNumber = committedEvent.ThreadSequenceNumber,
+                IdempotencyKey = commit.IdempotencyKey
+            };
+            state.Snapshot = commit.Replacement with { Records = commit.Replacement.Records.ToArray() };
+            state.Outbox[outbox.SettlementId] = outbox;
+            state.Idempotency[commit.IdempotencyKey] = outbox;
+            return new PermissionPreferenceCommitResult
+            {
+                Status = PermissionPreferenceCommitStatus.Committed,
+                CurrentVersion = state.Snapshot.Version,
+                Outbox = outbox
+            };
+        }
+        finally { state.Gate.Release(); }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<IReadOnlyList<PermissionPreferenceOutboxRecord>> ClaimPendingPublicationAsync(
+        string sessionId,
+        string claimantId,
+        int maxCount,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(claimantId);
+        if (maxCount <= 0) throw new ArgumentOutOfRangeException(nameof(maxCount));
+        var state = _permissionPreferences.GetOrAdd(sessionId, static _ => new PreferenceState());
+        await state.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var claimed = new List<PermissionPreferenceOutboxRecord>();
+            foreach (var pending in state.Outbox.Values
+                .Where(value => value.State == PermissionPreferenceOutboxState.Pending ||
+                    value is { State: PermissionPreferenceOutboxState.Claimed, ClaimExpiresAt: { } expiry } &&
+                    expiry <= DateTimeOffset.UtcNow)
+                .OrderBy(static value => value.ThreadSequenceNumber)
+                .Take(maxCount))
+            {
+                var value = pending with
+                {
+                    State = PermissionPreferenceOutboxState.Claimed,
+                    ClaimToken = Guid.NewGuid().ToString("N"),
+                    ClaimantId = claimantId,
+                    ClaimExpiresAt = DateTimeOffset.UtcNow.AddMinutes(1)
+                };
+                state.Outbox[value.SettlementId] = value;
+                state.Idempotency[value.IdempotencyKey] = value;
+                claimed.Add(value);
+            }
+            return claimed;
+        }
+        finally { state.Gate.Release(); }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<bool> AcknowledgePublicationAsync(
+        string settlementId,
+        string claimToken,
+        CancellationToken cancellationToken)
+    {
+        foreach (var state in _permissionPreferences.Values)
+        {
+            await state.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                if (!state.Outbox.TryGetValue(settlementId, out var current)) continue;
+                if (current.State == PermissionPreferenceOutboxState.Acknowledged) return true;
+                if (current.State != PermissionPreferenceOutboxState.Claimed || current.ClaimToken != claimToken)
+                    return false;
+                var acknowledged = current with
+                {
+                    State = PermissionPreferenceOutboxState.Acknowledged,
+                    ClaimToken = null,
+                    ClaimantId = null,
+                    ClaimExpiresAt = null
+                };
+                state.Outbox[settlementId] = acknowledged;
+                state.Idempotency[acknowledged.IdempotencyKey] = acknowledged;
+                return true;
+            }
+            finally { state.Gate.Release(); }
+        }
+        return false;
+    }
+
+    private sealed class PreferenceState
+    {
+        internal SemaphoreSlim Gate { get; } = new(1, 1);
+        internal PermissionPreferenceSnapshot Snapshot { get; set; } = new(0, []);
+        internal Dictionary<string, PermissionPreferenceOutboxRecord> Outbox { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, PermissionPreferenceOutboxRecord> Idempotency { get; } = new(StringComparer.Ordinal);
     }
 
     private sealed class ThreadJournal

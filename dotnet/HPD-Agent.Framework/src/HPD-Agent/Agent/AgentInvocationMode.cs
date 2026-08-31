@@ -71,6 +71,51 @@ public sealed record AIFunctionActionPolicy
 
     /// <summary>Gets the fully resolved action handling strategy.</summary>
     public required AgentInvocationModeHandling InvocationModeHandling { get; init; }
+
+    /// <summary>Gets the complete permission declaration resolved for this action.</summary>
+    public required AIFunctionPermissionDeclaration Permission { get; init; }
+}
+
+/// <summary>Identifies where an effective permission declaration originated.</summary>
+public enum PermissionDeclarationSource
+{
+    /// <summary>The framework supplied the unprotected default.</summary>
+    FrameworkDefault,
+    /// <summary>The containing function supplied the declaration.</summary>
+    FunctionAttribute,
+    /// <summary>The concrete action atomically replaced the function declaration.</summary>
+    ActionOverride
+}
+
+/// <summary>Describes one immutable normalized function or action permission declaration.</summary>
+public sealed record AIFunctionPermissionDeclaration
+{
+    /// <summary>Creates the framework-default protected declaration for a function name.</summary>
+    public static AIFunctionPermissionDeclaration Required(string functionName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(functionName);
+        return new AIFunctionPermissionDeclaration
+        {
+            RequiresPermission = true,
+            Scope = $"function/{Uri.EscapeDataString(functionName)}",
+            Source = PermissionDeclarationSource.FrameworkDefault
+        };
+    }
+
+    /// <summary>Gets whether permission mediation is required.</summary>
+    public required bool RequiresPermission { get; init; }
+
+    /// <summary>Gets the canonical generated or application-owned permission scope.</summary>
+    public required string Scope { get; init; }
+
+    /// <summary>Gets the stable permission-policy descriptor ID, when custom policy is selected.</summary>
+    public string? PolicyDescriptorId { get; init; }
+
+    /// <summary>Gets the stable permission-interaction descriptor ID, when custom interaction is selected.</summary>
+    public string? InteractionDescriptorId { get; init; }
+
+    /// <summary>Gets the declaration source.</summary>
+    public required PermissionDeclarationSource Source { get; init; }
 }
 
 /// <summary>Describes the direct closed-union argument owned by a compound AI function.</summary>

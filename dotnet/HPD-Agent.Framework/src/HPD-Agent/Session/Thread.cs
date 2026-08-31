@@ -138,8 +138,6 @@ public class Thread
     /// <summary>Name of the subagent associated with this thread, when Kind is SubAgent.</summary>
     public string? SubAgentName { get; set; }
 
-    public string? SubAgentTaskName { get; set; }
-
     public string? SubAgentStatus { get; set; }
 
     /// <summary>Delegation invocation that created this subagent thread.</summary>
@@ -288,7 +286,6 @@ public class Thread
         string? parentSessionId = null,
         string? parentThreadId = null,
         string? subAgentName = null,
-        string? subAgentTaskName = null,
         string? subAgentStatus = null,
         string? invocationId = null,
         string? subAgentSourceKind = null,
@@ -313,7 +310,6 @@ public class Thread
         ParentSessionId = parentSessionId;
         ParentThreadId = parentThreadId;
         SubAgentName = subAgentName;
-        SubAgentTaskName = subAgentTaskName;
         SubAgentStatus = subAgentStatus;
         InvocationId = invocationId;
         SubAgentSourceKind = subAgentSourceKind;
@@ -382,8 +378,6 @@ public class Thread
             ParentThreadId = parentThreadId;
         if (TryRemoveString(metadata, "subAgentName", out var subAgentName))
             SubAgentName = subAgentName;
-        if (TryRemoveString(metadata, "subAgentTaskName", out var subAgentTaskName))
-            SubAgentTaskName = subAgentTaskName;
         if (TryRemoveString(metadata, "invocationId", out var invocationId))
             InvocationId = invocationId;
         if (TryRemoveString(metadata, "defaultAgentId", out var defaultAgentId))

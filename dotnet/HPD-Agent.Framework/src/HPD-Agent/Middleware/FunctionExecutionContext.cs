@@ -2,6 +2,7 @@ using HPD.Events;
 using HPD.Events.Struct;
 using Microsoft.Extensions.AI;
 using HPD.Agent;
+using HPD.Agent.Permissions;
 using System.ComponentModel;
 
 namespace HPD.Agent.Middleware;
@@ -74,6 +75,7 @@ public sealed class FunctionExecutionContext
         _stateSnapshot = request.State;
         RunConfig = request.RunConfig;
         InvocationMode = request.InvocationMode;
+        PermissionGrant = request.PermissionGrant;
         ResultMetadata = request.ResultMetadata;
         EventCoordinator = request.EventCoordinator;
         ThreadEvents = hookContext.Base.ThreadEvents;
@@ -95,6 +97,7 @@ public sealed class FunctionExecutionContext
     {
         InvocationSnapshot = source.InvocationSnapshot;
         InvocationMode = source.InvocationMode;
+        PermissionGrant = source.PermissionGrant;
         _stateSnapshot = source._stateSnapshot;
         RunConfig = source.RunConfig;
         ResultMetadata = new ToolResultMetadata();
@@ -144,6 +147,13 @@ public sealed class FunctionExecutionContext
 
     /// <summary>Gets the immutable action and invocation-mode facts resolved for this call.</summary>
     public ResolvedFunctionInvocation? InvocationMode { get; }
+
+    /// <summary>Gets approval bound to this exact protected invocation, when one was issued.</summary>
+    public FunctionPermissionGrant? PermissionGrant { get; }
+
+    /// <summary>Returns the invocation grant or throws when permission was not approved.</summary>
+    public FunctionPermissionGrant DemandApproved() => PermissionGrant ??
+        throw new InvalidOperationException("This invocation does not carry an approved permission grant.");
 
     /// <summary>Gets the resolved execution mode, or synchronous for an uncontracted legacy call.</summary>
     public AgentInvocationMode ResolvedInvocationMode => InvocationMode?.Mode ?? AgentInvocationMode.Synchronous;

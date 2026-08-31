@@ -210,7 +210,14 @@ public static class SkillCapabilityFunctionProjector
         {
             Name = name,
             Description = description,
-            RequiresPermission = requiresPermission,
+            FunctionPermission = requiresPermission
+                ? new AIFunctionPermissionDeclaration
+                {
+                    RequiresPermission = true,
+                    Scope = $"skill/{Uri.EscapeDataString(name)}",
+                    Source = PermissionDeclarationSource.FunctionAttribute
+                }
+                : null,
             SchemaProvider = inputContract is null
                 ? static () =>
                 {

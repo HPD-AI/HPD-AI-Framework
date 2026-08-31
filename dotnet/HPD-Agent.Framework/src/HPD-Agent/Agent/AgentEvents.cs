@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Agent.Middleware;
 using HPD.Agent.Planning;
+using HPD.Agent.Permissions;
 using HPD.Agent.Providers;
 using HPD.Agent.Serialization;
 using Microsoft.Extensions.AI;
@@ -352,7 +353,6 @@ public sealed record SubAgentInvocationStartedEvent(
     string ChildSessionId,
     string ChildThreadId,
     string RoleName,
-    string TaskName,
     SubAgentContextPolicy ContextPolicy,
     AgentInvocationMode Mode) : AgentEvent
 {
@@ -1223,9 +1223,9 @@ public record PermissionRequestEvent(
     string PermissionId,
     string SourceName,
     string FunctionName,
-    string? Description,
+    string? Action,
     string CallId,
-    IDictionary<string, object?>? Arguments) : AgentEvent, IAgentRequestEvent<PermissionResponseEvent>
+    PermissionEvaluationEnvelope Evaluation) : AgentEvent, IAgentRequestEvent<PermissionResponseEvent>
 {
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
@@ -1243,10 +1243,8 @@ public record PermissionRequestEvent(
 public record PermissionResponseEvent(
     string PermissionId,
     string SourceName,
-    bool Approved,
-    string? Reason = null,
-    PermissionChoice Choice = PermissionChoice.Ask,
-    PermissionDeniedBehavior DeniedBehavior = PermissionDeniedBehavior.InterruptTurn) : AgentEvent, IAgentResponseEvent
+    string ChoiceId,
+    string? Feedback = null) : AgentEvent, IAgentResponseEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
@@ -1254,6 +1252,19 @@ public record PermissionResponseEvent(
 
     /// <summary>Explicit interface implementation - maps PermissionId to RequestId</summary>
     public string RequestId => PermissionId;
+}
+
+/// <summary>Records an atomically committed session permission-preference change.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("PERMISSION_PREFERENCE_CHANGED")]
+public sealed record PermissionPreferenceChangedEvent(
+    string PreferenceId,
+    PermissionKey Key,
+    PermissionDecisionKind Decision,
+    PermissionPersistenceKind Persistence) : AgentEvent
+{
+    /// <inheritdoc />
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 }
 
 /// <summary>

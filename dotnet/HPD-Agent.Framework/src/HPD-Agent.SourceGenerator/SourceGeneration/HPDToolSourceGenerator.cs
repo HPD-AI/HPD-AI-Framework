@@ -722,6 +722,7 @@ namespace HPD.Agent.Diagnostics {{
                 ? $"new string[] {{ {string.Join(", ", ToolHarness.FunctionNames.Select(n => $"\"{n}\""))} }}"
                 : "Array.Empty<string>()";
             sb.AppendLine($"                FunctionNames: {functionNamesArray},");
+            sb.AppendLine($"                CreateSubAgentActions: {(ToolHarness.SubAgentCapabilities.Any() ? $"instance => {ToolHarness.ClassName}Registration.CreateSubAgentActions(instance)" : "null")},");
 
             // NEW: MCP Server support
             sb.AppendLine($"                // ========== MCP SERVERS ==========");
@@ -1246,6 +1247,12 @@ namespace HPD.Agent.Diagnostics {{
 
         sb.AppendLine(GenerateCreateToolHarnessMethod(ToolHarness));
 
+        if (ToolHarness.SubAgentCapabilities.Any())
+        {
+            sb.AppendLine();
+            sb.AppendLine(GenerateSubAgentActionCollectionMethod(ToolHarness));
+        }
+
         foreach (var function in ToolHarness.FunctionCapabilities)
         {
             sb.AppendLine();
@@ -1315,6 +1322,46 @@ namespace HPD.Agent.Diagnostics {{
         return sb.ToString();
     }
 
+    private static string GenerateSubAgentActionCollectionMethod(ToolHarnessInfo toolHarness)
+    {
+        var sb = new StringBuilder();
+        var typeName = string.IsNullOrEmpty(toolHarness.Namespace)
+            ? toolHarness.ClassName
+            : $"{toolHarness.Namespace}.{toolHarness.ClassName}";
+        sb.AppendLine("    /// <summary>Creates the immutable subagent action descriptors declared by this harness.</summary>");
+        sb.AppendLine("    public static System.Collections.Generic.IReadOnlyList<global::HPD.Agent.SubAgentActionDescriptor> CreateSubAgentActions(object __instance)");
+        sb.AppendLine("    {");
+        if (toolHarness.SubAgentCapabilities.Any(static capability => !capability.IsStatic))
+            sb.AppendLine($"        var instance = ({typeName})__instance;");
+        sb.AppendLine("        return new global::HPD.Agent.SubAgentActionDescriptor[]");
+        sb.AppendLine("        {");
+        foreach (var capability in toolHarness.SubAgentCapabilities)
+        {
+            var definition = capability.IsStatic
+                ? $"{typeName}.{capability.MethodName}()"
+                : $"instance.{capability.MethodName}()";
+            sb.AppendLine("            CreateDescriptor(");
+            sb.AppendLine($"                {definition},");
+            sb.AppendLine($"                global::HPD.Agent.CapabilityId.Create(@\"generated:{toolHarness.ClassName}.{capability.SubAgentName.Replace("\"", "\"\"")}\"),");
+            sb.AppendLine($"                {capability.RequiresPermission.ToString().ToLowerInvariant()}),");
+        }
+        sb.AppendLine("        };");
+        sb.AppendLine();
+        sb.AppendLine("        static global::HPD.Agent.SubAgentActionDescriptor CreateDescriptor(global::HPD.Agent.SubAgent definition, global::HPD.Agent.CapabilityId capabilityId, bool requiresPermission) => new()");
+        sb.AppendLine("        {");
+        sb.AppendLine("            Action = definition.Name,");
+        sb.AppendLine("            Description = definition.Description,");
+        sb.AppendLine("            CapabilityId = capabilityId,");
+        sb.AppendLine("            Definition = definition,");
+        sb.AppendLine("            InvocationModePolicy = definition.InvocationModePolicy,");
+        sb.AppendLine("            InvocationModeHandling = global::HPD.Agent.AgentInvocationModeHandling.ToolBody,");
+        sb.AppendLine("            ContextPolicy = definition.ContextPolicy,");
+        sb.AppendLine("            RequiresPermission = requiresPermission");
+        sb.AppendLine("        };");
+        sb.AppendLine("    }");
+        return sb.ToString();
+    }
+
     private static string GenerateArgumentsDtoAndContext(ToolHarnessInfo ToolHarness)
     {
         var sb = new StringBuilder();
@@ -1330,10 +1377,6 @@ $@"    /// <summary>
     [System.CodeDom.Compiler.GeneratedCodeAttribute(""HPDToolSourceGenerator"", ""1.0.0.0"")]
     public class {ToolHarness.ClassName}SubAgentInputArgs
     {{
-        [System.Text.Json.Serialization.JsonPropertyName(""taskName"")]
-        [System.ComponentModel.Description(""A short name used to identify this delegated task and its child thread."")]
-        public required string TaskName {{ get; set; }}
-
         [System.Text.Json.Serialization.JsonPropertyName(""input"")]
         [System.ComponentModel.Description(""The user's question or task for the sub-agent. Pass the full request here."")]
         public required string Input {{ get; set; }}
@@ -1345,10 +1388,6 @@ $@"    /// <summary>
     [System.CodeDom.Compiler.GeneratedCodeAttribute(""HPDToolSourceGenerator"", ""1.0.0.0"")]
     public class {ToolHarness.ClassName}SubAgentInputWithModeArgs
     {{
-        [System.Text.Json.Serialization.JsonPropertyName(""taskName"")]
-        [System.ComponentModel.Description(""A short name used to identify this delegated task and its child thread."")]
-        public required string TaskName {{ get; set; }}
-
         [System.Text.Json.Serialization.JsonPropertyName(""input"")]
         [System.ComponentModel.Description(""The user's question or task for the sub-agent. Pass the full request here."")]
         public required string Input {{ get; set; }}
@@ -2634,12 +2673,8 @@ $@"    /// <summary>
         sb.AppendLine("        /// </summary>");
         sb.AppendLine("        private static JsonElement CreateEmptyContainerSchema()");
         sb.AppendLine("        {");
-        sb.AppendLine("            var options = new global::Microsoft.Extensions.AI.AIJsonSchemaCreateOptions { IncludeSchemaKeyword = false };");
-        sb.AppendLine("            return global::Microsoft.Extensions.AI.AIJsonUtilities.CreateJsonSchema(");
-        sb.AppendLine("                null,");
-        sb.AppendLine("                serializerOptions: HPDJsonContext.Default.Options,");
-        sb.AppendLine("                inferenceOptions: options");
-        sb.AppendLine("            );");
+        sb.AppendLine("            using var document = global::System.Text.Json.JsonDocument.Parse(\"\"\"{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}\"\"\");");
+        sb.AppendLine("            return document.RootElement.Clone();");
         sb.AppendLine("        }");
 
         return sb.ToString();

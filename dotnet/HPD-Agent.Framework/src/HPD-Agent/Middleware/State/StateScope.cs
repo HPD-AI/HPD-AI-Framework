@@ -40,7 +40,7 @@ namespace HPD.Agent;
 /// <code>
 /// // Session-scoped: Permissions apply everywhere
 /// [MiddlewareState(Persistent = true, Scope = StateScope.Session)]
-/// public sealed record PermissionPersistentStateData { }
+/// public sealed record UserPreferenceStateData { }
 ///
 /// // Thread-scoped (default): Plan progress is per-conversation
 /// [MiddlewareState(Persistent = true)]  // Scope = StateScope.Thread is the default

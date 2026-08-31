@@ -303,7 +303,6 @@ public static class ThreadProjector
             data.ParentSessionId,
             data.ParentThreadId,
             data.SubAgentName,
-            data.SubAgentTaskName,
             data.InvocationId,
             data.SubAgentSourceKind,
             data.ParentToolCallId,
@@ -329,7 +328,6 @@ public static class ThreadProjector
             data.ParentSessionId,
             data.ParentThreadId,
             data.SubAgentName,
-            data.SubAgentTaskName,
             data.InvocationId,
             data.SubAgentSourceKind,
             data.ParentToolCallId,
@@ -353,7 +351,6 @@ public static class ThreadProjector
         string? parentSessionId,
         string? parentThreadId,
         string? subAgentName,
-        string? subAgentTaskName,
         string? invocationId,
         string? subAgentSourceKind,
         string? parentToolCallId,
@@ -374,7 +371,6 @@ public static class ThreadProjector
         thread.ParentSessionId = parentSessionId;
         thread.ParentThreadId = parentThreadId;
         thread.SubAgentName = subAgentName;
-        thread.SubAgentTaskName = subAgentTaskName;
         thread.InvocationId = invocationId;
         thread.SubAgentSourceKind = subAgentSourceKind;
         thread.ParentToolCallId = parentToolCallId;

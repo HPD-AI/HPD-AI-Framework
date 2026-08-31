@@ -433,7 +433,9 @@ public sealed class McpRuntime : IAsyncDisposable
                 {
                     Name = originalAIFunction.Name,
                     Description = originalAIFunction.Description,
-                    RequiresPermission = serverConfig.RequiresPermission,
+                    FunctionPermission = serverConfig.RequiresPermission
+                        ? CreateMcpPermissionDeclaration(originalAIFunction.Name)
+                        : null,
                     // MCP tools don't have validation since they're external - just pass through
                     Validator = (_, _) => new List<ValidationError>(),
                     // Copy schema from original MCP tool for proper parameter handling
@@ -566,7 +568,7 @@ public sealed class McpRuntime : IAsyncDisposable
             {
                 Name = $"mcp_{serverFunctionName}_list_resources",
                 Description = $"List readable MCP resources exposed by server '{serverConfig.Name}'.",
-                RequiresPermission = false,
+                FunctionPermission = null,
                 Validator = (_, _) => new List<ValidationError>(),
                 SchemaProvider = () => CreateJsonSchema(ListResourcesSchemaJson),
                 AdditionalProperties = CreateResourceFunctionMetadata(serverConfig.Name, "list_resources")
@@ -644,7 +646,7 @@ public sealed class McpRuntime : IAsyncDisposable
             {
                 Name = $"mcp_{serverFunctionName}_list_resource_templates",
                 Description = $"List readable MCP resource URI templates exposed by server '{serverConfig.Name}'.",
-                RequiresPermission = false,
+                FunctionPermission = null,
                 Validator = (_, _) => new List<ValidationError>(),
                 SchemaProvider = () => CreateJsonSchema(ListResourcesSchemaJson),
                 AdditionalProperties = CreateResourceFunctionMetadata(serverConfig.Name, "list_resource_templates")
@@ -730,7 +732,9 @@ public sealed class McpRuntime : IAsyncDisposable
             {
                 Name = $"mcp_{serverFunctionName}_read_resource",
                 Description = $"Read one MCP resource by URI from server '{serverConfig.Name}'. Binary resources return metadata instead of blob data.",
-                RequiresPermission = serverConfig.RequiresPermission,
+                FunctionPermission = serverConfig.RequiresPermission
+                    ? CreateMcpPermissionDeclaration($"mcp_{serverFunctionName}_read_resource")
+                    : null,
                 Validator = (_, _) => new List<ValidationError>(),
                 SchemaProvider = () => CreateJsonSchema(ReadResourceSchemaJson),
                 AdditionalProperties = CreateResourceFunctionMetadata(serverConfig.Name, "read_resource")
@@ -908,7 +912,7 @@ public sealed class McpRuntime : IAsyncDisposable
             {
                 Name = $"mcp_{serverFunctionName}_list_prompts",
                 Description = $"List MCP prompts exposed by server '{serverConfig.Name}'.",
-                RequiresPermission = false,
+                FunctionPermission = null,
                 Validator = (_, _) => new List<ValidationError>(),
                 SchemaProvider = () => CreateJsonSchema(ListPromptsSchemaJson),
                 AdditionalProperties = CreatePromptFunctionMetadata(serverConfig.Name, "list_prompts")
@@ -969,12 +973,21 @@ public sealed class McpRuntime : IAsyncDisposable
             {
                 Name = $"mcp_{serverFunctionName}_get_prompt",
                 Description = $"Get one MCP prompt by name from server '{serverConfig.Name}'. Prompt messages are returned as structured tool output.",
-                RequiresPermission = serverConfig.RequiresPermission,
+                FunctionPermission = serverConfig.RequiresPermission
+                    ? CreateMcpPermissionDeclaration($"mcp_{serverFunctionName}_get_prompt")
+                    : null,
                 Validator = (_, _) => new List<ValidationError>(),
                 SchemaProvider = () => CreateJsonSchema(GetPromptSchemaJson),
                 AdditionalProperties = CreatePromptFunctionMetadata(serverConfig.Name, "get_prompt")
             });
     }
+
+    private static AIFunctionPermissionDeclaration CreateMcpPermissionDeclaration(string functionName) => new()
+    {
+        RequiresPermission = true,
+        Scope = $"function/{Uri.EscapeDataString(functionName)}",
+        Source = PermissionDeclarationSource.FrameworkDefault
+    };
 
     private static Dictionary<string, object?> CreatePromptFunctionMetadata(string serverName, string operation)
     {

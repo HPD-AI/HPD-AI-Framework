@@ -4,6 +4,7 @@ using HPD.Agent;
 using HPD.Agent.Hosting.Data;
 using HPD.Agent.Hosting.Serialization;
 using HPD.Agent.Providers;
+using HPD.Agent.Permissions;
 using HPD.Agent.Serialization;
 using Microsoft.Extensions.AI;
 
@@ -318,7 +319,7 @@ public class DtoSerializationTests
                 },
                 Security = new AgentSecurityRunConfig
                 {
-                    PermissionOverrides = new Dictionary<string, bool> { ["file_write"] = true }
+                    PermissionOverrides = [new(new("file_write"), RequiresPermission: true)]
                 },
                 Streaming = new StreamingRunConfig { CoalesceDeltas = true }
             }

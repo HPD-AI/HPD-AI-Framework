@@ -31,6 +31,22 @@ public class HPDAIFunctionFactory
             options ?? _defaultOptions);
     }
 
+    /// <summary>Creates an action function from one fully verified runtime composition.</summary>
+    /// <param name="invocation">The admitted function body.</param>
+    /// <param name="composition">The immutable action schema, policy, and structural input contract.</param>
+    /// <param name="options">The remaining function metadata.</param>
+    /// <returns>The composed action function.</returns>
+    public static AIFunction CreateComposedAction(
+        Func<AIFunctionArguments, FunctionExecutionContext, CancellationToken, Task<object?>> invocation,
+        VerifiedAIFunctionActionComposition composition,
+        HPDAIFunctionFactoryOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(composition);
+        options ??= new HPDAIFunctionFactoryOptions();
+        options.VerifiedActionComposition = composition;
+        return Create(invocation, options);
+    }
+
 
     /// <summary>
     /// Modern AIFunction implementation using delegate-based invocation with validation.
@@ -51,26 +67,33 @@ public class HPDAIFunctionFactory
                 options.AdditionalProperties?.TryGetValue("Kind", out var kind) == true &&
                 string.Equals(kind?.ToString(), "Output", StringComparison.Ordinal))
                 throw new InvalidOperationException("Output tools cannot declare an action invocation contract.");
-            if (options.OperationContract is { } declaredContract)
+            if (options.VerifiedActionComposition is { } verified)
+            {
+                options.OperationContract = NormalizeOperationContract(verified.OperationContract);
+                options.SchemaProvider = () => verified.JsonSchema;
+                options.ArgumentBinder = verified.FinalArgumentBinder;
+            }
+            else if (options.OperationContract is { } declaredContract)
+            {
                 options.OperationContract = NormalizeOperationContract(declaredContract);
+            }
             HPDOptions = options;
 
             var methodSchema = options.SchemaProvider?.Invoke() ?? default;
-            JsonSchema = options.OperationContract is { } operationContract && !options.OperationContractSchemaComposed
-                ? AgentInvocationModes.CreateActionSchema(methodSchema, operationContract)
-                : options.OperationContract is null
-                    ? AgentInvocationModes.CreateSchema(methodSchema, options.InvocationModePolicy)
-                    : methodSchema.Clone();
-            if (options.OperationContractSchemaComposed && options.OperationContract is { } composedContract)
-                AgentInvocationModes.ValidateActionSchema(JsonSchema, composedContract);
+            JsonSchema = options.VerifiedActionComposition is { } composition
+                ? composition.JsonSchema
+                : options.OperationContract is { } operationContract
+                    ? AgentInvocationModes.CreateActionSchema(methodSchema, operationContract)
+                    : AgentInvocationModes.CreateSchema(methodSchema, options.InvocationModePolicy);
             Name = options.Name ?? _method?.Name ?? "Unknown";
             Description = options.Description ?? "";
             ContractDescriptor = JsonSchema.ValueKind == JsonValueKind.Undefined
                 ? null
                 : AIFunctionContractDescriptor.Create(Name, JsonSchema, options.OperationContract);
-            CanonicalInputContract = JsonSchema.ValueKind == JsonValueKind.Undefined
-                ? null
-                : CanonicalJsonInputContract.Create(JsonSchema);
+            CanonicalInputContract = options.VerifiedActionComposition?.InputContract ??
+                (JsonSchema.ValueKind == JsonValueKind.Undefined
+                    ? null
+                    : CanonicalJsonInputContract.Create(JsonSchema));
         }
 
         private static AIFunctionOperationContract NormalizeOperationContract(
@@ -636,7 +659,12 @@ public class HPDAIFunctionFactoryOptions
     public string? Name { get; set; }
     public string? Description { get; set; }
     public Dictionary<string, string>? ParameterDescriptions { get; set; }
-    public bool RequiresPermission { get; set; }
+    /// <summary>Gets or sets the complete normalized function permission declaration.</summary>
+    public AIFunctionPermissionDeclaration? FunctionPermission { get; set; }
+
+    /// <summary>Gets or sets generated permission activation descriptors keyed by stable ID.</summary>
+    public IReadOnlyDictionary<string, HPD.Agent.Permissions.AIFunctionPermissionDescriptor> PermissionDescriptors { get; set; }
+        = new Dictionary<string, HPD.Agent.Permissions.AIFunctionPermissionDescriptor>(StringComparer.Ordinal);
     public JsonSerializerOptions? SerializerOptions { get; set; }
     public Type? ResultType { get; set; }
     public Func<object?, Type?, CancellationToken, ValueTask<object?>>? MarshalResult { get; set; }
@@ -648,9 +676,8 @@ public class HPDAIFunctionFactoryOptions
     /// <summary>Gets or sets the generated closed-union action contract for this function.</summary>
     public AIFunctionOperationContract? OperationContract { get; set; }
 
-    /// <summary>Gets or sets whether a source-generated schema already contains verified action controls.</summary>
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    public bool OperationContractSchemaComposed { get; set; }
+    /// <summary>Gets or sets the single verified composition used by an action function.</summary>
+    public VerifiedAIFunctionActionComposition? VerifiedActionComposition { get; set; }
     public AgentOperationNotificationPolicy OperationNotification { get; set; } =
         new AgentOperationNotificationPolicy();
 
@@ -667,6 +694,50 @@ public class HPDAIFunctionFactoryOptions
 
     // Additional metadata properties for ToolHarness Collapsing and other features
     public Dictionary<string, object?>? AdditionalProperties { get; set; }
+}
+
+/// <summary>
+/// Holds an immutable, structurally verified closed-action schema and its exact runtime policy contract.
+/// The same contract is used by generated functions and deterministic application composition.
+/// </summary>
+public sealed class VerifiedAIFunctionActionComposition
+{
+    /// <summary>Creates and verifies one closed action composition.</summary>
+    /// <param name="jsonSchema">The complete schema including action controls.</param>
+    /// <param name="operationContract">The exact discriminator-to-policy table.</param>
+    /// <param name="finalArgumentBinder">An optional generated binder invoked only after permission admission.</param>
+    public VerifiedAIFunctionActionComposition(
+        JsonElement jsonSchema,
+        AIFunctionOperationContract operationContract,
+        Func<JsonElement, AIFunctionBindingResult>? finalArgumentBinder = null)
+    {
+        ArgumentNullException.ThrowIfNull(operationContract);
+        JsonSchema = jsonSchema.Clone();
+        OperationContract = operationContract;
+        AgentInvocationModes.ValidateActionSchema(JsonSchema, OperationContract);
+        InputContract = CanonicalJsonInputContract.Create(JsonSchema);
+        FinalArgumentBinder = finalArgumentBinder;
+        CompositionFingerprint = InputContract.CanonicalSchemaFingerprint;
+    }
+
+    /// <summary>Gets the immutable canonical action schema.</summary>
+    public JsonElement JsonSchema { get; }
+
+    /// <summary>Gets the complete immutable action policy contract.</summary>
+    public AIFunctionOperationContract OperationContract { get; }
+
+    /// <summary>Gets the canonical structural input contract used before permission admission.</summary>
+    public IAIInputContract InputContract { get; }
+
+    /// <summary>
+    /// Gets the generated author-CLR binder. The runtime invokes this binder only after permission
+    /// admission, so denied calls cannot run author constructors, setters, or converters.
+    /// </summary>
+    internal Func<JsonElement, AIFunctionBindingResult>? FinalArgumentBinder { get; }
+
+    /// <summary>Gets the stable canonical composition fingerprint.</summary>
+    public string CompositionFingerprint { get; }
+
 }
 
 /// <summary>Contains either one bound input with effective JSON or structural validation errors.</summary>

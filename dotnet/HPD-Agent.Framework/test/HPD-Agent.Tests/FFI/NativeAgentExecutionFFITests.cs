@@ -26,7 +26,7 @@ public sealed class NativeAgentExecutionFFITests
             {
                 Name = "SensitiveTool",
                 Description = "A sensitive tool requiring FFI permission approval",
-                RequiresPermission = true,
+                FunctionPermission = AIFunctionPermissionDeclaration.Required("permission_tool"),
             });
 
         var config = new AgentConfig

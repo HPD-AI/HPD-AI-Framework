@@ -67,7 +67,7 @@ public static class SubAgentTuiExtensions
 
     private static string FormatChoice(AgentTuiThreadRuntimeChild child)
     {
-        var task = child.SubAgentTaskName ?? child.SubAgentName ?? child.ThreadId;
+        var task = child.SubAgentName ?? child.ThreadId;
         var messages = child.MessageCount == 1 ? "1 message" : $"{child.MessageCount} messages";
         return $"{task}  {child.Status ?? "unknown"}  {messages}";
     }

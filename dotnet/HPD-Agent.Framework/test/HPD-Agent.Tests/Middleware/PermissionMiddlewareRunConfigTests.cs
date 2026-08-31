@@ -42,7 +42,8 @@ public class PermissionMiddlewareRunConfigTests
             function,
             new AgentRunConfig
             {
-                Security = new AgentSecurityRunConfig { PermissionOverrides = new Dictionary<string, bool> { ["SensitiveTool"] = false } }
+                Security = new AgentSecurityRunConfig { PermissionOverrides =
+                    [new(new("SensitiveTool"), RequiresPermission: false)] }
             });
 
         await middleware.BeforeFunctionAsync(context, CancellationToken.None);
@@ -62,7 +63,8 @@ public class PermissionMiddlewareRunConfigTests
             function,
             new AgentRunConfig
             {
-                Security = new AgentSecurityRunConfig { PermissionOverrides = new Dictionary<string, bool> { ["NormallyRequiredByBuilder"] = false } }
+                Security = new AgentSecurityRunConfig { PermissionOverrides =
+                    [new(new("NormallyRequiredByBuilder"), RequiresPermission: false)] }
             });
 
         await middleware.BeforeFunctionAsync(context, CancellationToken.None);
@@ -80,7 +82,8 @@ public class PermissionMiddlewareRunConfigTests
             function,
             new AgentRunConfig
             {
-                Security = new AgentSecurityRunConfig { PermissionOverrides = new Dictionary<string, bool> { ["MissingTool"] = true } }
+                Security = new AgentSecurityRunConfig { PermissionOverrides =
+                    [new(new("MissingTool"), RequiresPermission: true)] }
             });
 
         await middleware.BeforeFunctionAsync(context, CancellationToken.None);
@@ -106,10 +109,8 @@ public class PermissionMiddlewareRunConfigTests
             coordinator.Respond(new PermissionResponseEvent(
                 request.PermissionId,
                 request.SourceName,
-                Approved: false,
-                Reason: "Use the read-only status tool instead.",
-                Choice: PermissionChoice.Ask,
-                DeniedBehavior: PermissionDeniedBehavior.ReturnToModel));
+                ChoiceId: "deny_once",
+                Feedback: "Use the read-only status tool instead."));
             return ValueTask.CompletedTask;
         });
         var agentContext = CreateAgentContext(coordinator);
@@ -154,7 +155,7 @@ public class PermissionMiddlewareRunConfigTests
                 Discriminator = "action",
                 Actions = new Dictionary<string, ClientToolPolicy>
                 {
-                    ["inspect"] = new() { RequiresPermission = false }
+                    ["inspect"] = new()
                 }
             }
         };
@@ -191,7 +192,9 @@ public class PermissionMiddlewareRunConfigTests
             {
                 Name = name,
                 Description = $"{name} test function",
-                RequiresPermission = requiresPermission
+                FunctionPermission = requiresPermission
+                    ? AIFunctionPermissionDeclaration.Required(name)
+                    : null
             });
 
     private static BeforeFunctionContext CreateBeforeFunctionContext(

@@ -1,9 +1,13 @@
 using System.Xml.Linq;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Reflection;
 using FluentAssertions;
 using HPD.Agent;
 using HPD.Agent.Middleware;
+using HPD.Agent.Permissions;
 using HPD.Agent.Sandbox;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.ToolHarness.Coding.Debugging;
@@ -1039,15 +1043,7 @@ public sealed class DebugPublicHostedRealAdapterTests
             };
             var initial = AgentLoopState.InitialSafe(
                 [], "run", "conversation", "DebugPublicReal");
-            var state = initial with
-            {
-                MiddlewareState = initial.MiddlewareState.SetState(
-                    typeof(DebugPermissionStateData).FullName!,
-                    new DebugPermissionStateData().WithDecision(
-                        callId,
-                        action,
-                        DebugPermissionMiddleware.Classify(action)))
-            };
+            var state = initial;
             var session = new Session("session");
             var thread = new HPD.Agent.Thread("session", "debug-public")
             {
@@ -1093,6 +1089,32 @@ public sealed class DebugPublicHostedRealAdapterTests
                 new Dictionary<string, object?>(),
                 runConfig,
                 nameof(CodingToolHarness));
+            var scope = typeof(DebugOperation).GetCustomAttributes<JsonDerivedTypeAttribute>()
+                .Single(attribute => Equals(attribute.TypeDiscriminator, action)).DerivedType
+                .GetCustomAttributes(typeof(AIFunctionActionAttribute), false)
+                .Cast<AIFunctionActionAttribute>().Single().PermissionScope!;
+            var grant = new FunctionPermissionGrant
+            {
+                FunctionCallId = callId,
+                FunctionName = "Debug",
+                Action = action,
+                Key = new PermissionKey("Debug", action, scope, "hpd.permission.default", "1"),
+                ChoiceId = "allow_once",
+                GrantedAt = DateTimeOffset.UtcNow,
+                Source = PermissionGrantSource.UserDecision,
+                Authority = new PermissionAuthorityStamp
+                {
+                    CanonicalArguments = JsonSerializer.SerializeToElement(new Dictionary<string, object?>()),
+                    Declaration = new AIFunctionPermissionDeclaration
+                    {
+                        RequiresPermission = true,
+                        Scope = scope,
+                        Source = PermissionDeclarationSource.ActionOverride
+                    },
+                    PolicyId = "hpd.permission.default",
+                    PolicyRevision = "1"
+                }
+            };
             return new FunctionExecutionContext(before, new FunctionRequest
             {
                 Function = function,
@@ -1101,7 +1123,8 @@ public sealed class DebugPublicHostedRealAdapterTests
                 State = state,
                 RunConfig = runConfig,
                 ResultMetadata = new ToolResultMetadata(),
-                EventCoordinator = _events
+                EventCoordinator = _events,
+                PermissionGrant = grant
             });
         }
 

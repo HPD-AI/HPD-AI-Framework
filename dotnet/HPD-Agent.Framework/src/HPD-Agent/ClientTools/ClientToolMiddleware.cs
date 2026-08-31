@@ -577,7 +577,7 @@ public class ClientToolMiddleware : IAgentMiddleware
             {
                 Name = tool.Name,
                 Description = tool.Description,
-                RequiresPermission = defaultPolicy.RequiresPermission!.Value,
+                FunctionPermission = defaultPolicy.Permission,
                 Validator = (_, _) => new List<ValidationError>(),
                 SchemaProvider = () => AgentInvocationModes.CreateSchema(
                     tool.ParametersSchema,
@@ -638,7 +638,7 @@ public class ClientToolMiddleware : IAgentMiddleware
             {
                 Name = skill.Name,
                 Description = skill.Description,
-                RequiresPermission = false, // Skills are entry points
+                FunctionPermission = null, // Skills are entry points
                 Validator = (_, _) => new List<ValidationError>(),
                 SchemaProvider = () => CreateEmptySchema(),
                 AdditionalProperties = new Dictionary<string, object?>

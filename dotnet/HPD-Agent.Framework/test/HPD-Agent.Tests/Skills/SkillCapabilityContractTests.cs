@@ -109,7 +109,7 @@ public sealed class SkillCapabilityContractTests
             CapabilityId.Create("test:verification")));
         var projected = Assert.IsType<HPDAIFunctionFactory.HPDAIFunction>(function);
 
-        Assert.Equal(requiresPermission, projected.HPDOptions.RequiresPermission);
+        Assert.Equal(requiresPermission, projected.HPDOptions.FunctionPermission?.RequiresPermission ?? false);
         Assert.Empty(function.JsonSchema.GetProperty("properties").EnumerateObject());
         Assert.False(function.JsonSchema.GetProperty("additionalProperties").GetBoolean());
     }

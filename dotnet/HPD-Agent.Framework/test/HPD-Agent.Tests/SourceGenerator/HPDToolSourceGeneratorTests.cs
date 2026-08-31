@@ -248,7 +248,8 @@ namespace TestToolHarnesses
         var (generatedCode, diagnostics) = RunGenerator(source);
 
         Assert.Empty(diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
-        Assert.Contains("OperationContractSchemaComposed = true", generatedCode);
+        Assert.Contains("VerifiedAIFunctionActionComposition", generatedCode);
+        Assert.DoesNotContain("OperationContractSchemaComposed", generatedCode);
         Assert.Contains("AIFunctionOperationContract", generatedCode);
         Assert.Contains("\\\"invocationMode\\\"", generatedCode);
     }

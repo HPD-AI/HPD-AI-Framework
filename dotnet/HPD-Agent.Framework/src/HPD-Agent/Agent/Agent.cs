@@ -6739,6 +6739,13 @@ public sealed partial class Agent : IAsyncDisposable
                 .ConfigureAwait(false);
         }
 
+        await ProjectSubAgentRegistryForForkAsync(
+            store,
+            new ThreadKey(sourceThread.SessionId, sourceThread.Id),
+            new ThreadKey(newThread.SessionId, newThread.Id),
+            forkOptions.SubAgents ?? new SubAgentForkOptions(),
+            cancellationToken).ConfigureAwait(false);
+
         // Update the direct lineage edge. Fork groups are projected from session graph state.
         if (!sourceThread.ChildThreads.Contains(newThread.Id))
         {
@@ -7104,7 +7111,96 @@ public sealed partial class Agent : IAsyncDisposable
     }
 
     private static bool IsThreadStructuralEvent(AgentEvent evt) =>
-        evt is ThreadCreatedEvent or ThreadUpdatedEvent or ThreadMiddlewareStateCommittedEvent;
+        evt is ThreadCreatedEvent or ThreadUpdatedEvent or ThreadMiddlewareStateCommittedEvent or
+            SubAgentChildRegisteredEvent or SubAgentChildDetachedEvent or SubAgentChildRemappedEvent or
+            SubAgentChildUnavailableEvent or SubAgentRegistrySeedEvent;
+
+    private static async ValueTask ProjectSubAgentRegistryForForkAsync(
+        ISessionStore store,
+        ThreadKey source,
+        ThreadKey target,
+        SubAgentForkOptions options,
+        CancellationToken cancellationToken)
+    {
+        var sourceRegistry = await new SubAgentChildRegistry(store)
+            .ProjectAsync(source, cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (sourceRegistry.Children.Count == 0) return;
+        var events = new List<AgentEvent>();
+        foreach (var child in sourceRegistry.Children.Values.OrderBy(static child => child.LocalId.Value, StringComparer.Ordinal))
+        {
+            var projected = options.Policy switch
+            {
+                SubAgentForkPolicy.Detach => child with
+                {
+                    Availability = SubAgentChildAvailability.Detached,
+                    ChildThread = null,
+                    UnavailableReason = "This subagent was not carried into the current conversation branch. Start a new role action to continue independently."
+                },
+                SubAgentForkPolicy.Share => child,
+                SubAgentForkPolicy.ForkDirectChildren => await ForkDirectRuntimeChildAsync(
+                    store, child, target, cancellationToken).ConfigureAwait(false),
+                _ => throw new ArgumentOutOfRangeException(nameof(options))
+            };
+            events.Add(new SubAgentChildRegisteredEvent(projected)
+            {
+                SessionId = target.SessionId,
+                ThreadId = target.ThreadId
+            });
+        }
+        await store.AppendThreadEventsAsync(target, events, cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private static async ValueTask<SubAgentChildReference> ForkDirectRuntimeChildAsync(
+        ISessionStore store,
+        SubAgentChildReference source,
+        ThreadKey targetParent,
+        CancellationToken cancellationToken)
+    {
+        if (source.Availability != SubAgentChildAvailability.Available || source.ChildThread is not { } sourceKey)
+            return source with { ChildThread = null, Availability = SubAgentChildAvailability.Unavailable };
+        var descriptor = await store.GetThreadAsync(sourceKey, cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("subagent_fork_boundary_unavailable");
+        var targetKey = new ThreadKey(
+            targetParent.SessionId,
+            $"{targetParent.ThreadId}/subagent/{source.LocalId.Value}/{Guid.NewGuid():N}");
+        var created = new ThreadCreatedEvent(
+            descriptor.DefaultAgent.AgentId,
+            descriptor.Name,
+            descriptor.Description,
+            descriptor.Tags.ToList(),
+            descriptor.Metadata.Count == 0 ? null : new Dictionary<string, object>(descriptor.Metadata),
+            DateTime.UtcNow,
+            ThreadKind.SubAgent,
+            ThreadVisibility.Hidden,
+            targetParent.SessionId,
+            targetParent.ThreadId,
+            source.RoleName,
+            InvocationId: source.CreationInvocationId,
+            ParentToolCallId: source.ParentToolCallId,
+            ContextPolicy: source.CreationContext.ToString(),
+            ForkedFrom: sourceKey.ThreadId)
+        {
+            SessionId = targetKey.SessionId,
+            ThreadId = targetKey.ThreadId
+        };
+        var staged = new List<AgentEvent> { created };
+        await foreach (var batch in store.ReadThreadEventsAsync(
+            sourceKey,
+            new ThreadEventReadRequest(ThreadJournalCursor.Start(descriptor.Generation)),
+            cancellationToken).ConfigureAwait(false))
+        {
+            staged.AddRange(batch.Events
+                .Where(static evt => !IsThreadStructuralEvent(evt))
+                .Select(evt => CloneEventForThread(evt, targetKey.SessionId, targetKey.ThreadId)));
+        }
+        await store.AppendThreadEventsAsync(
+            targetKey,
+            staged,
+            new ThreadAppendCondition(ThreadJournalCursor.Start(1)),
+            cancellationToken).ConfigureAwait(false);
+        return source with { ChildThread = targetKey, UnavailableReason = null };
+    }
 
     private static int ExpandForkCopyThroughIndex(IReadOnlyList<ChatMessage> messages, int requestedIndex)
     {
@@ -8796,11 +8892,9 @@ internal class FunctionCallProcessor
         Middleware.AgentContext agentContext,
         CancellationToken cancellationToken)
     {
-        // Build function map and collect model-order invocation information once.
-        var functionMap = BuildMergedMap(_serverConfiguredTools, options?.Tools);
+        // Assign stable model-order invocation identities before authority preparation.
         var batchId = Guid.NewGuid().ToString("N");
         var invocationByCallId = new Dictionary<string, ToolInvocationInfo>(StringComparer.Ordinal);
-        var parallelFunctions = new List<ParallelFunctionInfo>();
 
         for (var i = 0; i < toolRequests.Count; i++)
         {
@@ -8815,16 +8909,36 @@ internal class FunctionCallProcessor
                 i);
             invocationByCallId[toolRequest.CallId] = invocation;
 
-            var function = FindFunction(toolRequest.Name, functionMap);
-            if (function == null)
-                continue;
-
-            parallelFunctions.Add(new ParallelFunctionInfo(
-                function,
-                toolRequest.CallId,
-                (IReadOnlyDictionary<string, object?>)(toolRequest.Arguments ?? new Dictionary<string, object?>()),
-                invocation));
         }
+
+        // Constructor-free authority preparation completes in model order before batch mediation.
+        var preparations = new List<FunctionExecutionPreparation>(toolRequests.Count);
+        foreach (var toolRequest in toolRequests)
+        {
+            var invocation = invocationByCallId.GetValueOrDefault(toolRequest.CallId)
+                ?? new ToolInvocationInfo(batchId, toolRequest.CallId, toolRequest.Name, preparations.Count);
+            var preparation = await _functionExecutionCore.PrepareFunctionAsync(
+                toolRequest,
+                options,
+                runConfig,
+                agentContext,
+                invocation,
+                cancellationToken,
+                admit: false).ConfigureAwait(false);
+            preparations.Add(preparation);
+            if (preparation.ImmediateOutcome?.ShouldTerminate == true)
+                break;
+        }
+
+        var parallelFunctions = preparations
+            .Where(static preparation => preparation.Function is not null && preparation.ImmediateOutcome is null)
+            .Select(static preparation => new ParallelFunctionInfo(
+                preparation.Function!,
+                preparation.FunctionCall.CallId,
+                preparation.Arguments,
+                preparation.Invocation,
+                preparation.ResolvedInvocation))
+            .ToArray();
 
         var batchContext = agentContext.AsBeforeParallelBatch(
             parallelFunctions,
@@ -8861,24 +8975,12 @@ internal class FunctionCallProcessor
 
         var beforeParallelExecutionState = agentLoopState.MiddlewareState;
 
-        // BeforeFunction runs serially in model order so middleware state remains deterministic.
-        var preparations = new List<FunctionExecutionPreparation>(toolRequests.Count);
-        foreach (var toolRequest in toolRequests)
+        // Admission reuses the exact authority-prepared facts and runs serially in model order.
+        for (var index = 0; index < preparations.Count; index++)
         {
-            var invocation = invocationByCallId.GetValueOrDefault(toolRequest.CallId)
-                ?? new ToolInvocationInfo(batchId, toolRequest.CallId, toolRequest.Name, preparations.Count);
-
-            var preparation = await _functionExecutionCore.PrepareFunctionAsync(
-                toolRequest,
-                options,
-                runConfig,
-                agentContext,
-                invocation,
-                cancellationToken).ConfigureAwait(false);
-
-            preparations.Add(preparation);
-
-            if (preparation.ImmediateOutcome?.ShouldTerminate == true)
+            preparations[index] = await _functionExecutionCore.AdmitPreparedFunctionAsync(
+                preparations[index], cancellationToken).ConfigureAwait(false);
+            if (preparations[index].ImmediateOutcome?.ShouldTerminate == true)
                 break;
         }
 

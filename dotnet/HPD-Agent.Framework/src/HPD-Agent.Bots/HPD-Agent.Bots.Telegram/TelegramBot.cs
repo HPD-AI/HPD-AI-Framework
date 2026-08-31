@@ -682,7 +682,7 @@ public partial class TelegramBot
                         await agent.AnswerRequestAsync(new PermissionResponseEvent(
                             PermissionId: req.PermissionId,
                             SourceName: "telegram",
-                            Approved: false), token),
+                            ChoiceId: "deny_once"), token),
                 },
                 ct);
         }

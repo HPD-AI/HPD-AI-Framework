@@ -300,7 +300,7 @@ public class SpanIdWiringTests : AgentTestBase
         {
             Name = "guarded_tool",
             Description = "A tool requiring permission",
-            RequiresPermission = true
+            FunctionPermission = AIFunctionPermissionDeclaration.Required("PermissionTool")
         };
         var guardedTool = HPDAIFunctionFactory.Create(
             async (args, _, ct) => "result", sensitiveOptions);

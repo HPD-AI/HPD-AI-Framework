@@ -13,9 +13,7 @@ using HPDOS.ToolHarnesses.Middleware;
     SystemPrompt = CodingToolHarnessPrompts.SystemPrompt,
     Middlewares = [
         typeof(EnvironmentContextMiddleware),
-        typeof(CodingLanguageServerMiddleware),
-        typeof(ExecuteCommandPermissionMiddleware),
-        typeof(DebugPermissionMiddleware)
+        typeof(CodingLanguageServerMiddleware)
     ])]
 public partial class CodingToolHarness
 {
@@ -49,36 +47,6 @@ public partial class CodingToolHarness
     static CodingToolHarness()
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-        ValidateExecuteCommandPermissionMiddlewareRegistration();
-        ValidateDebugPermissionMiddlewareRegistration();
-    }
-
-    private static void ValidateDebugPermissionMiddlewareRegistration()
-    {
-        var collapse = typeof(CodingToolHarness)
-            .GetCustomAttributes(typeof(CollapseAttribute), inherit: false)
-            .OfType<CollapseAttribute>()
-            .SingleOrDefault();
-
-        if (collapse?.Middlewares?.Contains(typeof(DebugPermissionMiddleware)) == true)
-            return;
-
-        throw new InvalidOperationException(
-            $"{nameof(CodingToolHarness)} exposes Debug without {nameof(DebugPermissionMiddleware)}.");
-    }
-
-    private static void ValidateExecuteCommandPermissionMiddlewareRegistration()
-    {
-        var collapse = typeof(CodingToolHarness)
-            .GetCustomAttributes(typeof(CollapseAttribute), inherit: false)
-            .OfType<CollapseAttribute>()
-            .SingleOrDefault();
-
-        if (collapse?.Middlewares?.Contains(typeof(ExecuteCommandPermissionMiddleware)) == true)
-            return;
-
-        throw new InvalidOperationException(
-            $"{nameof(CodingToolHarness)} exposes {nameof(ExecuteCommand)} without {nameof(ExecuteCommandPermissionMiddleware)}.");
     }
 
     /// <summary>

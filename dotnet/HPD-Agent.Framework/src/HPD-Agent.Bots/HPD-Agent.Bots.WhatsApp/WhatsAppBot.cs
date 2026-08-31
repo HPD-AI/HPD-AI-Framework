@@ -536,7 +536,7 @@ public partial class WhatsAppBot
                         await agent.AnswerRequestAsync(new PermissionResponseEvent(
                             PermissionId: req.PermissionId,
                             SourceName: "whatsapp",
-                            Approved: false), token),
+                            ChoiceId: "deny_once"), token),
                 },
                 ct);
         }

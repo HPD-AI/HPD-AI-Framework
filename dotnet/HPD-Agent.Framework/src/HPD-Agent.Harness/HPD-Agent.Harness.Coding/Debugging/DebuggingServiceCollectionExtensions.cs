@@ -70,7 +70,6 @@ public static class DebuggingServiceCollectionExtensions
         services.TryAddSingleton<DebugRuntimeServiceFactory>();
         services.TryAddSingleton<DebugResultFormatter>();
         services.TryAddSingleton<DebugPermissionAuthorizationService>();
-        services.TryAddTransient<DebugPermissionMiddleware>();
         services.TryAddSingleton(provider => new DebugExecutionPlanningService(
             provider.GetRequiredService<DebugExecutionTargetPlannerRegistry>(),
             provider.GetRequiredService<DebugAdapterSelector>(),

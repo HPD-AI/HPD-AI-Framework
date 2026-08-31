@@ -8,7 +8,7 @@ namespace HPD.Agent.Permissions;
 /// </summary>
 public class PermissionOverrideRegistry
 {
-    private readonly ConcurrentDictionary<string, bool> _functionOverrides = new();
+    private readonly ConcurrentDictionary<PermissionOverrideSelector, bool> _overrides = new();
 
     /// <summary>
     /// Forces a function to require permission, overriding its attribute.
@@ -16,7 +16,7 @@ public class PermissionOverrideRegistry
     /// <param name="functionName">The name of the function</param>
     public void RequirePermission(string functionName)
     {
-        _functionOverrides[functionName] = true;
+        Set(new PermissionOverrideSelector(functionName), true);
     }
 
     /// <summary>
@@ -25,7 +25,7 @@ public class PermissionOverrideRegistry
     /// <param name="functionName">The name of the function</param>
     public void DisablePermission(string functionName)
     {
-        _functionOverrides[functionName] = false;
+        Set(new PermissionOverrideSelector(functionName), false);
     }
 
     /// <summary>
@@ -34,7 +34,7 @@ public class PermissionOverrideRegistry
     /// <param name="functionName">The name of the function</param>
     public void ClearOverride(string functionName)
     {
-        _functionOverrides.TryRemove(functionName, out _);
+        _overrides.TryRemove(new PermissionOverrideSelector(functionName), out _);
     }
 
     /// <summary>
@@ -47,7 +47,7 @@ public class PermissionOverrideRegistry
     public bool GetEffectivePermissionRequirement(string functionName, bool attributeValue)
     {
         // Override takes precedence over attribute
-        if (_functionOverrides.TryGetValue(functionName, out var overrideValue))
+        if (_overrides.TryGetValue(new PermissionOverrideSelector(functionName), out var overrideValue))
         {
             return overrideValue;
         }
@@ -61,14 +61,33 @@ public class PermissionOverrideRegistry
     /// </summary>
     public bool HasOverride(string functionName)
     {
-        return _functionOverrides.ContainsKey(functionName);
+        return _overrides.ContainsKey(new PermissionOverrideSelector(functionName));
     }
 
     /// <summary>Gets an override only when one was explicitly registered.</summary>
     public bool? TryGetOverride(string functionName)
     {
-        return _functionOverrides.TryGetValue(functionName, out var value)
+        return _overrides.TryGetValue(new PermissionOverrideSelector(functionName), out var value)
             ? value
+            : null;
+    }
+
+    /// <summary>Sets an exact typed function/action/scope override.</summary>
+    public void Set(PermissionOverrideSelector selector, bool requiresPermission)
+    {
+        ArgumentNullException.ThrowIfNull(selector);
+        selector.Validate();
+        _overrides[selector] = requiresPermission;
+    }
+
+    /// <summary>Gets an exact override, then falls back to the function selector.</summary>
+    public bool? Resolve(PermissionOverrideSelector selector)
+    {
+        ArgumentNullException.ThrowIfNull(selector);
+        selector.Validate();
+        if (_overrides.TryGetValue(selector, out var exact)) return exact;
+        return _overrides.TryGetValue(new PermissionOverrideSelector(selector.FunctionName), out var fallback)
+            ? fallback
             : null;
     }
 
@@ -77,6 +96,20 @@ public class PermissionOverrideRegistry
     /// </summary>
     public void ClearAll()
     {
-        _functionOverrides.Clear();
+        _overrides.Clear();
     }
 }
+
+/// <summary>Identifies one generated permission declaration without concatenated security keys.</summary>
+public sealed record PermissionOverrideSelector(string FunctionName, string? Action = null, string? Scope = null)
+{
+    internal void Validate()
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(FunctionName);
+        if (Action is not null) ArgumentException.ThrowIfNullOrWhiteSpace(Action);
+        if (Scope is not null) ArgumentException.ThrowIfNullOrWhiteSpace(Scope);
+    }
+}
+
+/// <summary>Pairs one typed override selector with its required/not-required decision.</summary>
+public sealed record PermissionOverride(PermissionOverrideSelector Selector, bool RequiresPermission);

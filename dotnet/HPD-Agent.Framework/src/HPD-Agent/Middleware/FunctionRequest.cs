@@ -46,6 +46,8 @@ namespace HPD.Agent.Middleware;
 /// </remarks>
 public sealed record FunctionRequest
 {
+    /// <summary>Gets the permission grant issued for this exact invocation.</summary>
+    public HPD.Agent.Permissions.FunctionPermissionGrant? PermissionGrant { get; init; }
     internal AgentContext? ExecutionContext { get; init; }
     internal FunctionOperationCommitGate? OperationCommitGate { get; init; }
     /// <summary>

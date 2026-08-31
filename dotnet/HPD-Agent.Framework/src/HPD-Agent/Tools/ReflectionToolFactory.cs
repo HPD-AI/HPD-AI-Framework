@@ -65,9 +65,31 @@ internal static class ReflectionToolFactory
             SystemPrompt: GetStringProperty(collapseAttribute, "SystemPrompt"),
             FunctionNames: methods.Select(GetCapabilityName).ToArray(),
             StableIdentity: $"{toolharnessType.Assembly.GetName().Name}:{toolharnessType.FullName ?? toolharnessType.Name}",
-            Middleware: RejectReflectionMiddleware(collapseAttribute));
+            Middleware: RejectReflectionMiddleware(collapseAttribute),
+            CreateSubAgentActions: instance => CreateSubAgentActionDescriptors(methods, instance));
 
         return true;
+    }
+
+    private static IReadOnlyList<SubAgentActionDescriptor> CreateSubAgentActionDescriptors(
+        IEnumerable<MethodInfo> methods,
+        object instance)
+    {
+        return methods.Where(method => HasAttribute(method, "SubAgentAttribute")).Select(method =>
+        {
+            var definition = InvokeCapabilityMethod<SubAgent>(method, method.IsStatic ? null : instance);
+            return new SubAgentActionDescriptor
+            {
+                Action = definition.Name,
+                Description = definition.Description,
+                CapabilityId = CapabilityId.Create($"reflection:{method.DeclaringType?.FullName}.{method.Name}"),
+                Definition = definition,
+                InvocationModePolicy = definition.InvocationModePolicy,
+                InvocationModeHandling = AgentInvocationModeHandling.ToolBody,
+                ContextPolicy = definition.ContextPolicy,
+                RequiresPermission = true
+            };
+        }).ToArray();
     }
 
     [RequiresUnreferencedCode(ReflectionRequiresUnreferencedCodeMessage)]
@@ -85,6 +107,8 @@ internal static class ReflectionToolFactory
         foreach (var method in methods)
         {
             ThrowIfGeneratorOnlyFeaturesAreUsed(method);
+            if (HasAttribute(method, "SubAgentAttribute"))
+                continue;
             functions.Add(CreateCapability(method, method.IsStatic ? null : instance, context, serializerOptions));
         }
 
@@ -156,11 +180,6 @@ internal static class ReflectionToolFactory
         IToolMetadata? context,
         JsonSerializerOptions serializerOptions)
     {
-        if (HasAttribute(method, "SubAgentAttribute"))
-        {
-            return CreateSubAgent(method, instance, serializerOptions);
-        }
-
         if (HasAttribute(method, "MultiAgentAttribute"))
         {
             return CreateMultiAgent(method, instance, serializerOptions);
@@ -181,8 +200,16 @@ internal static class ReflectionToolFactory
         var functionAttribute = GetAIFunctionAttribute(method);
         var invocationModePolicy = GetInvocationModePolicy(functionAttribute);
         var invocationModeHandling = GetInvocationModeHandling(functionAttribute);
+        var permissionAttribute = method.GetCustomAttribute<RequiresPermissionAttribute>(inherit: false);
+        var requiresPermission = permissionAttribute is not null;
+        if (permissionAttribute is { PermissionPolicy: not null } or { PermissionInteraction: not null })
+            throw new InvalidOperationException(
+                $"Reflection-created function '{method.DeclaringType?.FullName}.{method.Name}' uses a custom permission policy or interaction. Register an explicit AIFunction permission descriptor instead of reflection activation.");
         var operationContract = CreateOperationContract(
-            parameters, invocationModePolicy, invocationModeHandling);
+            parameters, invocationModePolicy, invocationModeHandling, requiresPermission);
+        var actionSchema = operationContract is null
+            ? default
+            : CreateSchema(method, parameters, serializerOptions);
 
         return HPDAIFunctionFactory.Create(
             async (arguments, functionContext, cancellationToken) =>
@@ -199,10 +226,21 @@ internal static class ReflectionToolFactory
                 ParameterDescriptions = parameters
                     .Where(parameter => GetDescription(parameter) is not null)
                     .ToDictionary(parameter => parameter.Name!, parameter => GetDescription(parameter)!),
-                RequiresPermission = HasAttribute(method, "RequiresPermissionAttribute"),
+                FunctionPermission = requiresPermission
+                    ? new AIFunctionPermissionDeclaration
+                    {
+                        RequiresPermission = true,
+                        Scope = permissionAttribute!.PermissionScope ??
+                            $"function/{Uri.EscapeDataString(GetFunctionName(method))}",
+                        Source = PermissionDeclarationSource.FunctionAttribute
+                    }
+                    : null,
                 InvocationModePolicy = invocationModePolicy,
                 InvocationModeHandling = invocationModeHandling,
                 OperationContract = operationContract,
+                VerifiedActionComposition = operationContract is null
+                    ? null
+                    : new VerifiedAIFunctionActionComposition(actionSchema, operationContract),
                 SerializerOptions = serializerOptions,
                 ResultType = resultType,
                 Validator = (json, options) => ValidateArguments(json, options, parameters, parameterNames),
@@ -215,64 +253,6 @@ internal static class ReflectionToolFactory
                     ["IsContainer"] = false,
                     ["CapabilityType"] = "Function",
                     ["Kind"] = GetToolKind(method).ToString()
-                }
-            });
-    }
-
-    private static AIFunction CreateSubAgent(
-        MethodInfo method,
-        object? instance,
-        JsonSerializerOptions serializerOptions)
-    {
-        var registrationDefinition = InvokeCapabilityMethod<SubAgent>(method, instance);
-
-        return HPDAIFunctionFactory.Create(
-            async (arguments, functionContext, cancellationToken) =>
-            {
-                var jsonArgs = arguments.GetJson();
-                var input = jsonArgs.TryGetProperty("input", out var inputProperty)
-                    ? inputProperty.GetString() ?? string.Empty
-                    : string.Empty;
-                var taskName = jsonArgs.TryGetProperty("taskName", out var taskNameProperty)
-                    ? taskNameProperty.GetString() ?? string.Empty
-                    : string.Empty;
-                var requestedMode = AgentInvocationModes.ReadRequestedMode(jsonArgs);
-                var requestedContext = SubAgentContexts.ReadRequestedContext(jsonArgs);
-
-                var result = await SubAgentRuntime.InvokeAsync(
-                    new SubAgentRuntime.SubAgentInvocationRequest
-                    {
-                        Definition = registrationDefinition,
-                        Input = input,
-                        TaskName = taskName,
-                        ParentContext = functionContext,
-                        RequestedMode = requestedMode,
-                        RequestedContext = requestedContext
-                    },
-                    cancellationToken).ConfigureAwait(false);
-
-                return result.ToToolResult();
-            },
-            new HPDAIFunctionFactoryOptions
-            {
-                Name = registrationDefinition.Name,
-                Description = registrationDefinition.Description,
-                RequiresPermission = true,
-                SerializerOptions = serializerOptions,
-                ResultType = typeof(object),
-                SchemaProvider = () => SubAgentContexts.CreateSchema(
-                    CreateSubAgentInputSchema(
-                        registrationDefinition.InvocationModePolicy == AgentInvocationModePolicy.ModelChoice),
-                    registrationDefinition.ContextPolicy),
-                AdditionalProperties = new Dictionary<string, object?>
-                {
-                    ["CapabilityType"] = "SubAgent",
-                    ["IsContainer"] = false,
-                    ["IsSubAgent"] = true,
-                    ["ExecutionModel"] = "ThreadNative",
-                    ["ParentToolHarness"] = method.DeclaringType?.Name,
-                    ["RequiresPermission"] = true,
-                    ["SubAgentDefinition"] = registrationDefinition
                 }
             });
     }
@@ -321,7 +301,12 @@ internal static class ReflectionToolFactory
             {
                 Name = name,
                 Description = description,
-                RequiresPermission = true,
+                FunctionPermission = new AIFunctionPermissionDeclaration
+                {
+                    RequiresPermission = true,
+                    Scope = $"multiagent/{Uri.EscapeDataString(name)}",
+                    Source = PermissionDeclarationSource.FrameworkDefault
+                },
                 SerializerOptions = serializerOptions,
                 ResultType = typeof(object),
                 SchemaProvider = () => CreateInputSchema(
@@ -848,7 +833,8 @@ internal static class ReflectionToolFactory
     private static AIFunctionOperationContract? CreateOperationContract(
         ParameterInfo[] parameters,
         AgentInvocationModePolicy defaultPolicy,
-        AgentInvocationModeHandling defaultHandling)
+        AgentInvocationModeHandling defaultHandling,
+        bool requiresPermissionByDefault)
     {
         var analyzed = parameters.Select(parameter => new
         {
@@ -885,6 +871,9 @@ internal static class ReflectionToolFactory
                 throw new InvalidOperationException("Every action union case requires a non-empty string discriminator.");
             var declaration = unionCase.DerivedType.GetCustomAttribute<AIFunctionActionAttribute>(inherit: false)
                 ?? throw new InvalidOperationException($"Action type '{unionCase.DerivedType.FullName}' requires AIFunctionActionAttribute.");
+            if (declaration.PermissionPolicy is not null || declaration.PermissionInteraction is not null)
+                throw new InvalidOperationException(
+                    $"Reflection-created action '{unionCase.DerivedType.FullName}' uses a custom permission policy or interaction. Register an explicit AIFunction permission descriptor instead of reflection activation.");
             if (!string.Equals(declaration.Action, serialized, StringComparison.Ordinal))
                 throw new InvalidOperationException($"Action declaration '{declaration.Action}' does not match serializer discriminator '{serialized}'.");
             var policy = declaration.InvocationModePolicy switch
@@ -902,8 +891,27 @@ internal static class ReflectionToolFactory
                 AIFunctionActionInvocationModeHandling.ToolBody => AgentInvocationModeHandling.ToolBody,
                 _ => throw new InvalidOperationException("Unsupported action invocation-mode handling.")
             };
+            var requiresPermission = declaration.Permission switch
+            {
+                PermissionRequirement.Inherit => requiresPermissionByDefault,
+                PermissionRequirement.Required => true,
+                PermissionRequirement.NotRequired => false,
+                _ => throw new InvalidOperationException("Unsupported action permission requirement.")
+            };
             if (!actions.TryAdd(serialized, new AIFunctionActionPolicy
-                { InvocationModePolicy = policy, InvocationModeHandling = handling }))
+                {
+                    InvocationModePolicy = policy,
+                    InvocationModeHandling = handling,
+                    Permission = new AIFunctionPermissionDeclaration
+                    {
+                        RequiresPermission = requiresPermission,
+                        Scope = declaration.PermissionScope ??
+                            $"function/{Uri.EscapeDataString(GetFunctionName(candidate.Parameter.Member as MethodInfo ?? throw new InvalidOperationException()))}/action/{Uri.EscapeDataString(serialized)}",
+                        Source = declaration.Permission == PermissionRequirement.Inherit
+                            ? PermissionDeclarationSource.FunctionAttribute
+                            : PermissionDeclarationSource.ActionOverride
+                    }
+                }))
                 throw new InvalidOperationException($"Duplicate action discriminator '{serialized}'.");
         }
         return new AIFunctionOperationContract
@@ -1027,19 +1035,6 @@ internal static class ReflectionToolFactory
             """
             {"type":"object","properties":{},"required":[],"additionalProperties":false}
             """);
-        return document.RootElement.Clone();
-    }
-
-    private static JsonElement CreateSubAgentInputSchema(bool includeInvocationMode = false)
-    {
-        var schema = includeInvocationMode
-            ? """
-              {"type":"object","properties":{"taskName":{"type":"string","description":"A short name used to identify this delegated task and its child thread."},"input":{"type":"string","description":"The user's question or task for the sub-agent. Pass the full request here."},"invocationMode":{"type":"string","enum":["synchronous","background"],"description":"Whether to wait for the result now or run in the background. Use synchronous unless the task can continue independently."}},"required":["taskName","input"],"additionalProperties":false}
-              """
-            : """
-              {"type":"object","properties":{"taskName":{"type":"string","description":"A short name used to identify this delegated task and its child thread."},"input":{"type":"string","description":"The user's question or task for the sub-agent. Pass the full request here."}},"required":["taskName","input"],"additionalProperties":false}
-              """;
-        using var document = JsonDocument.Parse(schema);
         return document.RootElement.Clone();
     }
 

@@ -1,6 +1,7 @@
 using FluentAssertions;
 using HPD.Agent.StructuredOutput;
 using HPD.Agent.Providers;
+using HPD.Agent.Permissions;
 using Microsoft.Extensions.AI;
 using Xunit;
 
@@ -102,7 +103,7 @@ public sealed class SubAgentRunConfigTests
             },
             Security = new AgentSecurityRunConfig
             {
-                PermissionOverrides = new Dictionary<string, bool> { ["shell"] = true }
+                PermissionOverrides = [new(new("shell"), RequiresPermission: true)]
             }
         };
 

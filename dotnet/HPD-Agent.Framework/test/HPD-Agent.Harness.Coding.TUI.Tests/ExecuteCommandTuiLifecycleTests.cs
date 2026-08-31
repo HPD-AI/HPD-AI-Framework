@@ -76,7 +76,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
         {
             ShowResult = new ExecuteCommandPermissionResponseEvent(
                 "permission-1",
-                "ExecuteCommandPermissionMiddleware",
+                "ExecuteCommandPermissionInteraction",
                 "allow_exact")
         };
         var handler = new ExecuteCommandPermissionRequestTuiHandler(CodingHarnessTuiTheme.Default);
@@ -87,7 +87,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
         result.Response.Should().BeOfType<ExecuteCommandPermissionResponseEvent>()
             .Which.Should().Match<ExecuteCommandPermissionResponseEvent>(evt =>
                 evt.PermissionId == "permission-1" &&
-                evt.SourceName == "ExecuteCommandPermissionMiddleware" &&
+                evt.SourceName == "ExecuteCommandPermissionInteraction" &&
                 evt.ChoiceId == "allow_exact" &&
                 evt.FeedbackText == null);
         dialogs.LastShowKey.Should().Be("execute-command-permission:permission-1");
@@ -860,7 +860,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
 
         return new ExecuteCommandPermissionRequestEvent(
             "permission-1",
-            "ExecuteCommandPermissionMiddleware",
+            "ExecuteCommandPermissionInteraction",
             "call-1",
             plan,
             [],

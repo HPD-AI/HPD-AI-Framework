@@ -216,15 +216,12 @@ namespace HPD.Agent.FFI;
 [JsonSerializable(typeof(ErrorTrackingStateData))]
 [JsonSerializable(typeof(ContinuationPermissionStateData))]
 [JsonSerializable(typeof(IReadOnlyList<ChatMessage>))]
-[JsonSerializable(typeof(BatchPermissionStateData))]
 [JsonSerializable(typeof(TotalErrorThresholdStateData))]
 
 // --- Checkpointing / Resume Types ---
 // (Removed legacy SessionCheckpoint type)
 
 // --- Permission Types ---
-[JsonSerializable(typeof(PermissionChoice))]
-[JsonSerializable(typeof(PermissionDecision))]
 
 // --- AGUI Protocol Types ---
 

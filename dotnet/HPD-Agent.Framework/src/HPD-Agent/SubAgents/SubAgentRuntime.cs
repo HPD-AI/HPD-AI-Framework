@@ -1,6 +1,8 @@
 using System.ComponentModel;
+using System.Text.Json;
 using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Agent;
 
@@ -41,11 +43,8 @@ public static class SubAgentRuntime
         /// </summary>
         public required string Input { get; init; }
 
-        /// <summary>
-        /// Gets the caller-assigned name for this individual delegated task.
-        /// This is distinct from the reusable subagent role name.
-        /// </summary>
-        public required string TaskName { get; init; }
+        /// <summary>Gets the stable capability identity used for idempotent child allocation.</summary>
+        public required CapabilityId CapabilityId { get; init; }
 
         /// <summary>
         /// Gets the parent function execution context, when the subagent is invoked from a tool call.
@@ -92,6 +91,9 @@ public static class SubAgentRuntime
         /// Gets the child agent id.
         /// </summary>
         public required string AgentId { get; init; }
+
+        /// <summary>Gets the framework-generated identifier local to the parent thread.</summary>
+        public SubAgentLocalId? LocalId { get; init; }
     }
 
     /// <summary>
@@ -113,7 +115,6 @@ public static class SubAgentRuntime
         ArgumentNullException.ThrowIfNull(request.Definition);
 
         var definition = request.Definition;
-        ValidateTaskName(request.TaskName);
         AgentInvocationMode mode;
         try
         {
@@ -124,77 +125,63 @@ public static class SubAgentRuntime
         catch (InvalidOperationException ex)
         {
             return AgentInvocationModes.CreateFailureResult(
-                request.TaskName,
+                GetCreationStorageName(request),
                 AgentOperationSourceKind.SubAgent,
                 ex.Message,
                 "invalid_invocation_mode");
         }
 
+        var admission = await AdmitInvocationAsync(request, cancellationToken).ConfigureAwait(false);
+
         if (mode == AgentInvocationMode.Background)
-            return await RegisterBackgroundInvocationAsync(request).ConfigureAwait(false);
+            return await RegisterBackgroundInvocationAsync(request, admission).ConfigureAwait(false);
 
         var result = await InvokeSynchronousCoreAsync(
             request,
+            admission,
             AgentInvocationMode.Synchronous,
             cancellationToken).ConfigureAwait(false);
         return new AgentInvocationResult
         {
             Mode = AgentInvocationMode.Synchronous,
-            Text = result.Text
+            Text = result.Text,
+            ToolResult = new SubAgentOperationResult
+            {
+                Status = SubAgentOperationStatus.Completed,
+                Child = result.LocalId?.Value,
+                InvocationId = result.InvocationId,
+                Output = result.Text
+            }
         };
     }
 
     private static async Task<AgentInvocationResult> RegisterBackgroundInvocationAsync(
-        SubAgentInvocationRequest request)
+        SubAgentInvocationRequest request,
+        AdmittedSubAgentInvocation admission)
     {
         var definition = request.Definition;
         var parentContext = request.ParentContext;
-        if (parentContext?.OperationRegistry is not { } operations ||
-            parentContext.SessionId is null || parentContext.ThreadId is null)
+        if (parentContext is null || !parentContext.CanStartOperations)
         {
             return AgentInvocationModes.CreateFailureResult(
-                request.TaskName,
+                GetCreationStorageName(request),
                 AgentOperationSourceKind.SubAgent,
                 "Background invocation requires an active agent runtime.");
         }
 
-        var inheritedLease = parentContext.GetEffectiveChatClientHandle()?.AcquireLease();
-        AgentOperationReceipt receipt;
-        try
-        {
-            receipt = await AgentLocalOperationScheduler.StartAsync(
-                operations,
-                AgentOperationSourceKind.SubAgent,
-                request.TaskName,
-                new AgentExecutionAddress(parentContext.AgentName, parentContext.SessionId, parentContext.ThreadId),
-                parentContext.ThreadExecutionId,
-                parentContext.InvocationSnapshot,
-                CreateBackgroundDescriptorMetadata(definition, request.TaskName),
+        var receipt = await parentContext.StartOperationAsync(
+                GetCreationStorageName(request),
+                CreateBackgroundDescriptorMetadata(definition, GetCreationStorageName(request)),
                 definition.OperationNotification,
                 async (_, runtimeToken) =>
                 {
-                    try
-                    {
-                        var result = await InvokeSynchronousCoreAsync(
-                            request,
-                            AgentInvocationMode.Background,
-                            runtimeToken).ConfigureAwait(false);
-
-                        return new AgentOperationCompletion(result.Text);
-                    }
-                    finally
-                    {
-                        if (inheritedLease is not null)
-                            await inheritedLease.DisposeAsync().ConfigureAwait(false);
-                    }
+                    var result = await InvokeSynchronousCoreAsync(
+                        request,
+                        admission,
+                        AgentInvocationMode.Background,
+                        runtimeToken).ConfigureAwait(false);
+                    return new AgentOperationCompletion(result.Text);
                 }).ConfigureAwait(false);
-        }
-        catch
-        {
-            if (inheritedLease is not null)
-                await inheritedLease.DisposeAsync().ConfigureAwait(false);
-            throw;
-        }
 
         return new AgentInvocationResult
         {
@@ -205,45 +192,22 @@ public static class SubAgentRuntime
 
     private static async Task<SubAgentInvocationResult> InvokeSynchronousCoreAsync(
         SubAgentInvocationRequest request,
+        AdmittedSubAgentInvocation admission,
         AgentInvocationMode invocationMode,
         CancellationToken cancellationToken)
     {
         var definition = request.Definition;
-        var contextPolicy = SubAgentContexts.Resolve(definition.ContextPolicy, request.RequestedContext);
-        var parentDepth = request.ParentContext?.GetParentAgentMetadata()?.Depth ?? 0;
-        var maxDepth = request.ParentContext?.GetParentAgentConfigSnapshot()?.MaxSubAgentDepth ?? 4;
-        if (!definition.Availability.AllowsInvocationFrom(parentDepth))
-        {
-            var maximumDepth = definition.Availability.MaximumChildDepth;
-            throw new InvalidOperationException(
-                maximumDepth is null
-                    ? $"Subagent '{definition.Name}' is not available from agent depth {parentDepth}."
-                    : $"Subagent '{definition.Name}' may only create children through depth {maximumDepth.Value}.");
-        }
-
-        if (parentDepth + 1 > maxDepth)
-        {
-            throw new InvalidOperationException(
-                $"Subagent '{definition.Name}' would exceed MaxSubAgentDepth ({maxDepth}).");
-        }
-
-        var plannedRoute = PlanInvocationRoute(definition, request.ParentContext, request.TaskName, contextPolicy);
+        var contextPolicy = admission.ContextPolicy;
         await using var runtime = await AcquireRuntimeAsync(
             definition,
             request.ParentContext,
-            plannedRoute,
+            admission.Route,
             cancellationToken).ConfigureAwait(false);
         var agent = runtime.Agent;
         AttachParentCoordinator(agent, request.ParentContext);
 
-        var route = await EnsureInvocationRouteAsync(
-            agent,
-            definition,
-            request.ParentContext,
-            request.TaskName,
-            plannedRoute,
-            contextPolicy,
-            cancellationToken).ConfigureAwait(false);
+        var route = admission.Route;
+        var localId = admission.LocalId;
         agent.AgentMetadata = CreateSubAgentMetadata(
             agent,
             definition,
@@ -265,7 +229,6 @@ public static class SubAgentRuntime
                     route.SessionId,
                     route.ThreadId,
                     definition.Name,
-                    request.TaskName,
                     contextPolicy,
                     invocationMode), cancellationToken).ConfigureAwait(false);
             }
@@ -327,7 +290,8 @@ public static class SubAgentRuntime
                 SessionId = route.SessionId,
                 ThreadId = route.ThreadId,
                 InvocationId = route.InvocationId,
-                AgentId = agent.AgentId
+                AgentId = agent.AgentId,
+                LocalId = localId
             };
         }
         catch (Exception ex)
@@ -360,6 +324,97 @@ public static class SubAgentRuntime
         }
     }
 
+    /// <summary>
+    /// Completes the durable admission phase shared by synchronous and background creation.
+    /// Child routing and parent registration are committed before any execution is scheduled.
+    /// </summary>
+    private static async ValueTask<AdmittedSubAgentInvocation> AdmitInvocationAsync(
+        SubAgentInvocationRequest request,
+        CancellationToken cancellationToken)
+    {
+        var definition = request.Definition;
+        var contextPolicy = SubAgentContexts.Resolve(definition.ContextPolicy, request.RequestedContext);
+        ValidateCreationDepth(request);
+        var replay = await FindRegisteredCreationAsync(request, cancellationToken).ConfigureAwait(false);
+        if (replay is { ChildThread: { } replayRoute })
+        {
+            return new AdmittedSubAgentInvocation(
+                new SubAgentInvocationRoute(
+                    replayRoute.SessionId,
+                    replayRoute.ThreadId,
+                    replay.CreationInvocationId),
+                replay.LocalId,
+                replay.CreationContext switch
+                {
+                    SubAgentCreationContext.Fork => SubAgentContextPolicy.Fork,
+                    SubAgentCreationContext.Fresh => SubAgentContextPolicy.Fresh,
+                    SubAgentCreationContext.Isolated => SubAgentContextPolicy.Isolated,
+                    _ => throw new InvalidOperationException("subagent_creation_context_invalid")
+                });
+        }
+        var plannedRoute = PlanInvocationRoute(
+            definition,
+            request.ParentContext,
+            GetCreationStorageName(request),
+            contextPolicy);
+        await using var runtime = await AcquireRuntimeAsync(
+            definition,
+            request.ParentContext,
+            plannedRoute,
+            cancellationToken).ConfigureAwait(false);
+        AttachParentCoordinator(runtime.Agent, request.ParentContext);
+        var route = await EnsureInvocationRouteAsync(
+            runtime.Agent,
+            definition,
+            request.ParentContext,
+            GetCreationStorageName(request),
+            plannedRoute,
+            contextPolicy,
+            cancellationToken).ConfigureAwait(false);
+        var localId = await RegisterChildAsync(request, route, contextPolicy, cancellationToken)
+            .ConfigureAwait(false);
+        return new AdmittedSubAgentInvocation(route, localId, contextPolicy);
+    }
+
+    private static void ValidateCreationDepth(SubAgentInvocationRequest request)
+    {
+        var definition = request.Definition;
+        var parentDepth = request.ParentContext?.GetParentAgentMetadata()?.Depth ?? 0;
+        var maxDepth = request.ParentContext?.GetParentAgentConfigSnapshot()?.MaxSubAgentDepth ?? 4;
+        if (!definition.Availability.AllowsInvocationFrom(parentDepth))
+        {
+            var maximumDepth = definition.Availability.MaximumChildDepth;
+            throw new InvalidOperationException(
+                maximumDepth is null
+                    ? $"Subagent '{definition.Name}' is not available from agent depth {parentDepth}."
+                    : $"Subagent '{definition.Name}' may only create children through depth {maximumDepth.Value}.");
+        }
+        if (parentDepth + 1 > maxDepth)
+            throw new InvalidOperationException(
+                $"Subagent '{definition.Name}' would exceed MaxSubAgentDepth ({maxDepth}).");
+    }
+
+    private static async ValueTask<SubAgentChildReference?> FindRegisteredCreationAsync(
+        SubAgentInvocationRequest request,
+        CancellationToken cancellationToken)
+    {
+        var context = request.ParentContext;
+        var store = context?.GetParentSessionStore();
+        if (context?.SessionId is null || context.ThreadId is null || store is null)
+            return null;
+        var projection = await new SubAgentChildRegistry(store).ProjectAsync(
+            new ThreadKey(context.SessionId, context.ThreadId),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return projection.Children.Values.FirstOrDefault(child =>
+            string.Equals(child.ParentToolCallId, context.FunctionCallId, StringComparison.Ordinal) &&
+            child.CapabilityId == request.CapabilityId);
+    }
+
+    private sealed record AdmittedSubAgentInvocation(
+        SubAgentInvocationRoute Route,
+        SubAgentLocalId? LocalId,
+        SubAgentContextPolicy ContextPolicy);
+
     private static IReadOnlyDictionary<string, string> CreateBackgroundDescriptorMetadata(
         SubAgent definition,
         string taskName)
@@ -369,7 +424,7 @@ public static class SubAgentRuntime
             ["invocation.kind"] = "subagent",
             ["invocation.mode"] = "background",
             ["subAgent.name"] = definition.Name,
-            ["subAgent.taskName"] = taskName,
+            ["subAgent.localStorageName"] = taskName,
             ["subAgent.sourceKind"] = definition.Configuration.GetType().Name
         };
 
@@ -377,6 +432,173 @@ public static class SubAgentRuntime
             metadata["subAgent.agentId"] = definition.AgentId!;
 
         return metadata;
+    }
+
+    /// <summary>Dispatches a framework-owned lifecycle action against the current parent's registry.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static async Task<object?> ControlAsync(
+        string action,
+        JsonElement branch,
+        FunctionExecutionContext functionContext,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(action);
+        ArgumentNullException.ThrowIfNull(functionContext);
+        var store = functionContext.GetParentSessionStore()
+            ?? throw new InvalidOperationException("subagent_unavailable: no durable parent session store is configured.");
+        if (functionContext.SessionId is null || functionContext.ThreadId is null)
+            throw new InvalidOperationException("subagent_unavailable: the current parent has no durable thread identity.");
+        var registry = new SubAgentChildRegistry(store);
+        var projection = await registry.ProjectAsync(
+            new ThreadKey(functionContext.SessionId, functionContext.ThreadId),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (string.Equals(action, "list", StringComparison.Ordinal))
+        {
+            return new SubAgentListResult(projection.Children.Values
+                .OrderBy(static child => child.LocalId.Value, StringComparer.Ordinal)
+                .Select(static child => new SubAgentListItem(
+                    child.LocalId.Value,
+                    child.RoleName,
+                    child.Availability,
+                    child.CreatedAt,
+                    child.UnavailableReason))
+                .ToArray());
+        }
+
+        var localValue = branch.TryGetProperty("child", out var childProperty)
+            ? childProperty.GetString()
+            : null;
+        if (string.IsNullOrWhiteSpace(localValue) ||
+            !projection.TryGet(new SubAgentLocalId(localValue), out var child))
+            return Failure("subagent_unknown", "This child is not registered under the current parent. Use list to inspect available children.");
+        if (child.Availability == SubAgentChildAvailability.Detached)
+            return Failure("subagent_detached_by_fork", child.UnavailableReason ?? "This child was detached by the parent fork. Start a new role action.", child.LocalId.Value);
+        if (child.Availability != SubAgentChildAvailability.Available || child.ChildThread is null)
+            return Failure("subagent_unavailable", child.UnavailableReason ?? "This child is currently unavailable.", child.LocalId.Value);
+
+        if (string.Equals(action, "continue", StringComparison.Ordinal))
+        {
+            var resolver = functionContext.Services?.GetService<IAgentRuntimeResolver>()
+                ?? throw new InvalidOperationException("subagent_unavailable: no agent runtime resolver is configured.");
+            var route = child.ChildThread.Value;
+            var input = branch.GetProperty("input").GetString() ?? string.Empty;
+            var executionId = Guid.NewGuid().ToString("N");
+            var invocationId = Guid.NewGuid().ToString("N");
+            await using var lease = await resolver.GetOrBuildAsync(
+                child.ChildAgentId, route.SessionId, route.ThreadId, cancellationToken).ConfigureAwait(false);
+            var publisher = new AgentEventPublisher(store, lease.Agent.EventCoordinator);
+            await publisher.CommitAndPublishAsync(
+                route,
+                new ThreadExecutionStartedEvent(executionId, child.ChildAgentId, DateTimeOffset.UtcNow),
+                cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await lease.Agent.RunAsync(new UserMessagesInputEvent
+                {
+                    Messages = [new ChatMessage(ChatRole.User, input)],
+                    SessionId = route.SessionId,
+                    ThreadId = route.ThreadId
+                }, cancellationToken).ConfigureAwait(false);
+                await publisher.CommitAndPublishAsync(
+                    route,
+                    new ThreadExecutionFinishedEvent(
+                        executionId,
+                        child.ChildAgentId,
+                        ThreadExecutionOutcome.Succeeded,
+                        DateTimeOffset.UtcNow),
+                    CancellationToken.None).ConfigureAwait(false);
+                var projected = await store.ProjectThreadAsync(
+                    route.SessionId,
+                    route.ThreadId,
+                    ThreadProjectionPurpose.ThreadHistory,
+                    CancellationToken.None).ConfigureAwait(false);
+                return new SubAgentOperationResult
+                {
+                    Status = SubAgentOperationStatus.Completed,
+                    Child = child.LocalId.Value,
+                    InvocationId = invocationId,
+                    ThreadExecutionId = executionId,
+                    Output = projected?.Messages.LastOrDefault(static message => message.Role == ChatRole.Assistant)?.Text
+                };
+            }
+            catch (Exception exception)
+            {
+                await publisher.CommitAndPublishAsync(
+                    route,
+                    new ThreadExecutionFinishedEvent(
+                        executionId,
+                        child.ChildAgentId,
+                        exception is OperationCanceledException ? ThreadExecutionOutcome.Cancelled : ThreadExecutionOutcome.Failed,
+                        DateTimeOffset.UtcNow,
+                        exception is OperationCanceledException ? null : new ThreadExecutionError(exception.GetType().Name, exception.Message)),
+                    CancellationToken.None).ConfigureAwait(false);
+                throw;
+            }
+        }
+
+        return Failure(
+            action is "sendMessage" or "cancel" ? "subagent_not_running" : "subagent_unavailable",
+            $"The '{action}' control is unavailable because no shared execution controller is configured.",
+            child.LocalId.Value);
+
+        static SubAgentOperationResult Failure(string code, string message, string? child = null) => new()
+        {
+            Status = SubAgentOperationStatus.Unavailable,
+            Child = child,
+            Error = new SubAgentOperationError(code, message)
+        };
+    }
+
+    private static async ValueTask<SubAgentLocalId?> RegisterChildAsync(
+        SubAgentInvocationRequest request,
+        SubAgentInvocationRoute route,
+        SubAgentContextPolicy contextPolicy,
+        CancellationToken cancellationToken)
+    {
+        var context = request.ParentContext;
+        var store = context?.GetParentSessionStore();
+        if (context?.SessionId is null || context.ThreadId is null || store is null)
+            return null;
+        var parent = new ThreadKey(context.SessionId, context.ThreadId);
+        var registry = new SubAgentChildRegistry(store);
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            var projection = await registry.ProjectAsync(parent, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+            var replay = projection.Children.Values.FirstOrDefault(child =>
+                string.Equals(child.ParentToolCallId, context.FunctionCallId, StringComparison.Ordinal) &&
+                child.CapabilityId == request.CapabilityId);
+            if (replay is not null) return replay.LocalId;
+            var ordinal = projection.Children.Values.Count(child =>
+                string.Equals(child.RoleName, request.Definition.Name, StringComparison.Ordinal)) + 1;
+            var localId = new SubAgentLocalId($"{Normalize(request.Definition.Name)}-{ordinal}");
+            var child = new SubAgentChildReference
+            {
+                LocalId = localId,
+                RoleName = request.Definition.Name,
+                CapabilityId = request.CapabilityId,
+                ChildAgentId = request.Definition.AgentId,
+                Availability = SubAgentChildAvailability.Available,
+                ChildThread = new ThreadKey(route.SessionId, route.ThreadId),
+                CreationContext = contextPolicy switch
+                {
+                    SubAgentContextPolicy.Fork => SubAgentCreationContext.Fork,
+                    SubAgentContextPolicy.Fresh => SubAgentCreationContext.Fresh,
+                    SubAgentContextPolicy.Isolated => SubAgentCreationContext.Isolated,
+                    _ => throw new InvalidOperationException("ModelChoice must resolve before child registration.")
+                },
+                CreationInvocationId = route.InvocationId,
+                ParentToolCallId = context.FunctionCallId,
+                CreatedAt = DateTimeOffset.UtcNow
+            };
+            try
+            {
+                return (await registry.RegisterAsync(parent, child, cancellationToken).ConfigureAwait(false)).LocalId;
+            }
+            catch (InvalidOperationException exception) when (
+                exception.Message == "subagent_creation_conflict" && attempt < 7) { }
+        }
+        throw new InvalidOperationException("subagent_creation_conflict");
     }
 
     /// <summary>
@@ -417,8 +639,6 @@ public static class SubAgentRuntime
     {
         ArgumentNullException.ThrowIfNull(agent);
         ArgumentNullException.ThrowIfNull(subAgent);
-        ValidateTaskName(taskName);
-
         var runId = route.InvocationId;
         var sessionId = await ResolveSessionAsync(agent, subAgent, functionContext, taskName, runId, contextPolicy, cancellationToken)
             .ConfigureAwait(false);
@@ -429,7 +649,7 @@ public static class SubAgentRuntime
         functionContext?.ResultMetadata.Set("subAgentSessionId", sessionId);
         functionContext?.ResultMetadata.Set("subAgentThreadId", threadId);
         functionContext?.ResultMetadata.Set("subAgentName", subAgent.Name);
-        functionContext?.ResultMetadata.Set("subAgentTaskName", taskName);
+        functionContext?.ResultMetadata.Set("subAgentLocalStorageName", taskName);
         functionContext?.ResultMetadata.Set("invocationId", runId);
 
         return new SubAgentInvocationRoute(sessionId, threadId, runId);
@@ -738,7 +958,7 @@ public static class SubAgentRuntime
         // application metadata supplied on the reusable subagent definition.
         metadata["kind"] = "subagent";
         metadata["subAgentName"] = subAgent.Name;
-        metadata["subAgentTaskName"] = taskName;
+        metadata["subAgentLocalStorageName"] = taskName;
         metadata["subAgentSourceKind"] = subAgent.Configuration.GetType().Name;
         metadata["parentSessionId"] = functionContext?.SessionId ?? string.Empty;
         metadata["parentThreadId"] = functionContext?.ThreadId ?? string.Empty;
@@ -753,14 +973,10 @@ public static class SubAgentRuntime
         return metadata;
     }
 
-    private static void ValidateTaskName(string taskName)
+    private static string GetCreationStorageName(SubAgentInvocationRequest request)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(taskName);
-        if (taskName.Length > 80)
-            throw new ArgumentException("Subagent task names cannot exceed 80 characters.", nameof(taskName));
-
-        if (!taskName.Any(char.IsLetterOrDigit))
-            throw new ArgumentException("Subagent task names must contain at least one letter or number.", nameof(taskName));
+        var callId = request.ParentContext?.FunctionCallId ?? Guid.NewGuid().ToString("N");
+        return $"{Normalize(request.Definition.Name)}-{Normalize(callId)[..Math.Min(12, Normalize(callId).Length)]}";
     }
 
     private static string Normalize(string value)

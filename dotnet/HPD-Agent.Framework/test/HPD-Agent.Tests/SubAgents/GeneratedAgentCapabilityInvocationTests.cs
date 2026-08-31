@@ -68,7 +68,7 @@ public sealed class GeneratedAgentCapabilityInvocationTests
             {
                 Name = "GeneratedReviewer",
                 Description = "Generated-shape thread-native subagent wrapper",
-                RequiresPermission = true,
+                FunctionPermission = AIFunctionPermissionDeclaration.Required("generated_agent"),
                 AdditionalProperties = new Dictionary<string, object>
                 {
                     ["IsSubAgent"] = true,
@@ -108,7 +108,7 @@ public sealed class GeneratedAgentCapabilityInvocationTests
             {
                 Name = "GeneratedWorkflow",
                 Description = "Generated-shape multi-agent workflow wrapper",
-                RequiresPermission = true,
+                FunctionPermission = AIFunctionPermissionDeclaration.Required("generated_agent"),
                 AdditionalProperties = new Dictionary<string, object>
                 {
                     ["CapabilityType"] = "MultiAgent",

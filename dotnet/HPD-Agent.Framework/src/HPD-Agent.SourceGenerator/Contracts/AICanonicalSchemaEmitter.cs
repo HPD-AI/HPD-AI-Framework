@@ -108,7 +108,9 @@ internal static class AICanonicalSchemaEmitter
             builder.Append(",\"description\":");
             AppendString(builder, node.Description!);
         }
-        if (hasDefault)
+        // An omitted optional parameter may bind to a CLR null default even when explicit JSON null
+        // is outside its wire contract. Do not publish an invalid schema default in that case.
+        if (hasDefault && (defaultValue is not null || node.AllowsNull))
         {
             builder.Append(",\"default\":");
             AppendDefault(builder, node, defaultValue);

@@ -108,7 +108,7 @@ public sealed class MiddlewareStateAttribute : Attribute
     /// <list type="bullet">
     /// <item>Error tracking (ErrorTrackingStateData - per-run metric)</item>
     /// <item>Circuit breakers (CircuitBreakerStateData - safety must reset)</item>
-    /// <item>Batch optimization (BatchPermissionStateData - per-iteration optimization)</item>
+    /// <item>Iteration-local caches that are not security authority</item>
     /// <item>Per-run metrics (TotalErrorThresholdStateData - accumulator resets)</item>
     /// </list>
     ///
@@ -168,7 +168,7 @@ public sealed class MiddlewareStateAttribute : Attribute
     /// <code>
     /// // Session-scoped: Permissions apply everywhere
     /// [MiddlewareState(Persistent = true, Scope = StateScope.Session)]
-    /// public sealed record PermissionPersistentStateData { }
+    /// public sealed record UserPreferenceStateData { }
     ///
     /// // Thread-scoped (default): Plan progress is per-conversation
     /// [MiddlewareState(Persistent = true)]  // Scope = StateScope.Thread is the default
