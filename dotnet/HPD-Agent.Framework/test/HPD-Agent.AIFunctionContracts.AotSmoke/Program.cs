@@ -10,6 +10,10 @@ var function = ContractSmokeHarnessRegistration.CreateToolHarness(harness).Singl
 var requestSchema = function.JsonSchema.GetProperty("properties").GetProperty("request");
 if (requestSchema.GetProperty("oneOf").GetArrayLength() != 2)
     return 1;
+var branches = requestSchema.GetProperty("oneOf");
+if (branches[0].GetProperty("properties").TryGetProperty("invocationMode", out _) ||
+    !branches[1].GetProperty("properties").TryGetProperty("invocationMode", out _))
+    return 3;
 
 using var document = JsonDocument.Parse("""{"request":{"action":"launch","target":"worker","retries":[1,2]}}""");
 var arguments = new AIFunctionArguments();
@@ -76,6 +80,10 @@ public sealed partial class ContractSmokeHarness
 [JsonDerivedType(typeof(ContinueRequest), "continue")]
 public abstract record OperationRequest;
 
+[AIFunctionAction("launch")]
 public sealed record LaunchRequest(string Target, IReadOnlyList<int> Retries) : OperationRequest;
 
+[AIFunctionAction("continue",
+    InvocationModePolicy = AIFunctionActionInvocationModePolicy.ModelChoice,
+    InvocationModeHandling = AIFunctionActionInvocationModeHandling.ToolBody)]
 public sealed record ContinueRequest(string DebugTreeId, int? ThreadId = null) : OperationRequest;
