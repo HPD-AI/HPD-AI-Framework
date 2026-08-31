@@ -824,7 +824,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 {
                     Invocation = audit,
                     CommittedOperation = committed,
-                    ErrorMessage = committedFailure.Message
+                    ErrorMessage = BoundDurableMessage(committedFailure.Message)
                 }).ConfigureAwait(false);
             }
         }
@@ -845,6 +845,9 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             ResultMetadata: afterFunctionContext.ResultMetadata,
             Invocation: preparation.Invocation);
     }
+
+    private static string BoundDurableMessage(string value) =>
+        value.Length <= 1024 ? value : value[..1024];
 
     public static FunctionResultContent ToFunctionResultContent(FunctionExecutionOutcome outcome)
     {

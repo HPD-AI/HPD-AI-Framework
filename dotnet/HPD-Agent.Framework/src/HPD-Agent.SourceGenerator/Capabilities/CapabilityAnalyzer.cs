@@ -1030,16 +1030,20 @@ internal static class CapabilityAnalyzer
                     declaredUnion.Cases.Select(static unionCase => unionCase.ConcreteType),
                     SymbolEqualityComparer.Default)
                 : new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
-            foreach (var declaration in semanticModel.SyntaxTree.GetRoot().DescendantNodes().OfType<TypeDeclarationSyntax>())
+            foreach (var syntaxTree in semanticModel.Compilation.SyntaxTrees)
             {
-                if (semanticModel.GetDeclaredSymbol(declaration) is not INamedTypeSymbol type ||
-                    !type.GetAttributes().Any(attribute => attribute.AttributeClass?.Name == "AIFunctionActionAttribute") ||
-                    !DerivesFrom(type, baseType) || declaredCases.Contains(type))
-                    continue;
-                diagnostics.Add(Diagnostic.Create(ActionFunctionDiagnostics.InvalidContract,
-                    declaration.GetLocation(),
-                    $"action type '{type.Name}' is outside the function's declared closed union"));
-                return false;
+                var treeModel = semanticModel.Compilation.GetSemanticModel(syntaxTree);
+                foreach (var declaration in syntaxTree.GetRoot().DescendantNodes().OfType<TypeDeclarationSyntax>())
+                {
+                    if (treeModel.GetDeclaredSymbol(declaration) is not INamedTypeSymbol type ||
+                        !type.GetAttributes().Any(attribute => attribute.AttributeClass?.Name == "AIFunctionActionAttribute") ||
+                        !DerivesFrom(type, baseType) || declaredCases.Contains(type))
+                        continue;
+                    diagnostics.Add(Diagnostic.Create(ActionFunctionDiagnostics.InvalidContract,
+                        declaration.GetLocation(),
+                        $"action type '{type.Name}' is outside the function's declared closed union"));
+                    return false;
+                }
             }
         }
         if (candidates.Length == 0) return true;

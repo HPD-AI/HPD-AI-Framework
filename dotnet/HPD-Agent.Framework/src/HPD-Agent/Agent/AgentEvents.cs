@@ -1191,6 +1191,24 @@ public sealed record ToolBodyOperationCommittedFailureEvent : AgentEvent
     public required string ErrorMessage { get; init; }
 }
 
+/// <summary>Records a non-throwing failure while releasing an operation execution owner.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("OPERATION_EXECUTION_OWNER_CLEANUP_FAILED")]
+public sealed record OperationExecutionOwnerCleanupFailedEvent : AgentEvent
+{
+    /// <inheritdoc />
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+
+    /// <summary>Gets the operation whose execution owner was being released.</summary>
+    public required string OperationId { get; init; }
+
+    /// <summary>Gets the bounded operation name.</summary>
+    public required string OperationName { get; init; }
+
+    /// <summary>Gets the bounded safe cleanup failure description.</summary>
+    public required string ErrorMessage { get; init; }
+}
+
  #endregion
 
 #region Middleware Events

@@ -25,7 +25,8 @@ internal static class AgentLocalOperationScheduler
 
         var operationId = Guid.NewGuid().ToString("N");
         var harnessOwner = toolHarnessExecutionScope?.TransferToOperation(operationId);
-        var executionOwner = CompositeExecutionOwner.Create(harnessOwner, additionalExecutionOwner);
+        var executionOwner = CompositeExecutionOwner.Create(
+            registry, operationId, name, harnessOwner, additionalExecutionOwner);
         var controller = new LocalController(runtimeCancellationToken);
         var observer = new LocalObserver(controller, work);
         var now = DateTimeOffset.UtcNow;
@@ -69,17 +70,33 @@ internal static class AgentLocalOperationScheduler
 
     private sealed class CompositeExecutionOwner : IAsyncDisposable
     {
+        private readonly AgentOperationRegistry _registry;
+        private readonly string _operationId;
+        private readonly string _operationName;
         private readonly IAsyncDisposable[] _owners;
-        private CompositeExecutionOwner(IAsyncDisposable[] owners) => _owners = owners;
+        private CompositeExecutionOwner(
+            AgentOperationRegistry registry,
+            string operationId,
+            string operationName,
+            IAsyncDisposable[] owners)
+        {
+            _registry = registry;
+            _operationId = operationId;
+            _operationName = operationName;
+            _owners = owners;
+        }
 
-        internal static IAsyncDisposable? Create(params IAsyncDisposable?[] owners)
+        internal static IAsyncDisposable? Create(
+            AgentOperationRegistry registry,
+            string operationId,
+            string operationName,
+            params IAsyncDisposable?[] owners)
         {
             var materialized = owners.Where(static owner => owner is not null).Cast<IAsyncDisposable>().ToArray();
             return materialized.Length switch
             {
                 0 => null,
-                1 => materialized[0],
-                _ => new CompositeExecutionOwner(materialized)
+                _ => new CompositeExecutionOwner(registry, operationId, operationName, materialized)
             };
         }
 
@@ -91,10 +108,10 @@ internal static class AgentLocalOperationScheduler
                 {
                     await _owners[index].DisposeAsync().ConfigureAwait(false);
                 }
-                catch
+                catch (Exception exception)
                 {
-                    // Cleanup is exhaustive and non-throwing. Operation lifecycle reporting owns
-                    // terminal diagnostics; one faulty owner must never leak the remaining owners.
+                    await _registry.ObserveExecutionOwnerCleanupFailureAsync(
+                        _operationId, _operationName, exception).ConfigureAwait(false);
                 }
             }
         }

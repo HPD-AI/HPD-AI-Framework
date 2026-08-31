@@ -224,6 +224,7 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(FunctionInvocationAuditProjection))]
 [JsonSerializable(typeof(FunctionInvocationAuditedEvent))]
 [JsonSerializable(typeof(ToolBodyOperationCommittedFailureEvent))]
+[JsonSerializable(typeof(OperationExecutionOwnerCleanupFailedEvent))]
 [JsonSerializable(typeof(CommittedToolBodyOperation))]
 
 // Channel Routing Enums

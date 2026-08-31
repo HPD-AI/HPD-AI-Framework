@@ -89,6 +89,29 @@ internal sealed class AgentOperationRegistry : IAsyncDisposable
 
     internal IReadOnlyList<AgentOperation> LiveOperations() => _operations.Values.ToArray();
 
+    internal async ValueTask ObserveExecutionOwnerCleanupFailureAsync(
+        string operationId,
+        string operationName,
+        Exception exception)
+    {
+        try
+        {
+            await _events.AppendAsync(new OperationExecutionOwnerCleanupFailedEvent
+            {
+                OperationId = operationId,
+                OperationName = Bound(operationName),
+                ErrorMessage = Bound(exception.Message)
+            }, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Cleanup observation must not turn terminal cleanup into a throwing path.
+        }
+    }
+
+    private static string Bound(string value) =>
+        value.Length <= 1024 ? value : value[..1024];
+
     internal async ValueTask<AgentOperationSnapshot> TransitionAsync(
         string operationId,
         AgentOperationTransition transition,
