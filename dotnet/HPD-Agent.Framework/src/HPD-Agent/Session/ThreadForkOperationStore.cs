@@ -7,7 +7,8 @@ public sealed record ThreadPreparationDescriptor(
     string OperationId,
     ThreadKey Source,
     string RequestFingerprint,
-    string? TargetSeedFingerprint = null);
+    string? TargetSeedFingerprint = null,
+    ThreadJournalCursor? SourceBoundary = null);
 
 /// <summary>Typed immutable preparation authority embedded in a staged isolated session.</summary>
 public sealed record SessionPreparationDescriptor(

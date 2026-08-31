@@ -92,7 +92,9 @@ public sealed record SubAgentForkChildOutcome(
     SubAgentForkPolicy Policy,
     ThreadKey? Source,
     ThreadKey? Target,
-    SubAgentChildAvailability Availability);
+    SubAgentChildAvailability Availability,
+    string? TargetSeedFingerprint = null,
+    ThreadJournalCursor? SourceBoundary = null);
 
 /// <summary>Authoritative result returned by every public thread fork.</summary>
 public sealed record ThreadForkResult

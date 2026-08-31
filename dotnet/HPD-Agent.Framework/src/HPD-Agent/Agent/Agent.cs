@@ -6900,14 +6900,32 @@ public sealed partial class Agent : IAsyncDisposable
             .ToArray();
         var sourceRegistryForOutcomes = await new SubAgentChildRegistry(store)
             .ProjectAsync(sourceKey, sourceForkBoundary, cancellationToken).ConfigureAwait(false);
-        var outcomes = registryEvents.OfType<SubAgentChildRegisteredEvent>()
-            .Select(evt => new SubAgentForkChildOutcome(
+        var outcomes = new List<SubAgentForkChildOutcome>();
+        foreach (var evt in registryEvents.OfType<SubAgentChildRegisteredEvent>())
+        {
+            string? childSeed = null;
+            ThreadJournalCursor? childBoundary = null;
+            if (effectiveSubAgentOptions.Policy == SubAgentForkPolicy.ForkDirectChildren &&
+                evt.Child.ChildThread is { } childTarget)
+            {
+                var childDescriptor = await store.GetThreadAsync(childTarget, cancellationToken).ConfigureAwait(false)
+                    ?? throw new InvalidOperationException("thread_fork_prepared_child_missing");
+                childSeed = childDescriptor.Preparation?.TargetSeedFingerprint
+                    ?? throw new InvalidOperationException("thread_fork_prepared_child_seed_missing");
+                childBoundary = childDescriptor.Preparation?.SourceBoundary
+                    ?? throw new InvalidOperationException("thread_fork_prepared_child_boundary_missing");
+            }
+            outcomes.Add(new SubAgentForkChildOutcome(
                 evt.Child.LocalId.Value,
                 effectiveSubAgentOptions.Policy,
                 sourceRegistryForOutcomes.Children.GetValueOrDefault(evt.Child.LocalId)?.ChildThread,
                 evt.Child.ChildThread,
-                evt.Child.Availability))
-            .ToArray();
+                evt.Child.Availability,
+                childSeed,
+                childBoundary));
+        }
+        if (forkOperation.ChildOutcomes.Count > 0 && !forkOperation.ChildOutcomes.SequenceEqual(outcomes))
+            throw new InvalidOperationException("thread_fork_child_seed_changed");
         newThread.Preparation = new ThreadPreparationDescriptor(
             forkOperationId, sourceKey, requestFingerprint);
         List<AgentEvent> plannedTargetEvents;
@@ -6952,7 +6970,7 @@ public sealed partial class Agent : IAsyncDisposable
                 Status = ThreadForkOperationStatus.ParentPreparing,
                 Revision = forkOperation.Revision + 1,
                 PreparedChildren = preparedChildren,
-                ChildOutcomes = outcomes,
+                ChildOutcomes = outcomes.ToArray(),
                 TargetSeedFingerprint = targetSeedFingerprint
             };
             await forkOperationStore.WriteThreadForkOperationAsync(
@@ -7722,7 +7740,11 @@ public sealed partial class Agent : IAsyncDisposable
         var childSeedFingerprint = ComputeTargetSeedFingerprint(store.EventCodec, staged);
         staged[0] = created with
         {
-            Preparation = created.Preparation! with { TargetSeedFingerprint = childSeedFingerprint }
+            Preparation = created.Preparation! with
+            {
+                TargetSeedFingerprint = childSeedFingerprint,
+                SourceBoundary = childBoundary
+            }
         };
         if (source.CreationContext == SubAgentCreationContext.Isolated)
         {
