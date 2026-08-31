@@ -73,9 +73,10 @@ public sealed class CompositeThreadJournalRebaseSeedProvider(
     {
         var registry = new SubAgentRegistryRebaseSeedProvider(new SubAgentChildRegistry(store));
         var forks = new ThreadForkOperationRebaseSeedProvider(store);
+        var continuations = new SubAgentContinuationRebaseSeedProvider(store);
         return hostProvider is null
-            ? new CompositeThreadJournalRebaseSeedProvider([registry, forks])
-            : new CompositeThreadJournalRebaseSeedProvider([hostProvider, registry, forks]);
+            ? new CompositeThreadJournalRebaseSeedProvider([registry, forks, continuations])
+            : new CompositeThreadJournalRebaseSeedProvider([hostProvider, registry, forks, continuations]);
     }
 
     /// <inheritdoc />
@@ -87,6 +88,61 @@ public sealed class CompositeThreadJournalRebaseSeedProvider(
         foreach (var provider in _providers)
             events.AddRange(await provider.CreateSeedEventsAsync(thread, cancellationToken).ConfigureAwait(false));
         return events;
+    }
+}
+
+/// <summary>
+/// Preserves deterministic subagent-continuation admission and terminal receipts across a destructive rebase.
+/// </summary>
+public sealed class SubAgentContinuationRebaseSeedProvider(ISessionStore store)
+    : IThreadJournalRebaseSeedProvider
+{
+    private readonly ISessionStore _store = store ?? throw new ArgumentNullException(nameof(store));
+
+    /// <inheritdoc />
+    public async ValueTask<IReadOnlyList<AgentEvent>> CreateSeedEventsAsync(
+        ThreadKey thread,
+        CancellationToken cancellationToken = default)
+    {
+        var head = await _store.GetThreadEventHeadAsync(thread, cancellationToken).ConfigureAwait(false);
+        if (head is null) return [];
+        var starts = new Dictionary<string, ThreadExecutionStartedEvent>(StringComparer.Ordinal);
+        var terminals = new Dictionary<string, ThreadExecutionFinishedEvent>(StringComparer.Ordinal);
+        await foreach (var batch in _store.ReadThreadEventsAsync(
+                           thread,
+                           new ThreadEventReadRequest(ThreadJournalCursor.Start(head.Generation), head.ThreadSequenceNumber),
+                           cancellationToken).ConfigureAwait(false))
+        {
+            foreach (var evt in batch.Events)
+            {
+                if (evt is ThreadExecutionStartedEvent started &&
+                    started.ThreadExecutionId.StartsWith("continue-", StringComparison.Ordinal))
+                    starts[started.ThreadExecutionId] = started;
+                else if (evt is ThreadExecutionFinishedEvent finished &&
+                         finished.ThreadExecutionId.StartsWith("continue-", StringComparison.Ordinal))
+                    terminals[finished.ThreadExecutionId] = finished;
+            }
+        }
+        var seed = new List<AgentEvent>(starts.Count * 2);
+        foreach (var (executionId, started) in starts.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
+        {
+            seed.Add(started with
+            {
+                SessionId = thread.SessionId,
+                ThreadId = thread.ThreadId,
+                ThreadSequenceNumber = 0
+            });
+            if (terminals.TryGetValue(executionId, out var terminal))
+            {
+                seed.Add(terminal with
+                {
+                    SessionId = thread.SessionId,
+                    ThreadId = thread.ThreadId,
+                    ThreadSequenceNumber = 0
+                });
+            }
+        }
+        return seed;
     }
 }
 

@@ -140,6 +140,30 @@ public sealed class SubAgentDurabilityTests
         Assert.Equal("reviewer-130", reservation.Record.LocalId.Value);
     }
 
+    [Fact]
+    public async Task CompactionSeedPreservesContinuationAdmissionAndTerminalReceipt()
+    {
+        var store = new InMemorySessionStore(CoreAgentEventComposition.Instance.Codec);
+        var child = new ThreadKey("session", "child");
+        await CreateThreadAsync(store, child);
+        var head = await store.GetThreadEventHeadAsync(child);
+        await store.AppendThreadEventsAsync(
+            child,
+            [
+                new ThreadExecutionStartedEvent("continue-abc", "child-agent", DateTimeOffset.UtcNow),
+                new ThreadExecutionFinishedEvent(
+                    "continue-abc", "child-agent", ThreadExecutionOutcome.Succeeded, DateTimeOffset.UtcNow)
+            ],
+            new ThreadAppendCondition(head!.Cursor));
+
+        var seed = await new SubAgentContinuationRebaseSeedProvider(store).CreateSeedEventsAsync(child);
+
+        Assert.Collection(
+            seed,
+            value => Assert.Equal("continue-abc", Assert.IsType<ThreadExecutionStartedEvent>(value).ThreadExecutionId),
+            value => Assert.Equal("continue-abc", Assert.IsType<ThreadExecutionFinishedEvent>(value).ThreadExecutionId));
+    }
+
     private static async Task CreateThreadAsync(InMemorySessionStore store, ThreadKey key) =>
         _ = await store.AppendThreadEventsAsync(
             key,
