@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json.Serialization;
 
 namespace HPD.Agent;
 
@@ -7,6 +8,7 @@ namespace HPD.Agent;
 public readonly record struct SubAgentLocalId
 {
     /// <summary>Creates a validated parent-local child identifier.</summary>
+    [JsonConstructor]
     public SubAgentLocalId(string value)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(value);

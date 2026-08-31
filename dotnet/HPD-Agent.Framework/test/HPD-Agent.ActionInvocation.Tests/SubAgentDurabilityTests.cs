@@ -277,7 +277,215 @@ public sealed class SubAgentDurabilityTests
         Assert.Equal("subagent_controller_authority_route_collision", exception.Message);
     }
 
-    private static async Task CreateThreadAsync(InMemorySessionStore store, ThreadKey key) =>
+    [Fact]
+    public async Task ForkPoliciesDetachOrCopyTheSameParentLocalChildIdentity()
+    {
+        var store = new InMemorySessionStore(CoreAgentEventComposition.Instance.Codec);
+        await using var agent = new Agent(
+            new AgentConfig
+            {
+                Name = "test-agent",
+                SessionStore = store,
+                EventComposition = CoreAgentEventComposition.Instance
+            },
+            baseClient: null,
+            mergedOptions: null);
+        var session = new Session("subagent-fork-session");
+        await store.SaveSessionAsync(session);
+        var source = session.CreateThread("test-agent", "main");
+        await store.SaveInitialThreadAsync(session.Id, source);
+        source.Session = session;
+        var sourceKey = new ThreadKey(session.Id, source.Id);
+        var childKey = new ThreadKey(session.Id, "main/subagent/reviewer-1");
+        await store.AppendThreadEventsAsync(
+            childKey,
+            [new ThreadCreatedEvent(
+                "reviewer-agent", null, null, null, null, DateTime.UtcNow,
+                ThreadKind.SubAgent, ThreadVisibility.Hidden,
+                sourceKey.SessionId, sourceKey.ThreadId, "reviewer",
+                InvocationId: "create-reviewer", ParentToolCallId: "call-reviewer", ContextPolicy: "Fresh")
+            {
+                SessionId = childKey.SessionId,
+                ThreadId = childKey.ThreadId
+            }],
+            new ThreadAppendCondition(ThreadJournalCursor.Start(1)));
+        var original = new SubAgentChildReference
+        {
+            LocalId = new SubAgentLocalId("reviewer-1"),
+            RoleName = "reviewer",
+            CapabilityId = CapabilityId.Create("test:reviewer"),
+            ChildAgentId = "reviewer-agent",
+            Availability = SubAgentChildAvailability.Available,
+            ChildThread = childKey,
+            CreationContext = SubAgentCreationContext.Fresh,
+            CreationInvocationId = "create-reviewer",
+            ParentToolCallId = "call-reviewer",
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        await new SubAgentChildRegistry(store).RegisterAsync(sourceKey, original);
+        var forkPoint = new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.User, "fork here")
+        {
+            MessageId = "fork-point"
+        };
+        source.AddMessage(forkPoint);
+        await store.AppendThreadEventsAsync(
+            sourceKey,
+            [new ContentAddedEvent(
+                forkPoint.MessageId!,
+                "user",
+                new Microsoft.Extensions.AI.TextContent("fork here"))
+            {
+                SessionId = sourceKey.SessionId,
+                ThreadId = sourceKey.ThreadId
+            }]);
+
+        var detached = await agent.ForkThreadAsync(source, "detached", fromMessageId: forkPoint.MessageId,
+            new ThreadForkOptions
+            {
+                OperationId = "detach-operation",
+                SubAgents = new SubAgentForkOptions { Policy = SubAgentForkPolicy.Detach }
+            });
+        var detachedChild = (await new SubAgentChildRegistry(store)
+            .ProjectAsync(new ThreadKey(detached.SessionId, detached.Id))).Children[original.LocalId];
+        Assert.Equal(SubAgentChildAvailability.Detached, detachedChild.Availability);
+        Assert.Null(detachedChild.ChildThread);
+
+        var copied = await agent.ForkThreadAsync(source, "copied", fromMessageId: forkPoint.MessageId,
+            new ThreadForkOptions
+            {
+                OperationId = "copy-operation",
+                SubAgents = new SubAgentForkOptions
+                {
+                    Policy = SubAgentForkPolicy.ForkDirectChildren,
+                    DescendantPolicy = SubAgentForkPolicy.Detach
+                }
+            });
+        var copiedChild = (await new SubAgentChildRegistry(store)
+            .ProjectAsync(new ThreadKey(copied.SessionId, copied.Id))).Children[original.LocalId];
+        Assert.Equal(SubAgentChildAvailability.Available, copiedChild.Availability);
+        Assert.NotNull(copiedChild.ChildThread);
+        Assert.NotEqual(childKey, copiedChild.ChildThread);
+        var copiedDescriptor = await store.GetThreadAsync(copiedChild.ChildThread!.Value);
+        Assert.NotNull(copiedDescriptor);
+        Assert.Equal(ThreadKind.SubAgent, copiedDescriptor.Kind);
+        Assert.Equal(ThreadVisibility.Hidden, copiedDescriptor.Visibility);
+        Assert.Equal("reviewer-agent", copiedDescriptor.DefaultAgent.AgentId);
+        Assert.Equal(copied.Id, copiedDescriptor.RuntimeChild!.ParentThreadId);
+        Assert.Equal("reviewer", copiedDescriptor.RuntimeChild.SubAgentName);
+        Assert.NotNull(await store.GetThreadAsync(childKey));
+    }
+
+    [Fact]
+    public async Task SharedControlRevocationSurvivesAuthorityJournalRebase()
+    {
+        var store = new InMemorySessionStore(CoreAgentEventComposition.Instance.Codec);
+        var source = new ThreadKey("session", "source");
+        var child = new ThreadKey("session", "child");
+        var controller = new ThreadKey("session", "fork");
+        var localId = new SubAgentLocalId("reviewer-1");
+        await CreateThreadAsync(store, source);
+        await CreateThreadAsync(store, child);
+        await WriteCommittedShareOperationAsync(
+            store, source, child, controller, localId, "fork-share");
+
+        await SubAgentControllerAuthority.GrantAsync(
+            store, child, controller, localId, "fork-share", source);
+        await SubAgentControllerAuthority.RevokeAsync(
+            store, child, controller, localId, "fork-share", source);
+
+        var authorityRoute = AuthorityRoute(child);
+        var head = Assert.IsType<ThreadEventHead>(await store.GetThreadEventHeadAsync(authorityRoute));
+        ThreadCreatedEvent? created = null;
+        await foreach (var batch in store.ReadThreadEventsAsync(
+                           authorityRoute,
+                           new ThreadEventReadRequest(ThreadJournalCursor.Start(head.Generation), head.ThreadSequenceNumber)))
+            created ??= batch.Events.OfType<ThreadCreatedEvent>().FirstOrDefault();
+        Assert.NotNull(created);
+        var seeds = await new SubAgentControllerAuthorityRebaseSeedProvider(store)
+            .CreateSeedEventsAsync(authorityRoute);
+        var revoked = Assert.Single(seeds.OfType<SubAgentChildControllerAuthorityEvent>());
+        Assert.True(revoked.Revoked);
+
+        await store.ReplaceThreadEventsAsync(
+            authorityRoute,
+            [created! with { ThreadSequenceNumber = 0 }, .. seeds],
+            head.Cursor);
+
+        Assert.False(await SubAgentControllerAuthority.IsGrantedAsync(
+            store, child, controller, localId));
+        Assert.Null(await store.GetThreadAsync(authorityRoute));
+        var listed = new List<ThreadDescriptor>();
+        await foreach (var descriptor in store.ListThreadsAsync(
+                           child.SessionId,
+                           new ThreadListRequest { IncludeHidden = true }))
+            listed.Add(descriptor);
+        Assert.DoesNotContain(listed, descriptor => descriptor.Key == authorityRoute);
+    }
+
+    [Fact]
+    public async Task SharedControlAuthoritySurvivesFileStoreRestartAndRemainsInternal()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"hpd-subagent-authority-{Guid.NewGuid():N}");
+        var source = new ThreadKey("session", "source");
+        var child = new ThreadKey("session", "child");
+        var controller = new ThreadKey("session", "fork");
+        var localId = new SubAgentLocalId("reviewer-1");
+        var authorityRoute = AuthorityRoute(child);
+        try
+        {
+            var first = new FileSessionStore(directory, CoreAgentEventComposition.Instance.Codec);
+            await CreateThreadAsync(first, source);
+            await CreateThreadAsync(first, child);
+            await WriteCommittedShareOperationAsync(
+                first, source, child, controller, localId, "fork-share");
+            await SubAgentControllerAuthority.GrantAsync(
+                first, child, controller, localId, "fork-share", source);
+
+            var reopened = new FileSessionStore(directory, CoreAgentEventComposition.Instance.Codec);
+            var reopenedOperation = await new JournalThreadForkOperationStore(reopened, source)
+                .GetThreadForkOperationAsync("fork-share");
+            Assert.NotNull(reopenedOperation);
+            Assert.Equal(ThreadForkOperationStatus.Committed, reopenedOperation.Status);
+            Assert.Contains(reopenedOperation.ChildOutcomes, outcome =>
+                outcome.LocalId == localId.Value && outcome.Target == child && outcome.Controller == controller);
+            var authorityHead = await reopened.GetThreadEventHeadAsync(authorityRoute);
+            Assert.NotNull(authorityHead);
+            var authorityEvents = new List<AgentEvent>();
+            await foreach (var batch in reopened.ReadThreadEventsAsync(
+                               authorityRoute,
+                               new ThreadEventReadRequest(
+                                   ThreadJournalCursor.Start(authorityHead.Generation),
+                                   authorityHead.ThreadSequenceNumber)))
+                authorityEvents.AddRange(batch.Events);
+            Assert.Contains(authorityEvents, evt => evt is SubAgentChildControllerAuthorityEvent authority &&
+                !authority.Revoked && authority.Controller == controller && authority.LocalId == localId);
+            Assert.True(await SubAgentControllerAuthority.IsGrantedAsync(
+                reopened, child, controller, localId));
+            Assert.Null(await reopened.GetThreadAsync(authorityRoute));
+            var listed = new List<ThreadDescriptor>();
+            await foreach (var descriptor in reopened.ListThreadsAsync(
+                               child.SessionId,
+                               new ThreadListRequest { IncludeHidden = true }))
+                listed.Add(descriptor);
+            Assert.DoesNotContain(listed, descriptor => descriptor.Key == authorityRoute);
+
+            await SubAgentControllerAuthority.RevokeAsync(
+                reopened, child, controller, localId, "fork-share", source);
+            var reopenedAfterRevocation = new FileSessionStore(
+                directory, CoreAgentEventComposition.Instance.Codec);
+            Assert.False(await SubAgentControllerAuthority.IsGrantedAsync(
+                reopenedAfterRevocation, child, controller, localId));
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static async Task CreateThreadAsync(ISessionStore store, ThreadKey key) =>
         _ = await store.AppendThreadEventsAsync(
             key,
             [new ThreadCreatedEvent("agent", null, null, null, null, DateTime.UtcNow)
@@ -300,6 +508,45 @@ public sealed class SubAgentDurabilityTests
         PreparedChildren = [],
         ChildOutcomes = []
     };
+
+    private static async Task WriteCommittedShareOperationAsync(
+        ISessionStore store,
+        ThreadKey source,
+        ThreadKey child,
+        ThreadKey controller,
+        SubAgentLocalId localId,
+        string operationId)
+    {
+        var operationStore = new JournalThreadForkOperationStore(store, source);
+        var operation = CreateForkOperation(source, operationId) with
+        {
+            Target = controller,
+            SubAgentPolicy = SubAgentForkPolicy.Share,
+            ChildOutcomes = [new SubAgentForkChildOutcome(
+                localId.Value,
+                SubAgentForkPolicy.Share,
+                child,
+                child,
+                SubAgentChildAvailability.Available,
+                OwningParent: source,
+                Controller: controller)]
+        };
+        await operationStore.WriteThreadForkOperationAsync(
+            operation, new ThreadForkOperationWriteCondition(0));
+        foreach (var status in new[]
+                 {
+                     ThreadForkOperationStatus.ChildrenPreparing,
+                     ThreadForkOperationStatus.ParentPreparing,
+                     ThreadForkOperationStatus.ReadyToCommit,
+                     ThreadForkOperationStatus.Committed
+                 })
+        {
+            var next = operation with { Status = status, Revision = operation.Revision + 1 };
+            await operationStore.WriteThreadForkOperationAsync(
+                next, new ThreadForkOperationWriteCondition(operation.Revision));
+            operation = next;
+        }
+    }
 
     private static ThreadKey AuthorityRoute(ThreadKey child)
     {

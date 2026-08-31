@@ -6950,11 +6950,14 @@ public sealed partial class Agent : IAsyncDisposable
             if (effectiveSubAgentOptions.Policy == SubAgentForkPolicy.ForkDirectChildren &&
                 evt.Child.ChildThread is { } childTarget)
             {
-                var childDescriptor = await store.GetThreadAsync(childTarget, cancellationToken).ConfigureAwait(false)
+                var admittedChild = forkOperation.ChildOutcomes.FirstOrDefault(outcome =>
+                    outcome.OwningParent == sourceKey &&
+                    outcome.Target == childTarget &&
+                    string.Equals(outcome.LocalId, evt.Child.LocalId.Value, StringComparison.Ordinal))
                     ?? throw new InvalidOperationException("thread_fork_prepared_child_missing");
-                childSeed = childDescriptor.Preparation?.TargetSeedFingerprint
+                childSeed = admittedChild.TargetSeedFingerprint
                     ?? throw new InvalidOperationException("thread_fork_prepared_child_seed_missing");
-                childBoundary = childDescriptor.Preparation?.SourceBoundary
+                childBoundary = admittedChild.SourceBoundary
                     ?? throw new InvalidOperationException("thread_fork_prepared_child_boundary_missing");
             }
             outcomes.Add(new SubAgentForkChildOutcome(
