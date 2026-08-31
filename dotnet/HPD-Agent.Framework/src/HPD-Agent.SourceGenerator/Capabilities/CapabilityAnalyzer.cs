@@ -1078,11 +1078,16 @@ internal static class CapabilityAnalyzer
                                 $"presentation type '{presentation.ToDisplayString()}' must declare a non-empty PermissionPresentationAttribute"));
                             return false;
                         }
-                        if (presentationAttribute!.ConstructorArguments.Length < 2 ||
-                            presentationAttribute.ConstructorArguments[1].Value is not ITypeSymbol)
+                        var serializerContextType = presentationAttribute!.ConstructorArguments.Length < 2
+                            ? null
+                            : presentationAttribute.ConstructorArguments[1].Value as INamedTypeSymbol;
+                        var jsonSerializerContext = compilation.GetTypeByMetadataName(
+                            "System.Text.Json.Serialization.JsonSerializerContext");
+                        if (serializerContextType is null || jsonSerializerContext is null ||
+                            !InheritsFrom(serializerContextType, jsonSerializerContext))
                         {
                             diagnostics.Add(Diagnostic.Create(PermissionDiagnostics.InvalidDeclaration, location,
-                                $"presentation type '{presentation.ToDisplayString()}' must declare its source-generated JsonSerializerContext"));
+                                $"presentation type '{presentation.ToDisplayString()}' must declare a source-generated JsonSerializerContext"));
                             return false;
                         }
                         break;
@@ -1101,6 +1106,13 @@ internal static class CapabilityAnalyzer
             }
             diagnostics.Add(Diagnostic.Create(PermissionDiagnostics.InvalidDeclaration, location,
                 $"{property} type '{type.ToDisplayString()}' must implement {contractName}"));
+            return false;
+        }
+
+        static bool InheritsFrom(INamedTypeSymbol type, INamedTypeSymbol expectedBase)
+        {
+            for (var current = type.BaseType; current is not null; current = current.BaseType)
+                if (SymbolEqualityComparer.Default.Equals(current, expectedBase)) return true;
             return false;
         }
     }

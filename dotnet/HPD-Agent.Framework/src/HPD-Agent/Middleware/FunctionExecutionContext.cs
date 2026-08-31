@@ -80,10 +80,11 @@ public sealed class FunctionExecutionPermission
     {
         var fullName = typeof(TPolicy).FullName ?? typeof(TPolicy).Name;
         var grant = DemandApproved();
-        return string.Equals(grant.Key.PolicyId, fullName, StringComparison.Ordinal) ||
-            string.Equals(grant.Key.PolicyId, "global::" + fullName, StringComparison.Ordinal)
+        var descriptorId = grant.Authority.Declaration.PolicyDescriptorId;
+        return string.Equals(descriptorId, fullName, StringComparison.Ordinal) ||
+            string.Equals(descriptorId, "global::" + fullName, StringComparison.Ordinal)
             ? grant
-            : throw new InvalidOperationException($"The permission grant was not issued by policy '{fullName}'.");
+            : throw new InvalidOperationException($"The permission grant was not activated by policy type '{fullName}'.");
     }
 }
 
