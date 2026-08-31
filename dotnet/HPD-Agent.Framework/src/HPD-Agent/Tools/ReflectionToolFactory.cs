@@ -481,10 +481,10 @@ internal static class ReflectionToolFactory
 
         foreach (var parameter in parameters)
         {
-            properties[parameter.Name!] = CreateParameterSchema(parameter, serializerOptions);
+            properties[GetSerializedParameterName(parameter)] = CreateParameterSchema(parameter, serializerOptions);
             if (!parameter.HasDefaultValue && !IsNullable(parameter))
             {
-                required.Add(CreateStringNode(parameter.Name!));
+                required.Add(CreateStringNode(GetSerializedParameterName(parameter)));
             }
         }
 
@@ -895,11 +895,14 @@ internal static class ReflectionToolFactory
         }
         return new AIFunctionOperationContract
         {
-            ActionArgumentName = candidate.Parameter.Name!,
+            ActionArgumentName = GetSerializedParameterName(candidate.Parameter),
             Discriminator = discriminator,
             Actions = actions
         };
     }
+
+    private static string GetSerializedParameterName(ParameterInfo parameter) =>
+        parameter.Name ?? throw new InvalidOperationException("Model-facing parameters require a serialized name.");
 
     private static IEnumerable<MethodInfo> GetCapabilityMethods(Type toolharnessType)
     {

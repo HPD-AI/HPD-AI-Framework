@@ -283,7 +283,7 @@ $@"HPDAIFunctionFactory.Create(
     {
         var parameters = relevantParams.Select(param => new AIFunctionContractParameter(
             param.Symbol!,
-            param.Name,
+            param.JsonName,
             ComposeActionContract(param.Contract!),
             IsRequired: !param.HasDefaultValue)).ToImmutableArray();
         return AICanonicalSchemaEmitter.Emit(new AIFunctionMethodContract(parameters));
@@ -335,7 +335,7 @@ $@"HPDAIFunctionFactory.Create(
                 "Runtime", "ToolBody");
             entries.Add($"[\"{Escape(unionCase.Discriminator)}\"] = new global::HPD.Agent.AIFunctionActionPolicy {{ InvocationModePolicy = global::HPD.Agent.AgentInvocationModePolicy.{policy}, InvocationModeHandling = global::HPD.Agent.AgentInvocationModeHandling.{handling} }}");
         }
-        return $"new global::HPD.Agent.AIFunctionOperationContract {{ ActionArgumentName = \"{Escape(parameter.Name)}\", Discriminator = \"{Escape(union.DiscriminatorPropertyName)}\", Actions = new global::System.Collections.Generic.Dictionary<string, global::HPD.Agent.AIFunctionActionPolicy>(global::System.StringComparer.Ordinal) {{ {string.Join(", ", entries)} }} }}";
+        return $"new global::HPD.Agent.AIFunctionOperationContract {{ ActionArgumentName = \"{Escape(parameter.JsonName)}\", Discriminator = \"{Escape(union.DiscriminatorPropertyName)}\", Actions = new global::System.Collections.Generic.Dictionary<string, global::HPD.Agent.AIFunctionActionPolicy>(global::System.StringComparer.Ordinal) {{ {string.Join(", ", entries)} }} }}";
     }
 
     private static string ResolveActionOverride(
@@ -570,6 +570,8 @@ internal class ParameterInfo
     /// <summary>Gets or sets the recursively analyzed model-facing contract.</summary>
     public AIContractNode? Contract { get; set; }
     public string Name { get; set; } = string.Empty;
+    /// <summary>Gets or sets the analyzed model-facing JSON argument name.</summary>
+    public string JsonName { get; set; } = string.Empty;
     public string Type { get; set; } = string.Empty;
     public string MetadataTypeName { get; set; } = "object";
     public FunctionParameterKind Kind { get; set; } = FunctionParameterKind.ModelFacing;

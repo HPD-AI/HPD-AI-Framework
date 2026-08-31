@@ -57,6 +57,7 @@ internal static class ParameterAnalyzer
                 Symbol = parameterSymbol,
                 Contract = contract,
                 Name = param.Identifier.ValueText,
+                JsonName = parameterSymbol?.Name ?? param.Identifier.ValueText,
                 Type = param.Type?.ToString() ?? "object",
                 MetadataTypeName = FunctionParameterClassifier.GetMetadataName(typeSymbol),
                 Kind = kind,

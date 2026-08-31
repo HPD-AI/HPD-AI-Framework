@@ -280,6 +280,54 @@ namespace TestToolHarnesses
         Assert.Contains(diagnostics, diagnostic => diagnostic.Id == "HPD070");
     }
 
+    [Fact]
+    public void GeneratedToolHarness_InvalidActionEnum_ReportsDiagnostic()
+    {
+        var source = """
+            using System.Text.Json.Serialization;
+            using HPD.Agent;
+            namespace GeneratedContracts
+            {
+                [JsonPolymorphic(TypeDiscriminatorPropertyName = "action")]
+                [JsonDerivedType(typeof(Read), "read")]
+                public abstract record Request;
+                [AIFunctionAction("read", InvocationModePolicy = (AIFunctionActionInvocationModePolicy)99)]
+                public sealed record Read(string Id) : Request;
+                [Collapse("Action", FunctionResult = "ok")]
+                public partial class Harness
+                {
+                    [AIFunction] public string Execute(Request request) => "ok";
+                }
+            }
+            """;
+
+        var (_, diagnostics) = RunGenerator(source);
+
+        Assert.Contains(diagnostics, diagnostic => diagnostic.Id == "HPD070");
+    }
+
+    [Fact]
+    public void GeneratedToolHarness_ActionAnnotationOutsideUnion_ReportsDiagnostic()
+    {
+        var source = """
+            using HPD.Agent;
+            namespace GeneratedContracts
+            {
+                [AIFunctionAction("read")]
+                public sealed record Request(string Id);
+                [Collapse("Action", FunctionResult = "ok")]
+                public partial class Harness
+                {
+                    [AIFunction] public string Execute(Request request) => "ok";
+                }
+            }
+            """;
+
+        var (_, diagnostics) = RunGenerator(source);
+
+        Assert.Contains(diagnostics, diagnostic => diagnostic.Id == "HPD070");
+    }
+
     // ── T047 ─────────────────────────────────────────────────────────────────
     // Config constructors become generated execution-owned descriptors.
     [Fact]
