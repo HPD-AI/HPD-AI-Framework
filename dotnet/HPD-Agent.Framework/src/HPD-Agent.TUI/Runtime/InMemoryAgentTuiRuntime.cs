@@ -343,7 +343,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         return ToThreadInfo(thread, sessionId);
     }
 
-    public async Task<AgentTuiThreadInfo> ForkThreadAsync(
+    public async Task<AgentTuiThreadForkInfo> ForkThreadAsync(
         string agentId,
         string sessionId,
         string sourceThreadId,
@@ -355,19 +355,22 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         var id = string.IsNullOrWhiteSpace(request.NewThreadId)
             ? Guid.NewGuid().ToString("N")[..12]
             : request.NewThreadId;
-        var metadata = ToObjectDictionary(request.Metadata);
-        var newThreadId = await _agent.ForkThreadAsync(
+        var result = await _agent.ForkThreadAsync(
                 sessionId,
                 sourceThreadId,
                 id,
                 request.FromMessageId,
-                metadata,
+                new ThreadForkOptions
+                {
+                    Metadata = ToObjectDictionary(request.Metadata),
+                    SubAgents = request.SubAgents
+                },
                 cancellationToken)
             .ConfigureAwait(false);
         var store = _agent.Config?.SessionStore
             ?? throw new InvalidOperationException("No session store configured.");
-        var thread = await store.ProjectThreadAsync(sessionId, newThreadId, ThreadProjectionPurpose.ThreadHistory, cancellationToken).ConfigureAwait(false)
-            ?? throw new InvalidOperationException($"Thread '{newThreadId}' was not found after fork.");
+        var thread = await store.ProjectThreadAsync(sessionId, result.Target.ThreadId, ThreadProjectionPurpose.ThreadHistory, cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException($"Thread '{result.Target.ThreadId}' was not found after fork.");
 
         ApplyThreadUpdate(thread, new AgentTuiThreadUpdate(
             request.Name,
@@ -375,7 +378,14 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             request.Tags,
             request.Metadata));
         await store.AppendThreadUpdatedAsync(thread, cancellationToken).ConfigureAwait(false);
-        return ToThreadInfo(thread, sessionId);
+        return new AgentTuiThreadForkInfo(
+            result.OperationId,
+            ToThreadInfo(thread, sessionId),
+            result.SourceBoundary.Generation,
+            result.SourceBoundary.SequenceNumber,
+            result.SubAgentPolicy,
+            result.Status,
+            result.Children);
     }
 
     public async Task<AgentTuiThreadInfo> UpdateThreadAsync(

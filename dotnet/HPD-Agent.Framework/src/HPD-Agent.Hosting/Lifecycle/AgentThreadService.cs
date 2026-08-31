@@ -107,7 +107,7 @@ public sealed class AgentThreadService : IAgentThreadService
         return AgentServiceResult<ThreadDto>.Success(descriptor.ToDto());
     }
 
-    public Task<AgentServiceResult<ThreadDto>> ForkThreadAsync(
+    public Task<AgentServiceResult<ThreadForkResultDto>> ForkThreadAsync(
         string agentId,
         string sessionId,
         string threadId,
@@ -196,7 +196,7 @@ public sealed class AgentThreadService : IAgentThreadService
         }
     }
 
-    private async Task<AgentServiceResult<ThreadDto>> ForkThreadCoreAsync(
+    private async Task<AgentServiceResult<ThreadForkResultDto>> ForkThreadCoreAsync(
         string agentId,
         string sessionId,
         string threadId,
@@ -204,20 +204,21 @@ public sealed class AgentThreadService : IAgentThreadService
         CancellationToken cancellationToken)
     {
         if (await _sessionManager.Store.LoadSessionAsync(sessionId, cancellationToken) == null)
-            return AgentServiceResult<ThreadDto>.NotFound;
+            return AgentServiceResult<ThreadForkResultDto>.NotFound;
 
         if (await _sessionManager.Store.GetThreadAsync(
                 new ThreadKey(sessionId, threadId), cancellationToken).ConfigureAwait(false) == null)
-            return AgentServiceResult<ThreadDto>.NotFound;
+            return AgentServiceResult<ThreadForkResultDto>.NotFound;
 
         var newThreadId = string.IsNullOrWhiteSpace(request.NewThreadId)
             ? Guid.NewGuid().ToString()
             : request.NewThreadId;
 
         var agent = await _agentManager.GetOrBuildAgentAsync(agentId, cancellationToken);
+        ThreadForkResult forkResult;
         try
         {
-            await agent.ForkThreadAsync(
+            forkResult = await agent.ForkThreadAsync(
                 sessionId,
                 threadId,
                 newThreadId,
@@ -225,13 +226,14 @@ public sealed class AgentThreadService : IAgentThreadService
                 new ThreadForkOptions
                 {
                     Metadata = request.Metadata,
-                    Compaction = request.Compaction ?? new InheritThreadForkCompaction()
+                    Compaction = request.Compaction ?? new InheritThreadForkCompaction(),
+                    SubAgents = request.SubAgents
                 },
                 cancellationToken);
         }
         catch (MessageNotPresentOnThreadException ex)
         {
-            return AgentServiceResult<ThreadDto>.Validation(
+            return AgentServiceResult<ThreadForkResultDto>.Validation(
                 "ForkMessageNotPresent",
                 ex.Message);
         }
@@ -242,7 +244,14 @@ public sealed class AgentThreadService : IAgentThreadService
         ApplyThreadMetadata(newThread, request.Name, request.Description, request.Tags, metadata: null);
         await _sessionManager.Store.AppendThreadUpdatedAsync(newThread, cancellationToken);
 
-        return AgentServiceResult<ThreadDto>.Success(newThread.ToDto(sessionId));
+        return AgentServiceResult<ThreadForkResultDto>.Success(new ThreadForkResultDto(
+            forkResult.OperationId,
+            newThread.ToDto(sessionId),
+            forkResult.SourceBoundary.Generation,
+            forkResult.SourceBoundary.SequenceNumber,
+            forkResult.SubAgentPolicy,
+            forkResult.Status,
+            forkResult.Children));
     }
 
     private async Task<AgentServiceResult> DeleteThreadCoreAsync(

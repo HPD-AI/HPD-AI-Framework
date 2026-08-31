@@ -47,7 +47,15 @@ internal sealed class SubAgentAvailabilityMiddleware : IAgentMiddleware
             }
         }
         var parent = new ThreadKey(context.SessionId ?? string.Empty, context.ThreadId ?? string.Empty);
-        var digest = string.Join('|', available.Select(static action => action.CapabilityId.Value));
+        var digest = string.Join('|', available.Select(static action => string.Join(':',
+            action.Action,
+            action.CapabilityId.Value,
+            action.Definition.AgentId,
+            action.InvocationModePolicy,
+            action.InvocationModeHandling,
+            action.ContextPolicy,
+            action.RequiresPermission,
+            action.Definition.Availability.MaximumChildDepth)));
         var projectionKey = new ProjectionKey(parent, generation, revision, depth, digest, 1);
         var function = _cache.GetOrAdd(projectionKey, _ =>
             available.Length == 0 && !hasRegistryEntries ? null : (AIFunction)SubAgentsFunctionFactory.Create(available));

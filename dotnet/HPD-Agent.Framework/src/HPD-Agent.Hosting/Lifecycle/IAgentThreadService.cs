@@ -23,7 +23,7 @@ public interface IAgentThreadService
         CreateThreadRequest request,
         CancellationToken cancellationToken = default);
 
-    Task<AgentServiceResult<ThreadDto>> ForkThreadAsync(
+    Task<AgentServiceResult<ThreadForkResultDto>> ForkThreadAsync(
         string agentId,
         string sessionId,
         string threadId,

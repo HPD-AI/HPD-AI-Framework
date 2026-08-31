@@ -737,7 +737,12 @@ public class AgentBuilder
                 _toolharnessContexts.TryGetValue(registration.ToolTypeName, out var ctx);
 
                 if (factory.CreateSubAgentActions is not null)
-                    subAgentActions.AddRange(factory.CreateSubAgentActions(registration.Instance));
+                {
+                    var actions = factory.CreateSubAgentActions(registration.Instance);
+                    if (registration.FunctionFilter is { Length: > 0 })
+                        actions = actions.Where(action => registration.FunctionFilter.Contains(action.Action)).ToArray();
+                    subAgentActions.AddRange(actions);
+                }
 
                 if (factory.CollectOpenApiSources != null)
                 {

@@ -248,7 +248,11 @@ internal sealed class CompactThreadInputHandler : IAgentInputHandler<CompactThre
             thread.Messages,
             publisher,
             chatLease?.Client,
-            context.Services?.GetService<IThreadJournalRebaseSeedProvider>(),
+            context.Config.SessionStore is { } compactionStore
+                ? CompositeThreadJournalRebaseSeedProvider.Create(
+                    compactionStore,
+                    context.Services?.GetService<IThreadJournalRebaseSeedProvider>())
+                : context.Services?.GetService<IThreadJournalRebaseSeedProvider>(),
             CreateSummarizerOptions(chatLease?.Handle.ResolvedConfig as ChatClientConfig));
         await new ThreadCompactionEngine().ExecuteAsync(
                 engineContext,

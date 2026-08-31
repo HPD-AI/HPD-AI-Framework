@@ -168,9 +168,12 @@ public sealed class InMemorySessionStore : ISessionStore, IThreadDeltaStore, HPD
         CancellationToken cancellationToken = default)
     {
         ValidateThreadKey(thread);
-        return _threads.TryGetValue(thread, out var journal)
-            ? await journal.GetDescriptorAsync(cancellationToken).ConfigureAwait(false)
-            : null;
+        if (!_threads.TryGetValue(thread, out var journal)) return null;
+        var descriptor = await journal.GetDescriptorAsync(cancellationToken).ConfigureAwait(false);
+        return descriptor is not null &&
+            await ThreadForkVisibility.IsVisibleAsync(this, descriptor, cancellationToken).ConfigureAwait(false)
+                ? descriptor
+                : null;
     }
 
     public async IAsyncEnumerable<ThreadDescriptor> ListThreadsAsync(
@@ -191,7 +194,9 @@ public sealed class InMemorySessionStore : ISessionStore, IThreadDeltaStore, HPD
                 continue;
 
             var descriptor = await journal.GetDescriptorAsync(cancellationToken).ConfigureAwait(false);
-            if (descriptor is null || (!request.IncludeHidden && descriptor.Visibility == ThreadVisibility.Hidden))
+            if (descriptor is null ||
+                !await ThreadForkVisibility.IsVisibleAsync(this, descriptor, cancellationToken).ConfigureAwait(false) ||
+                (!request.IncludeHidden && descriptor.Visibility == ThreadVisibility.Hidden))
                 continue;
 
             yield return descriptor;

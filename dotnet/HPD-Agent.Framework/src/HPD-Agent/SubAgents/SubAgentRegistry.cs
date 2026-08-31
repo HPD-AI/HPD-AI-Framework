@@ -72,7 +72,8 @@ public sealed record SubAgentChildReference
 public sealed record SubAgentChildRegistryProjection(
     ThreadKey Parent,
     ThreadJournalCursor Cursor,
-    IReadOnlyDictionary<SubAgentLocalId, SubAgentChildReference> Children)
+    IReadOnlyDictionary<SubAgentLocalId, SubAgentChildReference> Children,
+    IReadOnlySet<SubAgentLocalId> ControllerGrants)
 {
     /// <summary>Resolves one local identifier without inspecting any other session or thread.</summary>
     public bool TryGet(SubAgentLocalId localId, out SubAgentChildReference child) =>
@@ -105,12 +106,24 @@ public sealed record SubAgentChildUnavailableEvent(
 /// <summary>Seeds the complete bounded registry during destructive journal compaction.</summary>
 [HPD.Agent.Serialization.DurableEvent]
 [HPD.Agent.Serialization.EventType("SUBAGENT_REGISTRY_SEED")]
-public sealed record SubAgentRegistrySeedEvent(IReadOnlyList<SubAgentChildReference> Children) : AgentEvent;
+public sealed record SubAgentRegistrySeedEvent(
+    IReadOnlyList<SubAgentChildReference> Children,
+    IReadOnlyList<SubAgentCreationRecord> PendingCreations,
+    IReadOnlyList<SubAgentLocalId>? ControllerGrants = null) : AgentEvent;
+
+/// <summary>Durably grants one parent authority to control an explicitly shared child route.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("SUBAGENT_CONTROLLER_GRANTED")]
+public sealed record SubAgentControllerGrantedEvent(
+    SubAgentLocalId LocalId,
+    ThreadKey ChildThread) : AgentEvent;
 
 /// <summary>Projects and conditionally mutates a parent-local registry using its canonical thread journal.</summary>
 public sealed class SubAgentChildRegistry
 {
     private readonly ISessionStore _store;
+
+    internal ISessionStore Store => _store;
 
     /// <summary>Creates a registry over the supplied durable session store.</summary>
     public SubAgentChildRegistry(ISessionStore store) =>
@@ -130,15 +143,25 @@ public sealed class SubAgentChildRegistry
             throw new ThreadCursorConflictException(parent, limit, head.Cursor);
 
         var children = new Dictionary<SubAgentLocalId, SubAgentChildReference>();
+        var grants = new HashSet<SubAgentLocalId>();
         await foreach (var batch in _store.ReadThreadEventsAsync(
             parent,
             new ThreadEventReadRequest(ThreadJournalCursor.Start(limit.Generation), limit.SequenceNumber),
             cancellationToken).ConfigureAwait(false))
         {
             foreach (var evt in batch.Events)
+            {
                 Apply(children, evt);
+                if (evt is SubAgentRegistrySeedEvent seed)
+                {
+                    grants.Clear();
+                    grants.UnionWith(seed.ControllerGrants ?? []);
+                }
+                else if (evt is SubAgentControllerGrantedEvent grant)
+                    grants.Add(grant.LocalId);
+            }
         }
-        return new(parent, limit, children);
+        return new(parent, limit, children, grants);
     }
 
     /// <summary>Registers one child idempotently by parent tool call and capability.</summary>
@@ -231,16 +254,31 @@ public sealed class SubAgentRegistryRebaseSeedProvider(SubAgentChildRegistry reg
     {
         var projection = await registry.ProjectAsync(thread, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
-        if (projection.Children.Count == 0) return Array.Empty<AgentEvent>();
+        var pending = await CollectPendingCreationsAsync(thread, cancellationToken).ConfigureAwait(false);
+        if (projection.Children.Count == 0 && pending.Count == 0) return Array.Empty<AgentEvent>();
         return
         [
-            new SubAgentRegistrySeedEvent(projection.Children.Values
-                .OrderBy(static child => child.LocalId.Value, StringComparer.Ordinal)
-                .ToArray())
+            new SubAgentRegistrySeedEvent(
+                projection.Children.Values
+                    .OrderBy(static child => child.LocalId.Value, StringComparer.Ordinal)
+                    .ToArray(),
+                pending,
+                projection.ControllerGrants.OrderBy(static id => id.Value, StringComparer.Ordinal).ToArray())
             {
                 SessionId = thread.SessionId,
                 ThreadId = thread.ThreadId
             }
         ];
+    }
+
+    private async ValueTask<IReadOnlyList<SubAgentCreationRecord>> CollectPendingCreationsAsync(
+        ThreadKey thread,
+        CancellationToken cancellationToken)
+    {
+        var pending = new List<SubAgentCreationRecord>();
+        await foreach (var record in new JournalSubAgentCreationStore(registry.Store)
+            .ReadPendingSubAgentCreationsAsync(thread, cancellationToken).ConfigureAwait(false))
+            pending.Add(record);
+        return pending;
     }
 }

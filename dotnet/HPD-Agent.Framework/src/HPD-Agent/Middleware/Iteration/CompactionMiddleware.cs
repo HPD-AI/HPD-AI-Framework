@@ -30,7 +30,11 @@ public sealed class CompactionMiddleware : IAgentMiddleware
             context.Messages,
             context.Base.ThreadEvents,
             chatLease?.Client,
-            context.Services?.GetService<IThreadJournalRebaseSeedProvider>(),
+            context.Session?.Store is { } compactionStore
+                ? CompositeThreadJournalRebaseSeedProvider.Create(
+                    compactionStore,
+                    context.Services?.GetService<IThreadJournalRebaseSeedProvider>())
+                : context.Services?.GetService<IThreadJournalRebaseSeedProvider>(),
             CreateSummarizerOptions(chatLease?.Handle.ResolvedConfig as ChatClientConfig));
         var result = await Engine.ExecuteAsync(
                 engineContext,
@@ -88,10 +92,13 @@ public sealed class CompactionMiddleware : IAgentMiddleware
 
         context.TargetThread.Messages.Clear();
         context.TargetThread.Messages.AddRange(prepared.ResultingMessages);
-        context.TargetJournalEvents = ThreadJournalEncoder.Encode(
+        context.HistoricalEvents = ThreadJournalEncoder.Encode(
             context.TargetThread,
             prepared.ResultingMessages,
-            [prepared.Checkpoint]);
+            [prepared.Checkpoint])
+            .Where(static evt => evt is not ThreadCreatedEvent and not ThreadUpdatedEvent and
+                not ThreadMiddlewareStateCommittedEvent)
+            .ToArray();
     }
 
     private static bool ShouldCompact(CompactionTrigger trigger, IReadOnlyList<ChatMessage> messages) =>

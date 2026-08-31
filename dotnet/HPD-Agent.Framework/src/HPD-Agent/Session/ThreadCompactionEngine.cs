@@ -59,6 +59,37 @@ public interface IThreadJournalRebaseSeedProvider
         CancellationToken cancellationToken = default);
 }
 
+/// <summary>Combines structural seed contributors in deterministic framework order.</summary>
+public sealed class CompositeThreadJournalRebaseSeedProvider(
+    IReadOnlyList<IThreadJournalRebaseSeedProvider> providers) : IThreadJournalRebaseSeedProvider
+{
+    private readonly IReadOnlyList<IThreadJournalRebaseSeedProvider> _providers =
+        providers ?? throw new ArgumentNullException(nameof(providers));
+
+    /// <summary>Creates the framework registry contributor plus an optional host contributor.</summary>
+    public static IThreadJournalRebaseSeedProvider Create(
+        ISessionStore store,
+        IThreadJournalRebaseSeedProvider? hostProvider = null)
+    {
+        var registry = new SubAgentRegistryRebaseSeedProvider(new SubAgentChildRegistry(store));
+        var forks = new ThreadForkOperationRebaseSeedProvider(store);
+        return hostProvider is null
+            ? new CompositeThreadJournalRebaseSeedProvider([registry, forks])
+            : new CompositeThreadJournalRebaseSeedProvider([hostProvider, registry, forks]);
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<IReadOnlyList<AgentEvent>> CreateSeedEventsAsync(
+        ThreadKey thread,
+        CancellationToken cancellationToken = default)
+    {
+        var events = new List<AgentEvent>();
+        foreach (var provider in _providers)
+            events.AddRange(await provider.CreateSeedEventsAsync(thread, cancellationToken).ConfigureAwait(false));
+        return events;
+    }
+}
+
 public sealed record PreparedThreadCompaction(
     string CompactionId,
     ThreadJournalCursor? ExpectedCursor,

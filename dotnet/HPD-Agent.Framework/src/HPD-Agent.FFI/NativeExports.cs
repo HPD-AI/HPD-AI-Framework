@@ -345,7 +345,7 @@ public static partial class NativeExports
                     ? new AIFunctionPermissionDeclaration
                     {
                         RequiresPermission = true,
-                        Scope = $"function/{Uri.EscapeDataString(nativeFunc.Name)}",
+                        Authority = $"function/{Uri.EscapeDataString(nativeFunc.Name)}",
                         Source = PermissionDeclarationSource.FrameworkDefault
                     }
                     : null,

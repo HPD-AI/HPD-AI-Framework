@@ -38,6 +38,12 @@ public class AgentConfig
     public int MaxSubAgentDepth { get; set; } = 4;
 
     /// <summary>
+    /// Gets or sets the default policy used to project durable subagents when a parent thread is forked.
+    /// A per-operation <see cref="ThreadForkOptions.SubAgents"/> value overrides this setting.
+    /// </summary>
+    public SubAgentForkOptions DefaultSubAgentForkOptions { get; set; } = new();
+
+    /// <summary>
     /// How many additional turns to allow when user chooses to continue beyond the limit.
     /// This includes extra iterations for the LLM to complete its task and generate a final response.
     /// </summary>

@@ -494,7 +494,11 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore, IPermis
         if (!ThreadExists(thread))
             return null;
         await EnsurePendingDeltasRecoveredAsync(thread, cancellationToken).ConfigureAwait(false);
-        return await GetRuntime(thread).GetDescriptorAsync(cancellationToken).ConfigureAwait(false);
+        var descriptor = await GetRuntime(thread).GetDescriptorAsync(cancellationToken).ConfigureAwait(false);
+        return descriptor is not null &&
+            await ThreadForkVisibility.IsVisibleAsync(this, descriptor, cancellationToken).ConfigureAwait(false)
+                ? descriptor
+                : null;
     }
 
     public async IAsyncEnumerable<ThreadDescriptor> ListThreadsAsync(
@@ -525,7 +529,9 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore, IPermis
             var descriptor = await GetRuntime(key).GetDescriptorAsync(cancellationToken).ConfigureAwait(false);
             if (descriptor is not null && descriptor.Key != key)
                 continue;
-            if (descriptor is null || (!request.IncludeHidden && descriptor.Visibility == ThreadVisibility.Hidden))
+            if (descriptor is null ||
+                !await ThreadForkVisibility.IsVisibleAsync(this, descriptor, cancellationToken).ConfigureAwait(false) ||
+                (!request.IncludeHidden && descriptor.Visibility == ThreadVisibility.Hidden))
                 continue;
             yield return descriptor;
             if (++count >= request.MaxCount)

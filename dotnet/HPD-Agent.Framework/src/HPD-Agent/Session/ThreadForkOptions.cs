@@ -45,10 +45,52 @@ public sealed record ThreadForkOptions
     /// <summary>Gets the explicit subagent topology override for this fork.</summary>
     public SubAgentForkOptions? SubAgents { get; init; }
 
+    /// <summary>Gets the idempotent operation identifier, when supplied by a trusted caller.</summary>
+    public string? OperationId { get; init; }
+
     public static ThreadForkOptions Default { get; } = new();
 
     public static ThreadForkOptions FromMetadata(Dictionary<string, object>? metadata) =>
         metadata is null
             ? Default
             : new ThreadForkOptions { Metadata = metadata };
+}
+
+/// <summary>Identifies the durable lifecycle of a multi-journal fork topology.</summary>
+public enum ThreadForkOperationStatus
+{
+    Prepared,
+    ChildrenPreparing,
+    ParentPreparing,
+    ReadyToCommit,
+    Committed,
+    Aborted,
+    ReconciliationRequired
+}
+
+/// <summary>Reports one direct-child outcome produced by a parent fork.</summary>
+public sealed record SubAgentForkChildOutcome(
+    string LocalId,
+    SubAgentForkPolicy Policy,
+    ThreadKey? Source,
+    ThreadKey? Target,
+    SubAgentChildAvailability Availability);
+
+/// <summary>Authoritative result returned by every public thread fork.</summary>
+public sealed record ThreadForkResult
+{
+    /// <summary>Gets the durable topology operation identifier.</summary>
+    public required string OperationId { get; init; }
+    /// <summary>Gets the source thread.</summary>
+    public required ThreadKey Source { get; init; }
+    /// <summary>Gets the committed target thread.</summary>
+    public required ThreadKey Target { get; init; }
+    /// <summary>Gets the exact source boundary.</summary>
+    public required ThreadJournalCursor SourceBoundary { get; init; }
+    /// <summary>Gets the effective direct-child policy.</summary>
+    public required SubAgentForkPolicy SubAgentPolicy { get; init; }
+    /// <summary>Gets the final operation status.</summary>
+    public required ThreadForkOperationStatus Status { get; init; }
+    /// <summary>Gets deterministic direct-child outcomes.</summary>
+    public required IReadOnlyList<SubAgentForkChildOutcome> Children { get; init; }
 }

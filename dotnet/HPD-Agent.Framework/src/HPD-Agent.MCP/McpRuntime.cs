@@ -985,7 +985,7 @@ public sealed class McpRuntime : IAsyncDisposable
     private static AIFunctionPermissionDeclaration CreateMcpPermissionDeclaration(string functionName) => new()
     {
         RequiresPermission = true,
-        Scope = $"function/{Uri.EscapeDataString(functionName)}",
+        Authority = $"function/{Uri.EscapeDataString(functionName)}",
         Source = PermissionDeclarationSource.FrameworkDefault
     };
 

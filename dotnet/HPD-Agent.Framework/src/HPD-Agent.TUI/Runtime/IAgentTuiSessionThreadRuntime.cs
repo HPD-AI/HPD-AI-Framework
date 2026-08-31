@@ -57,7 +57,7 @@ public interface IAgentTuiThreadRuntime
         AgentTuiCreateThreadRequest request,
         CancellationToken cancellationToken = default);
 
-    Task<AgentTuiThreadInfo> ForkThreadAsync(
+    Task<AgentTuiThreadForkInfo> ForkThreadAsync(
         string agentId,
         string sessionId,
         string sourceThreadId,
@@ -113,7 +113,17 @@ public sealed record AgentTuiForkThreadRequest(
     string? Name = null,
     string? Description = null,
     IReadOnlyList<string>? Tags = null,
-    IReadOnlyDictionary<string, object?>? Metadata = null);
+    IReadOnlyDictionary<string, object?>? Metadata = null,
+    SubAgentForkOptions? SubAgents = null);
+
+public sealed record AgentTuiThreadForkInfo(
+    string OperationId,
+    AgentTuiThreadInfo Target,
+    long SourceGeneration,
+    long SourceSequence,
+    SubAgentForkPolicy SubAgentPolicy,
+    ThreadForkOperationStatus Status,
+    IReadOnlyList<SubAgentForkChildOutcome> Children);
 
 public sealed record AgentTuiThreadUpdate(
     string? Name = null,

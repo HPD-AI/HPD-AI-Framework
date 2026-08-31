@@ -83,11 +83,11 @@ public static class SubAgentsFunctionFactory
             Discriminator = "action",
             Actions = new ReadOnlyDictionary<string, AIFunctionActionPolicy>(policies)
         };
-        var composition = new VerifiedAIFunctionActionComposition(schema, contract);
+        var composition = new VerifiedAIFunctionActionComposition(schema, contract, BindFinalBranch);
         var roles = ordered.ToDictionary(static descriptor => descriptor.Action, StringComparer.Ordinal);
         return HPDAIFunctionFactory.CreateComposedAction(
             (arguments, context, cancellationToken) =>
-                SubAgentOperationDispatcher.DispatchAsync(roles, context, cancellationToken),
+                SubAgentOperationDispatcher.DispatchAsync(roles, arguments, context, cancellationToken),
             composition,
             new HPDAIFunctionFactoryOptions
             {
@@ -109,6 +109,33 @@ public static class SubAgentsFunctionFactory
                     ["SubAgentActions"] = ordered
                 }
             });
+    }
+
+    private static AIFunctionBindingResult BindFinalBranch(JsonElement root)
+    {
+        var actionJson = root.GetProperty("request");
+        var action = actionJson.GetProperty("action").GetString()
+            ?? throw new InvalidOperationException("SubAgents action discriminator is missing.");
+        var branch = ProjectBranch(actionJson);
+        return AIFunctionBindingResult.Success(new BoundSubAgentAction(action, branch), branch);
+    }
+
+    internal static JsonElement ProjectBranch(JsonElement action)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            foreach (var property in action.EnumerateObject())
+            {
+                if (!string.Equals(property.Name, "action", StringComparison.Ordinal) &&
+                    !string.Equals(property.Name, "invocationMode", StringComparison.Ordinal))
+                    property.WriteTo(writer);
+            }
+            writer.WriteEndObject();
+        }
+        using var document = JsonDocument.Parse(stream.ToArray());
+        return document.RootElement.Clone();
     }
 
     private static void Validate(IReadOnlyList<SubAgentActionDescriptor> descriptors)
@@ -217,6 +244,8 @@ public static class SubAgentsFunctionFactory
     };
 }
 
+internal sealed record BoundSubAgentAction(string Action, JsonElement Branch);
+
 /// <summary>Stable model-facing status returned by unified subagent operations.</summary>
 public enum SubAgentOperationStatus { Running, Completed, Failed, Cancelled, Unavailable }
 
@@ -253,19 +282,30 @@ public sealed record SubAgentListItem(
 /// <summary>Structured result returned by the <c>list</c> action.</summary>
 public sealed record SubAgentListResult(IReadOnlyList<SubAgentListItem> Children);
 
+/// <summary>One exact execution observed by the <c>wait</c> action.</summary>
+public sealed record SubAgentWaitItem(string Child, string? ThreadExecutionId, string Status);
+
+/// <summary>Structured observational result returned by the <c>wait</c> action.</summary>
+public sealed record SubAgentWaitResult(
+    bool TimedOut,
+    IReadOnlyList<SubAgentWaitItem> Children);
+
 internal static class SubAgentOperationDispatcher
 {
     internal static Task<object?> DispatchAsync(
         IReadOnlyDictionary<string, SubAgentActionDescriptor> roles,
+        AIFunctionArguments arguments,
         FunctionExecutionContext context,
         CancellationToken cancellationToken)
     {
         var validated = context.InvocationMode?.ValidatedAction
             ?? throw new InvalidOperationException("SubAgents requires one validated action.");
-        var branch = ProjectBranch(validated.CanonicalJson);
-        return roles.TryGetValue(validated.Action, out var descriptor)
-            ? DispatchStartAsync(descriptor, branch, context, cancellationToken)
-            : DispatchControlAsync(validated.Action, branch, context, cancellationToken);
+        var bound = arguments.GetBoundArguments<BoundSubAgentAction>();
+        if (!string.Equals(bound.Action, validated.Action, StringComparison.Ordinal))
+            throw new InvalidOperationException("SubAgents bound action does not match admitted action authority.");
+        return roles.TryGetValue(bound.Action, out var descriptor)
+            ? DispatchStartAsync(descriptor, bound.Branch, context, cancellationToken)
+            : DispatchControlAsync(bound.Action, bound.Branch, context, cancellationToken);
     }
 
     private static async Task<object?> DispatchStartAsync(
@@ -297,17 +337,4 @@ internal static class SubAgentOperationDispatcher
         CancellationToken cancellationToken) =>
         SubAgentRuntime.ControlAsync(action, branch, context, cancellationToken);
 
-    private static JsonElement ProjectBranch(JsonElement action)
-    {
-        using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream))
-        {
-            writer.WriteStartObject();
-            foreach (var property in action.EnumerateObject())
-                if (!string.Equals(property.Name, "action", StringComparison.Ordinal)) property.WriteTo(writer);
-            writer.WriteEndObject();
-        }
-        using var document = JsonDocument.Parse(stream.ToArray());
-        return document.RootElement.Clone();
-    }
 }

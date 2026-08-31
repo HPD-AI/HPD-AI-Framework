@@ -2106,6 +2106,61 @@ public sealed partial class Agent : IAsyncDisposable
         if (input is UserMessagesInputEvent { Delivery: AgentInputDelivery.Steer } steering)
             return await TrySteerAsync(steering, cancellationToken).ConfigureAwait(false);
 
+        if (registration.RoutingClass == AgentInputRoutingClass.Work &&
+            Config.SessionStore is { } executionStore &&
+            input.SessionId is { Length: > 0 } executionSessionId &&
+            input.ThreadId is { Length: > 0 } executionThreadId)
+        {
+            input = input with
+            {
+                ThreadExecutionId = string.IsNullOrWhiteSpace(input.ThreadExecutionId)
+                    ? Guid.NewGuid().ToString("N")
+                    : input.ThreadExecutionId
+            };
+            var controller = ThreadExecutionControllerRegistry.For(executionStore);
+            var acquired = await controller.TryAcquireAsync(
+                new ThreadExecutionStartRequest(
+                    new ThreadKey(executionSessionId, executionThreadId),
+                    input.ThreadExecutionId!,
+                    this),
+                cancellationToken).ConfigureAwait(false);
+            if (!acquired.Acquired || acquired.Lease is null)
+                throw new InvalidOperationException(
+                    $"thread_execution_busy:{acquired.ActiveThreadExecutionId}");
+            try
+            {
+                var result = await RunCapturedInputCoreAsync(input, registration, cancellationToken)
+                    .ConfigureAwait(false);
+                await controller.ReleaseAsync(
+                    acquired.Lease,
+                    new ThreadExecutionTerminalResult(ThreadExecutionOutcome.Succeeded),
+                    CancellationToken.None).ConfigureAwait(false);
+                return result;
+            }
+            catch (Exception exception)
+            {
+                await controller.ReleaseAsync(
+                    acquired.Lease,
+                    new ThreadExecutionTerminalResult(
+                        exception is OperationCanceledException
+                            ? ThreadExecutionOutcome.Cancelled
+                            : ThreadExecutionOutcome.Failed,
+                        exception.GetType().Name,
+                        exception.Message),
+                    CancellationToken.None).ConfigureAwait(false);
+                throw;
+            }
+        }
+
+        return await RunCapturedInputCoreAsync(input, registration, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<AgentInputResult> RunCapturedInputCoreAsync(
+        AgentInputEvent input,
+        AgentInputHandlerRegistration registration,
+        CancellationToken cancellationToken)
+    {
+
         if (registration.RoutingClass == AgentInputRoutingClass.Work)
         {
             ChannelWriter<AgentInputEvent>? runtimeWriter;
@@ -6622,6 +6677,7 @@ public sealed partial class Agent : IAsyncDisposable
         newThread.Ancestors = ancestors;
 
         int? copyThroughMessageIndex = null;
+        ThreadJournalCursor sourceForkBoundary;
 
         // Populate the in-memory read model up to and including fork point.
         // Root forks start from an empty read model.
@@ -6634,6 +6690,85 @@ public sealed partial class Agent : IAsyncDisposable
             copyThroughMessageIndex = copyThroughIndex;
             newThread.Messages.AddRange(sourceThread.Messages.Take(copyThroughIndex + 1).Select(CloneMessageForThread));
         }
+
+        var sourceKey = new ThreadKey(sourceThread.SessionId, sourceThread.Id);
+        var sourceDescriptor = await store.GetThreadAsync(sourceKey, cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException($"Source thread '{sourceThread.Id}' no longer exists.");
+        if (copyThroughMessageIndex is int boundaryIndex)
+        {
+            var boundaryMessages = sourceThread.Messages.Take(boundaryIndex + 1).ToArray();
+            var messageIds = boundaryMessages
+                .Select(static message => message.MessageId)
+                .Where(static id => !string.IsNullOrWhiteSpace(id))
+                .Select(static id => id!)
+                .ToHashSet(StringComparer.Ordinal);
+            var turnIds = boundaryMessages
+                .Select(GetMessageTurnId)
+                .Where(static id => !string.IsNullOrWhiteSpace(id))
+                .Select(static id => id!)
+                .ToHashSet(StringComparer.Ordinal);
+            var sequence = await ResolveForkCopyThroughSequenceAsync(
+                store, sourceKey, messageIds, turnIds, cancellationToken).ConfigureAwait(false) ?? 0;
+            sourceForkBoundary = new ThreadJournalCursor(sourceDescriptor.Generation, sequence);
+        }
+        else
+        {
+            sourceForkBoundary = ThreadJournalCursor.Start(sourceDescriptor.Generation);
+        }
+
+        var forkOperationId = forkOptions.OperationId ?? Guid.NewGuid().ToString("N");
+        var forkOperationStore = new JournalThreadForkOperationStore(store, sourceKey);
+        var forkOperation = await forkOperationStore.GetThreadForkOperationAsync(
+            forkOperationId, cancellationToken).ConfigureAwait(false);
+        if (forkOperation is null)
+        {
+            forkOperation = new ThreadForkOperationRecord
+            {
+                OperationId = forkOperationId,
+                Source = sourceKey,
+                Target = new ThreadKey(newThread.SessionId, newThread.Id),
+                SourceBoundary = sourceForkBoundary,
+                SubAgentPolicy = (forkOptions.SubAgents ?? Config.DefaultSubAgentForkOptions).Policy,
+                Status = ThreadForkOperationStatus.Prepared,
+                Revision = 1,
+                PreparedChildren = []
+            };
+            await forkOperationStore.WriteThreadForkOperationAsync(
+                forkOperation,
+                new ThreadForkOperationWriteCondition(0),
+                cancellationToken).ConfigureAwait(false);
+        }
+        else if (forkOperation.Status == ThreadForkOperationStatus.Committed)
+        {
+            var existing = await store.ProjectThreadAsync(
+                newThread.SessionId,
+                newThread.Id,
+                ThreadProjectionPurpose.ForkConstruction,
+                cancellationToken).ConfigureAwait(false);
+            return existing ?? throw new InvalidOperationException("thread_fork_committed_target_missing");
+        }
+        else if (forkOperation.Status == ThreadForkOperationStatus.ParentPreparing &&
+                 await store.GetThreadEventHeadAsync(forkOperation.Target, cancellationToken).ConfigureAwait(false) is not null)
+        {
+            forkOperation = forkOperation with
+            {
+                Status = ThreadForkOperationStatus.Committed,
+                Revision = forkOperation.Revision + 1
+            };
+            await forkOperationStore.WriteThreadForkOperationAsync(
+                forkOperation,
+                new ThreadForkOperationWriteCondition(forkOperation.Revision - 1),
+                cancellationToken).ConfigureAwait(false);
+            return await store.ProjectThreadAsync(
+                forkOperation.Target.SessionId,
+                forkOperation.Target.ThreadId,
+                ThreadProjectionPurpose.ForkConstruction,
+                cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("thread_fork_committed_target_missing");
+        }
+        newThread.Metadata["forkOperationId"] = forkOperationId;
+        newThread.Metadata["forkSourceSessionId"] = sourceKey.SessionId;
+        newThread.Metadata["forkSourceThreadId"] = sourceKey.ThreadId;
 
         // Copy thread-scoped middleware state (session-scoped state is shared via Session object)
         foreach (var kvp in sourceThread.MiddlewareState)
@@ -6699,7 +6834,7 @@ public sealed partial class Agent : IAsyncDisposable
                 beforeForkCommitContext,
                 cancellationToken).ConfigureAwait(false);
 
-            targetJournalEvents = beforeForkCommitContext.TargetJournalEvents;
+            targetJournalEvents = beforeForkCommitContext.HistoricalEvents;
 
             forkContext.State.MiddlewareState.SaveToThread(newThread, _stateFactories);
             if (sourceThread.Session != null)
@@ -6708,9 +6843,47 @@ public sealed partial class Agent : IAsyncDisposable
             }
         }
 
+        var targetKey = new ThreadKey(newThread.SessionId, newThread.Id);
+        forkOperation = forkOperation with
+        {
+            Status = ThreadForkOperationStatus.ChildrenPreparing,
+            Revision = forkOperation.Revision + 1
+        };
+        await forkOperationStore.WriteThreadForkOperationAsync(
+            forkOperation,
+            new ThreadForkOperationWriteCondition(forkOperation.Revision - 1),
+            cancellationToken).ConfigureAwait(false);
+        var registryEvents = await PlanSubAgentRegistryForForkAsync(
+            store,
+            new ThreadKey(sourceThread.SessionId, sourceThread.Id),
+            targetKey,
+            sourceForkBoundary,
+            forkOperationId,
+            forkOptions.SubAgents ?? Config.DefaultSubAgentForkOptions,
+            cancellationToken).ConfigureAwait(false);
+        var preparedChildren = registryEvents.OfType<SubAgentChildRegisteredEvent>()
+            .Select(static evt => evt.Child.ChildThread)
+            .Where(static route => route is not null)
+            .Select(static route => route!.Value)
+            .ToArray();
+        forkOperation = forkOperation with
+        {
+            Status = ThreadForkOperationStatus.ParentPreparing,
+            Revision = forkOperation.Revision + 1,
+            PreparedChildren = preparedChildren
+        };
+        await forkOperationStore.WriteThreadForkOperationAsync(
+            forkOperation,
+            new ThreadForkOperationWriteCondition(forkOperation.Revision - 1),
+            cancellationToken).ConfigureAwait(false);
+
         if (targetJournalEvents is not null)
         {
-            var events = targetJournalEvents.ToList();
+            if (targetJournalEvents.Any(IsThreadStructuralEvent))
+                throw new InvalidOperationException("thread_fork_middleware_structural_event_forbidden");
+            var events = new List<AgentEvent> { ThreadEventFactory.ThreadCreated(newThread) };
+            events.AddRange(targetJournalEvents.Select(evt =>
+                CloneEventForThread(evt, newThread.SessionId, newThread.Id)));
             if (newThread.MiddlewareState.Count > 0)
             {
                 events.Add(ThreadEventFactory.ThreadMiddlewareStateCommitted(
@@ -6718,33 +6891,51 @@ public sealed partial class Agent : IAsyncDisposable
                     newThread.Id,
                     newThread.MiddlewareState));
             }
+            events.AddRange(registryEvents);
             await store.AppendThreadEventsAsync(
-                new ThreadKey(newThread.SessionId, newThread.Id),
+                targetKey,
                 events,
                 new ThreadAppendCondition(ThreadJournalCursor.Start(1)),
                 cancellationToken).ConfigureAwait(false);
         }
         else if (copyThroughMessageIndex is int copiedIndex)
         {
-            await SaveForkedThreadFromSourceEventsAsync(
+            var events = (await BuildForkedThreadEventsFromSourceAsync(
                 store,
                 sourceThread,
                 newThread,
                 copiedIndex,
+                cancellationToken).ConfigureAwait(false)).ToList();
+            events.AddRange(registryEvents);
+            await store.AppendThreadEventsAsync(
+                targetKey,
+                events,
+                new ThreadAppendCondition(ThreadJournalCursor.Start(1)),
                 cancellationToken).ConfigureAwait(false);
         }
         else
         {
-            await store.SaveInitialThreadAsync(sourceThread.SessionId, newThread, cancellationToken)
-                .ConfigureAwait(false);
+            var events = new List<AgentEvent> { ThreadEventFactory.ThreadCreated(newThread) };
+            if (newThread.MiddlewareState.Count > 0)
+                events.Add(ThreadEventFactory.ThreadMiddlewareStateCommitted(
+                    newThread.SessionId, newThread.Id, newThread.MiddlewareState));
+            events.AddRange(registryEvents);
+            await store.AppendThreadEventsAsync(
+                targetKey,
+                events,
+                new ThreadAppendCondition(ThreadJournalCursor.Start(1)),
+                cancellationToken).ConfigureAwait(false);
         }
 
-        await ProjectSubAgentRegistryForForkAsync(
-            store,
-            new ThreadKey(sourceThread.SessionId, sourceThread.Id),
-            new ThreadKey(newThread.SessionId, newThread.Id),
-            forkOptions.SubAgents ?? new SubAgentForkOptions(),
-            cancellationToken).ConfigureAwait(false);
+        forkOperation = forkOperation with
+        {
+            Status = ThreadForkOperationStatus.Committed,
+            Revision = forkOperation.Revision + 1
+        };
+        await forkOperationStore.WriteThreadForkOperationAsync(
+            forkOperation,
+            new ThreadForkOperationWriteCondition(forkOperation.Revision - 1),
+            CancellationToken.None).ConfigureAwait(false);
 
         // Update the direct lineage edge. Fork groups are projected from session graph state.
         if (!sourceThread.ChildThreads.Contains(newThread.Id))
@@ -6775,7 +6966,7 @@ public sealed partial class Agent : IAsyncDisposable
     /// <param name="metadata">Optional metadata to attach to the new thread.</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>The new thread ID (same as newThreadId parameter)</returns>
-    public async Task<string> ForkThreadAsync(
+    public async Task<ThreadForkResult> ForkThreadAsync(
         string sessionId,
         string sourceThreadId,
         string newThreadId,
@@ -6799,7 +6990,7 @@ public sealed partial class Agent : IAsyncDisposable
     /// <param name="forkOptions">Options for the fork operation.</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>The new thread ID (same as newThreadId parameter)</returns>
-    public async Task<string> ForkThreadAsync(
+    public async Task<ThreadForkResult> ForkThreadAsync(
         string sessionId,
         string sourceThreadId,
         string newThreadId,
@@ -6850,7 +7041,7 @@ public sealed partial class Agent : IAsyncDisposable
     /// <param name="metadata">Optional metadata to attach to the new thread.</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>The new thread ID (same as newThreadId parameter)</returns>
-    public async Task<string> ForkThreadAsync(
+    public async Task<ThreadForkResult> ForkThreadAsync(
         string sessionId,
         string sourceThreadId,
         string newThreadId,
@@ -6865,7 +7056,7 @@ public sealed partial class Agent : IAsyncDisposable
             ThreadForkOptions.FromMetadata(metadata),
             cancellationToken).ConfigureAwait(false);
 
-    public async Task<string> ForkThreadAsync(
+    public async Task<ThreadForkResult> ForkThreadAsync(
         string sessionId,
         string sourceThreadId,
         string newThreadId,
@@ -6896,9 +7087,54 @@ public sealed partial class Agent : IAsyncDisposable
         sourceThread.Session = session;
 
         // Fork using the object-based method
-        var newThread = await ForkThreadAsync(sourceThread, newThreadId, fromMessageId, forkOptions, cancellationToken);
-
-        return newThread.Id;
+        var sourceDescriptor = await store.GetThreadAsync(
+            new ThreadKey(sessionId, sourceThreadId), cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException($"Thread '{sourceThreadId}' not found in session '{sessionId}'.");
+        var boundary = ThreadJournalCursor.Start(sourceDescriptor.Generation);
+        if (!string.IsNullOrWhiteSpace(fromMessageId))
+        {
+            var index = ResolveForkMessageIndex(sourceThread, fromMessageId);
+            var through = ExpandForkCopyThroughIndex(sourceThread.Messages, index);
+            var messages = sourceThread.Messages.Take(through + 1).ToArray();
+            var messageIds = messages.Select(static message => message.MessageId)
+                .Where(static id => !string.IsNullOrWhiteSpace(id)).Select(static id => id!)
+                .ToHashSet(StringComparer.Ordinal);
+            var turnIds = messages.Select(GetMessageTurnId)
+                .Where(static id => !string.IsNullOrWhiteSpace(id)).Select(static id => id!)
+                .ToHashSet(StringComparer.Ordinal);
+            var sequence = await ResolveForkCopyThroughSequenceAsync(
+                store,
+                new ThreadKey(sessionId, sourceThreadId),
+                messageIds,
+                turnIds,
+                cancellationToken).ConfigureAwait(false) ?? 0;
+            boundary = new ThreadJournalCursor(sourceDescriptor.Generation, sequence);
+        }
+        var operationId = forkOptions.OperationId ?? Guid.NewGuid().ToString("N");
+        forkOptions = forkOptions with { OperationId = operationId };
+        var newThread = await ForkThreadAsync(sourceThread, newThreadId, fromMessageId, forkOptions, cancellationToken)
+            .ConfigureAwait(false);
+        var targetKey = new ThreadKey(sessionId, newThread.Id);
+        var targetRegistry = await new SubAgentChildRegistry(store)
+            .ProjectAsync(targetKey, cancellationToken: cancellationToken).ConfigureAwait(false);
+        return new ThreadForkResult
+        {
+            OperationId = operationId,
+            Source = new ThreadKey(sessionId, sourceThreadId),
+            Target = targetKey,
+            SourceBoundary = boundary,
+            SubAgentPolicy = (forkOptions.SubAgents ?? Config.DefaultSubAgentForkOptions).Policy,
+            Status = ThreadForkOperationStatus.Committed,
+            Children = targetRegistry.Children.Values
+                .OrderBy(static child => child.LocalId.Value, StringComparer.Ordinal)
+                .Select(child => new SubAgentForkChildOutcome(
+                    child.LocalId.Value,
+                    (forkOptions.SubAgents ?? Config.DefaultSubAgentForkOptions).Policy,
+                    null,
+                    child.ChildThread,
+                    child.Availability))
+                .ToArray()
+        };
     }
 
     private static int ResolveForkMessageIndex(
@@ -6934,7 +7170,7 @@ public sealed partial class Agent : IAsyncDisposable
         return clone;
     }
 
-    private static async Task SaveForkedThreadFromSourceEventsAsync(
+    private static async Task<IReadOnlyList<AgentEvent>> BuildForkedThreadEventsFromSourceAsync(
         ISessionStore store,
         Thread sourceThread,
         Thread newThread,
@@ -6966,11 +7202,7 @@ public sealed partial class Agent : IAsyncDisposable
             copiedTurnIds,
             cancellationToken).ConfigureAwait(false);
 
-        await store.AppendThreadEventAsync(
-            newThread.SessionId,
-            newThread.Id,
-            ThreadEventFactory.ThreadCreated(newThread),
-            cancellationToken: cancellationToken).ConfigureAwait(false);
+        var result = new List<AgentEvent> { ThreadEventFactory.ThreadCreated(newThread) };
 
         if (copyThroughSequence is long sequenceNumber)
         {
@@ -6987,13 +7219,7 @@ public sealed partial class Agent : IAsyncDisposable
                     .Where(evt => !IsThreadStructuralEvent(evt))
                     .Select(evt => CloneEventForThread(evt, newThread.SessionId, newThread.Id))
                     .ToArray();
-                if (copiedEvents.Length > 0)
-                {
-                    await store.AppendThreadEventsAsync(
-                        new ThreadKey(newThread.SessionId, newThread.Id),
-                        copiedEvents,
-                        cancellationToken: cancellationToken).ConfigureAwait(false);
-                }
+                if (copiedEvents.Length > 0) result.AddRange(copiedEvents);
             }
         }
 
@@ -7007,13 +7233,8 @@ public sealed partial class Agent : IAsyncDisposable
                 newThread.MiddlewareState));
         }
 
-        if (derivedEvents.Count > 0)
-        {
-            await store.AppendThreadEventsAsync(
-                new ThreadKey(newThread.SessionId, newThread.Id),
-                derivedEvents,
-                cancellationToken: cancellationToken).ConfigureAwait(false);
-        }
+        result.AddRange(derivedEvents);
+        return result;
     }
 
     private static AgentEvent CloneEventForThread(AgentEvent evt, string sessionId, string threadId) =>
@@ -7113,18 +7334,22 @@ public sealed partial class Agent : IAsyncDisposable
     private static bool IsThreadStructuralEvent(AgentEvent evt) =>
         evt is ThreadCreatedEvent or ThreadUpdatedEvent or ThreadMiddlewareStateCommittedEvent or
             SubAgentChildRegisteredEvent or SubAgentChildDetachedEvent or SubAgentChildRemappedEvent or
-            SubAgentChildUnavailableEvent or SubAgentRegistrySeedEvent;
+            SubAgentChildUnavailableEvent or SubAgentRegistrySeedEvent or
+            SubAgentControllerGrantedEvent or SubAgentCreationReservedEvent or SubAgentCreationAdvancedEvent or
+            ThreadForkOperationChangedEvent;
 
-    private static async ValueTask ProjectSubAgentRegistryForForkAsync(
+    private static async ValueTask<IReadOnlyList<AgentEvent>> PlanSubAgentRegistryForForkAsync(
         ISessionStore store,
         ThreadKey source,
         ThreadKey target,
+        ThreadJournalCursor sourceBoundary,
+        string forkOperationId,
         SubAgentForkOptions options,
         CancellationToken cancellationToken)
     {
         var sourceRegistry = await new SubAgentChildRegistry(store)
-            .ProjectAsync(source, cancellationToken: cancellationToken).ConfigureAwait(false);
-        if (sourceRegistry.Children.Count == 0) return;
+            .ProjectAsync(source, sourceBoundary, cancellationToken).ConfigureAwait(false);
+        if (sourceRegistry.Children.Count == 0) return Array.Empty<AgentEvent>();
         var events = new List<AgentEvent>();
         foreach (var child in sourceRegistry.Children.Values.OrderBy(static child => child.LocalId.Value, StringComparer.Ordinal))
         {
@@ -7138,7 +7363,7 @@ public sealed partial class Agent : IAsyncDisposable
                 },
                 SubAgentForkPolicy.Share => child,
                 SubAgentForkPolicy.ForkDirectChildren => await ForkDirectRuntimeChildAsync(
-                    store, child, target, cancellationToken).ConfigureAwait(false),
+                    store, child, target, source, forkOperationId, cancellationToken).ConfigureAwait(false),
                 _ => throw new ArgumentOutOfRangeException(nameof(options))
             };
             events.Add(new SubAgentChildRegisteredEvent(projected)
@@ -7146,15 +7371,24 @@ public sealed partial class Agent : IAsyncDisposable
                 SessionId = target.SessionId,
                 ThreadId = target.ThreadId
             });
+            if (options.Policy == SubAgentForkPolicy.Share && projected.ChildThread is { } sharedRoute)
+            {
+                events.Add(new SubAgentControllerGrantedEvent(projected.LocalId, sharedRoute)
+                {
+                    SessionId = target.SessionId,
+                    ThreadId = target.ThreadId
+                });
+            }
         }
-        await store.AppendThreadEventsAsync(target, events, cancellationToken: cancellationToken)
-            .ConfigureAwait(false);
+        return events;
     }
 
     private static async ValueTask<SubAgentChildReference> ForkDirectRuntimeChildAsync(
         ISessionStore store,
         SubAgentChildReference source,
         ThreadKey targetParent,
+        ThreadKey sourceParent,
+        string forkOperationId,
         CancellationToken cancellationToken)
     {
         if (source.Availability != SubAgentChildAvailability.Available || source.ChildThread is not { } sourceKey)
@@ -7163,13 +7397,36 @@ public sealed partial class Agent : IAsyncDisposable
             ?? throw new InvalidOperationException("subagent_fork_boundary_unavailable");
         var targetKey = new ThreadKey(
             targetParent.SessionId,
-            $"{targetParent.ThreadId}/subagent/{source.LocalId.Value}/{Guid.NewGuid():N}");
+            $"{targetParent.ThreadId}/subagent/{source.LocalId.Value}/{forkOperationId[..Math.Min(12, forkOperationId.Length)]}");
+        if (await store.GetThreadEventHeadAsync(targetKey, cancellationToken).ConfigureAwait(false) is not null)
+        {
+            ThreadCreatedEvent? existingCreated = null;
+            await foreach (var batch in store.ReadThreadEventsAsync(
+                targetKey,
+                new ThreadEventReadRequest(ThreadJournalCursor.Start(1)),
+                cancellationToken).ConfigureAwait(false))
+            {
+                existingCreated = batch.Events.OfType<ThreadCreatedEvent>().FirstOrDefault();
+                if (existingCreated is not null) break;
+            }
+            if (existingCreated?.ThreadMetadata is null ||
+                !existingCreated.ThreadMetadata.TryGetValue("forkOperationId", out var owner) ||
+                !string.Equals(Convert.ToString(owner), forkOperationId, StringComparison.Ordinal))
+                throw new InvalidOperationException("thread_fork_target_collision");
+            return source with { ChildThread = targetKey, UnavailableReason = null };
+        }
+        var childMetadata = descriptor.Metadata.Count == 0
+            ? new Dictionary<string, object>(StringComparer.Ordinal)
+            : new Dictionary<string, object>(descriptor.Metadata, StringComparer.Ordinal);
+        childMetadata["forkOperationId"] = forkOperationId;
+        childMetadata["forkSourceSessionId"] = sourceParent.SessionId;
+        childMetadata["forkSourceThreadId"] = sourceParent.ThreadId;
         var created = new ThreadCreatedEvent(
             descriptor.DefaultAgent.AgentId,
             descriptor.Name,
             descriptor.Description,
             descriptor.Tags.ToList(),
-            descriptor.Metadata.Count == 0 ? null : new Dictionary<string, object>(descriptor.Metadata),
+            childMetadata,
             DateTime.UtcNow,
             ThreadKind.SubAgent,
             ThreadVisibility.Hidden,
@@ -7184,16 +7441,35 @@ public sealed partial class Agent : IAsyncDisposable
             SessionId = targetKey.SessionId,
             ThreadId = targetKey.ThreadId
         };
-        var staged = new List<AgentEvent> { created };
+        var sourceEvents = new List<AgentEvent>();
         await foreach (var batch in store.ReadThreadEventsAsync(
             sourceKey,
             new ThreadEventReadRequest(ThreadJournalCursor.Start(descriptor.Generation)),
             cancellationToken).ConfigureAwait(false))
         {
-            staged.AddRange(batch.Events
-                .Where(static evt => !IsThreadStructuralEvent(evt))
-                .Select(evt => CloneEventForThread(evt, targetKey.SessionId, targetKey.ThreadId)));
+            sourceEvents.AddRange(batch.Events);
         }
+        var active = new HashSet<string>(StringComparer.Ordinal);
+        long? latestCompletedBoundary = null;
+        foreach (var evt in sourceEvents)
+        {
+            if (evt is ThreadExecutionStartedEvent started)
+                active.Add(started.ThreadExecutionId);
+            else if (evt is ThreadExecutionFinishedEvent finished)
+            {
+                active.Remove(finished.ThreadExecutionId);
+                latestCompletedBoundary = evt.ThreadSequenceNumber;
+            }
+        }
+        long? through = null;
+        if (active.Count > 0)
+            through = latestCompletedBoundary
+                ?? throw new InvalidOperationException("subagent_fork_boundary_unavailable");
+        var staged = new List<AgentEvent> { created };
+        staged.AddRange(sourceEvents
+            .Where(evt => through is null || evt.ThreadSequenceNumber <= through.Value)
+            .Where(static evt => !IsThreadStructuralEvent(evt))
+            .Select(evt => CloneEventForThread(evt, targetKey.SessionId, targetKey.ThreadId)));
         await store.AppendThreadEventsAsync(
             targetKey,
             staged,
