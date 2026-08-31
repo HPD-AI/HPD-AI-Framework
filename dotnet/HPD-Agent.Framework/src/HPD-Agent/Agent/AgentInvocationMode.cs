@@ -628,14 +628,20 @@ public static class AgentInvocationModes
         var root = JsonNode.Parse(originalSchema.GetRawText()) as JsonObject
             ?? throw new InvalidOperationException("The function schema is invalid.");
         if (root["properties"] is not JsonObject properties ||
-            properties[contract.ActionArgumentName] is not JsonObject actionSchema ||
+            properties[contract.ActionArgumentName] is not JsonObject actionSchemaNode)
+            throw new InvalidOperationException("The action union must be a direct model-facing parameter.");
+        var actionSchema = ResolveLocalSchemaReference(root, actionSchemaNode);
+        if (
             actionSchema["oneOf"] is not JsonArray branches)
             throw new InvalidOperationException("The action union must be a direct model-facing parameter.");
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var node in branches)
         {
-            if (node is not JsonObject branch || branch["properties"] is not JsonObject branchProperties ||
+            if (node is not JsonObject branchNode)
+                throw new InvalidOperationException("Every action branch must be an object schema.");
+            var branch = ResolveLocalSchemaReference(root, branchNode);
+            if (branch["properties"] is not JsonObject branchProperties ||
                 branchProperties[contract.Discriminator] is not JsonObject discriminator ||
                 discriminator["const"]?.GetValue<string>() is not { Length: > 0 } action ||
                 !contract.Actions.TryGetValue(action, out var policy) || !seen.Add(action))
@@ -655,28 +661,61 @@ public static class AgentInvocationModes
     /// <param name="contract">The effective action contract.</param>
     public static void ValidateActionSchema(JsonElement schema, AIFunctionOperationContract contract)
     {
-        if (schema.ValueKind != JsonValueKind.Object ||
-            !schema.TryGetProperty("properties", out var properties) ||
-            !properties.TryGetProperty(contract.ActionArgumentName, out var actionSchema) ||
-            !actionSchema.TryGetProperty("oneOf", out var branches) || branches.ValueKind != JsonValueKind.Array)
+        if (schema.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException("The generated action schema is not a direct closed union.");
+        var root = JsonNode.Parse(schema.GetRawText()) as JsonObject
+            ?? throw new InvalidOperationException("The generated action schema is invalid.");
+        if (root["properties"] is not JsonObject properties ||
+            properties[contract.ActionArgumentName] is not JsonObject actionSchemaNode)
+            throw new InvalidOperationException("The generated action schema is not a direct closed union.");
+        var actionSchema = ResolveLocalSchemaReference(root, actionSchemaNode);
+        if (actionSchema["oneOf"] is not JsonArray branches)
             throw new InvalidOperationException("The generated action schema is not a direct closed union.");
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var branch in branches.EnumerateArray())
+        foreach (var node in branches)
         {
-            if (!branch.TryGetProperty("properties", out var branchProperties) ||
-                !branchProperties.TryGetProperty(contract.Discriminator, out var discriminator) ||
-                !discriminator.TryGetProperty("const", out var constant) || constant.ValueKind != JsonValueKind.String ||
-                constant.GetString() is not { Length: > 0 } action ||
+            if (node is not JsonObject branchNode)
+                throw new InvalidOperationException("The generated action schema contains a non-object branch.");
+            var branch = ResolveLocalSchemaReference(root, branchNode);
+            if (branch["properties"] is not JsonObject branchProperties ||
+                branchProperties[contract.Discriminator] is not JsonObject discriminator ||
+                discriminator["const"]?.GetValue<string>() is not { Length: > 0 } action ||
                 !contract.Actions.TryGetValue(action, out var policy) || !seen.Add(action))
                 throw new InvalidOperationException("The generated action schema does not match its action contract.");
-            var exposesControl = branchProperties.TryGetProperty("invocationMode", out var control);
+            var control = branchProperties["invocationMode"] as JsonObject;
+            var exposesControl = control is not null;
             if (exposesControl != (policy.InvocationModePolicy == AgentInvocationModePolicy.ModelChoice))
                 throw new InvalidOperationException($"Action '{action}' exposes an invocation control inconsistent with its policy.");
-            if (exposesControl && (!control.TryGetProperty("enum", out var values) || values.GetArrayLength() != 2))
+            if (exposesControl && (control!["enum"] is not JsonArray values || values.Count != 2 ||
+                values[0]?.GetValue<string>() != "synchronous" || values[1]?.GetValue<string>() != "background" ||
+                control["type"]?.GetValue<string>() != "string"))
                 throw new InvalidOperationException($"Action '{action}' has an invalid invocation control.");
         }
         if (seen.Count != contract.Actions.Count)
             throw new InvalidOperationException("The generated action schema omits a declared action.");
+    }
+
+    private static JsonObject ResolveLocalSchemaReference(JsonObject root, JsonObject schema)
+    {
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        for (var depth = 0; depth < 16 && schema["$ref"] is JsonValue referenceValue; depth++)
+        {
+            var reference = referenceValue.GetValue<string>();
+            if (!reference.StartsWith("#/", StringComparison.Ordinal) || !visited.Add(reference))
+                throw new InvalidOperationException("Action schemas may use only acyclic document-local references.");
+            JsonNode? target = root;
+            foreach (var encodedSegment in reference.AsSpan(2).ToString().Split('/'))
+            {
+                var segment = encodedSegment.Replace("~1", "/", StringComparison.Ordinal)
+                    .Replace("~0", "~", StringComparison.Ordinal);
+                target = target is JsonObject targetObject ? targetObject[segment] : null;
+            }
+            schema = target as JsonObject
+                ?? throw new InvalidOperationException($"Action schema reference '{reference}' does not resolve to an object.");
+        }
+        if (schema["$ref"] is not null)
+            throw new InvalidOperationException("Action schema reference depth exceeds the supported limit.");
+        return schema;
     }
 
     private static JsonObject CreateInvocationModeSchema() =>

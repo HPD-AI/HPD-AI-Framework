@@ -52,6 +52,42 @@ public sealed class ActionScopedFunctionInvocationTests
     }
 
     [Fact]
+    public void CreateActionSchema_ResolvesBoundedDocumentLocalReferences()
+    {
+        using var document = JsonDocument.Parse("""
+            {
+              "type":"object",
+              "properties":{"request":{"$ref":"#/$defs/request"}},
+              "$defs":{
+                "request":{"oneOf":[{"$ref":"#/$defs/read"},{"$ref":"#/$defs/run"}]},
+                "read":{"type":"object","properties":{"action":{"const":"read"}}},
+                "run":{"type":"object","properties":{"action":{"const":"run"}}}
+              }
+            }
+            """);
+
+        var schema = AgentInvocationModes.CreateActionSchema(document.RootElement, Contract());
+        var definitions = schema.GetProperty("$defs");
+
+        Assert.False(definitions.GetProperty("read").GetProperty("properties").TryGetProperty("invocationMode", out _));
+        Assert.True(definitions.GetProperty("run").GetProperty("properties").TryGetProperty("invocationMode", out _));
+        AgentInvocationModes.ValidateActionSchema(schema, Contract());
+    }
+
+    [Fact]
+    public void CreateActionSchema_RejectsExternalReferences()
+    {
+        using var document = JsonDocument.Parse("""
+            {"type":"object","properties":{"request":{"$ref":"https://example.test/action.json"}}}
+            """);
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            AgentInvocationModes.CreateActionSchema(document.RootElement, Contract()));
+
+        Assert.Contains("document-local", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ResolveAction_RejectsUnknownActionWithoutFallback()
     {
         using var document = JsonDocument.Parse("""{"request":{"action":"delete"}}""");
