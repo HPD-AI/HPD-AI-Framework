@@ -141,7 +141,8 @@ public sealed class ActionScopedFunctionInvocationTests
         using var document = JsonDocument.Parse("""{"request":{"action":"run","value":1}}""");
         var arguments = Arguments(document);
 
-        var resolved = AgentInvocationModes.ResolveAction(arguments, Contract(), out _);
+        var resolved = AgentInvocationModes.ResolveAction(
+            arguments, Contract(), out _, arguments.GetIngressProvenance());
 
         Assert.Null(resolved.RequestedMode);
         Assert.Equal(AgentInvocationMode.Synchronous, resolved.Mode);
@@ -183,6 +184,21 @@ public sealed class ActionScopedFunctionInvocationTests
         Assert.Equal(4, sanitized["value"]);
         Assert.Equal(AgentInvocationMode.Background,
             AgentInvocationModes.Resolve(AgentInvocationModePolicy.ModelChoice, requested));
+    }
+
+    [Fact]
+    public void ProviderCanonicalWriterMarksCanonicalizedIngress()
+    {
+        var providerArguments = new Dictionary<string, object?>
+        {
+            ["request"] = JsonSerializer.SerializeToElement(new { action = "run", value = 2 })
+        };
+
+        var arguments = FunctionExecutionCore.CreateInvocationArguments(providerArguments);
+        var resolved = AgentInvocationModes.ResolveAction(
+            arguments, Contract(), out _, arguments.GetIngressProvenance());
+
+        Assert.Equal(FunctionArgumentIngressProvenance.Canonicalized, resolved.IngressProvenance);
     }
 
     [Fact]

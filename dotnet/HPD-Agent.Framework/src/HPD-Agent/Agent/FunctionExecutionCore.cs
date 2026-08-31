@@ -369,7 +369,10 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             AIFunctionArguments source;
             if (functionCall.Arguments is AIFunctionArguments supplied &&
                 supplied.GetJson().ValueKind != JsonValueKind.Undefined)
+            {
                 source = supplied;
+                ingressProvenance = supplied.GetIngressProvenance();
+            }
             else
             {
                 if (hpdFunction.HPDOptions.OperationContract is not null)
@@ -733,6 +736,8 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 arguments.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal),
                 HPDJsonContext.Default.DictionaryStringObject)
             : sourceJson.Clone());
+        invocationArguments.SetIngressProvenance(
+            sourceArguments?.GetIngressProvenance() ?? FunctionArgumentIngressProvenance.Canonicalized);
         return invocationArguments;
     }
 

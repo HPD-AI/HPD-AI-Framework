@@ -970,7 +970,7 @@ internal static class CapabilityAnalyzer
         var invocationModePolicy = GetInvocationModePolicy(attrs);
         var invocationModeHandling = GetInvocationModeHandling(attrs);
 
-        if (!ValidateActionContract(parameters, kind, diagnostics, method.GetLocation()))
+        if (!ValidateActionContract(parameters, kind, diagnostics, method.GetLocation(), semanticModel))
             return null;
 
         var functionCapability = new FunctionCapability
@@ -1006,7 +1006,8 @@ internal static class CapabilityAnalyzer
         IReadOnlyList<ParameterInfo> parameters,
         string toolKind,
         List<Diagnostic> diagnostics,
-        Location location)
+        Location location,
+        SemanticModel semanticModel)
     {
         var misplaced = parameters.Where(parameter =>
             parameter.Symbol?.Type.GetAttributes().Any(attribute =>
@@ -1020,6 +1021,27 @@ internal static class CapabilityAnalyzer
         var candidates = parameters.Where(parameter => parameter.Contract is UnionContractNode union &&
             union.Cases.Any(unionCase => unionCase.ConcreteType.GetAttributes().Any(attribute =>
                 attribute.AttributeClass?.Name == "AIFunctionActionAttribute"))).ToArray();
+        foreach (var parameter in parameters.Where(static parameter =>
+                     parameter.Kind == FunctionParameterKind.ModelFacing && parameter.Symbol?.Type is INamedTypeSymbol))
+        {
+            var baseType = (INamedTypeSymbol)parameter.Symbol!.Type;
+            var declaredCases = parameter.Contract is UnionContractNode declaredUnion
+                ? new HashSet<INamedTypeSymbol>(
+                    declaredUnion.Cases.Select(static unionCase => unionCase.ConcreteType),
+                    SymbolEqualityComparer.Default)
+                : new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+            foreach (var declaration in semanticModel.SyntaxTree.GetRoot().DescendantNodes().OfType<TypeDeclarationSyntax>())
+            {
+                if (semanticModel.GetDeclaredSymbol(declaration) is not INamedTypeSymbol type ||
+                    !type.GetAttributes().Any(attribute => attribute.AttributeClass?.Name == "AIFunctionActionAttribute") ||
+                    !DerivesFrom(type, baseType) || declaredCases.Contains(type))
+                    continue;
+                diagnostics.Add(Diagnostic.Create(ActionFunctionDiagnostics.InvalidContract,
+                    declaration.GetLocation(),
+                    $"action type '{type.Name}' is outside the function's declared closed union"));
+                return false;
+            }
+        }
         if (candidates.Length == 0) return true;
         if (candidates.Length != 1)
         {
@@ -1084,6 +1106,16 @@ internal static class CapabilityAnalyzer
             }
         }
         return valid;
+    }
+
+    private static bool DerivesFrom(INamedTypeSymbol type, INamedTypeSymbol baseType)
+    {
+        for (var current = type.BaseType; current is not null; current = current.BaseType)
+        {
+            if (SymbolEqualityComparer.Default.Equals(current, baseType))
+                return true;
+        }
+        return false;
     }
 
     private static class ActionFunctionDiagnostics

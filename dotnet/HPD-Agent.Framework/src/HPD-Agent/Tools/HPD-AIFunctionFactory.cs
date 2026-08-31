@@ -373,6 +373,28 @@ public sealed record AIFunctionContractDescriptor
 /// </summary>
 public static class AIFunctionArgumentsExtensions
 {
+    private sealed class IngressHolder(FunctionArgumentIngressProvenance provenance)
+    {
+        internal FunctionArgumentIngressProvenance Provenance { get; } = provenance;
+    }
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<AIFunctionArguments, IngressHolder>
+        IngressProvenance = new();
+
+    internal static void SetIngressProvenance(
+        this AIFunctionArguments arguments,
+        FunctionArgumentIngressProvenance provenance)
+    {
+        IngressProvenance.Remove(arguments);
+        IngressProvenance.Add(arguments, new IngressHolder(provenance));
+    }
+
+    internal static FunctionArgumentIngressProvenance GetIngressProvenance(
+        this AIFunctionArguments arguments) =>
+        IngressProvenance.TryGetValue(arguments, out var holder)
+            ? holder.Provenance
+            : FunctionArgumentIngressProvenance.Original;
+
     internal const string JsonKey = "__raw_json__";
     internal const string JsonSerializerOptionsKey = "__json_serializer_options__";
     internal const string BoundArgumentsKey = "__hpd_bound_arguments__";

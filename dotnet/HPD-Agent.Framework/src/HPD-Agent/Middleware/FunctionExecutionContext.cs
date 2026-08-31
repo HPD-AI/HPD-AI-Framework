@@ -215,18 +215,32 @@ public sealed class FunctionExecutionContext
             "Function execution does not have an active operation registry.");
         if (string.IsNullOrWhiteSpace(SessionId) || string.IsNullOrWhiteSpace(ThreadId))
             throw new InvalidOperationException("Operations require a session and thread address.");
-        ValueTask<AgentOperationReceipt> StartAsync() => AgentLocalOperationScheduler.StartAsync(
-            registry,
-            AgentOperationSourceKind.LocalTool,
-            name,
-            new AgentExecutionAddress(AgentName, SessionId, ThreadId),
-            ThreadExecutionId,
-            InvocationSnapshot,
-            metadata,
-            notification,
-            work,
-            _toolHarnessExecutionScope,
-            runtimeCancellationToken: cancellationToken);
+        async ValueTask<AgentOperationReceipt> StartAsync()
+        {
+            var clientExecutionOwner = _clientSet?.AcquireBorrowedLease();
+            try
+            {
+                return await AgentLocalOperationScheduler.StartAsync(
+                    registry,
+                    AgentOperationSourceKind.LocalTool,
+                    name,
+                    new AgentExecutionAddress(AgentName, SessionId, ThreadId),
+                    ThreadExecutionId,
+                    InvocationSnapshot,
+                    metadata,
+                    notification,
+                    work,
+                    _toolHarnessExecutionScope,
+                    clientExecutionOwner,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                if (clientExecutionOwner is not null)
+                    await clientExecutionOwner.DisposeAsync().ConfigureAwait(false);
+                throw;
+            }
+        }
         return _operationCommitGate is null
             ? StartAsync()
             : _operationCommitGate.StartOperationAsync(StartAsync, cancellationToken);

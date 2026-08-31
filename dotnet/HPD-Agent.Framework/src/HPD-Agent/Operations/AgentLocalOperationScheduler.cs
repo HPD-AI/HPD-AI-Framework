@@ -86,7 +86,17 @@ internal static class AgentLocalOperationScheduler
         public async ValueTask DisposeAsync()
         {
             for (var index = _owners.Length - 1; index >= 0; index--)
-                await _owners[index].DisposeAsync().ConfigureAwait(false);
+            {
+                try
+                {
+                    await _owners[index].DisposeAsync().ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Cleanup is exhaustive and non-throwing. Operation lifecycle reporting owns
+                    // terminal diagnostics; one faulty owner must never leak the remaining owners.
+                }
+            }
         }
     }
 

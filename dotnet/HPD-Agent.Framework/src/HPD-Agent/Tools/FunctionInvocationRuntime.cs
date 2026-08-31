@@ -115,10 +115,8 @@ internal static class FunctionInvocationRuntime
         if (parentContext.OperationRegistry is not { } operations ||
             parentContext.SessionId is null || parentContext.ThreadId is null)
         {
-            return AgentInvocationModes.CreateFailureResult(
-                request.Name,
-                AgentOperationSourceKind.LocalTool,
-                "Background invocation requires an active agent runtime.");
+            throw new InvalidOperationException(
+                "background_unavailable: Background invocation requires an active agent runtime.");
         }
 
         var operationContext = parentContext.CreateOperationProjection(out var clientExecutionOwner);
