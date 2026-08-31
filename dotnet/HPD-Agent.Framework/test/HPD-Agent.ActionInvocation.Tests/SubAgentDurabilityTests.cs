@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text;
 using HPD.Agent;
 using HPD.Agent.Serialization;
 
@@ -237,12 +239,42 @@ public sealed class SubAgentDurabilityTests
                            new ThreadEventReadRequest(ThreadJournalCursor.Start(1))))
             childEvents.AddRange(batch.Events);
         Assert.DoesNotContain(childEvents, static evt => evt is SubAgentChildControllerAuthorityEvent);
+        var authorityRoute = AuthorityRoute(child);
+        Assert.NotNull(await store.GetThreadEventHeadAsync(authorityRoute));
+        Assert.Null(await store.GetThreadAsync(authorityRoute));
+        var visibleThreads = new List<ThreadDescriptor>();
+        await foreach (var descriptor in store.ListThreadsAsync(
+                           child.SessionId,
+                           new ThreadListRequest { IncludeHidden = true }))
+            visibleThreads.Add(descriptor);
+        Assert.DoesNotContain(visibleThreads, descriptor => descriptor.Key == authorityRoute);
         Assert.False(await SubAgentControllerAuthority.IsGrantedAsync(
             store, child, new ThreadKey("session", "other"), new SubAgentLocalId("reviewer-1")));
         await SubAgentControllerAuthority.RevokeAsync(
             store, child, controller, new SubAgentLocalId("reviewer-1"), "fork-share", source);
         Assert.False(await SubAgentControllerAuthority.IsGrantedAsync(
             store, child, controller, new SubAgentLocalId("reviewer-1")));
+    }
+
+    [Fact]
+    public async Task SharedControlAuthorityRouteCollisionFailsClosed()
+    {
+        var store = new InMemorySessionStore(CoreAgentEventComposition.Instance.Codec);
+        var child = new ThreadKey("session", "child");
+        await CreateThreadAsync(store, child);
+        var authority = AuthorityRoute(child);
+        await CreateThreadAsync(store, authority);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await SubAgentControllerAuthority.GrantAsync(
+                store,
+                child,
+                new ThreadKey("session", "controller"),
+                new SubAgentLocalId("reviewer-1"),
+                "fork-share",
+                new ThreadKey("session", "source")));
+
+        Assert.Equal("subagent_controller_authority_route_collision", exception.Message);
     }
 
     private static async Task CreateThreadAsync(InMemorySessionStore store, ThreadKey key) =>
@@ -268,4 +300,11 @@ public sealed class SubAgentDurabilityTests
         PreparedChildren = [],
         ChildOutcomes = []
     };
+
+    private static ThreadKey AuthorityRoute(ThreadKey child)
+    {
+        var digest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+            $"{child.SessionId}\u001f{child.ThreadId}"))).ToLowerInvariant();
+        return new ThreadKey(child.SessionId, $"__hpd/subagent-controller-authority/{digest}");
+    }
 }

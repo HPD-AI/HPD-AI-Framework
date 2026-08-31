@@ -191,7 +191,7 @@ public sealed class InMemorySessionStore : ISessionStore, IThreadDeltaStore, HPD
         ValidateThreadKey(thread);
         if (!_threads.TryGetValue(thread, out var journal)) return null;
         var descriptor = await journal.GetDescriptorAsync(cancellationToken).ConfigureAwait(false);
-        return descriptor is not null &&
+        return descriptor is not null && descriptor.Kind != ThreadKind.FrameworkInternal &&
             await ThreadForkVisibility.IsVisibleAsync(this, descriptor, cancellationToken).ConfigureAwait(false)
                 ? descriptor
                 : null;
@@ -215,7 +215,7 @@ public sealed class InMemorySessionStore : ISessionStore, IThreadDeltaStore, HPD
                 continue;
 
             var descriptor = await journal.GetDescriptorAsync(cancellationToken).ConfigureAwait(false);
-            if (descriptor is null ||
+            if (descriptor is null || descriptor.Kind == ThreadKind.FrameworkInternal ||
                 !await ThreadForkVisibility.IsVisibleAsync(this, descriptor, cancellationToken).ConfigureAwait(false) ||
                 (!request.IncludeHidden && descriptor.Visibility == ThreadVisibility.Hidden))
                 continue;

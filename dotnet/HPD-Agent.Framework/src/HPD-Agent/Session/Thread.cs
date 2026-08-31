@@ -7,7 +7,9 @@ namespace HPD.Agent;
 public enum ThreadKind
 {
     MainAgent,
-    SubAgent
+    SubAgent,
+    /// <summary>Framework-owned journal excluded from conversation and runtime surfaces.</summary>
+    FrameworkInternal
 }
 
 public enum ThreadVisibility

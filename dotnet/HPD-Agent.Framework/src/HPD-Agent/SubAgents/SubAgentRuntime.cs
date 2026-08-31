@@ -29,7 +29,7 @@ public sealed record SubAgentContinuationReceiptEvent(
 [EditorBrowsable(EditorBrowsableState.Never)]
 public static class SubAgentRuntime
 {
-    private static readonly ConditionalWeakTable<ISessionStore, ConcurrentDictionary<string, byte>>
+    private static readonly ConditionalWeakTable<ISessionStore, ConcurrentDictionary<string, SemaphoreSlim>>
         ContinuationAdmissions = new();
     /// <summary>
     /// Creates a generated tool around one registration-time subagent declaration.
@@ -717,11 +717,17 @@ public static class SubAgentRuntime
                 return Failure("subagent_busy", "This child already has an active execution.", child.LocalId.Value);
             var admissionKey = $"{route.SessionId}\u001f{route.ThreadId}\u001f{executionId}";
             var admissions = ContinuationAdmissions.GetValue(
-                store, static _ => new ConcurrentDictionary<string, byte>(StringComparer.Ordinal));
-            var ownsAdmission = admissions.TryAdd(admissionKey, 0);
+                store, static _ => new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.Ordinal));
+            var candidateAdmission = new SemaphoreSlim(1, 1);
+            var admission = admissions.GetOrAdd(admissionKey, candidateAdmission);
+            var ownsAdmission = ReferenceEquals(candidateAdmission, admission);
+            if (!ownsAdmission) candidateAdmission.Dispose();
             (bool Reserved, ThreadExecutionOutcome? Outcome, SubAgentOperationError? Error, string? Output, bool ReceiptPresent) durableReplay;
+            var admissionAcquired = false;
             try
             {
+                await admission.WaitAsync(cancellationToken).ConfigureAwait(false);
+                admissionAcquired = true;
                 durableReplay = await TryReserveExecutionAsync(
                         store, route, executionId, child.ChildAgentId, cancellationToken)
                     .ConfigureAwait(false);
@@ -731,6 +737,10 @@ public static class SubAgentRuntime
                 if (ownsAdmission)
                     admissions.TryRemove(admissionKey, out _);
                 throw;
+            }
+            finally
+            {
+                if (admissionAcquired) admission.Release();
             }
             if (!durableReplay.Reserved)
             {
@@ -781,7 +791,7 @@ public static class SubAgentRuntime
                         ThreadExecutionId = executionId,
                         AgentOperationId = operationId,
                         Error = new SubAgentOperationError(
-                            "subagent_continue_reconciliation_required",
+                            "subagent_reconciliation_required",
                             "The continuation was durably admitted but has no live owner or terminal receipt; it will not be executed again automatically.")
                     };
                 }
@@ -810,7 +820,7 @@ public static class SubAgentRuntime
                         ThreadExecutionId = executionId,
                         AgentOperationId = operationId,
                         Error = new SubAgentOperationError(
-                            "subagent_continue_reconciliation_required",
+                            "subagent_reconciliation_required",
                             "The continuation finished before its execution-scoped result receipt committed.")
                     };
                 }
@@ -848,7 +858,7 @@ public static class SubAgentRuntime
                             }
                             finally
                             {
-                                admissions.TryRemove(admissionKey, out byte _);
+                                admissions.TryRemove(admissionKey, out SemaphoreSlim? _);
                             }
                         },
                         operationId: operationId).ConfigureAwait(false);

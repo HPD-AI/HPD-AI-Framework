@@ -529,7 +529,7 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore, IPermis
             return null;
         await EnsurePendingDeltasRecoveredAsync(thread, cancellationToken).ConfigureAwait(false);
         var descriptor = await GetRuntime(thread).GetDescriptorAsync(cancellationToken).ConfigureAwait(false);
-        return descriptor is not null &&
+        return descriptor is not null && descriptor.Kind != ThreadKind.FrameworkInternal &&
             await ThreadForkVisibility.IsVisibleAsync(this, descriptor, cancellationToken).ConfigureAwait(false)
                 ? descriptor
                 : null;
@@ -563,7 +563,7 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore, IPermis
             var descriptor = await GetRuntime(key).GetDescriptorAsync(cancellationToken).ConfigureAwait(false);
             if (descriptor is not null && descriptor.Key != key)
                 continue;
-            if (descriptor is null ||
+            if (descriptor is null || descriptor.Kind == ThreadKind.FrameworkInternal ||
                 !await ThreadForkVisibility.IsVisibleAsync(this, descriptor, cancellationToken).ConfigureAwait(false) ||
                 (!request.IncludeHidden && descriptor.Visibility == ThreadVisibility.Hidden))
                 continue;

@@ -165,6 +165,8 @@ public static class SubAgentControllerAuthority
         for (var attempt = 0; attempt < 16; attempt++)
         {
             var head = await store.GetThreadEventHeadAsync(authorityThread, cancellationToken).ConfigureAwait(false);
+            if (head is not null)
+                await ValidateAuthorityThreadAsync(store, authorityThread, child, head, cancellationToken).ConfigureAwait(false);
             var existing = head is null ? null : await ReadLatestAsync(
                 store, authorityThread, controller, localId, head, cancellationToken).ConfigureAwait(false);
             if (existing is { Revoked: false } &&
@@ -215,6 +217,8 @@ public static class SubAgentControllerAuthority
         for (var attempt = 0; attempt < 16; attempt++)
         {
             var head = await store.GetThreadEventHeadAsync(authorityThread, cancellationToken).ConfigureAwait(false);
+            if (head is not null)
+                await ValidateAuthorityThreadAsync(store, authorityThread, child, head, cancellationToken).ConfigureAwait(false);
             var existing = head is null ? null : await ReadLatestAsync(
                 store, authorityThread, controller, localId, head, cancellationToken).ConfigureAwait(false);
             if (existing is { Revoked: true }) return;
@@ -254,6 +258,7 @@ public static class SubAgentControllerAuthority
         var authorityThread = GetAuthorityThread(child);
         var head = await store.GetThreadEventHeadAsync(authorityThread, cancellationToken).ConfigureAwait(false);
         if (head is null) return false;
+        await ValidateAuthorityThreadAsync(store, authorityThread, child, head, cancellationToken).ConfigureAwait(false);
         var grant = await ReadLatestAsync(store, authorityThread, controller, localId, head, cancellationToken)
             .ConfigureAwait(false);
         if (grant is null || grant.Revoked) return false;
@@ -298,6 +303,32 @@ public static class SubAgentControllerAuthority
         return new ThreadKey(child.SessionId, $"__hpd/subagent-controller-authority/{digest}");
     }
 
+    private static async ValueTask ValidateAuthorityThreadAsync(
+        ISessionStore store,
+        ThreadKey authorityThread,
+        ThreadKey child,
+        ThreadEventHead head,
+        CancellationToken cancellationToken)
+    {
+        ThreadCreatedEvent? created = null;
+        await foreach (var batch in store.ReadThreadEventsAsync(
+                           authorityThread,
+                           new ThreadEventReadRequest(ThreadJournalCursor.Start(head.Generation), head.ThreadSequenceNumber),
+                           cancellationToken).ConfigureAwait(false))
+        {
+            created = batch.Events.OfType<ThreadCreatedEvent>().FirstOrDefault();
+            if (created is not null) break;
+        }
+        if (created is null || created.ThreadKind != ThreadKind.FrameworkInternal ||
+            !string.Equals(created.DefaultAgentId, "hpd.subagent-controller-authority", StringComparison.Ordinal) ||
+            created.ThreadMetadata is null ||
+            !created.ThreadMetadata.TryGetValue("childSessionId", out var sessionValue) ||
+            !created.ThreadMetadata.TryGetValue("childThreadId", out var threadValue) ||
+            !string.Equals(sessionValue?.ToString(), child.SessionId, StringComparison.Ordinal) ||
+            !string.Equals(threadValue?.ToString(), child.ThreadId, StringComparison.Ordinal))
+            throw new InvalidOperationException("subagent_controller_authority_route_collision");
+    }
+
     private static IReadOnlyList<AgentEvent> CreateAuthorityAppend(
         ThreadKey authorityThread,
         ThreadKey child,
@@ -315,7 +346,7 @@ public static class SubAgentControllerAuthority
                     ["childThreadId"] = child.ThreadId
                 },
                 DateTime.UtcNow,
-                ThreadKind.SubAgent,
+                ThreadKind.FrameworkInternal,
                 ThreadVisibility.Hidden)
             {
                 SessionId = authorityThread.SessionId,
