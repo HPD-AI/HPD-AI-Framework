@@ -682,7 +682,8 @@ public sealed class AgentContext
         string? toolharnessName = null,
         string? skillName = null,
         ToolInvocationInfo? invocation = null,
-        IClientToolOperationRegistry? clientToolOperations = null)
+        IClientToolOperationRegistry? clientToolOperations = null,
+        ResolvedFunctionInvocation? invocationMode = null)
         => new(
             this,
             function,
@@ -692,7 +693,8 @@ public sealed class AgentContext
             skillName,
             runConfig,
             invocation,
-            clientToolOperations);
+            clientToolOperations,
+            invocationMode);
 
     /// <summary>
     /// Creates a typed context for AfterFunction hook.
@@ -706,8 +708,9 @@ public sealed class AgentContext
         string? toolharnessName = null,
         string? skillName = null,
         ToolInvocationInfo? invocation = null,
-        ToolResultMetadata? resultMetadata = null)
-        => new(this, function, callId, result, exception, runConfig, toolharnessName, skillName, invocation, resultMetadata);
+        ToolResultMetadata? resultMetadata = null,
+        ResolvedFunctionInvocation? invocationMode = null)
+        => new(this, function, callId, result, exception, runConfig, toolharnessName, skillName, invocation, resultMetadata, invocationMode);
 
     /// <summary>
     /// Creates a typed context for BeforeThreadForkCommit hook.

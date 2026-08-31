@@ -62,6 +62,48 @@ public enum AgentInvocationModeHandling
     ToolBody
 }
 
+/// <summary>Defines the immutable effective invocation policy for one function action.</summary>
+public sealed record AIFunctionActionPolicy
+{
+    /// <summary>Gets the fully resolved action policy.</summary>
+    public required AgentInvocationModePolicy InvocationModePolicy { get; init; }
+
+    /// <summary>Gets the fully resolved action handling strategy.</summary>
+    public required AgentInvocationModeHandling InvocationModeHandling { get; init; }
+}
+
+/// <summary>Describes the direct closed-union argument owned by a compound AI function.</summary>
+public sealed record AIFunctionOperationContract
+{
+    /// <summary>Gets the serialized name of the direct model-facing union argument.</summary>
+    public required string ActionArgumentName { get; init; }
+
+    /// <summary>Gets the union's exact discriminator property name.</summary>
+    public required string Discriminator { get; init; }
+
+    /// <summary>Gets every declared discriminator and its effective policy.</summary>
+    public required IReadOnlyDictionary<string, AIFunctionActionPolicy> Actions { get; init; }
+}
+
+/// <summary>Contains immutable invocation facts resolved for one native function call.</summary>
+public sealed record ResolvedFunctionInvocation
+{
+    /// <summary>Gets the selected compound action, or <see langword="null"/> for an ordinary function.</summary>
+    public string? Action { get; init; }
+
+    /// <summary>Gets the mode requested by the model, when supplied.</summary>
+    public AgentInvocationMode? RequestedMode { get; init; }
+
+    /// <summary>Gets the effective execution mode.</summary>
+    public required AgentInvocationMode Mode { get; init; }
+
+    /// <summary>Gets the effective policy.</summary>
+    public required AgentInvocationModePolicy Policy { get; init; }
+
+    /// <summary>Gets the effective handling strategy.</summary>
+    public required AgentInvocationModeHandling Handling { get; init; }
+}
+
 /// <summary>
 /// JSON converter for <see cref="AgentInvocationModePolicy"/> values.
 /// </summary>
@@ -207,6 +249,115 @@ public static class AgentInvocationModes
 {
     private const string RawJsonArgumentKey = "__raw_json__";
     private const string JsonSerializerOptionsArgumentKey = "__json_serializer_options__";
+
+    /// <summary>Resolves and removes the nested invocation control for a compound function.</summary>
+    /// <param name="arguments">The authoritative function arguments.</param>
+    /// <param name="contract">The compound-function contract.</param>
+    /// <param name="sanitizedArguments">Receives arguments with the framework control removed.</param>
+    /// <returns>The immutable resolved invocation facts.</returns>
+    public static ResolvedFunctionInvocation ResolveAction(
+        AIFunctionArguments arguments,
+        AIFunctionOperationContract contract,
+        out AIFunctionArguments sanitizedArguments)
+    {
+        ArgumentNullException.ThrowIfNull(arguments);
+        ArgumentNullException.ThrowIfNull(contract);
+        if (string.IsNullOrWhiteSpace(contract.ActionArgumentName) ||
+            string.IsNullOrWhiteSpace(contract.Discriminator) || contract.Actions.Count == 0)
+            throw new InvalidOperationException("The function action contract is incomplete.");
+
+        var root = arguments.GetJson();
+        if (root.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException("Function arguments must be a JSON object.");
+        var actionObject = GetSingleProperty(root, contract.ActionArgumentName, required: true);
+        if (actionObject.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException($"'{contract.ActionArgumentName}' must be a JSON object.");
+        var discriminator = GetSingleProperty(actionObject, contract.Discriminator, required: true);
+        if (discriminator.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(discriminator.GetString()))
+            throw new InvalidOperationException($"'{contract.Discriminator}' must be a non-empty string.");
+        var action = discriminator.GetString()!;
+        if (!contract.Actions.TryGetValue(action, out var policy))
+            throw new InvalidOperationException($"Unknown function action '{action}'.");
+
+        var requestedElement = GetSingleProperty(actionObject, "invocationMode", required: false);
+        AgentInvocationMode? requested = requestedElement.ValueKind == JsonValueKind.Undefined
+            ? null
+            : ReadRequestedModeFromValue(requestedElement);
+        var mode = Resolve(policy.InvocationModePolicy, requested);
+        sanitizedArguments = CloneWithNestedControlRemoved(arguments, root, contract.ActionArgumentName);
+        return new ResolvedFunctionInvocation
+        {
+            Action = action,
+            RequestedMode = requested,
+            Mode = mode,
+            Policy = policy.InvocationModePolicy,
+            Handling = policy.InvocationModeHandling
+        };
+    }
+
+    private static JsonElement GetSingleProperty(JsonElement value, string name, bool required)
+    {
+        JsonElement found = default;
+        var count = 0;
+        foreach (var property in value.EnumerateObject())
+        {
+            if (!string.Equals(property.Name, name, StringComparison.Ordinal)) continue;
+            found = property.Value;
+            count++;
+        }
+        if (count > 1) throw new InvalidOperationException($"'{name}' must occur at most once.");
+        if (count == 0 && required) throw new InvalidOperationException($"Required property '{name}' is missing.");
+        return found;
+    }
+
+    private static AgentInvocationMode ReadRequestedModeFromValue(JsonElement value)
+    {
+        if (value.ValueKind != JsonValueKind.String)
+            throw new InvalidOperationException("invocationMode must be either 'synchronous' or 'background'.");
+        return value.GetString() switch
+        {
+            "synchronous" => AgentInvocationMode.Synchronous,
+            "background" => AgentInvocationMode.Background,
+            _ => throw new InvalidOperationException("invocationMode must be either 'synchronous' or 'background'.")
+        };
+    }
+
+    private static AIFunctionArguments CloneWithNestedControlRemoved(
+        AIFunctionArguments arguments, JsonElement root, string actionArgumentName)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            foreach (var property in root.EnumerateObject())
+            {
+                writer.WritePropertyName(property.Name);
+                if (!string.Equals(property.Name, actionArgumentName, StringComparison.Ordinal))
+                {
+                    property.Value.WriteTo(writer);
+                    continue;
+                }
+                writer.WriteStartObject();
+                foreach (var member in property.Value.EnumerateObject())
+                    if (!string.Equals(member.Name, "invocationMode", StringComparison.Ordinal)) member.WriteTo(writer);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndObject();
+        }
+        using var document = JsonDocument.Parse(stream.ToArray());
+        var sanitizedJson = document.RootElement.Clone();
+        var sanitized = new AIFunctionArguments();
+        foreach (var (key, value) in arguments)
+        {
+            if (key is RawJsonArgumentKey or JsonSerializerOptionsArgumentKey) continue;
+            sanitized[key] = string.Equals(key, actionArgumentName, StringComparison.Ordinal)
+                ? sanitizedJson.GetProperty(actionArgumentName).Clone()
+                : value;
+        }
+        sanitized.SetJsonSerializerOptions(arguments.GetJsonSerializerOptions());
+        sanitized.SetJson(sanitizedJson);
+        return sanitized;
+    }
 
     /// <summary>
     /// Resolves the effective invocation mode for a policy and optional caller request.
@@ -400,6 +551,42 @@ public static class AgentInvocationModes
         return JsonSerializer.SerializeToElement(
             schema,
             HPDJsonContext.Default.JsonObject);
+    }
+
+    /// <summary>Composes action-scoped invocation controls into a direct union parameter schema.</summary>
+    /// <param name="originalSchema">The unmodified function schema.</param>
+    /// <param name="contract">The complete action contract.</param>
+    /// <returns>A cloned schema with controls only on model-choice branches.</returns>
+    public static JsonElement CreateActionSchema(
+        JsonElement originalSchema,
+        AIFunctionOperationContract contract)
+    {
+        ArgumentNullException.ThrowIfNull(contract);
+        if (originalSchema.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException("An action-contracted function requires an object schema.");
+        var root = JsonNode.Parse(originalSchema.GetRawText()) as JsonObject
+            ?? throw new InvalidOperationException("The function schema is invalid.");
+        if (root["properties"] is not JsonObject properties ||
+            properties[contract.ActionArgumentName] is not JsonObject actionSchema ||
+            actionSchema["oneOf"] is not JsonArray branches)
+            throw new InvalidOperationException("The action union must be a direct model-facing parameter.");
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var node in branches)
+        {
+            if (node is not JsonObject branch || branch["properties"] is not JsonObject branchProperties ||
+                branchProperties[contract.Discriminator] is not JsonObject discriminator ||
+                discriminator["const"]?.GetValue<string>() is not { Length: > 0 } action ||
+                !contract.Actions.TryGetValue(action, out var policy) || !seen.Add(action))
+                throw new InvalidOperationException("Every action branch must have one unique declared discriminator.");
+            if (branchProperties.ContainsKey("invocationMode"))
+                throw new InvalidOperationException("Action branches cannot declare a domain property named 'invocationMode'.");
+            if (policy.InvocationModePolicy == AgentInvocationModePolicy.ModelChoice)
+                branchProperties["invocationMode"] = CreateInvocationModeSchema();
+        }
+        if (seen.Count != contract.Actions.Count)
+            throw new InvalidOperationException("The action schema and action contract contain different branches.");
+        return JsonSerializer.SerializeToElement(root, HPDJsonContext.Default.JsonObject);
     }
 
     private static JsonObject CreateInvocationModeSchema() =>

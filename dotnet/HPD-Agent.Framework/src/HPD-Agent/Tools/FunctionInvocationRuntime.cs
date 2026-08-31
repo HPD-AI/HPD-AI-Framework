@@ -37,6 +37,9 @@ internal static class FunctionInvocationRuntime
         public AgentInvocationModePolicy InvocationModePolicy { get; init; } =
             AgentInvocationModePolicy.SynchronousOnly;
 
+        /// <summary>Gets invocation facts already resolved during function preparation.</summary>
+        public ResolvedFunctionInvocation? ResolvedInvocation { get; init; }
+
         /// <summary>
         /// Gets the background notification rule for this function.
         /// </summary>
@@ -64,12 +67,16 @@ internal static class FunctionInvocationRuntime
         ArgumentNullException.ThrowIfNull(request.ParentContext);
         ArgumentNullException.ThrowIfNull(request.InvokeFunctionAsync);
 
-        var sanitizedArguments = AgentInvocationModes.CreateSanitizedArguments(
-            request.Arguments,
-            out var requestedMode);
+        var sanitizedArguments = request.Arguments;
         AgentInvocationMode mode;
-        try
+        if (request.ResolvedInvocation is { } resolved)
         {
+            mode = resolved.Mode;
+        }
+        else try
+        {
+            sanitizedArguments = AgentInvocationModes.CreateSanitizedArguments(
+                request.Arguments, out var requestedMode);
             mode = AgentInvocationModes.Resolve(
                 request.InvocationModePolicy,
                 requestedMode);
@@ -125,9 +132,10 @@ internal static class FunctionInvocationRuntime
             request.OperationNotification,
             async (_, runtimeToken) =>
             {
+                var operationContext = parentContext.CreateOperationProjection();
                 var result = await request.InvokeFunctionAsync(
                     sanitizedArguments,
-                    parentContext,
+                    operationContext,
                     runtimeToken).ConfigureAwait(false);
 
                 return new AgentOperationCompletion(ToolResultText.FromResult(result));

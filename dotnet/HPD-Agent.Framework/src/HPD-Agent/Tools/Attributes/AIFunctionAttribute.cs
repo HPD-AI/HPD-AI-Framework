@@ -1,6 +1,50 @@
 using System;
 using HPD.Agent;
 
+/// <summary>Declares how an action overrides its containing function's invocation-mode policy.</summary>
+public enum AIFunctionActionInvocationModePolicy
+{
+    /// <summary>Uses the policy declared by the containing function.</summary>
+    Inherit,
+    /// <summary>The action always completes before returning.</summary>
+    SynchronousOnly,
+    /// <summary>The action always runs as background work.</summary>
+    BackgroundOnly,
+    /// <summary>The model may choose synchronous or background execution for the action.</summary>
+    ModelChoice
+}
+
+/// <summary>Declares how an action overrides its containing function's invocation-mode handling.</summary>
+public enum AIFunctionActionInvocationModeHandling
+{
+    /// <summary>Uses the handling declared by the containing function.</summary>
+    Inherit,
+    /// <summary>The HPD runtime owns background registration.</summary>
+    Runtime,
+    /// <summary>The function body owns background registration.</summary>
+    ToolBody
+}
+
+/// <summary>Associates one closed-union discriminator with invocation-mode overrides.</summary>
+[AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
+public sealed class AIFunctionActionAttribute : Attribute
+{
+    /// <summary>Initializes an action declaration.</summary>
+    /// <param name="action">The exact serializer discriminator for the action.</param>
+    public AIFunctionActionAttribute(string action) => Action = action;
+
+    /// <summary>Gets the exact serializer discriminator for the action.</summary>
+    public string Action { get; }
+
+    /// <summary>Gets or sets the action's policy override.</summary>
+    public AIFunctionActionInvocationModePolicy InvocationModePolicy { get; set; }
+        = AIFunctionActionInvocationModePolicy.Inherit;
+
+    /// <summary>Gets or sets the action's handling override.</summary>
+    public AIFunctionActionInvocationModeHandling InvocationModeHandling { get; set; }
+        = AIFunctionActionInvocationModeHandling.Inherit;
+}
+
 /// <summary>
 /// Specifies the kind of tool a function represents.
 /// </summary>

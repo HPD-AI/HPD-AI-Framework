@@ -359,6 +359,8 @@ public sealed class BeforeParallelBatchContext : HookContext
 /// </summary>
 public sealed class BeforeFunctionContext : HookContext
 {
+    /// <summary>Gets the immutable action and invocation-mode facts resolved before this hook.</summary>
+    public ResolvedFunctionInvocation? InvocationMode { get; }
     /// <summary>
     /// The function being invoked.
     ///   Can be NULL when LLM calls an unknown/unavailable function (unless TerminateOnUnknownCalls is enabled)
@@ -455,7 +457,8 @@ public sealed class BeforeFunctionContext : HookContext
         string? skillName,
         AgentRunConfig runConfig,
         ToolInvocationInfo? invocation = null,
-        IClientToolOperationRegistry? clientToolOperations = null)
+        IClientToolOperationRegistry? clientToolOperations = null,
+        ResolvedFunctionInvocation? invocationMode = null)
         : base(baseContext)
     {
         Function = function; // Can be null for unknown functions
@@ -465,6 +468,7 @@ public sealed class BeforeFunctionContext : HookContext
         ToolHarnessName = toolharnessName;
         SkillName = skillName;
         RunConfig = runConfig ?? throw new ArgumentNullException(nameof(runConfig));
+        InvocationMode = invocationMode;
         ClientToolOperations = clientToolOperations;
     }
 }
@@ -475,6 +479,8 @@ public sealed class BeforeFunctionContext : HookContext
 /// </summary>
 public sealed class AfterFunctionContext : HookContext
 {
+    /// <summary>Gets the immutable action and invocation-mode facts for the completed call.</summary>
+    public ResolvedFunctionInvocation? InvocationMode { get; }
     /// <summary>
     /// The function that was invoked.
     ///   Can be NULL when an unknown function was called
@@ -576,7 +582,8 @@ public sealed class AfterFunctionContext : HookContext
         string? toolharnessName = null,
         string? skillName = null,
         ToolInvocationInfo? invocation = null,
-        ToolResultMetadata? resultMetadata = null)
+        ToolResultMetadata? resultMetadata = null,
+        ResolvedFunctionInvocation? invocationMode = null)
         : base(baseContext)
     {
         Function = function; // Can be null for unknown functions
@@ -589,6 +596,7 @@ public sealed class AfterFunctionContext : HookContext
         ToolHarnessName = toolharnessName;
         SkillName = skillName;
         RunConfig = runConfig ?? throw new ArgumentNullException(nameof(runConfig));
+        InvocationMode = invocationMode;
     }
 }
 

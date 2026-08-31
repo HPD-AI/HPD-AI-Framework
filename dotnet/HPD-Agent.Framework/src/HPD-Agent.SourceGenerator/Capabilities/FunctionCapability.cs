@@ -197,6 +197,9 @@ $@"({asyncKeyword} (arguments, functionContext, cancellationToken) =>
         options.AppendLine($"                RequiresPermission = {RequiresPermission.ToString().ToLower()},");
         options.AppendLine($"                InvocationModePolicy = global::HPD.Agent.AgentInvocationModePolicy.{InvocationModePolicy},");
         options.AppendLine($"                InvocationModeHandling = global::HPD.Agent.AgentInvocationModeHandling.{InvocationModeHandling},");
+        var operationContract = GenerateOperationContractCode(relevantParams);
+        if (operationContract is not null)
+            options.AppendLine($"                OperationContract = {operationContract},");
         options.AppendLine($"                ArgumentBinder = Bind{Name}Arguments,");
         options.AppendLine($"                SchemaProvider = {schemaProviderCode},");
         options.AppendLine("                SerializerOptions = serialization?.SerializerOptions,");
@@ -282,6 +285,49 @@ $@"HPDAIFunctionFactory.Create(
             IsRequired: !param.HasDefaultValue)).ToImmutableArray();
         return AICanonicalSchemaEmitter.Emit(new AIFunctionMethodContract(parameters));
     }
+
+    private string? GenerateOperationContractCode(List<ParameterInfo> relevantParams)
+    {
+        var candidates = relevantParams
+            .Where(parameter => parameter.Contract is UnionContractNode union && union.Cases.Any(unionCase =>
+                unionCase.ConcreteType.GetAttributes().Any(data => data.AttributeClass?.Name == "AIFunctionActionAttribute")))
+            .ToArray();
+        if (candidates.Length == 0) return null;
+        if (candidates.Length != 1)
+            throw new InvalidOperationException($"Function '{FunctionName}' has more than one direct action union.");
+        var parameter = candidates[0];
+        var union = (UnionContractNode)parameter.Contract!;
+        var entries = new List<string>();
+        foreach (var unionCase in union.Cases)
+        {
+            var attribute = unionCase.ConcreteType.GetAttributes().SingleOrDefault(data =>
+                data.AttributeClass?.Name == "AIFunctionActionAttribute");
+            if (attribute is null)
+                throw new InvalidOperationException($"Action type '{unionCase.ConcreteType.Name}' requires AIFunctionActionAttribute.");
+            var declared = attribute.ConstructorArguments.FirstOrDefault().Value as string;
+            if (!string.Equals(declared, unionCase.Discriminator, StringComparison.Ordinal))
+                throw new InvalidOperationException($"Action declaration '{declared}' does not match discriminator '{unionCase.Discriminator}'.");
+            var policy = ResolveActionOverride(attribute, "InvocationModePolicy", InvocationModePolicy,
+                "SynchronousOnly", "BackgroundOnly", "ModelChoice");
+            var handling = ResolveActionOverride(attribute, "InvocationModeHandling", InvocationModeHandling,
+                "Runtime", "ToolBody");
+            entries.Add($"[\"{Escape(unionCase.Discriminator)}\"] = new global::HPD.Agent.AIFunctionActionPolicy {{ InvocationModePolicy = global::HPD.Agent.AgentInvocationModePolicy.{policy}, InvocationModeHandling = global::HPD.Agent.AgentInvocationModeHandling.{handling} }}");
+        }
+        return $"new global::HPD.Agent.AIFunctionOperationContract {{ ActionArgumentName = \"{Escape(parameter.Name)}\", Discriminator = \"{Escape(union.DiscriminatorPropertyName)}\", Actions = new global::System.Collections.Generic.Dictionary<string, global::HPD.Agent.AIFunctionActionPolicy>(global::System.StringComparer.Ordinal) {{ {string.Join(", ", entries)} }} }}";
+    }
+
+    private static string ResolveActionOverride(
+        AttributeData attribute, string name, string inherited, params string[] values)
+    {
+        var argument = attribute.NamedArguments.FirstOrDefault(pair => pair.Key == name);
+        if (argument.Key is null || argument.Value.Value is null) return inherited;
+        var numeric = Convert.ToInt32(argument.Value.Value, System.Globalization.CultureInfo.InvariantCulture);
+        return numeric == 0 ? inherited : numeric <= values.Length ? values[numeric - 1] :
+            throw new InvalidOperationException($"Unsupported {name} value '{numeric}'.");
+    }
+
+    private static string Escape(string value) =>
+        value.Replace("\\", "\\\\").Replace("\"", "\\\"");
 
     private static string GetDeclaredResultType(string returnType)
     {

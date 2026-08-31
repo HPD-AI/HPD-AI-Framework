@@ -84,6 +84,9 @@ public sealed record FunctionRequest
     /// </summary>
     public ToolInvocationInfo? Invocation { get; init; }
 
+    /// <summary>Gets the immutable action and invocation-mode facts resolved before admission.</summary>
+    public ResolvedFunctionInvocation? InvocationMode { get; init; }
+
     /// <summary>
     /// Per-call structured metadata recorded during function execution.
     /// </summary>

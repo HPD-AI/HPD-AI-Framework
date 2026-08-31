@@ -48,6 +48,7 @@ public sealed class FunctionExecutionContext
         };
         _stateSnapshot = request.State;
         RunConfig = request.RunConfig;
+        InvocationMode = request.InvocationMode;
         ResultMetadata = request.ResultMetadata;
         EventCoordinator = request.EventCoordinator;
         ThreadEvents = hookContext.Base.ThreadEvents;
@@ -63,6 +64,31 @@ public sealed class FunctionExecutionContext
         _clientSet = hookContext.Base.ClientSet;
         _toolHarnessExecutionScope = hookContext.Base.ToolHarnessExecutionScope;
     }
+
+    private FunctionExecutionContext(FunctionExecutionContext source)
+    {
+        InvocationSnapshot = source.InvocationSnapshot;
+        InvocationMode = source.InvocationMode;
+        _stateSnapshot = source._stateSnapshot;
+        RunConfig = source.RunConfig;
+        ResultMetadata = new ToolResultMetadata();
+        EventCoordinator = source.EventCoordinator;
+        ThreadEvents = source.ThreadEvents;
+        StructEvents = source.StructEvents;
+        Services = source.Services;
+        RuntimeCapabilities = source.RuntimeCapabilities;
+        _contentStore = source._contentStore;
+        _parentAgentMetadata = source._parentAgentMetadata;
+        _parentSessionStore = source._parentSessionStore;
+        _parentAgentStore = source._parentAgentStore;
+        _parentConfig = source._parentConfig;
+        _clientSet = source._clientSet;
+        _effectiveChatClient = null;
+        _toolHarnessExecutionScope = null;
+    }
+
+    /// <summary>Creates a context projection that does not retain foreground result or harness state.</summary>
+    internal FunctionExecutionContext CreateOperationProjection() => new(this);
 
     public FunctionInvocationSnapshot InvocationSnapshot { get; }
 
@@ -83,6 +109,15 @@ public sealed class FunctionExecutionContext
     public string FunctionName => InvocationSnapshot.FunctionName;
 
     public ToolInvocationInfo? Invocation => InvocationSnapshot.Invocation;
+
+    /// <summary>Gets the immutable action and invocation-mode facts resolved for this call.</summary>
+    public ResolvedFunctionInvocation? InvocationMode { get; }
+
+    /// <summary>Gets the resolved execution mode, or synchronous for an uncontracted legacy call.</summary>
+    public AgentInvocationMode ResolvedInvocationMode => InvocationMode?.Mode ?? AgentInvocationMode.Synchronous;
+
+    /// <summary>Gets the resolved action discriminator, when this is a compound function.</summary>
+    public string? ResolvedAction => InvocationMode?.Action;
 
     public ToolResultMetadata ResultMetadata { get; }
 

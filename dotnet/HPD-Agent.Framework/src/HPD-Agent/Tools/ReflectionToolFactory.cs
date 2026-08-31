@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
 
@@ -177,6 +178,11 @@ internal static class ReflectionToolFactory
         var parameters = GetModelParameters(method).ToArray();
         var parameterNames = parameters.Select(parameter => parameter.Name!).ToArray();
         var resultType = UnwrapReturnType(method.ReturnType);
+        var functionAttribute = GetAIFunctionAttribute(method);
+        var invocationModePolicy = GetInvocationModePolicy(functionAttribute);
+        var invocationModeHandling = GetInvocationModeHandling(functionAttribute);
+        var operationContract = CreateOperationContract(
+            parameters, invocationModePolicy, invocationModeHandling);
 
         return HPDAIFunctionFactory.Create(
             async (arguments, functionContext, cancellationToken) =>
@@ -194,8 +200,9 @@ internal static class ReflectionToolFactory
                     .Where(parameter => GetDescription(parameter) is not null)
                     .ToDictionary(parameter => parameter.Name!, parameter => GetDescription(parameter)!),
                 RequiresPermission = HasAttribute(method, "RequiresPermissionAttribute"),
-                InvocationModePolicy = GetInvocationModePolicy(GetAIFunctionAttribute(method)),
-                InvocationModeHandling = GetInvocationModeHandling(GetAIFunctionAttribute(method)),
+                InvocationModePolicy = invocationModePolicy,
+                InvocationModeHandling = invocationModeHandling,
+                OperationContract = operationContract,
                 SerializerOptions = serializerOptions,
                 ResultType = resultType,
                 Validator = (json, options) => ValidateArguments(json, options, parameters, parameterNames),
@@ -836,6 +843,62 @@ internal static class ReflectionToolFactory
         return Enum.TryParse<AgentInvocationModeHandling>(value?.ToString(), out var handling)
             ? handling
             : AgentInvocationModeHandling.Runtime;
+    }
+
+    private static AIFunctionOperationContract? CreateOperationContract(
+        ParameterInfo[] parameters,
+        AgentInvocationModePolicy defaultPolicy,
+        AgentInvocationModeHandling defaultHandling)
+    {
+        var candidates = parameters.Select(parameter => new
+        {
+            Parameter = parameter,
+            Polymorphic = parameter.ParameterType.GetCustomAttribute<JsonPolymorphicAttribute>(inherit: false),
+            Cases = parameter.ParameterType.GetCustomAttributes<JsonDerivedTypeAttribute>(inherit: false).ToArray()
+        }).Where(candidate => candidate.Polymorphic is not null && candidate.Cases.Any(unionCase =>
+            unionCase.DerivedType.GetCustomAttribute<AIFunctionActionAttribute>(inherit: false) is not null)).ToArray();
+        if (candidates.Length == 0) return null;
+        if (candidates.Length != 1)
+            throw new InvalidOperationException("An action-contracted function must have exactly one direct closed-union parameter.");
+
+        var candidate = candidates[0];
+        var discriminator = candidate.Polymorphic!.TypeDiscriminatorPropertyName;
+        if (string.IsNullOrWhiteSpace(discriminator))
+            throw new InvalidOperationException("The action union requires a string discriminator property name.");
+        var actions = new Dictionary<string, AIFunctionActionPolicy>(StringComparer.Ordinal);
+        foreach (var unionCase in candidate.Cases)
+        {
+            if (unionCase.TypeDiscriminator is not string serialized || string.IsNullOrWhiteSpace(serialized))
+                throw new InvalidOperationException("Every action union case requires a non-empty string discriminator.");
+            var declaration = unionCase.DerivedType.GetCustomAttribute<AIFunctionActionAttribute>(inherit: false)
+                ?? throw new InvalidOperationException($"Action type '{unionCase.DerivedType.FullName}' requires AIFunctionActionAttribute.");
+            if (!string.Equals(declaration.Action, serialized, StringComparison.Ordinal))
+                throw new InvalidOperationException($"Action declaration '{declaration.Action}' does not match serializer discriminator '{serialized}'.");
+            var policy = declaration.InvocationModePolicy switch
+            {
+                AIFunctionActionInvocationModePolicy.Inherit => defaultPolicy,
+                AIFunctionActionInvocationModePolicy.SynchronousOnly => AgentInvocationModePolicy.SynchronousOnly,
+                AIFunctionActionInvocationModePolicy.BackgroundOnly => AgentInvocationModePolicy.BackgroundOnly,
+                AIFunctionActionInvocationModePolicy.ModelChoice => AgentInvocationModePolicy.ModelChoice,
+                _ => throw new InvalidOperationException("Unsupported action invocation-mode policy.")
+            };
+            var handling = declaration.InvocationModeHandling switch
+            {
+                AIFunctionActionInvocationModeHandling.Inherit => defaultHandling,
+                AIFunctionActionInvocationModeHandling.Runtime => AgentInvocationModeHandling.Runtime,
+                AIFunctionActionInvocationModeHandling.ToolBody => AgentInvocationModeHandling.ToolBody,
+                _ => throw new InvalidOperationException("Unsupported action invocation-mode handling.")
+            };
+            if (!actions.TryAdd(serialized, new AIFunctionActionPolicy
+                { InvocationModePolicy = policy, InvocationModeHandling = handling }))
+                throw new InvalidOperationException($"Duplicate action discriminator '{serialized}'.");
+        }
+        return new AIFunctionOperationContract
+        {
+            ActionArgumentName = candidate.Parameter.Name!,
+            Discriminator = discriminator,
+            Actions = actions
+        };
     }
 
     private static IEnumerable<MethodInfo> GetCapabilityMethods(Type toolharnessType)

@@ -6,6 +6,7 @@ using Microsoft.Extensions.AI;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
+using System.Collections.ObjectModel;
 using HPD.Agent.Middleware;
 
 namespace HPD.Agent;
@@ -45,16 +46,43 @@ public class HPDAIFunctionFactory
         {
             _invocationHandler = invocationHandler ?? throw new ArgumentNullException(nameof(invocationHandler));
             _method = invocationHandler.Method; // For metadata
+            if (options.OperationContract is not null &&
+                options.AdditionalProperties?.TryGetValue("Kind", out var kind) == true &&
+                string.Equals(kind?.ToString(), "Output", StringComparison.Ordinal))
+                throw new InvalidOperationException("Output tools cannot declare an action invocation contract.");
+            if (options.OperationContract is { } declaredContract)
+                options.OperationContract = NormalizeOperationContract(declaredContract);
             HPDOptions = options;
 
-            JsonSchema = AgentInvocationModes.CreateSchema(
-                options.SchemaProvider?.Invoke() ?? default,
-                options.InvocationModePolicy);
+            var methodSchema = options.SchemaProvider?.Invoke() ?? default;
+            JsonSchema = options.OperationContract is { } operationContract
+                ? AgentInvocationModes.CreateActionSchema(methodSchema, operationContract)
+                : AgentInvocationModes.CreateSchema(methodSchema, options.InvocationModePolicy);
             Name = options.Name ?? _method?.Name ?? "Unknown";
             Description = options.Description ?? "";
             ContractDescriptor = JsonSchema.ValueKind == JsonValueKind.Undefined
                 ? null
                 : AIFunctionContractDescriptor.Create(Name, JsonSchema);
+        }
+
+        private static AIFunctionOperationContract NormalizeOperationContract(
+            AIFunctionOperationContract contract)
+        {
+            if (string.IsNullOrWhiteSpace(contract.ActionArgumentName) ||
+                string.IsNullOrWhiteSpace(contract.Discriminator) || contract.Actions.Count == 0)
+                throw new InvalidOperationException("The function action contract is incomplete.");
+            var actions = new Dictionary<string, AIFunctionActionPolicy>(StringComparer.Ordinal);
+            foreach (var (action, policy) in contract.Actions)
+            {
+                if (string.IsNullOrWhiteSpace(action) || policy is null || !actions.TryAdd(action, policy))
+                    throw new InvalidOperationException("Function actions must have unique non-empty discriminators.");
+                if (!Enum.IsDefined(policy.InvocationModePolicy) || !Enum.IsDefined(policy.InvocationModeHandling))
+                    throw new InvalidOperationException($"Function action '{action}' has an unsupported invocation policy.");
+            }
+            return contract with
+            {
+                Actions = new ReadOnlyDictionary<string, AIFunctionActionPolicy>(actions)
+            };
         }
 
         public HPDAIFunctionFactoryOptions HPDOptions { get; }
@@ -127,7 +155,8 @@ public class HPDAIFunctionFactory
             arguments.SetJsonSerializerOptions(JsonSerializerOptions);
             var serializerOptions = JsonSerializerOptions;
             var runtimeHandlesInvocationMode =
-                HPDOptions.InvocationModeHandling == AgentInvocationModeHandling.Runtime;
+                (functionContext.InvocationMode?.Handling ?? HPDOptions.InvocationModeHandling) ==
+                AgentInvocationModeHandling.Runtime;
             var validationJsonArgs = jsonArgs;
             if (runtimeHandlesInvocationMode)
             {
@@ -190,6 +219,7 @@ public class HPDAIFunctionFactory
                     Arguments = arguments,
                     ParentContext = functionContext,
                     InvocationModePolicy = HPDOptions.InvocationModePolicy,
+                    ResolvedInvocation = functionContext.InvocationMode,
                     OperationNotification = HPDOptions.OperationNotification,
                     InvokeFunctionAsync = InvokeFunctionBodyAsync
                 },
@@ -570,6 +600,9 @@ public class HPDAIFunctionFactoryOptions
         AgentInvocationModePolicy.SynchronousOnly;
     public AgentInvocationModeHandling InvocationModeHandling { get; set; } =
         AgentInvocationModeHandling.Runtime;
+
+    /// <summary>Gets or sets the generated closed-union action contract for this function.</summary>
+    public AIFunctionOperationContract? OperationContract { get; set; }
     public AgentOperationNotificationPolicy OperationNotification { get; set; } =
         new AgentOperationNotificationPolicy();
 
