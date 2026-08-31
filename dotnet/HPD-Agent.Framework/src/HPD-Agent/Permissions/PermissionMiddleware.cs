@@ -290,8 +290,6 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                 var denialReason = $"Execution of '{permissionKey}' was denied by a stored user preference.";
                 context.BlockExecution = true;
                 context.OverrideResult = BlockedResult("denied", permissionKey, denialReason);
-                await context.PublishAsync(new PermissionDeniedEvent(
-                    callId, evaluation.Key, "always_deny", "stored_preference"), cancellationToken).ConfigureAwait(false);
                 await InterruptDeniedPermissionAsync(context, denialReason, cancellationToken).ConfigureAwait(false);
                 return;
             }
@@ -486,6 +484,8 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             {
                 await context.PublishAsync(new PermissionDecidedEvent(
                     null, callId, evaluation.Key, PermissionDecisionKind.Deny, "always_deny"), cancellationToken).ConfigureAwait(false);
+                await context.PublishAsync(new PermissionDeniedEvent(
+                    callId, evaluation.Key, "always_deny", "stored_preference"), cancellationToken).ConfigureAwait(false);
                 return (false, $"Execution of '{permissionKey}' was denied by a stored user preference.",
                     PermissionDeniedBehavior.InterruptTurn, "always_deny", null,
                     PermissionGrantSource.StoredPreference, evaluation);
