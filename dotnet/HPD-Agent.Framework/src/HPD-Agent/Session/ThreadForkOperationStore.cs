@@ -13,7 +13,8 @@ public sealed record ThreadPreparationDescriptor(
 public sealed record SessionPreparationDescriptor(
     string OperationId,
     ThreadKey Source,
-    string RequestFingerprint);
+    string RequestFingerprint,
+    string? TargetSeedFingerprint = null);
 
 /// <summary>Result of conditionally creating a staged isolated session.</summary>
 public enum SessionPreparationResult

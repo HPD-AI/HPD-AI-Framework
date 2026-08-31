@@ -7609,18 +7609,23 @@ public sealed partial class Agent : IAsyncDisposable
             $"{targetParent.ThreadId}/subagent/{source.LocalId.Value}/{forkOperationId[..Math.Min(12, forkOperationId.Length)]}");
         if (await store.GetThreadEventHeadAsync(targetKey, cancellationToken).ConfigureAwait(false) is not null)
         {
-            ThreadCreatedEvent? existingCreated = null;
+            var existingEvents = new List<AgentEvent>();
             await foreach (var batch in store.ReadThreadEventsAsync(
                 targetKey,
                 new ThreadEventReadRequest(ThreadJournalCursor.Start(1)),
                 cancellationToken).ConfigureAwait(false))
             {
-                existingCreated = batch.Events.OfType<ThreadCreatedEvent>().FirstOrDefault();
-                if (existingCreated is not null) break;
+                existingEvents.AddRange(batch.Events);
             }
+            var existingCreated = existingEvents.OfType<ThreadCreatedEvent>().FirstOrDefault();
             if (existingCreated?.ThreadMetadata is null ||
                 !existingCreated.ThreadMetadata.TryGetValue("forkOperationId", out var owner) ||
-                !string.Equals(Convert.ToString(owner), forkOperationId, StringComparison.Ordinal))
+                !string.Equals(Convert.ToString(owner), forkOperationId, StringComparison.Ordinal) ||
+                existingCreated.Preparation?.TargetSeedFingerprint is not { } existingFingerprint ||
+                !string.Equals(
+                    ComputeTargetSeedFingerprint(store.EventCodec, existingEvents),
+                    existingFingerprint,
+                    StringComparison.Ordinal))
                 throw new InvalidOperationException("thread_fork_target_collision");
             return source with { ChildThread = targetKey, UnavailableReason = null };
         }
@@ -7631,22 +7636,6 @@ public sealed partial class Agent : IAsyncDisposable
         childMetadata["forkSourceSessionId"] = sourceParent.SessionId;
         childMetadata["forkSourceThreadId"] = sourceParent.ThreadId;
         childMetadata["forkRequestFingerprint"] = requestFingerprint;
-        if (source.CreationContext == SubAgentCreationContext.Isolated)
-        {
-            var isolatedSession = new Session(targetSessionId)
-            {
-                Preparation = new SessionPreparationDescriptor(
-                    forkOperationId,
-                    sourceParent,
-                    childMetadata["forkRequestFingerprint"].ToString()!)
-            };
-            isolatedSession.Metadata["forkOperationId"] = forkOperationId;
-            isolatedSession.Metadata["forkSourceSessionId"] = sourceParent.SessionId;
-            isolatedSession.Metadata["forkSourceThreadId"] = sourceParent.ThreadId;
-            var preparation = await store.TryPrepareSessionAsync(isolatedSession, cancellationToken).ConfigureAwait(false);
-            if (preparation == SessionPreparationResult.Conflict)
-                throw new InvalidOperationException("session_fork_target_collision");
-        }
         var created = new ThreadCreatedEvent(
             descriptor.DefaultAgent.AgentId,
             descriptor.Name,
@@ -7717,6 +7706,29 @@ public sealed partial class Agent : IAsyncDisposable
             },
             cancellationToken).ConfigureAwait(false);
         staged.AddRange(descendantEvents);
+        var childSeedFingerprint = ComputeTargetSeedFingerprint(store.EventCodec, staged);
+        staged[0] = created with
+        {
+            Preparation = created.Preparation! with { TargetSeedFingerprint = childSeedFingerprint }
+        };
+        if (source.CreationContext == SubAgentCreationContext.Isolated)
+        {
+            var isolatedSession = new Session(targetSessionId)
+            {
+                Preparation = new SessionPreparationDescriptor(
+                    forkOperationId,
+                    sourceParent,
+                    childMetadata["forkRequestFingerprint"].ToString()!,
+                    childSeedFingerprint)
+            };
+            isolatedSession.Metadata["forkOperationId"] = forkOperationId;
+            isolatedSession.Metadata["forkSourceSessionId"] = sourceParent.SessionId;
+            isolatedSession.Metadata["forkSourceThreadId"] = sourceParent.ThreadId;
+            isolatedSession.Metadata["forkTargetSeedFingerprint"] = childSeedFingerprint;
+            var preparation = await store.TryPrepareSessionAsync(isolatedSession, cancellationToken).ConfigureAwait(false);
+            if (preparation == SessionPreparationResult.Conflict)
+                throw new InvalidOperationException("session_fork_target_collision");
+        }
         await store.AppendThreadEventsAsync(
             targetKey,
             staged,
