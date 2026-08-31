@@ -363,7 +363,8 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
                 new ThreadForkOptions
                 {
                     Metadata = ToObjectDictionary(request.Metadata),
-                    SubAgents = request.SubAgents
+                    SubAgents = request.SubAgents,
+                    OperationId = request.OperationId
                 },
                 cancellationToken)
             .ConfigureAwait(false);

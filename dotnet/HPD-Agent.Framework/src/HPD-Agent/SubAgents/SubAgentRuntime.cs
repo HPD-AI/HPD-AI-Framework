@@ -147,6 +147,7 @@ public static class SubAgentRuntime
                     Child = admission.LocalId?.Value,
                     InvocationId = admission.Route.InvocationId,
                     ThreadExecutionId = admission.Creation.ThreadExecutionId,
+                    AgentOperationId = admission.Creation.AgentOperationId,
                     Output = admission.Creation.TerminalOutput,
                     Error = admission.Creation.Error
                 }
@@ -206,7 +207,8 @@ public static class SubAgentRuntime
                     Status = SubAgentOperationStatus.Running,
                     Child = admission.LocalId?.Value,
                     InvocationId = admission.Route.InvocationId,
-                    ThreadExecutionId = admission.Creation.ThreadExecutionId
+                    ThreadExecutionId = admission.Creation.ThreadExecutionId,
+                    AgentOperationId = admission.Creation.AgentOperationId
                 }
             };
         }
@@ -266,6 +268,8 @@ public static class SubAgentRuntime
                     return new AgentOperationCompletion(result.Text);
                 }).ConfigureAwait(false);
 
+        await PersistBackgroundReceiptAsync(admission, receipt.OperationId).ConfigureAwait(false);
+
         return new AgentInvocationResult
         {
             Mode = AgentInvocationMode.Background,
@@ -279,6 +283,31 @@ public static class SubAgentRuntime
                 AgentOperationId = receipt.OperationId
             }
         };
+    }
+
+    private static async ValueTask PersistBackgroundReceiptAsync(
+        AdmittedSubAgentInvocation admission,
+        string operationId)
+    {
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            var latest = await admission.CreationStore.GetSubAgentCreationAsync(
+                admission.Creation.Key, CancellationToken.None).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("subagent_creation_not_found");
+            if (string.Equals(latest.AgentOperationId, operationId, StringComparison.Ordinal)) return;
+            var updated = latest with { AgentOperationId = operationId, Revision = latest.Revision + 1 };
+            try
+            {
+                await admission.CreationStore.WriteSubAgentCreationAsync(
+                    updated,
+                    new SubAgentCreationWriteCondition(latest.Revision),
+                    CancellationToken.None).ConfigureAwait(false);
+                return;
+            }
+            catch (InvalidOperationException exception) when (
+                exception.Message == "subagent_creation_write_conflict" && attempt < 7) { }
+        }
+        throw new InvalidOperationException("subagent_creation_write_conflict");
     }
 
     private static async Task<SubAgentInvocationResult> InvokeSynchronousCoreAsync(
@@ -863,16 +892,19 @@ public static class SubAgentRuntime
                 observations.Add(new SubAgentWaitItem(localId, null, "unavailable"));
                 continue;
             }
-            var active = await controller.FindActiveAsync(route, cancellationToken).ConfigureAwait(false);
-            if (!active.IsActive || active.ThreadExecutionId is null)
+            var snapshot = await ReadLatestExecutionAsync(store, route, cancellationToken).ConfigureAwait(false);
+            if (snapshot.ExecutionId is null)
             {
                 observations.Add(new SubAgentWaitItem(localId, null, "idle"));
                 continue;
             }
-            var head = await store.GetThreadEventHeadAsync(route, cancellationToken).ConfigureAwait(false)
-                ?? throw new InvalidOperationException("subagent_child_route_invalid");
+            if (snapshot.TerminalStatus is not null)
+            {
+                observations.Add(new SubAgentWaitItem(localId, snapshot.ExecutionId, snapshot.TerminalStatus));
+                continue;
+            }
             tasks.Add(ObserveTerminalAsync(
-                localId, route, active.ThreadExecutionId, head.Cursor, controller, timeout.Token));
+                localId, route, snapshot.ExecutionId, snapshot.StartCursor, controller, timeout.Token));
         }
         try
         {
@@ -889,6 +921,41 @@ public static class SubAgentRuntime
         {
             return new SubAgentWaitResult(true, observations);
         }
+    }
+
+    private static async ValueTask<(string? ExecutionId, string? TerminalStatus, ThreadJournalCursor StartCursor)>
+        ReadLatestExecutionAsync(ISessionStore store, ThreadKey route, CancellationToken cancellationToken)
+    {
+        var head = await store.GetThreadEventHeadAsync(route, cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("subagent_child_route_invalid");
+        string? executionId = null;
+        string? terminal = null;
+        var start = ThreadJournalCursor.Start(head.Generation);
+        await foreach (var batch in store.ReadThreadEventsAsync(
+                           route,
+                           new ThreadEventReadRequest(ThreadJournalCursor.Start(head.Generation), head.ThreadSequenceNumber),
+                           cancellationToken).ConfigureAwait(false))
+        {
+            foreach (var evt in batch.Events)
+            {
+                if (evt is ThreadExecutionStartedEvent started)
+                {
+                    executionId = started.ThreadExecutionId;
+                    terminal = null;
+                    start = new ThreadJournalCursor(batch.Generation, Math.Max(0, evt.ThreadSequenceNumber - 1));
+                }
+                else if (evt is ThreadExecutionFinishedEvent finished && finished.ThreadExecutionId == executionId)
+                {
+                    terminal = finished.Outcome switch
+                    {
+                        ThreadExecutionOutcome.Succeeded => ThreadExecutionStatus.Succeeded,
+                        ThreadExecutionOutcome.Cancelled => ThreadExecutionStatus.Cancelled,
+                        _ => ThreadExecutionStatus.Failed
+                    };
+                }
+            }
+        }
+        return (executionId, terminal, start);
     }
 
     private static async Task<SubAgentWaitItem> ObserveTerminalAsync(

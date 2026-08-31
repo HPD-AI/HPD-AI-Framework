@@ -63,6 +63,8 @@ public sealed record SubAgentCreationRecord
     public SubAgentOperationStatus? TerminalStatus { get; init; }
     /// <summary>Gets bounded terminal output when available.</summary>
     public string? TerminalOutput { get; init; }
+    /// <summary>Gets the durable background-operation receipt when this creation ran asynchronously.</summary>
+    public string? AgentOperationId { get; init; }
     /// <summary>Gets a stable terminal or reconciliation error.</summary>
     public SubAgentOperationError? Error { get; init; }
 }

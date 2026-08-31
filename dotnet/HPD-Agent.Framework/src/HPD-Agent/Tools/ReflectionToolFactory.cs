@@ -87,7 +87,9 @@ internal static class ReflectionToolFactory
                 InvocationModePolicy = definition.InvocationModePolicy,
                 InvocationModeHandling = AgentInvocationModeHandling.ToolBody,
                 ContextPolicy = definition.ContextPolicy,
-                RequiresPermission = true
+                RequiresPermission = true,
+                BranchBinder = json => SubAgentGeneratedBranchBinder.Bind(
+                    json, definition.ContextPolicy == SubAgentContextPolicy.ModelChoice)
             };
         }).ToArray();
     }

@@ -499,6 +499,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             ("description", JsonValue.Create(request.Description)),
             ("tags", ToJsonArray(request.Tags)),
             ("metadata", ToJsonObject(request.Metadata)),
+            ("operationId", JsonValue.Create(request.OperationId)),
             ("subAgents", request.SubAgents is null
                 ? null
                 : JsonSerializer.SerializeToNode(request.SubAgents, JsonOptions))));

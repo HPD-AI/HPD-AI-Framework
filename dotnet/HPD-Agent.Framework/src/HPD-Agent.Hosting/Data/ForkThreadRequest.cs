@@ -11,6 +11,7 @@ namespace HPD.Agent.Hosting.Data;
 /// <param name="Metadata">Optional thread-level metadata</param>
 /// <param name="Compaction">Optional fork-target compaction override</param>
 /// <param name="SubAgents">Optional direct-child topology policy.</param>
+/// <param name="OperationId">Optional trusted idempotency key for retrying the same fork request.</param>
 public record ForkThreadRequest(
     string? NewThreadId,
     string? FromMessageId,
@@ -19,7 +20,8 @@ public record ForkThreadRequest(
     List<string>? Tags,
     Dictionary<string, object>? Metadata = null,
     ThreadForkCompaction? Compaction = null,
-    SubAgentForkOptions? SubAgents = null);
+    SubAgentForkOptions? SubAgents = null,
+    string? OperationId = null);
 
 /// <summary>Hosting projection of an authoritative thread-fork result.</summary>
 public sealed record ThreadForkResultDto(

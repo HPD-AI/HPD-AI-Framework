@@ -9,10 +9,14 @@ public sealed record ThreadForkOperationRecord
     public required ThreadKey Source { get; init; }
     public required ThreadKey Target { get; init; }
     public required ThreadJournalCursor SourceBoundary { get; init; }
+    /// <summary>Gets the immutable hash of the complete fork request.</summary>
+    public required string RequestFingerprint { get; init; }
     public required SubAgentForkPolicy SubAgentPolicy { get; init; }
     public required ThreadForkOperationStatus Status { get; init; }
     public required long Revision { get; init; }
     public required IReadOnlyList<ThreadKey> PreparedChildren { get; init; }
+    /// <summary>Gets the authoritative deterministic direct-child outcomes.</summary>
+    public required IReadOnlyList<SubAgentForkChildOutcome> ChildOutcomes { get; init; }
     public string? Error { get; init; }
 }
 
@@ -155,6 +159,23 @@ public sealed class ThreadForkOperationRebaseSeedProvider(ISessionStore store)
 
 internal static class ThreadForkVisibility
 {
+    internal static async ValueTask<bool> IsSessionVisibleAsync(
+        ISessionStore store,
+        Session session,
+        CancellationToken cancellationToken)
+    {
+        if (!session.Metadata.TryGetValue("forkOperationId", out var rawOperationId) ||
+            Convert.ToString(rawOperationId) is not { Length: > 0 } operationId)
+            return true;
+        if (!session.Metadata.TryGetValue("forkSourceSessionId", out var rawSession) ||
+            !session.Metadata.TryGetValue("forkSourceThreadId", out var rawThread))
+            return false;
+        var source = new ThreadKey(Convert.ToString(rawSession)!, Convert.ToString(rawThread)!);
+        var operation = await new JournalThreadForkOperationStore(store, source)
+            .GetThreadForkOperationAsync(operationId, cancellationToken).ConfigureAwait(false);
+        return operation?.Status == ThreadForkOperationStatus.Committed;
+    }
+
     internal static async ValueTask<bool> IsVisibleAsync(
         ISessionStore store,
         ThreadDescriptor descriptor,

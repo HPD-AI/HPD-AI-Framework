@@ -84,12 +84,14 @@ public sealed class InMemorySessionStore : ISessionStore, IThreadDeltaStore, HPD
         _ => throw new ArgumentException("Event is not a supported delta or message boundary.", nameof(evt))
     };
 
-    public Task<Session?> LoadSessionAsync(
+    public async Task<Session?> LoadSessionAsync(
         string sessionId,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(_sessions.GetValueOrDefault(sessionId));
+        var session = _sessions.GetValueOrDefault(sessionId);
+        return session is not null && await ThreadForkVisibility.IsSessionVisibleAsync(this, session, cancellationToken)
+            .ConfigureAwait(false) ? session : null;
     }
 
     public Task SaveSessionAsync(
@@ -102,10 +104,14 @@ public sealed class InMemorySessionStore : ISessionStore, IThreadDeltaStore, HPD
         return Task.CompletedTask;
     }
 
-    public Task<List<string>> ListSessionIdsAsync(CancellationToken cancellationToken = default)
+    public async Task<List<string>> ListSessionIdsAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(_sessions.Keys.ToList());
+        var visible = new List<string>();
+        foreach (var session in _sessions.Values)
+            if (await ThreadForkVisibility.IsSessionVisibleAsync(this, session, cancellationToken).ConfigureAwait(false))
+                visible.Add(session.Id);
+        return visible;
     }
 
     public async Task DeleteSessionAsync(

@@ -6,12 +6,16 @@ namespace HPD.Agent;
 [JsonDerivedType(typeof(InheritThreadForkCompaction), "inherit")]
 [JsonDerivedType(typeof(DisableThreadForkCompaction), "disabled")]
 [JsonDerivedType(typeof(ApplyThreadForkCompaction), "enabled")]
+/// <summary>Defines compaction behavior applied while constructing a fork target.</summary>
 public abstract record ThreadForkCompaction;
 
+/// <summary>Uses the source agent's configured fork-compaction behavior.</summary>
 public sealed record InheritThreadForkCompaction : ThreadForkCompaction;
 
+/// <summary>Disables target compaction for this fork.</summary>
 public sealed record DisableThreadForkCompaction : ThreadForkCompaction;
 
+/// <summary>Applies an explicit compaction specification to the target.</summary>
 public sealed record ApplyThreadForkCompaction(CompactionSpecification Compaction)
     : ThreadForkCompaction;
 
@@ -36,10 +40,13 @@ public sealed record SubAgentForkOptions
     public SubAgentForkPolicy DescendantPolicy { get; init; } = SubAgentForkPolicy.Detach;
 }
 
+/// <summary>Controls one idempotent thread-fork operation.</summary>
 public sealed record ThreadForkOptions
 {
+    /// <summary>Gets optional metadata merged into the target thread.</summary>
     public Dictionary<string, object>? Metadata { get; init; }
 
+    /// <summary>Gets target-history compaction behavior.</summary>
     public ThreadForkCompaction Compaction { get; init; } = new InheritThreadForkCompaction();
 
     /// <summary>Gets the explicit subagent topology override for this fork.</summary>
@@ -48,8 +55,12 @@ public sealed record ThreadForkOptions
     /// <summary>Gets the idempotent operation identifier, when supplied by a trusted caller.</summary>
     public string? OperationId { get; init; }
 
+    /// <summary>Gets the immutable default fork options.</summary>
     public static ThreadForkOptions Default { get; } = new();
 
+    /// <summary>Creates fork options containing only the supplied target metadata.</summary>
+    /// <param name="metadata">Optional target metadata.</param>
+    /// <returns>Default options when metadata is absent; otherwise a new options value.</returns>
     public static ThreadForkOptions FromMetadata(Dictionary<string, object>? metadata) =>
         metadata is null
             ? Default
@@ -59,12 +70,19 @@ public sealed record ThreadForkOptions
 /// <summary>Identifies the durable lifecycle of a multi-journal fork topology.</summary>
 public enum ThreadForkOperationStatus
 {
+    /// <summary>The immutable request and source boundary are durable.</summary>
     Prepared,
+    /// <summary>Direct and descendant child targets are being staged.</summary>
     ChildrenPreparing,
+    /// <summary>The parent target is ready to be staged.</summary>
     ParentPreparing,
+    /// <summary>All topology members are prepared for the visibility commit.</summary>
     ReadyToCommit,
+    /// <summary>The fork topology is visible and authoritative.</summary>
     Committed,
+    /// <summary>The operation failed before visibility and will not be resumed automatically.</summary>
     Aborted,
+    /// <summary>The topology committed but requires lineage or metadata reconciliation.</summary>
     ReconciliationRequired
 }
 

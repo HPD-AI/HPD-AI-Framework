@@ -114,7 +114,8 @@ public sealed record AgentTuiForkThreadRequest(
     string? Description = null,
     IReadOnlyList<string>? Tags = null,
     IReadOnlyDictionary<string, object?>? Metadata = null,
-    SubAgentForkOptions? SubAgents = null);
+    SubAgentForkOptions? SubAgents = null,
+    string? OperationId = null);
 
 public sealed record AgentTuiThreadForkInfo(
     string OperationId,

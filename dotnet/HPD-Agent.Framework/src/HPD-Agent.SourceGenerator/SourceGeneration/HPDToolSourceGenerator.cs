@@ -1356,7 +1356,8 @@ namespace HPD.Agent.Diagnostics {{
         sb.AppendLine("            InvocationModePolicy = definition.InvocationModePolicy,");
         sb.AppendLine("            InvocationModeHandling = global::HPD.Agent.AgentInvocationModeHandling.ToolBody,");
         sb.AppendLine("            ContextPolicy = definition.ContextPolicy,");
-        sb.AppendLine("            RequiresPermission = requiresPermission");
+        sb.AppendLine("            RequiresPermission = requiresPermission,");
+        sb.AppendLine("            BranchBinder = json => global::HPD.Agent.SubAgentGeneratedBranchBinder.Bind(json, definition.ContextPolicy == global::HPD.Agent.SubAgentContextPolicy.ModelChoice)");
         sb.AppendLine("        };");
         sb.AppendLine("    }");
         return sb.ToString();

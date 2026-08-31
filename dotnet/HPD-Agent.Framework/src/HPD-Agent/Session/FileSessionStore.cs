@@ -247,8 +247,10 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore, IPermis
         if (!File.Exists(path))
             return null;
         await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 16 * 1024, true);
-        return await JsonSerializer.DeserializeAsync(stream, SessionJsonContext.Combined.Session, cancellationToken)
+        var session = await JsonSerializer.DeserializeAsync(stream, SessionJsonContext.Combined.Session, cancellationToken)
             .ConfigureAwait(false);
+        return session is not null && await ThreadForkVisibility.IsSessionVisibleAsync(this, session, cancellationToken)
+            .ConfigureAwait(false) ? session : null;
     }
 
     public async Task SaveSessionAsync(Session session, CancellationToken cancellationToken = default)
@@ -267,13 +269,18 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore, IPermis
         }
     }
 
-    public Task<List<string>> ListSessionIdsAsync(CancellationToken cancellationToken = default)
+    public async Task<List<string>> ListSessionIdsAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var path = GetSessionsPath();
-        return Task.FromResult(!Directory.Exists(path)
+        var candidates = !Directory.Exists(path)
             ? []
-            : Directory.EnumerateDirectories(path).Select(Path.GetFileName).Where(name => name is not null).Cast<string>().ToList());
+            : Directory.EnumerateDirectories(path).Select(Path.GetFileName).Where(name => name is not null).Cast<string>().ToList();
+        var visible = new List<string>();
+        foreach (var sessionId in candidates)
+            if (await LoadSessionAsync(sessionId, cancellationToken).ConfigureAwait(false) is not null)
+                visible.Add(sessionId);
+        return visible;
     }
 
     /// <inheritdoc />

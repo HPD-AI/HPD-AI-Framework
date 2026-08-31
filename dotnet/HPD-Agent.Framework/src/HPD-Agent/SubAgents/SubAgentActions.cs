@@ -25,6 +25,8 @@ public sealed record SubAgentActionDescriptor
     public required SubAgentContextPolicy ContextPolicy { get; init; }
     /// <summary>Gets whether permission is required before this branch is bound.</summary>
     public required bool RequiresPermission { get; init; }
+    /// <summary>Gets the generated exact final binder for this admitted role branch.</summary>
+    public Func<JsonElement, AIFunctionBindingResult>? BranchBinder { get; init; }
 }
 
 /// <summary>Builds the one reserved closed <c>SubAgents</c> action function.</summary>
@@ -83,8 +85,9 @@ public static class SubAgentsFunctionFactory
             Discriminator = "action",
             Actions = new ReadOnlyDictionary<string, AIFunctionActionPolicy>(policies)
         };
-        var composition = new VerifiedAIFunctionActionComposition(schema, contract, BindFinalBranch);
         var roles = ordered.ToDictionary(static descriptor => descriptor.Action, StringComparer.Ordinal);
+        var composition = new VerifiedAIFunctionActionComposition(
+            schema, contract, root => BindFinalBranch(root, roles));
         return HPDAIFunctionFactory.CreateComposedAction(
             (arguments, context, cancellationToken) =>
                 SubAgentOperationDispatcher.DispatchAsync(roles, arguments, context, cancellationToken),
@@ -111,13 +114,22 @@ public static class SubAgentsFunctionFactory
             });
     }
 
-    private static AIFunctionBindingResult BindFinalBranch(JsonElement root)
+    private static AIFunctionBindingResult BindFinalBranch(
+        JsonElement root,
+        IReadOnlyDictionary<string, SubAgentActionDescriptor> roles)
     {
         var actionJson = root.GetProperty("request");
         var action = actionJson.GetProperty("action").GetString()
             ?? throw new InvalidOperationException("SubAgents action discriminator is missing.");
         var branch = ProjectBranch(actionJson);
-        return AIFunctionBindingResult.Success(new BoundSubAgentAction(action, branch), branch);
+        if (roles.TryGetValue(action, out var role))
+        {
+            var bound = (role.BranchBinder ?? (json => SubAgentGeneratedBranchBinder.Bind(
+                json, role.ContextPolicy == SubAgentContextPolicy.ModelChoice)))(branch);
+            if (bound.Errors.Count > 0) return bound;
+            return AIFunctionBindingResult.Success(new BoundSubAgentAction(action, bound.Value, branch), branch);
+        }
+        return AIFunctionBindingResult.Success(new BoundSubAgentAction(action, null, branch), branch);
     }
 
     internal static JsonElement ProjectBranch(JsonElement action)
@@ -244,7 +256,29 @@ public static class SubAgentsFunctionFactory
     };
 }
 
-internal sealed record BoundSubAgentAction(string Action, JsonElement Branch);
+internal sealed record BoundSubAgentAction(string Action, object? Value, JsonElement Branch);
+
+/// <summary>Strongly typed admitted input for one generated subagent role branch.</summary>
+public sealed record BoundSubAgentStartAction(string Input, string? Context);
+
+/// <summary>Native-AOT-safe binder used by generated subagent role descriptors.</summary>
+public static class SubAgentGeneratedBranchBinder
+{
+    /// <summary>Binds one discriminator-free role projection exactly once after permission admission.</summary>
+    public static AIFunctionBindingResult Bind(JsonElement json, bool allowContext)
+    {
+        if (allowContext)
+            HPDGeneratedToolArgumentBinder.ValidateProperties(json, "", "input", "context");
+        else
+            HPDGeneratedToolArgumentBinder.ValidateProperties(json, "", "input");
+        var input = HPDGeneratedToolArgumentBinder.BindString(
+            HPDGeneratedToolArgumentBinder.GetRequiredProperty(json, "input", ""), "input");
+        string? context = null;
+        if (allowContext && HPDGeneratedToolArgumentBinder.TryGetOptionalProperty(json, "context", "", out var value))
+            context = HPDGeneratedToolArgumentBinder.BindString(value, "context");
+        return AIFunctionBindingResult.Success(new BoundSubAgentStartAction(input, context), json);
+    }
+}
 
 /// <summary>Stable model-facing status returned by unified subagent operations.</summary>
 public enum SubAgentOperationStatus { Running, Completed, Failed, Cancelled, Unavailable }
@@ -304,20 +338,20 @@ internal static class SubAgentOperationDispatcher
         if (!string.Equals(bound.Action, validated.Action, StringComparison.Ordinal))
             throw new InvalidOperationException("SubAgents bound action does not match admitted action authority.");
         return roles.TryGetValue(bound.Action, out var descriptor)
-            ? DispatchStartAsync(descriptor, bound.Branch, context, cancellationToken)
+            ? DispatchStartAsync(descriptor, (BoundSubAgentStartAction)bound.Value!, context, cancellationToken)
             : DispatchControlAsync(bound.Action, bound.Branch, context, cancellationToken);
     }
 
     private static async Task<object?> DispatchStartAsync(
         SubAgentActionDescriptor descriptor,
-        JsonElement branch,
+        BoundSubAgentStartAction branch,
         FunctionExecutionContext context,
         CancellationToken cancellationToken)
     {
-        var input = branch.GetProperty("input").GetString() ?? string.Empty;
-        var requestedContext = branch.TryGetProperty("context", out var contextValue)
-            ? SubAgentContexts.ReadRequestedContext(branch)
-            : null;
+        var input = branch.Input;
+        SubAgentContext? requestedContext = branch.Context is null
+            ? null
+            : Enum.Parse<SubAgentContext>(branch.Context, ignoreCase: true);
         var result = await SubAgentRuntime.InvokeAsync(new SubAgentRuntime.SubAgentInvocationRequest
         {
             Definition = descriptor.Definition,

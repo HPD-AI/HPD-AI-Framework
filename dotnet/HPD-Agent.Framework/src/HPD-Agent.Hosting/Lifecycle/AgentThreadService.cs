@@ -227,7 +227,8 @@ public sealed class AgentThreadService : IAgentThreadService
                 {
                     Metadata = request.Metadata,
                     Compaction = request.Compaction ?? new InheritThreadForkCompaction(),
-                    SubAgents = request.SubAgents
+                    SubAgents = request.SubAgents,
+                    OperationId = request.OperationId
                 },
                 cancellationToken);
         }
