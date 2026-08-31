@@ -6721,6 +6721,8 @@ public sealed partial class Agent : IAsyncDisposable
 
         var forkOperationId = forkOptions.OperationId ?? Guid.NewGuid().ToString("N");
         var effectiveSubAgentOptions = forkOptions.SubAgents ?? Config.DefaultSubAgentForkOptions;
+        if (effectiveSubAgentOptions.DescendantPolicy == SubAgentForkPolicy.ForkDirectChildren)
+            throw new InvalidOperationException("thread_fork_recursive_descendant_copy_not_supported");
         var requestFingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('|',
             sourceKey.SessionId,
             sourceKey.ThreadId,
@@ -7718,6 +7720,11 @@ public sealed partial class Agent : IAsyncDisposable
             $"{targetParent.ThreadId}/subagent/{source.LocalId.Value}/{forkOperationId[..Math.Min(12, forkOperationId.Length)]}");
         var targetAlreadyExists = await store.GetThreadEventHeadAsync(targetKey, cancellationToken)
             .ConfigureAwait(false) is not null;
+        var operationStore = new JournalThreadForkOperationStore(store, sourceParent);
+        var admittedOperation = await operationStore.GetThreadForkOperationAsync(forkOperationId, cancellationToken)
+            .ConfigureAwait(false) ?? throw new InvalidOperationException("thread_fork_operation_missing");
+        var admittedOutcome = admittedOperation.ChildOutcomes.FirstOrDefault(outcome =>
+            string.Equals(outcome.LocalId, source.LocalId.Value, StringComparison.Ordinal));
         var childMetadata = descriptor.Metadata.Count == 0
             ? new Dictionary<string, object>(StringComparer.Ordinal)
             : new Dictionary<string, object>(descriptor.Metadata, StringComparer.Ordinal);
@@ -7752,7 +7759,9 @@ public sealed partial class Agent : IAsyncDisposable
         var sourceEvents = new List<AgentEvent>();
         await foreach (var batch in store.ReadThreadEventsAsync(
             sourceKey,
-            new ThreadEventReadRequest(ThreadJournalCursor.Start(descriptor.Generation)),
+            new ThreadEventReadRequest(
+                ThreadJournalCursor.Start(descriptor.Generation),
+                admittedOutcome?.SourceBoundary?.SequenceNumber),
             cancellationToken).ConfigureAwait(false))
         {
             sourceEvents.AddRange(batch.Events);
@@ -7769,8 +7778,8 @@ public sealed partial class Agent : IAsyncDisposable
                 latestCompletedBoundary = evt.ThreadSequenceNumber;
             }
         }
-        long? through = null;
-        if (active.Count > 0)
+        long? through = admittedOutcome?.SourceBoundary?.SequenceNumber;
+        if (admittedOutcome is null && active.Count > 0)
             through = latestCompletedBoundary
                 ?? throw new InvalidOperationException("subagent_fork_boundary_unavailable");
         var staged = new List<AgentEvent> { created };
@@ -7781,6 +7790,8 @@ public sealed partial class Agent : IAsyncDisposable
         var childBoundary = new ThreadJournalCursor(
             descriptor.Generation,
             through ?? sourceEvents.LastOrDefault()?.ThreadSequenceNumber ?? 0);
+        if (admittedOutcome?.SourceBoundary is { } admittedBoundary && admittedBoundary != childBoundary)
+            throw new InvalidOperationException("thread_fork_child_boundary_changed");
         var descendantEvents = await PlanSubAgentRegistryForForkAsync(
             store,
             sourceKey,
@@ -7796,6 +7807,9 @@ public sealed partial class Agent : IAsyncDisposable
             cancellationToken).ConfigureAwait(false);
         staged.AddRange(descendantEvents);
         var childSeedFingerprint = ComputeTargetSeedFingerprint(store.EventCodec, staged);
+        if (admittedOutcome?.TargetSeedFingerprint is { } admittedSeed &&
+            !string.Equals(admittedSeed, childSeedFingerprint, StringComparison.Ordinal))
+            throw new InvalidOperationException("thread_fork_child_seed_changed");
         staged[0] = created with
         {
             Preparation = created.Preparation! with
@@ -7812,25 +7826,34 @@ public sealed partial class Agent : IAsyncDisposable
             SubAgentChildAvailability.Available,
             childSeedFingerprint,
             childBoundary);
-        var operationStore = new JournalThreadForkOperationStore(store, sourceParent);
-        var owningOperation = await operationStore.GetThreadForkOperationAsync(forkOperationId, cancellationToken)
-            .ConfigureAwait(false) ?? throw new InvalidOperationException("thread_fork_operation_missing");
-        var admittedChild = owningOperation.ChildOutcomes.FirstOrDefault(outcome =>
-            string.Equals(outcome.LocalId, source.LocalId.Value, StringComparison.Ordinal));
-        if (admittedChild is not null && admittedChild != childOutcome)
-            throw new InvalidOperationException("thread_fork_child_seed_changed");
-        if (admittedChild is null)
+        for (var attempt = 0; attempt < 16; attempt++)
         {
-            owningOperation = owningOperation with
+            var owningOperation = await operationStore.GetThreadForkOperationAsync(forkOperationId, cancellationToken)
+                .ConfigureAwait(false) ?? throw new InvalidOperationException("thread_fork_operation_missing");
+            var admittedChild = owningOperation.ChildOutcomes.FirstOrDefault(outcome =>
+                string.Equals(outcome.LocalId, source.LocalId.Value, StringComparison.Ordinal));
+            if (admittedChild is not null)
+            {
+                if (admittedChild != childOutcome)
+                    throw new InvalidOperationException("thread_fork_child_seed_changed");
+                break;
+            }
+            var advanced = owningOperation with
             {
                 Revision = owningOperation.Revision + 1,
                 PreparedChildren = owningOperation.PreparedChildren.Append(targetKey).Distinct().ToArray(),
                 ChildOutcomes = owningOperation.ChildOutcomes.Append(childOutcome).ToArray()
             };
-            await operationStore.WriteThreadForkOperationAsync(
-                owningOperation,
-                new ThreadForkOperationWriteCondition(owningOperation.Revision - 1),
-                cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await operationStore.WriteThreadForkOperationAsync(
+                    advanced,
+                    new ThreadForkOperationWriteCondition(owningOperation.Revision),
+                    cancellationToken).ConfigureAwait(false);
+                break;
+            }
+            catch (InvalidOperationException conflict) when (
+                conflict.Message == "thread_fork_operation_conflict" && attempt < 15) { }
         }
         if (targetAlreadyExists)
         {

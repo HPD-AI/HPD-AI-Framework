@@ -202,6 +202,10 @@ public sealed class SubAgentDurabilityTests
             store, child, controller, new SubAgentLocalId("reviewer-1")));
         Assert.False(await SubAgentControllerAuthority.IsGrantedAsync(
             store, child, new ThreadKey("session", "other"), new SubAgentLocalId("reviewer-1")));
+        await SubAgentControllerAuthority.RevokeAsync(
+            store, child, controller, new SubAgentLocalId("reviewer-1"), "fork-share", source);
+        Assert.False(await SubAgentControllerAuthority.IsGrantedAsync(
+            store, child, controller, new SubAgentLocalId("reviewer-1")));
     }
 
     private static async Task CreateThreadAsync(InMemorySessionStore store, ThreadKey key) =>

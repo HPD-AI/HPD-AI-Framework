@@ -765,6 +765,20 @@ public static class SubAgentRuntime
                             "subagent_continue_failed", "The prior continuation did not succeed.")
                     };
                 }
+                if (!durableReplay.ReceiptPresent)
+                {
+                    return new SubAgentOperationResult
+                    {
+                        Status = SubAgentOperationStatus.Failed,
+                        Child = child.LocalId.Value,
+                        InvocationId = invocationId,
+                        ThreadExecutionId = executionId,
+                        AgentOperationId = operationId,
+                        Error = new SubAgentOperationError(
+                            "subagent_continue_reconciliation_required",
+                            "The continuation finished before its execution-scoped result receipt committed.")
+                    };
+                }
                 return new SubAgentOperationResult
                 {
                     Status = SubAgentOperationStatus.Completed,
@@ -920,7 +934,7 @@ public static class SubAgentRuntime
         return text.Length == 0 ? null : text.ToString();
     }
 
-    private static async ValueTask<(bool Reserved, ThreadExecutionOutcome? Outcome, SubAgentOperationError? Error, string? Output)>
+    private static async ValueTask<(bool Reserved, ThreadExecutionOutcome? Outcome, SubAgentOperationError? Error, string? Output, bool ReceiptPresent)>
         TryReserveExecutionAsync(
             ISessionStore store,
             ThreadKey route,
@@ -935,6 +949,7 @@ public static class SubAgentRuntime
             var started = false;
             ThreadExecutionFinishedEvent? terminal = null;
             string? output = null;
+            var receiptPresent = false;
             await foreach (var batch in store.ReadThreadEventsAsync(
                                route,
                                new ThreadEventReadRequest(ThreadJournalCursor.Start(head.Generation), head.ThreadSequenceNumber),
@@ -950,7 +965,10 @@ public static class SubAgentRuntime
                         terminal = finished;
                     else if (evt is SubAgentContinuationReceiptEvent receipt &&
                              string.Equals(receipt.ThreadExecutionId, executionId, StringComparison.Ordinal))
+                    {
                         output = receipt.Output;
+                        receiptPresent = true;
+                    }
                 }
             }
             if (started)
@@ -960,7 +978,8 @@ public static class SubAgentRuntime
                     terminal?.Error is { } error
                         ? new SubAgentOperationError("subagent_continue_failed", error.Message)
                         : null,
-                    output);
+                    output,
+                    receiptPresent);
             try
             {
                 await store.AppendThreadEventsAsync(
@@ -972,7 +991,7 @@ public static class SubAgentRuntime
                     }],
                     new ThreadAppendCondition(head.Cursor),
                     cancellationToken).ConfigureAwait(false);
-                return (true, null, null, null);
+                return (true, null, null, null, false);
             }
             catch (ThreadAppendConflictException) when (attempt < 15) { }
         }

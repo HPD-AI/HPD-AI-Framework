@@ -196,8 +196,14 @@ internal sealed class InProcessThreadExecutionController(ISessionStore store) : 
         cancellationToken.ThrowIfCancellationRequested();
         if (_active.TryGetValue(lease.Thread, out var current) && current.Fence == lease.Fence)
         {
-            await EnsureFinishedAsync(lease, terminal, cancellationToken).ConfigureAwait(false);
-            _active.TryRemove(new KeyValuePair<ThreadKey, ThreadExecutionLease>(lease.Thread, current));
+            try
+            {
+                await EnsureFinishedAsync(lease, terminal, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                _active.TryRemove(new KeyValuePair<ThreadKey, ThreadExecutionLease>(lease.Thread, current));
+            }
         }
     }
 

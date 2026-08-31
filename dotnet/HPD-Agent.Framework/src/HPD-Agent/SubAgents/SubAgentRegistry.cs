@@ -170,6 +170,43 @@ public static class SubAgentControllerAuthority
         throw new InvalidOperationException("subagent_controller_grant_conflict");
     }
 
+    /// <summary>Idempotently revokes one exact child/controller grant with a durable tombstone.</summary>
+    public static async ValueTask RevokeAsync(
+        ISessionStore store,
+        ThreadKey child,
+        ThreadKey controller,
+        SubAgentLocalId localId,
+        string forkOperationId,
+        ThreadKey forkOperationSource,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        for (var attempt = 0; attempt < 16; attempt++)
+        {
+            var head = await store.GetThreadEventHeadAsync(child, cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("subagent_shared_child_missing");
+            var existing = await ReadLatestAsync(store, child, controller, localId, head, cancellationToken)
+                .ConfigureAwait(false);
+            if (existing is { Revoked: true }) return;
+            try
+            {
+                await store.AppendThreadEventsAsync(
+                    child,
+                    [new SubAgentChildControllerAuthorityEvent(
+                        controller, localId, forkOperationId, forkOperationSource, Revoked: true)
+                    {
+                        SessionId = child.SessionId,
+                        ThreadId = child.ThreadId
+                    }],
+                    new ThreadAppendCondition(head.Cursor),
+                    cancellationToken).ConfigureAwait(false);
+                return;
+            }
+            catch (ThreadAppendConflictException) when (attempt < 15) { }
+        }
+        throw new InvalidOperationException("subagent_controller_revoke_conflict");
+    }
+
     /// <summary>Checks the latest exact child/controller grant and its committed fork authority.</summary>
     public static async ValueTask<bool> IsGrantedAsync(
         ISessionStore store,
