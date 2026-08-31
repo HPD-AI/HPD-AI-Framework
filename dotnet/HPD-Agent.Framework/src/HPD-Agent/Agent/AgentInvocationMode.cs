@@ -649,6 +649,9 @@ public static class AgentInvocationModes
                 throw new InvalidOperationException("Every action branch must have one unique declared discriminator.");
             if (branchProperties.ContainsKey("invocationMode"))
                 throw new InvalidOperationException("Action branches cannot declare a domain property named 'invocationMode'.");
+            if (branch["required"] is JsonArray required &&
+                required.Any(item => item is JsonValue value && value.TryGetValue<string>(out var name) && name == "invocationMode"))
+                throw new InvalidOperationException($"Action '{action}' must keep invocationMode optional.");
             if (policy.InvocationModePolicy == AgentInvocationModePolicy.ModelChoice)
                 branchProperties["invocationMode"] = CreateInvocationModeSchema();
         }
@@ -695,6 +698,9 @@ public static class AgentInvocationModes
             if (branch["required"] is JsonArray required &&
                 required.Any(item => item is JsonValue value && value.TryGetValue<string>(out var name) && name == "invocationMode"))
                 throw new InvalidOperationException($"Action '{action}' must keep invocationMode optional.");
+            if (branch["required"] is not JsonArray requiredProperties ||
+                !requiredProperties.Any(item => item is JsonValue value && value.TryGetValue<string>(out var name) && name == contract.Discriminator))
+                throw new InvalidOperationException($"Action '{action}' must require discriminator '{contract.Discriminator}'.");
         }
         if (seen.Count != contract.Actions.Count)
             throw new InvalidOperationException("The generated action schema omits a declared action.");
