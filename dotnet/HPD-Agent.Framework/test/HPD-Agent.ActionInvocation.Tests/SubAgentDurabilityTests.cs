@@ -207,7 +207,9 @@ public sealed class SubAgentDurabilityTests
                 SubAgentForkPolicy.Share,
                 child,
                 child,
-                SubAgentChildAvailability.Available)]
+                SubAgentChildAvailability.Available,
+                OwningParent: source,
+                Controller: controller)]
         };
         await operationStore.WriteThreadForkOperationAsync(operation, new ThreadForkOperationWriteCondition(0));
         foreach (var status in new[]

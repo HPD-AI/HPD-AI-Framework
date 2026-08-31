@@ -1,4 +1,6 @@
 using System.ComponentModel;
+using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -25,6 +27,8 @@ public sealed record SubAgentContinuationReceiptEvent(
 [EditorBrowsable(EditorBrowsableState.Never)]
 public static class SubAgentRuntime
 {
+    private static readonly ConditionalWeakTable<ISessionStore, ConcurrentDictionary<string, byte>>
+        ContinuationAdmissions = new();
     /// <summary>
     /// Creates a generated tool around one registration-time subagent declaration.
     /// </summary>
@@ -709,13 +713,40 @@ public static class SubAgentRuntime
             var active = await controller.FindActiveAsync(route, cancellationToken).ConfigureAwait(false);
             if (active.IsActive && !string.Equals(active.ThreadExecutionId, executionId, StringComparison.Ordinal))
                 return Failure("subagent_busy", "This child already has an active execution.", child.LocalId.Value);
-            var durableReplay = await TryReserveExecutionAsync(
-                    store, route, executionId, child.ChildAgentId, cancellationToken)
-                .ConfigureAwait(false);
+            var admissionKey = $"{route.SessionId}\u001f{route.ThreadId}\u001f{executionId}";
+            var admissions = ContinuationAdmissions.GetValue(
+                store, static _ => new ConcurrentDictionary<string, byte>(StringComparer.Ordinal));
+            var ownsAdmission = admissions.TryAdd(admissionKey, 0);
+            (bool Reserved, ThreadExecutionOutcome? Outcome, SubAgentOperationError? Error, string? Output, bool ReceiptPresent) durableReplay;
+            try
+            {
+                durableReplay = await TryReserveExecutionAsync(
+                        store, route, executionId, child.ChildAgentId, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch
+            {
+                if (ownsAdmission)
+                    admissions.TryRemove(admissionKey, out _);
+                throw;
+            }
             if (!durableReplay.Reserved)
             {
                 if (durableReplay.Outcome is null)
                 {
+                    if (!ownsAdmission && admissions.ContainsKey(admissionKey))
+                    {
+                        return new SubAgentOperationResult
+                        {
+                            Status = SubAgentOperationStatus.Running,
+                            Child = child.LocalId.Value,
+                            InvocationId = invocationId,
+                            ThreadExecutionId = executionId,
+                            AgentOperationId = operationId
+                        };
+                    }
+                    if (ownsAdmission)
+                        admissions.TryRemove(admissionKey, out _);
                     if (active.IsActive)
                     {
                         return new SubAgentOperationResult
@@ -752,6 +783,8 @@ public static class SubAgentRuntime
                             "The continuation was durably admitted but has no live owner or terminal receipt; it will not be executed again automatically.")
                     };
                 }
+                if (ownsAdmission)
+                    admissions.TryRemove(admissionKey, out _);
                 if (durableReplay.Outcome != ThreadExecutionOutcome.Succeeded)
                 {
                     return new SubAgentOperationResult
@@ -792,30 +825,45 @@ public static class SubAgentRuntime
             var requestedMode = functionContext.ResolvedInvocationMode;
             if (requestedMode == AgentInvocationMode.Background)
             {
-                var receipt = await functionContext.StartOperationAsync(
-                    $"continue-{child.LocalId.Value}",
-                    new Dictionary<string, string>(StringComparer.Ordinal)
-                    {
-                        ["invocation.kind"] = "subagent_continue",
-                        ["subAgent.child"] = child.LocalId.Value,
-                        ["subAgent.invocationId"] = invocationId
-                    },
-                    notification: null,
-                    async (_, runtimeToken) =>
-                    {
-                        await ContinueChildAsync(
-                            resolver, store, child, route, input, executionId, runtimeToken).ConfigureAwait(false);
-                        return new AgentOperationCompletion("Subagent continuation completed.");
-                    },
-                    operationId: operationId).ConfigureAwait(false);
-                return new SubAgentOperationResult
+                try
                 {
-                    Status = SubAgentOperationStatus.Running,
-                    Child = child.LocalId.Value,
-                    InvocationId = invocationId,
-                    ThreadExecutionId = executionId,
-                    AgentOperationId = receipt.OperationId
-                };
+                    var receipt = await functionContext.StartOperationAsync(
+                        $"continue-{child.LocalId.Value}",
+                        new Dictionary<string, string>(StringComparer.Ordinal)
+                        {
+                            ["invocation.kind"] = "subagent_continue",
+                            ["subAgent.child"] = child.LocalId.Value,
+                            ["subAgent.invocationId"] = invocationId
+                        },
+                        notification: null,
+                        async (_, runtimeToken) =>
+                        {
+                            try
+                            {
+                                await ContinueChildAsync(
+                                    resolver, store, child, route, input, executionId, runtimeToken).ConfigureAwait(false);
+                                return new AgentOperationCompletion("Subagent continuation completed.");
+                            }
+                            finally
+                            {
+                                admissions.TryRemove(admissionKey, out byte _);
+                            }
+                        },
+                        operationId: operationId).ConfigureAwait(false);
+                    return new SubAgentOperationResult
+                    {
+                        Status = SubAgentOperationStatus.Running,
+                        Child = child.LocalId.Value,
+                        InvocationId = invocationId,
+                        ThreadExecutionId = executionId,
+                        AgentOperationId = receipt.OperationId
+                    };
+                }
+                catch
+                {
+                    admissions.TryRemove(admissionKey, out _);
+                    throw;
+                }
             }
             try
             {
@@ -830,7 +878,10 @@ public static class SubAgentRuntime
                     Output = output
                 };
             }
-            catch { throw; }
+            finally
+            {
+                admissions.TryRemove(admissionKey, out _);
+            }
         }
 
         if (string.Equals(action, "sendMessage", StringComparison.Ordinal))
