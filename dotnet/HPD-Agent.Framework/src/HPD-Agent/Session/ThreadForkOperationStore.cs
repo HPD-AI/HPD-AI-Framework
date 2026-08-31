@@ -109,6 +109,8 @@ public sealed class JournalThreadForkOperationStore(ISessionStore store, ThreadK
             var revision = current?.Revision ?? 0;
             if (revision != condition.ExpectedRevision || operation.Revision != revision + 1)
                 throw new InvalidOperationException("thread_fork_operation_conflict");
+            if (!IsLegalTransition(current?.Status, operation.Status))
+                throw new InvalidOperationException("thread_fork_operation_illegal_transition");
             var evt = new ThreadForkOperationChangedEvent(operation)
             {
                 SessionId = _source.SessionId,
@@ -127,6 +129,26 @@ public sealed class JournalThreadForkOperationStore(ISessionStore store, ThreadK
         }
         throw new InvalidOperationException("thread_fork_operation_conflict");
     }
+
+    private static bool IsLegalTransition(
+        ThreadForkOperationStatus? current,
+        ThreadForkOperationStatus next) => current switch
+    {
+        null => next == ThreadForkOperationStatus.Prepared,
+        ThreadForkOperationStatus.Prepared =>
+            next is ThreadForkOperationStatus.ChildrenPreparing or ThreadForkOperationStatus.Aborted,
+        ThreadForkOperationStatus.ChildrenPreparing =>
+            next is ThreadForkOperationStatus.ChildrenPreparing or ThreadForkOperationStatus.ParentPreparing or
+                ThreadForkOperationStatus.Aborted,
+        ThreadForkOperationStatus.ParentPreparing =>
+            next is ThreadForkOperationStatus.ReadyToCommit or ThreadForkOperationStatus.Committed or
+                ThreadForkOperationStatus.Aborted,
+        ThreadForkOperationStatus.ReadyToCommit =>
+            next is ThreadForkOperationStatus.Committed or ThreadForkOperationStatus.Aborted,
+        ThreadForkOperationStatus.Committed => next == ThreadForkOperationStatus.ReconciliationRequired,
+        ThreadForkOperationStatus.Aborted or ThreadForkOperationStatus.ReconciliationRequired => false,
+        _ => false
+    };
 
     public async IAsyncEnumerable<ThreadForkOperationRecord> ReadPendingThreadForkOperationsAsync(
         ThreadKey source,

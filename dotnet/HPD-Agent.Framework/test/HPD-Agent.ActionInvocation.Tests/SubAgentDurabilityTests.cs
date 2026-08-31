@@ -108,6 +108,28 @@ public sealed class SubAgentDurabilityTests
     }
 
     [Fact]
+    public async Task ForkOperationRejectsTerminalAndOutOfOrderTransitions()
+    {
+        var store = new InMemorySessionStore(CoreAgentEventComposition.Instance.Codec);
+        var source = new ThreadKey("session", "source");
+        await CreateThreadAsync(store, source);
+        var operationStore = new JournalThreadForkOperationStore(store, source);
+        var prepared = CreateForkOperation(source, "fork-transitions");
+        await operationStore.WriteThreadForkOperationAsync(prepared, new ThreadForkOperationWriteCondition(0));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await operationStore.WriteThreadForkOperationAsync(
+                prepared with { Status = ThreadForkOperationStatus.Committed, Revision = 2 },
+                new ThreadForkOperationWriteCondition(1)));
+        var aborted = prepared with { Status = ThreadForkOperationStatus.Aborted, Revision = 2 };
+        await operationStore.WriteThreadForkOperationAsync(aborted, new ThreadForkOperationWriteCondition(1));
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await operationStore.WriteThreadForkOperationAsync(
+                aborted with { Status = ThreadForkOperationStatus.Committed, Revision = 3 },
+                new ThreadForkOperationWriteCondition(2)));
+    }
+
+    [Fact]
     public async Task CreationOrdinalContinuesFromDurableRegistryAfterReceiptRetention()
     {
         var store = new InMemorySessionStore(CoreAgentEventComposition.Instance.Codec);
@@ -176,24 +198,31 @@ public sealed class SubAgentDurabilityTests
         await CreateThreadAsync(store, source);
         await CreateThreadAsync(store, child);
         var operationStore = new JournalThreadForkOperationStore(store, source);
-        await operationStore.WriteThreadForkOperationAsync(new ThreadForkOperationRecord
+        var operation = CreateForkOperation(source, "fork-share") with
         {
-            OperationId = "fork-share",
-            Source = source,
             Target = controller,
-            SourceBoundary = new ThreadJournalCursor(1, 1),
-            RequestFingerprint = "ABC",
             SubAgentPolicy = SubAgentForkPolicy.Share,
-            Status = ThreadForkOperationStatus.Committed,
-            Revision = 1,
-            PreparedChildren = [],
             ChildOutcomes = [new SubAgentForkChildOutcome(
                 "reviewer-1",
                 SubAgentForkPolicy.Share,
                 child,
                 child,
                 SubAgentChildAvailability.Available)]
-        }, new ThreadForkOperationWriteCondition(0));
+        };
+        await operationStore.WriteThreadForkOperationAsync(operation, new ThreadForkOperationWriteCondition(0));
+        foreach (var status in new[]
+                 {
+                     ThreadForkOperationStatus.ChildrenPreparing,
+                     ThreadForkOperationStatus.ParentPreparing,
+                     ThreadForkOperationStatus.ReadyToCommit,
+                     ThreadForkOperationStatus.Committed
+                 })
+        {
+            var next = operation with { Status = status, Revision = operation.Revision + 1 };
+            await operationStore.WriteThreadForkOperationAsync(
+                next, new ThreadForkOperationWriteCondition(operation.Revision));
+            operation = next;
+        }
 
         await SubAgentControllerAuthority.GrantAsync(
             store, child, controller, new SubAgentLocalId("reviewer-1"), "fork-share", source);
@@ -217,4 +246,18 @@ public sealed class SubAgentDurabilityTests
                 ThreadId = key.ThreadId
             }],
             new ThreadAppendCondition(ThreadJournalCursor.Start(1)));
+
+    private static ThreadForkOperationRecord CreateForkOperation(ThreadKey source, string operationId) => new()
+    {
+        OperationId = operationId,
+        Source = source,
+        Target = new ThreadKey(source.SessionId, $"{source.ThreadId}-target"),
+        SourceBoundary = new ThreadJournalCursor(1, 1),
+        RequestFingerprint = "ABC",
+        SubAgentPolicy = SubAgentForkPolicy.Detach,
+        Status = ThreadForkOperationStatus.Prepared,
+        Revision = 1,
+        PreparedChildren = [],
+        ChildOutcomes = []
+    };
 }

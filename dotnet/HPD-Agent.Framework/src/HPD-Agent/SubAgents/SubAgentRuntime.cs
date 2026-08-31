@@ -922,7 +922,9 @@ public static class SubAgentRuntime
     {
         var head = await store.GetThreadEventHeadAsync(route, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException("subagent_child_route_invalid");
-        var text = new StringBuilder();
+        var deltas = new StringBuilder();
+        var completed = new StringBuilder();
+        string? replacement = null;
         await foreach (var batch in store.ReadThreadEventsAsync(
                            route,
                            new ThreadEventReadRequest(ThreadJournalCursor.Start(head.Generation), head.ThreadSequenceNumber),
@@ -930,8 +932,17 @@ public static class SubAgentRuntime
             foreach (var evt in batch.Events)
                 if (evt is TextDeltaEvent delta &&
                     string.Equals(evt.ThreadExecutionId, executionId, StringComparison.Ordinal))
-                    text.Append(delta.Text);
-        return text.Length == 0 ? null : text.ToString();
+                    deltas.Append(delta.Text);
+                else if (evt is ContentAddedEvent { Role: "assistant", Content: TextContent content } &&
+                         string.Equals(evt.ThreadExecutionId, executionId, StringComparison.Ordinal))
+                    completed.Append(content.Text);
+                else if (evt is ThreadMessageReplacedEvent replaced &&
+                         replaced.Replacement.Role == ChatRole.Assistant &&
+                         string.Equals(evt.ThreadExecutionId, executionId, StringComparison.Ordinal))
+                    replacement = replaced.Replacement.Text;
+        return replacement ??
+            (completed.Length > 0 ? completed.ToString() : null) ??
+            (deltas.Length > 0 ? deltas.ToString() : null);
     }
 
     private static async ValueTask<(bool Reserved, ThreadExecutionOutcome? Outcome, SubAgentOperationError? Error, string? Output, bool ReceiptPresent)>
