@@ -280,10 +280,6 @@ public sealed class SubAgentRegistryRebaseSeedProvider(SubAgentChildRegistry reg
             .ReadSubAgentCreationsAsync(thread, cancellationToken).ConfigureAwait(false))
             records.Add(record);
         return records
-            .Where(static record => record.Phase is not SubAgentCreationPhase.Terminal)
-            .Concat(records.Where(static record => record.Phase == SubAgentCreationPhase.Terminal)
-                .OrderByDescending(static record => record.CreatedAt)
-                .Take(128))
             .OrderBy(static record => record.LocalId.Value, StringComparer.Ordinal)
             .ToArray();
     }
