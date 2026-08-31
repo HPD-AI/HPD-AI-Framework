@@ -25,7 +25,11 @@ internal sealed class SqliteQueryPlanner
     public SqliteQueryPlan Plan(
         RecordQuery query,
         BaseQueryCursorPayload? cursor = null,
-        long? appendHighWater = null)
+        long? appendHighWater = null,
+        string? requiredNativeIndex = null,
+        string? requiredIndexPredicate = null,
+        string? requiredEqualityColumn = null,
+        byte[]? requiredEqualityKey = null)
     {
         _parameterId = 0;
         _parameters.Clear();
@@ -53,6 +57,18 @@ internal sealed class SqliteQueryPlanner
 
         if (appendHighWater is { } highWater)
             filter += " AND append_position <= " + AddParameter(highWater);
+        if (requiredIndexPredicate is not null)
+            filter += " AND (" + requiredIndexPredicate + ")";
+        if (requiredEqualityColumn is not null)
+        {
+            if (requiredEqualityKey is null) throw new InvalidOperationException();
+            filter += " AND " + requiredEqualityColumn + " IS NOT NULL AND "
+                + requiredEqualityColumn + " = " + AddParameter(requiredEqualityKey);
+        }
+        else if (requiredEqualityKey is not null)
+        {
+            throw new InvalidOperationException();
+        }
         if (cursor is not null)
         {
             string? continuation = PlanCursor(query.Sort, cursor);
@@ -63,10 +79,13 @@ internal sealed class SqliteQueryPlanner
         var sort = PlanSort(query.Sort);
         var page = PlanPage(query.Page);
         var unsupported = _unsupported.ToArray();
+        string access = requiredNativeIndex is null
+            ? _collection.Table
+            : _collection.Table + " INDEXED BY " + requiredNativeIndex;
         return new SqliteQueryPlan(
             unsupported.Length == 0,
             unsupported,
-            $"SELECT {_collection.SelectList} FROM {_collection.Table} WHERE {filter}{sort}{page.Sql}",
+            $"SELECT {_collection.SelectList} FROM {access} WHERE {filter}{sort}{page.Sql}",
             $"SELECT COUNT(*) FROM {_collection.Table} WHERE {filter}",
             _parameters.ToArray(),
             page.PageInfo);

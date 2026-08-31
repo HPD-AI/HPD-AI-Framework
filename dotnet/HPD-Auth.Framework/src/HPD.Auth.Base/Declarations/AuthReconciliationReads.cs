@@ -19,7 +19,6 @@ internal sealed partial record AuthTombstonedUsersForReconciliationReadV1
         [BaseReadField("auth.read.tombstonedUsersForReconciliation.v1.row.tenantId")] public required Guid TenantId { get; init; }
         [BaseReadField("auth.read.tombstonedUsersForReconciliation.v1.row.subjectId")] public required Guid SubjectId { get; init; }
         [BaseReadField("auth.read.tombstonedUsersForReconciliation.v1.row.privateRevision")] public required RevisionToken PrivateRevision { get; init; }
-        [BaseReadField("auth.read.tombstonedUsersForReconciliation.v1.row.subject")] public required BaseSubjectReference<AuthUserSubject> Subject { get; init; }
         [BaseReadField("auth.read.tombstonedUsersForReconciliation.v1.row.tombstoneSequence")] public required long TombstoneSequence { get; init; }
         [BaseReadField("auth.read.tombstonedUsersForReconciliation.v1.row.tombstonedAt"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public DateTimeOffset? TombstonedAt { get; init; }
     }
@@ -39,7 +38,6 @@ internal sealed partial record AuthTombstonedUsersForReconciliationReadV1
             .Project(Row.Fields.TenantId, user.Field(AuthUserRecordV1.Fields.TenantId))
             .Project(Row.Fields.SubjectId, user.Field(AuthUserRecordV1.Fields.Id))
             .Project(Row.Fields.PrivateRevision, user.Revision)
-            .ProjectSubjectReference(Row.Fields.Subject, user, AuthUserSubject.HPDBaseSubjectRegistration)
             .Project(Row.Fields.TombstoneSequence, user.Field(AuthUserRecordV1.Fields.TombstoneGeneration))
             .Project(Row.Fields.TombstonedAt, user.Field(AuthUserRecordV1.Fields.DeletedAt))
             .OrderBy(user.Field(AuthUserRecordV1.Fields.TenantId))
@@ -64,7 +62,6 @@ internal sealed partial record AuthTombstonedRolesForReconciliationReadV1
         [BaseReadField("auth.read.tombstonedRolesForReconciliation.v1.row.tenantId")] public required Guid TenantId { get; init; }
         [BaseReadField("auth.read.tombstonedRolesForReconciliation.v1.row.subjectId")] public required Guid SubjectId { get; init; }
         [BaseReadField("auth.read.tombstonedRolesForReconciliation.v1.row.privateRevision")] public required RevisionToken PrivateRevision { get; init; }
-        [BaseReadField("auth.read.tombstonedRolesForReconciliation.v1.row.subject")] public required BaseSubjectReference<AuthRoleSubject> Subject { get; init; }
         [BaseReadField("auth.read.tombstonedRolesForReconciliation.v1.row.tombstoneSequence")] public required long TombstoneSequence { get; init; }
         [BaseReadField("auth.read.tombstonedRolesForReconciliation.v1.row.tombstonedAt"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public DateTimeOffset? TombstonedAt { get; init; }
     }
@@ -86,7 +83,6 @@ internal sealed partial record AuthTombstonedRolesForReconciliationReadV1
             .Project(Row.Fields.TenantId, role.Field(AuthRoleRecordV1.Fields.TenantId))
             .Project(Row.Fields.SubjectId, role.Field(AuthRoleRecordV1.Fields.Id))
             .Project(Row.Fields.PrivateRevision, role.Revision)
-            .ProjectSubjectReference(Row.Fields.Subject, role, AuthRoleSubject.HPDBaseSubjectRegistration)
             .Project(Row.Fields.TombstoneSequence, role.Field(AuthRoleRecordV1.Fields.TombstoneGeneration))
             .Project(Row.Fields.TombstonedAt, role.Field(AuthRoleRecordV1.Fields.DeletedAt))
             .OrderBy(role.Field(AuthRoleRecordV1.Fields.TenantId))
@@ -95,10 +91,133 @@ internal sealed partial record AuthTombstonedRolesForReconciliationReadV1
     }
 }
 
+[BaseRead("auth.read.tombstonedUserReferencesForReconciliation.v1", typeof(AuthReconciliationReadJsonContext),
+    RequiredGrantId = "auth.subject.user.acquire", Disclosure = BaseRegisteredReadDisclosure.ConfidentialProjection,
+    SourceAuthority = BaseRegisteredReadSourceAuthority.System, SystemSourceIds = ["auth.users"])]
+internal sealed partial record AuthTombstonedUserReferencesForReconciliationReadV1
+{
+    [BaseReadParameter("auth.read.tombstonedUserReferencesForReconciliation.v1.parameter.afterTenantId")] public Guid? AfterTenantId { get; init; }
+    [BaseReadParameter("auth.read.tombstonedUserReferencesForReconciliation.v1.parameter.afterSubjectKind")] public AuthCleanupSubjectKindV1? AfterSubjectKind { get; init; }
+    [BaseReadParameter("auth.read.tombstonedUserReferencesForReconciliation.v1.parameter.afterSubjectId")] public Guid? AfterSubjectId { get; init; }
+
+    public sealed partial record Row
+    {
+        [BaseReadField("auth.read.tombstonedUserReferencesForReconciliation.v1.row.reference")]
+        public required BaseSubjectReference<AuthUserSubject> Reference { get; init; }
+    }
+
+    public static void Configure(BaseReadDefinitionBuilder<AuthTombstonedUserReferencesForReconciliationReadV1, Row> read)
+    {
+        read.From(AuthUserRecordV1.Collection, "user", out BaseReadSource<AuthUserRecordV1> user);
+        BaseReadOperand<Guid> tenant = read.OptionalParameter(Parameters.AfterTenantId);
+        BaseReadOperand<AuthCleanupSubjectKindV1> kind = read.OptionalParameter(Parameters.AfterSubjectKind);
+        BaseReadOperand<Guid> subject = read.OptionalParameter(Parameters.AfterSubjectId);
+        BaseReadPredicate boundary = tenant.IsNull()
+            .Or(user.Field(AuthUserRecordV1.Fields.TenantId).GreaterThan(tenant))
+            .Or(user.Field(AuthUserRecordV1.Fields.TenantId).Equal(tenant)
+                .And(kind.Equal(read.ClosedEnumLiteral(AuthCleanupSubjectKindV1.user)))
+                .And(user.Field(AuthUserRecordV1.Fields.Id).GreaterThan(subject)));
+        read.Where(user.Field(AuthUserRecordV1.Fields.IsDeleted).Equal(read.Literal(true)).And(boundary))
+            .ProjectSubjectReference(Row.Fields.Reference, user, AuthUserSubject.HPDBaseSubjectRegistration)
+            .OrderBy(user.Field(AuthUserRecordV1.Fields.TenantId))
+            .OrderBy(user.Field(AuthUserRecordV1.Fields.Id))
+            .Limits(200, 262_144, 12, 750);
+    }
+}
+
+[BaseRead("auth.read.tombstonedRoleReferencesForReconciliation.v1", typeof(AuthReconciliationReadJsonContext),
+    RequiredGrantId = "auth.subject.role.acquire", Disclosure = BaseRegisteredReadDisclosure.ConfidentialProjection,
+    SourceAuthority = BaseRegisteredReadSourceAuthority.System, SystemSourceIds = ["auth.roles"])]
+internal sealed partial record AuthTombstonedRoleReferencesForReconciliationReadV1
+{
+    [BaseReadParameter("auth.read.tombstonedRoleReferencesForReconciliation.v1.parameter.afterTenantId")] public Guid? AfterTenantId { get; init; }
+    [BaseReadParameter("auth.read.tombstonedRoleReferencesForReconciliation.v1.parameter.afterSubjectKind")] public AuthCleanupSubjectKindV1? AfterSubjectKind { get; init; }
+    [BaseReadParameter("auth.read.tombstonedRoleReferencesForReconciliation.v1.parameter.afterSubjectId")] public Guid? AfterSubjectId { get; init; }
+
+    public sealed partial record Row
+    {
+        [BaseReadField("auth.read.tombstonedRoleReferencesForReconciliation.v1.row.reference")]
+        public required BaseSubjectReference<AuthRoleSubject> Reference { get; init; }
+    }
+
+    public static void Configure(BaseReadDefinitionBuilder<AuthTombstonedRoleReferencesForReconciliationReadV1, Row> read)
+    {
+        read.From(AuthRoleRecordV1.Collection, "role", out BaseReadSource<AuthRoleRecordV1> role);
+        BaseReadOperand<Guid> tenant = read.OptionalParameter(Parameters.AfterTenantId);
+        BaseReadOperand<AuthCleanupSubjectKindV1> kind = read.OptionalParameter(Parameters.AfterSubjectKind);
+        BaseReadOperand<Guid> subject = read.OptionalParameter(Parameters.AfterSubjectId);
+        BaseReadPredicate sameTenantBoundary = kind.Equal(read.ClosedEnumLiteral(AuthCleanupSubjectKindV1.user))
+            .Or(kind.Equal(read.ClosedEnumLiteral(AuthCleanupSubjectKindV1.role))
+                .And(role.Field(AuthRoleRecordV1.Fields.Id).GreaterThan(subject)));
+        BaseReadPredicate boundary = tenant.IsNull()
+            .Or(role.Field(AuthRoleRecordV1.Fields.TenantId).GreaterThan(tenant))
+            .Or(role.Field(AuthRoleRecordV1.Fields.TenantId).Equal(tenant).And(sameTenantBoundary));
+        read.Where(role.Field(AuthRoleRecordV1.Fields.IsDeleted).Equal(read.Literal(true)).And(boundary))
+            .ProjectSubjectReference(Row.Fields.Reference, role, AuthRoleSubject.HPDBaseSubjectRegistration)
+            .OrderBy(role.Field(AuthRoleRecordV1.Fields.TenantId))
+            .OrderBy(role.Field(AuthRoleRecordV1.Fields.Id))
+            .Limits(200, 262_144, 12, 750);
+    }
+}
+
+[BaseRead("auth.read.tombstonedUserSubjectForReconciliation.v1", typeof(AuthReconciliationReadJsonContext),
+    RequiredGrantId = "auth.subject.user.acquire", Disclosure = BaseRegisteredReadDisclosure.ConfidentialProjection,
+    SourceAuthority = BaseRegisteredReadSourceAuthority.System, SystemSourceIds = ["auth.users"])]
+internal sealed partial record AuthTombstonedUserSubjectForReconciliationReadV1
+{
+    [BaseReadParameter("auth.read.tombstonedUserSubjectForReconciliation.v1.parameter.userId")]
+    public required BaseRecordId<AuthUserRecordV1> UserId { get; init; }
+
+    public sealed partial record Row
+    {
+        [BaseReadField("auth.read.tombstonedUserSubjectForReconciliation.v1.row.reference")]
+        public required BaseSubjectReference<AuthUserSubject> Reference { get; init; }
+    }
+
+    public static void Configure(BaseReadDefinitionBuilder<AuthTombstonedUserSubjectForReconciliationReadV1, Row> read)
+    {
+        read.From(AuthUserRecordV1.Collection, "user", out BaseReadSource<AuthUserRecordV1> user)
+            .Where(user.RecordId.Equal(read.Parameter(Parameters.UserId))
+                .And(user.Field(AuthUserRecordV1.Fields.IsDeleted).Equal(read.Literal(true))))
+            .ProjectSubjectReference(Row.Fields.Reference, user, AuthUserSubject.HPDBaseSubjectRegistration);
+    }
+}
+
+[BaseRead("auth.read.tombstonedRoleSubjectForReconciliation.v1", typeof(AuthReconciliationReadJsonContext),
+    RequiredGrantId = "auth.subject.role.acquire", Disclosure = BaseRegisteredReadDisclosure.ConfidentialProjection,
+    SourceAuthority = BaseRegisteredReadSourceAuthority.System, SystemSourceIds = ["auth.roles"])]
+internal sealed partial record AuthTombstonedRoleSubjectForReconciliationReadV1
+{
+    [BaseReadParameter("auth.read.tombstonedRoleSubjectForReconciliation.v1.parameter.roleId")]
+    public required BaseRecordId<AuthRoleRecordV1> RoleId { get; init; }
+
+    public sealed partial record Row
+    {
+        [BaseReadField("auth.read.tombstonedRoleSubjectForReconciliation.v1.row.reference")]
+        public required BaseSubjectReference<AuthRoleSubject> Reference { get; init; }
+    }
+
+    public static void Configure(BaseReadDefinitionBuilder<AuthTombstonedRoleSubjectForReconciliationReadV1, Row> read)
+    {
+        read.From(AuthRoleRecordV1.Collection, "role", out BaseReadSource<AuthRoleRecordV1> role)
+            .Where(role.RecordId.Equal(read.Parameter(Parameters.RoleId))
+                .And(role.Field(AuthRoleRecordV1.Fields.IsDeleted).Equal(read.Literal(true))))
+            .ProjectSubjectReference(Row.Fields.Reference, role, AuthRoleSubject.HPDBaseSubjectRegistration);
+    }
+}
+
 [JsonSerializable(typeof(AuthTombstonedUsersForReconciliationReadV1), TypeInfoPropertyName = "AuthTombstonedUsersForReconciliationReadV1")]
 [JsonSerializable(typeof(AuthTombstonedUsersForReconciliationReadV1.Row), TypeInfoPropertyName = "AuthTombstonedUsersForReconciliationReadV1Row")]
 [JsonSerializable(typeof(AuthTombstonedRolesForReconciliationReadV1), TypeInfoPropertyName = "AuthTombstonedRolesForReconciliationReadV1")]
 [JsonSerializable(typeof(AuthTombstonedRolesForReconciliationReadV1.Row), TypeInfoPropertyName = "AuthTombstonedRolesForReconciliationReadV1Row")]
+[JsonSerializable(typeof(AuthTombstonedUserReferencesForReconciliationReadV1))]
+[JsonSerializable(typeof(AuthTombstonedUserReferencesForReconciliationReadV1.Row), TypeInfoPropertyName = "AuthTombstonedUserReferencesForReconciliationReadV1Row")]
+[JsonSerializable(typeof(AuthTombstonedRoleReferencesForReconciliationReadV1))]
+[JsonSerializable(typeof(AuthTombstonedRoleReferencesForReconciliationReadV1.Row), TypeInfoPropertyName = "AuthTombstonedRoleReferencesForReconciliationReadV1Row")]
+[JsonSerializable(typeof(AuthTombstonedUserSubjectForReconciliationReadV1))]
+[JsonSerializable(typeof(AuthTombstonedUserSubjectForReconciliationReadV1.Row), TypeInfoPropertyName = "AuthTombstonedUserSubjectForReconciliationReadV1Row")]
+[JsonSerializable(typeof(AuthTombstonedRoleSubjectForReconciliationReadV1))]
+[JsonSerializable(typeof(AuthTombstonedRoleSubjectForReconciliationReadV1.Row), TypeInfoPropertyName = "AuthTombstonedRoleSubjectForReconciliationReadV1Row")]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 internal sealed partial class AuthReconciliationReadJsonContext : JsonSerializerContext;

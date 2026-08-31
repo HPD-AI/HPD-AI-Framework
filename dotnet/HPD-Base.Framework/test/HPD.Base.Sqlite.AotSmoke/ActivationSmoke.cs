@@ -247,6 +247,22 @@ internal sealed class ActivationSmokeHandler : IBaseActivationHandler<Activation
                 ? ensureFailure.Error
                 : retireResult is BaseFailure<BaseModuleMutationExecutionResult<SemanticRetireSmokeResult>> retireFailure
                     ? retireFailure.Error : null;
+            if (error is null && ensureResult is not null)
+            {
+                BaseResult<BaseModuleMutationExecutionResult<SemanticEnsureSmokeResult>> resolved =
+                    await context.ResolveModuleMutationAsync(
+                        SemanticEnsureMutationSmoke.Identity, identity, cancellationToken);
+                error = resolved is BaseFailure<BaseModuleMutationExecutionResult<SemanticEnsureSmokeResult>> failure
+                    ? failure.Error : null;
+            }
+            if (error is null && retireResult is not null)
+            {
+                BaseResult<BaseModuleMutationExecutionResult<SemanticRetireSmokeResult>> resolved =
+                    await context.ResolveModuleMutationAsync(
+                        SemanticRetirementMutationSmoke.Identity, identity, cancellationToken);
+                error = resolved is BaseFailure<BaseModuleMutationExecutionResult<SemanticRetireSmokeResult>> failure
+                    ? failure.Error : null;
+            }
             if (error is not null)
                 return new BaseActivationFailed<ActivationSmokeResult>
             {

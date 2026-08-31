@@ -401,6 +401,43 @@ public sealed record BaseCapturedSelectionEvidence
     public required ImmutableArray<byte> CanonicalOrderBoundary { get; init; }
     /// <summary>Gets exact selection accounting.</summary>
     public required BaseAtomicSelectionAccounting Accounting { get; init; }
+    /// <summary>Gets required logical-index execution evidence when point access was requested.</summary>
+    public required BaseLogicalIndexSelectionEvidence? LogicalIndexEvidence { get; init; }
+}
+
+/// <summary>Contains exact provider evidence for one required logical-index selection.</summary>
+public sealed record BaseLogicalIndexSelectionEvidence
+{
+    /// <summary>Gets the stable logical-index identity.</summary>
+    public required BaseLogicalIndexId IndexId { get; init; }
+    /// <summary>Gets the positive logical-index version.</summary>
+    public required long IndexVersion { get; init; }
+    /// <summary>Gets the exact logical-index checksum.</summary>
+    public required BaseLogicalIndexChecksum IndexChecksum { get; init; }
+    /// <summary>Gets the certified access shape.</summary>
+    public required BaseIndexAccessShape AccessShape { get; init; }
+    /// <summary>Gets the captured directory generation.</summary>
+    public required long DirectoryGeneration { get; init; }
+    /// <summary>Gets the exact directory-publication checksum.</summary>
+    public required ImmutableArray<byte> DirectoryPublicationChecksum { get; init; }
+    /// <summary>Gets the exact member-set checksum.</summary>
+    public required ImmutableArray<byte> MemberSetChecksum { get; init; }
+    /// <summary>Gets the exact equality-key checksum.</summary>
+    public required ImmutableArray<byte> EqualityKeyChecksum { get; init; }
+    /// <summary>Gets the matched membership-predicate proof checksum.</summary>
+    public required ImmutableArray<byte> MatchedPredicateChecksum { get; init; }
+    /// <summary>Gets the normalized point read interval.</summary>
+    public required BaseAtomicReadIntervalEvidence ReadInterval { get; init; }
+    /// <summary>Gets examined posting memberships.</summary>
+    public required int ExaminedPostings { get; init; }
+    /// <summary>Gets retained candidate records.</summary>
+    public required int Candidates { get; init; }
+    /// <summary>Gets provider comparator operations.</summary>
+    public required int Comparisons { get; init; }
+    /// <summary>Gets exact canonical evidence bytes before the trailing checksum.</summary>
+    public required long EvidenceBytes { get; init; }
+    /// <summary>Gets the canonical evidence checksum.</summary>
+    public required ImmutableArray<byte> Checksum { get; init; }
 }
 
 /// <summary>Contains one captured L50 record.</summary>

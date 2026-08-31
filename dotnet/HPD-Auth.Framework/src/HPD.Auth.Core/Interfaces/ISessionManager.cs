@@ -24,6 +24,20 @@ public interface ISessionManager
         CancellationToken ct = default);
 
     /// <summary>
+    /// Advances one active session's last-activity instant and bounded request metadata.
+    /// </summary>
+    /// <param name="userId">The owning user identifier.</param>
+    /// <param name="sessionId">The session identifier.</param>
+    /// <param name="context">The current bounded session context.</param>
+    /// <param name="ct">The cancellation token.</param>
+    /// <returns>The committed current session value.</returns>
+    Task<UserSession> TouchSessionAsync(
+        Guid userId,
+        Guid sessionId,
+        SessionContext context,
+        CancellationToken ct = default);
+
+    /// <summary>
     /// Revoke a specific session by its ID.
     /// </summary>
     Task RevokeSessionAsync(Guid sessionId, CancellationToken ct = default);

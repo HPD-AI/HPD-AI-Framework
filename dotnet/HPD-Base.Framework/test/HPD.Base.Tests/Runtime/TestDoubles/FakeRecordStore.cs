@@ -478,8 +478,34 @@ internal class FakeRecordStore : IAtomicRecordStore
                     });
                 }
             }
+            ImmutableArray<BaseCapturedSubjectLifecycleConsumerProjection> lifecycleProjections =
+                [.. request.LifecycleConsumerProjections.Select(projection =>
+                {
+                    byte[] key = Encoding.UTF8.GetBytes($"{projection.ConsumerId}\0{projection.ConsumerVersion}");
+                    intervalBuilder.Add(new BaseAtomicReadIntervalEvidence
+                    {
+                        LogicalAccessPathId = "subject-lifecycle:consumer-projection",
+                        CanonicalLowerBound = key.ToImmutableArray(),
+                        LowerInclusive = true,
+                        CanonicalUpperBound = key.ToImmutableArray(),
+                        UpperInclusive = true,
+                    });
+                    digest.AppendData(key);
+                    return new BaseCapturedSubjectLifecycleConsumerProjection
+                    {
+                        ConsumerId = projection.ConsumerId,
+                        ConsumerVersion = projection.ConsumerVersion,
+                        ConsumerChecksum = projection.ConsumerChecksum,
+                        ContractId = projection.ContractId,
+                        ContractVersion = projection.ContractVersion,
+                        ProjectionGeneration = 1,
+                        PublishedGraphGeneration = 1,
+                    };
+                })];
             ImmutableArray<BaseAtomicReadIntervalEvidence> intervals = intervalBuilder.ToImmutable();
             long evidence = BaseSubjectCanonicalRetainedWork.MeasureIntervals(intervals);
+            long lifecycleProjectionBytes =
+                BaseSubjectCanonicalRetainedWork.MeasureLifecycleConsumerProjections(lifecycleProjections);
             _captured = new BaseCapturedAtomicExecution
             {
                 Kind = request.Kind,
@@ -499,6 +525,7 @@ internal class FakeRecordStore : IAtomicRecordStore
                 Items = items,
                 ModuleRecords = moduleRecords.ToImmutable(), ModuleRelationTargets = [],
                 Generations = moduleGenerations.ToImmutable(),
+                LifecycleConsumerProjections = lifecycleProjections,
                 ReadIntervals = intervals,
                 Accounting = new BaseAtomicCaptureAccounting
                 {
@@ -510,7 +537,7 @@ internal class FakeRecordStore : IAtomicRecordStore
                     RelationTargetBytes = 0, GenerationBytes = generationBytes,
                     ReadIntervals = intervals.Length,
                     EvidenceBytes = evidence,
-                    TransientBytes = selected + evidence + generationBytes,
+                    TransientBytes = selected + evidence + generationBytes + lifecycleProjectionBytes,
                     RetirementBarrierReads=0,RetirementAcknowledgementReads=0,RetirementProjections=0,RetirementPublications=0,RetirementEvidenceBytes=0,RetirementPublicationBytes=0,
                 },
             };

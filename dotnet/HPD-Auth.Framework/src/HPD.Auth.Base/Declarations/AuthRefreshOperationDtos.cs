@@ -8,7 +8,7 @@ internal sealed record AuthRefreshIssueV1
     [BaseField("auth.operation.refresh.issue.createdAt"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset CreatedAt { get; init; }
     [BaseField("auth.operation.refresh.issue.deliveryExpiresAt"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset DeliveryExpiresAt { get; init; }
     [BaseField("auth.operation.refresh.issue.deliveryId", MinimumUtf8Bytes = 64, MaximumUtf8Bytes = 64)] public required string DeliveryId { get; init; }
-    [BaseField("auth.operation.refresh.issue.digestAlgorithm", AllowedEnumLiterals = ["hmac-sha256-v1", "legacy-sha256-v1"]), JsonConverter(typeof(BaseClosedEnumJsonConverter<AuthRefreshDigestAlgorithmV1>))] public required AuthRefreshDigestAlgorithmV1 DigestAlgorithm { get; init; }
+    [BaseField("auth.operation.refresh.issue.digestAlgorithm", AllowedEnumLiterals = ["hmac-sha256-v1"]), JsonConverter(typeof(BaseClosedEnumJsonConverter<AuthRefreshDigestAlgorithmV1>))] public required AuthRefreshDigestAlgorithmV1 DigestAlgorithm { get; init; }
     [BaseField("auth.operation.refresh.issue.digestKeyVersion", MinimumInt32 = 1, HasMinimumInt32 = true)] public required int DigestKeyVersion { get; init; }
     [BaseField("auth.operation.refresh.issue.expectedUserRevision")] public required RevisionToken ExpectedUserRevision { get; init; }
     [BaseField("auth.operation.refresh.issue.expiresAt"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset ExpiresAt { get; init; }
@@ -40,7 +40,7 @@ internal sealed record AuthRefreshRotateV1
     [BaseField("auth.operation.refresh.rotate.createdAt"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset CreatedAt { get; init; }
     [BaseField("auth.operation.refresh.rotate.deliveryExpiresAt"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset DeliveryExpiresAt { get; init; }
     [BaseField("auth.operation.refresh.rotate.deliveryId", MinimumUtf8Bytes = 64, MaximumUtf8Bytes = 64)] public required string DeliveryId { get; init; }
-    [BaseField("auth.operation.refresh.rotate.digestAlgorithm", AllowedEnumLiterals = ["hmac-sha256-v1", "legacy-sha256-v1"]), JsonConverter(typeof(BaseClosedEnumJsonConverter<AuthRefreshDigestAlgorithmV1>))] public required AuthRefreshDigestAlgorithmV1 DigestAlgorithm { get; init; }
+    [BaseField("auth.operation.refresh.rotate.digestAlgorithm", AllowedEnumLiterals = ["hmac-sha256-v1"]), JsonConverter(typeof(BaseClosedEnumJsonConverter<AuthRefreshDigestAlgorithmV1>))] public required AuthRefreshDigestAlgorithmV1 DigestAlgorithm { get; init; }
     [BaseField("auth.operation.refresh.rotate.digestKeyVersion", MinimumInt32 = 1, HasMinimumInt32 = true)] public required int DigestKeyVersion { get; init; }
     [BaseField("auth.operation.refresh.rotate.expectedPredecessorRevision")] public required RevisionToken ExpectedPredecessorRevision { get; init; }
     [BaseField("auth.operation.refresh.rotate.expectedSecurityStampDigest", MaximumBytes = 32)] public required BaseBinary ExpectedSecurityStampDigest { get; init; }

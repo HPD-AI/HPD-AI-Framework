@@ -1,7 +1,7 @@
 using System.Buffers.Binary;
-using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using HPD.Auth.Base;
 using HPD.Base;
 
 namespace HPD.Auth.Infrastructure.Base;
@@ -36,25 +36,15 @@ internal static class AuthBaseDeterministicId
         BaseSubjectIncarnation incarnation,
         long tombstoneSequence)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(subjectKind);
-        ArgumentNullException.ThrowIfNull(contract);
-        if (tombstoneSequence <= 0)
-            throw new ArgumentOutOfRangeException(nameof(tombstoneSequence));
-
-        string[] components =
-        [
-            "hpd.auth.cleanup-work.v1",
-            tenantId.ToString("D"),
-            subjectKind,
-            subjectId.ToString("D"),
-            contract.Id,
-            contract.Version.ToString(CultureInfo.InvariantCulture),
-            contract.Checksum,
-            incarnation.ToBase64Url(),
-            tombstoneSequence.ToString(CultureInfo.InvariantCulture),
-        ];
-        byte[] canonical = Encoding.UTF8.GetBytes(string.Join('\0', components));
-        return Convert.ToHexStringLower(SHA256.HashData(canonical));
+        return AuthCleanupWorkIdentity.Create(
+            tenantId, subjectKind, subjectId,
+            subjectKind switch
+            {
+                "user" => AuthUserSubject.HPDBaseSubjectRegistration,
+                "role" => AuthRoleSubject.HPDBaseSubjectRegistration,
+                _ => throw new ArgumentOutOfRangeException(nameof(subjectKind)),
+            },
+            incarnation, tombstoneSequence);
     }
 
     private static void WriteInt32(Stream stream, int value)

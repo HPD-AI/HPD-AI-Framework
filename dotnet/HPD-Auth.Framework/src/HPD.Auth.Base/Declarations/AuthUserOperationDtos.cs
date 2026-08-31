@@ -3,7 +3,7 @@ using HPD.Base;
 
 namespace HPD.Auth.Base;
 
-internal sealed record AuthCreateUserV1
+internal sealed partial record AuthCreateUserV1
 {
     [BaseField("auth.operation.user.create.tenantId"), JsonConverter(typeof(BaseCanonicalGuidJsonConverter))] public required Guid TenantId { get; init; }
     [BaseField("auth.operation.user.create.userId"), JsonConverter(typeof(BaseCanonicalGuidJsonConverter))] public required Guid UserId { get; init; }
@@ -80,7 +80,7 @@ internal sealed record AuthUpdateUserProfileResultV1
     [BaseField("auth.operation.user.profile.result.userGeneration")] public required BaseModuleGeneration UserGeneration { get; init; }
 }
 
-internal sealed record AuthChangePasswordV1
+internal sealed partial record AuthChangePasswordV1
 {
     [BaseField("auth.operation.user.password.tenantId"), JsonConverter(typeof(BaseCanonicalGuidJsonConverter))] public required Guid TenantId { get; init; }
     [BaseField("auth.operation.user.password.userId"), JsonConverter(typeof(BaseCanonicalGuidJsonConverter))] public required Guid UserId { get; init; }
@@ -91,7 +91,7 @@ internal sealed record AuthChangePasswordV1
     [BaseField("auth.operation.user.password.operationTime"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset OperationTime { get; init; }
 }
 
-internal sealed record AuthRemovePasswordV1
+internal sealed partial record AuthRemovePasswordV1
 {
     [BaseField("auth.operation.user.password.remove.tenantId"), JsonConverter(typeof(BaseCanonicalGuidJsonConverter))] public required Guid TenantId { get; init; }
     [BaseField("auth.operation.user.password.remove.userId"), JsonConverter(typeof(BaseCanonicalGuidJsonConverter))] public required Guid UserId { get; init; }
@@ -101,7 +101,7 @@ internal sealed record AuthRemovePasswordV1
     [BaseField("auth.operation.user.password.remove.operationTime"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset OperationTime { get; init; }
 }
 
-internal sealed record AuthResetPasswordV1
+internal sealed partial record AuthResetPasswordV1
 {
     [BaseField("auth.operation.user.password.reset.tenantId"), JsonConverter(typeof(BaseCanonicalGuidJsonConverter))] public required Guid TenantId { get; init; }
     [BaseField("auth.operation.user.password.reset.userId"), JsonConverter(typeof(BaseCanonicalGuidJsonConverter))] public required Guid UserId { get; init; }
@@ -113,7 +113,7 @@ internal sealed record AuthResetPasswordV1
     [BaseField("auth.operation.user.password.reset.operationTime"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset OperationTime { get; init; }
 }
 
-internal sealed record AuthSetSecurityStateV1
+internal sealed partial record AuthSetSecurityStateV1
 {
     [BaseField("auth.operation.user.security.tenantId"), JsonConverter(typeof(BaseCanonicalGuidJsonConverter))] public required Guid TenantId { get; init; }
     [BaseField("auth.operation.user.security.userId"), JsonConverter(typeof(BaseCanonicalGuidJsonConverter))] public required Guid UserId { get; init; }

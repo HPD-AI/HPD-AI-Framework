@@ -31,7 +31,7 @@ public sealed class SqliteVecEndToEndTests
             (await collection.CreateAsync(RecordId.Create("purged"), new PurgeVectorDocument { Title = "Purged", Embedding = BaseVector.Create([1, 0]) })).RequireValue();
             (await collection.CreateAsync(RecordId.Create("survivor"), new PurgeVectorDocument { Title = "Survivor", Embedding = BaseVector.Create([0, 1]) })).RequireValue();
 
-            BasePurgeResult purge = (await provider.GetRequiredService<IHPDBaseAdministration>().PurgeAsync(new BasePurgeRequest
+            BaseResult<BasePurgeResult> purgeResult = await provider.GetRequiredService<IHPDBaseAdministration>().PurgeAsync(new BasePurgeRequest
             {
                 CollectionId = PurgeVectorDocument.Collection.Id,
                 RecordIds = [RecordId.Create("purged")],
@@ -40,7 +40,11 @@ public sealed class SqliteVecEndToEndTests
                 AuditReference = "vector-purge-test",
                 EvaluatedAt = DateTimeOffset.UtcNow,
                 ExpectedPurgeGeneration = 0,
-            })).RequireValue();
+            });
+            (purgeResult is BaseSuccess<BasePurgeResult>).Should().BeTrue(purgeResult is BaseFailure<BasePurgeResult> failure
+                ? failure.Error.Code + ": " + failure.Error.Message
+                : "the purge result must be successful");
+            BasePurgeResult purge = purgeResult.RequireValue();
             purge.PurgedCount.Should().Be(1);
             BaseVectorResult<PurgeVectorDocument> afterPurge = (await collection.Vector(PurgeVectorDocument.VectorIndexes.Semantic).Nearest(BaseVector.Create([0, 1])).Take(2).ExecuteAsync()).RequireValue();
             afterPurge.Matches.Select(static match => match.Record.Id.Value).Should().Equal("survivor");

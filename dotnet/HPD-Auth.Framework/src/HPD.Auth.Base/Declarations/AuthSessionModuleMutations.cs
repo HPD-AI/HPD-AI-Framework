@@ -105,9 +105,7 @@ internal static partial class AuthSessionCreateOperationV1
             Field(AuthSessionRecordV1.Fields.RevokedAt, RequestProperties.RevokedAt, "revokedAt"),
             Field(AuthSessionRecordV1.Fields.Scopes, RequestProperties.Scopes, "scopes"),
             BaseModuleMutationTemplateBuilder.Field(AuthSessionRecordV1.Fields.SecurityGeneration,
-                BaseModuleMutationTemplateBuilder.LiftOptional("hpd.auth.session.create.expression.securityGeneration.000",
-                    AuthSessionRecordV1.Fields.SecurityGeneration.ModuleMutation,
-                    BaseModuleMutationTemplateBuilder.CapturedGeneration("hpd.auth.session.create.expression.securityGenerationSource.000", SecurityCapture))),
+                BaseModuleMutationTemplateBuilder.CapturedGeneration("hpd.auth.session.create.expression.securityGeneration.000", SecurityCapture)),
             Field(AuthSessionRecordV1.Fields.SsoProviderId, RequestProperties.SsoProviderId, "ssoProviderId"),
             Field(AuthSessionRecordV1.Fields.State, RequestProperties.State, "state"),
             Field(AuthSessionRecordV1.Fields.TenantId, RequestProperties.TenantId, "tenantId"),
@@ -144,7 +142,7 @@ internal static partial class AuthSessionTouchOperationV1
             Template = new BaseModuleMutationTemplate
             {
                 Captures = [SecurityGeneration(), Session(), User()],
-                Guards = [ActivityMonotonic(), ActivityNotFuture(), SessionActive(), SessionGeneration(), SessionRevision(), SessionTenant(), SessionUnrevoked(), SessionUser(), UserActive(), UserNotDeleted(), UserRevision(), UserTenant()],
+                Guards = [ActivityMonotonic(), ActivityNotFuture(), SessionActive(), SessionGeneration(), SessionRevision(), SessionSsoProvider(), SessionTenant(), SessionUnrevoked(), SessionUser(), UserActive(), UserNotDeleted(), UserRevision(), UserTenant()],
                 Preconditions = [BaseModuleMutationTemplateBuilder.Precondition(
                     "hpd.auth.session.touch.precondition.activityNotFuture",
                     "hpd.auth.session.touch.guard.activityNotFuture",
@@ -155,7 +153,8 @@ internal static partial class AuthSessionTouchOperationV1
                     [
                         Require("activityMonotonic", "auth.session.activityRegression"),
                         Require("sessionActive", "auth.session.inactive"), Require("sessionGeneration", "auth.credential.generationMismatch"),
-                        Require("sessionRevision", "auth.session.revisionMismatch"), Require("sessionTenant", "auth.session.scopeMismatch"),
+                        Require("sessionRevision", "auth.session.revisionMismatch"), Require("sessionSsoProvider", "auth.session.scopeMismatch"),
+                        Require("sessionTenant", "auth.session.scopeMismatch"),
                         Require("sessionUser", "auth.session.scopeMismatch"), Require("sessionUnrevoked", "auth.session.revoked"),
                         Require("userActive", "auth.user.inactive"), Require("userNotDeleted", "auth.user.deleted"),
                         Require("userRevision", "auth.user.revisionMismatch"), Require("userTenant", "auth.user.scopeMismatch"), Patch(),
@@ -189,9 +188,11 @@ internal static partial class AuthSessionTouchOperationV1
     private static BaseModuleFieldEqualsGuard SessionActive() => BaseModuleMutationTemplateBuilder.FieldEquals("hpd.auth.session.touch.guard.sessionActive", SessionCapture,
         AuthSessionRecordV1.Fields.State.ModuleMutation, BaseModuleMutationTemplateBuilder.Constant("hpd.auth.session.touch.expression.active.000", AuthSessionRecordV1.Fields.State.ConstantAuthority, AuthSessionStateV1.active));
     private static BaseModuleFieldEqualsGuard SessionGeneration() => BaseModuleMutationTemplateBuilder.FieldEquals("hpd.auth.session.touch.guard.sessionGeneration", SessionCapture,
-        AuthSessionRecordV1.Fields.SecurityGeneration.ModuleMutation, BaseModuleMutationTemplateBuilder.LiftOptional("hpd.auth.session.touch.expression.sessionGeneration.000",
-            AuthSessionRecordV1.Fields.SecurityGeneration.ModuleMutation, BaseModuleMutationTemplateBuilder.CapturedGeneration("hpd.auth.session.touch.expression.sessionGenerationSource.000", SecurityCapture)));
+        AuthSessionRecordV1.Fields.SecurityGeneration.ModuleMutation, BaseModuleMutationTemplateBuilder.CapturedGeneration("hpd.auth.session.touch.expression.sessionGeneration.000", SecurityCapture));
     private static BaseModuleRevisionEqualsGuard SessionRevision() => Revision("sessionRevision", SessionCapture, RequestProperties.ExpectedSessionRevision);
+    private static BaseModuleFieldEqualsGuard SessionSsoProvider() => BaseModuleMutationTemplateBuilder.FieldEquals(
+        "hpd.auth.session.touch.guard.sessionSsoProvider", SessionCapture, AuthSessionRecordV1.Fields.SsoProviderId.ModuleMutation,
+        BaseModuleMutationTemplateBuilder.Request("hpd.auth.session.touch.expression.sessionSsoProvider.000", RequestProperties.SsoProviderId));
     private static BaseModuleFieldEqualsGuard SessionTenant() => Tenant("sessionTenant", SessionCapture, AuthSessionRecordV1.Fields.TenantId.ModuleMutation);
     private static BaseModuleFieldEqualsGuard SessionUser() => BaseModuleMutationTemplateBuilder.FieldEquals("hpd.auth.session.touch.guard.sessionUser", SessionCapture, AuthSessionRecordV1.Fields.UserId.ModuleMutation, UserId("sessionGuard"));
     private static BaseModuleFieldEqualsGuard SessionUnrevoked() => Boolean("sessionUnrevoked", SessionCapture, AuthSessionRecordV1.Fields.Revoked.ModuleMutation, AuthSessionRecordV1.Fields.Revoked.ConstantAuthority, false);
@@ -216,7 +217,11 @@ internal static partial class AuthSessionTouchOperationV1
             Field(AuthSessionRecordV1.Fields.DeviceInfo, RequestProperties.DeviceInfo, "deviceInfo"),
             Field(AuthSessionRecordV1.Fields.IpAddress, RequestProperties.IpAddress, "ipAddress"),
             Field(AuthSessionRecordV1.Fields.LastActiveAt, RequestProperties.LastActiveAt, "lastActiveAt"),
-            Field(AuthSessionRecordV1.Fields.UserAgent, RequestProperties.UserAgent, "userAgent")),
+            Field(AuthSessionRecordV1.Fields.SsoProviderId, RequestProperties.SsoProviderId, "ssoProviderId"),
+            Field(AuthSessionRecordV1.Fields.UserAgent, RequestProperties.UserAgent, "userAgent"),
+            BaseModuleMutationTemplateBuilder.Field(
+                AuthSessionRecordV1.Fields.UserId,
+                UserId("patchRelation"))),
         BaseModuleMutationTemplateBuilder.Request("hpd.auth.session.touch.expression.patchRevision.000", RequestProperties.ExpectedSessionRevision));
     private static BaseModuleFieldValue<AuthSessionRecordV1> Field<T>(BaseField<AuthSessionRecordV1, T> field,
         BaseModuleRequestProperty<AuthSessionTouchV1, T> property, string suffix) => BaseModuleMutationTemplateBuilder.Field(field,

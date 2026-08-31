@@ -26,6 +26,20 @@ internal sealed partial class AuthBaseUserStore
 
         byte[] digest = SHA256.HashData(passkey.CredentialId);
         string passkeyId = Convert.ToHexStringLower(digest);
+        AuthPasskeyByDigestReadV1.Row? existing = await FindPasskeyRowAsync(
+            passkey.CredentialId, cancellationToken).ConfigureAwait(false);
+        if (existing is not null)
+        {
+            if (!string.Equals(existing.UserId.Value.Value, user.Id.ToString("D"), StringComparison.Ordinal))
+                throw new AuthBasePersistenceException("auth.persistence.invalidAuthority");
+            if (IsAssertionUpdate(existing, passkey))
+            {
+                await RecordPasskeyAssertionAsync(
+                    user, authority, existing, passkey, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+        }
+
         string nextSecurityStamp = Guid.NewGuid().ToString("N");
         string nextConcurrencyStamp = Guid.NewGuid().ToString("N");
         DateTimeOffset now = runtime.GetUtcNow();
@@ -190,6 +204,48 @@ internal sealed partial class AuthBaseUserStore
             ? row
             : null;
     }
+
+    private async Task RecordPasskeyAssertionAsync(
+        ApplicationUser user,
+        AuthUserAuthorityLease authority,
+        AuthPasskeyByDigestReadV1.Row existing,
+        UserPasskeyInfo passkey,
+        CancellationToken cancellationToken)
+    {
+        DateTimeOffset now = runtime.GetUtcNow();
+        var request = new AuthPasskeyRecordAssertionV1
+        {
+            TenantId = runtime.TenantId,
+            UserId = user.Id,
+            PasskeyId = existing.Id,
+            ExpectedUserRevision = authority.Revision,
+            ExpectedPasskeyRevision = existing.Revision,
+            PresentedCounter = passkey.SignCount,
+            BackedUp = passkey.IsBackedUp,
+            CounterSupported = existing.SignatureCounter != 0 || passkey.SignCount != 0,
+            UserVerified = passkey.IsUserVerified,
+            OperationTime = now,
+        };
+        BaseInstalledModuleMutationHandle<AuthPasskeyRecordAssertionV1, AuthPasskeyAssertionResultV1> operation = runtime
+            .OpenServiceSession().ModuleMutations.Get(AuthPasskeyRecordAssertionOperationV1.Identity);
+        BaseMutationRequestIdentity identity = operation.CreateRequestIdentity(
+            request,
+            $"user:{user.Id:D}:revision:{authority.Revision.Value}:passkey:{existing.Id}:revision:{existing.Revision.Value}:assertion");
+        BaseResult<BaseModuleMutationExecutionResult<AuthPasskeyAssertionResultV1>> result = await operation
+            .ExecuteAsync(request, identity, cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        if (result is BaseFailure<BaseModuleMutationExecutionResult<AuthPasskeyAssertionResultV1>> failure)
+            throw new AuthBasePersistenceException(AuthBaseIdentityErrorMapper.SafeWriteCode(failure.Error));
+    }
+
+    private static bool IsAssertionUpdate(AuthPasskeyByDigestReadV1.Row existing, UserPasskeyInfo passkey) =>
+        existing.CreatedAt == passkey.CreatedAt
+        && string.Equals(existing.Name, passkey.Name, StringComparison.Ordinal)
+        && existing.BackupEligible == passkey.IsBackupEligible
+        && CryptographicOperations.FixedTimeEquals(existing.PublicKey.ToArray(), passkey.PublicKey)
+        && CryptographicOperations.FixedTimeEquals(existing.AttestationObject.ToArray(), passkey.AttestationObject)
+        && CryptographicOperations.FixedTimeEquals(existing.ClientDataJson.ToArray(), passkey.ClientDataJson)
+        && ParseTransports(existing.Transports).SequenceEqual(passkey.Transports ?? [], StringComparer.Ordinal);
 
     private static UserPasskeyInfo ToPasskeyInfo(AuthUserPasskeysReadV1.Row row) => new(
         row.CredentialId.ToArray(), row.PublicKey.ToArray(), row.CreatedAt, checked((uint)row.SignatureCounter),

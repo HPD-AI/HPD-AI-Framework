@@ -491,6 +491,9 @@ static RecordPayload FieldPatch(string name, bool value)
 namespace HPD.Base.AotSmoke
 {
     [BaseCollection("aot.projects", typeof(AotApplicationJsonContext))]
+    [BaseIndex("aot.projects.by-organization-name", StoreRequired = true)]
+    [BaseIndexPart("aot.projects.by-organization-name", 0, nameof(AotProject.OrganizationId))]
+    [BaseIndexPart("aot.projects.by-organization-name", 1, nameof(AotProject.Name))]
     internal sealed partial record AotProject
     {
         [BaseField("organization-id")]

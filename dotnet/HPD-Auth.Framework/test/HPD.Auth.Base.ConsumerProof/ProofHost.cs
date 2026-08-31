@@ -8,14 +8,14 @@ namespace HPD.Auth.Base.ConsumerProof;
 
 internal static class ProofHost
 {
-    internal static async Task RunAsync(bool sqlite)
+    internal static async Task RunAsync(bool sqlite, bool l81Only = false)
     {
         string? dataSource = sqlite ? Path.Combine(Path.GetTempPath(), $"hpd-auth-l3b-{Guid.NewGuid():N}.db") : null;
         try
         {
             var services = new ServiceCollection();
             services.AddLogging();
-            var clock = new ProofTimeProvider(DateTimeOffset.UtcNow);
+            var clock = new ProofTimeProvider(DateTimeOffset.UnixEpoch);
             services.AddSingleton<TimeProvider>(clock);
             services.AddHPDBase(builder => Configure(builder, dataSource));
             await using ServiceProvider provider = services.BuildServiceProvider(
@@ -47,6 +47,11 @@ internal static class ProofHost
                 SubjectId = "proof-service",
                 CurrentTenantId = "tenant-a",
             });
+            if (l81Only)
+            {
+                await ExecuteLifecycleAsync(session, sqlite ? "sqlite" : "inmemory");
+                return;
+            }
             await ExecuteIdentityAndGenerationAsync(session, sqlite ? "sqlite" : "inmemory");
             await ExecuteRequestControlAsync(session, sqlite ? "sqlite" : "inmemory");
             await ExecuteStaticSetAsync(session, sqlite ? "sqlite" : "inmemory");
@@ -57,7 +62,7 @@ internal static class ProofHost
             await ExecuteRegisteredReadsAsync(session, sqlite ? "sqlite" : "inmemory");
             await ExecuteCrossMarkerStorageAsync(session, sqlite ? "sqlite" : "inmemory");
             await ExecuteLifecycleAsync(session, sqlite ? "sqlite" : "inmemory");
-            await ExecuteScheduleAsync(session, sqlite ? "sqlite" : "inmemory");
+            await ExecuteScheduleAsync(session, sqlite ? "sqlite" : "inmemory", clock);
             await ExecuteDurableContinuationAsync(session, sqlite ? "sqlite" : "inmemory");
             await ExecuteDurableYieldAsync(session, sqlite ? "sqlite" : "inmemory");
             await ExecuteClaimFenceRejectionAsync(session, sqlite ? "sqlite" : "inmemory");
@@ -157,10 +162,19 @@ internal static class ProofHost
         _ = LifecycleProof.Drain();
         _ = LifecycleProof.DrainErrors();
         string subjectId = "lifecycle-subject-" + provider;
-        BaseCollectionSession<ConsumerPrivateSubject> subjects = session.Collection(ConsumerPrivateSubject.Collection);
-        BaseRecord<ConsumerPrivateSubject> created = (await subjects.CreateAsync(
-            RecordId.Create(subjectId),
-            new ConsumerPrivateSubject { Active = true, Tombstoned = false, Tenant = "tenant-a" })).RequireValue();
+        BaseInstalledModuleMutationHandle<LifecycleSubjectCreateRequest, LifecycleSubjectCreateResult> create =
+            session.ModuleMutations.Get(LifecycleModuleMutationProof.Identity);
+        BaseMutationRequestFingerprint createFingerprint = BaseMutationRequestFingerprint.Create(
+            System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes("lifecycle-create:" + subjectId)));
+        BaseResult<BaseModuleMutationExecutionResult<LifecycleSubjectCreateResult>> createResult = await create.ExecuteAsync(
+            new LifecycleSubjectCreateRequest { SubjectId = subjectId, Tenant = "tenant-a" },
+            BaseMutationRequestIdentity.Create(
+                "proof-lifecycle", "create", provider, createFingerprint));
+        if (createResult is BaseFailure<BaseModuleMutationExecutionResult<LifecycleSubjectCreateResult>> createFailure)
+            throw new InvalidOperationException("The L81 L50 lifecycle-subject create failed for " + provider + ": "
+                + createFailure.Error.Code + "/" + createFailure.Error.Message);
+        BaseModuleMutationExecutionResult<LifecycleSubjectCreateResult> created = createResult.RequireValue();
         BaseSubjectReference<ConsumerSubject> subject = (await session.Reads.ToArrayAsync(
             ConsumerSubjectAcquire.Handle,
             new ConsumerSubjectAcquire { SubjectId = BaseRecordId<ConsumerPrivateSubject>.Create(subjectId) }))
@@ -172,7 +186,7 @@ internal static class ProofHost
             .TombstoneAsync(new BaseSubjectTombstoneRequest<ConsumerSubject>
             {
                 Subject = subject,
-                ExpectedPrivateRevision = created.Revision!.Value,
+                ExpectedPrivateRevision = created.Result.Revision,
                 Identity = BaseMutationRequestIdentity.Create("proof-lifecycle", "tombstone", provider, tombstoneFingerprint),
             });
         if (tombstoned is not BaseSuccess<BaseSubjectTombstoneResult<ConsumerSubject>>)
@@ -204,7 +218,10 @@ internal static class ProofHost
                 + ":" + string.Join(';', lifecycleErrors));
     }
 
-    private static async Task ExecuteScheduleAsync(BaseSession session, string provider)
+    private static async Task ExecuteScheduleAsync(
+        BaseSession session,
+        string provider,
+        ProofTimeProvider clock)
     {
         BaseInstalledScheduleHandle schedule = session.Activations.GetSchedule(ProofActivation.ScheduleIdentity);
         BaseMutationRequestFingerprint createFingerprint = BaseMutationRequestFingerprint.Create(
@@ -216,6 +233,8 @@ internal static class ProofHost
         if (!created.IsSuccess() || !replayed.IsSuccess()
             || replayed.Value!.Disposition != BaseMutationRequestDisposition.Duplicate)
             throw new InvalidOperationException("The L3B schedule creation/replay proof failed for " + provider + ".");
+
+        clock.Advance(TimeSpan.FromMilliseconds(2));
 
         BaseMutationRequestIdentity advanceIdentity = BaseMutationRequestIdentity.Create(
             "proof-schedule", "advance", provider,
@@ -534,6 +553,7 @@ internal static class ProofHost
         {
             "proof.identity-and-generation.execute", "proof.request-control.execute", "proof.static-set.execute",
             "proof.presence-and-removal.execute",
+            "proof.lifecycle-subject.create.execute", "consumer.subject.source",
             SelectionProof.GrantId,
             "proof.owner.source", "proof.work.source",
             "proof.selection.source",
@@ -553,7 +573,10 @@ internal static class ProofHost
         {
             builder.AddStaticGrantAuthority(new BaseGrantAuthorityDefinition
             {
-                Id = grantId, Version = 1, OwningModuleId = "proof.module",
+                Id = grantId, Version = 1,
+                OwningModuleId = grantId is "proof.lifecycle-subject.create.execute" or "consumer.subject.source"
+                    ? "consumer.module"
+                    : "proof.module",
                 SourceContractId = "proof.static-grants", SourceContractVersion = 1,
             }, Grant(grantId));
         }
@@ -604,6 +627,7 @@ internal static class ProofHost
         builder.AddModuleMutation(RequestControlProof.Definition, RequestControlProof.Identity);
         builder.AddModuleMutation(StaticSetProof.Definition, StaticSetProof.Identity);
         builder.AddModuleMutation(PresenceAndRemovalProof.Definition, PresenceAndRemovalProof.Identity);
+        builder.AddModuleMutation(LifecycleModuleMutationProof.Definition, LifecycleModuleMutationProof.Identity);
         builder.AddActivation(ProofActivation.Registration);
         builder.AddActivation(ProofYieldActivation.Registration);
         builder.AddSchedule(ProofActivation.Schedule);
@@ -836,34 +860,45 @@ internal static class ProofHost
 
         string firstEnsure = await Enqueue("ensure:" + subjectId, "ensure-1");
         BaseActivationDispatchResult first = await DispatchAsync(worker, firstEnsure);
+        object[] firstObservations = SemanticProofObservations.Drain();
+        SemanticEnsureProofResult firstEnsureResult = firstObservations
+            .OfType<SemanticEnsureProofResult>().Single();
+        if (first.State != BaseActivationState.Succeeded || firstEnsureResult.ActivationId is null)
+            throw new InvalidOperationException("The L3B initial semantic result was incomplete.");
+        BaseActivationDispatchResult semanticChildDispatch = await DispatchAsync(
+            worker, firstEnsureResult.ActivationId);
+        if (semanticChildDispatch.State != BaseActivationState.Succeeded)
+            throw new InvalidOperationException("The L3B semantic child did not become terminal for " + provider + ".");
+
         string secondEnsure = await Enqueue("ensure:" + subjectId, "ensure-2");
         BaseActivationDispatchResult second = await DispatchAsync(worker, secondEnsure);
-        if (first.State != BaseActivationState.Succeeded || second.State != BaseActivationState.Succeeded)
+        if (second.State != BaseActivationState.Succeeded)
             throw new InvalidOperationException("The L3B semantic ensure dispatch failed for " + provider + ".");
-        object[] initialObservations = SemanticProofObservations.Drain();
+        object[] initialObservations = [.. firstObservations, .. SemanticProofObservations.Drain()];
         SemanticEnsureProofResult[] initialEnsures = initialObservations.OfType<SemanticEnsureProofResult>().ToArray();
-        if (initialEnsures.Length != 2 || initialEnsures[0].ActivationId is null)
+        if (initialEnsures.Length != 2)
             throw new InvalidOperationException("The L3B initial semantic results were incomplete.");
 
-        PrincipalContext? adminPrincipal = null;
-        BaseSession? adminSession = null;
-        BaseOwnedSubjectScopeEvidence? scope = null;
+        var adminPrincipal = new PrincipalContext
+        {
+            AuthenticationState = PrincipalAuthenticationState.Admin,
+            SubjectKind = AccessSubjectKind.Admin,
+            SubjectId = "proof-admin",
+            CurrentTenantId = "tenant-a",
+        };
+        BaseSession adminSession = sessions.For(adminPrincipal, options =>
+        {
+            options.Audience = HPDBaseEndpointAudience.ControlPlane;
+            options.Mode = OperationMode.System;
+        });
+        var scope = new BaseOwnedSubjectScopeEvidence
+        {
+            Kind = BaseSubjectScopeKind.Tenant,
+            Value = "tenant-a",
+        };
         BaseActivationAdministrationItem? semanticChild = null;
         if (provider == "sqlite")
         {
-            adminPrincipal = new PrincipalContext
-            {
-                AuthenticationState = PrincipalAuthenticationState.Admin,
-                SubjectKind = AccessSubjectKind.Admin,
-                SubjectId = "proof-admin",
-                CurrentTenantId = "tenant-a",
-            };
-            adminSession = sessions.For(adminPrincipal, options =>
-            {
-                options.Audience = HPDBaseEndpointAudience.ControlPlane;
-                options.Mode = OperationMode.System;
-            });
-            scope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Tenant, Value = "tenant-a" };
             BaseActivationAdministrationBoundary? after = null;
             do
             {
@@ -902,7 +937,6 @@ internal static class ProofHost
         object[] observations = [.. initialObservations, .. await RetireAndResolveAsync()];
         ValidateSemanticResults(observations, provider);
         SemanticEnsureProofResult[] ensured = observations.OfType<SemanticEnsureProofResult>().ToArray();
-        if (provider != "sqlite") return;
 
         BaseResult<BaseSubjectTombstoneResult<ConsumerSubject>> tombstoned = await session
             .GetExportedSubjectContract<ConsumerSubject>(ConsumerSubject.HPDBaseSubjectRegistration)
@@ -930,7 +964,7 @@ internal static class ProofHost
 
         BaseRecord<ConsumerPrivateSubject> privateTombstone = (await subjects.GetAsync(
             RecordId.Create(subjectId))).RequireValue();
-        BaseResult<BaseSubjectFinalPurgeResult> purged = await adminSession!.SubjectRetirements.PurgeAsync(
+        BaseResult<BaseSubjectFinalPurgeResult> purged = await adminSession.SubjectRetirements.PurgeAsync(
             new BaseSubjectFinalPurgeRequest
             {
                 ContractId = "consumer.subject", ContractVersion = 1,
@@ -953,6 +987,7 @@ internal static class ProofHost
         if (retiredLifecycle.State != BaseActivationState.Succeeded || retiredErrors.Length != 0)
             throw new InvalidOperationException("The L53 retired lifecycle projection did not advance: "
                 + retiredLifecycle.State + ":" + string.Join(',', retiredErrors));
+        if (provider != "sqlite") return;
 
         clock.Advance(TimeSpan.FromHours(25));
         BaseActivationReceiptCompactionCursor? receiptCursor = null;
@@ -963,7 +998,7 @@ internal static class ProofHost
                 await administration.CompactActivationReceiptsAsync(
                     new BaseActivationAdministrationReceiptCompactionRequest
                     {
-                        StoreId = storeId, Principal = adminPrincipal!, Scope = scope!,
+                        StoreId = storeId, Principal = adminPrincipal, Scope = scope,
                         DefinitionId = ProofActivation.Registration.Definition.Id,
                         DefinitionVersion = ProofActivation.Registration.Definition.Version,
                         AfterActivationId = receiptCursor?.ActivationId,
@@ -981,7 +1016,7 @@ internal static class ProofHost
         BaseResult<BaseActivationPrunePage> pruned = await administration.PruneActivationsAsync(
             new BaseActivationAdministrationPruneRequest
             {
-                StoreId = storeId, Principal = adminPrincipal!, Scope = scope!,
+                StoreId = storeId, Principal = adminPrincipal, Scope = scope,
                 DefinitionId = ProofActivation.Registration.Definition.Id,
                 DefinitionVersion = ProofActivation.Registration.Definition.Version,
                 Take = 8, Identity = Identity("semantic-prune", provider),
@@ -994,7 +1029,7 @@ internal static class ProofHost
                 + string.Join(',', prune.Value.Items.Select(value => value.ActivationId)));
 
         BaseResult<BaseSemanticActivationControlDescriptor> descriptorResult =
-            await administration.ReadSemanticActivationControlAsync(storeId, adminPrincipal!,
+            await administration.ReadSemanticActivationControlAsync(storeId, adminPrincipal,
                 new BaseSemanticActivationDefinitionKey
                 {
                     Id = SemanticProof.Definition.Id, Version = SemanticProof.Definition.Version,
@@ -1012,14 +1047,14 @@ internal static class ProofHost
         };
         BaseResult<BaseSemanticActivationControlResult> compactResult =
             await administration.ExecuteSemanticActivationControlAsync(
-                storeId, adminPrincipal!, compactCommand);
+                storeId, adminPrincipal, compactCommand);
         if (compactResult is not BaseSuccess<BaseSemanticActivationControlResult> compactSuccess)
             throw new InvalidOperationException("The L53 semantic compact command failed: "
                 + ((BaseFailure<BaseSemanticActivationControlResult>)compactResult).Error.Code);
         BaseSemanticActivationControlResult compacted = compactSuccess.Value;
         while (compacted.Resume is not null)
         {
-            compacted = (await administration.ExecuteSemanticActivationControlAsync(storeId, adminPrincipal!,
+            compacted = (await administration.ExecuteSemanticActivationControlAsync(storeId, adminPrincipal,
                 new BaseSemanticActivationControlCommand
                 {
                     Token = compacted.Resume, IdempotencyKey = "semantic-compact-" + provider,
@@ -1028,15 +1063,19 @@ internal static class ProofHost
         }
         if (compacted.Disposition != BaseSemanticActivationMaintenanceDisposition.Completed
             || compacted.AuthorityGeneration != 2
-            || compacted.ExaminedRows != 2
-            || compacted.ChangedRows != 2
+            || compacted.ExaminedRows != 1
+            || compacted.ChangedRows != 1
             || compacted.CanonicalBytes is < 1 or > 1_048_576
             || compacted.ReceiptDisposition != BaseMutationRequestDisposition.Committed
             || compacted.SanitizedChecksum.Length != 32)
-            throw new InvalidOperationException("The L53 semantic compaction did not complete.");
+            throw new InvalidOperationException("The L53 semantic compaction did not complete: "
+                + compacted.Disposition + "/generation=" + compacted.AuthorityGeneration
+                + "/examined=" + compacted.ExaminedRows + "/changed=" + compacted.ChangedRows
+                + "/bytes=" + compacted.CanonicalBytes + "/receipt=" + compacted.ReceiptDisposition
+                + "/checksum=" + compacted.SanitizedChecksum.Length + ".");
         BaseSemanticActivationControlResult replayedCompaction =
             (await administration.ExecuteSemanticActivationControlAsync(
-                storeId, adminPrincipal!, compactCommand)).RequireValue();
+                storeId, adminPrincipal, compactCommand)).RequireValue();
         if (replayedCompaction.Disposition != BaseSemanticActivationMaintenanceDisposition.Duplicate
             || replayedCompaction.AuthorityGeneration != compacted.AuthorityGeneration
             || replayedCompaction.ExaminedRows != compacted.ExaminedRows
@@ -1097,6 +1136,7 @@ internal static class ProofHost
         Id = id, ApplicationId = id == SemanticProof.MaintainGrant ? null : "hpd.auth.base.consumer-proof",
         ModuleId = id is "consumer.subject.acquire" or "consumer.subject.validate" or "consumer.subject.admin"
             or "consumer.other-subject.acquire" or "consumer.other-subject.validate" or "consumer.other-subject.admin"
+            or "proof.lifecycle-subject.create.execute" or "consumer.subject.source"
             or "base.subjectLifecycle.tombstone" or "base.subjectRetirement.purge"
             or "consumer.subject.retirement.purge.source" ? "consumer.module" : "proof.module",
         Audience = controlPlane ? HPDBaseEndpointAudience.ControlPlane : HPDBaseEndpointAudience.Application,
@@ -1111,6 +1151,7 @@ internal static class ProofHost
             "proof.request-control.execute" => "proof.request-control.v1",
             "proof.static-set.execute" => "proof.static-set.v1",
             "proof.presence-and-removal.execute" => "proof.presence-and-removal.v1",
+            "proof.lifecycle-subject.create.execute" => "proof.lifecycle-subject.create.v1",
             "proof.semantic.ensure.execute" => "proof.semantic.ensure.v1",
             "proof.semantic.retire.execute" => "proof.semantic.retire.v1",
             SemanticProof.EnsureGrant or SemanticProof.RetireGrant or SemanticProof.MaintainGrant => SemanticProof.DefinitionId,
@@ -1123,6 +1164,7 @@ internal static class ProofHost
                 ProofActivation.Schedule.Definition.Id,
             "proof.owner.source" => ProofOwner.Collection.Id,
             "proof.work.source" => ProofWorkItem.Collection.Id,
+            "consumer.subject.source" => ConsumerPrivateSubject.Collection.Id,
             "proof.selection.source" => ProofSelectionItem.Collection.Id,
             ReadProofGrants.Json => ProofJsonRead.Definition.Id,
             ReadProofGrants.Count => ProofCountSummary.Definition.Id,
@@ -1148,6 +1190,12 @@ internal static class ProofHost
             "proof.work.source" => new ResourceScope
             {
                 Kind = ResourceScopeKind.Collection, CollectionId = ProofWorkItem.Collection.Id, TenantId = "tenant-a",
+            },
+            "consumer.subject.source" => new ResourceScope
+            {
+                Kind = ResourceScopeKind.Collection,
+                CollectionId = ConsumerPrivateSubject.Collection.Id,
+                TenantId = "tenant-a",
             },
             "proof.selection.source" => new ResourceScope
             {

@@ -35,7 +35,8 @@ internal sealed partial record AuthActiveSessionsReadV1
         [BaseReadField("auth.read.activeSessions.v1.row.createdAt"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset CreatedAt { get; init; }
         [BaseReadField("auth.read.activeSessions.v1.row.lastActiveAt"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset LastActiveAt { get; init; }
         [BaseReadField("auth.read.activeSessions.v1.row.expiresAt"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset ExpiresAt { get; init; }
-        [BaseReadField("auth.read.activeSessions.v1.row.securityGeneration")] public BaseModuleGeneration? SecurityGeneration { get; init; }
+        [BaseReadField("auth.read.activeSessions.v1.row.securityGeneration")] public required BaseModuleGeneration SecurityGeneration { get; init; }
+        [BaseReadField("auth.read.activeSessions.v1.row.revision")] public required RevisionToken Revision { get; init; }
     }
 
     public static void Configure(BaseReadDefinitionBuilder<AuthActiveSessionsReadV1, Row> read)
@@ -66,6 +67,7 @@ internal sealed partial record AuthActiveSessionsReadV1
             .Project(Row.Fields.LastActiveAt, session.Field(AuthSessionRecordV1.Fields.LastActiveAt))
             .Project(Row.Fields.ExpiresAt, session.Field(AuthSessionRecordV1.Fields.ExpiresAt))
             .Project(Row.Fields.SecurityGeneration, session.Field(AuthSessionRecordV1.Fields.SecurityGeneration))
+            .Project(Row.Fields.Revision, session.Revision)
             .OrderBy(session.Field(AuthSessionRecordV1.Fields.LastActiveAt), QuerySortDirection.Desc)
             .OrderBy(session.Field(AuthSessionRecordV1.Fields.Id))
             .Limits(200, 524_288, 16, 750);

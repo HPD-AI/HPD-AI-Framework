@@ -4,9 +4,9 @@ using System.Text.Json.Serialization;
 namespace HPD.Auth.Core.Models;
 
 /// <summary>
-/// -compatible token response returned after successful authentication
+/// OAuth 2.0-compatible token response returned after successful authentication
 /// or token refresh. Property names use snake_case to comply with OAuth 2.0
-/// conventions (RFC 6749) and match the  GoTrue wire format.
+/// conventions (RFC 6749).
 /// </summary>
 public sealed class TokenResponse
 {

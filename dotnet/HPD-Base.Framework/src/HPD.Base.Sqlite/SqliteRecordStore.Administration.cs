@@ -491,6 +491,7 @@ public sealed partial class SqliteRecordStore
             await EnsureKeepAliveAsync(CancellationToken.None).ConfigureAwait(false);
             _semanticCertificationOwner?.Rebind(CurrentStoreInstanceId, installedStoreInstanceId);
             Volatile.Write(ref _currentStoreInstanceId, installedStoreInstanceId);
+            Volatile.Write(ref _storeInstanceIdentityLoaded, 1);
             return OperationResults.Ok(new BaseRestoreResult
             {
                 StoreId = _options.StoreId,
@@ -1034,6 +1035,7 @@ public sealed partial class SqliteRecordStore
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) throw new InvalidDataException();
         string storeInstanceId = reader.GetString(0);
         Volatile.Write(ref _currentStoreInstanceId, storeInstanceId);
+        Volatile.Write(ref _storeInstanceIdentityLoaded, 1);
         return (HexDigest(storeInstanceId), reader.GetInt64(1));
     }
 

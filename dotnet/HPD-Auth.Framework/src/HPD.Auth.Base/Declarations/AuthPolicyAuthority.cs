@@ -20,6 +20,8 @@ internal static class AuthGrantIds
         "base.subjectLifecycle.tombstone", "base.subjectLifecycle.feed.read",
         "base.subjectLifecycle.feed.checkpoint", "base.subjectRetirement.acknowledge",
         "base.subjectRetirement.barrier.inspect", "base.subjectRetirement.purge",
+        "hpd.auth.user-subject.retirement.purge.source",
+        "hpd.auth.role-subject.retirement.purge.source",
     ];
 
     internal static readonly string[] Operations =
@@ -85,9 +87,12 @@ internal static class AuthGrantIds
         "auth.session.mutate" or "auth.token.mutate" or "auth.token.delivery" or
         "base.subjectLifecycle.feed.read" or
         "base.subjectLifecycle.feed.checkpoint" or "base.subjectRetirement.acknowledge" or
+        "base.subjectLifecycle.finalizeRetirement" or
         "base.subjectRetirement.barrier.inspect" or "base.subjectRetirement.purge" or
-        "auth.subject.user.admin" or "auth.subject.user.validate" or
-        "auth.subject.role.admin" or "auth.subject.role.validate";
+        "hpd.auth.user-subject.retirement.purge.source" or
+        "hpd.auth.role-subject.retirement.purge.source" or
+        "auth.subject.user.acquire" or "auth.subject.user.admin" or "auth.subject.user.validate" or
+        "auth.subject.role.acquire" or "auth.subject.role.admin" or "auth.subject.role.validate";
 
     internal static bool IsSystemOnlyGrant(string id) =>
         id.StartsWith("auth.operation.cleanup.", StringComparison.Ordinal)
@@ -139,6 +144,11 @@ internal sealed class AuthGrantAuthoritySource(string grantId) : IBaseGrantAutho
             "auth.subject.role.validate" => ("hpd.auth.role-subject", (int?)1, "subject.validate"),
             "auth.subject.role.admin" => ("hpd.auth.role-subject", (int?)1, grantId),
             "base.subjectLifecycle.tombstone" when context.Operation.CollectionId is "hpd.auth.user-subject" or "hpd.auth.role-subject" =>
+                (context.Operation.CollectionId, (int?)1, grantId),
+            "base.subjectLifecycle.finalizeRetirement" when context.Operation.CollectionId is "hpd.auth.user-subject" or "hpd.auth.role-subject" =>
+                (context.Operation.CollectionId, (int?)1, grantId),
+            "base.subjectRetirement.barrier.inspect" or "base.subjectRetirement.purge"
+                when context.Operation.CollectionId is "hpd.auth.user-subject" or "hpd.auth.role-subject" =>
                 (context.Operation.CollectionId, (int?)1, grantId),
             _ => ((string?)null, (int?)null, context.Operation.CollectionId),
         };
@@ -218,8 +228,8 @@ internal sealed class AuthTenantPolicyEvaluator : IPolicyEvaluator
 internal static class AuthPolicyCollections
 {
     internal static bool IsAuthOwned(string id) => IsTenantOwned(id) || id is
-        "auth.dataProtectionKeys" or "auth.importState" or
-        "auth.maintenanceCursor" or "auth.maintenanceRuns";
+        "auth.dataProtectionKeys" or
+        "auth.maintenanceCursors" or "auth.maintenanceRuns";
 
     internal static bool IsTenantOwned(string id) => id is
         "auth.users" or "auth.roles" or "auth.userClaims" or "auth.roleClaims" or

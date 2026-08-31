@@ -19,10 +19,12 @@ public static class HPDAuthBaseTestHost
     /// <summary>Adds one isolated SQLite Base store and the complete Auth graph.</summary>
     /// <param name="services">The test service collection.</param>
     /// <param name="applicationName">The unique normalized test application name.</param>
+    /// <param name="configure">Optionally installs an external consumer's declarations into the same finalized graph.</param>
     /// <returns>The same service collection.</returns>
     public static IServiceCollection AddHPDAuthBaseTestHost(
         this IServiceCollection services,
-        string applicationName)
+        string applicationName,
+        Action<HPDBaseBuilder>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentException.ThrowIfNullOrWhiteSpace(applicationName);
@@ -74,6 +76,7 @@ public static class HPDAuthBaseTestHost
                     BaseMutationRequestFingerprint.Create(SHA256.HashData(Encoding.UTF8.GetBytes(storeId)))),
                 Checksum = [],
             });
+            configure?.Invoke(builder);
         });
         return services;
     }
@@ -251,13 +254,15 @@ public static class HPDAuthBaseTestHost
     /// <summary>Adds a Base test host while preserving Auth builder chaining.</summary>
     /// <param name="builder">The Auth builder under test.</param>
     /// <param name="applicationName">The unique normalized test application name.</param>
+    /// <param name="configure">Optionally installs an external consumer's declarations into the same finalized graph.</param>
     /// <returns>The same Auth builder.</returns>
     public static IHPDAuthBuilder UseBaseTestHost(
         this IHPDAuthBuilder builder,
-        string applicationName)
+        string applicationName,
+        Action<HPDBaseBuilder>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
-        builder.Services.AddHPDAuthBaseTestHost(applicationName);
+        builder.Services.AddHPDAuthBaseTestHost(applicationName, configure);
         return builder;
     }
 

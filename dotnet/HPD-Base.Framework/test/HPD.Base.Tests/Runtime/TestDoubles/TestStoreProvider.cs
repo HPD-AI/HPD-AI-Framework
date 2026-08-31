@@ -34,6 +34,8 @@ internal static class TestStoreProvider
                     MaximumRemovedFieldsPerMutation = 256,
                     MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
                 }, BaseActivationCapabilityContract.BuiltIn("hpd.base.test.activations.v2")),
+            LogicalIndexes = BaseLogicalIndexProviderContract.UnsupportedProfile(store.Capabilities.StoreId),
+            SelectionMutationIndexShapes = [],
         }, new ActivationInstaller(store, atomicStore));
 
     internal static HPDBaseStoreProvider Create(
@@ -46,7 +48,7 @@ internal static class TestStoreProvider
             Kind = store.Capabilities.StoreId,
             Capabilities = BaseStoreProviderCapabilities.Records |
                 BaseStoreProviderCapabilities.AtomicMutations |
-                (requiredIndexes || schema ? BaseStoreProviderCapabilities.RequiredIndexes : 0) |
+                (requiredIndexes ? BaseStoreProviderCapabilities.RequiredIndexes : 0) |
                 (relational ? BaseStoreProviderCapabilities.RelationalExecution : 0),
             RegistrationIds = [store.Capabilities.StoreId + ".records"],
             RelationalReads = relational && store is IRelationalReadStore relationalStore
@@ -73,6 +75,8 @@ internal static class TestStoreProvider
                     MaximumRemovedFieldsPerMutation = 256,
                     MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
                 }, BaseActivationCapabilityContract.BuiltIn("hpd.base.test.activations.v2")),
+            LogicalIndexes = BaseLogicalIndexProviderContract.UnsupportedProfile(store.Capabilities.StoreId),
+            SelectionMutationIndexShapes = [],
         }, new Installer(store, schema));
 
     private sealed class Installer(FakeRecordStore store, bool schema) : IHPDBaseStoreInstaller

@@ -185,6 +185,8 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             ?? storeRegistration?.Store as IAtomicRecordStore;
         if (atomicStore is null || !BaseModuleMutationCapabilityContract.Supports(definition.Limits, atomicStore.Capabilities.ModuleMutation))
             return Failure<TResult>(OperationStatus.Unsupported, BaseModuleMutationErrorCodes.CapabilityMissing, ErrorCategory.Unsupported);
+        BaseMutationRequestIdentity receiptIdentity = BindReceiptIdentity(
+            identity, definition, session.ApplicationId, storeRegistration!.StoreId);
         if (semanticDefinition is not null && options?.SemanticActivation is BaseSemanticActivationGuardedRetireRequest
             && ExternalRecoverySelected(storeRegistration!.StoreId))
         {
@@ -194,11 +196,11 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             try
             {
                 RecordMutationExecutionResult existing = await atomicStore.ResolveAtomicReceiptAsync(
-                    replay, identity, definition.Limits.Deadlines.ReceiptResolutionTimeout, cancellationToken).ConfigureAwait(false);
+                    replay, receiptIdentity, definition.Limits.Deadlines.ReceiptResolutionTimeout, cancellationToken).ConfigureAwait(false);
                 if (existing.Outcome == RecordMutationExecutionOutcome.Committed && replay.Result is not null)
                 {
                     if (!await FinalizeStoredSemanticRecoveryAsync(storeRegistration.StoreId, replay.SemanticReceipt,
-                            existing.ReceiptAuthority, identity, cancellationToken).ConfigureAwait(false))
+                            existing.ReceiptAuthority, receiptIdentity, cancellationToken).ConfigureAwait(false))
                         return Failure<TResult>(OperationStatus.StoreError, BaseSemanticActivationErrorCodes.ExternalPublicationPending, ErrorCategory.Store);
                     return new BaseSuccess<BaseModuleMutationExecutionResult<TResult>>(replay.Result,
                         OperationStatus.Ok, null, null, null, null);
@@ -229,7 +231,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         if (semantic?.Operation is BaseSemanticActivationRetireIntent)
         {
             BaseResult<SemanticRecoveryExecution?> recoveryResult = await PrepareSemanticRecoveryAsync(
-                atomicStore, semantic, identity, localStructuralDigest, semanticDefinition!, cancellationToken).ConfigureAwait(false);
+                atomicStore, semantic, receiptIdentity, localStructuralDigest, semanticDefinition!, cancellationToken).ConfigureAwait(false);
             if (recoveryResult is not BaseSuccess<SemanticRecoveryExecution?> recoverySuccess)
                 return Failure<TResult>(recoveryResult.Status, ((BaseFailure<SemanticRecoveryExecution?>)recoveryResult).Error);
             recovery = recoverySuccess.Value;
@@ -265,7 +267,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             CommitCompletionTimeout = options?.MaximumWait ?? definition.Limits.Deadlines.CommitObservationTimeout,
             AtomicRequest = new BaseAtomicMutationExecutionRequest
             {
-                Identity = identity,
+                Identity = receiptIdentity,
                 StructuralDigest = localStructuralDigest,
                 ExpiresAt = timeProvider.GetUtcNow().Add(definition.ReceiptPolicy.Lifetime),
                 MaxReceiptBytes = checked((int)Math.Min(definition.Limits.MaximumReceiptBytes, int.MaxValue)),
@@ -291,7 +293,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         {
             if (recovery is not null)
             {
-                BaseSemanticRecoveryCancellationDisposition? cancelled = await CancelSemanticRecoveryAsync(recovery, identity, execution,
+                BaseSemanticRecoveryCancellationDisposition? cancelled = await CancelSemanticRecoveryAsync(recovery, receiptIdentity, execution,
                     executionRequest.AtomicRequest!, cancellationToken).ConfigureAwait(false);
                 if (cancelled is BaseSemanticRecoveryCancellationDisposition.AlreadyFinalized
                     or BaseSemanticRecoveryCancellationDisposition.CommitBoundPending)
@@ -302,13 +304,13 @@ internal sealed class DefaultBaseModuleMutationRuntime(
                     RecordMutationExecutionResult resolved;
                     try
                     {
-                        resolved = await atomicStore.ResolveAtomicReceiptAsync(resolver, identity,
+                        resolved = await atomicStore.ResolveAtomicReceiptAsync(resolver, receiptIdentity,
                             definition.Limits.Deadlines.ReceiptResolutionTimeout, cancellationToken).ConfigureAwait(false);
                     }
                     catch { return Failure<TResult>(OperationStatus.StoreError, BaseSemanticActivationErrorCodes.ExternalPublicationPending, ErrorCategory.Store); }
                     if (resolved.ReceiptResolution == BaseAtomicReceiptResolutionDisposition.Found && resolver.Result is not null
                         && await FinalizeStoredSemanticRecoveryAsync(storeRegistration!.StoreId, resolver.SemanticReceipt,
-                            resolved.ReceiptAuthority, identity, cancellationToken).ConfigureAwait(false))
+                            resolved.ReceiptAuthority, receiptIdentity, cancellationToken).ConfigureAwait(false))
                         return new BaseSuccess<BaseModuleMutationExecutionResult<TResult>>(resolver.Result,
                             OperationStatus.Ok, null, null, null, null);
                     return Failure<TResult>(OperationStatus.StoreError, BaseSemanticActivationErrorCodes.ExternalPublicationPending, ErrorCategory.Store);
@@ -326,7 +328,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
                 ? OperationStatus.StoreError : OperationStatus.Conflict, failure);
         }
         if (recovery is not null && !await FinalizeSemanticRecoveryAsync(
-                recovery, processor.SemanticReceipt, execution.ReceiptAuthority, identity, cancellationToken).ConfigureAwait(false))
+                recovery, processor.SemanticReceipt, execution.ReceiptAuthority, receiptIdentity, cancellationToken).ConfigureAwait(false))
             return Failure<TResult>(OperationStatus.StoreError, BaseSemanticActivationErrorCodes.ExternalPublicationPending, ErrorCategory.Store);
         return new BaseSuccess<BaseModuleMutationExecutionResult<TResult>>(
             processor.Result with
@@ -938,6 +940,8 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         IAtomicRecordStore? store = receiptRegistration?.AtomicExecutionStore ?? receiptRegistration?.Store as IAtomicRecordStore;
         if (store is null || !BaseModuleMutationCapabilityContract.Supports(definition.Limits, store.Capabilities.ModuleMutation))
             return Failure<TResult>(OperationStatus.NotFound, BaseModuleMutationErrorCodes.ReceiptUnavailable, ErrorCategory.NotFound);
+        BaseMutationRequestIdentity receiptIdentity = BindReceiptIdentity(
+            identity, definition, session.ApplicationId, receiptRegistration!.StoreId);
         var resolver = new BaseModuleMutationReceiptResolver<TResult>(
             definition, generatedIdentity.ResultTypeInfo, generatedIdentity.ResultBindings,
             session.Principal, session.Operation(BaseOperationKind.ModuleMutation, definition.Id), policy);
@@ -945,16 +949,48 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         try
         {
             resolution = await store.ResolveAtomicReceiptAsync(
-                resolver, identity, definition.Limits.Deadlines.ReceiptResolutionTimeout, cancellationToken).ConfigureAwait(false);
+                resolver, receiptIdentity, definition.Limits.Deadlines.ReceiptResolutionTimeout, cancellationToken).ConfigureAwait(false);
         }
         catch { return Failure<TResult>(OperationStatus.NotFound, BaseModuleMutationErrorCodes.ReceiptUnavailable, ErrorCategory.NotFound); }
         if (resolution.Outcome != RecordMutationExecutionOutcome.Committed || resolver.Result is null)
             return Failure<TResult>(OperationStatus.NotFound, BaseModuleMutationErrorCodes.ReceiptUnavailable, ErrorCategory.NotFound);
         if (resolver.SemanticReceipt?.RecoveryPublication is not null
             && !await FinalizeStoredSemanticRecoveryAsync(receiptRegistration!.StoreId, resolver.SemanticReceipt,
-                resolution.ReceiptAuthority, identity, cancellationToken).ConfigureAwait(false))
+                resolution.ReceiptAuthority, receiptIdentity, cancellationToken).ConfigureAwait(false))
             return Failure<TResult>(OperationStatus.StoreError, BaseSemanticActivationErrorCodes.ExternalPublicationPending, ErrorCategory.Store);
         return new BaseSuccess<BaseModuleMutationExecutionResult<TResult>>(resolver.Result, OperationStatus.Ok, null, null, null, null);
+    }
+
+    private static BaseMutationRequestIdentity BindReceiptIdentity(
+        BaseMutationRequestIdentity identity,
+        BaseRegisteredModuleMutationDefinition definition,
+        string applicationId,
+        string logicalStoreId)
+    {
+        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        Append(hash, "base.moduleMutation.receiptAuthority.v1"u8);
+        Append(hash, Encoding.UTF8.GetBytes(applicationId));
+        Append(hash, Encoding.UTF8.GetBytes(logicalStoreId));
+        Append(hash, Encoding.UTF8.GetBytes(definition.Id));
+        Span<byte> version = stackalloc byte[4];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(version, definition.Version);
+        Append(hash, version);
+        Append(hash, definition.Checksum.ToArray());
+        Append(hash, Encoding.UTF8.GetBytes(identity.Scope));
+        Append(hash, Encoding.UTF8.GetBytes(identity.Operation));
+        return BaseMutationRequestIdentity.Create(
+            Convert.ToHexStringLower(hash.GetHashAndReset()),
+            definition.Id,
+            identity.IdempotencyKey,
+            identity.Fingerprint);
+
+        static void Append(IncrementalHash hash, ReadOnlySpan<byte> value)
+        {
+            Span<byte> length = stackalloc byte[4];
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(length, value.Length);
+            hash.AppendData(length);
+            hash.AppendData(value);
+        }
     }
 
     private IAtomicRecordStore? ResolveOneStore(CollectionDefinition[] authorityCollections)

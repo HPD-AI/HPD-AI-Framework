@@ -67,7 +67,6 @@ public static class AuthBaseModule
             .AddCollection(AuthTenantSettingsRecordV1.Collection)
             .AddCollection(AuthSecurityAuditRecordV1.Collection)
             .AddCollection(AuthDataProtectionKeyRecordV1.Collection)
-            .AddCollection(AuthImportStateRecordV1.Collection)
             .AddCollection(AuthCleanupWorkRecordV1.Collection)
             .AddCollection(AuthMaintenanceCursorRecordV1.Collection)
             .AddCollection(AuthMaintenanceRunRecordV1.Collection)
@@ -100,8 +99,56 @@ public static class AuthBaseModule
                 Audience = HPDBaseEndpointAudience.Application,
                 MaximumResults = 1,
             })
+            .AddSubjectAcquisition(new BaseSubjectAcquisitionDefinition
+            {
+                Id = "hpd.auth.user-subject.reconciliation.v1",
+                Version = 1,
+                ContractId = "hpd.auth.user-subject",
+                ContractVersion = 1,
+                RegisteredReadId = "auth.read.tombstonedUserSubjectForReconciliation.v1",
+                RequiredGrantId = "auth.subject.user.acquire",
+                Audience = HPDBaseEndpointAudience.Application,
+                MaximumResults = 1,
+            })
+            .AddSubjectAcquisition(new BaseSubjectAcquisitionDefinition
+            {
+                Id = "hpd.auth.role-subject.reconciliation.v1",
+                Version = 1,
+                ContractId = "hpd.auth.role-subject",
+                ContractVersion = 1,
+                RegisteredReadId = "auth.read.tombstonedRoleSubjectForReconciliation.v1",
+                RequiredGrantId = "auth.subject.role.acquire",
+                Audience = HPDBaseEndpointAudience.Application,
+                MaximumResults = 1,
+            })
+            .AddSubjectAcquisition(new BaseSubjectAcquisitionDefinition
+            {
+                Id = "hpd.auth.user-subject.reconciliation-page.v1",
+                Version = 1,
+                ContractId = "hpd.auth.user-subject",
+                ContractVersion = 1,
+                RegisteredReadId = "auth.read.tombstonedUserReferencesForReconciliation.v1",
+                RequiredGrantId = "auth.subject.user.acquire",
+                Audience = HPDBaseEndpointAudience.Application,
+                MaximumResults = 200,
+            })
+            .AddSubjectAcquisition(new BaseSubjectAcquisitionDefinition
+            {
+                Id = "hpd.auth.role-subject.reconciliation-page.v1",
+                Version = 1,
+                ContractId = "hpd.auth.role-subject",
+                ContractVersion = 1,
+                RegisteredReadId = "auth.read.tombstonedRoleReferencesForReconciliation.v1",
+                RequiredGrantId = "auth.subject.role.acquire",
+                Audience = HPDBaseEndpointAudience.Application,
+                MaximumResults = 200,
+            })
             .AddRead(AuthUserSubjectAcquisitionReadV1.Definition)
             .AddRead(AuthRoleSubjectAcquisitionReadV1.Definition)
+            .AddRead(AuthTombstonedUserSubjectForReconciliationReadV1.Definition)
+            .AddRead(AuthTombstonedRoleSubjectForReconciliationReadV1.Definition)
+            .AddRead(AuthTombstonedUserReferencesForReconciliationReadV1.Definition)
+            .AddRead(AuthTombstonedRoleReferencesForReconciliationReadV1.Definition)
             .AddRead(AuthUserByIdReadV1.Definition)
             .AddRead(AuthUserByNormalizedNameReadV1.Definition)
             .AddRead(AuthUserByNormalizedEmailReadV1.Definition)

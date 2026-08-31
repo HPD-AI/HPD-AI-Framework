@@ -22,13 +22,17 @@ internal sealed class HPDBaseDataProtectionXmlRepository :
     IAuthDataProtectionCacheRefresh,
     IDisposable
 {
-    private static readonly TimeSpan StoreTimeout = TimeSpan.FromSeconds(5);
-    private static readonly TimeSpan ShutdownTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan DefaultStoreTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan DefaultShutdownTimeout = TimeSpan.FromSeconds(10);
 
     private readonly IBaseSessionFactory _sessions;
     private readonly TimeProvider _timeProvider;
     private readonly AuthDataProtectionCacheInvalidationState _invalidation;
     private readonly string _applicationDiscriminator;
+    private readonly TimeSpan _primaryStoreWait;
+    private readonly TimeSpan _receiptResolutionWait;
+    private readonly TimeSpan _shutdownTimeout;
+    private readonly Func<string, ReadOnlyMemory<byte>, CancellationToken, Task>? _persistenceOverride;
     private readonly Channel<PersistRequest> _writes = Channel.CreateBounded<PersistRequest>(new BoundedChannelOptions(32)
     {
         AllowSynchronousContinuations = false,
@@ -49,12 +53,33 @@ internal sealed class HPDBaseDataProtectionXmlRepository :
         HPDAuthOptions options,
         TimeProvider timeProvider,
         AuthDataProtectionCacheInvalidationState invalidation)
+        : this(sessions, options, timeProvider, invalidation,
+            DefaultStoreTimeout, DefaultShutdownTimeout, null)
+    {
+    }
+
+    internal HPDBaseDataProtectionXmlRepository(
+        IBaseSessionFactory sessions,
+        HPDAuthOptions options,
+        TimeProvider timeProvider,
+        AuthDataProtectionCacheInvalidationState invalidation,
+        TimeSpan storeTimeout,
+        TimeSpan shutdownTimeout,
+        Func<string, ReadOnlyMemory<byte>, CancellationToken, Task>? persistenceOverride)
     {
         _sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
         ArgumentNullException.ThrowIfNull(options);
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         _invalidation = invalidation ?? throw new ArgumentNullException(nameof(invalidation));
         _applicationDiscriminator = ValidateDiscriminator(options.AppName);
+        if (storeTimeout <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(storeTimeout));
+        if (shutdownTimeout <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(shutdownTimeout));
+        _primaryStoreWait = TimeSpan.FromTicks(checked(storeTimeout.Ticks * 4 / 5));
+        _receiptResolutionWait = storeTimeout - _primaryStoreWait;
+        _shutdownTimeout = shutdownTimeout;
+        _persistenceOverride = persistenceOverride;
     }
 
     /// <inheritdoc />
@@ -82,7 +107,7 @@ internal sealed class HPDBaseDataProtectionXmlRepository :
         _writes.Writer.TryComplete();
         Task[] pending = [_worker ?? Task.CompletedTask];
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(ShutdownTimeout);
+        timeout.CancelAfter(_shutdownTimeout);
         try
         {
             await Task.WhenAll(pending).WaitAsync(timeout.Token).ConfigureAwait(false);
@@ -126,17 +151,47 @@ internal sealed class HPDBaseDataProtectionXmlRepository :
         if (Encoding.UTF8.GetByteCount(normalizedName) > 256)
             throw new ArgumentOutOfRangeException(nameof(friendlyName));
         byte[] canonicalXml = Canonicalize(element);
-        var request = new PersistRequest(normalizedName, canonicalXml);
+        var request = new PersistRequest(normalizedName, canonicalXml, canonicalXml.ToArray());
         if (!_writes.Writer.TryWrite(request))
+        {
+            CryptographicOperations.ZeroMemory(request.WriterCanonicalXml);
+            CryptographicOperations.ZeroMemory(request.ResolutionCanonicalXml);
             throw new InvalidOperationException("HPD Auth Data Protection persistence capacity is exhausted.");
+        }
+        bool resolutionOwnershipTransferred = false;
         try
         {
-            request.Completion.Task.WaitAsync(StoreTimeout).GetAwaiter().GetResult();
+            request.Completion.Task.WaitAsync(_primaryStoreWait).GetAwaiter().GetResult();
         }
-        catch (TimeoutException exception)
+        catch (TimeoutException primaryTimeout)
         {
-            Volatile.Write(ref _cache, null);
-            throw new InvalidOperationException("HPD Auth Data Protection key persistence timed out.", exception);
+            try
+            {
+                using var resolution = new CancellationTokenSource(_receiptResolutionWait);
+                resolutionOwnershipTransferred = true;
+                Task<Exception?> resolutionTask = PersistResolutionOwnedAsync(
+                    request.FriendlyName, request.ResolutionCanonicalXml, resolution.Token);
+                Exception? persistenceFailure = resolutionTask
+                    .WaitAsync(_receiptResolutionWait)
+                    .GetAwaiter()
+                    .GetResult();
+                if (persistenceFailure is not null)
+                    throw new InvalidOperationException(
+                        "HPD Auth Data Protection receipt resolution failed.", persistenceFailure);
+            }
+            catch (Exception resolutionFailure) when (
+                resolutionFailure is TimeoutException or OperationCanceledException or InvalidOperationException)
+            {
+                Volatile.Write(ref _cache, null);
+                throw new InvalidOperationException(
+                    "HPD Auth Data Protection key persistence timed out before its receipt resolved.",
+                    new AggregateException(primaryTimeout, resolutionFailure));
+            }
+        }
+        finally
+        {
+            if (!resolutionOwnershipTransferred)
+                CryptographicOperations.ZeroMemory(request.ResolutionCanonicalXml);
         }
     }
 
@@ -158,7 +213,9 @@ internal sealed class HPDBaseDataProtectionXmlRepository :
             {
                 try
                 {
-                    await PersistAsync(request, cancellationToken).ConfigureAwait(false);
+                    await PersistCoreAsync(
+                        request.FriendlyName, request.WriterCanonicalXml, cancellationToken)
+                        .ConfigureAwait(false);
                     request.Completion.TrySetResult();
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -172,34 +229,80 @@ internal sealed class HPDBaseDataProtectionXmlRepository :
                 }
                 finally
                 {
-                    CryptographicOperations.ZeroMemory(request.CanonicalXml);
+                    CryptographicOperations.ZeroMemory(request.WriterCanonicalXml);
                 }
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        finally
+        {
+            while (_writes.Reader.TryRead(out PersistRequest? request))
+            {
+                CryptographicOperations.ZeroMemory(request.WriterCanonicalXml);
+                CryptographicOperations.ZeroMemory(request.ResolutionCanonicalXml);
+                request.Completion.TrySetCanceled(cancellationToken);
+            }
+        }
     }
 
-    private async Task PersistAsync(PersistRequest request, CancellationToken cancellationToken)
+    private Task PersistCoreAsync(
+        string friendlyName,
+        ReadOnlyMemory<byte> canonicalXml,
+        CancellationToken cancellationToken) =>
+        _persistenceOverride is null
+            ? PersistAsync(friendlyName, canonicalXml, cancellationToken)
+            : _persistenceOverride(friendlyName, canonicalXml, cancellationToken);
+
+    private async Task<Exception?> PersistResolutionOwnedAsync(
+        string friendlyName,
+        byte[] canonicalXml,
+        CancellationToken cancellationToken)
     {
-        byte[] digest = SHA256.HashData(request.CanonicalXml);
-        string id = AuthBaseDeterministicId.Create(_applicationDiscriminator, request.FriendlyName);
+        try
+        {
+            await PersistCoreAsync(friendlyName, canonicalXml, cancellationToken).ConfigureAwait(false);
+            return null;
+        }
+        catch (Exception exception)
+        {
+            return exception;
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(canonicalXml);
+        }
+    }
+
+    private async Task PersistAsync(
+        string friendlyName,
+        ReadOnlyMemory<byte> canonicalXml,
+        CancellationToken cancellationToken)
+    {
+        byte[] digest = SHA256.HashData(canonicalXml.Span);
+        string id = AuthBaseDeterministicId.Create(_applicationDiscriminator, friendlyName);
         var record = new AuthDataProtectionKeyRecordV1
         {
             Id = id,
             ApplicationDiscriminator = _applicationDiscriminator,
-            FriendlyName = request.FriendlyName,
-            CanonicalXml = BaseBinary.From(request.CanonicalXml),
+            FriendlyName = friendlyName,
+            CanonicalXml = BaseBinary.From(canonicalXml.Span),
             ContentDigest = BaseBinary.From(digest),
             CreatedAt = _timeProvider.GetUtcNow(),
             FormatVersion = 1,
         };
-        BaseSession session = OpenSession();
         BaseMutationRequestIdentity identity = AuthBaseRuntime.MutationIdentity(
             "hpd.auth.data-protection.create.v1", Guid.Empty, id, Convert.ToHexStringLower(digest));
-        BaseBatchBuilder batch = session.Atomic(identity);
-        batch.Upsert(AuthDataProtectionKeyRecordV1.Collection, RecordId.Create(id), record, record,
-            RecordUpsertExistenceCondition.CreateOnly);
-        BaseResult<BaseBatchResult> committed = await batch.CommitAsync(cancellationToken).ConfigureAwait(false);
+        BaseResult<BaseBatchResult> committed = await CommitKeyAsync(
+            identity, id, record, cancellationToken).ConfigureAwait(false);
+        if (committed is BaseFailure<BaseBatchResult> indeterminate
+            && (string.Equals(indeterminate.Error.Code, BaseMutationRequestErrorCodes.OutcomeUnknown,
+                    StringComparison.Ordinal)
+                || string.Equals(indeterminate.Error.Code, BaseMutationErrorCodes.BatchIndeterminate,
+                    StringComparison.Ordinal)))
+        {
+            committed = await CommitKeyAsync(
+                identity, id, record, cancellationToken).ConfigureAwait(false);
+        }
         if (committed is BaseFailure<BaseBatchResult> failure)
             throw new InvalidOperationException(
                 $"HPD Auth Data Protection key persistence failed ({failure.Error.Code}).");
@@ -212,8 +315,20 @@ internal sealed class HPDBaseDataProtectionXmlRepository :
         CacheKey? persisted = Volatile.Read(ref _cache)?.Keys.SingleOrDefault(key =>
             string.Equals(key.Id, id, StringComparison.Ordinal));
         if (persisted is null || !CryptographicOperations.FixedTimeEquals(persisted.ContentDigest, digest)
-            || !persisted.CanonicalXml.AsSpan().SequenceEqual(request.CanonicalXml))
+            || !persisted.CanonicalXml.AsSpan().SequenceEqual(canonicalXml.Span))
             throw new InvalidOperationException("HPD Auth Data Protection key identity collided with different content.");
+    }
+
+    private async Task<BaseResult<BaseBatchResult>> CommitKeyAsync(
+        BaseMutationRequestIdentity identity,
+        string id,
+        AuthDataProtectionKeyRecordV1 record,
+        CancellationToken cancellationToken)
+    {
+        BaseBatchBuilder batch = OpenSession().Atomic(identity);
+        batch.Upsert(AuthDataProtectionKeyRecordV1.Collection, RecordId.Create(id), record, record,
+            RecordUpsertExistenceCondition.CreateOnly);
+        return await batch.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -321,10 +436,14 @@ internal sealed class HPDBaseDataProtectionXmlRepository :
 
     private sealed record CacheKey(string Id, byte[] CanonicalXml, byte[] ContentDigest);
 
-    private sealed class PersistRequest(string friendlyName, byte[] canonicalXml)
+    private sealed class PersistRequest(
+        string friendlyName,
+        byte[] writerCanonicalXml,
+        byte[] resolutionCanonicalXml)
     {
         internal string FriendlyName { get; } = friendlyName;
-        internal byte[] CanonicalXml { get; } = canonicalXml;
+        internal byte[] WriterCanonicalXml { get; } = writerCanonicalXml;
+        internal byte[] ResolutionCanonicalXml { get; } = resolutionCanonicalXml;
         internal TaskCompletionSource Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 }

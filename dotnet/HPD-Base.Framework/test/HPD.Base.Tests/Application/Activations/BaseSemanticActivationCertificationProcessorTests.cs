@@ -16,10 +16,17 @@ public sealed class BaseSemanticActivationCertificationProcessorTests
         report.Passed.Should().BeTrue(string.Join("; ", report.Cases
             .Where(static item => item.Status != OperationStatus.Ok)
             .Select(static item => $"{item.Id}:{item.ObservedStatus}:{item.ObservedErrorCode}")));
-        BaseSemanticActivationCertificationContract.ValidateReport(report).Should().BeTrue();
         BaseSemanticActivationCertificationReport frozen = BaseSemanticActivationBuiltInCertification
-            .LoadFrozenExecutedReport(report.Subject, BaseSemanticActivationCapabilityContract.BuiltIn(durable: false));
+            .LoadFrozenExecutedReport(report.Subject, BaseSemanticActivationCapabilityContract.BuiltIn(durable: false, maintenanceSupported: true));
         report.Should().BeEquivalentTo(frozen, options => options.WithStrictOrdering());
+        BaseSemanticActivationCertificationContract.ValidateReport(report).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task InMemory_compaction_page_accepts_exact_accounting_and_rejects_one_below_before_clone()
+    {
+        await BaseInMemorySemanticActivationCertificationFixtureFactory
+            .VerifyCompactionAccountingBoundariesAsync();
     }
 
     [Fact]

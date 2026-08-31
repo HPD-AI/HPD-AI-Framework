@@ -111,7 +111,7 @@ internal static class AuthCleanupRetirementBuilder
         {
             Id = operationId, Version = 1, OwningModuleId = AuthBaseContract.ModuleId, GrantId = grantId,
             Audience = BaseModuleMutationAudience.System,
-            RequestTypeId = $"hpd.auth.type.auth-{suffix}-cleanup-retire-v1.v1",
+            RequestTypeId = $"hpd.auth.type.auth-{suffix}-cleanup-initialize-v1.v1",
             ResultTypeId = "hpd.auth.type.auth-cleanup-retirement-result-v1.v1",
             SystemCollectionIds = [AuthCleanupWorkRecordV1.Collection.Id],
             SystemSourceGrants = [new BaseModuleSystemSourceGrant { CollectionId = AuthCleanupWorkRecordV1.Collection.Id, GrantId = "auth.cleanup.execute" }],

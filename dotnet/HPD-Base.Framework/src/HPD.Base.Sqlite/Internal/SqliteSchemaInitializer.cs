@@ -97,6 +97,13 @@ CREATE TABLE IF NOT EXISTS {_names.LogicalIndexes} (
   generation INTEGER NOT NULL CHECK(generation > 0),
   state INTEGER NOT NULL,
   publication_checksum BLOB NOT NULL CHECK(length(publication_checksum)=32),
+  previous_directory_publication_checksum BLOB NOT NULL CHECK(length(previous_directory_publication_checksum) IN (0,32)),
+  directory_publication_checksum BLOB NOT NULL CHECK(length(directory_publication_checksum)=32),
+  member_set_checksum BLOB NOT NULL CHECK(length(member_set_checksum)=32),
+  posting_count INTEGER NOT NULL CHECK(posting_count >= 0),
+  directory_bytes INTEGER NOT NULL CHECK(directory_bytes >= 0),
+  comparison_count INTEGER NOT NULL CHECK(comparison_count >= 0),
+  transient_bytes INTEGER NOT NULL CHECK(transient_bytes >= 0),
   PRIMARY KEY(collection_id,index_checksum)
 );
 CREATE TABLE IF NOT EXISTS {_names.SchemaHistory} (
@@ -569,7 +576,11 @@ CREATE INDEX IF NOT EXISTS "{_names.OperationReceipts}_module_retirement" ON {_n
             foreach (SqlitePhysicalModel.IndexModel index in collection.Indexes)
             {
                 BaseSchemaAuthorityChecksum publication = BaseAtomicSchemaContract.InitialPublication(logicalSchema, collection.Definition.Id, index.Definition.Checksum, 0);
-                statements.Add($"INSERT OR IGNORE INTO {_names.LogicalIndexes}(collection_id,index_checksum,generation,state,publication_checksum) VALUES ('{collection.Definition.Id.Replace("'", "''", StringComparison.Ordinal)}',X'{Convert.ToHexString(index.Definition.Checksum.ToArray())}',1,{(int)BaseLogicalIndexGenerationState.Ready},X'{Convert.ToHexString(publication.ToArray())}');");
+                byte[] memberSet = BaseLogicalIndexDirectoryContract.EmptyMemberSetChecksum();
+                byte[] directoryPublication = BaseLogicalIndexDirectoryContract.InitialDirectoryPublication(publication).ToArray();
+                long directoryBytes = index.Definition.StoreRequired
+                    ? BaseLogicalIndexDirectoryContract.EmptyDirectoryRetainedBytes : 0;
+                statements.Add($"INSERT OR IGNORE INTO {_names.LogicalIndexes}(collection_id,index_checksum,generation,state,publication_checksum,previous_directory_publication_checksum,directory_publication_checksum,member_set_checksum,posting_count,directory_bytes,comparison_count,transient_bytes) VALUES ('{collection.Definition.Id.Replace("'", "''", StringComparison.Ordinal)}',X'{Convert.ToHexString(index.Definition.Checksum.ToArray())}',1,{(int)BaseLogicalIndexGenerationState.Ready},X'{Convert.ToHexString(publication.ToArray())}',X'',X'{Convert.ToHexString(directoryPublication)}',X'{Convert.ToHexString(memberSet)}',0,{directoryBytes},0,{directoryBytes});");
             }
         foreach (SqlitePhysicalModel.RelationModel relation in _physical.Relations)
         {
@@ -679,6 +690,13 @@ CREATE TABLE IF NOT EXISTS {_names.LogicalIndexes} (
   generation INTEGER NOT NULL CHECK(generation > 0),
   state INTEGER NOT NULL,
   publication_checksum BLOB NOT NULL CHECK(length(publication_checksum)=32),
+  previous_directory_publication_checksum BLOB NOT NULL CHECK(length(previous_directory_publication_checksum) IN (0,32)),
+  directory_publication_checksum BLOB NOT NULL CHECK(length(directory_publication_checksum)=32),
+  member_set_checksum BLOB NOT NULL CHECK(length(member_set_checksum)=32),
+  posting_count INTEGER NOT NULL CHECK(posting_count >= 0),
+  directory_bytes INTEGER NOT NULL CHECK(directory_bytes >= 0),
+  comparison_count INTEGER NOT NULL CHECK(comparison_count >= 0),
+  transient_bytes INTEGER NOT NULL CHECK(transient_bytes >= 0),
   PRIMARY KEY(collection_id,index_checksum)
 );
 CREATE TABLE IF NOT EXISTS {_names.SchemaHistory} (
@@ -712,7 +730,11 @@ CREATE TABLE IF NOT EXISTS {_names.SchemaLease} (
             foreach (SqlitePhysicalModel.IndexModel index in collection.Indexes)
             {
                 BaseSchemaAuthorityChecksum publication = BaseAtomicSchemaContract.InitialPublication(logicalSchema, collection.Definition.Id, index.Definition.Checksum, 0);
-                await ExecuteAsync(connection, $"INSERT OR IGNORE INTO {_names.LogicalIndexes}(collection_id,index_checksum,generation,state,publication_checksum) VALUES ('{collection.Definition.Id.Replace("'", "''", StringComparison.Ordinal)}',X'{Convert.ToHexString(index.Definition.Checksum.ToArray())}',1,{(int)BaseLogicalIndexGenerationState.Ready},X'{Convert.ToHexString(publication.ToArray())}');", cancellationToken).ConfigureAwait(false);
+                byte[] memberSet = BaseLogicalIndexDirectoryContract.EmptyMemberSetChecksum();
+                byte[] directoryPublication = BaseLogicalIndexDirectoryContract.InitialDirectoryPublication(publication).ToArray();
+                long directoryBytes = index.Definition.StoreRequired
+                    ? BaseLogicalIndexDirectoryContract.EmptyDirectoryRetainedBytes : 0;
+                await ExecuteAsync(connection, $"INSERT OR IGNORE INTO {_names.LogicalIndexes}(collection_id,index_checksum,generation,state,publication_checksum,previous_directory_publication_checksum,directory_publication_checksum,member_set_checksum,posting_count,directory_bytes,comparison_count,transient_bytes) VALUES ('{collection.Definition.Id.Replace("'", "''", StringComparison.Ordinal)}',X'{Convert.ToHexString(index.Definition.Checksum.ToArray())}',1,{(int)BaseLogicalIndexGenerationState.Ready},X'{Convert.ToHexString(publication.ToArray())}',X'',X'{Convert.ToHexString(directoryPublication)}',X'{Convert.ToHexString(memberSet)}',0,{directoryBytes},0,{directoryBytes});", cancellationToken).ConfigureAwait(false);
             }
 
         await ExecuteAsync(connection, $"""
@@ -1370,11 +1392,11 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
                             index.OrderingParts.SelectMany(part => new[] { part.Definition.Direction == BaseIndexSortDirection.Descending, part.Definition.Direction == BaseIndexSortDirection.Descending }).Concat([false]).ToArray(), cancellationToken).ConfigureAwait(false)) missing.Add("index-shape:" + index.Name);
                         else if (!await IndexSqlMatchesAsync(connection, index.Name, index.OrderingSql(collection), cancellationToken).ConfigureAwait(false)) missing.Add("index-contract:" + index.Name);
                     }
-                    if (index.UniqueName is not null)
+                    if (index.EqualityName is not null)
                     {
-                        if (!await ObjectExistsAsync(connection, "index", index.UniqueName, cancellationToken).ConfigureAwait(false)) missing.Add("index:" + index.UniqueName);
-                        else if (!await IndexMatchesAsync(connection, index.UniqueName, true, [index.EqualityColumn!], [false], cancellationToken).ConfigureAwait(false)) missing.Add("index-shape:" + index.UniqueName);
-                        else if (!await IndexSqlMatchesAsync(connection, index.UniqueName, index.UniqueSql(collection), cancellationToken).ConfigureAwait(false)) missing.Add("index-contract:" + index.UniqueName);
+                        if (!await ObjectExistsAsync(connection, "index", index.EqualityName, cancellationToken).ConfigureAwait(false)) missing.Add("index:" + index.EqualityName);
+                        else if (!await IndexMatchesAsync(connection, index.EqualityName, index.Definition.Unique, [index.EqualityColumn!], [false], cancellationToken).ConfigureAwait(false)) missing.Add("index-shape:" + index.EqualityName);
+                        else if (!await IndexSqlMatchesAsync(connection, index.EqualityName, index.EqualitySql(collection), cancellationToken).ConfigureAwait(false)) missing.Add("index-contract:" + index.EqualityName);
                     }
                 }
             }

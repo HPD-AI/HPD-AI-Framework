@@ -17,6 +17,7 @@ internal sealed class InMemoryProviderInstaller(HPDBaseInMemoryStoreOptions conf
             ProtocolVersion = HPDBaseStoreProviderFactory.ProtocolVersion,
             Capabilities = BaseStoreProviderCapabilities.Records |
                 BaseStoreProviderCapabilities.AtomicMutations |
+                BaseStoreProviderCapabilities.RequiredIndexes |
                 BaseStoreProviderCapabilities.RelationalExecution |
                 BaseStoreProviderCapabilities.CoLocatedVectors |
                 BaseStoreProviderCapabilities.CoLocatedTextSearch,
@@ -34,14 +35,18 @@ internal sealed class InMemoryProviderInstaller(HPDBaseInMemoryStoreOptions conf
             },
             TextSearch = BaseTextPlatform.ProviderCapability(BaseTextProviderClass.CoLocatedTransactional),
             Activations = activation,
-            SemanticActivations = BaseSemanticActivationCapabilityContract.BuiltIn(durable: false),
+            SemanticActivations = BaseSemanticActivationCapabilityContract.BuiltIn(durable: false, maintenanceSupported: true),
             SemanticActivationCertification = SemanticCertificationProfile(activation),
+            LogicalIndexes = BaseLogicalIndexProviderContract.SealSupportedProfile(
+                BaseLogicalIndexBuiltInCertification.LoadFrozenExecutedReport("inmemory"),
+                BaseLogicalIndexProviderContract.BuiltInCapability()),
+            SelectionMutationIndexShapes = BaseLogicalIndexProviderContract.BuiltInCapability().AccessShapes,
         }, new InMemoryProviderInstaller(owned));
     }
 
     private static BaseSemanticActivationCertificationProfile SemanticCertificationProfile(BaseActivationProviderCapability activation) =>
         SealSemanticCertification("hpd.base.inMemory.semanticActivations", "1", "inmemory",
-            BaseSemanticActivationCapabilityContract.BuiltIn(durable: false), ModuleCapability(),
+            BaseSemanticActivationCapabilityContract.BuiltIn(durable: false, maintenanceSupported: true), ModuleCapability(),
             activation);
 
     private static BaseSemanticActivationCertificationProfile SealSemanticCertification(

@@ -66,12 +66,14 @@ internal static class HPDBaseInMemoryServiceCollectionExtensions
         services.TryAddSingleton(new BaseTokenProtectionRegistration(false));
         services.TryAddSingleton<BaseOpaqueTokenProtector>();
         services.TryAddSingleton(provider => new InMemoryRecordStore(
-            provider.GetRequiredService<IOptions<HPDBaseInMemoryStoreOptions>>(),
+            provider.GetRequiredService<IOptions<HPDBaseInMemoryStoreOptions>>().Value,
             provider.GetRequiredService<BaseOpaqueTokenProtector>(),
-            provider.GetRequiredService<TimeProvider>()));
+            provider.GetRequiredService<TimeProvider>(),
+            logicalIndexCapability: options.LogicalIndexCertificationCapability));
         services.TryAddSingleton<IRecordStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
         services.TryAddSingleton<IRecordMutationStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
         services.TryAddSingleton<IAtomicRecordStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
+        services.TryAddSingleton<IBaseSemanticActivationAdministration>(provider => provider.GetRequiredService<InMemoryRecordStore>());
         services.TryAddSingleton<IBaseSubjectLifecycleStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
         services.TryAddSingleton<IStreamingRecordStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
         services.TryAddSingleton<IBaseStudioDynamicStoreAuthoritySource>(provider => provider.GetRequiredService<InMemoryRecordStore>());
@@ -125,6 +127,10 @@ internal static class HPDBaseInMemoryServiceCollectionExtensions
         SubjectLifecycleInspectionAuthorities = value.SubjectLifecycleInspectionAuthorities.Select(static item => item with { }).ToArray(),
         SubjectRetirementConsumers = value.SubjectRetirementConsumers.Select(static item => BaseSubjectRetirementRegistry.Normalize(item)).ToArray(),
         SubjectRetirementPolicies = value.SubjectRetirementPolicies.Select(static item => BaseSubjectRetirementRegistry.NormalizePolicy(item)).ToArray(),
+        SubjectLifecycleMaintenancePageCompleted = value.SubjectLifecycleMaintenancePageCompleted,
+        SubjectRetirementInspectionStarted = value.SubjectRetirementInspectionStarted,
+        LogicalIndexCertificationCapability = value.LogicalIndexCertificationCapability is null
+            ? null : BaseLogicalIndexProviderContract.CloneCapability(value.LogicalIndexCertificationCapability),
         DefaultPageSize = value.DefaultPageSize,
         MaxPageSize = value.MaxPageSize, MaxFilterDepth = value.MaxFilterDepth,
         MaxFilterNodes = value.MaxFilterNodes, MaxSerializedQueryLength = value.MaxSerializedQueryLength,

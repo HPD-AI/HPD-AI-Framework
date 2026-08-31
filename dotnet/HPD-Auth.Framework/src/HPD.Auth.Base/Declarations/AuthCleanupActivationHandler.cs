@@ -53,6 +53,17 @@ internal static class AuthCleanupActivationHandler
         if (work.State == AuthCleanupStateV1.awaitingSemanticRetirement)
             return AuthActivationFailureMapper.Domain<AuthCleanupResultV1>("auth.cleanup.retirementPending");
 
+        string? retirementReadinessScope = null;
+        if (work.Step == AuthCleanupStepV1.proveSubjectReady)
+        {
+            RetirementReadiness readiness = await InspectRetirementReadinessAsync(
+                context, "hpd.auth.user-subject", input.Subject, cancellationToken).ConfigureAwait(false);
+            if (readiness.Error is not null)
+                return AuthActivationFailureMapper.Map<AuthCleanupResultV1>(readiness.Error);
+            if (!readiness.Ready)
+                return YieldForBarrier(context, work, readiness.Barrier!);
+            retirementReadinessScope = readiness.ReceiptScope;
+        }
         ValueTask<BaseResult<BaseSelectionMutationResult>>? pendingCohort = ExecuteUserCohortAsync(
             context, work, operationTime, cancellationToken);
         BaseResult<BaseSelectionMutationResult>? cohort = pendingCohort is { } userCohort
@@ -62,7 +73,8 @@ internal static class AuthCleanupActivationHandler
             return AuthActivationFailureMapper.Map<AuthCleanupResultV1>(cohortFailure.Error);
 
         return await AdvanceUserAsync(
-            context, input, work, input.Incarnation, cohort?.RequireValue(), operationTime, cancellationToken).ConfigureAwait(false);
+            context, input, work, input.Incarnation, cohort?.RequireValue(), retirementReadinessScope,
+            operationTime, cancellationToken).ConfigureAwait(false);
     }
 
     internal static async ValueTask<BaseActivationHandlerResult<AuthCleanupResultV1>> ExecuteRoleAsync(
@@ -90,6 +102,17 @@ internal static class AuthCleanupActivationHandler
         if (work.State == AuthCleanupStateV1.awaitingSemanticRetirement)
             return AuthActivationFailureMapper.Domain<AuthCleanupResultV1>("auth.cleanup.retirementPending");
 
+        string? retirementReadinessScope = null;
+        if (work.Step == AuthCleanupStepV1.proveSubjectReady)
+        {
+            RetirementReadiness readiness = await InspectRetirementReadinessAsync(
+                context, "hpd.auth.role-subject", input.Subject, cancellationToken).ConfigureAwait(false);
+            if (readiness.Error is not null)
+                return AuthActivationFailureMapper.Map<AuthCleanupResultV1>(readiness.Error);
+            if (!readiness.Ready)
+                return YieldForBarrier(context, work, readiness.Barrier!);
+            retirementReadinessScope = readiness.ReceiptScope;
+        }
         ValueTask<BaseResult<BaseSelectionMutationResult>>? pendingCohort = ExecuteRoleCohortAsync(
             context, work, cancellationToken);
         BaseResult<BaseSelectionMutationResult>? cohort = pendingCohort is { } roleCohort
@@ -99,7 +122,8 @@ internal static class AuthCleanupActivationHandler
             return AuthActivationFailureMapper.Map<AuthCleanupResultV1>(cohortFailure.Error);
 
         return await AdvanceRoleAsync(
-            context, input, work, input.Incarnation, cohort?.RequireValue(), operationTime, cancellationToken).ConfigureAwait(false);
+            context, input, work, input.Incarnation, cohort?.RequireValue(), retirementReadinessScope,
+            operationTime, cancellationToken).ConfigureAwait(false);
     }
 
     private static ValueTask<BaseResult<AuthCleanupWorkReadV1.Row?>> ReadAsync(
@@ -132,6 +156,66 @@ internal static class AuthCleanupActivationHandler
         && work.TombstoneSequence == input.TombstoneSequence
         && string.Equals(work.TombstoneRevision, input.TombstoneRevision, StringComparison.Ordinal)
         && work.WorkflowVersion == input.WorkflowVersion;
+
+    private static async ValueTask<RetirementReadiness> InspectRetirementReadinessAsync<TSubject>(
+        BaseActivationContext context,
+        string contractId,
+        BaseSubjectReference<TSubject> subject,
+        CancellationToken cancellationToken)
+    {
+        BaseResult<BaseSubjectRetirementInspection> inspected = await context.SubjectRetirements
+            .InspectAsync(new BaseSubjectRetirementInspectionRequest
+            {
+                ContractId = contractId,
+                ContractVersion = 1,
+                SubjectId = subject.SubjectId,
+                AuthorityEpoch = subject.AuthorityEpoch,
+                Incarnation = subject.Incarnation,
+                ScopeAuthority = new BaseSubjectScopeQueryAuthority
+                {
+                    Mode = BaseSubjectScopeQueryMode.ExactScope,
+                    InstalledAuthorityDigest = new string('0', 64),
+                },
+                IncludeTerminalSummary = true,
+                MaximumResultBytes = 65_536,
+                DeadlineUtc = DateTimeOffset.FromUnixTimeMilliseconds(context.Claim.SliceStartedAt).AddSeconds(30),
+            }, cancellationToken).ConfigureAwait(false);
+        if (inspected is BaseFailure<BaseSubjectRetirementInspection> failure)
+            return new RetirementReadiness(false, null, null, failure.Error);
+        BaseSubjectRetirementInspection value = inspected.RequireValue();
+        if (value.TerminalSummary is not null)
+            return new RetirementReadiness(true, null, value.TerminalSummary.TerminalReceiptChecksum, null);
+        if (value.CurrentBarrier is not { } barrier)
+            return new RetirementReadiness(true, null, "auth.cleanup.uncoordinated-retirement.v1", null);
+        bool ready = barrier.State is BaseSubjectRetirementBarrierState.Satisfied
+            or BaseSubjectRetirementBarrierState.Overridden;
+        return new RetirementReadiness(ready, barrier, ready ? barrier.BarrierChecksum : null, null);
+    }
+
+    private static BaseActivationHandlerResult<AuthCleanupResultV1> YieldForBarrier(
+        BaseActivationContext context,
+        AuthCleanupWorkReadV1.Row work,
+        BaseSubjectRetirementBarrier barrier)
+    {
+        byte[] progress = SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n',
+            "hpd.auth.cleanup.barrier-wait.v1", work.Id, work.Revision.Value,
+            barrier.State.ToString(), barrier.Generation.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            barrier.BarrierChecksum)));
+        return new BaseActivationYielded<AuthCleanupResultV1>
+        {
+            Yield = new BaseActivationYield
+            {
+                ResumeAt = DateTimeOffset.FromUnixTimeMilliseconds(context.Claim.SliceStartedAt).AddMinutes(1),
+                ProgressFingerprint = BaseActivationProgressFingerprint.Create(progress),
+            },
+        };
+    }
+
+    private sealed record RetirementReadiness(
+        bool Ready,
+        BaseSubjectRetirementBarrier? Barrier,
+        string? ReceiptScope,
+        BaseError? Error);
 
     private static ValueTask<BaseActivationHandlerResult<AuthCleanupResultV1>> PrepareUserRetirementAsync(
         BaseActivationContext context,
@@ -255,10 +339,11 @@ internal static class AuthCleanupActivationHandler
         AuthCleanupWorkReadV1.Row work,
         BaseSubjectIncarnation incarnation,
         BaseSelectionMutationResult? cohort,
+        string? finalRetirementReceiptScope,
         DateTimeOffset operationTime,
         CancellationToken cancellationToken) =>
         await AdvanceAsync(context, input, AuthCleanupActivationDeclarations.User.Identity,
-            work, incarnation, cohort, operationTime, cancellationToken).ConfigureAwait(false);
+            work, incarnation, cohort, finalRetirementReceiptScope, operationTime, cancellationToken).ConfigureAwait(false);
 
     private static async ValueTask<BaseActivationHandlerResult<AuthCleanupResultV1>> AdvanceRoleAsync(
         BaseActivationContext context,
@@ -266,10 +351,11 @@ internal static class AuthCleanupActivationHandler
         AuthCleanupWorkReadV1.Row work,
         BaseSubjectIncarnation incarnation,
         BaseSelectionMutationResult? cohort,
+        string? finalRetirementReceiptScope,
         DateTimeOffset operationTime,
         CancellationToken cancellationToken) =>
         await AdvanceAsync(context, input, AuthCleanupActivationDeclarations.Role.Identity,
-            work, incarnation, cohort, operationTime, cancellationToken).ConfigureAwait(false);
+            work, incarnation, cohort, finalRetirementReceiptScope, operationTime, cancellationToken).ConfigureAwait(false);
 
     private static async ValueTask<BaseActivationHandlerResult<AuthCleanupResultV1>> AdvanceAsync<TInput>(
         BaseActivationContext context,
@@ -278,6 +364,7 @@ internal static class AuthCleanupActivationHandler
         AuthCleanupWorkReadV1.Row work,
         BaseSubjectIncarnation incarnation,
         BaseSelectionMutationResult? cohort,
+        string? finalRetirementReceiptScope,
         DateTimeOffset operationTime,
         CancellationToken cancellationToken)
     {
@@ -296,9 +383,10 @@ internal static class AuthCleanupActivationHandler
             else
             {
                 disposition = AuthCleanupChildDispositionV1.zeroDrainProof;
+                retentionEligibleAt = null;
             }
         }
-        else if (work.Step == AuthCleanupStepV1.finalizeSubject)
+        else if (work.Step == AuthCleanupStepV1.proveSubjectReady)
         {
             disposition = AuthCleanupChildDispositionV1.allStepsComplete;
         }
@@ -309,9 +397,9 @@ internal static class AuthCleanupActivationHandler
                 : AuthCleanupChildDispositionV1.positiveCohort;
         }
 
-        string receiptScope = cohort is null
+        string receiptScope = finalRetirementReceiptScope ?? (cohort is null
             ? $"activation:{context.Claim.ActivationId}"
-            : SelectionIdentity(context, work).Scope;
+            : SelectionIdentity(context, work).Scope);
         var request = new AuthCleanupAdvanceV1
         {
             CleanupWorkId = work.Id,

@@ -1,60 +1,27 @@
-using System.Text;
 using System.Text.Json;
 
 namespace HPD.Base;
 
 internal struct BaseSubjectCanonicalRetainedWork
 {
-    private long _bytes;
+    private BaseCanonicalRetainedWork _counter;
 
-    internal readonly long Bytes => _bytes;
+    internal readonly long Bytes => _counter.Bytes;
 
-    internal void AddContainer() => Add(8);
-    internal void AddSequence(int count)
-    {
-        if (count < 0) throw new ArgumentOutOfRangeException(nameof(count));
-        Add(checked(8L + count * 8L));
-    }
-    internal void AddInteger() => Add(8);
-    internal void AddBoolean() => Add(1);
-    internal void AddFixed16() => Add(16);
-    internal void AddFixed24() => Add(24);
-    internal void AddString(string value)
-    {
-        ArgumentNullException.ThrowIfNull(value);
-        Add(checked(4L + Encoding.UTF8.GetByteCount(value)));
-    }
-    internal void AddNullableString(string? value)
-    {
-        Add(1);
-        if (value is not null) AddString(value);
-    }
-    internal void AddBytes(long length)
-    {
-        if (length < 0) throw new ArgumentOutOfRangeException(nameof(length));
-        Add(checked(4L + length));
-    }
-    internal void AddNullableFixed16(bool present)
-    {
-        Add(1);
-        if (present) AddFixed16();
-    }
-    internal void AddNullableFixed24(bool present)
-    {
-        Add(1);
-        if (present) AddFixed24();
-    }
-    internal void AddNullableBoolean(bool? value)
-    {
-        Add(1);
-        if (value.HasValue) AddBoolean();
-    }
-    internal void AddNullableInteger(bool present)
-    {
-        Add(1);
-        if (present) AddInteger();
-    }
-    internal void Add(long bytes) => _bytes = checked(_bytes + bytes);
+    internal void AddContainer() => _counter.AddContainer();
+    internal void AddSequence(int count) => _counter.AddSequence(count);
+    internal void AddInteger() => _counter.AddInteger();
+    internal void AddBoolean() => _counter.AddBoolean();
+    internal void AddFixed16() => _counter.AddFixed16();
+    internal void AddFixed24() => _counter.AddFixed24();
+    internal void AddString(string value) => _counter.AddString(value);
+    internal void AddNullableString(string? value) => _counter.AddNullableString(value);
+    internal void AddBytes(long length) => _counter.AddBytes(length);
+    internal void AddNullableFixed16(bool present) => _counter.AddNullableFixed16(present);
+    internal void AddNullableFixed24(bool present) => _counter.AddNullableFixed24(present);
+    internal void AddNullableBoolean(bool? value) => _counter.AddNullableBoolean(value);
+    internal void AddNullableInteger(bool present) => _counter.AddNullableInteger(present);
+    internal void Add(long bytes) => _counter.Add(bytes);
 
     internal static long MeasureOverlay(BasePreparedSubjectOverlayEvidence value)
     {
@@ -402,6 +369,20 @@ internal struct BaseSubjectCanonicalRetainedWork
             counter.Add(16); counter.AddString(key); AddNullableRecord(ref counter, record);
         }
         counter.Add(MeasureIntervals(intervals));
+        return counter.Bytes;
+    }
+
+    internal static long MeasureLifecycleConsumerProjections(
+        IReadOnlyCollection<BaseCapturedSubjectLifecycleConsumerProjection> values)
+    {
+        var counter = new BaseSubjectCanonicalRetainedWork();
+        counter.AddSequence(values.Count);
+        foreach (BaseCapturedSubjectLifecycleConsumerProjection projection in values)
+        {
+            counter.AddContainer(); counter.AddString(projection.ConsumerId); counter.AddInteger();
+            counter.AddString(projection.ConsumerChecksum); counter.AddString(projection.ContractId);
+            counter.AddInteger(); counter.AddInteger(); counter.AddInteger();
+        }
         return counter.Bytes;
     }
 

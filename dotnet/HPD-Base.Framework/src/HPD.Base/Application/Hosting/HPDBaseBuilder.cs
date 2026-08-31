@@ -683,7 +683,8 @@ public sealed class HPDBaseBuilder
         {
             _moduleMutationRegistrations.TryGetValue((definition.Id, definition.Version), out IBaseModuleMutationRegistration? registration);
             if (registration is null) throw new InvalidOperationException("base.moduleMutation.invalid");
-            BaseModuleMutationContractValidator.ValidateDefinition(definition, _collections, _moduleGenerationCells, registration, subjectRegistry.All);
+            BaseModuleMutationContractValidator.ValidateDefinition(
+                definition, _collections, _moduleGenerationCells, registration, subjectRegistry.All);
             ValidateModuleSubjectAuthority(definition, registration, subjectRegistry);
             if (!BaseModuleMutationCapabilityContract.Supports(definition.Limits, provider.ModuleMutations))
                 throw new InvalidOperationException(BaseModuleMutationErrorCodes.CapabilityMissing);
@@ -795,6 +796,8 @@ public sealed class HPDBaseBuilder
                 || schedule.Expression is BaseCalendarSchedule { TimeZoneId: var calendarZone } && !timeZoneRegistry.Contains(calendarZone))
                 throw new InvalidOperationException("base.activation.timeZoneUnavailable");
         var subjectLifecycleRegistry = new BaseSubjectLifecycleRegistry(_subjectLifecycleConsumers, subjectRegistry);
+        BaseModuleMutationContractValidator.ValidateLifecycleProjectionCapacity(
+            moduleMutationRegistry.Operations, moduleMutationRegistry.Cells, subjectLifecycleRegistry.All);
         var subjectRetirementRegistry = new BaseSubjectRetirementRegistry(_subjectRetirementConsumers, _subjectRetirementPolicies, subjectLifecycleRegistry);
         if (!BaseSubjectRetirementCapabilityContract.Supports(subjectRetirementRegistry, provider.SubjectRetirement))
             throw new InvalidOperationException(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);
@@ -966,6 +969,8 @@ public sealed class HPDBaseBuilder
         catch (Exception) { throw new InvalidOperationException("base.store.providerInvalid"); }
         finally { installation.Complete(); }
         if (receipt is null || receipt.Kind != provider.Kind || receipt.ProtocolVersion != provider.ProtocolVersion ||
+            receipt.ProviderChecksum.Length != 32 || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                receipt.ProviderChecksum.AsSpan(), provider.ProviderChecksum.AsSpan()) ||
             !string.Equals(receipt.SchemaDigest, HPDBaseStoreInstallationContext.ComputeSchemaDigest(
                 collections, installedSubjects, _moduleMutations.Values, _moduleGenerationCells.Values,
                 subjectLifecycleRegistry.All.Select(static value => value.Definition), lifecycleInspectionAuthorities.All,

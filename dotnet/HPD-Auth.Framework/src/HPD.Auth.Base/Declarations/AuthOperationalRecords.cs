@@ -3,14 +3,13 @@ using HPD.Base;
 
 namespace HPD.Auth.Base;
 
-internal enum AuthImportStatusV1 { prepared, importing, verified, attested, activated, failed }
 internal enum AuthCleanupSubjectKindV1 { user, role }
 internal enum AuthCleanupStepV1
 {
     revokeSessions, revokeRefreshTokens, deleteDeliveries, waitSecurityRetention,
     deleteSessions, deleteRefreshTokens, deletePasskeys, deleteUserClaims,
     deleteUserLogins, deleteUserTokens, deleteUserRoles, deleteUserIdentities,
-    proveEmpty, finalizeSubject, deleteRoleClaims,
+    proveEmpty, proveSubjectReady, deleteRoleClaims,
 }
 internal enum AuthCleanupStateV1 { draining, waitingRetention, readyToPurge, awaitingSemanticRetirement, complete }
 internal enum AuthMaintenanceKindV1 { sessionExpiration, refreshExpiration, deliveryExpiration }
@@ -76,31 +75,6 @@ internal sealed partial record AuthDataProtectionKeyRecordV1
     [BaseField("auth.dataProtectionKeys.formatVersion", MinimumInt32 = 1, HasMinimumInt32 = true), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required int FormatVersion { get; init; }
 }
 
-[BaseCollection("auth.importState", typeof(AuthBaseJsonSerializerContext), SystemOwnerModuleId = AuthBaseContract.ModuleId)]
-[BaseIndex("auth.idx.import.source", Unique = true)]
-[BaseIndexPart("auth.idx.import.source", 0, nameof(SourceSchemaId))]
-[BaseIndexPart("auth.idx.import.source", 1, nameof(SourceStoreDigest))]
-internal sealed partial record AuthImportStateRecordV1
-{
-    [BaseField("auth.importState.id", MinimumUtf8Bytes = 64, MaximumUtf8Bytes = 64), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required string Id { get; init; }
-    [BaseField("auth.importState.sourceSchemaId", MaximumUtf8Bytes = 128, StringNormalization = BaseStringNormalizationRequirement.RequireNfc), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required string SourceSchemaId { get; init; }
-    [BaseField("auth.importState.sourceCatalogDigest", MaximumBytes = 32), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required BaseBinary SourceCatalogDigest { get; init; }
-    [BaseField("auth.importState.sourceStoreDigest", MaximumBytes = 32), BaseFieldConfidentiality(BaseFieldConfidentiality.Confidential)] public required BaseBinary SourceStoreDigest { get; init; }
-    [BaseField("auth.importState.targetGraphChecksum", MaximumBytes = 32), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required BaseBinary TargetGraphChecksum { get; init; }
-    [BaseField("auth.importState.status", AllowedEnumLiterals = ["activated", "attested", "failed", "importing", "prepared", "verified"]), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal), JsonConverter(typeof(BaseClosedEnumJsonConverter<AuthImportStatusV1>))] public required AuthImportStatusV1 Status { get; init; }
-    [BaseField("auth.importState.tableOrdinal", MinimumInt32 = 0, HasMinimumInt32 = true), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required int TableOrdinal { get; init; }
-    [BaseField("auth.importState.chunkOrdinal", MinimumInt64 = 0, HasMinimumInt64 = true), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required long ChunkOrdinal { get; init; }
-    [BaseField("auth.importState.rowsImported", MinimumInt64 = 0, HasMinimumInt64 = true), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required long RowsImported { get; init; }
-    [BaseField("auth.importState.manifest", MaximumBytes = 1048576), BaseFieldConfidentiality(BaseFieldConfidentiality.Confidential)] public required BaseBinary Manifest { get; init; }
-    [BaseField("auth.importState.manifestDigest", MaximumBytes = 32), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required BaseBinary ManifestDigest { get; init; }
-    [BaseField("auth.importState.attestationKeyId", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable, MaximumUtf8Bytes = 128, StringNormalization = BaseStringNormalizationRequirement.RequireNfc), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public string? AttestationKeyId { get; init; }
-    [BaseField("auth.importState.attestation", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable, MaximumBytes = 128), BaseFieldConfidentiality(BaseFieldConfidentiality.Secret)] public BaseBinary? Attestation { get; init; }
-    [BaseField("auth.importState.failureCode", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable, MaximumUtf8Bytes = 128, StringNormalization = BaseStringNormalizationRequirement.RequireNfc), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public string? FailureCode { get; init; }
-    [BaseField("auth.importState.createdAt"), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset CreatedAt { get; init; }
-    [BaseField("auth.importState.updatedAt"), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset UpdatedAt { get; init; }
-    [BaseField("auth.importState.activatedAt", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public DateTimeOffset? ActivatedAt { get; init; }
-}
-
 [BaseCollection("auth.cleanupWork", typeof(AuthBaseJsonSerializerContext), SystemOwnerModuleId = AuthBaseContract.ModuleId)]
 [BaseIndex("auth.idx.cleanupWork.subject", Unique = true)]
 [BaseIndexPart("auth.idx.cleanupWork.subject", 0, nameof(TenantId))]
@@ -125,7 +99,7 @@ internal sealed partial record AuthCleanupWorkRecordV1
     [BaseField("auth.cleanupWork.tombstoneSequence", MinimumInt64 = 1, HasMinimumInt64 = true), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required long TombstoneSequence { get; init; }
     [BaseField("auth.cleanupWork.tombstoneRevision", MaximumUtf8Bytes = 256, StringNormalization = BaseStringNormalizationRequirement.RequireNfc), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required string TombstoneRevision { get; init; }
     [BaseField("auth.cleanupWork.workflowVersion", MinimumInt32 = 1, HasMinimumInt32 = true, MaximumInt32 = 1, HasMaximumInt32 = true), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required int WorkflowVersion { get; init; }
-    [BaseField("auth.cleanupWork.step", AllowedEnumLiterals = ["deleteDeliveries", "deletePasskeys", "deleteRefreshTokens", "deleteRoleClaims", "deleteSessions", "deleteUserClaims", "deleteUserIdentities", "deleteUserLogins", "deleteUserRoles", "deleteUserTokens", "finalizeSubject", "proveEmpty", "revokeRefreshTokens", "revokeSessions", "waitSecurityRetention"]), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal), JsonConverter(typeof(BaseClosedEnumJsonConverter<AuthCleanupStepV1>))] public required AuthCleanupStepV1 Step { get; init; }
+    [BaseField("auth.cleanupWork.step", AllowedEnumLiterals = ["deleteDeliveries", "deletePasskeys", "deleteRefreshTokens", "deleteRoleClaims", "deleteSessions", "deleteUserClaims", "deleteUserIdentities", "deleteUserLogins", "deleteUserRoles", "deleteUserTokens", "proveEmpty", "proveSubjectReady", "revokeRefreshTokens", "revokeSessions", "waitSecurityRetention"]), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal), JsonConverter(typeof(BaseClosedEnumJsonConverter<AuthCleanupStepV1>))] public required AuthCleanupStepV1 Step { get; init; }
     [BaseField("auth.cleanupWork.chunkOrdinal", MinimumInt64 = 0, HasMinimumInt64 = true), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required long ChunkOrdinal { get; init; }
     [BaseField("auth.cleanupWork.retentionEligibleAt", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public DateTimeOffset? RetentionEligibleAt { get; init; }
     [BaseField("auth.cleanupWork.completedSteps", MinimumInt64 = 0, HasMinimumInt64 = true), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required long CompletedSteps { get; init; }
@@ -155,9 +129,9 @@ internal sealed partial record AuthMaintenanceCursorRecordV1
 [BaseIndexPart("auth.idx.maintenanceRun.activation", 1, nameof(Id))]
 internal sealed partial record AuthMaintenanceRunRecordV1
 {
-    [BaseField("auth.maintenanceRuns.id", MinimumUtf8Bytes = 64, MaximumUtf8Bytes = 64), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required string Id { get; init; }
+    [BaseField("auth.maintenanceRuns.id", MinimumUtf8Bytes = 64, MaximumUtf8Bytes = 64, Operators = BaseFieldOperator.Order), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required string Id { get; init; }
     [BaseField("auth.maintenanceRuns.activationId", MaximumUtf8Bytes = 256, StringNormalization = BaseStringNormalizationRequirement.RequireNfc), BaseFieldConfidentiality(BaseFieldConfidentiality.Confidential)] public required string ActivationId { get; init; }
     [BaseField("auth.maintenanceRuns.kind", AllowedEnumLiterals = ["deliveryExpiration", "refreshExpiration", "sessionExpiration"]), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal), JsonConverter(typeof(BaseClosedEnumJsonConverter<AuthMaintenanceKindV1>))] public required AuthMaintenanceKindV1 Kind { get; init; }
-    [BaseField("auth.maintenanceRuns.cutoff"), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset Cutoff { get; init; }
+    [BaseField("auth.maintenanceRuns.cutoff", Operators = BaseFieldOperator.Order), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset Cutoff { get; init; }
     [BaseField("auth.maintenanceRuns.createdAt"), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset CreatedAt { get; init; }
 }

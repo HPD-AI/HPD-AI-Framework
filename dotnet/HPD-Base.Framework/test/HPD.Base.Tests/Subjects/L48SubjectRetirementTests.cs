@@ -8,6 +8,99 @@ namespace HPD.Base.Tests.Subjects;
 public sealed class L48SubjectRetirementTests
 {
     [Fact]
+    public void Retirement_authorization_preserves_contract_identity_separately_from_operation_grant()
+    {
+        PrincipalContext principal = new()
+        {
+            AuthenticationState = PrincipalAuthenticationState.System,
+            SubjectKind = AccessSubjectKind.System,
+            SubjectId = "retirement-worker",
+            CurrentTenantId = "tenant-a",
+        };
+        OperationContext operation = new()
+        {
+            ApplicationId = "test.application",
+            Audience = HPDBaseEndpointAudience.Application,
+            Operation = BaseOperationKind.SubjectRetirementInspect,
+            CollectionId = "base.subjectRetirement.barrier.inspect",
+            TenantId = "tenant-a",
+            Mode = OperationMode.System,
+            Now = DateTimeOffset.UnixEpoch,
+        };
+
+        BasePolicyRequest first = DefaultBaseSubjectRetirementRuntime.RetirementAuthorizationRequest(
+            principal, Subject("example.first"), "base.subjectRetirement.barrier.inspect", operation);
+        BasePolicyRequest second = DefaultBaseSubjectRetirementRuntime.RetirementAuthorizationRequest(
+            principal, Subject("example.second"), "base.subjectRetirement.barrier.inspect", operation);
+
+        Assert.Equal("example.first", first.Operation.CollectionId);
+        Assert.Equal("example.second", second.Operation.CollectionId);
+        Assert.Equal("base.subjectRetirement.barrier.inspect", first.Collection!.Id);
+        Assert.Equal("base.subjectRetirement.barrier.inspect", second.Collection!.Id);
+        Assert.Equal(PolicyResourceKind.SubjectLifecycle, first.ResourceKind);
+        Assert.Equal("example.exporter", first.Collection.SystemOwnerModuleId);
+    }
+
+    [Fact]
+    public async Task Dynamic_retirement_grant_for_one_contract_denies_another_before_provider_influence()
+    {
+        PrincipalContext principal = new()
+        {
+            AuthenticationState = PrincipalAuthenticationState.System,
+            SubjectKind = AccessSubjectKind.System,
+            SubjectId = "retirement-worker",
+            CurrentTenantId = "tenant-a",
+        };
+        OperationContext operation = new()
+        {
+            ApplicationId = "test.application",
+            Audience = HPDBaseEndpointAudience.Application,
+            Operation = BaseOperationKind.SubjectRetirementInspect,
+            CollectionId = "base.subjectRetirement.barrier.inspect",
+            TenantId = "tenant-a",
+            Mode = OperationMode.System,
+            Now = DateTimeOffset.UnixEpoch,
+        };
+        const string grantId = "base.subjectRetirement.barrier.inspect";
+        var source = new ContractBoundGrantSource("example.first", principal, operation, grantId);
+        var builder = new BasePolicyAuthorityBuilder();
+        builder.AddPolicy(new BasePolicyAuthorityDefinition
+        {
+            Id = "retirement.policy",
+            Version = 1,
+            OwningModuleId = "example.exporter",
+            EvaluatorContractId = "retirement.policy.v1",
+            EvaluatorContractVersion = 1,
+            CompositionOrder = 0,
+        }, new PermitPolicyEvaluator());
+        source.Registration = builder.AddGrant(new BaseGrantAuthorityDefinition
+        {
+            Id = grantId,
+            Version = 1,
+            OwningModuleId = "example.exporter",
+            SourceContractId = "retirement.dynamic-grants",
+            SourceContractVersion = 1,
+        }, source);
+        var policy = new DefaultBasePolicyOrchestrator(builder.Freeze(operation.ApplicationId));
+
+        BasePolicyRequest allowedRequest = DefaultBaseSubjectRetirementRuntime.RetirementAuthorizationRequest(
+            principal, Subject("example.first"), grantId, operation);
+        OperationResult<BasePolicyEvaluation> allowed = await policy.EvaluateReadAsync(allowedRequest);
+        Assert.True(BaseSystemCollectionGate.HasExactSubjectLifecycleGrant(
+            allowed, grantId, "example.exporter", grantId, "example.first", 1,
+            principal, allowedRequest.Operation));
+
+        BasePolicyRequest deniedRequest = DefaultBaseSubjectRetirementRuntime.RetirementAuthorizationRequest(
+            principal, Subject("example.second"), grantId, operation);
+        OperationResult<BasePolicyEvaluation> denied = await policy.EvaluateReadAsync(deniedRequest);
+        Assert.False(BaseSystemCollectionGate.HasExactSubjectLifecycleGrant(
+            denied, grantId, "example.exporter", grantId, "example.second", 1,
+            principal, deniedRequest.Operation));
+        Assert.Equal(2, source.Evaluations);
+        Assert.Equal(1, source.Emissions);
+    }
+
+    [Fact]
     public void Required_evidence_expiry_intersects_checkpoint_lag_deadline_and_absolute_ceiling()
     {
         DateTimeOffset issued = DateTimeOffset.Parse("2026-01-01T00:00:00Z");
@@ -269,7 +362,7 @@ public sealed class L48SubjectRetirementTests
         return (lifecycle, consumer, policy);
     }
 
-    private static BaseGeneratedSubjectRegistration Subject()=>BaseGeneratedSubjects.Register<object>(new BaseExportedSubjectDefinition{Id="example.subject",Version=1,OwningModuleId="example.exporter",Scope=BaseSubjectScopeKind.Tenant,SubjectIdKind=BaseSubjectIdKind.OrdinalString,MaximumSubjectIdUtf8Bytes=128,TombstoneFieldId="tombstoned",TombstoneMetadata=new(){Instant=new(){Kind=BaseSubjectTombstoneMetadataBindingKind.NotStored},Sequence=new(){Kind=BaseSubjectTombstoneMetadataBindingKind.NotStored}},FinalRetirementExecutionMode=BaseSubjectFinalExecutionMode.OrdinaryOrActivationGuarded,SupportsCoordinatedRetirement=true,Audiences=[HPDBaseEndpointAudience.Application],ValidationPlan=new(){Id="example.subject.validation",Version=1,ContractId="example.subject",ContractVersion=1,ContractChecksum=Hex('1'),PrivateCollectionId="private.subjects",SubjectId=BaseSubjectIdBinding.RecordId,Active=new(){Kind=BaseSubjectActiveBindingKind.RequiredBooleanField,FieldId="active",ActiveValue=true},Scope=new(){Kind=BaseSubjectScopeBindingKind.RequiredTenantField,FieldId="tenant"},Access=BaseSubjectValidationAccessShape.ContractAndSubjectPrimaryKeys,Limits=BaseSubjectValidationLimits.Default},AcquisitionGrantId="subject.acquire",ValidationGrantId="subject.validate",AdministrationGrantId="subject.admin"});
+    private static BaseGeneratedSubjectRegistration Subject(string id = "example.subject")=>BaseGeneratedSubjects.Register<object>(new BaseExportedSubjectDefinition{Id=id,Version=1,OwningModuleId="example.exporter",Scope=BaseSubjectScopeKind.Tenant,SubjectIdKind=BaseSubjectIdKind.OrdinalString,MaximumSubjectIdUtf8Bytes=128,TombstoneFieldId="tombstoned",TombstoneMetadata=new(){Instant=new(){Kind=BaseSubjectTombstoneMetadataBindingKind.NotStored},Sequence=new(){Kind=BaseSubjectTombstoneMetadataBindingKind.NotStored}},FinalRetirementExecutionMode=BaseSubjectFinalExecutionMode.OrdinaryOrActivationGuarded,SupportsCoordinatedRetirement=true,Audiences=[HPDBaseEndpointAudience.Application],ValidationPlan=new(){Id=id+".validation",Version=1,ContractId=id,ContractVersion=1,ContractChecksum=Hex('1'),PrivateCollectionId="private.subjects",SubjectId=BaseSubjectIdBinding.RecordId,Active=new(){Kind=BaseSubjectActiveBindingKind.RequiredBooleanField,FieldId="active",ActiveValue=true},Scope=new(){Kind=BaseSubjectScopeBindingKind.RequiredTenantField,FieldId="tenant"},Access=BaseSubjectValidationAccessShape.ContractAndSubjectPrimaryKeys,Limits=BaseSubjectValidationLimits.Default},AcquisitionGrantId="subject.acquire",ValidationGrantId="subject.validate",AdministrationGrantId="subject.admin"});
 
     private static BaseSubjectRetirementBarrier Barrier() => new()
     {
@@ -287,6 +380,67 @@ public sealed class L48SubjectRetirementTests
     };
 
     private static string Hex(char value) => new(value, 64);
+    private sealed class PermitPolicyEvaluator : IPolicyEvaluator
+    {
+        public ValueTask<PolicyDecision> EvaluateAsync(
+            PolicyEvaluationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _ = request;
+            return ValueTask.FromResult(new PolicyDecision
+            {
+                Effect = PolicyEffect.Allow,
+                Outcome = PolicyOutcome.Allowed,
+            });
+        }
+    }
+
+    private sealed class ContractBoundGrantSource(
+        string admittedContractId,
+        PrincipalContext principal,
+        OperationContext operation,
+        string grantId) : IBaseGrantAuthoritySource
+    {
+        internal BaseInstalledGrantRegistration Registration { get; set; } = null!;
+        internal int Evaluations { get; private set; }
+        internal int Emissions { get; private set; }
+
+        public ValueTask EmitAsync(
+            BaseGrantAuthorityEmissionContext context,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Evaluations++;
+            if (!string.Equals(context.Operation.CollectionId, admittedContractId, StringComparison.Ordinal))
+                return ValueTask.CompletedTask;
+            context.Emit(Registration, new AccessGrant
+            {
+                Id = grantId,
+                ApplicationId = operation.ApplicationId,
+                ModuleId = "example.exporter",
+                Audience = operation.Audience,
+                Subject = new AccessSubject
+                {
+                    Kind = principal.SubjectKind,
+                    Id = principal.SubjectId,
+                    TenantId = principal.CurrentTenantId,
+                },
+                Action = grantId,
+                Scope = new ResourceScope
+                {
+                    Kind = ResourceScopeKind.SubjectContract,
+                    SubjectContractId = admittedContractId,
+                    SubjectContractVersion = 1,
+                    TenantId = operation.TenantId,
+                    ProjectId = operation.ProjectId,
+                },
+            });
+            Emissions++;
+            return ValueTask.CompletedTask;
+        }
+    }
+
     private sealed class MutableClock(DateTimeOffset now):TimeProvider{private DateTimeOffset _now=now;public override DateTimeOffset GetUtcNow()=>_now;internal void Advance(TimeSpan value)=>_now=_now.Add(value);}
     private static async Task SpinWaitAsync(Func<bool> predicate){using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(2));while(!predicate()){await Task.Delay(5,timeout.Token);}}
 }

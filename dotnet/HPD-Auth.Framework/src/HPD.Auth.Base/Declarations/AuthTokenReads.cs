@@ -45,7 +45,7 @@ internal sealed partial record AuthRefreshByDigestReadV1
 {
     [BaseReadParameter("auth.read.refreshByDigest.v1.parameter.tenantId")] public required Guid TenantId { get; init; }
     [BaseReadParameter("auth.read.refreshByDigest.v1.parameter.digestAlgorithm")] public required AuthRefreshDigestAlgorithmV1 DigestAlgorithm { get; init; }
-    [BaseReadParameter("auth.read.refreshByDigest.v1.parameter.digestKeyVersion")] public int? DigestKeyVersion { get; init; }
+    [BaseReadParameter("auth.read.refreshByDigest.v1.parameter.digestKeyVersion")] public required int DigestKeyVersion { get; init; }
     [BaseReadParameter("auth.read.refreshByDigest.v1.parameter.tokenDigest", MaximumBytes = 32)] public required BaseBinary TokenDigest { get; init; }
 
     public sealed partial record Row
@@ -54,11 +54,11 @@ internal sealed partial record AuthRefreshByDigestReadV1
         [BaseReadField("auth.read.refreshByDigest.v1.row.tenantId")] public required Guid TenantId { get; init; }
         [BaseReadField("auth.read.refreshByDigest.v1.row.userId")] public required BaseRecordId<AuthUserRecordV1> UserId { get; init; }
         [BaseReadField("auth.read.refreshByDigest.v1.row.digestAlgorithm")] public required AuthRefreshDigestAlgorithmV1 DigestAlgorithm { get; init; }
-        [BaseReadField("auth.read.refreshByDigest.v1.row.digestKeyVersion")] public int? DigestKeyVersion { get; init; }
+        [BaseReadField("auth.read.refreshByDigest.v1.row.digestKeyVersion")] public required int DigestKeyVersion { get; init; }
         [BaseReadField("auth.read.refreshByDigest.v1.row.tokenDigest", MaximumBytes = 32)] public required BaseBinary TokenDigest { get; init; }
         [BaseReadField("auth.read.refreshByDigest.v1.row.jwtId")] public required string JwtId { get; init; }
         [BaseReadField("auth.read.refreshByDigest.v1.row.securityStampDigest", MaximumBytes = 32)] public required BaseBinary SecurityStampDigest { get; init; }
-        [BaseReadField("auth.read.refreshByDigest.v1.row.securityGeneration")] public BaseModuleGeneration? SecurityGeneration { get; init; }
+        [BaseReadField("auth.read.refreshByDigest.v1.row.securityGeneration")] public required BaseModuleGeneration SecurityGeneration { get; init; }
         [BaseReadField("auth.read.refreshByDigest.v1.row.expiresAt"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset ExpiresAt { get; init; }
         [BaseReadField("auth.read.refreshByDigest.v1.row.used")] public required bool Used { get; init; }
         [BaseReadField("auth.read.refreshByDigest.v1.row.revoked")] public required bool Revoked { get; init; }
@@ -68,12 +68,10 @@ internal sealed partial record AuthRefreshByDigestReadV1
 
     public static void Configure(BaseReadDefinitionBuilder<AuthRefreshByDigestReadV1, Row> read)
     {
-        BaseReadOperand<int> keyVersion = read.OptionalParameter(Parameters.DigestKeyVersion);
         read.From(AuthRefreshTokenRecordV1.Collection, "token", out BaseReadSource<AuthRefreshTokenRecordV1> token)
             .Where(token.Field(AuthRefreshTokenRecordV1.Fields.TenantId).Equal(read.Parameter(Parameters.TenantId))
                 .And(token.Field(AuthRefreshTokenRecordV1.Fields.DigestAlgorithm).Equal(read.Parameter(Parameters.DigestAlgorithm)))
-                .And(keyVersion.IsNull().And(token.Field(AuthRefreshTokenRecordV1.Fields.DigestKeyVersion).IsNull())
-                    .Or(token.OptionalField(AuthRefreshTokenRecordV1.Fields.DigestKeyVersion).Equal(keyVersion)))
+                .And(token.Field(AuthRefreshTokenRecordV1.Fields.DigestKeyVersion).Equal(read.Parameter(Parameters.DigestKeyVersion)))
                 .And(token.Field(AuthRefreshTokenRecordV1.Fields.TokenDigest).Equal(read.Parameter(Parameters.TokenDigest))))
             .Project(Row.Fields.Id, token.Field(AuthRefreshTokenRecordV1.Fields.Id))
             .Project(Row.Fields.TenantId, token.Field(AuthRefreshTokenRecordV1.Fields.TenantId))
@@ -114,12 +112,10 @@ internal sealed partial record AuthRefreshDigestKeyVersionsReadV1
     {
         read.From(AuthRefreshTokenRecordV1.Collection, "token", out BaseReadSource<AuthRefreshTokenRecordV1> token)
             .Where(token.Field(AuthRefreshTokenRecordV1.Fields.DigestAlgorithm).Equal(read.ClosedEnumLiteral(AuthRefreshDigestAlgorithmV1.HmacSha256V1))
-                .And(token.Field(AuthRefreshTokenRecordV1.Fields.DigestKeyVersion).IsDefined())
-                .And(token.Field(AuthRefreshTokenRecordV1.Fields.DigestKeyVersion).IsNull().Not())
                 .And(token.Field(AuthRefreshTokenRecordV1.Fields.ExpiresAt).GreaterThan(read.Parameter(Parameters.Now))))
-            .GroupBy(token.OptionalField(AuthRefreshTokenRecordV1.Fields.DigestKeyVersion))
-            .Project(Row.Fields.DigestKeyVersion, token.OptionalField(AuthRefreshTokenRecordV1.Fields.DigestKeyVersion))
-            .OrderBy(token.OptionalField(AuthRefreshTokenRecordV1.Fields.DigestKeyVersion))
+            .GroupBy(token.Field(AuthRefreshTokenRecordV1.Fields.DigestKeyVersion))
+            .Project(Row.Fields.DigestKeyVersion, token.Field(AuthRefreshTokenRecordV1.Fields.DigestKeyVersion))
+            .OrderBy(token.Field(AuthRefreshTokenRecordV1.Fields.DigestKeyVersion))
             .Limits(128, 8_192, 8, 500);
     }
 }

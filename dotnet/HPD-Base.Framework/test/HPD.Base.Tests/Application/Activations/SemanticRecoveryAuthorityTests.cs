@@ -12,7 +12,7 @@ public sealed class SemanticRecoveryAuthorityTests
     {
         byte[] seed = Enumerable.Range(1, Ed25519.SecretKeySize).Select(static value => (byte)value).ToArray();
         BaseSemanticRecoveryAuthorityRegistration registration = Registration(seed);
-        BaseSemanticActivationCapability capability = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true);
+        BaseSemanticActivationCapability capability = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true, maintenanceSupported: true);
         capability = capability with { RestoreModes = [BaseActivationRestoreMode.InPlaceRecovery, BaseActivationRestoreMode.NewDisasterDomain], Checksum = [] };
         capability = capability with { Checksum = BaseSemanticActivationCapabilityContract.Checksum(capability) };
         var identity = BaseMutationRequestIdentity.Create("semantic", "restore-selection", "selection-1",
@@ -80,7 +80,7 @@ public sealed class SemanticRecoveryAuthorityTests
     {
         byte[] seed = Enumerable.Range(1, Ed25519.SecretKeySize).Select(static value => (byte)value).ToArray();
         BaseSemanticRecoveryAuthorityRegistration registration = Registration(seed);
-        BaseSemanticActivationCapability capability = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true);
+        BaseSemanticActivationCapability capability = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true, maintenanceSupported: true);
         capability = capability with { RestoreModes = [BaseActivationRestoreMode.NewDisasterDomain], Checksum = [] };
         capability = capability with { Checksum = BaseSemanticActivationCapabilityContract.Checksum(capability) };
         var selection = new BaseSemanticActivationRestoreSelection
@@ -188,7 +188,7 @@ public sealed class SemanticRecoveryAuthorityTests
         BaseSemanticRecoveryAuthorityRegistration registration = Registration(seed);
         var delayed = new DelayedAuthority(((Authority)registration.Factory.CreateOwned()).Descriptor);
         registration = registration with { Factory = new OwnedFactory(delayed) };
-        BaseSemanticActivationCapability capability = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true);
+        BaseSemanticActivationCapability capability = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true, maintenanceSupported: true);
         capability = capability with { RestoreModes = [BaseActivationRestoreMode.NewDisasterDomain], Checksum = [] };
         capability = capability with { Checksum = BaseSemanticActivationCapabilityContract.Checksum(capability) };
         var selection = new BaseSemanticActivationRestoreSelection
@@ -228,7 +228,7 @@ public sealed class SemanticRecoveryAuthorityTests
         BaseSemanticRecoveryAuthorityRegistration registration = Registration(seed);
         var delayed = new DelayedAuthority(((Authority)registration.Factory.CreateOwned()).Descriptor);
         registration = registration with { Factory = new OwnedFactory(delayed) };
-        BaseSemanticActivationCapability capability = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true);
+        BaseSemanticActivationCapability capability = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true, maintenanceSupported: true);
         capability = capability with { RestoreModes = [BaseActivationRestoreMode.NewDisasterDomain], Checksum = [] };
         capability = capability with { Checksum = BaseSemanticActivationCapabilityContract.Checksum(capability) };
         var selection = new BaseSemanticActivationRestoreSelection

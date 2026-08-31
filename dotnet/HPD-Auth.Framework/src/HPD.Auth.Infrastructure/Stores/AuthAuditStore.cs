@@ -4,6 +4,7 @@ using System.Text.Json;
 using HPD.Auth.Base;
 using HPD.Auth.Core.Audit;
 using HPD.Auth.Infrastructure.Base;
+using HPD.Auth.Infrastructure.Serialization;
 using HPD.Base;
 using Microsoft.Extensions.Logging;
 
@@ -83,7 +84,10 @@ internal sealed partial class AuthAuditStore(
     private static BaseCanonicalJson CanonicalFacts(ImmutableArray<AuthAuditFact> facts)
     {
         Dictionary<string, string> values = facts.ToDictionary(static fact => fact.Key, static fact => fact.Value, StringComparer.Ordinal);
-        return BaseCanonicalJson.ParseAndValidate(JsonSerializer.SerializeToUtf8Bytes(values), FactsLimits());
+        return BaseCanonicalJson.ParseAndValidate(
+            JsonSerializer.SerializeToUtf8Bytes(
+                values, HPDAuthInfrastructureJsonSerializerContext.Default.DictionaryStringString),
+            FactsLimits());
     }
 
     private static ImmutableArray<AuthAuditFact> ParseFacts(BaseCanonicalJson facts)

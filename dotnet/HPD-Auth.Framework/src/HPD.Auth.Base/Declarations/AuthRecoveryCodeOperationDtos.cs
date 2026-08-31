@@ -9,7 +9,7 @@ internal sealed record AuthRecoveryPriorSlotV1
     [BaseField("auth.operation.recoveryCodes.replace.prior.id", MinimumUtf8Bytes = 64, MaximumUtf8Bytes = 64)] public required string Id { get; init; }
 }
 
-internal sealed record AuthRecoveryNewSlotV1
+internal sealed partial record AuthRecoveryNewSlotV1
 {
     [BaseField("auth.operation.recoveryCodes.replace.new.active")] public required bool Active { get; init; }
     [BaseField("auth.operation.recoveryCodes.replace.new.codeDigest", MaximumBytes = 32), BaseFieldConfidentiality(BaseFieldConfidentiality.Secret)] public required BaseBinary CodeDigest { get; init; }
@@ -157,7 +157,7 @@ internal sealed partial record AuthRecoveryCodesReplaceV1
     [BaseField("auth.operation.recoveryCodes.replace.userId"), JsonConverter(typeof(BaseCanonicalGuidJsonConverter))] public required Guid UserId { get; init; }
 }
 
-internal sealed record AuthRecoveryCodeConsumeV1
+internal sealed partial record AuthRecoveryCodeConsumeV1
 {
     [BaseField("auth.operation.recoveryCode.consume.codeDigest", MaximumBytes = 32), BaseFieldConfidentiality(BaseFieldConfidentiality.Secret)] public required BaseBinary CodeDigest { get; init; }
     [BaseField("auth.operation.recoveryCode.consume.codeId", MinimumUtf8Bytes = 64, MaximumUtf8Bytes = 64)] public required string CodeId { get; init; }

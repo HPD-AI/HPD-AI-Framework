@@ -87,8 +87,7 @@ internal static partial class AuthRefreshIssueOperationV1
         BaseModuleMutationTemplateBuilder.Object<AuthRefreshTokenRecordV1>("hpd.auth.refresh.issue.expression.refreshPayload.000",
             RefreshField(AuthRefreshTokenRecordV1.Fields.CreatedAt, RequestProperties.CreatedAt, "createdAt"),
             RefreshField(AuthRefreshTokenRecordV1.Fields.DigestAlgorithm, RequestProperties.DigestAlgorithm, "digestAlgorithm"),
-            BaseModuleMutationTemplateBuilder.Field(AuthRefreshTokenRecordV1.Fields.DigestKeyVersion,
-                BaseModuleMutationTemplateBuilder.LiftOptional("hpd.auth.refresh.issue.expression.digestKeyVersion.000", AuthRefreshTokenRecordV1.Fields.DigestKeyVersion.ModuleMutation, Req("digestKeyVersionSource", RequestProperties.DigestKeyVersion))),
+            RefreshField(AuthRefreshTokenRecordV1.Fields.DigestKeyVersion, RequestProperties.DigestKeyVersion, "digestKeyVersion"),
             RefreshField(AuthRefreshTokenRecordV1.Fields.ExpiresAt, RequestProperties.ExpiresAt, "expiresAt"),
             RefreshField(AuthRefreshTokenRecordV1.Fields.Id, RequestProperties.RefreshTokenId, "id"),
             RefreshField(AuthRefreshTokenRecordV1.Fields.JwtId, RequestProperties.JwtId, "jwtId"),
@@ -97,8 +96,7 @@ internal static partial class AuthRefreshIssueOperationV1
             BaseModuleMutationTemplateBuilder.Field(AuthRefreshTokenRecordV1.Fields.Revoked,
                 BaseModuleMutationTemplateBuilder.Constant("hpd.auth.refresh.issue.expression.revoked.000", AuthRefreshTokenRecordV1.Fields.Revoked.ConstantAuthority, false)),
             BaseModuleMutationTemplateBuilder.Field(AuthRefreshTokenRecordV1.Fields.SecurityGeneration,
-                BaseModuleMutationTemplateBuilder.LiftOptional("hpd.auth.refresh.issue.expression.securityGeneration.000", AuthRefreshTokenRecordV1.Fields.SecurityGeneration.ModuleMutation,
-                    BaseModuleMutationTemplateBuilder.CapturedGeneration("hpd.auth.refresh.issue.expression.securityGenerationSource.000", SecurityCapture))),
+                BaseModuleMutationTemplateBuilder.CapturedGeneration("hpd.auth.refresh.issue.expression.securityGeneration.000", SecurityCapture)),
             RefreshField(AuthRefreshTokenRecordV1.Fields.SecurityStampDigest, RequestProperties.SecurityStampDigest, "securityStampDigest"),
             RefreshField(AuthRefreshTokenRecordV1.Fields.TenantId, RequestProperties.TenantId, "tenantId"),
             RefreshField(AuthRefreshTokenRecordV1.Fields.TokenDigest, RequestProperties.TokenDigest, "tokenDigest"),
@@ -162,7 +160,7 @@ internal static partial class AuthRefreshRotateOperationV1
             Captures = [Delivery(), Predecessor(), Refresh(), SecurityGeneration(), User()],
             Guards =
             [
-                DigestAlgorithmIsHmac(), PredecessorGeneration(), PredecessorGenerationMatches(), PredecessorGenerationMissing(),
+                DigestAlgorithmIsHmac(), PredecessorGeneration(),
                 PredecessorRevision(), PredecessorSecurityStamp(), PredecessorTenant(), PredecessorUnexpired(), PredecessorUnrevoked(),
                 PredecessorUnused(), PredecessorUser(), UserActive(), UserNotDeleted(), UserRevision(), UserTenant(),
             ],
@@ -206,9 +204,7 @@ internal static partial class AuthRefreshRotateOperationV1
     private static BaseModuleRecordCapture User() => BaseModuleMutationTemplateBuilder.CaptureRecord(UserCapture, UserId("capture"), BaseModuleCapturePresence.RequirePresent);
 
     private static BaseModuleValueEqualsGuard DigestAlgorithmIsHmac() => BaseModuleMutationTemplateBuilder.ValueEquals("hpd.auth.refresh.rotate.guard.digestAlgorithm", Req("digestAlgorithmLeft", RequestProperties.DigestAlgorithm), BaseModuleMutationTemplateBuilder.Constant("hpd.auth.refresh.rotate.expression.digestAlgorithmRight.000", RequestProperties.DigestAlgorithm.ConstantAuthority, AuthRefreshDigestAlgorithmV1.HmacSha256V1));
-    private static BaseModuleLogicalGuard PredecessorGeneration() => BaseModuleMutationTemplateBuilder.Or("hpd.auth.refresh.rotate.guard.predecessorGeneration", "hpd.auth.refresh.rotate.guard.predecessorGenerationMatches", "hpd.auth.refresh.rotate.guard.predecessorGenerationMissing");
-    private static BaseModuleFieldEqualsGuard PredecessorGenerationMatches() => BaseModuleMutationTemplateBuilder.FieldEquals("hpd.auth.refresh.rotate.guard.predecessorGenerationMatches", PredecessorCapture, AuthRefreshTokenRecordV1.Fields.SecurityGeneration.ModuleMutation, BaseModuleMutationTemplateBuilder.LiftOptional("hpd.auth.refresh.rotate.expression.predecessorGeneration.000", AuthRefreshTokenRecordV1.Fields.SecurityGeneration.ModuleMutation, BaseModuleMutationTemplateBuilder.CapturedGeneration("hpd.auth.refresh.rotate.expression.predecessorGenerationSource.000", SecurityCapture)));
-    private static BaseModuleFieldPresenceGuard PredecessorGenerationMissing() => BaseModuleMutationTemplateBuilder.FieldPresence("hpd.auth.refresh.rotate.guard.predecessorGenerationMissing", PredecessorCapture, AuthRefreshTokenRecordV1.Fields.SecurityGeneration.ModuleMutation, BaseModuleFieldPresenceTest.Missing);
+    private static BaseModuleFieldEqualsGuard PredecessorGeneration() => BaseModuleMutationTemplateBuilder.FieldEquals("hpd.auth.refresh.rotate.guard.predecessorGeneration", PredecessorCapture, AuthRefreshTokenRecordV1.Fields.SecurityGeneration.ModuleMutation, BaseModuleMutationTemplateBuilder.CapturedGeneration("hpd.auth.refresh.rotate.expression.predecessorGeneration.000", SecurityCapture));
     private static BaseModuleRevisionEqualsGuard PredecessorRevision() => BaseModuleMutationTemplateBuilder.RevisionEquals("hpd.auth.refresh.rotate.guard.predecessorRevision", PredecessorCapture, Req("expectedPredecessorRevision", RequestProperties.ExpectedPredecessorRevision));
     private static BaseModuleFieldEqualsGuard PredecessorSecurityStamp() => BaseModuleMutationTemplateBuilder.FieldEquals("hpd.auth.refresh.rotate.guard.predecessorSecurityStamp", PredecessorCapture, AuthRefreshTokenRecordV1.Fields.SecurityStampDigest.ModuleMutation, Req("expectedSecurityStamp", RequestProperties.ExpectedSecurityStampDigest));
     private static BaseModuleFieldEqualsGuard PredecessorTenant() => Tenant("predecessorTenant", PredecessorCapture, AuthRefreshTokenRecordV1.Fields.TenantId.ModuleMutation);
@@ -233,11 +229,11 @@ internal static partial class AuthRefreshRotateOperationV1
         BaseModuleMutationTemplateBuilder.Field(AuthRefreshTokenRecordV1.Fields.UserId, UserId("predecessorUser"))), Req("patchRevision", RequestProperties.ExpectedPredecessorRevision));
     private static BaseModuleCreateStatement CreateRefresh() => BaseModuleMutationTemplateBuilder.Create(CreateRefreshStatement, RefreshId("create"), BaseModuleMutationTemplateBuilder.Object<AuthRefreshTokenRecordV1>("hpd.auth.refresh.rotate.expression.refreshPayload.000",
         RF(AuthRefreshTokenRecordV1.Fields.CreatedAt, RequestProperties.CreatedAt, "createdAt"), RF(AuthRefreshTokenRecordV1.Fields.DigestAlgorithm, RequestProperties.DigestAlgorithm, "digestAlgorithm"),
-        BaseModuleMutationTemplateBuilder.Field(AuthRefreshTokenRecordV1.Fields.DigestKeyVersion, BaseModuleMutationTemplateBuilder.LiftOptional("hpd.auth.refresh.rotate.expression.digestKeyVersion.000", AuthRefreshTokenRecordV1.Fields.DigestKeyVersion.ModuleMutation, Req("digestKeyVersionSource", RequestProperties.DigestKeyVersion))),
+        RF(AuthRefreshTokenRecordV1.Fields.DigestKeyVersion, RequestProperties.DigestKeyVersion, "digestKeyVersion"),
         RF(AuthRefreshTokenRecordV1.Fields.ExpiresAt, RequestProperties.ExpiresAt, "expiresAt"), RF(AuthRefreshTokenRecordV1.Fields.Id, RequestProperties.RefreshTokenId, "id"), RF(AuthRefreshTokenRecordV1.Fields.JwtId, RequestProperties.JwtId, "jwtId"),
         BaseModuleMutationTemplateBuilder.Field(AuthRefreshTokenRecordV1.Fields.RetentionEligibleAt, BaseModuleMutationTemplateBuilder.LiftOptional("hpd.auth.refresh.rotate.expression.newRetentionEligibleAt.000", AuthRefreshTokenRecordV1.Fields.RetentionEligibleAt.ModuleMutation, Req("newRetentionEligibleAtSource", RequestProperties.ReplacementRetentionEligibleAt))),
         BaseModuleMutationTemplateBuilder.Field(AuthRefreshTokenRecordV1.Fields.Revoked, BaseModuleMutationTemplateBuilder.Constant("hpd.auth.refresh.rotate.expression.revoked.000", AuthRefreshTokenRecordV1.Fields.Revoked.ConstantAuthority, false)),
-        BaseModuleMutationTemplateBuilder.Field(AuthRefreshTokenRecordV1.Fields.SecurityGeneration, BaseModuleMutationTemplateBuilder.LiftOptional("hpd.auth.refresh.rotate.expression.securityGeneration.000", AuthRefreshTokenRecordV1.Fields.SecurityGeneration.ModuleMutation, BaseModuleMutationTemplateBuilder.CapturedGeneration("hpd.auth.refresh.rotate.expression.securityGenerationSource.000", SecurityCapture))),
+        BaseModuleMutationTemplateBuilder.Field(AuthRefreshTokenRecordV1.Fields.SecurityGeneration, BaseModuleMutationTemplateBuilder.CapturedGeneration("hpd.auth.refresh.rotate.expression.securityGeneration.000", SecurityCapture)),
         RF(AuthRefreshTokenRecordV1.Fields.SecurityStampDigest, RequestProperties.SecurityStampDigest, "securityStampDigest"), RF(AuthRefreshTokenRecordV1.Fields.TenantId, RequestProperties.TenantId, "tenantId"), RF(AuthRefreshTokenRecordV1.Fields.TokenDigest, RequestProperties.TokenDigest, "tokenDigest"),
         BaseModuleMutationTemplateBuilder.Field(AuthRefreshTokenRecordV1.Fields.Used, BaseModuleMutationTemplateBuilder.Constant("hpd.auth.refresh.rotate.expression.newUsed.000", AuthRefreshTokenRecordV1.Fields.Used.ConstantAuthority, false)), BaseModuleMutationTemplateBuilder.Field(AuthRefreshTokenRecordV1.Fields.UserId, UserId("refreshPayload"))));
     private static BaseModuleCreateStatement CreateDelivery() => BaseModuleMutationTemplateBuilder.Create(CreateDeliveryStatement, DeliveryId("create"), BaseModuleMutationTemplateBuilder.Object<AuthRefreshTokenDeliveryRecordV1>("hpd.auth.refresh.rotate.expression.deliveryPayload.000",

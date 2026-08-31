@@ -71,6 +71,7 @@ public sealed class BaseModuleMutationReceiptTests
     {
         var initial = new BaseSemanticActivationMaintenanceResult
         {
+            ProviderIncarnation = Enumerable.Repeat((byte)0x30, 32).ToImmutableArray(),
             Disposition = BaseSemanticActivationMaintenanceDisposition.Completed,
             PreviousAuthorityGeneration = 3, ResultingAuthorityGeneration = 4,
             ExaminedRows = 2, ChangedRows = 2, CanonicalBytes = 128,
@@ -120,6 +121,7 @@ public sealed class BaseModuleMutationReceiptTests
                 Generations = [],
                 CanonicalResultBytes = "{\"applied\":true}"u8.ToArray().ToImmutableArray(),
                 ActivationControlChecksum = Enumerable.Repeat((byte)7, 32).ToImmutableArray(),
+                SelectionLogicalIndexEvidenceChecksum = null,
             },
         };
 

@@ -324,23 +324,32 @@ internal static class AuthLifecycleActivationDeclarations
     internal static BaseActivationHandlerRegistration<AuthUserCleanupInitializeV1, AuthCleanupRetirementResultV1> RetireUser { get; } =
         Create("hpd.auth.cleanup.semantic-retire.user.v1", "hpd.auth.handler.cleanup.semantic-retire.user",
             "hpd.auth.factory.cleanup.semantic-retire.user.v1",
-            ["auth.cleanup.execute", "auth.operation.cleanup.retire.user", "auth.semantic.cleanup.user.retire"],
-            AuthUserCleanupRetirementDtos.HPDBaseActivationDtoAuthority, semanticRetirement: true);
+            ["auth.cleanup.execute", "auth.operation.cleanup.retire.user", "auth.semantic.cleanup.user.retire",
+                "base.subjectLifecycle.finalizeRetirement", "base.subjectRetirement.barrier.inspect",
+                "base.subjectRetirement.purge", "hpd.auth.user-subject.retirement.purge.source"],
+            AuthUserCleanupRetirementDtos.HPDBaseActivationDtoAuthority,
+            static _ => new AuthUserCleanupRetirementHandler(), semanticRetirement: true);
 
     internal static BaseActivationHandlerRegistration<AuthRoleCleanupInitializeV1, AuthCleanupRetirementResultV1> RetireRole { get; } =
         Create("hpd.auth.cleanup.semantic-retire.role.v1", "hpd.auth.handler.cleanup.semantic-retire.role",
             "hpd.auth.factory.cleanup.semantic-retire.role.v1",
-            ["auth.cleanup.execute", "auth.operation.cleanup.retire.role", "auth.semantic.cleanup.role.retire"],
-            AuthRoleCleanupRetirementDtos.HPDBaseActivationDtoAuthority, semanticRetirement: true);
+            ["auth.cleanup.execute", "auth.operation.cleanup.retire.role", "auth.semantic.cleanup.role.retire",
+                "base.subjectLifecycle.finalizeRetirement", "base.subjectRetirement.barrier.inspect",
+                "base.subjectRetirement.purge", "hpd.auth.role-subject.retirement.purge.source"],
+            AuthRoleCleanupRetirementDtos.HPDBaseActivationDtoAuthority,
+            static _ => new AuthRoleCleanupRetirementHandler(), semanticRetirement: true);
 
     internal static BaseActivationHandlerRegistration<AuthCleanupReconcileInputV1, AuthCleanupReconcileResultV1> Reconcile { get; } =
         Create("hpd.auth.cleanup.reconcile.v1", "hpd.auth.handler.cleanup.reconcile",
             "hpd.auth.factory.cleanup.reconcile.v1",
             ["auth.cleanup.execute", "auth.operation.cleanup.advance", "auth.operation.cleanup.initialize.role",
                 "auth.operation.cleanup.initialize.user", "auth.semantic.cleanup.role.ensure", "auth.semantic.cleanup.user.ensure",
-                "auth.subject.role.validate", "auth.subject.user.validate",
+                "auth.subject.role.acquire", "auth.subject.role.validate", "auth.subject.user.acquire", "auth.subject.user.validate",
                 "hpd.auth.cleanup.role.v1.enqueue", "hpd.auth.cleanup.user.v1.enqueue"],
-            AuthCleanupReconcileDtos.HPDBaseActivationDtoAuthority, reconciliation: true);
+            AuthCleanupReconcileDtos.HPDBaseActivationDtoAuthority,
+            static provider => new AuthCleanupReconcileActivationHandler(
+                provider.GetService(typeof(TimeProvider)) as TimeProvider ?? TimeProvider.System),
+            reconciliation: true);
 
     internal static BaseActivationHandlerRegistration<AuthExpirationTriggerInputV1, AuthExpirationResultV1> Sessions { get; } =
         CreateExpiration("hpd.auth.expiration.sessions.v1", "hpd.auth.handler.expiration.sessions",
@@ -419,7 +428,7 @@ internal static class AuthScheduleDeclarations
                 AuthExpirationDtos.HPDBaseActivationDtoAuthority,
                 new AuthExpirationTriggerInputV1 { Kind = AuthMaintenanceKindV1.deliveryExpiration, ContractVersion = 1 }),
             Schedule("hpd.auth.schedule.data-protection-refresh.v1", new BaseIntervalSchedule(0, 30_000),
-                BaseScheduleMisfirePolicy.Skip, 20, AuthLifecycleActivationDeclarations.DataProtection,
+                BaseScheduleMisfirePolicy.RunLatest, 20, AuthLifecycleActivationDeclarations.DataProtection,
                 AuthDataProtectionRefreshDtos.HPDBaseActivationDtoAuthority,
                 new AuthDataProtectionRefreshInputV1
                 {

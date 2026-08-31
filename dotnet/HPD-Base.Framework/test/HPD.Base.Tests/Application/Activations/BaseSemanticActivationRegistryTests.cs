@@ -19,7 +19,7 @@ public sealed class BaseSemanticActivationRegistryTests
     [Fact]
     public void Certification_profile_and_installed_receipt_bind_every_provider_layer()
     {
-        BaseSemanticActivationCapability semantic = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true);
+        BaseSemanticActivationCapability semantic = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true, maintenanceSupported: true);
         BaseModuleMutationCapability module = ModuleCapability();
         BaseActivationProviderCapability activationCapability = BaseActivationCapabilityContract.BuiltIn("tests.semantic.activation.v2");
         BaseSemanticActivationCertificationSubject subject = BaseSemanticActivationCertificationContract.CreateSubject(
@@ -74,8 +74,8 @@ public sealed class BaseSemanticActivationRegistryTests
     [Fact]
     public void Capability_checksum_binds_maintenance_authority_and_page_limit()
     {
-        BaseSemanticActivationCapability identityOnly = BaseSemanticActivationCapabilityContract.BuiltIn(durable: false);
-        BaseSemanticActivationCapability maintained = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true);
+        BaseSemanticActivationCapability identityOnly = BaseSemanticActivationCapabilityContract.BuiltIn(durable: false, maintenanceSupported: false);
+        BaseSemanticActivationCapability maintained = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true, maintenanceSupported: true);
 
         BaseSemanticActivationCapabilityContract.IsValid(identityOnly).Should().BeTrue();
         BaseSemanticActivationCapabilityContract.IsValid(maintained).Should().BeTrue();

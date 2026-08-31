@@ -31,9 +31,9 @@ namespace HPD.Auth.Extensions;
 /// });
 /// </code>
 ///
-/// After calling AddHPDAuth() you may chain additional registrations via the returned
-/// <see cref="IHPDAuthBuilder"/>. Phase 2/3 packages (e.g., HPD.Auth.PostgreSQL,
-/// HPD.Auth.Admin) provide extension methods on IHPDAuthBuilder.
+/// After calling AddHPDAuth() you may chain optional Auth feature registrations via
+/// the returned <see cref="IHPDAuthBuilder"/>. Persistence is supplied only through
+/// the host's separately configured HPD Base application graph.
 /// </summary>
 public static class HPDAuthServiceCollectionExtensions
 {
@@ -44,7 +44,7 @@ public static class HPDAuthServiceCollectionExtensions
     /// 1. Build and bind <see cref="HPDAuthOptions"/> from the <paramref name="configure"/> action.
     /// 2. Register <see cref="ITenantContext"/> → <see cref="SingleTenantContext"/> (single-tenant default).
     /// 3. Register ASP.NET Core Identity (<see cref="UserManager{TUser}"/>, <see cref="SignInManager{TUser}"/>, etc.).
-    /// 4. Register ASP.NET Data Protection, persisting keys to the configured auth database.
+    /// 4. Register ASP.NET Data Protection using the Base-backed Auth key repository.
     /// 5. Register HPD audit, session, and refresh-token store implementations.
     /// 6. Register infrastructure required by auth endpoints, including memory cache and event coordination.
     /// 7. Register no-op email and SMS senders (replaced by real implementations via TryAdd semantics).
@@ -121,17 +121,15 @@ public static class HPDAuthServiceCollectionExtensions
             .AddSignInManager()
             .AddDefaultTokenProviders();
 
-        // ── Step 4: Register ASP.NET Data Protection ──────────────────────────────
-        // Persist encryption keys to the configured database so they survive app
-        // restarts and are shared across load-balanced nodes. The application name
-        // scopes the key ring to this app, preventing cross-app cookie/token forgery.
+        // ── Step 4: Register Base stores and ASP.NET Data Protection ──────────────
+        // Register the Base-backed key repository first so its hosted startup cache
+        // is loaded before ASP.NET Core's key-ring hosted service can synchronously
+        // read it. The application name isolates this app's key ring.
+        services.AddHPDAuthBaseStores();
         services.AddDataProtection()
             .SetApplicationName(options.AppName);
 
-        // ── Step 5: Register HPD store implementations ────────────────────────────
-        services.AddHPDAuthBaseStores();
-
-        // ── Step 6: Register auth endpoint infrastructure ───────────────────────
+        // ── Step 5: Register auth endpoint infrastructure ───────────────────────
         // Register source-generated JSON metadata for Minimal API request/response
         // types so HPD.Auth can run in apps that disable reflection JSON fallback.
         services.TryAddEnumerable(
@@ -148,7 +146,7 @@ public static class HPDAuthServiceCollectionExtensions
         // opt into the audit package; AddAudit() only attaches observers.
         services.AddHPDEvents(options => options.Lifetime = HPDEventsServiceLifetime.Singleton);
 
-        // ── Step 7: Register no-op email and SMS senders ─────────────────────────
+        // ── Step 6: Register no-op email and SMS senders ─────────────────────────
         // TryAdd ensures these are skipped if the caller has already registered a
         // real sender before calling AddHPDAuth() — or can be replaced afterwards
         // by calling services.AddScoped<IHPDAuthEmailSender, RealEmailSender>() before

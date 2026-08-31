@@ -170,7 +170,7 @@ public sealed record BaseInstalledSemanticActivationProviderDescriptor
 public static class BaseSemanticActivationCertificationContract
 {
     /// <summary>Gets the certification protocol identity.</summary>
-    public const string ProtocolVersion = "hpd.base.semanticActivation.certification.v2";
+    public const string ProtocolVersion = "hpd.base.semanticActivation.certification.v3";
 
     /// <summary>Gets the exact ordered mandatory certification-case registry.</summary>
     public static ImmutableArray<string> MandatoryCaseIds { get; } =
@@ -186,6 +186,10 @@ public static class BaseSemanticActivationCertificationContract
         "fault-CorruptAccounting", "fault-CorruptRetirement", "fault-CorruptAbsence",
         "fault-CorruptRecoveryEntry", "fault-InterruptMaintenancePublication",
         "fault-InterruptRestorePublication", "fault-RetentionOvertake",
+        "maintenance-compact-zero", "maintenance-compact-multipage", "maintenance-progress-invisible",
+        "maintenance-resume", "maintenance-replay", "maintenance-fingerprint-conflict",
+        "maintenance-migrate", "maintenance-remove", "maintenance-owned-results",
+        "maintenance-incarnation-substitution",
     ];
 
     /// <summary>Gets the contract checksum binding the ordered mandatory-case registry and report grammar.</summary>
@@ -484,7 +488,7 @@ public static class BaseSemanticActivationCertificationContract
 
     private static ImmutableArray<byte> ComputeContractChecksum()
     {
-        using var stream = new MemoryStream(); Text(stream, "base.semanticActivation.certificationContract.v2\0"); Text(stream, ProtocolVersion);
+        using var stream = new MemoryStream(); Text(stream, "base.semanticActivation.certificationContract.v3\0"); Text(stream, ProtocolVersion);
         I32(stream, MandatoryCaseIds.Length); for (int i = 0; i < MandatoryCaseIds.Length; i++) { I32(stream, i); Text(stream, MandatoryCaseIds[i]); }
         Text(stream, "case:id,ordinal,applicability,verdictStatus,verdictError,observedStatus,observedError,optionalAtomicOutcome,receiptResolution,optionalRequestDisposition,receiptChecksum,positiveObservationSequence,liveSlots,retiredSlots,absenceMarkers,activations,receipts,activeWork,quarantinedWork,releasedWork,rejectedLateCompletions,exactLimitAccepted,maxPlusOneRejected,recoveryFloorVerified,receiptResolved,authorityBeforeChecksum,authorityAfterChecksum,evidenceBytes,evidenceChecksum;report:subject(providerId,providerVersion,storeProviderKind,storeProviderProtocolVersion,orderedNativeDependencyReceipts,semanticCapabilityChecksum,moduleMutationCapabilityChecksum,activationCapabilityChecksum),passed,contractChecksum,orderedCases,reportChecksum");
         return SHA256.HashData(stream.ToArray()).ToImmutableArray();
@@ -492,7 +496,7 @@ public static class BaseSemanticActivationCertificationContract
 
     private static ImmutableArray<byte> ProfileChecksum(BaseSemanticActivationCertificationProfile value)
     {
-        using var stream = new MemoryStream(); Text(stream, value.Supported ? "base.semanticActivation.certificationProfile.v2\0" : "base.semanticActivation.unsupportedProfile.v2\0"); Text(stream, ProtocolVersion);
+        using var stream = new MemoryStream(); Text(stream, value.Supported ? "base.semanticActivation.certificationProfile.v3\0" : "base.semanticActivation.unsupportedProfile.v3\0"); Text(stream, ProtocolVersion);
         stream.WriteByte(value.Supported ? (byte)1 : (byte)0);
         Text(stream, value.ProviderId); Text(stream, value.ProviderVersion); Text(stream, value.StoreProviderKind); I32(stream, value.StoreProviderProtocolVersion);
         I32(stream, value.NativeDependencyReceipts.Length); foreach (string item in value.NativeDependencyReceipts) Text(stream, item);
@@ -502,14 +506,14 @@ public static class BaseSemanticActivationCertificationContract
 
     private static ImmutableArray<byte> InstalledChecksum(BaseInstalledSemanticActivationProviderDescriptor value)
     {
-        using var stream = new MemoryStream(); Text(stream, "base.semanticActivation.installedCertification.v2\0"); Bytes(stream, value.Profile.Checksum.AsSpan());
+        using var stream = new MemoryStream(); Text(stream, "base.semanticActivation.installedCertification.v3\0"); Bytes(stream, value.Profile.Checksum.AsSpan());
         Bytes(stream, value.InstalledActivationCertificationReceipt.AsSpan()); Text(stream, value.LogicalStoreId); Text(stream, value.StoreInstanceId);
         Bytes(stream, value.StoreRegistrationSetChecksum.AsSpan()); return SHA256.HashData(stream.ToArray()).ToImmutableArray();
     }
 
     private static ImmutableArray<byte> ReportChecksum(BaseSemanticActivationCertificationReport value)
     {
-        using var stream = new MemoryStream(); Text(stream, "base.semanticActivation.certificationReport.v2\0");
+        using var stream = new MemoryStream(); Text(stream, "base.semanticActivation.certificationReport.v3\0");
         WriteSubject(stream, value.Subject); stream.WriteByte(value.Passed ? (byte)1 : (byte)0);
         Bytes(stream, value.ContractChecksum.AsSpan()); I32(stream, value.Cases.Length);
         foreach (BaseSemanticActivationCertificationCaseResult item in value.Cases)
@@ -557,7 +561,9 @@ public static class BaseSemanticActivationCertificationContract
             return value.AtomicOutcome == RecordMutationExecutionOutcome.Committed
                 && value.ReceiptResolution == BaseAtomicReceiptResolutionDisposition.NotApplicable
                 && value.RequestDisposition == BaseMutationRequestDisposition.Committed && value.ReceiptChecksum.Length == 32;
-        if (value.Id is "inspection" or "maintenance-authority" or "maintenance" or "backup-restore" or "recovery-floor")
+        if (value.Id is "inspection" or "maintenance-authority" or "maintenance" or "backup-restore" or "recovery-floor"
+            || value.Id.StartsWith("maintenance-", StringComparison.Ordinal)
+                && value.Id != "maintenance-authority")
             return value.AtomicOutcome is null && value.ReceiptResolution == BaseAtomicReceiptResolutionDisposition.NotApplicable
                 && value.RequestDisposition is null && value.ReceiptChecksum.IsEmpty;
         if (value.Id is "hostile-capture" or "hostile-prepare" or "hostile-apply" or "accounting-limits")
@@ -568,8 +574,12 @@ public static class BaseSemanticActivationCertificationContract
     }
 
     private static bool CaseIsAdvertised(string id, BaseSemanticActivationCapability capability) => id is
-        "inspection" or "maintenance-authority" or "maintenance" or "fault-NonCooperativeMaintenance" or "fault-InterruptMaintenancePublication"
+        "inspection" or "maintenance-authority" or "maintenance"
             ? capability.MaintenanceSupported
+            : id.StartsWith("maintenance-", StringComparison.Ordinal) && id != "maintenance-authority"
+                ? capability.MaintenanceSupported
+            : id is "fault-NonCooperativeMaintenance" or "fault-InterruptMaintenancePublication"
+                ? capability.MaintenanceSupported && capability.RestoreRecoveryFloorsSupported
             : id is "backup-restore" or "recovery-floor" or "fault-NonCooperativeRestore" or "fault-CorruptRecoveryEntry"
                 or "fault-InterruptRestorePublication" or "fault-RetentionOvertake"
                 ? capability.RestoreRecoveryFloorsSupported && !capability.BackupModes.IsEmpty && !capability.RestoreModes.IsEmpty
@@ -606,6 +616,8 @@ public static class BaseSemanticActivationCertificationContract
             "fault-CorruptRecoveryEntry" or "fault-RetentionOvertake" =>
                 (OperationStatus.StoreError, BaseSemanticActivationErrorCodes.RecoveryProofInvalid),
             "maintenance" => (OperationStatus.Updated, null),
+            _ when id.StartsWith("maintenance-", StringComparison.Ordinal) && id != "maintenance-authority" =>
+                (OperationStatus.Updated, null),
             _ when id.StartsWith("fault-", StringComparison.Ordinal) =>
                 (OperationStatus.CapabilityUnavailable, BaseSemanticActivationErrorCodes.ProviderContractInvalid),
             _ => (OperationStatus.Ok, null),

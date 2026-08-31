@@ -72,7 +72,11 @@ public sealed partial class SqliteRecordStore :
         CollectionDefinition[] ordered = [.. collections.OrderBy(static value => value.Id, StringComparer.Ordinal)];
         if (ordered.Select(static value => value.Id).Distinct(StringComparer.Ordinal).Count() != ordered.Length)
             throw new ArgumentException("Collection authority requests must be unique.", nameof(collections));
-        string storeInstanceId = await GetOrCreateStoreInstanceIdAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+        string storeInstanceId = Volatile.Read(ref _storeInstanceIdentityLoaded) == 1
+            ? Volatile.Read(ref _currentStoreInstanceId)
+            : await GetOrCreateStoreInstanceIdAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         BaseSchemaAuthorityChecksum logicalSchemaChecksum = BaseSchemaAuthorityChecksum.Create(
@@ -90,6 +94,7 @@ public sealed partial class SqliteRecordStore :
                 throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
             restoreEpoch = identity.GetInt64(1);
             Volatile.Write(ref _currentStoreInstanceId, storeInstanceId);
+            Volatile.Write(ref _storeInstanceIdentityLoaded, 1);
         }
         BaseSemanticActivationStoreAuthorityRequirement? semanticAuthority = null;
         if (_options.SemanticActivationOwnerGeneration > 0)
@@ -139,6 +144,20 @@ public sealed partial class SqliteRecordStore :
             Collections = generations.MoveToImmutable(),
             SemanticActivation = semanticAuthority,
         });
+        }
+        catch (SqliteException ex) when (IsTransactionConflict(ex))
+        {
+            return OperationResults.Conflict<BaseAtomicMutationAuthorityRequirement>(new BaseError
+            {
+                Code = "base.provider.selection.transactionConflict",
+                Message = "The SQLite authority capture conflicted with a write-owning transaction.",
+                Category = ErrorCategory.Conflict,
+            });
+        }
+        catch (SqliteException ex)
+        {
+            return MapSqlite<BaseAtomicMutationAuthorityRequirement>(BaseOperationKind.Query, ex);
+        }
     }
 
     internal SqliteConnectionFactory VectorConnections => _connections;
@@ -189,6 +208,7 @@ public sealed partial class SqliteRecordStore :
     private int _semanticMutationActive;
     private int _semanticMutationRetained;
     private int _semanticMutationQuarantined;
+    private int _logicalIndexQuarantined;
     private int _semanticMutationReleased;
     private int _semanticRejectedLateCompletions;
     private SqliteConnection? _keepAliveConnection;
@@ -196,10 +216,17 @@ public sealed partial class SqliteRecordStore :
     private long _nextQuarantinedAdministrationId;
     private long _schemaGeneration;
     private string _currentStoreInstanceId;
+    private int _storeInstanceIdentityLoaded;
     private readonly BaseInstalledSemanticActivationProviderOwner? _semanticCertificationOwner;
+    private readonly BaseLogicalIndexProviderCapability _logicalIndexCapability;
     private int _restoreInstallationActive;
     private int _restoreRecoveryIndeterminate;
     private int _disposed;
+
+    internal bool LogicalIndexStoreIsQuarantined => Volatile.Read(ref _logicalIndexQuarantined) != 0;
+    bool IBaseLogicalIndexOperationalStore.LogicalIndexesReady => !LogicalIndexStoreIsQuarantined;
+
+    internal void QuarantineLogicalIndexes() => Interlocked.Exchange(ref _logicalIndexQuarantined, 1);
 
     /// <summary>
     /// Initializes a SQLite record store with the supplied options and host-owned logger factory.
@@ -224,7 +251,8 @@ public sealed partial class SqliteRecordStore :
         ISqliteAdministrationOperationController? administrationOperations = null,
         BaseOpaqueTokenProtector? tokenProtector = null,
         IEnumerable<ISqliteAtomicMutationProjection>? mutationProjectionContributors = null,
-        BaseInstalledSemanticActivationProviderOwner? semanticCertificationOwner = null)
+        BaseInstalledSemanticActivationProviderOwner? semanticCertificationOwner = null,
+        BaseLogicalIndexProviderCapability? logicalIndexCapability = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(loggerFactory);
@@ -232,6 +260,12 @@ public sealed partial class SqliteRecordStore :
         _options = options;
         _currentStoreInstanceId = options.StoreId;
         _semanticCertificationOwner = semanticCertificationOwner;
+        _logicalIndexCapability = logicalIndexCapability is null
+            ? BaseLogicalIndexProviderContract.BuiltInCapability()
+            : BaseLogicalIndexProviderContract.CloneCapability(logicalIndexCapability);
+        if (!_logicalIndexCapability.Supported
+            || !BaseLogicalIndexProviderContract.ValidateCapability(_logicalIndexCapability))
+            throw new ArgumentException("base.logicalIndex.providerCapabilityInvalid", nameof(logicalIndexCapability));
         ValidateOptions(_options);
         _logger = loggerFactory.CreateLogger<SqliteRecordStore>();
         _timeProvider = timeProvider;
@@ -289,7 +323,7 @@ public sealed partial class SqliteRecordStore :
             MaxArtifactBytes = administration ? _options.MaxBackupArtifactBytes : 0,
         };
         _activationDescriptor = CreateActivationDescriptor(DurableActivationRecoveryConfigured(_options), _options);
-        _semanticActivationCapability = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true);
+        _semanticActivationCapability = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true, maintenanceSupported: true);
         Capabilities = CreateCapabilities(_options, _queryCursors is not null, AdministrationCapability);
     }
 
@@ -1396,7 +1430,11 @@ FROM {_names.MutationJournal};
         SupportedFilterOperators = [FilterOperator.Equal, FilterOperator.NotEqual, FilterOperator.LessThan,
             FilterOperator.LessThanOrEqual, FilterOperator.GreaterThan, FilterOperator.GreaterThanOrEqual],
         SupportedFilterNodeKinds = Enum.GetValues<FilterNodeKind>().ToImmutableArray(),
-        SupportedIndexShapes = [BaseIndexAccessShape.CollectionGenerationScan],
+        SupportedIndexShapes =
+        [
+            BaseIndexAccessShape.LogicalIndexPoint,
+            BaseIndexAccessShape.CollectionGenerationScan,
+        ],
         ConstraintAttribution = BaseConstraintAttributionClass.RecordIdentity | BaseConstraintAttributionClass.UniqueIndex | BaseConstraintAttributionClass.Relation,
         SupportsReceiptOnlyCommit = true, SuppliesReadIntervalEvidence = true,
         SupportsRelationParticipation = true, SupportsReadYourWrites = true,

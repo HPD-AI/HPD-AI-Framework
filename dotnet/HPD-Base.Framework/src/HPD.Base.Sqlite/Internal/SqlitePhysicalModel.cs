@@ -36,7 +36,7 @@ internal sealed class SqlitePhysicalModel
                 string id = index.Id.ToString();
                 string name = Native("b_i_", id);
                 Claim(nativeNames, name, id);
-                string? equalityColumn = index.Unique ? Native("k_", id) : null;
+                string? equalityColumn = index.Unique || index.StoreRequired ? Native("k_", id) : null;
                 if (equalityColumn is not null) Claim(nativeNames, equalityColumn, id + ":equality");
                 FieldModel[] parts = index.Parts.Select(part => fields.Single(field => string.Equals(field.Definition.Id, ordered[part.FieldOrdinal].Id, StringComparison.Ordinal))).ToArray();
                 bool orderable = index.Parts.All(part => ordered[part.FieldOrdinal].ScalarCodec is { OrderingVersion: not null, OrderingChecksum: not null });
@@ -243,9 +243,10 @@ internal sealed class IndexModel
         internal FieldModel[] Parts { get; }
         internal OrderingPartModel[] OrderingParts { get; }
         internal bool HasOrdering => OrderingParts.Length != 0;
-        internal string? UniqueName => EqualityColumn is null ? null : HasOrdering ? Name + "_u" : Name;
+        internal string? EqualityName => EqualityColumn is null ? null : HasOrdering ? Name + "_e" : Name;
+        internal string? UniqueName => Definition.Unique ? EqualityName : null;
         internal string CreateSql(CollectionModel collection)
-            => !HasOrdering ? UniqueSql(collection) + ";" : EqualityColumn is null ? OrderingSql(collection) + ";" : OrderingSql(collection) + ";" + Environment.NewLine + UniqueSql(collection) + ";";
+            => !HasOrdering ? EqualitySql(collection) + ";" : EqualityColumn is null ? OrderingSql(collection) + ";" : OrderingSql(collection) + ";" + Environment.NewLine + EqualitySql(collection) + ";";
         internal string OrderingSql(CollectionModel collection)
         {
             if (!HasOrdering) throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid);
@@ -257,9 +258,9 @@ internal sealed class IndexModel
             string predicate = Predicate(Definition.MembershipPredicate.Root, Definition.MembershipPredicate.Nodes.ToDictionary(static node => node.Id));
             return $"CREATE INDEX IF NOT EXISTS {Name} ON {collection.Table}({columns}) WHERE {predicate}";
         }
-        internal string UniqueSql(CollectionModel collection) => EqualityColumn is null
+        internal string EqualitySql(CollectionModel collection) => EqualityColumn is null
             ? throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid)
-            : $"CREATE UNIQUE INDEX IF NOT EXISTS {UniqueName} ON {collection.Table}({EqualityColumn}) WHERE ({PredicateSql}) AND {EqualityColumn} IS NOT NULL";
+            : $"CREATE {(Definition.Unique ? "UNIQUE " : string.Empty)}INDEX IF NOT EXISTS {EqualityName} ON {collection.Table}({EqualityColumn})";
         internal string PredicateSql => Predicate(Definition.MembershipPredicate.Root, Definition.MembershipPredicate.Nodes.ToDictionary(static node => node.Id));
 
         private string Predicate(BaseIndexPredicateId id, Dictionary<BaseIndexPredicateId, BaseIndexPredicateNode> nodes)

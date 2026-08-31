@@ -722,8 +722,9 @@ public sealed partial class SqliteModuleMutationTests
             BaseScheduleMutationRequest createFirst = ScheduleMutation(first, 100, "create-1");
             (await store.MutateScheduleAsync(createFirst)).IsSuccess().Should().BeTrue();
             BaseScheduleMutationResult replayedCreate = (await store.MutateScheduleAsync(createFirst with
-            { AcceptedTime = AcceptedTime(101) })).Value!;
+            { AcceptedTime = AcceptedTime(101), InitialNextNominal = createFirst.InitialNextNominal + 50_000 })).Value!;
             replayedCreate.Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
+            replayedCreate.Authority!.NextNominal.Should().Be(createFirst.InitialNextNominal);
             OperationResult<BaseScheduleMutationResult> collision = await store.MutateScheduleAsync(createFirst with
             {
                 AcceptedTime = AcceptedTime(102),
@@ -759,6 +760,61 @@ public sealed partial class SqliteModuleMutationTests
         finally
         {
             foreach (string suffix in new[] { "", "-wal", "-shm" }) if (File.Exists(path + suffix)) File.Delete(path + suffix);
+        }
+    }
+
+    [Fact]
+    public async Task Schedule_update_response_loss_replays_the_original_runtime_boundary()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-schedule-update-replay-{Guid.NewGuid():N}.db");
+        try
+        {
+            await using SqliteRecordStore store = Store(path);
+            BaseScheduleDefinition schedule = Schedule(
+                31, BaseScheduleOverlapPolicy.Allow,
+                System.Security.Cryptography.SHA256.HashData("update-replay"u8));
+            BaseScheduleMutationRequest create = ScheduleMutation(schedule, 100, "update-replay-create");
+            BaseScheduleMutationResult created = (await store.MutateScheduleAsync(create)).Value!;
+            BaseMutationRequestIdentity updateIdentity = ActivationIdentity("update-replay");
+            var update = new BaseScheduleMutationRequest
+            {
+                Kind = BaseScheduleMutationKind.Update,
+                Definition = schedule,
+                ExpectedDefinitionGeneration = created.Authority!.DefinitionGeneration,
+                InitialNextNominal = 10_000,
+                AcceptedTime = AcceptedTime(101),
+                Identity = updateIdentity,
+                Limits = ActivationLimits(),
+            };
+
+            BaseScheduleMutationResult committed = (await store.MutateScheduleAsync(update)).Value!;
+            BaseScheduleMutationResult duplicate = (await store.MutateScheduleAsync(update with
+            {
+                AcceptedTime = AcceptedTime(102),
+                InitialNextNominal = 20_000,
+            })).Value!;
+
+            committed.Authority!.NextNominal.Should().Be(10_000);
+            duplicate.Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
+            duplicate.Authority!.NextNominal.Should().Be(10_000);
+
+            OperationResult<BaseScheduleMutationResult> collision = await store.MutateScheduleAsync(update with
+            {
+                AcceptedTime = AcceptedTime(103),
+                InitialNextNominal = 30_000,
+                Identity = updateIdentity with
+                {
+                    Fingerprint = BaseMutationRequestFingerprint.Create(
+                        Enumerable.Repeat((byte)0x5A, 32).ToArray()),
+                },
+            });
+            collision.IsSuccess().Should().BeFalse();
+            collision.Error!.Code.Should().Be("base.activation.fingerprintConflict");
+        }
+        finally
+        {
+            foreach (string suffix in new[] { "", "-wal", "-shm" })
+                if (File.Exists(path + suffix)) File.Delete(path + suffix);
         }
     }
 

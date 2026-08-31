@@ -43,6 +43,7 @@ internal sealed record AuthSessionTouchV1
     [BaseField("auth.operation.session.touch.sessionId"), JsonConverter(typeof(BaseCanonicalGuidJsonConverter))] public required Guid SessionId { get; init; }
     [BaseField("auth.operation.session.touch.tenantId"), JsonConverter(typeof(BaseCanonicalGuidJsonConverter))] public required Guid TenantId { get; init; }
     [BaseField("auth.operation.session.touch.userId"), JsonConverter(typeof(BaseCanonicalGuidJsonConverter))] public required Guid UserId { get; init; }
+    [BaseField("auth.operation.session.touch.ssoProviderId", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable)] public BaseRecordId<AuthSsoProviderRecordV1>? SsoProviderId { get; init; }
     [BaseField("auth.operation.session.touch.expectedUserRevision")] public required RevisionToken ExpectedUserRevision { get; init; }
     [BaseField("auth.operation.session.touch.expectedSessionRevision")] public required RevisionToken ExpectedSessionRevision { get; init; }
     [BaseField("auth.operation.session.touch.lastActiveAt"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset LastActiveAt { get; init; }

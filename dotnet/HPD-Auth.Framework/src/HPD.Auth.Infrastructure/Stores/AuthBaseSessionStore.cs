@@ -64,6 +64,59 @@ internal sealed class AuthBaseSessionStore(AuthBaseRuntime runtime) : ISessionMa
     }
 
     /// <inheritdoc />
+    public async Task<UserSession> TouchSessionAsync(
+        Guid userId,
+        Guid sessionId,
+        SessionContext context,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        AuthUserByIdReadV1.Row user = await RequireUserAsync(userId, ct).ConfigureAwait(false);
+        DateTimeOffset now = runtime.GetUtcNow();
+        BaseResult<AuthActiveSessionsReadV1.Row[]> sessions = await runtime.OpenServiceSession().Reads.ToArrayAsync(
+            AuthActiveSessionsReadV1.Handle,
+            new AuthActiveSessionsReadV1
+            {
+                TenantId = runtime.TenantId,
+                UserId = BaseRecordId<AuthUserRecordV1>.Create(userId.ToString("D")),
+                Now = now,
+            }, ct).ConfigureAwait(false);
+        if (sessions is BaseFailure<AuthActiveSessionsReadV1.Row[]> readFailure)
+            throw Failure(readFailure.Error);
+        AuthActiveSessionsReadV1.Row current = sessions.RequireValue()
+            .SingleOrDefault(candidate => candidate.Id == sessionId)
+            ?? throw new AuthBasePersistenceException("auth.session.notFound");
+        var request = new AuthSessionTouchV1
+        {
+            SessionId = sessionId,
+            TenantId = runtime.TenantId,
+            UserId = userId,
+            SsoProviderId = current.SsoProviderId,
+            ExpectedUserRevision = user.Revision,
+            ExpectedSessionRevision = current.Revision,
+            LastActiveAt = now,
+            IpAddress = context.IpAddress,
+            UserAgent = context.UserAgent,
+            DeviceInfo = current.DeviceInfo,
+            OperationTime = now,
+        };
+        BaseInstalledModuleMutationHandle<AuthSessionTouchV1, AuthSessionTouchResultV1> operation = runtime
+            .OpenServiceSession().ModuleMutations.Get(AuthSessionTouchOperationV1.Identity);
+        BaseMutationRequestIdentity identity = operation.CreateRequestIdentity(
+            request,
+            $"session:{sessionId:D}:revision:{current.Revision.Value}:touch");
+        BaseResult<BaseModuleMutationExecutionResult<AuthSessionTouchResultV1>> result = await operation
+            .ExecuteAsync(request, identity, cancellationToken: ct).ConfigureAwait(false);
+        if (result is BaseFailure<BaseModuleMutationExecutionResult<AuthSessionTouchResultV1>> failure)
+            throw Failure(failure.Error);
+        UserSession committed = Map(current);
+        committed.IpAddress = context.IpAddress;
+        committed.UserAgent = context.UserAgent;
+        committed.LastActiveAt = now.UtcDateTime;
+        return committed;
+    }
+
+    /// <inheritdoc />
     public Task RevokeSessionAsync(Guid sessionId, CancellationToken ct = default) =>
         RevokeAsync(null, sessionId, null, ct);
 
@@ -120,9 +173,11 @@ internal sealed class AuthBaseSessionStore(AuthBaseRuntime runtime) : ISessionMa
         Dictionary<string, JsonElement> fields = new(StringComparer.Ordinal)
         {
             [Wire(AuthSessionRecordV1.Fields.RetentionEligibleAt)] = UtcDateTime(now.AddDays(30)),
-            [Wire(AuthSessionRecordV1.Fields.Revoked)] = JsonSerializer.SerializeToElement(true),
+            [Wire(AuthSessionRecordV1.Fields.Revoked)] = JsonSerializer.SerializeToElement(
+                true, AuthBaseJsonSerializerContext.Default.Boolean),
             [Wire(AuthSessionRecordV1.Fields.RevokedAt)] = UtcDateTime(now),
-            [Wire(AuthSessionRecordV1.Fields.State)] = JsonSerializer.SerializeToElement("loggedOut"),
+            [Wire(AuthSessionRecordV1.Fields.State)] = JsonSerializer.SerializeToElement(
+                "loggedOut", AuthBaseJsonSerializerContext.Default.String),
         };
         return new RecordPatchRequest
         {
@@ -135,7 +190,8 @@ internal sealed class AuthBaseSessionStore(AuthBaseRuntime runtime) : ISessionMa
         AuthSessionRecordV1.Collection.Definition.Fields!.Single(candidate => candidate.Id == field.Id).WireName;
 
     private static JsonElement UtcDateTime(DateTimeOffset value) => JsonSerializer.SerializeToElement(
-        value.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", System.Globalization.CultureInfo.InvariantCulture));
+        value.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", System.Globalization.CultureInfo.InvariantCulture),
+        AuthBaseJsonSerializerContext.Default.String);
 
     private static AuthSessionAssuranceLevelV1 ParseAal(string value) => value switch
     {

@@ -43,6 +43,17 @@ internal sealed partial class InMemoryRecordStore
                 });
             }
 
+            if (execution.Lifecycle.ContractId is { } contractId
+                && execution.Lifecycle.ContractVersion is { } contractVersion
+                && SemanticMaintenanceFencesSubjectContract(
+                    _publishedState, contractId, contractVersion))
+                return new OperationResult<BaseSubjectAuthorityMaintenancePageResult>
+                {
+                    Status = OperationStatus.CapabilityUnavailable,
+                    Error = BaseSubjectFailureContract.Error(
+                        BaseSubjectErrorCodes.MaintenanceRequired),
+                };
+
             InMemoryLifecycleMaintenanceProgress progress = _lifecycleMaintenance ??= CreateProgress(execution);
             if (!progress.Matches(execution))
                 return LifecycleMaintenanceRequired<BaseSubjectAuthorityMaintenancePageResult>();

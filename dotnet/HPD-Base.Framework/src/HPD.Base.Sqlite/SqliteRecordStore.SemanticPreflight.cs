@@ -27,7 +27,7 @@ public sealed partial class SqliteRecordStore
             || request.Definition.OwningModuleId != installed.OwningModuleId
             || !CryptographicOperations.FixedTimeEquals(request.Definition.Checksum.AsSpan(), installed.Checksum.AsSpan()))
             return PreflightFailure(BaseSemanticActivationErrorCodes.GraphChanged, OperationStatus.Conflict, ErrorCategory.Conflict);
-        BaseSemanticActivationCapability providerCapability = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true);
+        BaseSemanticActivationCapability providerCapability = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true, maintenanceSupported: true);
         int maximumKeyBytes = Math.Min(installed.Limits.MaximumCanonicalKeyBytes, providerCapability.MaximumKeyBytes);
         if (request.MaximumCanonicalKeyBytes != maximumKeyBytes || request.CanonicalKey.Length > maximumKeyBytes)
             return PreflightFailure(BaseSemanticActivationErrorCodes.BudgetExceeded, OperationStatus.ValidationFailed, ErrorCategory.Validation);
@@ -45,6 +45,7 @@ public sealed partial class SqliteRecordStore
                 ?? throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
         }
         Volatile.Write(ref _currentStoreInstanceId, storeInstance);
+        Volatile.Write(ref _storeInstanceIdentityLoaded, 1);
         long schemaGeneration = Volatile.Read(ref _schemaGeneration);
         (long semanticGeneration, byte[] definitionSet) = await ReadSemanticPreflightAuthorityAsync(connection, transaction, token).ConfigureAwait(false);
         if (request.StoreAuthority.ApplicationId != _options.SemanticActivationApplicationId

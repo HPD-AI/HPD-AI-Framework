@@ -396,6 +396,16 @@ internal sealed class DefaultBaseMutationProcessor(
             }).ToImmutableArray(),
             TransactionEvidenceToken = value.Authority.TransactionEvidenceToken.ToArray().ToImmutableArray(),
         },
+        Selection = value.Selection is null ? null : value.Selection with
+        {
+            Records = value.Selection.Records.Select(static record => BaseOwnedSelectedRecord.Freeze(
+                record.MaterializeOwned(), record.SelectionOrdinal, record.CodecVersion)).ToImmutableArray(),
+            CanonicalOrderBoundary = value.Selection.CanonicalOrderBoundary.ToArray().ToImmutableArray(),
+            Accounting = value.Selection.Accounting with { },
+            LogicalIndexEvidence = value.Selection.LogicalIndexEvidence is null
+                ? null
+                : BaseLogicalIndexSelectionEvidenceContract.Clone(value.Selection.LogicalIndexEvidence),
+        },
         Items = value.Items.Select(static item => item with
         {
             CollectionId = new string(item.CollectionId.AsSpan()),
@@ -1004,6 +1014,11 @@ internal sealed class DefaultBaseMutationProcessor(
 
     internal void AdoptCapturedRetirement(ImmutableArray<BaseCapturedSubjectRetirementProjection> captured) =>
         _capturedRetirement = captured;
+
+    internal void AdoptCapturedLifecycleConsumers(
+        ImmutableArray<BaseCapturedSubjectLifecycleConsumerProjection> captured) =>
+        _capturedLifecycleConsumers = captured.ToDictionary(
+            static value => (value.ConsumerId, value.ConsumerVersion));
 
     internal BaseSubjectRetirementProjectionPlan? BuildRetirementPlan(ImmutableArray<BaseAtomicMutationPlanItem> items,BaseSubjectRetirementRegistry registry)
     {

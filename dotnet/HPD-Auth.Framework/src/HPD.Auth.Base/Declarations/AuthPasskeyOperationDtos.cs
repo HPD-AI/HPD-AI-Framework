@@ -3,7 +3,7 @@ using HPD.Base;
 
 namespace HPD.Auth.Base;
 
-internal sealed record AuthPasskeyRegisterV1
+internal sealed partial record AuthPasskeyRegisterV1
 {
     [BaseField("auth.operation.passkey.register.tenantId"), JsonConverter(typeof(BaseCanonicalGuidJsonConverter))] public required Guid TenantId { get; init; }
     [BaseField("auth.operation.passkey.register.userId"), JsonConverter(typeof(BaseCanonicalGuidJsonConverter))] public required Guid UserId { get; init; }
@@ -64,6 +64,7 @@ internal sealed record AuthPasskeyRecordAssertionV1
     [BaseField("auth.operation.passkey.assert.expectedUserRevision")] public required RevisionToken ExpectedUserRevision { get; init; }
     [BaseField("auth.operation.passkey.assert.expectedPasskeyRevision")] public required RevisionToken ExpectedPasskeyRevision { get; init; }
     [BaseField("auth.operation.passkey.assert.presentedCounter", MinimumInt64 = 0, HasMinimumInt64 = true, MaximumInt64 = 4_294_967_295, HasMaximumInt64 = true)] public required long PresentedCounter { get; init; }
+    [BaseField("auth.operation.passkey.assert.backedUp")] public required bool BackedUp { get; init; }
     [BaseField("auth.operation.passkey.assert.counterSupported")] public required bool CounterSupported { get; init; }
     [BaseField("auth.operation.passkey.assert.userVerified")] public required bool UserVerified { get; init; }
     [BaseField("auth.operation.passkey.assert.operationTime"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset OperationTime { get; init; }

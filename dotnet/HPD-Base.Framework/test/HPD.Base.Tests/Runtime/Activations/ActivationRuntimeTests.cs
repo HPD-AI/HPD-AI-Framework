@@ -145,6 +145,10 @@ public sealed partial class ActivationRuntimeTests
             "base.subjectLifecycle.finalizeRetirement",
             "example.user.retirement.purge.source").Should().BeTrue();
         session.ActivationDeclaresSourceGrants("base.subjectRetirement.purge").Should().BeFalse();
+        session.ActivationDeclaresSourceGrants(
+            "base.subjectRetirement.purge",
+            "example.user.retirement.purge.source").Should().BeFalse(
+                "declaring the private purge source must not imply the independent purge operation grant");
     }
 
     [Fact]
@@ -421,17 +425,19 @@ public sealed partial class ActivationRuntimeTests
         var stores = new DefaultRecordStoreRegistry();
         stores.Add(new RecordStoreRegistration { StoreId = "activation-store", Store = store });
         BaseActivationHandlerRegistration<Input, Result> target = Registration();
-        long due = DateTimeOffset.UtcNow.AddMinutes(-1).ToUnixTimeMilliseconds();
+        var time = new AdjustableTimeProvider(DateTimeOffset.UtcNow.AddHours(-1));
+        long due = time.GetUtcNow().AddMinutes(1).ToUnixTimeMilliseconds();
         byte[] concurrencyKey = SHA256.HashData("test-overlap"u8);
         BaseScheduleDefinition schedule = Schedule(target, 1, due, BaseScheduleOverlapPolicy.Allow, concurrencyKey);
         var runtime = new DefaultBaseScheduleRuntime(stores, Policy(),
-            new BaseActivationAcceptedTimeAuthority(TimeProvider.System),
+            new BaseActivationAcceptedTimeAuthority(time),
             new BaseActivationRegistry([new BaseActivationRegistration<Input, Result>(target)]), new BaseTimeZoneRegistry(null));
 
         OperationResult<BaseScheduleMutationResult> created = await runtime.MutateAsync(
             Session(), schedule, BaseScheduleMutationKind.Create, null, Identity("schedule-create", "one"), default);
         OperationResult<BaseScheduleMutationResult> createReplay = await runtime.MutateAsync(
             Session(), schedule, BaseScheduleMutationKind.Create, null, Identity("schedule-create", "one"), default);
+        time.Advance(TimeSpan.FromMinutes(2));
         OperationResult<BaseScheduleMaintenancePage> advanced = await runtime.AdvanceAsync(
             Session(), schedule, Identity("schedule-advance", "one"), default);
 
@@ -449,22 +455,123 @@ public sealed partial class ActivationRuntimeTests
         advanced.Value.Occurrences[0].Disposition.Should().BeOfType<BaseOccurrenceMaterialized>();
 
         BaseScheduleDefinition skippedSchedule = Schedule(
-            target, 2, due + 1, BaseScheduleOverlapPolicy.SkipWhileActive, concurrencyKey);
+            target, 2, time.GetUtcNow().AddMinutes(1).ToUnixTimeMilliseconds(), BaseScheduleOverlapPolicy.SkipWhileActive, concurrencyKey);
         (await runtime.MutateAsync(Session(), skippedSchedule, BaseScheduleMutationKind.Create, null,
             Identity("schedule-create", "two"), default)).IsSuccess().Should().BeTrue();
+        time.Advance(TimeSpan.FromMinutes(2));
         OperationResult<BaseScheduleMaintenancePage> skipped = await runtime.AdvanceAsync(
             Session(), skippedSchedule, Identity("schedule-advance", "two"), default);
         skipped.IsSuccess().Should().BeTrue(skipped.Error?.Code);
         skipped.Value!.Occurrences[0].Disposition.Should().BeOfType<BaseOccurrenceSkippedOverlap>();
 
         BaseScheduleDefinition replacementSchedule = Schedule(
-            target, 3, due + 2, BaseScheduleOverlapPolicy.CancelPrevious, concurrencyKey);
+            target, 3, time.GetUtcNow().AddMinutes(1).ToUnixTimeMilliseconds(), BaseScheduleOverlapPolicy.CancelPrevious, concurrencyKey);
         (await runtime.MutateAsync(Session(), replacementSchedule, BaseScheduleMutationKind.Create, null,
             Identity("schedule-create", "three"), default)).IsSuccess().Should().BeTrue();
+        time.Advance(TimeSpan.FromMinutes(2));
         OperationResult<BaseScheduleMaintenancePage> replacement = await runtime.AdvanceAsync(
             Session(), replacementSchedule, Identity("schedule-advance", "three"), default);
         replacement.IsSuccess().Should().BeTrue(replacement.Error?.Code);
         replacement.Value!.Occurrences[0].Disposition.Should().BeOfType<BaseOccurrenceMaterialized>();
+    }
+
+    [Fact]
+    public async Task Schedule_creation_excludes_pre_authority_interval_occurrences()
+    {
+        var store = new InMemoryRecordStore();
+        var stores = new DefaultRecordStoreRegistry();
+        stores.Add(new RecordStoreRegistration { StoreId = "activation-store", Store = store });
+        BaseActivationHandlerRegistration<Input, Result> target = Registration();
+        var time = new AdjustableTimeProvider(DateTimeOffset.UtcNow.AddHours(-1));
+        BaseScheduleDefinition schedule = BaseScheduleDefinitionBuilder.CreateGenerated(new BaseScheduleDefinitionDraft
+        {
+            Id = "test.schedule", Version = 40, OwningModuleId = "test.module",
+            ManageGrantId = "test.schedule.manage", MaterializeGrantId = "test.schedule.materialize",
+            Expression = new BaseIntervalSchedule(0, 300_000), GapPolicy = BaseTimeGapPolicy.Skip,
+            TimeOverlapPolicy = BaseTimeOverlapPolicy.EarlierOffset,
+            MisfirePolicy = BaseScheduleMisfirePolicy.RunLatest,
+            ActivationOverlapPolicy = BaseScheduleOverlapPolicy.Allow,
+            OverlapKeyKind = BaseScheduleOverlapKeyKind.Schedule,
+            ConcurrencyKey = ImmutableArray<byte>.Empty, Priority = 0, MaximumSplayMilliseconds = 0,
+        }, target, RuntimeActivationDtos.HPDBaseActivationDtoAuthority, new Input("scheduled")).Definition;
+        var runtime = new DefaultBaseScheduleRuntime(stores, Policy(),
+            new BaseActivationAcceptedTimeAuthority(time),
+            new BaseActivationRegistry([new BaseActivationRegistration<Input, Result>(target)]), new BaseTimeZoneRegistry(null));
+
+        OperationResult<BaseScheduleMutationResult> created = await runtime.MutateAsync(
+            Session(), schedule, BaseScheduleMutationKind.Create, null, Identity("schedule-create", "epoch"), default);
+
+        created.IsSuccess().Should().BeTrue(created.Error?.Code);
+        long? expectedNominal = BaseScheduleDefinitionBuilder.NextNominal(schedule.Expression,
+            time.GetUtcNow().ToUnixTimeMilliseconds());
+        expectedNominal.Should().HaveValue();
+        long expected = expectedNominal!.Value;
+        created.Value!.Authority!.LastConsideredNominal.Should().BeNull();
+        created.Value.Authority.NextNominal.Should().Be(expected);
+
+        time.Advance(TimeSpan.FromMinutes(5));
+        OperationResult<BaseScheduleMaintenancePage> advanced = await runtime.AdvanceAsync(
+            Session(), schedule, Identity("schedule-advance", "epoch"), default);
+
+        advanced.IsSuccess().Should().BeTrue(advanced.Error?.Code);
+        advanced.Value!.Occurrences.Should().ContainSingle();
+        advanced.Value.Occurrences[0].NominalAt.Should().Be(expected);
+        advanced.Value.Occurrences[0].Disposition.Should().BeOfType<BaseOccurrenceMaterialized>();
+    }
+
+    [Fact]
+    public async Task Schedule_create_and_update_replay_preserve_the_committed_time_boundary()
+    {
+        var store = new InMemoryRecordStore();
+        var stores = new DefaultRecordStoreRegistry();
+        stores.Add(new RecordStoreRegistration { StoreId = "activation-store", Store = store });
+        BaseActivationHandlerRegistration<Input, Result> target = Registration();
+        var time = new AdjustableTimeProvider(DateTimeOffset.UtcNow.AddHours(-2));
+        var runtime = new DefaultBaseScheduleRuntime(stores, Policy(),
+            new BaseActivationAcceptedTimeAuthority(time),
+            new BaseActivationRegistry([new BaseActivationRegistration<Input, Result>(target)]),
+            new BaseTimeZoneRegistry(null));
+        BaseScheduleDefinition createdDefinition = Schedule(
+            target, 42, time.GetUtcNow().AddMinutes(5).ToUnixTimeMilliseconds(),
+            BaseScheduleOverlapPolicy.Allow, SHA256.HashData("schedule-replay"u8));
+        BaseMutationRequestIdentity createIdentity = Identity("schedule-create", "response-loss");
+
+        BaseScheduleMutationResult created = (await runtime.MutateAsync(
+            Session(), createdDefinition, BaseScheduleMutationKind.Create, null, createIdentity, default)).Value!;
+        long? committedCreateBoundary = created.Authority!.NextNominal;
+        time.Advance(TimeSpan.FromHours(1));
+        BaseScheduleMutationResult replayedCreate = (await runtime.MutateAsync(
+            Session(), createdDefinition, BaseScheduleMutationKind.Create, null, createIdentity, default)).Value!;
+
+        replayedCreate.Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
+        replayedCreate.Authority!.NextNominal.Should().Be(committedCreateBoundary);
+
+        BaseScheduleDefinition updatedDefinition = Schedule(
+            target, 42, time.GetUtcNow().AddMinutes(10).ToUnixTimeMilliseconds(),
+            BaseScheduleOverlapPolicy.Allow, SHA256.HashData("schedule-replay"u8));
+        BaseMutationRequestIdentity updateIdentity = Identity("schedule-update", "response-loss");
+        BaseScheduleMutationResult updated = (await runtime.MutateAsync(
+            Session(), updatedDefinition, BaseScheduleMutationKind.Update,
+            created.Authority.DefinitionGeneration, updateIdentity, default)).Value!;
+        long? committedUpdateBoundary = updated.Authority!.NextNominal;
+        time.Advance(TimeSpan.FromHours(1));
+        BaseScheduleMutationResult replayedUpdate = (await runtime.MutateAsync(
+            Session(), updatedDefinition, BaseScheduleMutationKind.Update,
+            created.Authority.DefinitionGeneration, updateIdentity, default)).Value!;
+
+        replayedUpdate.Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
+        replayedUpdate.Authority!.NextNominal.Should().Be(committedUpdateBoundary);
+
+        OperationResult<BaseScheduleMutationResult> collision = await runtime.MutateAsync(
+            Session(), updatedDefinition, BaseScheduleMutationKind.Update,
+            created.Authority.DefinitionGeneration,
+            updateIdentity with
+            {
+                Fingerprint = BaseMutationRequestFingerprint.Create(
+                    Enumerable.Repeat((byte)0xA5, 32).ToArray()),
+            }, default);
+        collision.IsSuccess().Should().BeFalse();
+        collision.Error!.Code.Should().Be("base.activation.fingerprintConflict");
     }
 
     [Theory]
@@ -573,6 +680,15 @@ public sealed partial class ActivationRuntimeTests
         },
         new BaseSessionOptions { Audience = HPDBaseEndpointAudience.ControlPlane },
         applicationId: "activation-test");
+
+    private sealed class AdjustableTimeProvider(DateTimeOffset initial) : TimeProvider
+    {
+        private DateTimeOffset _utcNow = initial;
+
+        public override DateTimeOffset GetUtcNow() => _utcNow;
+
+        public void Advance(TimeSpan duration) => _utcNow = _utcNow.Add(duration);
+    }
 
     private static BaseActivationGrantSet Grants() => new()
     {

@@ -84,7 +84,7 @@ internal static partial class AuthCleanupAdvanceOperationV1
         Add("state.draining", BaseModuleMutationTemplateBuilder.ValueEquals(Guard("state.draining"), Request("state.draining", RequestProperties.ExpectedState), Constant("state.draining", RequestProperties.ExpectedState.ConstantAuthority, AuthCleanupStateV1.draining)));
         Add("state.waiting", BaseModuleMutationTemplateBuilder.ValueEquals(Guard("state.waiting"), Request("state.waiting", RequestProperties.ExpectedState), Constant("state.waiting", RequestProperties.ExpectedState.ConstantAuthority, AuthCleanupStateV1.waitingRetention)));
         values.AddRange(ProgressGuards());
-        Add("zero.allowed", BaseModuleMutationTemplateBuilder.Not(Guard("zero.allowed"), StepGuard(AuthCleanupStepV1.finalizeSubject)));
+        Add("zero.allowed", BaseModuleMutationTemplateBuilder.Not(Guard("zero.allowed"), StepGuard(AuthCleanupStepV1.proveSubjectReady)));
         return [.. values.OrderBy(static value => value.Id, StringComparer.Ordinal).Select(static value => value.Guard)];
     }
 
@@ -123,7 +123,7 @@ internal static partial class AuthCleanupAdvanceOperationV1
 
     private static BaseModuleMutationBlock AllComplete() => BaseModuleMutationTemplateBuilder.Block(
         Require("all.00.disposition", "disposition.all"), Require("all.01.selected", "selected.zero"),
-        Require("all.02.retention", "retention.missing"), Require("all.03.step", "step.finalizeSubject"), Require("all.04.state", "state.draining"),
+        Require("all.02.retention", "retention.missing"), Require("all.03.step", "step.proveSubjectReady"), Require("all.04.state", "state.draining"),
         Patch(PatchAll,
             BaseModuleMutationTemplateBuilder.Field(AuthCleanupWorkRecordV1.Fields.CompletedSteps, Increment("all.completed", Captured("all.completed", AuthCleanupWorkRecordV1.Fields.CompletedSteps.ModuleMutation), 1L << 13)),
             Receipt("all"),
@@ -195,7 +195,7 @@ internal static partial class AuthCleanupAdvanceOperationV1
             (AuthCleanupStepV1.deleteUserLogins, AuthCleanupStepV1.deleteUserTokens),
             (AuthCleanupStepV1.deleteUserTokens, AuthCleanupStepV1.deleteUserRoles),
             (AuthCleanupStepV1.deleteUserIdentities, AuthCleanupStepV1.proveEmpty),
-            (AuthCleanupStepV1.proveEmpty, AuthCleanupStepV1.finalizeSubject),
+            (AuthCleanupStepV1.proveEmpty, AuthCleanupStepV1.proveSubjectReady),
             (AuthCleanupStepV1.deleteRoleClaims, AuthCleanupStepV1.deleteUserRoles),
         ];
         BaseModuleValue<AuthCleanupStepV1> value = userRolesNext;
@@ -222,7 +222,7 @@ internal static partial class AuthCleanupAdvanceOperationV1
         AuthCleanupStepV1.deletePasskeys => 6, AuthCleanupStepV1.deleteUserClaims => 7,
         AuthCleanupStepV1.deleteUserLogins => 8, AuthCleanupStepV1.deleteUserTokens => 9,
         AuthCleanupStepV1.deleteUserRoles => 10, AuthCleanupStepV1.deleteUserIdentities => 11,
-        AuthCleanupStepV1.proveEmpty => 12, AuthCleanupStepV1.finalizeSubject => 13,
+        AuthCleanupStepV1.proveEmpty => 12, AuthCleanupStepV1.proveSubjectReady => 13,
         AuthCleanupStepV1.deleteRoleClaims => 14, _ => throw new InvalidOperationException("auth.cleanup.step.invalid"),
     };
 
@@ -230,15 +230,15 @@ internal static partial class AuthCleanupAdvanceOperationV1
     {
         static long Before(int bit) => (1L << bit) - 1L;
         AuthCleanupStepV1[] common = [.. ZeroSteps.Where(static value => value is not AuthCleanupStepV1.deleteRoleClaims
-            and not AuthCleanupStepV1.deleteUserRoles and not AuthCleanupStepV1.proveEmpty and not AuthCleanupStepV1.finalizeSubject)];
+            and not AuthCleanupStepV1.deleteUserRoles and not AuthCleanupStepV1.proveEmpty and not AuthCleanupStepV1.proveSubjectReady)];
         foreach (AuthCleanupStepV1 step in common) yield return CompletedGuard(step.ToString(), Before(Bit(step)));
         yield return CompletedGuard("user.deleteUserRoles", Before(10));
         yield return CompletedGuard("user.proveEmpty", Before(12));
-        yield return CompletedGuard("user.finalizeSubject", Before(13));
+        yield return CompletedGuard("user.proveSubjectReady", Before(13));
         yield return CompletedGuard("role.deleteRoleClaims", 0);
         yield return CompletedGuard("role.deleteUserRoles", 1L << 14);
         yield return CompletedGuard("role.proveEmpty", (1L << 14) + (1L << 10));
-        yield return CompletedGuard("role.finalizeSubject", (1L << 14) + (1L << 10) + (1L << 12));
+        yield return CompletedGuard("role.proveSubjectReady", (1L << 14) + (1L << 10) + (1L << 12));
     }
 
     private static (string Id, BaseModuleGuard Guard) CompletedGuard(string id, long expected) =>
@@ -249,8 +249,8 @@ internal static partial class AuthCleanupAdvanceOperationV1
     private static BaseModuleStatement ProgressProof()
     {
         AuthCleanupStepV1[] common = [.. ZeroSteps.Where(static value => value is not AuthCleanupStepV1.deleteRoleClaims
-            and not AuthCleanupStepV1.deleteUserRoles and not AuthCleanupStepV1.proveEmpty and not AuthCleanupStepV1.finalizeSubject)];
-        BaseModuleMutationBlock value = KindProof(AuthCleanupStepV1.finalizeSubject);
+            and not AuthCleanupStepV1.deleteUserRoles and not AuthCleanupStepV1.proveEmpty and not AuthCleanupStepV1.proveSubjectReady)];
+        BaseModuleMutationBlock value = KindProof(AuthCleanupStepV1.proveSubjectReady);
         value = BaseModuleMutationTemplateBuilder.Block(BaseModuleMutationTemplateBuilder.If(Prefix + ".statement.progress.proveEmpty", StepGuard(AuthCleanupStepV1.proveEmpty), KindProof(AuthCleanupStepV1.proveEmpty), value));
         value = BaseModuleMutationTemplateBuilder.Block(BaseModuleMutationTemplateBuilder.If(Prefix + ".statement.progress.deleteUserRoles", StepGuard(AuthCleanupStepV1.deleteUserRoles), KindProof(AuthCleanupStepV1.deleteUserRoles), value));
         value = BaseModuleMutationTemplateBuilder.Block(BaseModuleMutationTemplateBuilder.If(Prefix + ".statement.progress.deleteRoleClaims", StepGuard(AuthCleanupStepV1.deleteRoleClaims),

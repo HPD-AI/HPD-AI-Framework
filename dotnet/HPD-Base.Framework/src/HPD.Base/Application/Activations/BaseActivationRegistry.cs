@@ -360,6 +360,14 @@ public sealed class BaseActivationContext
     /// <summary>Gets installed retirement consumers through this activation's principal-bound session.</summary>
     public BaseSubjectRetirementSession SubjectRetirements => _session.SubjectRetirements;
 
+    /// <summary>Resolves one installed exported-subject contract through this activation's principal-bound session.</summary>
+    /// <typeparam name="TSubject">The exact generated subject marker type.</typeparam>
+    /// <param name="registration">The generated exported-subject registration.</param>
+    /// <returns>The typed exported-subject contract bound to the current activation authority.</returns>
+    public BaseExportedSubjectContract<TSubject> GetExportedSubjectContract<TSubject>(
+        BaseGeneratedSubjectRegistration registration) =>
+        _session.GetExportedSubjectContract<TSubject>(registration);
+
     /// <summary>Gets installed registered reads through this activation's principal-bound session.</summary>
     public BaseSessionReads Reads => _session.Reads;
 
@@ -574,6 +582,27 @@ public sealed class BaseActivationContext
         ArgumentNullException.ThrowIfNull(identity);
         return _session.ModuleMutations.Get(operation)
             .ExecuteAsync(request, identity, options, cancellationToken);
+    }
+
+    /// <summary>
+    /// Resolves one historical identified module-mutation result through this
+    /// activation's principal-bound session without re-executing the operation.
+    /// </summary>
+    /// <typeparam name="TRequest">The installed request contract type.</typeparam>
+    /// <typeparam name="TResult">The installed result contract type.</typeparam>
+    /// <param name="operation">The exact generated operation identity.</param>
+    /// <param name="identity">The original complete request identity.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The stored identified result or a typed resolution failure.</returns>
+    public ValueTask<BaseResult<BaseModuleMutationExecutionResult<TResult>>> ResolveModuleMutationAsync<TRequest, TResult>(
+        BaseGeneratedModuleMutationIdentity<TRequest, TResult> operation,
+        BaseMutationRequestIdentity identity,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(identity);
+        return _session.ModuleMutations.Get(operation)
+            .ResolveAsync(identity, cancellationToken);
     }
 
     /// <summary>

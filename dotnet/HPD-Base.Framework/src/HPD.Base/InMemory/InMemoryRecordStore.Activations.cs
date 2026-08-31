@@ -299,6 +299,11 @@ internal sealed partial class InMemoryRecordStore
         try
         {
             InMemoryStoreState current = Volatile.Read(ref _publishedState);
+            if (SemanticMaintenanceFencesAnyActivation(
+                    current, [request.SourceDefinition, request.Replacement.Definition]))
+                return ActivationFailure<BaseActivationMigrationResult>(
+                    BaseSemanticActivationErrorCodes.GraphChanged,
+                    OperationStatus.Conflict, ErrorCategory.Conflict);
             if (TryReadControlReceipt(current, request.Identity, "activation-migrated",
                 HPDBaseJsonSerializerContext.Default.BaseActivationMigrationResult,
                 static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, out OperationResult<BaseActivationMigrationResult> replay))
@@ -392,6 +397,10 @@ internal sealed partial class InMemoryRecordStore
         try
         {
             InMemoryStoreState current = Volatile.Read(ref _publishedState); InMemoryStoreState next = current.Clone();
+            if (SemanticMaintenanceFencesActivation(current, request.Definition))
+                return ActivationFailure<BaseActivationMaintenancePage>(
+                    BaseSemanticActivationErrorCodes.GraphChanged,
+                    OperationStatus.Conflict, ErrorCategory.Conflict);
             if (TryReadControlReceipt(current, request.Identity, "activation-maintenance",
                 HPDBaseJsonSerializerContext.Default.BaseActivationMaintenancePage,
                 static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate },
@@ -465,6 +474,10 @@ internal sealed partial class InMemoryRecordStore
         try
         {
             InMemoryStoreState current = Volatile.Read(ref _publishedState); InMemoryStoreState next = current.Clone();
+            if (SemanticMaintenanceFencesActivation(current, request.Definition))
+                return ActivationFailure<BaseActivationPrunePage>(
+                    BaseSemanticActivationErrorCodes.GraphChanged,
+                    OperationStatus.Conflict, ErrorCategory.Conflict);
             if (TryReadControlReceipt(current, request.Identity, "activation-pruned",
                 HPDBaseJsonSerializerContext.Default.BaseActivationPrunePage,
                 static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate },
@@ -707,6 +720,10 @@ internal sealed partial class InMemoryRecordStore
         try
         {
             InMemoryStoreState current = Volatile.Read(ref _publishedState);
+            if (SemanticMaintenanceFencesAnyActivation(current, request.Worker.Definitions))
+                return ActivationFailure<BaseActivationClaimResult>(
+                    BaseSemanticActivationErrorCodes.GraphChanged,
+                    OperationStatus.Conflict, ErrorCategory.Conflict);
             if (TryReadInstanceReceipt(current, request.Identity, "activation-claimed", request.AcceptedTime.CapturedUtc,
                 HPDBaseJsonSerializerContext.Default.BaseActivationClaimResult, static value => value,
                 out OperationResult<BaseActivationClaimResult>? replay))
@@ -911,6 +928,10 @@ internal sealed partial class InMemoryRecordStore
                 !ClaimMatches(row, request.Claim) || row.Lease?.LeaseRevision != request.ExpectedLeaseRevision ||
                 row.Lease.LeaseExpiresAt <= request.AcceptedTime.CapturedUtc)
                 return ActivationFailure<BaseActivationRenewResult>("base.activation.claimLost", OperationStatus.Conflict, ErrorCategory.Conflict);
+            if (SemanticMaintenanceFencesActivation(current, row.Payload.Definition))
+                return ActivationFailure<BaseActivationRenewResult>(
+                    BaseSemanticActivationErrorCodes.GraphChanged,
+                    OperationStatus.Conflict, ErrorCategory.Conflict);
             long revision = checked(request.ExpectedLeaseRevision + 1);
             long expiresAt = checked(request.AcceptedTime.CapturedUtc + request.ExtensionMilliseconds);
             var lease = new BaseActivationLeaseObservation
@@ -965,6 +986,10 @@ internal sealed partial class InMemoryRecordStore
                 return replay;
             if (!current.Activations.TryGetValue(request.ActivationId, out InMemoryActivationRow? row))
                 return ActivationFailure<BaseActivationTransitionResult>("base.activation.notFound", OperationStatus.NotFound, ErrorCategory.NotFound);
+            if (SemanticMaintenanceFencesActivation(current, row.Payload.Definition))
+                return ActivationFailure<BaseActivationTransitionResult>(
+                    BaseSemanticActivationErrorCodes.GraphChanged,
+                    OperationStatus.Conflict, ErrorCategory.Conflict);
 
             if (request is BaseActivationEffectHeartbeatRequest effectHeartbeat)
             {
@@ -1818,6 +1843,10 @@ internal sealed partial class InMemoryRecordStore
         try
         {
             InMemoryStoreState current = Volatile.Read(ref _publishedState);
+            if (SemanticMaintenanceFencesActivation(current, request.Definition))
+                return ActivationFailure<BaseActivationReceiptCompactionResult>(
+                    BaseSemanticActivationErrorCodes.GraphChanged,
+                    OperationStatus.Conflict, ErrorCategory.Conflict);
             if (TryReadControlReceipt(current, request.Identity, "activation-receipts-compacted",
                 HPDBaseJsonSerializerContext.Default.BaseActivationReceiptCompactionResult,
                 static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate },

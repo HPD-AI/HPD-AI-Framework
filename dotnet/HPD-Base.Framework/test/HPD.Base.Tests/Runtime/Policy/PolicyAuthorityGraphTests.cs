@@ -63,6 +63,25 @@ public sealed class PolicyAuthorityGraphTests
     }
 
     [Fact]
+    public async Task Independent_modules_can_install_versioned_authorities_for_one_fixed_grant_id()
+    {
+        var builder = new BasePolicyAuthorityBuilder();
+        builder.AddPolicy(Definition("allow", 0), new RecordingPolicy("allow", [], PolicyDecision.Allow()));
+        builder.AddStaticGrant(GrantDefinition(1, "module-one"), Grant("items") with { ModuleId = "module-one" });
+        builder.AddStaticGrant(GrantDefinition(2, "module-two"), Grant("items") with { ModuleId = "module-two" });
+        Assert.Throws<InvalidOperationException>(() => builder.AddStaticGrant(
+            GrantDefinition(2, "duplicate"), Grant("items") with { ModuleId = "duplicate" }));
+
+        var orchestrator = new DefaultBasePolicyOrchestrator(builder.Freeze("policy-test"));
+        OperationResult<BasePolicyEvaluation> result = await orchestrator.EvaluateWriteAsync(Request());
+
+        Assert.Equal(OperationStatus.Ok, result.Status);
+        Assert.Equal(2, result.Value!.Authority!.AdmittedGrants.Length);
+        Assert.Equal([1, 2], result.Value.Authority.AdmittedGrants
+            .Select(static value => value.GrantVersion).Order().ToArray());
+    }
+
+    [Fact]
     public async Task Atomic_policy_authority_rejects_mixed_owner_generations_and_checksums()
     {
         var builder = new BasePolicyAuthorityBuilder();
@@ -99,9 +118,11 @@ public sealed class PolicyAuthorityGraphTests
         CompositionOrder = order,
     };
 
-    private static BaseGrantAuthorityDefinition GrantDefinition() => new()
+    private static BaseGrantAuthorityDefinition GrantDefinition() => GrantDefinition(1, "test-module");
+
+    private static BaseGrantAuthorityDefinition GrantDefinition(int version, string moduleId) => new()
     {
-        Id = "grant.items", Version = 1, OwningModuleId = "test-module",
+        Id = "grant.items", Version = version, OwningModuleId = moduleId,
         SourceContractId = "test.grants", SourceContractVersion = 1,
     };
 

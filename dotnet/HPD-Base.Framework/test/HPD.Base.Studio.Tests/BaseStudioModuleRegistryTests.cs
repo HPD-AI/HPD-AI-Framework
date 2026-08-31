@@ -145,6 +145,8 @@ public sealed class BaseStudioModuleRegistryTests
             Activations = original.Activations, TextSearch = original.TextSearch,
             SemanticActivations = original.SemanticActivations,
             SemanticActivationCertification = original.SemanticActivationCertification,
+            LogicalIndexes = original.LogicalIndexes,
+            SelectionMutationIndexShapes = original.SelectionMutationIndexShapes,
         };
         HPDBaseStoreProvider substituted = HPDBaseStoreProviderFactory.Create(descriptor, original.Installer);
         Assert.False(System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
@@ -177,6 +179,8 @@ public sealed class BaseStudioModuleRegistryTests
             Activations = original.Activations, TextSearch = original.TextSearch,
             SemanticActivations = original.SemanticActivations,
             SemanticActivationCertification = original.SemanticActivationCertification,
+            LogicalIndexes = original.LogicalIndexes,
+            SelectionMutationIndexShapes = original.SelectionMutationIndexShapes,
         };
 
         HPDBaseStoreProvider substituted = HPDBaseStoreProviderFactory.Create(descriptor, original.Installer);

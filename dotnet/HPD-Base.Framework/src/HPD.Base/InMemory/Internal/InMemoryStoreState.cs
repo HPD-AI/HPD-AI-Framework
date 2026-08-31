@@ -5,6 +5,57 @@ namespace HPD.Base;
 
 internal sealed class InMemoryStoreState
 {
+    internal InMemoryStoreState()
+    {
+    }
+
+    private InMemoryStoreState(InMemoryStoreState source)
+    {
+        Collections = source.Collections;
+        NextRecordId = source.NextRecordId;
+        NextRevision = source.NextRevision;
+        GlobalMutationPosition = source.GlobalMutationPosition;
+        Receipts = source.Receipts;
+        ExpiredSemanticRetirementReceiptFloors = source.ExpiredSemanticRetirementReceiptFloors;
+        VectorProjections = source.VectorProjections;
+        TextProjections = source.TextProjections;
+        TextRebuildReceipts = source.TextRebuildReceipts;
+        LogicalIndexes = source.LogicalIndexes;
+        SubjectContracts = source.SubjectContracts;
+        SubjectLifetimes = source.SubjectLifetimes;
+        SubjectTerminals = source.SubjectTerminals;
+        SubjectLifecycleFacts = source.SubjectLifecycleFacts;
+        SubjectLifecycleMemberships = source.SubjectLifecycleMemberships;
+        SubjectLifecycleMembershipIndex = source.SubjectLifecycleMembershipIndex;
+        SubjectLifecycleConsumers = source.SubjectLifecycleConsumers;
+        SubjectLifecycleCheckpoints = source.SubjectLifecycleCheckpoints;
+        SubjectLifecycleDeliveryEpoch = source.SubjectLifecycleDeliveryEpoch;
+        SubjectRetirementBarriers = source.SubjectRetirementBarriers;
+        SubjectRetirementTerminals = source.SubjectRetirementTerminals;
+        SubjectRetirementPosition = source.SubjectRetirementPosition;
+        SubjectRetirementPublications = source.SubjectRetirementPublications;
+        ModuleGenerations = source.ModuleGenerations;
+        SemanticActivationScopes = source.SemanticActivationScopes;
+        Activations = source.Activations;
+        ActivationPruneFloors = source.ActivationPruneFloors;
+        ActivationsByProtectedScope = source.ActivationsByProtectedScope;
+        DisposedActivationsByAuthority = source.DisposedActivationsByAuthority;
+        Executors = source.Executors;
+        Schedules = source.Schedules;
+        ScheduleOccurrences = source.ScheduleOccurrences;
+        ScheduleCancellations = source.ScheduleCancellations;
+        ActivationInstanceReceipts = source.ActivationInstanceReceipts;
+        ActivationInstanceReceiptCompactionFacts = source.ActivationInstanceReceiptCompactionFacts;
+        ActivationControlReceipts = source.ActivationControlReceipts;
+        ActivationInstanceReceiptChain = source.ActivationInstanceReceiptChain;
+        NextExecutorGeneration = source.NextExecutorGeneration;
+        ActivationIndexGeneration = source.ActivationIndexGeneration;
+        ActivationYieldReservationGeneration = source.ActivationYieldReservationGeneration;
+        ActivationYieldReservedUnusedSlots = source.ActivationYieldReservedUnusedSlots;
+        ActivationYieldRetainedUsedSlots = source.ActivationYieldRetainedUsedSlots;
+        MutationJournal = source.MutationJournal;
+    }
+
     /// <summary>Gets the collections.</summary>
     public Dictionary<string, InMemoryCollectionState> Collections { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets or sets the next record ID.</summary>
@@ -15,6 +66,7 @@ internal sealed class InMemoryStoreState
     public long GlobalMutationPosition { get; set; }
     /// <summary>Gets process-local atomic request receipts.</summary>
     public Dictionary<string, InMemoryMutationReceipt> Receipts { get; } = new(StringComparer.Ordinal);
+    public HashSet<string> ExpiredSemanticRetirementReceiptFloors { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets BASE-owned immutable vector projection slots by canonical collection/index key.</summary>
     public Dictionary<string, InMemoryVectorProjectionState> VectorProjections { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, InMemoryTextProjectionState> TextProjections { get; } = new(StringComparer.Ordinal);
@@ -49,6 +101,25 @@ internal sealed class InMemoryStoreState
     public Dictionary<string, BaseSemanticActivationScopeBinding> SemanticActivationScopes { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets durable semantic activation slots by stable semantic key.</summary>
     public Dictionary<string, InMemorySemanticActivationSlot> SemanticActivationSlots { get; } = new(StringComparer.Ordinal);
+    /// <summary>Gets identified process-local semantic maintenance progress and terminal receipts.</summary>
+    public Dictionary<string, InMemorySemanticMaintenanceEntry> SemanticMaintenance { get; } = new(StringComparer.Ordinal);
+    /// <summary>Gets permanent per-identity replay receipts for removed semantic definitions.</summary>
+    public Dictionary<string, InMemorySemanticMaintenanceEntry> RemovedSemanticMaintenanceReceipts { get; }
+        = new(StringComparer.Ordinal);
+    /// <summary>Gets permanently disabled semantic definition identities for this process incarnation.</summary>
+    public HashSet<string> RemovedSemanticDefinitions { get; } = new(StringComparer.Ordinal);
+    /// <summary>Gets immutable published semantic-definition migration authority by source identity.</summary>
+    public Dictionary<string, BaseSemanticActivationDefinitionMigrationAuthority> SemanticMigrationAuthorities { get; }
+        = new(StringComparer.Ordinal);
+    /// <summary>Gets byte-exact negative authority retained for every published semantic migration.</summary>
+    public Dictionary<string, ImmutableArray<InMemorySemanticHistoricalAuthority>> SemanticMigrationHistory { get; }
+        = new(StringComparer.Ordinal);
+    /// <summary>Gets immutable terminal definition-removal publications by removed definition identity.</summary>
+    public Dictionary<string, InMemorySemanticRemovedDefinitionAuthority> RemovedSemanticDefinitionAuthorities { get; }
+        = new(StringComparer.Ordinal);
+    /// <summary>Gets byte-exact absence authority retained after executable definition removal.</summary>
+    public Dictionary<string, ImmutableArray<InMemorySemanticHistoricalAuthority>> RemovedSemanticDefinitionHistory { get; }
+        = new(StringComparer.Ordinal);
     /// <summary>Gets the provider-owned installed semantic graph authority.</summary>
     public BaseSemanticActivationStoreAuthorityRequirement? SemanticActivationAuthority { get; set; }
     /// <summary>Gets durable activation rows by deterministic activation identity.</summary>
@@ -89,6 +160,34 @@ internal sealed class InMemoryStoreState
     /// <summary>Gets the shared record/control mutation journal by append position.</summary>
     public SortedDictionary<long, BaseMutationJournalEntry> MutationJournal { get; } = [];
 
+    internal InMemoryStoreState CloneForSemanticMaintenance()
+    {
+        var clone = new InMemoryStoreState(this);
+        foreach ((string key, InMemorySemanticActivationSlot slot) in SemanticActivationSlots)
+            clone.SemanticActivationSlots.Add(key, slot.DeepClone());
+        foreach ((string key, InMemorySemanticMaintenanceEntry entry) in SemanticMaintenance)
+            clone.SemanticMaintenance.Add(key, entry.DeepClone());
+        foreach ((string key, InMemorySemanticMaintenanceEntry entry) in RemovedSemanticMaintenanceReceipts)
+            clone.RemovedSemanticMaintenanceReceipts.Add(key, entry.DeepClone());
+        clone.RemovedSemanticDefinitions.UnionWith(RemovedSemanticDefinitions);
+        foreach ((string key, BaseSemanticActivationDefinitionMigrationAuthority authority) in SemanticMigrationAuthorities)
+            clone.SemanticMigrationAuthorities.Add(key, CloneMigrationAuthority(authority));
+        foreach ((string key, ImmutableArray<InMemorySemanticHistoricalAuthority> history) in SemanticMigrationHistory)
+            clone.SemanticMigrationHistory.Add(key, history.Select(static value => value.DeepClone()).ToImmutableArray());
+        foreach ((string key, InMemorySemanticRemovedDefinitionAuthority authority) in RemovedSemanticDefinitionAuthorities)
+            clone.RemovedSemanticDefinitionAuthorities.Add(key, authority.DeepClone());
+        foreach ((string key, ImmutableArray<InMemorySemanticHistoricalAuthority> history) in RemovedSemanticDefinitionHistory)
+            clone.RemovedSemanticDefinitionHistory.Add(key, history.Select(static value => value.DeepClone()).ToImmutableArray());
+        clone.SemanticActivationAuthority = SemanticActivationAuthority is null ? null : SemanticActivationAuthority with
+        {
+            ApplicationId = new string(SemanticActivationAuthority.ApplicationId.AsSpan()),
+            LogicalStoreId = new string(SemanticActivationAuthority.LogicalStoreId.AsSpan()),
+            StoreInstanceId = new string(SemanticActivationAuthority.StoreInstanceId.AsSpan()),
+            DefinitionSetChecksum = SemanticActivationAuthority.DefinitionSetChecksum.ToArray().ToImmutableArray(),
+        };
+        return clone;
+    }
+
     /// <summary>Executes the clone operation.</summary>
     public InMemoryStoreState Clone()
     {
@@ -115,6 +214,8 @@ internal sealed class InMemoryStoreState
             clone.Collections.Add(id, collection.Clone());
         foreach (var (id, receipt) in Receipts)
             clone.Receipts.Add(id, receipt.DeepClone());
+        foreach (string floor in ExpiredSemanticRetirementReceiptFloors)
+            clone.ExpiredSemanticRetirementReceiptFloors.Add(new string(floor.AsSpan()));
         foreach (var (id, projection) in VectorProjections)
             clone.VectorProjections.Add(id, projection);
         foreach (var (id, projection) in TextProjections)
@@ -122,7 +223,7 @@ internal sealed class InMemoryStoreState
         foreach (var (id, receipt) in TextRebuildReceipts)
             clone.TextRebuildReceipts.Add(id, receipt with { Fingerprint = [.. receipt.Fingerprint], Result = receipt.Result with { PublicationChecksum = ImmutableArray.Create(receipt.Result.PublicationChecksum.ToArray()) } });
         foreach (var (id, authority) in LogicalIndexes)
-            clone.LogicalIndexes.Add(id, authority with { PublicationChecksum = BaseSchemaAuthorityChecksum.Create(authority.PublicationChecksum.ToArray()) });
+            clone.LogicalIndexes.Add(id, authority.DeepClone());
         foreach (var (id, subject) in SubjectContracts)
             clone.SubjectContracts.Add(id, subject with { });
         foreach (var (id, lifetime) in SubjectLifetimes)
@@ -168,6 +269,19 @@ internal sealed class InMemoryStoreState
             });
         foreach ((string key, InMemorySemanticActivationSlot slot) in SemanticActivationSlots)
             clone.SemanticActivationSlots.Add(key, slot.DeepClone());
+        foreach ((string key, InMemorySemanticMaintenanceEntry maintenance) in SemanticMaintenance)
+            clone.SemanticMaintenance.Add(key, maintenance.DeepClone());
+        foreach ((string key, InMemorySemanticMaintenanceEntry receipt) in RemovedSemanticMaintenanceReceipts)
+            clone.RemovedSemanticMaintenanceReceipts.Add(key, receipt.DeepClone());
+        clone.RemovedSemanticDefinitions.UnionWith(RemovedSemanticDefinitions);
+        foreach ((string key, BaseSemanticActivationDefinitionMigrationAuthority authority) in SemanticMigrationAuthorities)
+            clone.SemanticMigrationAuthorities.Add(key, CloneMigrationAuthority(authority));
+        foreach ((string key, ImmutableArray<InMemorySemanticHistoricalAuthority> history) in SemanticMigrationHistory)
+            clone.SemanticMigrationHistory.Add(key, history.Select(static value => value.DeepClone()).ToImmutableArray());
+        foreach ((string key, InMemorySemanticRemovedDefinitionAuthority authority) in RemovedSemanticDefinitionAuthorities)
+            clone.RemovedSemanticDefinitionAuthorities.Add(key, authority.DeepClone());
+        foreach ((string key, ImmutableArray<InMemorySemanticHistoricalAuthority> history) in RemovedSemanticDefinitionHistory)
+            clone.RemovedSemanticDefinitionHistory.Add(key, history.Select(static value => value.DeepClone()).ToImmutableArray());
         clone.SemanticActivationAuthority = SemanticActivationAuthority is null ? null : SemanticActivationAuthority with
         {
             ApplicationId = new string(SemanticActivationAuthority.ApplicationId.AsSpan()),
@@ -219,6 +333,25 @@ internal sealed class InMemoryStoreState
 
         return clone;
     }
+
+    private static BaseSemanticActivationDefinitionMigrationAuthority CloneMigrationAuthority(
+        BaseSemanticActivationDefinitionMigrationAuthority value) => value with
+    {
+        MigrationId = new string(value.MigrationId.AsSpan()),
+        From = value.From with
+        {
+            Id = new string(value.From.Id.AsSpan()),
+            Checksum = value.From.Checksum.ToArray().ToImmutableArray(),
+        },
+        To = value.To with
+        {
+            Id = new string(value.To.Id.AsSpan()),
+            Checksum = value.To.Checksum.ToArray().ToImmutableArray(),
+        },
+        OrderedNegativeAuthorityChecksum = value.OrderedNegativeAuthorityChecksum.ToArray().ToImmutableArray(),
+        ReceiptChecksum = value.ReceiptChecksum.ToArray().ToImmutableArray(),
+        Checksum = value.Checksum.ToArray().ToImmutableArray(),
+    };
 
     internal void RebuildSubjectLifecycleMembershipIndex()
     {
@@ -275,11 +408,108 @@ internal sealed class InMemoryStoreState
     };
 }
 
+internal sealed record InMemorySemanticHistoricalAuthority(
+    byte[] ScopeBindingId,
+    byte[] KeyDigest,
+    BaseSemanticActivationSlotState State,
+    byte[] CanonicalAuthority)
+{
+    internal InMemorySemanticHistoricalAuthority DeepClone() => new(
+        ScopeBindingId.ToArray(), KeyDigest.ToArray(), State, CanonicalAuthority.ToArray());
+}
+
+internal sealed record InMemorySemanticRemovedDefinitionAuthority(
+    BaseSemanticActivationDefinitionKey Definition,
+    BaseSemanticActivationRemovalAuthority Removal,
+    long AbsenceCount,
+    byte[] AbsenceChecksum,
+    long PublicationGeneration,
+    byte[] ReceiptChecksum,
+    byte[] Checksum)
+{
+    internal InMemorySemanticRemovedDefinitionAuthority DeepClone() => new(
+        Definition with
+        {
+            Id = new string(Definition.Id.AsSpan()),
+            Checksum = Definition.Checksum.ToArray().ToImmutableArray(),
+        },
+        BaseSemanticActivationRemovalAuthorityContract.Seal(Removal), AbsenceCount,
+        AbsenceChecksum.ToArray(), PublicationGeneration, ReceiptChecksum.ToArray(), Checksum.ToArray());
+}
+
 internal sealed record InMemoryLogicalIndexAuthority
 {
     public required long Generation { get; init; }
     public required BaseLogicalIndexGenerationState State { get; init; }
     public required BaseSchemaAuthorityChecksum PublicationChecksum { get; init; }
+    public BaseLogicalIndexDirectoryAuthority? DirectoryAuthority { get; init; }
+    public BaseLogicalIndexDirectory? Directory { get; init; }
+
+    internal InMemoryLogicalIndexAuthority DeepClone() => this with
+    {
+        PublicationChecksum = BaseSchemaAuthorityChecksum.Create(PublicationChecksum.ToArray()),
+        DirectoryAuthority = DirectoryAuthority?.DeepClone(),
+        Directory = Directory?.DeepClone(),
+    };
+}
+
+internal sealed class InMemorySemanticMaintenancePlan
+{
+    internal required InMemorySemanticMaintenanceEntry Entry { get; init; }
+    internal ImmutableArray<byte>? ReplacementDefinitionSetChecksum { get; set; }
+    internal bool RemovesDefinition { get; set; }
+    internal BaseSemanticActivationMigrationDefinition? Migration { get; set; }
+    internal long MigrationSourceLive { get; set; }
+    internal long MigrationSourceRetired { get; set; }
+    internal long MigrationSourceAbsent { get; set; }
+    internal ImmutableArray<InMemorySemanticHistoricalAuthority> HistoricalAuthority { get; set; } = [];
+    internal BaseSemanticActivationDefinitionMigrationAuthority? MigrationAuthority { get; set; }
+    internal InMemorySemanticRemovedDefinitionAuthority? RemovalAuthority { get; set; }
+    internal long ExpectedPublishedRootBytes { get; set; }
+    internal long CurrentPlanBytes { get; set; }
+    internal long CurrentReceiptBytes { get; set; }
+    internal long CurrentTransientBytes { get; set; }
+    internal long MaximumMaterializedScanBytes { get; private set; }
+    internal BaseSemanticActivationRecoveryBoundary? ReadLowerBoundary { get; set; }
+    internal BaseSemanticActivationRecoveryBoundary? ReadUpperBoundary { get; set; }
+    internal int PageReadIntervals { get; private set; }
+    internal int PageIndexOperations { get; private set; }
+
+    internal void ChargeLookup(int count = 1) =>
+        PageIndexOperations = checked(PageIndexOperations + count);
+
+    internal void ChargeWrite(int count = 1) =>
+        PageIndexOperations = checked(PageIndexOperations + count);
+
+    internal void ChargeScan(long rows)
+    {
+        if (rows < 0 || rows > int.MaxValue) throw new OverflowException();
+        PageIndexOperations = checked(PageIndexOperations + 1 + (int)rows);
+    }
+
+    internal void ChargeFullRange(long rows)
+    {
+        ChargeScan(rows);
+        PageReadIntervals = checked(PageReadIntervals + 1);
+    }
+
+    internal void ChargeRetainedTraversal(long rows, int passes = 1)
+    {
+        if (rows < 0 || rows > int.MaxValue || passes < 0) throw new OverflowException();
+        PageIndexOperations = checked(PageIndexOperations + checked((int)rows * passes));
+    }
+
+    internal void ObserveMaterializedScan(long bytes)
+    {
+        if (bytes < 0) throw new OverflowException();
+        MaximumMaterializedScanBytes = Math.Max(MaximumMaterializedScanBytes, bytes);
+    }
+
+    internal void ObserveSimultaneousMaterializedScans(long primaryBytes, long additionalBytes)
+    {
+        if (primaryBytes < 0 || additionalBytes < 0) throw new OverflowException();
+        ObserveMaterializedScan(checked(primaryBytes + additionalBytes));
+    }
 }
 
 internal sealed record InMemorySemanticActivationSlot
@@ -345,6 +575,76 @@ internal sealed record InMemorySemanticActivationSlot
         ContractChecksum = value.ContractChecksum.ToArray().ToImmutableArray(), ScopeBindingId = value.ScopeBindingId.ToArray().ToImmutableArray(),
         Checksum = value.Checksum.ToArray().ToImmutableArray(),
     };
+}
+
+internal sealed class InMemorySemanticMaintenanceEntry
+{
+    internal required byte[] Fingerprint { get; set; }
+    internal required string Kind { get; set; }
+    internal required BaseSemanticActivationDefinitionKey Definition { get; set; }
+    internal required BaseSemanticActivationDefinitionKey? TargetDefinition { get; set; }
+    internal required BaseSemanticActivationMaintenanceResult Result { get; set; }
+    internal required Dictionary<string, InMemorySemanticActivationSlot> StagedSlots { get; set; }
+    internal required List<byte[]> ProcessedAuthorities { get; set; }
+    internal required List<long> ProcessedCanonicalBytes { get; set; }
+    internal required InMemorySemanticMaintenanceAccounting Accounting { get; set; }
+
+    internal InMemorySemanticMaintenanceEntry DeepClone() => new()
+    {
+        Fingerprint = Fingerprint.ToArray(),
+        Kind = new string(Kind.AsSpan()),
+        Definition = Definition with { Id = new string(Definition.Id.AsSpan()), Checksum = Definition.Checksum.ToArray().ToImmutableArray() },
+        TargetDefinition = TargetDefinition is null ? null : TargetDefinition with
+        {
+            Id = new string(TargetDefinition.Id.AsSpan()),
+            Checksum = TargetDefinition.Checksum.ToArray().ToImmutableArray(),
+        },
+        Result = CloneResult(Result),
+        StagedSlots = StagedSlots.ToDictionary(static item => new string(item.Key.AsSpan()),
+            static item => item.Value.DeepClone(), StringComparer.Ordinal),
+        ProcessedAuthorities = ProcessedAuthorities.Select(static value => value.ToArray()).ToList(),
+        ProcessedCanonicalBytes = [.. ProcessedCanonicalBytes],
+        Accounting = Accounting with { },
+    };
+
+    private static BaseSemanticActivationMaintenanceResult CloneResult(BaseSemanticActivationMaintenanceResult value) => value with
+    {
+        ProviderIncarnation = value.ProviderIncarnation.ToArray().ToImmutableArray(),
+        AuthorityChecksum = value.AuthorityChecksum.ToArray().ToImmutableArray(),
+        ResultChecksum = value.ResultChecksum.ToArray().ToImmutableArray(),
+        CommitObservationChecksum = value.CommitObservationChecksum.ToArray().ToImmutableArray(),
+        Checkpoint = value.Checkpoint is null ? null : value.Checkpoint with
+        {
+            ProviderIncarnation = value.Checkpoint.ProviderIncarnation.ToArray().ToImmutableArray(),
+            FenceToken = value.Checkpoint.FenceToken.ToArray().ToImmutableArray(),
+            Definition = value.Checkpoint.Definition with
+            {
+                Id = new string(value.Checkpoint.Definition.Id.AsSpan()),
+                Checksum = value.Checkpoint.Definition.Checksum.ToArray().ToImmutableArray(),
+            },
+            After = value.Checkpoint.After is null ? null : value.Checkpoint.After with
+            {
+                DefinitionId = new string(value.Checkpoint.After.DefinitionId.AsSpan()),
+                ScopeBindingId = value.Checkpoint.After.ScopeBindingId.ToArray().ToImmutableArray(),
+                Key = BaseSemanticActivationKeyDigest.Create(value.Checkpoint.After.Key.ToArray()),
+            },
+            RollingChecksum = value.Checkpoint.RollingChecksum.ToArray().ToImmutableArray(),
+            RequestFingerprint = value.Checkpoint.RequestFingerprint.ToArray().ToImmutableArray(),
+            Checksum = value.Checkpoint.Checksum.ToArray().ToImmutableArray(),
+        },
+    };
+}
+
+internal sealed record InMemorySemanticMaintenanceAccounting
+{
+    internal required long Rows { get; init; }
+    internal required long CanonicalBytes { get; init; }
+    internal required int Pages { get; init; }
+    internal required int ReadIntervals { get; init; }
+    internal required int IndexOperations { get; init; }
+    internal required long EvidenceBytes { get; init; }
+    internal required long ReceiptBytes { get; init; }
+    internal required long TransientBytes { get; init; }
 }
 
 internal sealed record InMemoryScheduleCancellationRow(

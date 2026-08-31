@@ -87,3 +87,43 @@ public sealed record BaseModuleGenerationCellDefinition
     /// <summary>Gets the maximum cell instances allowed in one operation.</summary>
     public required int MaximumCellsPerOperation { get; init; }
 }
+
+internal static class BaseModuleGenerationStorageKey
+{
+    internal static byte[] Encode(
+        BaseModuleGenerationCellDefinition cell,
+        BaseModuleGenerationScopeAuthority scope,
+        ReadOnlySpan<byte> keyUtf8) => Encode(
+            cell.Id, cell.Version, scope.Kind, scope.Tenant, scope.Project, keyUtf8);
+
+    internal static byte[] Encode(
+        string cellId,
+        int cellVersion,
+        BaseModuleGenerationScope scope,
+        string? tenant,
+        string? project,
+        ReadOnlySpan<byte> keyUtf8) => System.Text.Encoding.UTF8.GetBytes(string.Join('\n',
+            cellId,
+            cellVersion.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ((int)scope).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            tenant ?? string.Empty,
+            project ?? string.Empty,
+            Convert.ToHexStringLower(keyUtf8)));
+
+    internal static byte[] Minimum(
+        BaseModuleGenerationCellDefinition cell,
+        int minimumKeyUtf8Bytes)
+    {
+        bool tenant = cell.Scope is BaseModuleGenerationScope.Tenant or BaseModuleGenerationScope.TenantAndKey;
+        bool project = cell.Scope is BaseModuleGenerationScope.Project or BaseModuleGenerationScope.ProjectAndKey;
+        bool keyed = cell.Scope is BaseModuleGenerationScope.TenantAndKey or BaseModuleGenerationScope.ProjectAndKey;
+        if (keyed != (minimumKeyUtf8Bytes > 0))
+            throw new InvalidOperationException("base.moduleMutation.invalid");
+        return Encode(cell, new BaseModuleGenerationScopeAuthority
+        {
+            Kind = cell.Scope,
+            Tenant = tenant ? "a" : null,
+            Project = project ? "a" : null,
+        }, keyed ? Enumerable.Repeat((byte)'a', minimumKeyUtf8Bytes).ToArray() : []);
+    }
+}

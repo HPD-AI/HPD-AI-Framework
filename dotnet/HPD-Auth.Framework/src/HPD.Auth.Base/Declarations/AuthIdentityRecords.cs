@@ -150,7 +150,6 @@ internal static class AuthBaseContract
 [JsonSerializable(typeof(AuthTenantSettingsRecordV1))]
 [JsonSerializable(typeof(AuthSecurityAuditRecordV1))]
 [JsonSerializable(typeof(AuthDataProtectionKeyRecordV1))]
-[JsonSerializable(typeof(AuthImportStateRecordV1))]
 [JsonSerializable(typeof(AuthCleanupWorkRecordV1))]
 [JsonSerializable(typeof(AuthMaintenanceCursorRecordV1))]
 [JsonSerializable(typeof(AuthMaintenanceRunRecordV1))]

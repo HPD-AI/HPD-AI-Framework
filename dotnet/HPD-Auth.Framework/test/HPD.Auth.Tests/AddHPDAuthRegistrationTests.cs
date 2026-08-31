@@ -8,6 +8,7 @@ using HPD.Events;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Xunit;
 
 namespace HPD.Auth.Tests;
@@ -148,5 +149,21 @@ public class AddHPDAuthRegistrationTests
         var roleManager = scope.ServiceProvider.GetService<RoleManager<ApplicationRole>>();
 
         roleManager.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task AddHPDAuth_StartsBaseKeyCacheBeforeDataProtectionKeyRing()
+    {
+        await using ServiceProvider provider = ServiceProviderBuilder.Build(
+            appName: "Reg_DataProtectionStartupOrder");
+
+        IHostedService[] hosted = provider.GetServices<IHostedService>().ToArray();
+        int cacheLoader = Array.FindIndex(hosted,
+            static service => service.GetType().Name == "HPDBaseDataProtectionXmlRepository");
+        int keyRing = Array.FindIndex(hosted,
+            static service => service.GetType().Name == "DataProtectionHostedService");
+
+        cacheLoader.Should().BeGreaterThanOrEqualTo(0);
+        keyRing.Should().BeGreaterThan(cacheLoader);
     }
 }

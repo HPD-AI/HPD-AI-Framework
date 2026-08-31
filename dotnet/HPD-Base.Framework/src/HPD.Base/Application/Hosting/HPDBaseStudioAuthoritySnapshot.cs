@@ -105,7 +105,7 @@ public sealed class HPDBaseStudioAuthoritySnapshot
         _policyOwnerChecksum = policyOwnerChecksum.ToArray();
         RecordStoreRegistrationId = new string(receipt.RecordStoreRegistrationId.AsSpan()); ProviderId = new string(provider.Kind.AsSpan());
         ProviderVersion = provider.ProtocolVersion; ProviderGeneration = 1; SchemaDigest = new string(receipt.SchemaDigest.AsSpan());
-        _providerCapabilityChecksum = provider.StudioCapabilityChecksum.ToArray();
+        _providerCapabilityChecksum = provider.ProviderChecksum.ToArray();
         OperationIds = [.. operationIds.Select(static value => new string(value.AsSpan())).Order(StringComparer.Ordinal)];
         Definitions = [.. definitions.Select(static value => value with
             { Id = new(value.Id.AsSpan()), OwningModuleId = new(value.OwningModuleId.AsSpan()), DefinitionChecksum = [.. value.DefinitionChecksum] })

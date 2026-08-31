@@ -1406,7 +1406,7 @@ WHERE excluded.slot_generation>=slot_generation;
             if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false) || reader.IsDBNull(4) || reader.IsDBNull(5) || reader.IsDBNull(6) || reader.IsDBNull(7) ||
                 reader.GetInt32(2) != claim.AttemptNumber || reader.GetInt64(3) != claim.ClaimEpoch ||
                 !string.Equals(reader.GetString(5), claim.WorkerIdentity, StringComparison.Ordinal) ||
-                reader.GetInt64(7) <= DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() ||
+                reader.GetInt64(7) <= _owner._timeProvider.GetUtcNow().ToUnixTimeMilliseconds() ||
                 !CryptographicOperations.FixedTimeEquals((byte[])reader[4], claim.FencingToken.AsSpan()) ||
                 !CryptographicOperations.FixedTimeEquals((byte[])reader[1], claim.DefinitionChecksum.AsSpan()))
                 return SubjectFailure<BaseCapturedActivationGuardEvidence>("base.activation.claimLost", OperationStatus.Conflict, ErrorCategory.Conflict);
@@ -1982,12 +1982,19 @@ WHERE excluded.slot_generation>=slot_generation;
                 return new OperationResult<BaseCapturedAtomicExecution> { Status = semanticResult.Status, Error = semanticResult.Error };
             BaseCapturedSemanticActivationEvidence? capturedSemantic = semanticResult.Value;
 
+            OperationResult<ImmutableArray<BaseCapturedSubjectLifecycleConsumerProjection>> lifecycleProjectionResult =
+                await CaptureLifecycleConsumerProjectionsAsync(
+                    request.LifecycleConsumerProjections, digest, intervals, cancellationToken).ConfigureAwait(false);
+            if (!lifecycleProjectionResult.IsSuccess() || lifecycleProjectionResult.Value.IsDefault)
+                return SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
+
             OperationResult<ImmutableArray<BaseCapturedSubjectRetirementProjection>> retirementResult =
                 await CaptureRetirementAsync(request.SubjectRetirement, intent, module, digest, intervals, cancellationToken).ConfigureAwait(false);
             if (!retirementResult.IsSuccess() || retirementResult.Value.IsDefault)
                 return SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);
             long evidenceBytes = BaseSubjectCanonicalRetainedWork.MeasureIntervals(intervals);
-            long transient = checked(selectedBytes + relationBytes + generationBytes + evidenceBytes);
+            long transient = checked(selectedBytes + relationBytes + generationBytes + evidenceBytes
+                + BaseSubjectCanonicalRetainedWork.MeasureLifecycleConsumerProjections(lifecycleProjectionResult.Value));
             if (selectedBytes > limits.MaximumSelectedBytes || generationBytes > limits.MaximumGenerationBytes
                 || evidenceBytes > limits.MaximumEvidenceBytes || transient > limits.MaximumTransientBytes
                 || intervals.Count > limits.MaximumReadIntervals)
@@ -2011,6 +2018,7 @@ WHERE excluded.slot_generation>=slot_generation;
                 Generations = generations.MoveToImmutable(), ActivationGuard = _capturedActivationGuard,
                 Activations = capturedActivations,
                 SemanticActivation = capturedSemantic,
+                LifecycleConsumerProjections = lifecycleProjectionResult.Value,
                 SubjectRetirement = retirementResult.Value,
                 ReadIntervals = intervals.ToImmutable(),
                 Accounting = new BaseAtomicCaptureAccounting
@@ -2126,9 +2134,47 @@ WHERE excluded.slot_generation>=slot_generation;
             command.Parameters.AddWithValue("$project", key.Project); command.Parameters.Add("$key", SqliteType.Blob).Value = key.KeyBytes;
         }
 
-        private static byte[] CanonicalGenerationKeyBytes(SqliteModuleGenerationKey key) => System.Text.Encoding.UTF8.GetBytes(string.Join('\n',
-            key.CellId, key.CellVersion.ToString(CultureInfo.InvariantCulture), key.ScopeKind.ToString(CultureInfo.InvariantCulture),
-            key.Tenant, key.Project, Convert.ToHexStringLower(key.KeyBytes)));
+        private static byte[] CanonicalGenerationKeyBytes(SqliteModuleGenerationKey key) =>
+            BaseModuleGenerationStorageKey.Encode(
+                key.CellId, key.CellVersion, (BaseModuleGenerationScope)key.ScopeKind,
+                key.Tenant, key.Project, key.KeyBytes);
+
+        private async ValueTask<bool> SelectionDirectoryAuthorityMatchesAsync(
+            BaseCapturedAtomicExecution captured,
+            CancellationToken cancellationToken)
+        {
+            BaseLogicalIndexSelectionEvidence? evidence = captured.Selection?.LogicalIndexEvidence;
+            if (evidence is null)
+                return true;
+            if (_owner.LogicalIndexStoreIsQuarantined || captured.Authority.Collections.Length != 1)
+                return false;
+            try
+            {
+                SqlitePhysicalModel.CollectionModel collection = _owner._physical.Collection(
+                    captured.Authority.Collections[0].CollectionId);
+                SqlitePhysicalModel.IndexModel? index = collection.Indexes.SingleOrDefault(candidate =>
+                    candidate.Definition.StoreRequired
+                    && candidate.Definition.Id == evidence.IndexId
+                    && candidate.Definition.Version == evidence.IndexVersion
+                    && candidate.Definition.Checksum == evidence.IndexChecksum);
+                if (index is null)
+                    return false;
+                (long generation, _, ImmutableArray<byte> directoryPublication,
+                    BaseLogicalIndexDirectory directory) = await ReadLogicalIndexDirectoryAsync(
+                        collection, index, cancellationToken).ConfigureAwait(false);
+                return generation == evidence.DirectoryGeneration
+                    && CryptographicOperations.FixedTimeEquals(
+                        directoryPublication.AsSpan(), evidence.DirectoryPublicationChecksum.AsSpan())
+                    && CryptographicOperations.FixedTimeEquals(
+                        directory.MemberSetChecksum.AsSpan(), evidence.MemberSetChecksum.AsSpan())
+                    && BaseLogicalIndexDirectoryContract.Validate(
+                        collection.Definition, index.Definition, directory);
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
+        }
 
         public ValueTask<OperationResult<BasePreparedAtomicExecution>> PrepareAtomicExecutionAsync(
             BaseCapturedAtomicExecution captured, BaseFinalizedAtomicExecutionPlan plan,
@@ -2145,6 +2191,12 @@ WHERE excluded.slot_generation>=slot_generation;
                     && (captured.Activations is null || _capturedActivationExtension is null
                         || plan.Kind == BaseAtomicMutationExecutionKind.ActivationCreation && !plan.Items.IsDefaultOrEmpty)))
                 return SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
+            if (!await SelectionDirectoryAuthorityMatchesAsync(captured, token).ConfigureAwait(false))
+            {
+                _owner.QuarantineLogicalIndexes();
+                return SubjectFailure<BasePreparedAtomicExecution>(
+                    BaseSchemaErrorCodes.ProviderEvidenceInvalid);
+            }
             if (!ActivationGuardMatches(plan.ActivationGuard, captured.ActivationGuard))
                 return SubjectFailure<BasePreparedAtomicExecution>("base.activation.claimLost", OperationStatus.Conflict, ErrorCategory.Conflict);
             if ((plan.SemanticActivation is null) != (captured.SemanticActivation is null)
@@ -3020,6 +3072,8 @@ WHERE excluded.slot_generation>=slot_generation;
             if (!ReferenceEquals(prepared, _preparedMutation) || _preparedPlan is null)
                 return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
             BaseFinalizedAtomicExecutionPlan plan = _preparedPlan;
+            if (_owner.LogicalIndexStoreIsQuarantined && plan.Schema?.Indexes.Length > 0)
+                return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSchemaErrorCodes.ProviderEvidenceInvalid);
             BaseAtomicSchemaProvisionalExtension? provisionalSchema;
             try { provisionalSchema = BaseAtomicSchemaContract.Apply(this, prepared.Schema, plan.Schema); }
             catch (InvalidOperationException ex) { return SubjectFailure<BaseProvisionalAtomicExecution>(ex.Message); }
@@ -3032,11 +3086,82 @@ WHERE excluded.slot_generation>=slot_generation;
                     if (resulting == capturedIndex.Generation) continue;
                     string collectionId = plan.Schema.Authority.Collections.Single(value => value.Indexes.Contains(group.Key)).CollectionId;
                     BaseSchemaAuthorityChecksum publication = BaseAtomicSchemaContract.NextPublication(capturedIndex.PublicationChecksum, group.Key, resulting, provisionalSchema.ProvisionalChecksum);
+                    SqlitePhysicalModel.CollectionModel physicalCollection = _owner._physical.Collection(collectionId);
+                    SqlitePhysicalModel.IndexModel physicalIndex = physicalCollection.Indexes.Single(value => value.Definition.Checksum == group.Key);
+                    if (!physicalIndex.Definition.StoreRequired)
+                    {
+                        await using SqliteCommand updateLogicalIndex = _connection.CreateCommand();
+                        updateLogicalIndex.Transaction = _transaction;
+                        updateLogicalIndex.CommandText = $"UPDATE {_owner._names.LogicalIndexes} SET generation=$resulting,publication_checksum=$publication WHERE collection_id=$collection AND index_checksum=$index AND generation=$captured AND publication_checksum=$captured_publication AND state=$ready;";
+                        updateLogicalIndex.Parameters.AddWithValue("$resulting", resulting);
+                        updateLogicalIndex.Parameters.Add("$publication", SqliteType.Blob).Value = publication.ToArray();
+                        updateLogicalIndex.Parameters.AddWithValue("$collection", collectionId);
+                        updateLogicalIndex.Parameters.Add("$index", SqliteType.Blob).Value = group.Key.ToArray();
+                        updateLogicalIndex.Parameters.AddWithValue("$captured", capturedIndex.Generation);
+                        updateLogicalIndex.Parameters.Add("$captured_publication", SqliteType.Blob).Value = capturedIndex.PublicationChecksum.ToArray();
+                        updateLogicalIndex.Parameters.AddWithValue("$ready", (int)BaseLogicalIndexGenerationState.Ready);
+                        if (await updateLogicalIndex.ExecuteNonQueryAsync(token).ConfigureAwait(false) != 1)
+                            return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSchemaErrorCodes.TransactionConflict,
+                                OperationStatus.Conflict, ErrorCategory.Conflict);
+                        continue;
+                    }
+                    (long DirectoryGeneration, BaseSchemaAuthorityChecksum DirectoryLogicalPublication,
+                        ImmutableArray<byte> DirectoryPublication, BaseLogicalIndexDirectory CapturedDirectory) directorySnapshot;
+                    BaseLogicalIndexDirectory resultingDirectory;
+                    try
+                    {
+                        directorySnapshot = await ReadLogicalIndexDirectoryAsync(
+                            physicalCollection, physicalIndex, token).ConfigureAwait(false);
+                        if (directorySnapshot.DirectoryGeneration != capturedIndex.Generation
+                            || directorySnapshot.DirectoryLogicalPublication != capturedIndex.PublicationChecksum)
+                            return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSchemaErrorCodes.TransactionConflict,
+                                OperationStatus.Conflict, ErrorCategory.Conflict);
+                        resultingDirectory = await BuildResultingLogicalIndexDirectoryAsync(
+                            physicalCollection, physicalIndex, plan.Items,
+                            new BaseLogicalIndexDirectoryProspectiveWork
+                            {
+                                CapturedOldDirectoryBytes = directorySnapshot.CapturedDirectory
+                                    .Accounting.RetainedDirectoryBytes,
+                                StagedTransitionBytes = provisionalSchema.ProvisionalChecksum
+                                    .ToArray().LongLength,
+                                EvidenceBytes = 0,
+                            }, token).ConfigureAwait(false);
+                        await EnsureLogicalIndexStoreCapacityAsync(
+                            physicalCollection, physicalIndex, resultingDirectory, token).ConfigureAwait(false);
+                    }
+                    catch (InvalidOperationException exception)
+                    {
+                        bool capability = exception.Message == BaseSchemaErrorCodes.CapabilityUnavailable;
+                        bool uniqueConflict = exception.Message == BaseSchemaErrorCodes.UniqueConstraintViolated;
+                        if (!capability && !uniqueConflict)
+                            _owner.QuarantineLogicalIndexes();
+                        return SubjectFailure<BaseProvisionalAtomicExecution>(
+                            uniqueConflict ? BaseSchemaErrorCodes.UniqueConstraintViolated
+                                : capability ? BaseSchemaErrorCodes.CapabilityUnavailable
+                                : BaseSchemaErrorCodes.ProviderEvidenceInvalid,
+                            uniqueConflict ? OperationStatus.Conflict
+                                : capability ? OperationStatus.CapabilityUnavailable : OperationStatus.StoreError,
+                            uniqueConflict ? ErrorCategory.Conflict
+                                : capability ? ErrorCategory.Capability : ErrorCategory.Store);
+                    }
+                    ImmutableArray<byte> directoryPublication = BaseLogicalIndexDirectoryContract.NextDirectoryPublication(
+                        directorySnapshot.DirectoryPublication.AsSpan(), publication,
+                        resultingDirectory.MemberSetChecksum.AsSpan(), provisionalSchema.ProvisionalChecksum);
                     await using SqliteCommand updateIndex = _connection.CreateCommand(); updateIndex.Transaction = _transaction;
-                    updateIndex.CommandText = $"UPDATE {_owner._names.LogicalIndexes} SET generation=$resulting,publication_checksum=$publication WHERE collection_id=$collection AND index_checksum=$index AND generation=$captured AND publication_checksum=$captured_publication AND state=$ready;";
+                    updateIndex.CommandText = $"UPDATE {_owner._names.LogicalIndexes} SET generation=$resulting,publication_checksum=$publication,previous_directory_publication_checksum=directory_publication_checksum,directory_publication_checksum=$directory_publication,member_set_checksum=$member_set,posting_count=$posting_count,directory_bytes=$directory_bytes,comparison_count=$comparison_count,transient_bytes=$transient_bytes WHERE collection_id=$collection AND index_checksum=$index AND generation=$captured AND publication_checksum=$captured_publication AND directory_publication_checksum=$captured_directory_publication AND member_set_checksum=$captured_member_set AND posting_count=$captured_posting_count AND directory_bytes=$captured_directory_bytes AND state=$ready;";
                     updateIndex.Parameters.AddWithValue("$resulting", resulting); updateIndex.Parameters.Add("$publication", SqliteType.Blob).Value = publication.ToArray();
+                    updateIndex.Parameters.Add("$directory_publication", SqliteType.Blob).Value = directoryPublication.ToArray();
+                    updateIndex.Parameters.Add("$member_set", SqliteType.Blob).Value = resultingDirectory.MemberSetChecksum.ToArray();
+                    updateIndex.Parameters.AddWithValue("$posting_count", resultingDirectory.Accounting.Postings);
+                    updateIndex.Parameters.AddWithValue("$directory_bytes", resultingDirectory.Accounting.RetainedDirectoryBytes);
+                    updateIndex.Parameters.AddWithValue("$comparison_count", resultingDirectory.Accounting.Comparisons);
+                    updateIndex.Parameters.AddWithValue("$transient_bytes", resultingDirectory.Accounting.TransientBytes);
                     updateIndex.Parameters.AddWithValue("$collection", collectionId); updateIndex.Parameters.Add("$index", SqliteType.Blob).Value = group.Key.ToArray();
                     updateIndex.Parameters.AddWithValue("$captured", capturedIndex.Generation); updateIndex.Parameters.Add("$captured_publication", SqliteType.Blob).Value = capturedIndex.PublicationChecksum.ToArray();
+                    updateIndex.Parameters.Add("$captured_directory_publication", SqliteType.Blob).Value = directorySnapshot.DirectoryPublication.ToArray();
+                    updateIndex.Parameters.Add("$captured_member_set", SqliteType.Blob).Value = directorySnapshot.CapturedDirectory.MemberSetChecksum.ToArray();
+                    updateIndex.Parameters.AddWithValue("$captured_posting_count", directorySnapshot.CapturedDirectory.Accounting.Postings);
+                    updateIndex.Parameters.AddWithValue("$captured_directory_bytes", directorySnapshot.CapturedDirectory.Accounting.RetainedDirectoryBytes);
                     updateIndex.Parameters.AddWithValue("$ready", (int)BaseLogicalIndexGenerationState.Ready);
                     if (await updateIndex.ExecuteNonQueryAsync(token).ConfigureAwait(false) != 1)
                         return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSchemaErrorCodes.TransactionConflict, OperationStatus.Conflict, ErrorCategory.Conflict);
@@ -4311,6 +4436,157 @@ WHERE excluded.slot_generation>=slot_generation;
             return result;
         }
 
+        private async ValueTask<(long Generation, BaseSchemaAuthorityChecksum LogicalPublication,
+            ImmutableArray<byte> DirectoryPublication, BaseLogicalIndexDirectory Directory)>
+            ReadLogicalIndexDirectoryAsync(
+                SqlitePhysicalModel.CollectionModel collection,
+                SqlitePhysicalModel.IndexModel index,
+                CancellationToken cancellationToken)
+        {
+            long generation;
+            BaseSchemaAuthorityChecksum logicalPublication;
+            byte[] directoryPublication;
+            byte[] storedMemberSet;
+            long readerPostingCount;
+            long readerDirectoryBytes;
+            await using (SqliteCommand authority = _connection.CreateCommand())
+            {
+                authority.Transaction = _transaction;
+                authority.CommandTimeout = CommandTimeoutSeconds();
+                authority.CommandText = $"SELECT generation,state,publication_checksum,directory_publication_checksum,member_set_checksum,posting_count,directory_bytes FROM {_owner._names.LogicalIndexes} WHERE collection_id=$collection AND index_checksum=$index;";
+                authority.Parameters.AddWithValue("$collection", collection.Definition.Id);
+                authority.Parameters.Add("$index", SqliteType.Blob).Value = index.Definition.Checksum.ToArray();
+                await using SqliteDataReader reader = await authority.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
+                    || reader.GetInt64(0) <= 0
+                    || reader.GetInt64(1) != (long)BaseLogicalIndexGenerationState.Ready
+                    || reader.GetFieldValue<byte[]>(2).Length != 32
+                    || reader.GetFieldValue<byte[]>(3).Length != 32
+                    || reader.GetFieldValue<byte[]>(4).Length != 32
+                    || reader.GetInt64(5) < 0 || reader.GetInt64(6) < 0)
+                    throw new InvalidOperationException(BaseSchemaErrorCodes.ProviderEvidenceInvalid);
+                generation = reader.GetInt64(0);
+                logicalPublication = BaseSchemaAuthorityChecksum.Create(reader.GetFieldValue<byte[]>(2));
+                directoryPublication = reader.GetFieldValue<byte[]>(3);
+                storedMemberSet = reader.GetFieldValue<byte[]>(4);
+                readerPostingCount = reader.GetInt64(5);
+                readerDirectoryBytes = reader.GetInt64(6);
+            }
+
+            var records = new List<(RecordId Id, RecordPayload Payload)>();
+            await using (SqliteCommand contents = _connection.CreateCommand())
+            {
+                contents.Transaction = _transaction;
+                contents.CommandTimeout = CommandTimeoutSeconds();
+                contents.CommandText = $"SELECT {collection.SelectList} FROM {collection.Table};";
+                await using SqliteDataReader reader = await contents.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    RecordEnvelope envelope = collection.ReadEnvelope(reader, _owner._options.StoreId, out _);
+                    records.Add((RecordId.Create(envelope.Id.Value), RecordCloneHelpers.ClonePayload(envelope.Payload)));
+                }
+            }
+            if (!BaseLogicalIndexDirectoryContract.TryCreate(collection.Definition, index.Definition,
+                    records, BaseLogicalIndexDirectoryContract.Limits(_owner._logicalIndexCapability), out BaseLogicalIndexDirectory? directory)
+                || directory is null
+                || !CryptographicOperations.FixedTimeEquals(
+                    storedMemberSet, directory.MemberSetChecksum.AsSpan())
+                || directory.Accounting.Postings != readerPostingCount
+                || directory.Accounting.RetainedDirectoryBytes != readerDirectoryBytes)
+                throw new InvalidOperationException(BaseSchemaErrorCodes.ProviderEvidenceInvalid);
+            if (generation == 1 && !CryptographicOperations.FixedTimeEquals(
+                    directoryPublication,
+                    BaseLogicalIndexDirectoryContract.InitialDirectoryPublication(logicalPublication).AsSpan()))
+                throw new InvalidOperationException(BaseSchemaErrorCodes.ProviderEvidenceInvalid);
+            return (generation, logicalPublication, directoryPublication.ToImmutableArray(), directory);
+        }
+
+        private async ValueTask<BaseLogicalIndexDirectory> BuildResultingLogicalIndexDirectoryAsync(
+            SqlitePhysicalModel.CollectionModel collection,
+            SqlitePhysicalModel.IndexModel index,
+            ImmutableArray<BaseAtomicMutationPlanItem> items,
+            BaseLogicalIndexDirectoryProspectiveWork prospective,
+            CancellationToken cancellationToken)
+        {
+            var records = new Dictionary<string, (RecordId Id, RecordPayload Payload)>(StringComparer.Ordinal);
+            await using (SqliteCommand contents = _connection.CreateCommand())
+            {
+                contents.Transaction = _transaction;
+                contents.CommandTimeout = CommandTimeoutSeconds();
+                contents.CommandText = $"SELECT {collection.SelectList} FROM {collection.Table};";
+                await using SqliteDataReader reader = await contents.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    RecordEnvelope envelope = collection.ReadEnvelope(reader, _owner._options.StoreId, out _);
+                    records.Add(envelope.Id.Value,
+                        (RecordId.Create(envelope.Id.Value), RecordCloneHelpers.ClonePayload(envelope.Payload)));
+                }
+            }
+            foreach (BaseAtomicMutationPlanItem item in items.Where(value =>
+                         string.Equals(value.Collection.Id, collection.Definition.Id, StringComparison.Ordinal)))
+            {
+                if (item.Kind == BaseCommittedRecordMutationKind.Delete)
+                    records.Remove(item.RecordId.Value);
+                else if (item.ProposedPayload is { } payload)
+                    records[item.RecordId.Value] = (RecordId.Create(item.RecordId.Value),
+                        RecordCloneHelpers.ClonePayload(payload));
+                else
+                    throw new InvalidOperationException(BaseSchemaErrorCodes.ProviderEvidenceInvalid);
+            }
+            if (index.Definition.Unique)
+            {
+                var keys = new HashSet<string>(StringComparer.Ordinal);
+                foreach ((RecordId _, RecordPayload payload) in records.Values)
+                {
+                    if (!BaseLogicalIndexEvaluator.Includes(collection.Definition, index.Definition, payload))
+                        continue;
+                    string key = Convert.ToHexString(BaseLogicalIndexEvaluator.Key(
+                        collection.Definition, index.Definition, payload));
+                    if (!keys.Add(key))
+                        throw new InvalidOperationException(BaseSchemaErrorCodes.UniqueConstraintViolated);
+                }
+            }
+            if (!BaseLogicalIndexDirectoryContract.TryCreate(collection.Definition, index.Definition,
+                    records.Values, BaseLogicalIndexDirectoryContract.Limits(_owner._logicalIndexCapability),
+                    prospective, out BaseLogicalIndexDirectory? directory)
+                || directory is null)
+                throw new InvalidOperationException(BaseSchemaErrorCodes.CapabilityUnavailable);
+            return directory;
+        }
+
+        private async ValueTask EnsureLogicalIndexStoreCapacityAsync(
+            SqlitePhysicalModel.CollectionModel collection,
+            SqlitePhysicalModel.IndexModel index,
+            BaseLogicalIndexDirectory resultingDirectory,
+            CancellationToken cancellationToken)
+        {
+            await using SqliteCommand totals = _connection.CreateCommand();
+            totals.Transaction = _transaction;
+            totals.CommandTimeout = CommandTimeoutSeconds();
+            totals.CommandText = $"SELECT COALESCE(SUM(posting_count),0),COALESCE(SUM(directory_bytes),0) FROM {_owner._names.LogicalIndexes} WHERE NOT (collection_id=$collection AND index_checksum=$index);";
+            totals.Parameters.AddWithValue("$collection", collection.Definition.Id);
+            totals.Parameters.Add("$index", SqliteType.Blob).Value = index.Definition.Checksum.ToArray();
+            await using SqliteDataReader reader = await totals.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                throw new InvalidOperationException(BaseSchemaErrorCodes.ProviderEvidenceInvalid);
+            BaseLogicalIndexProviderCapability capability = _owner._logicalIndexCapability;
+            long postings;
+            long directoryBytes;
+            try
+            {
+                postings = checked(reader.GetInt64(0) + resultingDirectory.Accounting.Postings);
+                directoryBytes = checked(reader.GetInt64(1)
+                    + resultingDirectory.Accounting.RetainedDirectoryBytes);
+            }
+            catch (OverflowException)
+            {
+                throw new InvalidOperationException(BaseSchemaErrorCodes.CapabilityUnavailable);
+            }
+            if (postings > capability.MaximumPostingsPerStore
+                || directoryBytes > capability.MaximumDirectoryBytesPerStore)
+                throw new InvalidOperationException(BaseSchemaErrorCodes.CapabilityUnavailable);
+        }
+
         private static OperationResult<T> SubjectFailure<T>(string code, OperationStatus status = OperationStatus.StoreError, ErrorCategory category = ErrorCategory.Store) => new()
         { Status = status, Error = new BaseError { Code = code, Message = "The subject mutation provider operation failed.", Category = category } };
 
@@ -4374,7 +4650,44 @@ WHERE excluded.slot_generation>=slot_generation;
             }
 
             SqlitePhysicalModel.CollectionModel physical = _owner._physical.Collection(request.Collection.Id);
-            SqliteQueryPlan plan = new SqliteQueryPlanner(_owner._options, physical).Plan(request.Query);
+            SqlitePhysicalModel.IndexModel? pointIndex = null;
+            (long Generation, BaseSchemaAuthorityChecksum LogicalPublication,
+                ImmutableArray<byte> DirectoryPublication, BaseLogicalIndexDirectory Directory)? pointDirectory = null;
+            if (request.LogicalIndexPoint is { } point)
+            {
+                if (_owner.LogicalIndexStoreIsQuarantined)
+                    return SelectionFailure(OperationStatus.StoreError,
+                        BaseSchemaErrorCodes.ProviderEvidenceInvalid, ErrorCategory.Store);
+                pointIndex = physical.Indexes.SingleOrDefault(index =>
+                    index.Definition.StoreRequired
+                    && index.Definition.Id == point.IndexId
+                    && index.Definition.Version == point.IndexVersion
+                    && index.Definition.Checksum == point.IndexChecksum);
+                if (pointIndex is null)
+                {
+                    _owner.QuarantineLogicalIndexes();
+                    return SelectionFailure(OperationStatus.StoreError,
+                        BaseSchemaErrorCodes.ProviderEvidenceInvalid, ErrorCategory.Store);
+                }
+                try
+                {
+                    pointDirectory = await ReadLogicalIndexDirectoryAsync(
+                        physical, pointIndex, cancellationToken).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException)
+                {
+                    _owner.QuarantineLogicalIndexes();
+                    return SelectionFailure(OperationStatus.StoreError,
+                        BaseSchemaErrorCodes.ProviderEvidenceInvalid, ErrorCategory.Store);
+                }
+            }
+            string? nativePointIndex = pointIndex?.EqualityName ?? pointIndex?.Name;
+            SqliteQueryPlan plan = new SqliteQueryPlanner(_owner._options, physical).Plan(
+                request.Query, requiredNativeIndex: nativePointIndex,
+                requiredIndexPredicate: pointIndex?.PredicateSql,
+                requiredEqualityColumn: pointIndex?.EqualityColumn,
+                requiredEqualityKey: pointIndex?.EqualityColumn is null
+                    ? null : request.LogicalIndexPoint!.EqualityKey.ToArray());
             if (!plan.Supported)
                 return SelectionFailure(OperationStatus.Unsupported,
                     "base.provider.selection.queryUnsupported", ErrorCategory.Unsupported);
@@ -4411,15 +4724,62 @@ WHERE excluded.slot_generation>=slot_generation;
             ImmutableArray<BaseOwnedSelectedRecord> selectedRecords = records.ToImmutable();
             var interval = new BaseAtomicReadIntervalEvidence
             {
-                LogicalAccessPathId = $"collection:{request.Collection.Id}",
-                CanonicalLowerBound = ImmutableArray<byte>.Empty,
+                LogicalAccessPathId = request.LogicalIndexPoint is null
+                    ? $"collection:{request.Collection.Id}"
+                    : $"logical-index:{request.LogicalIndexPoint.IndexId}",
+                CanonicalLowerBound = request.LogicalIndexPoint?.EqualityKey.ToArray().ToImmutableArray()
+                    ?? ImmutableArray<byte>.Empty,
                 LowerInclusive = true,
-                CanonicalUpperBound = boundary.ToImmutableArray(),
+                CanonicalUpperBound = request.LogicalIndexPoint?.EqualityKey.ToArray().ToImmutableArray()
+                    ?? boundary.ToImmutableArray(),
                 UpperInclusive = true,
             };
+            BaseLogicalIndexSelectionEvidence? logicalIndexEvidence = null;
+            if (request.LogicalIndexPoint is { } selectedPoint && pointDirectory is { } snapshot)
+            {
+                BaseLogicalIndexDirectoryContract.TryFindPosting(
+                    snapshot.Directory, selectedPoint.EqualityKey.AsSpan(), out BaseLogicalIndexDirectoryPosting? posting);
+                BaseLogicalIndexSelectionEvidence draft = new()
+                {
+                    IndexId = BaseLogicalIndexId.Create(selectedPoint.IndexId.ToString()),
+                    IndexVersion = selectedPoint.IndexVersion,
+                    IndexChecksum = BaseLogicalIndexChecksum.Create(selectedPoint.IndexChecksum.ToArray()),
+                    AccessShape = BaseIndexAccessShape.LogicalIndexPoint,
+                    DirectoryGeneration = snapshot.Generation,
+                    DirectoryPublicationChecksum = snapshot.DirectoryPublication.ToArray().ToImmutableArray(),
+                    MemberSetChecksum = snapshot.Directory.MemberSetChecksum.ToArray().ToImmutableArray(),
+                    EqualityKeyChecksum = SHA256.HashData(selectedPoint.EqualityKey.AsSpan()).ToImmutableArray(),
+                    MatchedPredicateChecksum = selectedPoint.PredicateConjunctChecksum.ToArray().ToImmutableArray(),
+                    ReadInterval = interval,
+                    ExaminedPostings = posting?.RecordIds.Length ?? 0,
+                    Candidates = posting?.RecordIds.Length ?? 0,
+                    Comparisons = 0,
+                    EvidenceBytes = 0,
+                    Checksum = [],
+                };
+                draft = draft with { EvidenceBytes = BaseLogicalIndexSelectionEvidenceContract.Encode(draft).LongLength };
+                try { logicalIndexEvidence = BaseLogicalIndexSelectionEvidenceContract.Seal(draft); }
+                catch (InvalidOperationException)
+                {
+                    return SelectionFailure(OperationStatus.StoreError,
+                        BaseSchemaErrorCodes.ProviderEvidenceInvalid, ErrorCategory.Store);
+                }
+            }
+            long evidenceBytes = logicalIndexEvidence?.EvidenceBytes ?? boundary.LongLength;
             ImmutableArray<byte> transactionEvidence = BitConverter.GetBytes(_transactionStarted).ToImmutableArray();
-            string selectionCaptureDigest = Convert.ToHexStringLower(SHA256.HashData(
-                selectedRecords.SelectMany(static record => record.CopyCanonicalBytes()).Concat(boundary).ToArray()));
+            using var captureHash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            foreach (BaseOwnedSelectedRecord record in selectedRecords)
+                captureHash.AppendData(record.CopyCanonicalBytes());
+            captureHash.AppendData(boundary);
+            Span<byte> selectionAccounting = stackalloc byte[sizeof(int) + sizeof(long) + sizeof(int) + sizeof(long)];
+            BinaryPrimitives.WriteInt32BigEndian(selectionAccounting, selectedCount);
+            BinaryPrimitives.WriteInt64BigEndian(selectionAccounting[sizeof(int)..], bytes);
+            BinaryPrimitives.WriteInt32BigEndian(selectionAccounting[(sizeof(int) + sizeof(long))..], 1);
+            BinaryPrimitives.WriteInt64BigEndian(selectionAccounting[(sizeof(int) * 2 + sizeof(long))..], evidenceBytes);
+            captureHash.AppendData(selectionAccounting);
+            captureHash.AppendData(logicalIndexEvidence is null ? [0] : [1]);
+            if (logicalIndexEvidence is not null) captureHash.AppendData(logicalIndexEvidence.Checksum.AsSpan());
+            string selectionCaptureDigest = Convert.ToHexStringLower(captureHash.GetHashAndReset());
             _capturedMutation = new BaseCapturedAtomicExecution
             {
                 Kind = BaseAtomicMutationExecutionKind.SelectionMutation,
@@ -4444,10 +4804,12 @@ WHERE excluded.slot_generation>=slot_generation;
                 {
                     Records = selectedRecords,
                     CanonicalOrderBoundary = boundary.ToImmutableArray(),
+                    LogicalIndexEvidence = logicalIndexEvidence is null
+                        ? null : BaseLogicalIndexSelectionEvidenceContract.Clone(logicalIndexEvidence),
                     Accounting = new BaseAtomicSelectionAccounting
                     {
                         SelectedRecords = selectedCount, SelectedBytes = bytes,
-                        ReadIntervals = 1, EvidenceBytes = boundary.LongLength,
+                        ReadIntervals = 1, EvidenceBytes = evidenceBytes,
                     },
                 },
                 Items = selectedRecords.Select((record, index) => new BaseCapturedMutationItem
@@ -4469,7 +4831,7 @@ WHERE excluded.slot_generation>=slot_generation;
                     SelectedBytes = bytes,
                     RelationTargetBytes = 0, GenerationBytes = 0,
                     ReadIntervals = 1,
-                    EvidenceBytes = boundary.LongLength,
+                    EvidenceBytes = evidenceBytes,
                     TransientBytes = _selectionRetainedBytes,
                     RetirementBarrierReads = 0, RetirementAcknowledgementReads = 0,
                     RetirementProjections = 0, RetirementPublications = 0,
@@ -4585,7 +4947,9 @@ WHERE excluded.slot_generation>=slot_generation;
             RecordMutationSessionContext context,
             CancellationToken cancellationToken = default) =>
             ExecuteAsync(
-                BaseOperationKind.Delete,
+                context.RequestedOperation == BaseRecordMutationKind.Purge
+                    ? BaseOperationKind.Purge
+                    : BaseOperationKind.Delete,
                 cancellationToken,
                 token => DeleteCoreAsync(collection, id, request, context, token));
 
@@ -5229,7 +5593,10 @@ WHERE excluded.slot_generation>=slot_generation;
             RecordMutationSessionContext context,
             CancellationToken cancellationToken)
         {
-            if (MutationModeFailure(collection, BaseOperationKind.Delete) is { } modeError)
+            BaseOperationKind operation = context.RequestedOperation == BaseRecordMutationKind.Purge
+                ? BaseOperationKind.Purge
+                : BaseOperationKind.Delete;
+            if (MutationModeFailure(collection, operation) is { } modeError)
                 return modeError;
             if (SqliteValidation.ValidateCollectionId<RecordMutationSessionResult>(collection.Id) is { } collectionError)
                 return collectionError;

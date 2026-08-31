@@ -131,6 +131,8 @@ public sealed record BaseSemanticActivationOperationalStatus
 /// <summary>Executes provider-owned semantic maintenance and private inspection.</summary>
 public interface IBaseSemanticActivationAdministration : IBaseSemanticActivationCapabilityProvider
 {
+    /// <summary>Gets the exact deeply owned provider-incarnation authority.</summary>
+    ImmutableArray<byte> ProviderIncarnation { get; }
     /// <summary>Reads one exact provider-private definition maintenance authority.</summary>
     ValueTask<BaseResult<BaseSemanticActivationMaintenanceAuthority>> InspectMaintenanceAuthorityAsync(
         BaseSemanticActivationMaintenanceAuthorityRequest request, CancellationToken cancellationToken);
@@ -152,6 +154,8 @@ public sealed record BaseSemanticActivationMaintenanceAuthorityRequest
     public required string ApplicationId { get; init; }
     /// <summary>Gets the exact logical store.</summary>
     public required string LogicalStoreId { get; init; }
+    /// <summary>Gets the exact selected provider incarnation.</summary>
+    public required ImmutableArray<byte> ProviderIncarnation { get; init; }
     /// <summary>Gets the captured restore epoch.</summary>
     public required long RestoreEpoch { get; init; }
     /// <summary>Gets the installed definition.</summary>
@@ -198,8 +202,8 @@ public static class BaseSemanticActivationMaintenanceAuthorityContract
     public static ImmutableArray<byte> RequestChecksum(BaseSemanticActivationMaintenanceAuthorityRequest value)
     {
         using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
-        hash.AppendData("base.semanticActivation.maintenanceAuthorityRequest.v1\0"u8);
-        Add(value.ApplicationId); Add(value.LogicalStoreId); Add(value.Definition.Id); I32(value.Definition.Version);
+        hash.AppendData("base.semanticActivation.maintenanceAuthorityRequest.v2\0"u8);
+        Add(value.ApplicationId); Add(value.LogicalStoreId); Bytes(value.ProviderIncarnation.AsSpan()); Add(value.Definition.Id); I32(value.Definition.Version);
         Bytes(value.Definition.Checksum.AsSpan()); I64(value.RestoreEpoch); I64(value.SemanticAuthorityGeneration);
         I64(value.MaximumRows); I64(value.MaximumBytes); return hash.GetHashAndReset().ToImmutableArray();
         void Add(string text) => Bytes(System.Text.Encoding.UTF8.GetBytes(text));
@@ -213,7 +217,7 @@ public static class BaseSemanticActivationMaintenanceAuthorityContract
         BaseSemanticActivationMaintenanceAuthority value)
     {
         using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
-        hash.AppendData("base.semanticActivation.maintenanceAuthority.v1\0"u8);
+        hash.AppendData("base.semanticActivation.maintenanceAuthority.v2\0"u8);
         hash.AppendData(request.RuntimeRequestChecksum.AsSpan()); I64(value.SemanticAuthorityGeneration);
         I64(value.LiveCount); I64(value.RetiredCount); I64(value.AbsenceCount);
         Bytes(value.RetiredAuthorityChecksum.AsSpan()); Bytes(value.DefinitionStateChecksum.AsSpan());
@@ -233,6 +237,8 @@ public abstract record BaseSemanticActivationMaintenanceRequest
 {
     /// <summary>Gets the durable operation identity.</summary>
     public required BaseMutationRequestIdentity Identity { get; init; }
+    /// <summary>Gets the exact selected provider incarnation.</summary>
+    public required ImmutableArray<byte> ProviderIncarnation { get; init; }
     /// <summary>Gets the exact target definition.</summary>
     public required BaseSemanticActivationDefinitionKey Definition { get; init; }
     /// <summary>Gets the expected semantic authority generation.</summary>
@@ -354,6 +360,14 @@ public sealed record BaseSemanticActivationMaintenanceCheckpoint
 {
     /// <summary>Gets the provider maintenance identifier.</summary>
     public required string MaintenanceId { get; init; }
+    /// <summary>Gets the exact selected provider incarnation.</summary>
+    public required ImmutableArray<byte> ProviderIncarnation { get; init; }
+    /// <summary>Gets the captured process-local store generation.</summary>
+    public required long CapturedStoreGeneration { get; init; }
+    /// <summary>Gets the captured target-definition generation.</summary>
+    public required long CapturedDefinitionGeneration { get; init; }
+    /// <summary>Gets the exact definition-maintenance fence token.</summary>
+    public required ImmutableArray<byte> FenceToken { get; init; }
     /// <summary>Gets the closed operation kind.</summary>
     public required string OperationKind { get; init; }
     /// <summary>Gets the exact target definition.</summary>
@@ -394,6 +408,8 @@ public enum BaseSemanticActivationMaintenanceDisposition
 /// <summary>Reports one semantic maintenance result.</summary>
 public sealed record BaseSemanticActivationMaintenanceResult
 {
+    /// <summary>Gets the exact selected provider incarnation.</summary>
+    public required ImmutableArray<byte> ProviderIncarnation { get; init; }
     /// <summary>Gets the maintenance disposition.</summary>
     public required BaseSemanticActivationMaintenanceDisposition Disposition { get; init; }
     /// <summary>Gets the previous authority generation.</summary>
@@ -413,7 +429,7 @@ public sealed record BaseSemanticActivationMaintenanceResult
     /// <summary>Gets resumable progress when more work remains.</summary>
     public BaseSemanticActivationMaintenanceCheckpoint? Checkpoint { get; init; }
     /// <summary>Gets the durable receipt disposition.</summary>
-    public required BaseMutationRequestDisposition ReceiptDisposition { get; init; }
+    public required BaseMutationRequestDisposition? ReceiptDisposition { get; init; }
     /// <summary>Gets the commit-observation checksum.</summary>
     public required ImmutableArray<byte> CommitObservationChecksum { get; init; }
 }
@@ -423,6 +439,8 @@ public sealed record BaseSemanticActivationMaintenanceResolutionRequest
 {
     /// <summary>Gets the exact installed definition whose maintenance receipt is resolved.</summary>
     public required BaseSemanticActivationDefinitionKey Definition { get; init; }
+    /// <summary>Gets the exact selected provider incarnation.</summary>
+    public required ImmutableArray<byte> ProviderIncarnation { get; init; }
     /// <summary>Gets the original operation identity.</summary>
     public required BaseMutationRequestIdentity Identity { get; init; }
     /// <summary>Gets the provider maintenance identifier.</summary>
@@ -440,7 +458,8 @@ public static class BaseSemanticActivationMaintenanceContract
     public static ImmutableArray<byte> RequestFingerprint(BaseSemanticActivationMaintenanceRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        using var writer = new CanonicalWriter("base.semanticActivation.maintenanceRequest.v1\0");
+        using var writer = new CanonicalWriter("base.semanticActivation.maintenanceRequest.v2\0");
+        writer.Bytes(request.ProviderIncarnation.AsSpan());
         writer.Text(request.Identity.Scope); writer.Text(request.Identity.Operation); writer.Text(request.Identity.IdempotencyKey);
         writer.Bytes(request.Identity.Fingerprint.ToArray());
         writer.I32(request switch { BaseSemanticActivationCompactRequest => 1, BaseSemanticActivationMigrateRequest => 2, BaseSemanticActivationRemoveRequest => 3, _ => 0 });
@@ -464,9 +483,11 @@ public static class BaseSemanticActivationMaintenanceContract
     }
 
     /// <summary>Computes the exact completed-result checksum.</summary>
-    public static ImmutableArray<byte> ResultChecksum(BaseSemanticActivationMaintenanceResult result, ReadOnlySpan<byte> authority)
+    public static ImmutableArray<byte> ResultChecksum(BaseSemanticActivationMaintenanceResult result,
+        ReadOnlySpan<byte> authority)
     {
-        using var writer = new CanonicalWriter("base.semanticActivation.maintenanceResult.v1\0");
+        using var writer = new CanonicalWriter("base.semanticActivation.maintenanceResult.v2\0");
+        writer.Bytes(result.ProviderIncarnation.AsSpan());
         writer.I64(result.PreviousAuthorityGeneration); writer.I64(result.ResultingAuthorityGeneration);
         writer.I64(result.ExaminedRows); writer.I64(result.ChangedRows); writer.I64(result.CanonicalBytes); writer.Bytes(authority);
         return writer.Finish();
@@ -479,7 +500,9 @@ public static class BaseSemanticActivationMaintenanceContract
     /// <summary>Computes the exact resumable-checkpoint checksum.</summary>
     public static ImmutableArray<byte> CheckpointChecksum(BaseSemanticActivationMaintenanceCheckpoint value)
     {
-        using var writer = new CanonicalWriter("base.semanticActivation.maintenanceCheckpoint.v1\0");
+        using var writer = new CanonicalWriter("base.semanticActivation.maintenanceCheckpoint.v2\0");
+        writer.Bytes(value.ProviderIncarnation.AsSpan()); writer.I64(value.CapturedStoreGeneration);
+        writer.I64(value.CapturedDefinitionGeneration); writer.Bytes(value.FenceToken.AsSpan());
         writer.Text(value.MaintenanceId); writer.Text(value.OperationKind); writer.Definition(value.Definition);
         writer.I64(value.ExpectedAuthorityGeneration); writer.Bytes(value.After is null ? [] : value.After.ScopeBindingId.AsSpan());
         writer.Bytes(value.After is null ? [] : value.After.Key.ToArray()); writer.I32(value.CompletedPages);
@@ -500,12 +523,18 @@ public static class BaseSemanticActivationMaintenanceContract
         {
             BaseSemanticActivationMaintenanceCheckpoint? checkpoint = result.Checkpoint;
             return checkpoint is not null && checkpoint.ExpectedAuthorityGeneration == request.ExpectedSemanticAuthorityGeneration
+                && checkpoint.ProviderIncarnation.Length == 32
+                && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(checkpoint.ProviderIncarnation.AsSpan(), request.ProviderIncarnation.AsSpan())
+                && checkpoint.CapturedStoreGeneration > 0 && checkpoint.CapturedDefinitionGeneration > 0
+                && checkpoint.FenceToken.Length == 32
                 && checkpoint.CompletedPages is > 0 && checkpoint.CompletedPages <= request.Limits.MaximumPages
                 && checkpoint.CompletedRows == result.ExaminedRows && checkpoint.CompletedBytes == result.CanonicalBytes
                 && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(checkpoint.RequestFingerprint.AsSpan(), RequestFingerprint(request).AsSpan())
                 && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(checkpoint.Checksum.AsSpan(), CheckpointChecksum(checkpoint).AsSpan());
         }
         return result.Checkpoint is null && result.AuthorityChecksum.Length == 32 && result.ResultChecksum.Length == 32 && result.CommitObservationChecksum.Length == 32
+            && result.ProviderIncarnation.Length == 32
+            && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(result.ProviderIncarnation.AsSpan(), request.ProviderIncarnation.AsSpan())
             && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(result.ResultChecksum.AsSpan(), ResultChecksum(result, result.AuthorityChecksum.AsSpan()).AsSpan())
             && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(result.CommitObservationChecksum.AsSpan(), CommitObservationChecksum(result.ResultChecksum.AsSpan()).AsSpan());
     }
@@ -543,6 +572,8 @@ public sealed record BaseSemanticActivationProviderInspectionBoundary
 {
     /// <summary>Gets the stable definition identifier.</summary>
     public required string DefinitionId { get; init; }
+    /// <summary>Gets the exact selected provider incarnation.</summary>
+    public required ImmutableArray<byte> ProviderIncarnation { get; init; }
     /// <summary>Gets the stable scope-binding identifier.</summary>
     public required ImmutableArray<byte> ScopeBindingId { get; init; }
     /// <summary>Gets the semantic key digest.</summary>
@@ -560,6 +591,8 @@ public sealed record BaseSemanticActivationProviderInspectionRequest
     public required string ApplicationId { get; init; }
     /// <summary>Gets the exact logical store authority.</summary>
     public required string LogicalStoreId { get; init; }
+    /// <summary>Gets the exact selected provider incarnation.</summary>
+    public required ImmutableArray<byte> ProviderIncarnation { get; init; }
     /// <summary>Gets the captured restore epoch.</summary>
     public required long RestoreEpoch { get; init; }
     /// <summary>Gets the exact definition.</summary>
@@ -681,8 +714,8 @@ public static class BaseSemanticActivationInspectionContract
     public static ImmutableArray<byte> RequestChecksum(BaseSemanticActivationProviderInspectionRequest value)
     {
         ArgumentNullException.ThrowIfNull(value);
-        using var writer = new CanonicalWriter("base.semanticActivation.inspectionRequest.v1\0");
-        writer.Text(value.ApplicationId); writer.Text(value.LogicalStoreId); writer.I64(value.RestoreEpoch);
+        using var writer = new CanonicalWriter("base.semanticActivation.inspectionRequest.v2\0");
+        writer.Text(value.ApplicationId); writer.Text(value.LogicalStoreId); writer.Bytes(value.ProviderIncarnation.AsSpan()); writer.I64(value.RestoreEpoch);
         writer.Definition(value.Definition); writer.OptionalEnum(value.State); writer.I32(value.Take); writer.Limits(value.Limits);
         return writer.Finish();
     }
@@ -692,7 +725,8 @@ public static class BaseSemanticActivationInspectionContract
         ReadOnlySpan<byte> bindingId, BaseSemanticActivationKeyDigest key, long generation)
     {
         Span<byte> keyBytes = stackalloc byte[BaseSemanticActivationKeyDigest.Length]; key.CopyTo(keyBytes);
-        using var writer = new CanonicalWriter("base.semanticActivation.inspectionBoundary.v1\0");
+        using var writer = new CanonicalWriter("base.semanticActivation.inspectionBoundary.v2\0");
+        writer.Bytes(request.ProviderIncarnation.AsSpan());
         writer.Bytes(request.RuntimeRequestAuthorityChecksum.AsSpan()); writer.Text(request.Definition.Id);
         writer.Bytes(bindingId); writer.Bytes(keyBytes); writer.I64(generation); return writer.Finish();
     }
@@ -702,7 +736,7 @@ public static class BaseSemanticActivationInspectionContract
         BaseSemanticActivationProviderInspectionPage page)
     {
         using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
-        hash.AppendData("base.semanticActivation.inspectionPage.v1\0"u8); hash.AppendData(request.RuntimeRequestAuthorityChecksum.AsSpan());
+        hash.AppendData("base.semanticActivation.inspectionPage.v2\0"u8); hash.AppendData(request.ProviderIncarnation.AsSpan()); hash.AppendData(request.RuntimeRequestAuthorityChecksum.AsSpan());
         Span<byte> number = stackalloc byte[8];
         foreach (BaseSemanticActivationProviderInspectionItem item in page.Items)
         {

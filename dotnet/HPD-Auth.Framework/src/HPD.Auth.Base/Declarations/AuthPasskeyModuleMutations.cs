@@ -388,12 +388,16 @@ internal static partial class AuthPasskeyRecordAssertionOperationV1
     private static BaseModuleFieldEqualsGuard UserTenant() => Tenant("userTenant", UserCapture, AuthUserRecordV1.Fields.TenantId.ModuleMutation);
 
     private static BaseModulePatchStatement Patch() => BaseModuleMutationTemplateBuilder.Patch(PatchStatement, PasskeyId("patch"),
-        BaseModuleMutationTemplateBuilder.Object<AuthPasskeyRecordV1>("hpd.auth.passkey.assert.expression.patch.000",
+            BaseModuleMutationTemplateBuilder.Object<AuthPasskeyRecordV1>("hpd.auth.passkey.assert.expression.patch.000",
+            Field(AuthPasskeyRecordV1.Fields.BackedUp, RequestProperties.BackedUp, "backedUp"),
             BaseModuleMutationTemplateBuilder.Field(AuthPasskeyRecordV1.Fields.LastUsedAt,
                 BaseModuleMutationTemplateBuilder.LiftOptional("hpd.auth.passkey.assert.expression.lastUsedAt.000",
                     AuthPasskeyRecordV1.Fields.LastUsedAt.ModuleMutation,
                     BaseModuleMutationTemplateBuilder.Request("hpd.auth.passkey.assert.expression.lastUsedAtSource.000", RequestProperties.OperationTime))),
             Field(AuthPasskeyRecordV1.Fields.SignatureCounter, RequestProperties.PresentedCounter, "signatureCounter"),
+            BaseModuleMutationTemplateBuilder.Field(
+                AuthPasskeyRecordV1.Fields.UserId,
+                UserId("patchRelation")),
             Field(AuthPasskeyRecordV1.Fields.UserVerified, RequestProperties.UserVerified, "userVerified")),
         BaseModuleMutationTemplateBuilder.Request("hpd.auth.passkey.assert.expression.patchRevision.000", RequestProperties.ExpectedPasskeyRevision));
 

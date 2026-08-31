@@ -49,7 +49,8 @@ public static class HPDBaseSqliteServiceCollectionExtensions
                     ? provider.GetRequiredService<BaseOpaqueTokenProtector>()
                     : null,
                 mutationProjectionContributors: provider.GetServices<ISqliteAtomicMutationProjection>(),
-                semanticCertificationOwner: provider.GetService<BaseInstalledSemanticActivationProviderOwner>());
+                semanticCertificationOwner: provider.GetService<BaseInstalledSemanticActivationProviderOwner>(),
+                logicalIndexCapability: options.LogicalIndexCertificationCapability);
         });
         services.TryAddSingleton<IRecordStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
         services.TryAddSingleton<IRecordMutationStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
@@ -123,5 +124,7 @@ public static class HPDBaseSqliteServiceCollectionExtensions
         SubjectRetirementConsumers = value.SubjectRetirementConsumers.Select(static item => BaseSubjectRetirementRegistry.Normalize(item)).ToArray(),
         SubjectRetirementPolicies = value.SubjectRetirementPolicies.Select(static item => BaseSubjectRetirementRegistry.NormalizePolicy(item)).ToArray(),
         SubjectLifecycleInspectionAuthorities = value.SubjectLifecycleInspectionAuthorities.Select(static item => item with { }).ToArray(),
+        LogicalIndexCertificationCapability = value.LogicalIndexCertificationCapability is null
+            ? null : BaseLogicalIndexProviderContract.CloneCapability(value.LogicalIndexCertificationCapability),
     };
 }

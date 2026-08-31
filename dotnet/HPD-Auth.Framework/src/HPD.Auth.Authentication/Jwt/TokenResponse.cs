@@ -7,7 +7,7 @@
 //   using HPD.Auth.Core.Models;
 //
 // The types are:
-//   - HPD.Auth.Core.Models.TokenResponse    — -compatible token response
+//   - HPD.Auth.Core.Models.TokenResponse    — OAuth 2.0-compatible token response
 //   - HPD.Auth.Core.Models.UserTokenDto     — Embedded user in the token response
 //
 // Global namespace aliases are provided below so that code within this assembly

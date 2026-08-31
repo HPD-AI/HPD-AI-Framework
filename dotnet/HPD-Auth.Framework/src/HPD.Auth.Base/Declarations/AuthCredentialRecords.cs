@@ -7,7 +7,6 @@ namespace HPD.Auth.Base;
 internal enum AuthRefreshDigestAlgorithmV1
 {
     [JsonStringEnumMemberName("hmac-sha256-v1")] HmacSha256V1,
-    [JsonStringEnumMemberName("legacy-sha256-v1")] LegacySha256V1,
 }
 
 internal enum AuthRefreshDeliveryStateV1 { available, deleted, expired }
@@ -71,12 +70,12 @@ internal sealed partial record AuthRefreshTokenRecordV1
     [BaseField("auth.refreshTokens.id", MinimumUtf8Bytes = 64, MaximumUtf8Bytes = 64, Operators = BaseFieldOperator.Equal | BaseFieldOperator.Order), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required string Id { get; init; }
     [BaseField("auth.refreshTokens.tenantId", Operators = BaseFieldOperator.Equal | BaseFieldOperator.Order), BaseFieldConfidentiality(BaseFieldConfidentiality.Confidential)] public required Guid TenantId { get; init; }
     [BaseField("auth.refreshTokens.userId", Operators = BaseFieldOperator.Equal | BaseFieldOperator.Order), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal), BaseRelation("auth.rel.refreshToken.user", typeof(AuthUserRecordV1), LocalMultiplicity = BaseRelationMultiplicity.ExactlyOne)] public required BaseRecordId<AuthUserRecordV1> UserId { get; init; }
-    [BaseField("auth.refreshTokens.digestAlgorithm", AllowedEnumLiterals = ["hmac-sha256-v1", "legacy-sha256-v1"]), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal), JsonConverter(typeof(BaseClosedEnumJsonConverter<AuthRefreshDigestAlgorithmV1>))] public required AuthRefreshDigestAlgorithmV1 DigestAlgorithm { get; init; }
+    [BaseField("auth.refreshTokens.digestAlgorithm", AllowedEnumLiterals = ["hmac-sha256-v1"]), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal), JsonConverter(typeof(BaseClosedEnumJsonConverter<AuthRefreshDigestAlgorithmV1>))] public required AuthRefreshDigestAlgorithmV1 DigestAlgorithm { get; init; }
     [BaseField("auth.refreshTokens.tokenDigest", MaximumBytes = 32), BaseFieldConfidentiality(BaseFieldConfidentiality.Confidential)] public required BaseBinary TokenDigest { get; init; }
-    [BaseField("auth.refreshTokens.digestKeyVersion", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable, MinimumInt32 = 1, HasMinimumInt32 = true), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public int? DigestKeyVersion { get; init; }
+    [BaseField("auth.refreshTokens.digestKeyVersion", MinimumInt32 = 1, HasMinimumInt32 = true), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required int DigestKeyVersion { get; init; }
     [BaseField("auth.refreshTokens.jwtId", MinimumUtf8Bytes = 1, MaximumUtf8Bytes = 256, StringNormalization = BaseStringNormalizationRequirement.RequireNfc), BaseFieldConfidentiality(BaseFieldConfidentiality.Confidential)] public required string JwtId { get; init; }
     [BaseField("auth.refreshTokens.securityStampDigest", MaximumBytes = 32), BaseFieldConfidentiality(BaseFieldConfidentiality.Confidential)] public required BaseBinary SecurityStampDigest { get; init; }
-    [BaseField("auth.refreshTokens.securityGeneration", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public BaseModuleGeneration? SecurityGeneration { get; init; }
+    [BaseField("auth.refreshTokens.securityGeneration"), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required BaseModuleGeneration SecurityGeneration { get; init; }
     [BaseField("auth.refreshTokens.expiresAt", Operators = BaseFieldOperator.Equal | BaseFieldOperator.Order), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset ExpiresAt { get; init; }
     [BaseField("auth.refreshTokens.createdAt"), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset CreatedAt { get; init; }
     [BaseField("auth.refreshTokens.used"), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required bool Used { get; init; }
@@ -144,5 +143,5 @@ internal sealed partial record AuthSessionRecordV1
     [BaseField("auth.sessions.revoked", Operators = BaseFieldOperator.Equal | BaseFieldOperator.Order), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required bool Revoked { get; init; }
     [BaseField("auth.sessions.revokedAt", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public DateTimeOffset? RevokedAt { get; init; }
     [BaseField("auth.sessions.retentionEligibleAt", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public DateTimeOffset? RetentionEligibleAt { get; init; }
-    [BaseField("auth.sessions.securityGeneration", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public BaseModuleGeneration? SecurityGeneration { get; init; }
+    [BaseField("auth.sessions.securityGeneration"), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required BaseModuleGeneration SecurityGeneration { get; init; }
 }

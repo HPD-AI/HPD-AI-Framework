@@ -67,7 +67,7 @@ public sealed class BaseSemanticActivationControlTokenCodecTests
             new DateTimeOffset(2031, 2, 3, 4, 10, 6, TimeSpan.Zero));
 
         Convert.ToHexString(BaseSemanticActivationControlTokenCodec.CanonicalPayloadChecksum(payload).AsSpan())
-            .Should().Be("52444156261BED100BA2182C1D903C265D55F03F35C3863AD39D72AA0563F980");
+            .Should().Be("7A3F3F9AA93C784C804761B0AD721A581DD66DCECCE88B8640F1E84CC198DADC");
 
         foreach (BaseSemanticActivationControlTokenKind kind in Enum.GetValues<BaseSemanticActivationControlTokenKind>())
             BaseSemanticActivationControlTokenCodec.CanonicalPayloadChecksum(payload with { Kind = kind })
@@ -86,7 +86,7 @@ public sealed class BaseSemanticActivationControlTokenCodecTests
 
     private static BaseSemanticActivationControlTokenPayload Payload(DateTimeOffset expiry) => new(
         BaseSemanticActivationControlTokenKind.Compact,
-        "application", "store", 7,
+        "application", "store", SHA256.HashData("incarnation"u8).ToImmutableArray(), 7,
         new BaseSemanticActivationDefinitionKey
         {
             Id = "semantic.definition", Version = 3,

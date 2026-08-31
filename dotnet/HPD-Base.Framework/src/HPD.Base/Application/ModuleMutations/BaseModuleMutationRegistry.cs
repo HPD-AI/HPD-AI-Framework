@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text;
 
 namespace HPD.Base;
 
@@ -268,6 +269,12 @@ public sealed class BaseGeneratedModuleMutationIdentity<TRequest, TResult> : IBa
     CollectionDefinition? IBaseSerializerMetadataSource.CollectionDefinition => null;
     void IBaseSerializerMetadataSource.Bind(BaseSerializerMetadataOwner owner)
     {
+        if (Registration is null)
+        {
+            if (_request is null || _result is null)
+                throw new InvalidOperationException("base.schema.serializer.ownerRequired");
+            return;
+        }
         _request = owner.Resolve(this, typeof(TRequest)) as System.Text.Json.Serialization.Metadata.JsonTypeInfo<TRequest>
             ?? throw new InvalidOperationException("base.schema.serializer.ownerRequired");
         _result = owner.Resolve(this, typeof(TResult)) as System.Text.Json.Serialization.Metadata.JsonTypeInfo<TResult>
@@ -604,6 +611,83 @@ public static class BaseGeneratedModuleMutations
 
 internal static class BaseModuleMutationContractValidator
 {
+    internal static void ValidateLifecycleProjectionCapacity(
+        IEnumerable<BaseRegisteredModuleMutationDefinition> operations,
+        IReadOnlyCollection<BaseModuleGenerationCellDefinition> cells,
+        IReadOnlyCollection<BaseInstalledSubjectLifecycleConsumer> consumers)
+    {
+        IReadOnlyDictionary<string, BaseModuleGenerationCellDefinition> cellsById =
+            cells.ToDictionary(static cell => cell.Id, StringComparer.Ordinal);
+        BaseInstalledSubjectLifecycleConsumer[] ordered = [.. consumers
+            .OrderBy(static value => value.Definition.Id, StringComparer.Ordinal)
+            .ThenBy(static value => value.Definition.Version)];
+        ImmutableArray<BaseAtomicReadIntervalEvidence> lifecycleIntervals = [.. ordered.Select(static value =>
+        {
+            ImmutableArray<byte> key = Encoding.UTF8.GetBytes(
+                $"{value.Definition.Id}\0{value.Definition.Version}").ToImmutableArray();
+            return new BaseAtomicReadIntervalEvidence
+            {
+                LogicalAccessPathId = "subject-lifecycle:consumer-projection",
+                CanonicalLowerBound = key,
+                LowerInclusive = true,
+                CanonicalUpperBound = key,
+                UpperInclusive = true,
+            };
+        })];
+        ImmutableArray<BaseCapturedSubjectLifecycleConsumerProjection> projections = [.. ordered.Select(static value =>
+            new BaseCapturedSubjectLifecycleConsumerProjection
+            {
+                ConsumerId = value.Definition.Id,
+                ConsumerVersion = value.Definition.Version,
+                ConsumerChecksum = value.Checksum,
+                ContractId = value.Definition.ContractId,
+                ContractVersion = value.Definition.ContractVersion,
+                ProjectionGeneration = 1,
+                PublishedGraphGeneration = 1,
+            })];
+        foreach (BaseRegisteredModuleMutationDefinition operation in operations)
+        {
+            ImmutableArray<BaseAtomicReadIntervalEvidence> mandatoryCaptureIntervals = [.. operation.Template.Captures
+                .Where(static capture => capture.EnableGuardId is null)
+                .Select(capture =>
+                {
+                    string path = capture switch
+                    {
+                        BaseModuleRecordCapture record => $"collection:{record.CollectionId}:record",
+                        BaseModuleGenerationCapture => "module-generation",
+                        _ => throw new InvalidOperationException(BaseModuleMutationErrorCodes.Invalid),
+                    };
+                    ImmutableArray<byte> minimumKey = capture switch
+                    {
+                        BaseModuleRecordCapture => [(byte)'a'],
+                        BaseModuleGenerationCapture generation when cellsById.TryGetValue(
+                            generation.CellId, out BaseModuleGenerationCellDefinition? cell) =>
+                            BaseModuleGenerationStorageKey.Minimum(
+                                cell, generation.Key?.ResultType?.Constraints?.MinimumUtf8Bytes ?? 0)
+                                .ToImmutableArray(),
+                        _ => throw new InvalidOperationException(BaseModuleMutationErrorCodes.Invalid),
+                    };
+                    return new BaseAtomicReadIntervalEvidence
+                    {
+                        LogicalAccessPathId = path,
+                        CanonicalLowerBound = minimumKey,
+                        LowerInclusive = true,
+                        CanonicalUpperBound = minimumKey,
+                        UpperInclusive = true,
+                    };
+                })];
+            ImmutableArray<BaseAtomicReadIntervalEvidence> minimumIntervals =
+                [.. mandatoryCaptureIntervals, .. lifecycleIntervals];
+            long minimumEvidenceBytes = BaseSubjectCanonicalRetainedWork.MeasureIntervals(minimumIntervals);
+            long minimumTransientBytes = checked(minimumEvidenceBytes
+                + BaseSubjectCanonicalRetainedWork.MeasureLifecycleConsumerProjections(projections));
+            if (operation.Limits.MaximumReadIntervals < minimumIntervals.Length
+                || operation.Limits.MaximumEvidenceBytes < minimumEvidenceBytes
+                || operation.Limits.MaximumTransientBytes < minimumTransientBytes)
+                throw new InvalidOperationException(BaseModuleMutationErrorCodes.CapabilityMissing);
+        }
+    }
+
     private const int MaximumExecutionPaths = 8_192;
 
     internal static void ValidateCell(BaseModuleGenerationCellDefinition value)
@@ -844,6 +928,9 @@ internal static class BaseModuleMutationContractValidator
                 || payload.Properties.Any(property => collection.Fields.Single(field => field.Id == property.StablePropertyId)
                     .Relation is { OwningSide: BaseRelationOwningSide.Source }
                     && !IsRequestOnlyExpression(property.Value, guardMap))
+                || !complete && collection.Fields.Any(field =>
+                    field.Relation is { OwningSide: BaseRelationOwningSide.Source }
+                    && !supplied.Contains(field.Id))
                 || complete && collection.Fields.Any(field => field.Presence == BaseFieldPresence.Required && !field.ReadOnly
                     && !runtimeOwned.Contains(field.Id) && !supplied.Contains(field.Id)))
                 throw new InvalidOperationException("base.moduleMutation.invalid");

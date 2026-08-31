@@ -195,7 +195,55 @@ internal sealed class DefaultBaseSubjectRetirementRuntime(
 
     private async ValueTask<bool> AuthorizedAsync(BaseSession session, BaseGeneratedSubjectRegistration contract, string grantId, OperationContext operation, bool write, CancellationToken token)
     {
-        if (session.Principal.SubjectKind is not (AccessSubjectKind.Admin or AccessSubjectKind.System)) return false; var resource = new CollectionDefinition { Id = grantId, Name = grantId, Kind = BaseCollectionKinds.Custom, SchemaMode = SchemaMode.Strict, UnknownFields = UnknownFieldPolicy.Reject, System = true, SystemOwnerModuleId = contract.Definition.OwningModuleId }; OperationResult<BasePolicyEvaluation> result = write ? await policy.EvaluateWriteAsync(new() { Principal = session.Principal, Operation = operation, Collection = resource, ResourceKind = PolicyResourceKind.SubjectLifecycle }, token).ConfigureAwait(false) : await policy.EvaluateReadAsync(new() { Principal = session.Principal, Operation = operation, Collection = resource, ResourceKind = PolicyResourceKind.SubjectLifecycle }, token).ConfigureAwait(false); return BaseSystemCollectionGate.HasExactSubjectLifecycleGrant(result, grantId, contract.Definition.OwningModuleId, grantId, contract.Definition.Id, contract.Definition.Version, session.Principal, operation);
+        if (session.Principal.SubjectKind is not (AccessSubjectKind.Admin or AccessSubjectKind.System))
+            return false;
+
+        // Grant sources need the exact exported contract to issue contract-scoped
+        // retirement authority. The synthetic policy resource remains the operation
+        // grant; it must not replace the contract identity in the operation context.
+        BasePolicyRequest request = RetirementAuthorizationRequest(
+            session.Principal, contract, grantId, operation);
+        OperationContext contractOperation = request.Operation;
+        OperationResult<BasePolicyEvaluation> result = write
+            ? await policy.EvaluateWriteAsync(request, token).ConfigureAwait(false)
+            : await policy.EvaluateReadAsync(request, token).ConfigureAwait(false);
+        return BaseSystemCollectionGate.HasExactSubjectLifecycleGrant(
+            result,
+            grantId,
+            contract.Definition.OwningModuleId,
+            grantId,
+            contract.Definition.Id,
+            contract.Definition.Version,
+            session.Principal,
+            contractOperation);
+    }
+
+    internal static BasePolicyRequest RetirementAuthorizationRequest(
+        PrincipalContext principal,
+        BaseGeneratedSubjectRegistration contract,
+        string grantId,
+        OperationContext operation)
+    {
+        ArgumentNullException.ThrowIfNull(principal);
+        ArgumentNullException.ThrowIfNull(contract);
+        ArgumentException.ThrowIfNullOrWhiteSpace(grantId);
+        ArgumentNullException.ThrowIfNull(operation);
+        return new BasePolicyRequest
+        {
+            Principal = principal,
+            Operation = operation with { CollectionId = contract.Definition.Id },
+            Collection = new CollectionDefinition
+            {
+                Id = grantId,
+                Name = grantId,
+                Kind = BaseCollectionKinds.Custom,
+                SchemaMode = SchemaMode.Strict,
+                UnknownFields = UnknownFieldPolicy.Reject,
+                System = true,
+                SystemOwnerModuleId = contract.Definition.OwningModuleId,
+            },
+            ResourceKind = PolicyResourceKind.SubjectLifecycle,
+        };
     }
     private async ValueTask<bool> AuthorizedSourceAsync(BaseSession session, BaseGeneratedSubjectRegistration contract, OperationContext operation, CancellationToken token)
     {

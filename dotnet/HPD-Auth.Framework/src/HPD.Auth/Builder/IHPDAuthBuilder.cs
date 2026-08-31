@@ -6,15 +6,15 @@ namespace HPD.Auth.Builder;
 /// <summary>
 /// Fluent builder returned by <see cref="Extensions.HPDAuthServiceCollectionExtensions.AddHPDAuth"/>.
 ///
-/// Allows Phase 2/3 packages (e.g., HPD.Auth.PostgreSQL, HPD.Auth.Admin) to extend
-/// the DI registration without requiring the caller to re-pass the options object.
+/// Allows optional Auth feature packages, such as HPD.Auth.Admin, to extend the DI
+/// registration without requiring the caller to re-pass the options object. Storage
+/// is configured independently through the host's HPD Base application graph.
 ///
 /// Pattern: each extension package adds an extension method on IHPDAuthBuilder that
 /// registers additional services and returns the same builder, enabling chaining:
 ///
 /// <code>
 /// services.AddHPDAuth(options => { ... })
-///         .UseSqlite(connectionString)
 ///         .AddAdminApi();
 /// </code>
 /// </summary>

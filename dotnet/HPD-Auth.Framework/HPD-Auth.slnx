@@ -34,11 +34,10 @@
     <Project Path="test/HPD.Auth.Authorization.Tests/HPD.Auth.Authorization.Tests.csproj" />
     <Project Path="test/HPD.Auth.ControlPlane.AspNetCore.Tests/HPD.Auth.ControlPlane.AspNetCore.Tests.csproj" />
     <Project Path="test/HPD.Auth.Infrastructure.Tests/HPD.Auth.Infrastructure.Tests.csproj" />
-    <Project Path="test/HPD.Auth.LegacyImporter.Tests/HPD.Auth.LegacyImporter.Tests.csproj" />
+    <Project Path="test/HPD.Auth.NativeAotSmoke/HPD.Auth.NativeAotSmoke.csproj" />
     <Project Path="test/HPD.Auth.OAuth.Tests/HPD.Auth.OAuth.Tests.csproj" />
     <Project Path="test/HPD.Auth.TwoFactor.Tests/HPD.Auth.TwoFactor.Tests.csproj" />
   </Folder>
   <Folder Name="/Tools/">
-    <Project Path="tool/HPD.Auth.LegacyImporter/HPD.Auth.LegacyImporter.csproj" />
   </Folder>
 </Solution>

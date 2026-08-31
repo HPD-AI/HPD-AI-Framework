@@ -295,6 +295,25 @@ public sealed record BaseAtomicSelectionRequest
     public required RecordQuery Query { get; init; }
     /// <summary>Gets the canonical record codec version.</summary>
     public required int CanonicalRecordCodecVersion { get; init; }
+    /// <summary>Gets exact required logical-index point authority when the normalized query proves it.</summary>
+    public BaseLogicalIndexPointSelection? LogicalIndexPoint { get; init; }
+}
+
+/// <summary>Requests one exact equality point through an installed required logical index.</summary>
+public sealed record BaseLogicalIndexPointSelection
+{
+    /// <summary>Gets the stable logical-index identity.</summary>
+    public required BaseLogicalIndexId IndexId { get; init; }
+    /// <summary>Gets the positive logical-index version.</summary>
+    public required long IndexVersion { get; init; }
+    /// <summary>Gets the exact logical-index checksum.</summary>
+    public required BaseLogicalIndexChecksum IndexChecksum { get; init; }
+    /// <summary>Gets equality parts in installed definition order.</summary>
+    public required ImmutableArray<QueryValue> EqualityParts { get; init; }
+    /// <summary>Gets the exact canonical equality-key bytes.</summary>
+    public required ImmutableArray<byte> EqualityKey { get; init; }
+    /// <summary>Gets the canonical predicate-implication proof checksum.</summary>
+    public required ImmutableArray<byte> PredicateConjunctChecksum { get; init; }
 }
 
 /// <summary>Returns one normalized logical read interval.</summary>

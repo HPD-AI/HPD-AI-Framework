@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace HPD.Base;
 
@@ -67,6 +68,9 @@ public sealed record BaseActivationTransactionalReceiptResult
     public required ImmutableArray<byte> CanonicalResultBytes { get; init; }
     /// <summary>Gets the terminal control checksum.</summary>
     public required ImmutableArray<byte> ActivationControlChecksum { get; init; }
+    /// <summary>Gets the validated L43 logical-index evidence checksum for a selection target, or <see langword="null"/> otherwise.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public required ImmutableArray<byte>? SelectionLogicalIndexEvidenceChecksum { get; init; }
 }
 
 /// <summary>Stores one committed module generation without disclosing its scoped provider key.</summary>
@@ -160,6 +164,9 @@ public sealed record BaseSelectionMutationReceiptResult
     public required int MutatedCount { get; init; }
     /// <summary>Gets the canonical batch outcome.</summary>
     public required BaseRecordBatchOutcome Outcome { get; init; }
+    /// <summary>Gets the validated logical-index evidence checksum when this request used required point authority.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public required ImmutableArray<byte>? LogicalIndexEvidenceChecksum { get; init; }
 }
 
 /// <summary>Owns one sanitized exported-subject lifecycle fact for durable receipt replay.</summary>
@@ -281,7 +288,7 @@ public sealed record BaseAtomicReceiptWire
                 CodecVersion = fact.CodecVersion,
                 CanonicalBytes = fact.CopyCanonicalBytes(),
             }).ToArray(),
-            SelectionMutation = result.SelectionMutation,
+            SelectionMutation = CloneSelection(result.SelectionMutation),
             ModuleMutation = result.ModuleMutation is null ? null : new BaseModuleMutationReceiptResultWire
             {
                 OperationId = result.ModuleMutation.OperationId,
@@ -320,7 +327,7 @@ public sealed record BaseAtomicReceiptWire
         {
             Kind = Kind,
             Mutations = Mutations.Select(static fact => BaseOwnedMutationFact.FromCanonicalBytes(fact.CanonicalBytes, fact.CodecVersion)).ToImmutableArray(),
-            SelectionMutation = SelectionMutation,
+            SelectionMutation = CloneSelection(SelectionMutation),
             ModuleMutation = ModuleMutation is null ? null : new BaseModuleMutationReceiptResult
             {
                 OperationId = ModuleMutation.OperationId,
@@ -443,6 +450,15 @@ public sealed record BaseAtomicReceiptWire
         }
         if (valid && result.ModuleMutation?.SemanticActivation is { } semantic)
             valid = result.ModuleMutation.CreatedActivationIds.IsEmpty && SemanticShapeValid(semantic);
+        if (valid && result.SelectionMutation is { } selection)
+            valid = selection.LogicalIndexEvidenceChecksum is null
+                || selection.LogicalIndexEvidenceChecksum.Value.Length == 32;
+        if (valid && result.ActivationTransactionalOperation is { } transactional)
+            valid = transactional.SelectionLogicalIndexEvidenceChecksum is null
+                || transactional.SelectionLogicalIndexEvidenceChecksum.Value.Length == 32;
+        if (valid && result.ActivationTransactionalOperation is { TargetKind: not "selectionMutation" }
+            && result.ActivationTransactionalOperation.SelectionLogicalIndexEvidenceChecksum is not null)
+            valid = false;
         if (!valid) throw new InvalidOperationException("base.mutation.receipt.invalid");
     }
 
@@ -540,11 +556,14 @@ public sealed record BaseAtomicReceiptWire
     private static BaseSemanticActivationMaintenanceResult? CloneSemanticMaintenance(BaseSemanticActivationMaintenanceResult? value) =>
         value is null ? null : value with
         {
+            ProviderIncarnation = value.ProviderIncarnation.ToArray().ToImmutableArray(),
             ResultChecksum = value.ResultChecksum.ToArray().ToImmutableArray(),
             AuthorityChecksum = value.AuthorityChecksum.ToArray().ToImmutableArray(),
             CommitObservationChecksum = value.CommitObservationChecksum.ToArray().ToImmutableArray(),
             Checkpoint = value.Checkpoint is null ? null : value.Checkpoint with
             {
+                ProviderIncarnation = value.Checkpoint.ProviderIncarnation.ToArray().ToImmutableArray(),
+                FenceToken = value.Checkpoint.FenceToken.ToArray().ToImmutableArray(),
                 Definition = value.Checkpoint.Definition with { Checksum = value.Checkpoint.Definition.Checksum.ToArray().ToImmutableArray() },
                 After = value.Checkpoint.After is null ? null : value.Checkpoint.After with
                 {
@@ -561,6 +580,16 @@ public sealed record BaseAtomicReceiptWire
             Generations = value.Generations.Select(static generation => generation with { }).ToImmutableArray(),
             CanonicalResultBytes = value.CanonicalResultBytes.ToArray().ToImmutableArray(),
             ActivationControlChecksum = value.ActivationControlChecksum.ToArray().ToImmutableArray(),
+            SelectionLogicalIndexEvidenceChecksum = value.SelectionLogicalIndexEvidenceChecksum?.ToArray().ToImmutableArray(),
+        };
+    private static BaseSelectionMutationReceiptResult? CloneSelection(BaseSelectionMutationReceiptResult? value) =>
+        value is null ? null : value with
+        {
+            ApplicationId = new string(value.ApplicationId.AsSpan()),
+            CollectionId = new string(value.CollectionId.AsSpan()),
+            OperationProfileId = new string(value.OperationProfileId.AsSpan()),
+            ReceiptScope = new string(value.ReceiptScope.AsSpan()),
+            LogicalIndexEvidenceChecksum = value.LogicalIndexEvidenceChecksum?.ToArray().ToImmutableArray(),
         };
     private static BaseSubjectRetirementReceiptResult CloneRetirement(BaseSubjectRetirementReceiptResult value) => value with
     {

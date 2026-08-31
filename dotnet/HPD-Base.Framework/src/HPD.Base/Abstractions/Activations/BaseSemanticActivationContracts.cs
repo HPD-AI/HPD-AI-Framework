@@ -306,6 +306,26 @@ public static class BaseSemanticActivationEvidenceContract
             Int64(value.RetirementPosition), Int64(value.SlotGeneration), value.StoreAuthority.Checksum.ToArray());
     }
 
+    internal static bool PruneEvidenceDominatesRetirement(
+        BaseActivationPruneEvidence prune,
+        BaseSemanticActivationRetirementAuthority retired)
+    {
+        ArgumentNullException.ThrowIfNull(prune);
+        ArgumentNullException.ThrowIfNull(retired);
+        if (retired.TerminalState == BaseActivationState.Disposed)
+            return prune.TerminalGeneration == retired.TerminalActivationGeneration
+                && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                    prune.TerminalControlChecksum.AsSpan(), retired.TerminalActivationChecksum.AsSpan())
+                && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                    prune.TerminalReceiptChecksum.AsSpan(), retired.CompletionReceiptChecksum.AsSpan());
+        return retired.TerminalState is BaseActivationState.Succeeded
+                or BaseActivationState.Exhausted
+                or BaseActivationState.Cancelled
+                or BaseActivationState.Migrated
+            && retired.TerminalActivationGeneration < long.MaxValue
+            && prune.TerminalGeneration == retired.TerminalActivationGeneration + 1;
+    }
+
     /// <summary>Computes the canonical checksum for one compacted-absence authority.</summary>
     public static ImmutableArray<byte> AbsenceChecksum(BaseSemanticActivationAbsenceAuthority value)
     {

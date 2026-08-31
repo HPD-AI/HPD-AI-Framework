@@ -40,15 +40,16 @@ internal sealed class DefaultBaseScheduleRuntime(
         if (!provider.IsSuccess() || provider.Value is null)
             return CopyFailure<BaseScheduleMutationResult, IBaseActivationProvider>(provider);
         BaseActivationDefinition target = Target(definition);
+        BaseAcceptedTimeReceipt time = acceptedTime.Capture(session.ApplicationId);
         OperationResult<BaseScheduleMutationResult> mutated = await CallAsync(token => provider.Value.MutateScheduleAsync(new BaseScheduleMutationRequest
         {
             Kind = kind,
             Definition = BaseScheduleDefinitionBuilder.Create(definition),
             ExpectedDefinitionGeneration = expectedGeneration,
             InitialNextNominal = kind is BaseScheduleMutationKind.Create or BaseScheduleMutationKind.Update
-                ? Next(definition, null)
+                ? Next(definition, time.CapturedUtc)
                 : null,
-            AcceptedTime = acceptedTime.Capture(session.ApplicationId),
+            AcceptedTime = time,
             Identity = identity,
             Limits = target.Limits.Provider,
         }, token), target.Limits.Provider, cancellationToken).ConfigureAwait(false);
@@ -98,7 +99,7 @@ internal sealed class DefaultBaseScheduleRuntime(
         long? cursor = current.Value.LastConsideredNominal;
         while (nominal.Count < maximum)
         {
-            long? next = Next(definition, cursor);
+            long? next = nominal.Count == 0 ? current.Value.NextNominal : Next(definition, cursor);
             if (next is null || next > time.CapturedUtc) break;
             nominal.Add(next.Value);
             cursor = next;

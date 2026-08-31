@@ -600,6 +600,64 @@ internal sealed partial class AuthBaseUserStore(
         return IdentityResult.Success;
     }
 
+    /// <summary>
+    /// Atomically resets password, stamp, lockout, and generation authority through
+    /// the installed reset-password operation.
+    /// </summary>
+    internal async Task<IdentityResult> ResetPasswordAsync(
+        ApplicationUser user,
+        string passwordHash,
+        string securityStamp,
+        string concurrencyStamp,
+        CancellationToken cancellationToken)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(user);
+        ArgumentException.ThrowIfNullOrWhiteSpace(passwordHash);
+        ArgumentException.ThrowIfNullOrWhiteSpace(securityStamp);
+        ArgumentException.ThrowIfNullOrWhiteSpace(concurrencyStamp);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        AuthUserAuthorityLease? authority = await ResolveAuthorityAsync(user, cancellationToken)
+            .ConfigureAwait(false);
+        if (authority is null)
+            return IdentityResult.Failed(errors.ConcurrencyFailure());
+
+        DateTimeOffset now = runtime.GetUtcNow();
+        var request = new AuthResetPasswordV1
+        {
+            TenantId = runtime.TenantId,
+            UserId = user.Id,
+            ExpectedRevision = authority.Revision,
+            PasswordHash = passwordHash,
+            SecurityStamp = securityStamp,
+            ConcurrencyStamp = concurrencyStamp,
+            LockoutEnabled = user.LockoutEnabled,
+            OperationTime = now,
+        };
+        BaseInstalledModuleMutationHandle<AuthResetPasswordV1, AuthSecurityMutationResultV1> operation =
+            runtime.OpenServiceSession().ModuleMutations.Get(AuthResetPasswordOperationV1.Identity);
+        BaseMutationRequestIdentity identity = operation.CreateRequestIdentity(
+            request,
+            $"user:{user.Id:D}:revision:{authority.Revision.Value}:reset-password");
+        BaseResult<BaseModuleMutationExecutionResult<AuthSecurityMutationResultV1>> result = await operation
+            .ExecuteAsync(request, identity, cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        if (result is BaseFailure<BaseModuleMutationExecutionResult<AuthSecurityMutationResultV1>> failure)
+            return AuthBaseIdentityErrorMapper.User(failure, errors, user.UserName, user.Email);
+
+        AuthSecurityMutationResultV1 committed = result.RequireValue().Result;
+        user.PasswordHash = passwordHash;
+        user.SecurityStamp = securityStamp;
+        user.ConcurrencyStamp = concurrencyStamp;
+        user.AccessFailedCount = 0;
+        user.LockoutEnd = null;
+        user.Updated = now.UtcDateTime;
+        if (!await RefreshAuthorityAsync(user, committed.Revision, cancellationToken).ConfigureAwait(false))
+            throw new AuthBasePersistenceException("auth.persistence.authorityUnavailable");
+        return IdentityResult.Success;
+    }
+
     private async Task<IdentityResult> UpdateSecurityStateAsync(
         ApplicationUser user,
         AuthUserAuthorityLease authority,

@@ -31,6 +31,11 @@ public static class AuthBaseInfrastructureServiceCollectionExtensions
         services.TryAddScoped<AuthBaseRuntime>();
         services.TryAddSingleton<AuthDataProtectionCacheInvalidationState>();
         services.TryAddScoped<IUserStore<ApplicationUser>, AuthBaseUserStore>();
+        services.AddScoped<AuthBaseUserManager>();
+        services.Replace(ServiceDescriptor.Scoped<UserManager<ApplicationUser>>(
+            static provider => provider.GetRequiredService<AuthBaseUserManager>()));
+        services.AddScoped<IAuthPasswordResetCommand>(
+            static provider => provider.GetRequiredService<AuthBaseUserManager>());
         services.TryAddScoped<IRoleStore<ApplicationRole>, AuthBaseRoleStore>();
         services.AddScoped<ISessionManager, AuthBaseSessionStore>();
         services.AddScoped<IRefreshTokenStore, AuthBaseRefreshTokenStore>();

@@ -19,7 +19,6 @@ internal sealed class AuthBaseRefreshTokenStore(
     IAuthTokenDeliveryProtector deliveryProtector) : IRefreshTokenStore
 {
     private static readonly byte[] RefreshPurpose = "hpd.auth.refresh.v1"u8.ToArray();
-    private static readonly byte[] LegacyPurpose = "hpd.auth.refresh.legacy.v1"u8.ToArray();
     private static readonly byte[] StampPurpose = "hpd.auth.security-stamp.v1"u8.ToArray();
 
     /// <inheritdoc />
@@ -179,7 +178,7 @@ internal sealed class AuthBaseRefreshTokenStore(
         byte[] tokenBytes = RandomNumberGenerator.GetBytes(32);
         string token = CurrentToken(key.Version, tokenBytes);
         byte[] tokenDigest = Digest(key, tokenBytes);
-        string refreshId = RefreshId(AuthRefreshDigestAlgorithmV1.HmacSha256V1, key.Version, tokenDigest);
+        string refreshId = RefreshId(key.Version, tokenDigest);
         string jwtId = Convert.ToHexStringLower(HashParts(scopeDigest, "jwt"u8));
         byte[] stampDigest = SecurityStampDigest(securityStamp);
         string semanticFingerprint = Convert.ToHexStringLower(SHA256.HashData(BuildSemanticFingerprint(
@@ -325,42 +324,32 @@ internal sealed class AuthBaseRefreshTokenStore(
 
     private async Task<AuthRefreshByDigestReadV1.Row?> FindAsync(string token, CancellationToken ct)
     {
-        if (TryDecodeCurrentToken(token, out int keyVersion, out byte[] currentBytes))
-        {
-            try
-            {
-                ValidateDigestCapability();
-                if (!digestKeys.Capability.ValidationVersions.Contains(keyVersion))
-                    return null;
-                AuthAuthorityResult<AuthRefreshDigestKey> keyResult = digestKeys.GetValidationKey(keyVersion);
-                if (!keyResult.IsAvailable)
-                    return null;
-                using AuthRefreshDigestKey key = keyResult.Value!;
-                if (key.Version != keyVersion || key.KeyMaterial.Length is not (32 or 64))
-                    return null;
-                byte[] digest = Digest(key, currentBytes);
-                try
-                {
-                    return await ReadDigestAsync(
-                        AuthRefreshDigestAlgorithmV1.HmacSha256V1, keyVersion, digest, ct).ConfigureAwait(false);
-                }
-                finally { CryptographicOperations.ZeroMemory(digest); }
-            }
-            finally { CryptographicOperations.ZeroMemory(currentBytes); }
-        }
-        if (!TryDecodeLegacyToken(token, out byte[] legacyBytes))
+        if (!TryDecodeCurrentToken(token, out int keyVersion, out byte[] currentBytes))
             return null;
         try
         {
-            byte[] digest = HashParts(LegacyPurpose, legacyBytes);
-            try { return await ReadDigestAsync(AuthRefreshDigestAlgorithmV1.LegacySha256V1, null, digest, ct).ConfigureAwait(false); }
+            ValidateDigestCapability();
+            if (!digestKeys.Capability.ValidationVersions.Contains(keyVersion))
+                return null;
+            AuthAuthorityResult<AuthRefreshDigestKey> keyResult = digestKeys.GetValidationKey(keyVersion);
+            if (!keyResult.IsAvailable)
+                return null;
+            using AuthRefreshDigestKey key = keyResult.Value!;
+            if (key.Version != keyVersion || key.KeyMaterial.Length is not (32 or 64))
+                return null;
+            byte[] digest = Digest(key, currentBytes);
+            try
+            {
+                return await ReadDigestAsync(
+                    AuthRefreshDigestAlgorithmV1.HmacSha256V1, keyVersion, digest, ct).ConfigureAwait(false);
+            }
             finally { CryptographicOperations.ZeroMemory(digest); }
         }
-        finally { CryptographicOperations.ZeroMemory(legacyBytes); }
+        finally { CryptographicOperations.ZeroMemory(currentBytes); }
     }
 
     private async Task<AuthRefreshByDigestReadV1.Row?> ReadDigestAsync(
-        AuthRefreshDigestAlgorithmV1 algorithm, int? version, byte[] digest, CancellationToken ct)
+        AuthRefreshDigestAlgorithmV1 algorithm, int version, byte[] digest, CancellationToken ct)
     {
         BaseResult<AuthRefreshByDigestReadV1.Row?> result = await runtime.OpenServiceSession().Reads.FirstAsync(
             AuthRefreshByDigestReadV1.Handle,
@@ -477,10 +466,10 @@ internal sealed class AuthBaseRefreshTokenStore(
         return stream.ToArray();
     }
 
-    private static string RefreshId(AuthRefreshDigestAlgorithmV1 algorithm, int version, byte[] digest)
+    private static string RefreshId(int version, byte[] digest)
     {
         using var stream = new MemoryStream();
-        Write(stream, "hpd.auth.refresh-id.v1"); Write(stream, algorithm == AuthRefreshDigestAlgorithmV1.HmacSha256V1 ? "hmac-sha256-v1" : "legacy-sha256-v1");
+        Write(stream, "hpd.auth.refresh-id.v1"); Write(stream, "hmac-sha256-v1");
         Span<byte> number = stackalloc byte[4]; BinaryPrimitives.WriteInt32BigEndian(number, version); stream.Write(number); stream.Write(digest);
         return Convert.ToHexStringLower(SHA256.HashData(stream.GetBuffer().AsSpan(0, checked((int)stream.Length))));
     }
@@ -495,7 +484,8 @@ internal sealed class AuthBaseRefreshTokenStore(
                 Kind = RecordPayloadKind.FieldMap,
                 Fields = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
                 {
-                    [Wire(AuthRefreshTokenRecordV1.Fields.Revoked)] = JsonSerializer.SerializeToElement(true),
+                    [Wire(AuthRefreshTokenRecordV1.Fields.Revoked)] = JsonSerializer.SerializeToElement(
+                        true, AuthBaseJsonSerializerContext.Default.Boolean),
                     [Wire(AuthRefreshTokenRecordV1.Fields.RevokedAt)] = UtcDateTime(now),
                     [Wire(AuthRefreshTokenRecordV1.Fields.RetentionEligibleAt)] = UtcDateTime(retention),
                 },
@@ -511,7 +501,8 @@ internal sealed class AuthBaseRefreshTokenStore(
             Kind = RecordPayloadKind.FieldMap,
             Fields = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
             {
-                [Wire(AuthRefreshTokenRecordV1.Fields.Revoked)] = JsonSerializer.SerializeToElement(true),
+                [Wire(AuthRefreshTokenRecordV1.Fields.Revoked)] = JsonSerializer.SerializeToElement(
+                    true, AuthBaseJsonSerializerContext.Default.Boolean),
                 [Wire(AuthRefreshTokenRecordV1.Fields.RevokedAt)] = UtcDateTime(now),
             },
         },
@@ -522,7 +513,8 @@ internal sealed class AuthBaseRefreshTokenStore(
         AuthRefreshTokenRecordV1.Collection.Definition.Fields!.Single(candidate => candidate.Id == field.Id).WireName;
 
     private static JsonElement UtcDateTime(DateTimeOffset value) => JsonSerializer.SerializeToElement(
-        value.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", CultureInfo.InvariantCulture));
+        value.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", CultureInfo.InvariantCulture),
+        AuthBaseJsonSerializerContext.Default.String);
 
     private static bool TryDecodeCurrentToken(string token, out int keyVersion, out byte[] bytes)
     {
@@ -545,18 +537,6 @@ internal sealed class AuthBaseRefreshTokenStore(
         try { bytes = Convert.FromBase64String(encoded.Replace('-', '+').Replace('_', '/') + "="); }
         catch (FormatException) { return false; }
         if (bytes.Length != 32 || !string.Equals(Base64Url(bytes), encoded, StringComparison.Ordinal))
-        { CryptographicOperations.ZeroMemory(bytes); bytes = []; return false; }
-        return true;
-    }
-
-    private static bool TryDecodeLegacyToken(string token, out byte[] bytes)
-    {
-        bytes = [];
-        if (string.IsNullOrEmpty(token) || token.Any(char.IsWhiteSpace) || token.Length % 4 != 0)
-            return false;
-        try { bytes = Convert.FromBase64String(token); }
-        catch (FormatException) { return false; }
-        if (bytes.Length != 64 || !string.Equals(Convert.ToBase64String(bytes), token, StringComparison.Ordinal))
         { CryptographicOperations.ZeroMemory(bytes); bytes = []; return false; }
         return true;
     }

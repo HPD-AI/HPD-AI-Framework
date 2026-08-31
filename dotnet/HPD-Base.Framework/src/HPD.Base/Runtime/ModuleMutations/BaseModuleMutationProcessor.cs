@@ -43,6 +43,18 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             .Select(static value => value.CollectionId).ToHashSet(StringComparer.Ordinal);
         limits = BaseAtomicSchemaContract.AttachLimits(limits,
             collections.Values.Where(collection => authorityCollectionIds.Contains(collection.Id)));
+        ImmutableArray<BaseSubjectLifecycleConsumerProjectionCaptureRequest> lifecycleProjectionRequests =
+            [.. lifecycleConsumers.All
+                .OrderBy(static value => value.Definition.Id, StringComparer.Ordinal)
+                .ThenBy(static value => value.Definition.Version)
+                .Select(static value => new BaseSubjectLifecycleConsumerProjectionCaptureRequest
+                {
+                    ConsumerId = value.Definition.Id,
+                    ConsumerVersion = value.Definition.Version,
+                    ConsumerChecksum = value.Checksum,
+                    ContractId = value.Definition.ContractId,
+                    ContractVersion = value.Definition.ContractVersion,
+                })];
         var captureRequest = new BaseAtomicExecutionRequest
         {
             Kind = BaseAtomicMutationExecutionKind.ModuleMutation,
@@ -51,6 +63,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             Activations = activationCreation,
             SemanticActivation = semanticActivation,
             ActivationGuard = activationGuard,
+            LifecycleConsumerProjections = lifecycleProjectionRequests,
             SubjectRetirement = CreateRetirementCapture(extension),
             Schema = BaseAtomicSchemaContract.CaptureRequest(intent.Authority, collections.Values, limits),
             Limits = limits,
@@ -61,6 +74,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             return Failed(captured.Error ?? Error(BaseModuleMutationErrorCodes.StoreError, ErrorCategory.Store));
         BaseCapturedAtomicExecution evidence = captured.Value;
         if (!CapturedMatches(intent, extension, activationCreation, limits, evidence)
+            || !LifecycleCapturedMatches(lifecycleProjectionRequests, evidence)
             || !ActivationCapturedMatches(activationCreation, evidence.Activations)
             || !BaseAtomicSchemaContract.CapturedMatches(captureRequest.Schema, evidence.Schema, evidence.Authority,
                 collections.Values, BaseAtomicSchemaContract.ModuleItems(evidence.ModuleRecords))
@@ -100,13 +114,10 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             return Failed(commandResult.Error ?? Error(BaseModuleMutationErrorCodes.Invalid, ErrorCategory.Validation));
         var recordPlanner = new DefaultBaseMutationProcessor(
             commandResult.Value.Commands, principal, policy, normalizer, collections.Values.ToArray(), limits, intent.Authority, subjects, lifecycleConsumers, retirement);
-        ImmutableArray<BaseCapturedSubjectRetirementProjection> mappedRetirement = evidence.SubjectRetirement
-            .Select(captured => captured with
-            {
-                SourceMutationOrdinal = commandResult.Value.Bindings.Single(binding =>
-                    binding.RecordCaptureOrdinal == captured.SourceMutationOrdinal).MutationOrdinal,
-            }).ToImmutableArray();
+        ImmutableArray<BaseCapturedSubjectRetirementProjection> mappedRetirement = MapRetirementCaptures(
+            evidence.SubjectRetirement, commandResult.Value.Bindings);
         recordPlanner.AdoptCapturedRetirement(mappedRetirement);
+        recordPlanner.AdoptCapturedLifecycleConsumers(evidence.LifecycleConsumerProjections);
         IReadOnlyDictionary<int, BaseCapturedMutationItem> capturedItems = BuildCapturedItems(commandResult.Value.Commands, evidence);
         OperationResult<BaseFinalizedRecordMutationPlan> recordPlan = await recordPlanner
             .FinalizeCapturedCommandsAsync(capturedItems, cancellationToken).ConfigureAwait(false);
@@ -276,6 +287,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
                     Generations = moduleReceipt.Generations,
                     CanonicalResultBytes = resultBytes,
                     ActivationControlChecksum = activationCommit.ControlChecksum,
+                    SelectionLogicalIndexEvidenceChecksum = null,
                 },
             };
         byte[] outerReceiptBytes = JsonSerializer.SerializeToUtf8Bytes(
@@ -315,6 +327,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
     {
         ImmutableArray<BaseSubjectRetirementProjectionCaptureRequest> projections = [.. module.Records
             .OrderBy(static value => value.Ordinal)
+            .Where(static value => value.Presence == BaseModuleCapturePresence.RequirePresent)
             .Select(capture =>
             {
                 BaseGeneratedSubjectRegistration? contract = subjects.All.SingleOrDefault(value =>
@@ -334,6 +347,49 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             .Where(static value => value is not null)
             .Select(static value => value!)];
         return projections.IsEmpty ? null : new BaseSubjectRetirementCaptureExtension { Projections = projections };
+    }
+
+    internal static ImmutableArray<BaseCapturedSubjectRetirementProjection> MapRetirementCaptures(
+        ImmutableArray<BaseCapturedSubjectRetirementProjection> captured,
+        ImmutableArray<BaseModuleMutationItemCaptureBinding> bindings) =>
+        [.. captured
+            .Where(value => bindings.Any(binding => binding.RecordCaptureOrdinal == value.SourceMutationOrdinal))
+            .Select(value => value with
+            {
+                SourceMutationOrdinal = bindings.Single(binding =>
+                    binding.RecordCaptureOrdinal == value.SourceMutationOrdinal).MutationOrdinal,
+            })];
+
+    internal static bool LifecycleCapturedMatches(
+        ImmutableArray<BaseSubjectLifecycleConsumerProjectionCaptureRequest> expected,
+        BaseCapturedAtomicExecution captured)
+    {
+        if (captured.LifecycleConsumerProjections.Length != expected.Length)
+            return false;
+        ImmutableArray<BaseAtomicReadIntervalEvidence> lifecycleIntervals =
+            [.. captured.ReadIntervals.Where(static interval =>
+                interval.LogicalAccessPathId == "subject-lifecycle:consumer-projection")];
+        if (lifecycleIntervals.Length != expected.Length)
+            return false;
+        for (int index = 0; index < expected.Length; index++)
+        {
+            BaseSubjectLifecycleConsumerProjectionCaptureRequest request = expected[index];
+            BaseCapturedSubjectLifecycleConsumerProjection actual = captured.LifecycleConsumerProjections[index];
+            BaseAtomicReadIntervalEvidence interval = lifecycleIntervals[index];
+            byte[] key = Encoding.UTF8.GetBytes($"{request.ConsumerId}\0{request.ConsumerVersion}");
+            if (actual.ConsumerId != request.ConsumerId
+                || actual.ConsumerVersion != request.ConsumerVersion
+                || actual.ConsumerChecksum != request.ConsumerChecksum
+                || actual.ContractId != request.ContractId
+                || actual.ContractVersion != request.ContractVersion
+                || actual.ProjectionGeneration < 1
+                || actual.PublishedGraphGeneration < 1
+                || !interval.LowerInclusive || !interval.UpperInclusive
+                || !interval.CanonicalLowerBound.AsSpan().SequenceEqual(key)
+                || !interval.CanonicalUpperBound.AsSpan().SequenceEqual(key))
+                return false;
+        }
+        return true;
     }
 
     public async ValueTask<AtomicMutationProcessingResult> ResolveReceiptAsync(
@@ -745,7 +801,9 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         if (activationCreation is not null)
             selectedBytes = checked(selectedBytes + activationCreation.Items.Sum(static item => item.CanonicalInput.Length + 32L));
         long evidenceBytes = BaseSubjectCanonicalRetainedWork.MeasureIntervals(value.ReadIntervals);
-        long transient = checked(selectedBytes + relationBytes + generationBytes + evidenceBytes);
+        long transient = checked(selectedBytes + relationBytes + generationBytes + evidenceBytes
+            + BaseSubjectCanonicalRetainedWork.MeasureLifecycleConsumerProjections(
+                value.LifecycleConsumerProjections));
         return value.Accounting.Records == extension.Records.Length
             && value.Accounting.RelationTargetReads == extension.RelationTargets.Length
             && value.Accounting.GenerationReads == extension.Generations.Length

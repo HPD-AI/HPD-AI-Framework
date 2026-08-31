@@ -171,7 +171,8 @@ public sealed class BasePolicyAuthorityBuilder
         BasePolicyAuthorityCanonicalizer.Validate(definition);
         if (grant is not null && !string.Equals(definition.Id, grant.Id, StringComparison.Ordinal))
             throw new InvalidOperationException(BasePolicyAuthorityErrorCodes.Invalid);
-        if (_grants.Any(value => value.Definition.Id == definition.Id))
+        if (_grants.Any(value => value.Definition.Id == definition.Id
+            && value.Definition.Version == definition.Version))
             throw new InvalidOperationException(BasePolicyAuthorityErrorCodes.Duplicate);
         object owner = new();
         byte[] checksum = BasePolicyAuthorityCanonicalizer.HashGrantDefinition(definition, grant);

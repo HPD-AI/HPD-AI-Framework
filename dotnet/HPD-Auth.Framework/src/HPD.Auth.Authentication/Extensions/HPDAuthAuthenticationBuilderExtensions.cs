@@ -18,7 +18,6 @@ namespace HPD.Auth.Authentication.Extensions;
 /// Usage — chain after <c>AddHPDAuth()</c> in <c>Program.cs</c>:
 /// <code>
 /// services.AddHPDAuth(options => { ... })
-///         .UseSqlite(connectionString)
 ///         .AddAuthentication();
 /// </code>
 /// </para>

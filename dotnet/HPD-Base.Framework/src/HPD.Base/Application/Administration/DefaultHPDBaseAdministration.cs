@@ -87,6 +87,7 @@ internal sealed class DefaultHPDBaseAdministration(
         var providerRequest = new BaseSemanticActivationProviderInspectionRequest
         {
             ApplicationId = features.LogicalSchema.ApplicationId, LogicalStoreId = storeId, RestoreEpoch = authority.RestoreEpoch,
+            ProviderIncarnation = provider.ProviderIncarnation,
             Definition = request.Definition, State = request.State, After = after, Take = request.Take,
             Limits = effectiveInspectionLimits, RuntimeRequestAuthorityChecksum = [],
         };
@@ -110,12 +111,12 @@ internal sealed class DefaultHPDBaseAdministration(
         ImmutableArray<BaseSemanticActivationInspectionItem> items = page.Items.Select(item => new BaseSemanticActivationInspectionItem
         {
             State = item.State, SlotGeneration = item.SlotGeneration, RetirementPosition = item.RetirementPosition,
-            ItemToken = semanticInspectionTokens.Protect(new(features.LogicalSchema.ApplicationId, storeId, authority.RestoreEpoch,
+            ItemToken = semanticInspectionTokens.Protect(new(features.LogicalSchema.ApplicationId, storeId, provider.ProviderIncarnation, authority.RestoreEpoch,
                 request.Definition, request.State, request.Take, item.Boundary, expiry)),
             SanitizedChecksum = SHA256.HashData(item.StateChecksum.AsSpan()).ToImmutableArray(),
         }).ToImmutableArray();
         BaseSemanticActivationInspectionToken? next = page.Next is null ? null : semanticInspectionTokens.Protect(new(
-            features.LogicalSchema.ApplicationId, storeId, authority.RestoreEpoch, request.Definition, request.State,
+            features.LogicalSchema.ApplicationId, storeId, provider.ProviderIncarnation, authority.RestoreEpoch, request.Definition, request.State,
             request.Take, page.Next, expiry));
         byte[] sanitized = SHA256.HashData(page.Checksum.AsSpan());
         return new BaseSuccess<BaseSemanticActivationInspectionPage>(new()
@@ -245,6 +246,7 @@ internal sealed class DefaultHPDBaseAdministration(
         var authorityRequest = new BaseSemanticActivationMaintenanceAuthorityRequest
         {
             ApplicationId = features.LogicalSchema.ApplicationId, LogicalStoreId = storeId,
+            ProviderIncarnation = provider.ProviderIncarnation,
             RestoreEpoch = storeAuthority.RestoreEpoch, Definition = definition,
             SemanticAuthorityGeneration = storeAuthority.SemanticAuthorityGeneration,
             MaximumRows = Math.Min(maximumRows, providerMaximumRows),
@@ -299,7 +301,7 @@ internal sealed class DefaultHPDBaseAdministration(
         };
         DateTimeOffset expiry = timeProvider.GetUtcNow().AddMinutes(15);
         BaseSemanticActivationControlTokenPayload Payload(BaseSemanticActivationControlTokenKind kind) => new(kind,
-            features.LogicalSchema.ApplicationId, storeId, storeAuthority.RestoreEpoch, definition,
+            features.LogicalSchema.ApplicationId, storeId, provider.ProviderIncarnation, storeAuthority.RestoreEpoch, definition,
             semanticActivations.DefinitionSetChecksum, authority.SemanticAuthorityGeneration, authority.LiveCount,
             authority.RetiredCount, authority.AbsenceCount, authority.RetiredAuthorityChecksum,
             authority.DefinitionStateChecksum, authority.AbsenceAuthorityChecksum, limits, null, expiry);
@@ -368,7 +370,7 @@ internal sealed class DefaultHPDBaseAdministration(
         ImmutableArray<byte> fingerprint = BaseSemanticActivationMaintenanceContract.RequestFingerprint(original);
         var request = new BaseSemanticActivationMaintenanceResolutionRequest
         {
-            Definition = payload.Definition, Identity = original.Identity,
+            Definition = payload.Definition, ProviderIncarnation = payload.ProviderIncarnation, Identity = original.Identity,
             MaintenanceId = Convert.ToHexStringLower(fingerprint.AsSpan()), RequestFingerprint = fingerprint,
             Deadline = payload.Limits.Deadline,
         };
@@ -1877,6 +1879,8 @@ internal sealed class DefaultHPDBaseAdministration(
         BaseSemanticActivationMaintenanceResult result)
     {
         if (!Enum.IsDefined(result.Disposition) || result.PreviousAuthorityGeneration <= 0
+            || result.ProviderIncarnation.Length != 32
+            || !CryptographicOperations.FixedTimeEquals(result.ProviderIncarnation.AsSpan(), request.ProviderIncarnation.AsSpan())
             || result.ResultingAuthorityGeneration < result.PreviousAuthorityGeneration || result.ExaminedRows < 0
             || result.ChangedRows < 0 || result.ChangedRows > result.ExaminedRows || result.CanonicalBytes < 0
             || !BaseSemanticActivationMaintenanceContract.ReceiptDispositionIsValid(result.Disposition, result.ReceiptDisposition)) return false;
@@ -1884,6 +1888,8 @@ internal sealed class DefaultHPDBaseAdministration(
         {
             BaseSemanticActivationMaintenanceCheckpoint? checkpoint = result.Checkpoint;
             return checkpoint is not null && checkpoint.MaintenanceId == request.MaintenanceId
+                && checkpoint.ProviderIncarnation.Length == 32
+                && CryptographicOperations.FixedTimeEquals(checkpoint.ProviderIncarnation.AsSpan(), request.ProviderIncarnation.AsSpan())
                 && DefinitionAuthorityMatches(checkpoint.Definition, request.Definition)
                 && CryptographicOperations.FixedTimeEquals(checkpoint.RequestFingerprint.AsSpan(), request.RequestFingerprint.AsSpan())
                 && CryptographicOperations.FixedTimeEquals(checkpoint.Checksum.AsSpan(),
@@ -1899,11 +1905,14 @@ internal sealed class DefaultHPDBaseAdministration(
 
     private static BaseSemanticActivationMaintenanceResult CloneSemanticMaintenance(BaseSemanticActivationMaintenanceResult value) => value with
     {
+        ProviderIncarnation = value.ProviderIncarnation.ToArray().ToImmutableArray(),
         AuthorityChecksum = value.AuthorityChecksum.ToArray().ToImmutableArray(),
         ResultChecksum = value.ResultChecksum.ToArray().ToImmutableArray(),
         CommitObservationChecksum = value.CommitObservationChecksum.ToArray().ToImmutableArray(),
         Checkpoint = value.Checkpoint is null ? null : value.Checkpoint with
         {
+            ProviderIncarnation = value.Checkpoint.ProviderIncarnation.ToArray().ToImmutableArray(),
+            FenceToken = value.Checkpoint.FenceToken.ToArray().ToImmutableArray(),
             Definition = value.Checkpoint.Definition with { Checksum = value.Checkpoint.Definition.Checksum.ToArray().ToImmutableArray() },
             After = value.Checkpoint.After is null ? null : value.Checkpoint.After with
             {
@@ -2033,7 +2042,7 @@ internal sealed class DefaultHPDBaseAdministration(
         if (compact)
             return new BaseSemanticActivationCompactRequest
             {
-                Identity = identity, Definition = payload.Definition,
+                Identity = identity, ProviderIncarnation = payload.ProviderIncarnation, Definition = payload.Definition,
                 ExpectedSemanticAuthorityGeneration = payload.SemanticAuthorityGeneration, Limits = payload.Limits,
                 ExpectedRetiredCount = payload.RetiredCount, ExpectedRetiredChecksum = payload.RetiredAuthorityChecksum,
             };
@@ -2043,7 +2052,7 @@ internal sealed class DefaultHPDBaseAdministration(
             throw new InvalidOperationException(BaseSemanticActivationErrorCodes.GraphChanged);
         return new BaseSemanticActivationRemoveRequest
         {
-            Identity = identity, Definition = payload.Definition,
+            Identity = identity, ProviderIncarnation = payload.ProviderIncarnation, Definition = payload.Definition,
             ExpectedSemanticAuthorityGeneration = payload.SemanticAuthorityGeneration, Limits = payload.Limits,
             RemovalAuthority = removal, ExpectedLiveCount = payload.LiveCount, ExpectedRetiredCount = payload.RetiredCount,
             ExpectedAbsenceCount = payload.AbsenceCount, ExpectedDefinitionStateChecksum = payload.DefinitionStateChecksum,

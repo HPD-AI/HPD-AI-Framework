@@ -165,7 +165,7 @@ public static class AdminUserActionsEndpoints
         if (!result.Succeeded)
             return Results.BadRequest(result.Errors);
 
-        // Keep EmailConfirmedAt in sync with the -compatible field.
+        // Keep the explicit confirmation timestamp in sync with Identity state.
         user.EmailConfirmedAt = DateTime.UtcNow;
         await userManager.UpdateAsync(user);
 

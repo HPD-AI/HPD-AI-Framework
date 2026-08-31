@@ -9,7 +9,9 @@ _ = (Func<BaseSession, BaseExportedSubjectContract<AuthUserSubject>>)AuthSubject
 
 _ = ConsumerStoredSubjectRead.Definition;
 
-await HPD.Auth.Base.ConsumerProof.ProofHost.RunAsync(args.Contains("--sqlite", StringComparer.Ordinal));
+await HPD.Auth.Base.ConsumerProof.ProofHost.RunAsync(
+    args.Contains("--sqlite", StringComparer.Ordinal),
+    args.Contains("--l81-only", StringComparer.Ordinal));
 if (args.Contains("--print-manifest-identities", StringComparer.Ordinal))
 {
     Console.WriteLine("identityAndGeneration\t" + BaseGeneratedGraphEvidence.ModuleMutation(
@@ -20,6 +22,8 @@ if (args.Contains("--print-manifest-identities", StringComparer.Ordinal))
         HPD.Auth.Base.ConsumerProof.StaticSetProof.Identity));
     Console.WriteLine("presenceAndRemoval\t" + BaseGeneratedGraphEvidence.ModuleMutation(
         HPD.Auth.Base.ConsumerProof.PresenceAndRemovalProof.Identity));
+    Console.WriteLine("lifecycleSubjectCreate\t" + BaseGeneratedGraphEvidence.ModuleMutation(
+        HPD.Auth.Base.ConsumerProof.LifecycleModuleMutationProof.Identity));
     Console.WriteLine("semanticEnsure\t" + BaseGeneratedGraphEvidence.ModuleMutation(
         HPD.Auth.Base.ConsumerProof.SemanticEnsureProof.Identity));
     Console.WriteLine("semanticRetire\t" + BaseGeneratedGraphEvidence.ModuleMutation(
@@ -65,7 +69,8 @@ internal sealed partial record ConsumerPrivateSubject
 {
     [BaseField("active")] public required bool Active { get; init; }
     [BaseField("tombstoned")] public required bool Tombstoned { get; init; }
-    [BaseField("tenant")] public required string Tenant { get; init; }
+    [BaseField("tenant", MinimumUtf8Bytes = 1, MaximumUtf8Bytes = 64)]
+    public required string Tenant { get; init; }
 }
 
 [BaseExportedSubject("consumer.subject", OwningModuleId = "consumer.module",
@@ -197,6 +202,8 @@ internal sealed partial record ConsumerStoredSubjectRead
 [JsonSerializable(typeof(HPD.Auth.Base.ConsumerProof.StaticSetResult))]
 [JsonSerializable(typeof(HPD.Auth.Base.ConsumerProof.PresenceAndRemovalRequest))]
 [JsonSerializable(typeof(HPD.Auth.Base.ConsumerProof.PresenceAndRemovalResult))]
+[JsonSerializable(typeof(HPD.Auth.Base.ConsumerProof.LifecycleSubjectCreateRequest))]
+[JsonSerializable(typeof(HPD.Auth.Base.ConsumerProof.LifecycleSubjectCreateResult))]
 [JsonSerializable(typeof(HPD.Auth.Base.ConsumerProof.ProofWorkItem))]
 [JsonSerializable(typeof(HPD.Auth.Base.ConsumerProof.ProofOwnerPatch))]
 [JsonSerializable(typeof(HPD.Auth.Base.ConsumerProof.ProofSelectionItem))]

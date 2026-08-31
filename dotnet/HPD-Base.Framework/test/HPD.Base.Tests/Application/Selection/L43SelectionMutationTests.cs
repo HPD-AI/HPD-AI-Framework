@@ -163,6 +163,108 @@ public sealed class L43SelectionMutationTests
     }
 
     [Fact]
+    public async Task SqliteRequiredIndexPointExecutesThroughTheCompleteTypedL43Runtime()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-l43-required-point-{Guid.NewGuid():N}-constraint.db");
+        try
+        {
+            await using ServiceProvider provider = Build(path);
+            IBaseSchemaManager schemas = provider.GetRequiredService<IBaseSchemaManager>();
+            BaseSchemaPlan plan = (await schemas.PlanAsync(
+                new BaseSchemaPlanRequest { StoreId = "sqlite-l43" })).Value!;
+            (await schemas.ApplyAsync(new BaseSchemaApplyRequest
+            {
+                ProtectedArtifact = plan.ProtectedArtifact,
+            })).IsSuccess().Should().BeTrue();
+            (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync())
+                .IsSuccess().Should().BeTrue();
+            BaseCollectionSession<L43UniqueItem> collection = provider
+                .GetRequiredService<IBaseSessionFactory>().For(Admin()).Collection(L43UniqueItem.Collection);
+            (await collection.CreateAsync(RecordId.Create("point-item"), new L43UniqueItem
+            {
+                Group = "point", Name = "ready", Code = "point-code",
+            })).RequireValue();
+            BaseSelectionOperationProfile installed = Profile(
+                "unique-patch", BaseSelectionMutationKind.MergePatch) with { CollectionId = "l43-unique" };
+            string nameWire = L43UniqueItem.Collection.Definition.Fields!
+                .Single(field => field.Id == "unique-name").WireName;
+
+            BaseResult<BaseSelectionMutationResult> selected = await collection.Query()
+                .Where(L43UniqueItem.Fields.Name.Equal("ready"))
+                .OrderBy(L43UniqueItem.Fields.Name).ThenByRecordId().Take(1)
+                .PatchSelectedAsync(
+                    collection.GetMergePatchSelectionProfile(Identity(installed)),
+                    new RecordPatchRequest
+                    {
+                        Patch = new RecordPayload
+                        {
+                            Kind = RecordPayloadKind.FieldMap,
+                            Fields = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+                            {
+                                [nameWire] = JsonSerializer.SerializeToElement("claimed"),
+                            },
+                        },
+                        RemovedFieldIds = [],
+                    },
+                    BasePreviousStateRequirement.None,
+                    Identity("required-point"));
+
+            selected.Should().BeOfType<BaseSuccess<BaseSelectionMutationResult>>(
+                selected is BaseFailure<BaseSelectionMutationResult> failure ? failure.Error.Code : string.Empty);
+            selected.RequireValue().MutatedCount.Should().Be(1);
+            (await collection.GetAsync(RecordId.Create("point-item"))).RequireValue().Value.Name
+                .Should().Be("claimed");
+
+            BaseSelectionMutationResult oldKey = (await collection.Query()
+                .Where(L43UniqueItem.Fields.Name.Equal("ready"))
+                .OrderBy(L43UniqueItem.Fields.Name).ThenByRecordId().Take(1)
+                .PatchSelectedAsync(
+                    collection.GetMergePatchSelectionProfile(Identity(installed)),
+                    new RecordPatchRequest
+                    {
+                        Patch = new RecordPayload
+                        {
+                            Kind = RecordPayloadKind.FieldMap,
+                            Fields = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+                            {
+                                [nameWire] = JsonSerializer.SerializeToElement("incorrect"),
+                            },
+                        },
+                        RemovedFieldIds = [],
+                    },
+                    BasePreviousStateRequirement.None,
+                    Identity("required-point-old-key"))).RequireValue();
+            oldKey.SelectedCount.Should().Be(0);
+            oldKey.MutatedCount.Should().Be(0);
+
+            BaseSelectionMutationResult newKey = (await collection.Query()
+                .Where(L43UniqueItem.Fields.Name.Equal("claimed"))
+                .OrderBy(L43UniqueItem.Fields.Name).ThenByRecordId().Take(1)
+                .PatchSelectedAsync(
+                    collection.GetMergePatchSelectionProfile(Identity(installed)),
+                    new RecordPatchRequest
+                    {
+                        Patch = new RecordPayload
+                        {
+                            Kind = RecordPayloadKind.FieldMap,
+                            Fields = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+                            {
+                                [nameWire] = JsonSerializer.SerializeToElement("final"),
+                            },
+                        },
+                        RemovedFieldIds = [],
+                    },
+                    BasePreviousStateRequirement.None,
+                    Identity("required-point-new-key"))).RequireValue();
+            newKey.SelectedCount.Should().Be(1);
+            newKey.MutatedCount.Should().Be(1);
+            (await collection.GetAsync(RecordId.Create("point-item"))).RequireValue().Value.Name
+                .Should().Be("final");
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact]
     public async Task IdentifiedZeroSelectionReplaysWithoutSelectingLaterInsert()
     {
         await using ServiceProvider provider = Build();
@@ -266,11 +368,48 @@ public sealed class L43SelectionMutationTests
         }];
         if (defect == "missing-interval") intervals = [];
         byte[] reportedBoundary = defect == "invalid-boundary" ? [0x7f] : boundary;
+        BaseAtomicMutationAuthorityEvidence capturedAuthority = new()
+        {
+            ApplicationId = profile.ApplicationId,
+            StoreInstanceId = "authority",
+            RestoreEpoch = 0,
+            SchemaGeneration = 1,
+            LogicalSchemaChecksum = authority.LogicalSchemaChecksum,
+            Collections = [new BaseCollectionGenerationRequirement { CollectionId = collection.Id, CollectionGeneration = 0 }],
+            Isolation = BaseAtomicSelectionIsolationClass.WriteOwningSerializable,
+            TransactionEvidenceToken = [1],
+        };
+        BaseCapturedAtomicExecution capture = new()
+        {
+            Kind = BaseAtomicMutationExecutionKind.SelectionMutation,
+            IntentDigest = "hostile-selection-intent",
+            CaptureDigest = new string('a', 64),
+            Authority = capturedAuthority,
+            Selection = null,
+            Items = [],
+            ModuleRecords = [],
+            ModuleRelationTargets = [],
+            Generations = [],
+            ReadIntervals = intervals,
+            Accounting = new BaseAtomicCaptureAccounting
+            {
+                Records = 2, RelationTargetReads = 0, GenerationReads = 0,
+                SelectedBytes = first.CanonicalBytes + second.CanonicalBytes,
+                RelationTargetBytes = 0, GenerationBytes = 0,
+                ReadIntervals = intervals.Length,
+                EvidenceBytes = intervals.Sum(interval => (long)interval.CanonicalLowerBound.Length + interval.CanonicalUpperBound.Length),
+                TransientBytes = first.CanonicalBytes + second.CanonicalBytes,
+                RetirementBarrierReads = 0, RetirementAcknowledgementReads = 0,
+                RetirementProjections = 0, RetirementPublications = 0,
+                RetirementEvidenceBytes = 0, RetirementPublicationBytes = 0,
+            },
+        };
         BaseValidatedSelection baseline = new()
         {
-            MutationCapture = null!,
-            Authority = new BaseAtomicMutationAuthorityEvidence { ApplicationId = profile.ApplicationId, StoreInstanceId = "authority", RestoreEpoch = 0, SchemaGeneration = 1, LogicalSchemaChecksum = authority.LogicalSchemaChecksum, Collections = [new BaseCollectionGenerationRequirement { CollectionId = collection.Id, CollectionGeneration = 0 }], Isolation = BaseAtomicSelectionIsolationClass.WriteOwningSerializable, TransactionEvidenceToken = [1] },
+            MutationCapture = capture,
+            Authority = capturedAuthority,
             Records = [first, second], ReadIntervals = intervals, CanonicalOrderBoundary = reportedBoundary.ToImmutableArray(),
+            LogicalIndexEvidence = null,
             Accounting = new BaseAtomicSelectionAccounting { SelectedRecords = 2, SelectedBytes = first.CanonicalBytes + second.CanonicalBytes, ReadIntervals = intervals.Length, EvidenceBytes = intervals.Sum(interval => (long)interval.CanonicalLowerBound.Length + interval.CanonicalUpperBound.Length) },
         };
 
