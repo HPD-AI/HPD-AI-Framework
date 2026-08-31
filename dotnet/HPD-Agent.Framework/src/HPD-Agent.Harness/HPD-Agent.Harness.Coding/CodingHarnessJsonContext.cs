@@ -105,6 +105,7 @@ using HPDOS.ToolHarnesses.Middleware;
 [JsonSerializable(typeof(IReadOnlyList<DebugLaunchNoticeMetadata>), TypeInfoPropertyName = "DebugLaunchNoticeMetadataReadOnlyList")]
 [JsonSerializable(typeof(DebugBreakpointCounts))]
 [JsonSerializable(typeof(DebugTerminalRecordMetadata))]
+[JsonSerializable(typeof(HPD.Agent.ToolHarness.Coding.ExecuteCommandPermissionPresentation))]
 
 [JsonSerializable(typeof(DebugBreakpointSelectionEventItem))]
 [JsonSerializable(typeof(IReadOnlyList<DebugBreakpointSelectionEventItem>), TypeInfoPropertyName = "DebugBreakpointSelectionEventItemReadOnlyList")]

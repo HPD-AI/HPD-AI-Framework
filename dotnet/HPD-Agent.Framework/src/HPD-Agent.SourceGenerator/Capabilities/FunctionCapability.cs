@@ -495,8 +495,14 @@ $@"HPDAIFunctionFactory.Create(
                     data.AttributeClass?.Name == "PermissionPresentationAttribute");
                 var id = attribute?.ConstructorArguments.FirstOrDefault().Value as string;
                 if (string.IsNullOrWhiteSpace(id)) return string.Empty;
+                var serializerContext = attribute!.ConstructorArguments.Length > 1
+                    ? attribute.ConstructorArguments[1].Value as ITypeSymbol
+                    : null;
+                if (serializerContext is null) return string.Empty;
                 var typeName = presentationType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                return $"Presentation = new global::HPD.Agent.Permissions.PermissionPresentationDescriptor {{ PresentationId = \"{Escape(id)}\", PresentationType = typeof({typeName}), TypeInfo = (serialization?.SerializerOptions ?? global::Microsoft.Extensions.AI.AIJsonUtilities.DefaultOptions).GetTypeInfo(typeof({typeName})) ?? throw new global::System.InvalidOperationException(\"Source-generated JSON metadata for permission presentation '{Escape(id)}' is required.\"), Serialize = value => global::System.Text.Json.JsonSerializer.SerializeToElement(value, (serialization?.SerializerOptions ?? global::Microsoft.Extensions.AI.AIJsonUtilities.DefaultOptions).GetTypeInfo(typeof({typeName})) ?? throw new global::System.InvalidOperationException(\"Source-generated JSON metadata for permission presentation '{Escape(id)}' is required.\")) }},";
+                var contextName = serializerContext.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                var typeInfo = $"global::HPD.Agent.Permissions.PermissionPresentationDescriptor.RequireGeneratedJsonTypeInfo({contextName}.Default.Options, typeof({typeName}), \"{Escape(id)}\")";
+                return $"Presentation = new global::HPD.Agent.Permissions.PermissionPresentationDescriptor {{ PresentationId = \"{Escape(id)}\", PresentationType = typeof({typeName}), TypeInfo = {typeInfo}, Serialize = static value => global::System.Text.Json.JsonSerializer.SerializeToElement(value, {typeInfo}) }},";
             }
             current = current.BaseType;
         }

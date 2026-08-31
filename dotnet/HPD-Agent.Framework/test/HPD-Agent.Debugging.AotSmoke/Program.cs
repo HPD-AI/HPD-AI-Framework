@@ -77,7 +77,7 @@ if (boundLaunch is not LaunchDebugOperation ||
     return 13;
 
 var generatedDebug = (HPDAIFunctionFactory.HPDAIFunction)debugFunctions[0];
-var binder = generatedDebug.HPDOptions.ArgumentBinder;
+var binder = generatedDebug.ArgumentBinder;
 if (binder is null)
     return 14;
 string[] representativeRequests =

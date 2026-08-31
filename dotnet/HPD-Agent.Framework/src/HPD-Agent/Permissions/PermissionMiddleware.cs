@@ -82,10 +82,9 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
     }
 
     /// <summary>
-    /// Handles batch permission checking for parallel function execution.
-    /// Mimics the old PermissionManager.CheckPermissionsAsync behavior:
-    /// loops through each function and checks permission sequentially.
-    /// Results are stored in BatchPermissionState for BeforeFunctionAsync to check.
+    /// Prepares parallel-call permission decisions in deterministic model order.
+    /// Outcomes are isolated by the owning <see cref="AgentContext"/> and consumed once by
+    /// <see cref="BeforeFunctionAsync"/> after exact canonical-authority verification.
     /// </summary>
     public async Task BeforeParallelBatchAsync(
         BeforeParallelBatchContext context,
@@ -198,6 +197,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             permissionKey,
             attributeRequiresPermission,
             context.InvocationMode?.Action);
+        context.PermissionRequired = effectiveRequiresPermission;
 
         // No permission required - allow execution
         if (!effectiveRequiresPermission)
@@ -222,6 +222,8 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
 
         if (context.RunConfig.Security.Approval == AgentApprovalPolicy.AutoApprove)
         {
+            await context.PublishAsync(new PermissionDecidedEvent(
+                null, context.FunctionCallId, evaluation.Key, PermissionDecisionKind.Allow, "host_auto_approve"), cancellationToken).ConfigureAwait(false);
             context.PermissionGrant = CreateGrant(
                 context,
                 function,
@@ -257,7 +259,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                 context.BlockExecution = true;
                 context.OverrideResult = BlockedResult("denied", permissionKey, batchOutcome.DenialReason);
                 await context.PublishAsync(new PermissionDeniedEvent(
-                    callId, evaluation.Key, batchOutcome.ChoiceId, batchOutcome.DenialReason), cancellationToken).ConfigureAwait(false);
+                    callId, evaluation.Key, batchOutcome.ChoiceId, "batch_denied"), cancellationToken).ConfigureAwait(false);
                 if (batchOutcome.DeniedBehavior == PermissionDeniedBehavior.InterruptTurn)
                     await InterruptDeniedPermissionAsync(context, batchOutcome.DenialReason, cancellationToken).ConfigureAwait(false);
             }
@@ -273,6 +275,8 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         {
             if (storedPreference.Decision == PermissionDecisionKind.Allow)
             {
+                await context.PublishAsync(new PermissionDecidedEvent(
+                    null, callId, evaluation.Key, PermissionDecisionKind.Allow, "always_allow"), cancellationToken).ConfigureAwait(false);
                 context.PermissionGrant = CreateGrant(
                     context,
                     function,
@@ -286,11 +290,13 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
 
             if (storedPreference.Decision == PermissionDecisionKind.Deny)
             {
+                await context.PublishAsync(new PermissionDecidedEvent(
+                    null, callId, evaluation.Key, PermissionDecisionKind.Deny, "always_deny"), cancellationToken).ConfigureAwait(false);
                 var denialReason = $"Execution of '{permissionKey}' was denied by a stored user preference.";
                 context.BlockExecution = true;
                 context.OverrideResult = BlockedResult("denied", permissionKey, denialReason);
                 await context.PublishAsync(new PermissionDeniedEvent(
-                    callId, evaluation.Key, "always_deny", denialReason), cancellationToken).ConfigureAwait(false);
+                    callId, evaluation.Key, "always_deny", "stored_preference"), cancellationToken).ConfigureAwait(false);
                 await InterruptDeniedPermissionAsync(context, denialReason, cancellationToken).ConfigureAwait(false);
                 return;
             }
@@ -323,6 +329,10 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             context.BlockExecution = true;
             const string timeoutReason = "Permission request timed out. Please respond to permission requests promptly.";
             context.OverrideResult = BlockedResult("timed_out", permissionKey, timeoutReason);
+            await context.PublishAsync(new PermissionDeniedEvent(
+                callId, evaluation.Key, "timed_out", "interaction_timeout"), cancellationToken).ConfigureAwait(false);
+            await context.PublishAsync(new PermissionDecidedEvent(
+                permissionId, callId, evaluation.Key, PermissionDecisionKind.Deny, "timed_out"), cancellationToken).ConfigureAwait(false);
             await InterruptDeniedPermissionAsync(context, timeoutReason, cancellationToken).ConfigureAwait(false);
             return;
         }
@@ -331,6 +341,10 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             context.BlockExecution = true;
             const string cancelledReason = "Permission request was cancelled.";
             context.OverrideResult = BlockedResult("cancelled", permissionKey, cancelledReason);
+            await context.PublishAsync(new PermissionDeniedEvent(
+                callId, evaluation.Key, "cancelled", "interaction_cancelled"), cancellationToken).ConfigureAwait(false);
+            await context.PublishAsync(new PermissionDecidedEvent(
+                permissionId, callId, evaluation.Key, PermissionDecisionKind.Deny, "cancelled"), CancellationToken.None).ConfigureAwait(false);
             await InterruptDeniedPermissionAsync(context, cancelledReason, cancellationToken).ConfigureAwait(false);
             return;
         }
@@ -376,7 +390,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             context.BlockExecution = true;
             context.OverrideResult = BlockedResult("denied", permissionKey, denialReason);
             await context.PublishAsync(new PermissionDeniedEvent(
-                callId, evaluation.Key, selectedChoice.Id, denialReason), cancellationToken).ConfigureAwait(false);
+                callId, evaluation.Key, selectedChoice.Id, "user_decision"), cancellationToken).ConfigureAwait(false);
             if (selectedChoice.DeniedBehavior == PermissionDeniedBehavior.InterruptTurn)
                 await InterruptDeniedPermissionAsync(context, denialReason, cancellationToken).ConfigureAwait(false);
             if (selectedChoice.Persistence is not null)
@@ -456,6 +470,8 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             context.Session?.Store is IPermissionPreferenceStore &&
             context.Base.ThreadEvents is not null &&
             context.SessionId is not null && context.ThreadId is not null);
+        await context.PublishAsync(new PermissionEvaluatedEvent(
+            callId, evaluation.Key, evaluation.Risk, evaluation.RequestFingerprint), cancellationToken).ConfigureAwait(false);
         var storedPreference = await FindStoredPreferenceAsync(
             context.Session?.Store,
             context.SessionId,
@@ -465,12 +481,16 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         {
             if (storedPreference.Decision == PermissionDecisionKind.Allow)
             {
+                await context.PublishAsync(new PermissionDecidedEvent(
+                    null, callId, evaluation.Key, PermissionDecisionKind.Allow, "always_allow"), cancellationToken).ConfigureAwait(false);
                 return (true, string.Empty, PermissionDeniedBehavior.InterruptTurn,
                     "always_allow", null, PermissionGrantSource.StoredPreference, evaluation);
             }
 
             if (storedPreference.Decision == PermissionDecisionKind.Deny)
             {
+                await context.PublishAsync(new PermissionDecidedEvent(
+                    null, callId, evaluation.Key, PermissionDecisionKind.Deny, "always_deny"), cancellationToken).ConfigureAwait(false);
                 return (false, $"Execution of '{permissionKey}' was denied by a stored user preference.",
                     PermissionDeniedBehavior.InterruptTurn, "always_deny", null,
                     PermissionGrantSource.StoredPreference, evaluation);
@@ -479,6 +499,8 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
 
         // Request permission via a request session
         var permissionId = Guid.NewGuid().ToString();
+        await context.PublishAsync(new PermissionRequestedAuditEvent(
+            permissionId, callId, evaluation.Key), cancellationToken).ConfigureAwait(false);
         // Wait for response from external handler
         PermissionResponseEvent response;
         try
@@ -496,18 +518,28 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         }
         catch (TimeoutException)
         {
+            await context.PublishAsync(new PermissionDeniedEvent(
+                callId, evaluation.Key, "timed_out", "interaction_timeout"), cancellationToken).ConfigureAwait(false);
+            await context.PublishAsync(new PermissionDecidedEvent(
+                permissionId, callId, evaluation.Key, PermissionDecisionKind.Deny, "timed_out"), cancellationToken).ConfigureAwait(false);
             return (false, "Permission request timed out. Please respond to permission requests promptly.",
                 PermissionDeniedBehavior.InterruptTurn, "timed_out", permissionId,
                 PermissionGrantSource.UserDecision, evaluation);
         }
         catch (OperationCanceledException)
         {
+            await context.PublishAsync(new PermissionDeniedEvent(
+                callId, evaluation.Key, "cancelled", "interaction_cancelled"), CancellationToken.None).ConfigureAwait(false);
+            await context.PublishAsync(new PermissionDecidedEvent(
+                permissionId, callId, evaluation.Key, PermissionDecisionKind.Deny, "cancelled"), CancellationToken.None).ConfigureAwait(false);
             return (false, "Permission request was cancelled.", PermissionDeniedBehavior.InterruptTurn,
                 "cancelled", permissionId, PermissionGrantSource.UserDecision, evaluation);
         }
 
         // Process response
         var selectedChoice = ResolveChoice(evaluation, response);
+        await context.PublishAsync(new PermissionDecidedEvent(
+            permissionId, callId, evaluation.Key, selectedChoice.Decision, selectedChoice.Id), cancellationToken).ConfigureAwait(false);
         if (selectedChoice.Decision == PermissionDecisionKind.Allow)
         {
             // Store persistent choice if requested (AlwaysAllow or AlwaysDeny)

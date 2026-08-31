@@ -90,6 +90,21 @@ public sealed record AIFunctionPermissionDescriptor
 /// <summary>Contains generated type identity and serialization for one permission presentation.</summary>
 public sealed record PermissionPresentationDescriptor
 {
+    /// <summary>Resolves exact non-reflection serializer metadata or fails closed.</summary>
+    public static JsonTypeInfo RequireGeneratedJsonTypeInfo(
+        JsonSerializerOptions options,
+        Type presentationType,
+        string presentationId)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(presentationType);
+        var typeInfo = options.GetTypeInfo(presentationType);
+        if (typeInfo.OriginatingResolver is DefaultJsonTypeInfoResolver)
+            throw new InvalidOperationException(
+                $"Permission presentation '{presentationId}' requires source-generated JSON metadata for '{presentationType.FullName}'.");
+        return typeInfo;
+    }
+
     /// <summary>Gets the stable wire identity declared by the presentation type.</summary>
     public required string PresentationId { get; init; }
     /// <summary>Gets the exact CLR type accepted from the policy.</summary>
@@ -350,12 +365,15 @@ public sealed record PermissionEvaluationEnvelope
 
 /// <summary>Declares a stable wire identity for a permission presentation.</summary>
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct, Inherited = false)]
-public sealed class PermissionPresentationAttribute(string id) : Attribute
+public sealed class PermissionPresentationAttribute(string id, Type? serializerContextType = null) : Attribute
 {
     /// <summary>Gets the stable presentation ID.</summary>
     public string Id { get; } = string.IsNullOrWhiteSpace(id)
         ? throw new ArgumentException("A presentation ID is required.", nameof(id))
         : id;
+
+    /// <summary>Gets the source-generated <see cref="JsonSerializerContext"/> that owns this presentation.</summary>
+    public Type? SerializerContextType { get; } = serializerContextType;
 }
 
 /// <summary>Framework presentation used by the default permission policy.</summary>

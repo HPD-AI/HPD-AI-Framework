@@ -25,7 +25,7 @@ internal sealed class DebugPermissionAuthorizationService
         FunctionExecutionContext context,
         string action)
     {
-        var grant = context.DemandApproved();
+        var grant = context.Permission.DemandApproved();
         var callId = context.InvocationSnapshot.FunctionCallId;
         if (!string.Equals(grant.FunctionCallId, callId, StringComparison.Ordinal) ||
             !string.Equals(grant.FunctionName, "Debug", StringComparison.Ordinal) ||

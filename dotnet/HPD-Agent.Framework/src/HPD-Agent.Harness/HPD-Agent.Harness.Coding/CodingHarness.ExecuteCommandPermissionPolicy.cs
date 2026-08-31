@@ -8,7 +8,7 @@ namespace HPD.Agent.ToolHarness.Coding;
 /// <summary>Safe typed presentation for an analyzed ExecuteCommand permission request.</summary>
 /// <param name="Plan">The constructor-free semantic command plan.</param>
 /// <param name="RuleDiagnostics">Diagnostics produced while matching reusable command rules.</param>
-[PermissionPresentation("hpd.coding.execute-command")]
+[PermissionPresentation("hpd.coding.execute-command", typeof(global::CodingToolHarnessJsonContext))]
 public sealed record ExecuteCommandPermissionPresentation(
     ExecuteCommandPermissionPlan Plan,
     ExecuteCommandPermissionRuleDiagnostics RuleDiagnostics,

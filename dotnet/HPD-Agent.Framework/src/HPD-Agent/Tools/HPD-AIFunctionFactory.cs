@@ -165,7 +165,20 @@ public class HPDAIFunctionFactory
             };
         }
 
-        public HPDAIFunctionFactoryOptions HPDOptions { get; }
+        internal HPDAIFunctionFactoryOptions HPDOptions { get; }
+
+        /// <summary>Gets the immutable function-level permission declaration snapshot.</summary>
+        public AIFunctionPermissionDeclaration? PermissionDeclaration => HPDOptions.FunctionPermission;
+
+        /// <summary>Gets the immutable normalized closed-action contract snapshot.</summary>
+        public AIFunctionOperationContract? OperationContract => HPDOptions.OperationContract;
+
+        /// <summary>Gets the immutable generated permission descriptor registry.</summary>
+        public IReadOnlyDictionary<string, HPD.Agent.Permissions.AIFunctionPermissionDescriptor> PermissionDescriptors =>
+            HPDOptions.PermissionDescriptors;
+
+        /// <summary>Gets the deferred generated final argument binder, when one is installed.</summary>
+        public Func<JsonElement, AIFunctionBindingResult>? ArgumentBinder => HPDOptions.ArgumentBinder;
         public override string Name { get; }
         public override string Description { get; }
         public override JsonElement JsonSchema { get; }
@@ -786,11 +799,16 @@ public sealed class VerifiedAIFunctionActionComposition
     {
         ArgumentNullException.ThrowIfNull(operationContract);
         JsonSchema = jsonSchema.Clone();
-        OperationContract = operationContract;
+        OperationContract = operationContract with
+        {
+            Actions = new ReadOnlyDictionary<string, AIFunctionActionPolicy>(
+                new Dictionary<string, AIFunctionActionPolicy>(operationContract.Actions, StringComparer.Ordinal))
+        };
         AgentInvocationModes.ValidateActionSchema(JsonSchema, OperationContract);
         InputContract = CanonicalJsonInputContract.Create(JsonSchema);
         FinalArgumentBinder = finalArgumentBinder;
-        CompositionFingerprint = InputContract.CanonicalSchemaFingerprint;
+        CompositionFingerprint = AIFunctionContractDescriptor.Create(
+            "<verified-action-composition>", JsonSchema, OperationContract).CanonicalSchemaFingerprint;
     }
 
     /// <summary>Gets the immutable canonical action schema.</summary>

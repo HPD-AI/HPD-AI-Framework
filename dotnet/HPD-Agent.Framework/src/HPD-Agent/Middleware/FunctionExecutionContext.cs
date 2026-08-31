@@ -73,6 +73,18 @@ public sealed class FunctionExecutionPermission
             throw new InvalidOperationException($"The permission grant was not issued by policy '{expectedPolicyId}'.");
         return grant;
     }
+
+    /// <summary>Returns the grant only when it was issued by the exact expected policy type.</summary>
+    /// <typeparam name="TPolicy">The generated permission policy type.</typeparam>
+    public FunctionPermissionGrant DemandPolicy<TPolicy>() where TPolicy : IPermissionPolicy
+    {
+        var fullName = typeof(TPolicy).FullName ?? typeof(TPolicy).Name;
+        var grant = DemandApproved();
+        return string.Equals(grant.Key.PolicyId, fullName, StringComparison.Ordinal) ||
+            string.Equals(grant.Key.PolicyId, "global::" + fullName, StringComparison.Ordinal)
+            ? grant
+            : throw new InvalidOperationException($"The permission grant was not issued by policy '{fullName}'.");
+    }
 }
 
 /// <summary>
@@ -119,13 +131,7 @@ public sealed class FunctionExecutionContext
         _stateSnapshot = request.State;
         RunConfig = request.RunConfig;
         InvocationMode = request.InvocationMode;
-        PermissionGrant = request.PermissionGrant;
-        Permission = new FunctionExecutionPermission(
-            request.PermissionGrant is not null || request.Function is HPDAIFunctionFactory.HPDAIFunction hpd &&
-                (request.InvocationMode?.Action is { } action && hpd.HPDOptions.OperationContract?.Actions.TryGetValue(action, out var policy) == true
-                    ? policy.Permission.RequiresPermission
-                    : hpd.HPDOptions.FunctionPermission?.RequiresPermission == true),
-            request.PermissionGrant);
+        Permission = new FunctionExecutionPermission(request.PermissionRequired, request.PermissionGrant);
         ResultMetadata = request.ResultMetadata;
         EventCoordinator = request.EventCoordinator;
         ThreadEvents = hookContext.Base.ThreadEvents;
@@ -147,7 +153,6 @@ public sealed class FunctionExecutionContext
     {
         InvocationSnapshot = source.InvocationSnapshot;
         InvocationMode = source.InvocationMode;
-        PermissionGrant = source.PermissionGrant;
         Permission = source.Permission;
         _stateSnapshot = source._stateSnapshot;
         RunConfig = source.RunConfig;
@@ -199,15 +204,8 @@ public sealed class FunctionExecutionContext
     /// <summary>Gets the immutable action and invocation-mode facts resolved for this call.</summary>
     public ResolvedFunctionInvocation? InvocationMode { get; }
 
-    /// <summary>Gets approval bound to this exact protected invocation, when one was issued.</summary>
-    public FunctionPermissionGrant? PermissionGrant { get; }
-
     /// <summary>Gets the defense-in-depth permission view for this invocation.</summary>
     public FunctionExecutionPermission Permission { get; }
-
-    /// <summary>Returns the invocation grant or throws when permission was not approved.</summary>
-    public FunctionPermissionGrant DemandApproved() => PermissionGrant ??
-        throw new InvalidOperationException("This invocation does not carry an approved permission grant.");
 
     /// <summary>Gets the resolved execution mode, or synchronous for an uncontracted legacy call.</summary>
     public AgentInvocationMode ResolvedInvocationMode => InvocationMode?.Mode ?? AgentInvocationMode.Synchronous;

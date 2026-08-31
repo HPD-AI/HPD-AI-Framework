@@ -362,6 +362,8 @@ public sealed class BeforeFunctionContext : HookContext
 {
     /// <summary>Gets the invocation-bound grant issued during permission admission.</summary>
     public FunctionPermissionGrant? PermissionGrant { get; internal set; }
+    /// <summary>Gets whether the fully resolved builder/run/action/function policy requires permission.</summary>
+    public bool PermissionRequired { get; internal set; }
     /// <summary>Gets the immutable action and invocation-mode facts resolved before this hook.</summary>
     public ResolvedFunctionInvocation? InvocationMode { get; }
     /// <summary>

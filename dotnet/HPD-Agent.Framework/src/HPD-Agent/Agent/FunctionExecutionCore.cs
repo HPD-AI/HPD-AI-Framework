@@ -598,6 +598,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 Invocation = preparation.Invocation,
                 InvocationMode = preparation.ResolvedInvocation,
                 PermissionGrant = beforeFunctionContext.PermissionGrant,
+                PermissionRequired = beforeFunctionContext.PermissionRequired,
                 ResultMetadata = resultMetadata,
                 ToolHarnessName = preparation.ToolHarnessName,
                 SkillName = null,
@@ -718,6 +719,9 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 !Equals(ResolvePermissionDeclaration(grantedFunction, grant.Action), grant.Authority.Declaration))
                 throw new InvalidOperationException("permission_authority_drift: the effective permission declaration changed after approval.");
         }
+        if (preparation.BeforeFunctionContext is { } permissionContext &&
+            request.PermissionRequired != permissionContext.PermissionRequired)
+            throw new InvalidOperationException("permission_authority_drift: wrapping middleware changed the effective permission requirement.");
 
         if (preparation.AuthorityStamp is not { } stamp ||
             preparation.Function is not HPDAIFunctionFactory.HPDAIFunction prepared ||

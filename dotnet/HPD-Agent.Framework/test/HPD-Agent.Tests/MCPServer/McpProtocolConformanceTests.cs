@@ -222,7 +222,7 @@ public sealed class McpProtocolConformanceTests
                 function.Name == "echo" || function.Name.EndsWith("read_resource") ||
                 function.Name.EndsWith("get_prompt")),
             function => Assert.True(
-                Assert.IsType<HPDAIFunctionFactory.HPDAIFunction>(function).HPDOptions.FunctionPermission?.RequiresPermission));
+                Assert.IsType<HPDAIFunctionFactory.HPDAIFunction>(function).PermissionDeclaration?.RequiresPermission));
         Assert.All(owner.Snapshot.Descriptors.Values, descriptor =>
             Assert.Equal(HPDCapabilityKind.Mcp, descriptor.Kind));
     }

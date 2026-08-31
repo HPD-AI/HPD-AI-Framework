@@ -413,8 +413,8 @@ internal static class CapabilityAnalyzer
         // Extract conditional and context metadata (same as Functions)
         var conditionalExpression = GetConditionalExpression(attrs);
         var contextTypeName = GetMetadataTypeName(method, semanticModel);
-        var requiresPermission = HasAttribute(attrs, "RequiresPermission");
-        DiagnoseUnsupportedPermissionCustomization(attrs, diagnostics);
+        var requiresPermission = HasFrameworkPermission(method, semanticModel);
+        DiagnoseUnsupportedPermissionCustomization(method, semanticModel, diagnostics);
 
         System.Diagnostics.Debug.WriteLine($"[AnalyzeSkillCapability] Skill={name}, Description={description}");
         System.Diagnostics.Debug.WriteLine($"[AnalyzeSkillCapability] ContextTypeName={contextTypeName ?? "NULL"}");
@@ -456,6 +456,7 @@ internal static class CapabilityAnalyzer
         string namespaceName,
         List<Diagnostic> diagnostics)
     {
+        DiagnoseUnsupportedPermissionCustomization(method, semanticModel, diagnostics);
         // Validate return type is SubAgent
         var returnType = semanticModel.GetTypeInfo(method.ReturnType).Type;
         if (returnType == null || returnType.Name != "SubAgent")
@@ -577,6 +578,7 @@ internal static class CapabilityAnalyzer
         string namespaceName,
         List<Diagnostic> diagnostics)
     {
+        DiagnoseUnsupportedPermissionCustomization(method, semanticModel, diagnostics);
         // Validate return type is AgentWorkflowInstance or Task<AgentWorkflowInstance>
         var returnType = semanticModel.GetTypeInfo(method.ReturnType).Type;
         if (returnType == null)
@@ -832,8 +834,8 @@ internal static class CapabilityAnalyzer
         var contextTypeName = GetMetadataTypeName(method, semanticModel);
 
         // Use standalone [RequiresPermission] attribute (same pattern as AIFunction/Skill)
-        var requiresPermission = HasAttribute(attrs, "RequiresPermission");
-        DiagnoseUnsupportedPermissionCustomization(attrs, diagnostics);
+        var requiresPermission = HasFrameworkPermission(method, semanticModel);
+        DiagnoseUnsupportedPermissionCustomization(method, semanticModel, diagnostics);
 
         System.Diagnostics.Debug.WriteLine($"[CapabilityAnalyzer] Analyzed MCPServer: {methodName}, Name={effectiveName}, FromManifest={fromManifest}, CollapseWithinToolHarness={collapseWithinToolHarness}");
 
@@ -914,8 +916,8 @@ internal static class CapabilityAnalyzer
         }
 
         // Use standalone [RequiresPermission] attribute (same pattern as AIFunction/Skill/MCPServer)
-        var requiresPermission = HasAttribute(attrs, "RequiresPermission");
-        DiagnoseUnsupportedPermissionCustomization(attrs, diagnostics);
+        var requiresPermission = HasFrameworkPermission(method, semanticModel);
+        DiagnoseUnsupportedPermissionCustomization(method, semanticModel, diagnostics);
 
         System.Diagnostics.Debug.WriteLine($"[CapabilityAnalyzer] Analyzed OpenApi: {methodName}, Prefix={prefix}, RequiresPermission={requiresPermission}");
 
@@ -966,9 +968,9 @@ internal static class CapabilityAnalyzer
         var isAsync = returnType.Contains("Task");
 
         // Resolve the canonical attribute by semantic identity; same-named attributes are not permission authority.
-        var permissionAttribute = symbol.GetAttributes().FirstOrDefault(static attribute =>
-            attribute.AttributeClass?.Name == "RequiresPermissionAttribute" &&
-            attribute.AttributeClass.ContainingNamespace.IsGlobalNamespace);
+        var permissionType = semanticModel.Compilation.GetTypeByMetadataName("HPD.Agent.RequiresPermissionAttribute");
+        var permissionAttribute = symbol.GetAttributes().FirstOrDefault(attribute =>
+            permissionType is not null && SymbolEqualityComparer.Default.Equals(attribute.AttributeClass, permissionType));
         var requiresPermission = permissionAttribute is not null;
         var permissionScope = GetNamedString(permissionAttribute, "PermissionScope");
         var permissionPolicyDescriptorId = GetNamedTypeId(permissionAttribute, "PermissionPolicy");
@@ -1074,6 +1076,13 @@ internal static class CapabilityAnalyzer
                         {
                             diagnostics.Add(Diagnostic.Create(PermissionDiagnostics.InvalidDeclaration, location,
                                 $"presentation type '{presentation.ToDisplayString()}' must declare a non-empty PermissionPresentationAttribute"));
+                            return false;
+                        }
+                        if (presentationAttribute!.ConstructorArguments.Length < 2 ||
+                            presentationAttribute.ConstructorArguments[1].Value is not ITypeSymbol)
+                        {
+                            diagnostics.Add(Diagnostic.Create(PermissionDiagnostics.InvalidDeclaration, location,
+                                $"presentation type '{presentation.ToDisplayString()}' must declare its source-generated JsonSerializerContext"));
                             return false;
                         }
                         break;
@@ -1274,18 +1283,25 @@ internal static class CapabilityAnalyzer
         });
     }
 
+    private static bool HasFrameworkPermission(MethodDeclarationSyntax method, SemanticModel semanticModel)
+    {
+        var permissionType = semanticModel.Compilation.GetTypeByMetadataName("HPD.Agent.RequiresPermissionAttribute");
+        return permissionType is not null && semanticModel.GetDeclaredSymbol(method)?.GetAttributes().Any(attribute =>
+            SymbolEqualityComparer.Default.Equals(attribute.AttributeClass, permissionType)) == true;
+    }
+
     private static void DiagnoseUnsupportedPermissionCustomization(
-        List<AttributeSyntax> attrs,
+        MethodDeclarationSyntax method,
+        SemanticModel semanticModel,
         List<Diagnostic> diagnostics)
     {
-        var attribute = attrs.FirstOrDefault(attr =>
-        {
-            var text = attr.Name.ToString().Split('.').Last();
-            return text is "RequiresPermission" or "RequiresPermissionAttribute";
-        });
-        if (attribute?.ArgumentList?.Arguments.Any(argument =>
-                argument.NameEquals?.Name.Identifier.ValueText is "PermissionScope" or "PermissionPolicy" or "PermissionInteraction") == true)
-            diagnostics.Add(Diagnostic.Create(PermissionDiagnostics.InvalidDeclaration, attribute.GetLocation(),
+        var permissionType = semanticModel.Compilation.GetTypeByMetadataName("HPD.Agent.RequiresPermissionAttribute");
+        var attribute = semanticModel.GetDeclaredSymbol(method)?.GetAttributes().FirstOrDefault(candidate =>
+            permissionType is not null && SymbolEqualityComparer.Default.Equals(candidate.AttributeClass, permissionType));
+        if (attribute?.NamedArguments.Any(pair =>
+                pair.Key is "PermissionScope" or "PermissionPolicy" or "PermissionInteraction") == true)
+            diagnostics.Add(Diagnostic.Create(PermissionDiagnostics.InvalidDeclaration,
+                attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation() ?? method.GetLocation(),
                 "custom permission scope, policy, and interaction properties are supported only on AIFunction capabilities"));
     }
 

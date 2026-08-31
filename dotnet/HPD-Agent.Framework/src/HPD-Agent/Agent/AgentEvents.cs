@@ -1306,7 +1306,7 @@ public sealed record PermissionGrantIssuedEvent(string FunctionCallId, Permissio
 /// <summary>Records rejection of one protected invocation.</summary>
 [HPD.Agent.Serialization.DurableEvent]
 [HPD.Agent.Serialization.EventType("PERMISSION_DENIED")]
-public sealed record PermissionDeniedEvent(string FunctionCallId, PermissionKey Key, string ChoiceId, string? Reason) : AgentEvent
+public sealed record PermissionDeniedEvent(string FunctionCallId, PermissionKey Key, string ChoiceId, string ReasonCode) : AgentEvent
 {
     /// <inheritdoc />
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;

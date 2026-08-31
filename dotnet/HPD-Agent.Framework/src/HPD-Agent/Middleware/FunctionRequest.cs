@@ -48,6 +48,8 @@ public sealed record FunctionRequest
 {
     /// <summary>Gets the permission grant issued for this exact invocation.</summary>
     public HPD.Agent.Permissions.FunctionPermissionGrant? PermissionGrant { get; init; }
+    /// <summary>Gets whether permission was effectively required after all typed overrides.</summary>
+    public bool PermissionRequired { get; init; }
     internal AgentContext? ExecutionContext { get; init; }
     internal FunctionOperationCommitGate? OperationCommitGate { get; init; }
     /// <summary>

@@ -33,6 +33,41 @@ public sealed class GeneratedPermissionArchitectureTests
     }
 
     [Fact]
+    public void Verified_composition_fingerprint_includes_action_permission_declaration()
+    {
+        using var schema = JsonDocument.Parse("""
+            {"type":"object","properties":{"request":{"oneOf":[{"type":"object","properties":{"action":{"type":"string","const":"read"}},"required":["action"],"additionalProperties":false}]}},"required":["request"],"additionalProperties":false}
+            """);
+        var first = Create("scope/one");
+        var second = Create("scope/two");
+        Assert.NotEqual(first.CompositionFingerprint, second.CompositionFingerprint);
+
+        VerifiedAIFunctionActionComposition Create(string scope) => new(
+            schema.RootElement,
+            new AIFunctionOperationContract
+            {
+                ActionArgumentName = "request",
+                Discriminator = "action",
+                Actions = new Dictionary<string, AIFunctionActionPolicy>
+                {
+                    ["read"] = new()
+                    {
+                        InvocationModePolicy = AgentInvocationModePolicy.SynchronousOnly,
+                        InvocationModeHandling = AgentInvocationModeHandling.Runtime,
+                        Permission = new AIFunctionPermissionDeclaration
+                        {
+                            RequiresPermission = true,
+                            Scope = scope,
+                            PolicyDescriptorId = "policy",
+                            InteractionDescriptorId = "interaction",
+                            Source = PermissionDeclarationSource.ActionOverride
+                        }
+                    }
+                }
+            });
+    }
+
+    [Fact]
     public void Function_snapshots_permission_options_at_creation()
     {
         using var schema = JsonDocument.Parse("""{"type":"object","properties":{},"additionalProperties":false}""");
@@ -52,7 +87,8 @@ public sealed class GeneratedPermissionArchitectureTests
 
         options.FunctionPermission = options.FunctionPermission with { Scope = "scope/mutated" };
 
-        Assert.Equal("scope/original", function.HPDOptions.FunctionPermission!.Scope);
+        Assert.Equal("scope/original", function.PermissionDeclaration!.Scope);
+        Assert.Null(typeof(HPDAIFunctionFactory.HPDAIFunction).GetProperty("HPDOptions"));
     }
 
     [Fact]
