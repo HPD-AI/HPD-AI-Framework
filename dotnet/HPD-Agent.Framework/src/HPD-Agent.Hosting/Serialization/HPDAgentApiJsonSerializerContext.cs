@@ -40,14 +40,9 @@ namespace HPD.Agent.Hosting.Serialization;
 [JsonSerializable(typeof(ThreadExecutionOperationDto))]
 [JsonSerializable(typeof(List<ThreadExecutionOperationDto>))]
 // Thread event DTOs
-[JsonSerializable(typeof(AgentEvent))]
-[JsonSerializable(typeof(ProviderOperationUsageEvent))]
-[JsonSerializable(typeof(ProviderValuationObservationEvent))]
 [JsonSerializable(typeof(ProviderUsageMeasurement))]
 [JsonSerializable(typeof(MessageTurnUsageSummary))]
 [JsonSerializable(typeof(ProviderReportedMonetaryObservation))]
-[JsonSerializable(typeof(AgentEvent[]))]
-[JsonSerializable(typeof(List<AgentEvent>))]
 // Content DTOs
 [JsonSerializable(typeof(ContentDto))]
 [JsonSerializable(typeof(ContentDto[]))]
@@ -62,7 +57,6 @@ namespace HPD.Agent.Hosting.Serialization;
 [JsonSerializable(typeof(StreamTextRequest))]
 [JsonSerializable(typeof(ContextUsageRequest))]
 [JsonSerializable(typeof(ThreadContextUsage))]
-[JsonSerializable(typeof(ThreadHistoryCompactionCheckpointEvent))]
 // Run config DTO graph used by StreamTextRequest
 [JsonSerializable(typeof(AgentRunConfig))]
 [JsonSerializable(typeof(CollapsingRunPolicy))]
@@ -154,8 +148,6 @@ namespace HPD.Agent.Hosting.Serialization;
 [JsonSerializable(typeof(BinaryContent))]
 [JsonSerializable(typeof(JsonContent))]
 [JsonSerializable(typeof(ClientToolInvokeOutcomeKind))]
-[JsonSerializable(typeof(ClientToolInvokeRequestEvent))]
-[JsonSerializable(typeof(ClientToolInvokeOutcomeEvent))]
 [JsonSerializable(typeof(ClientToolOperationOutcomeState))]
 [JsonSerializable(typeof(ClientToolOperationOutcomeEvent))]
 [JsonSerializable(typeof(ClientAppProviderReference))]

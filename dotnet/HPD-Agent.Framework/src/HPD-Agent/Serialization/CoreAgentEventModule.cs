@@ -120,7 +120,7 @@ public static class CoreAgentEventModule
 
     private static AgentEventDescriptor Create(Type eventType, string discriminator)
     {
-        var typeInfo = AgentEventJsonContext.Default.GetTypeInfo(eventType)
+        var typeInfo = HpdGeneratedAgentEventJsonContext_1c74a3cb93ce.Default.GetTypeInfo(eventType)
             ?? throw new InvalidOperationException($"Core event '{eventType.FullName}' has no source-generated JSON metadata.");
         return new AgentEventDescriptor
         {

@@ -33,12 +33,9 @@ namespace HPD.Agent;
 [JsonSerializable(typeof(ThreadJournalReplaceResult))]
 [JsonSerializable(typeof(ThreadKind))]
 [JsonSerializable(typeof(ThreadVisibility))]
-[JsonSerializable(typeof(ThreadHistoryCompactionCheckpointEvent))]
 [JsonSerializable(typeof(CompactionPointDescriptor))]
 [JsonSerializable(typeof(CompactionPreservationDescriptor))]
 [JsonSerializable(typeof(CompactionStrategyDescriptor))]
-[JsonSerializable(typeof(AgentEvent))]
-[JsonSerializable(typeof(List<AgentEvent>))]
 [JsonSerializable(typeof(ToolResultPayload))]
 
 // HPD-specific types
