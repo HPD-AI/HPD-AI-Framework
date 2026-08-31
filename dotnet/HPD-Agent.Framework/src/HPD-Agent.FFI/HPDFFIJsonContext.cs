@@ -144,7 +144,6 @@ namespace HPD.Agent.FFI;
 [JsonSerializable(typeof(HPD.Agent.Security.AgentSandboxPathAccess))]
 [JsonSerializable(typeof(CompactionRunPolicy))]
 [JsonSerializable(typeof(ThreadCompactionRequest))]
-[JsonSerializable(typeof(CompactThreadInputEvent))]
 [JsonSerializable(typeof(ThreadContextUsage))]
 [JsonSerializable(typeof(AudioRunConfig))]
 
@@ -193,7 +192,6 @@ namespace HPD.Agent.FFI;
 [JsonSerializable(typeof(FfiAgentOperation))]
 [JsonSerializable(typeof(List<FfiAgentOperation>))]
 [JsonSerializable(typeof(AgentOperationReceipt))]
-[JsonSerializable(typeof(AgentOperationNotificationInputEvent))]
 [JsonSerializable(typeof(AgentOperationNotification))]
 [JsonSerializable(typeof(AgentOperationTombstone))]
 [JsonSerializable(typeof(FunctionInvocationSnapshot))]
@@ -203,7 +201,6 @@ namespace HPD.Agent.FFI;
 [JsonSerializable(typeof(List<HPD.Agent.ClientTools.IToolResultContent>))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.ClientToolInvokeOutcomeKind))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.ClientToolOperationOutcomeState))]
-[JsonSerializable(typeof(HPD.Agent.ClientTools.ClientToolOperationOutcomeEvent))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.TextContent))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.BinaryContent))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.JsonContent))]

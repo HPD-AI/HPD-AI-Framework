@@ -33,14 +33,11 @@ namespace HPD.Agent.Serialization;
 )]
 // Base types
 [JsonSerializable(typeof(AgentMetadata))]
-[JsonSerializable(typeof(AgentInputEvent))]
 [JsonSerializable(typeof(AgentEventCatalog))]
 [JsonSerializable(typeof(AgentEventCatalogEntry))]
 [JsonSerializable(typeof(AgentMessageSource))]
 [JsonSerializable(typeof(AgentMessageVisibility))]
 [JsonSerializable(typeof(AgentMessagePersistence))]
-[JsonSerializable(typeof(UserMessagesInputEvent))]
-[JsonSerializable(typeof(AudioSessionInputEvent))]
 [JsonSerializable(typeof(AudioSessionCommand))]
 [JsonSerializable(typeof(AudioSessionCommand.Start))]
 [JsonSerializable(typeof(AudioSessionCommand.Update))]
@@ -52,10 +49,8 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(AudioSessionInputResult))]
 [JsonSerializable(typeof(AudioSessionStartBindings))]
 [JsonSerializable(typeof(AudioSessionStartBinding))]
-[JsonSerializable(typeof(CompactThreadInputEvent))]
 [JsonSerializable(typeof(ThreadCompactionRequest))]
 [JsonSerializable(typeof(ClientTools.ClientToolOperationOutcomeState))]
-[JsonSerializable(typeof(ClientTools.ClientToolOperationOutcomeEvent))]
 [JsonSerializable(typeof(CompactionPointDescriptor))]
 [JsonSerializable(typeof(CompactionPreservationDescriptor))]
 [JsonSerializable(typeof(CompactionStrategyDescriptor))]
@@ -169,7 +164,6 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(ToolCallType))]
 
 // Background Task Events
-[JsonSerializable(typeof(AgentOperationNotificationInputEvent))]
 [JsonSerializable(typeof(AgentOperationNotification))]
 [JsonSerializable(typeof(AgentOperationRetentionPolicy))]
 [JsonSerializable(typeof(AgentOperationTombstone))]
