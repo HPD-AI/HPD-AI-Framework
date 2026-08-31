@@ -6815,84 +6815,102 @@ public sealed partial class Agent : IAsyncDisposable
         }
 
         IReadOnlyList<AgentEvent>? targetJournalEvents = null;
-        if (!_middlewarePipeline.IsEmpty)
+        try
         {
-            var forkEventCoordinator = GetActiveEventCoordinator();
-            var sessionState = MiddlewareState.LoadFromSession(sourceThread.Session, _stateFactories);
-            var threadState = MiddlewareState.LoadFromThread(newThread, _stateFactories);
-            var persistentState = sessionState.Merge(threadState);
-            var forkState = AgentLoopState.Initial(
-                newThread.Messages,
-                runId: Guid.NewGuid().ToString("N"),
-                conversationId: sourceThread.SessionId,
-                agentName: _name,
-                persistentState: persistentState);
-
-            var forkContext = new Middleware.AgentContext(
-                agentName: _name,
-                conversationId: sourceThread.SessionId,
-                initialState: forkState,
-                eventCoordinator: forkEventCoordinator,
-                threadEvents: Config?.SessionStore is { } forkStore
-                    ? CreateEventPublisher(forkStore, forkEventCoordinator)
-                    : null,
-                session: sourceThread.Session,
-                thread: newThread,
-                cancellationToken: cancellationToken,
-                effectiveChatClient: _defaultChatClientHandle,
-                chatClientResolver: _chatClientResolver,
-                services: _serviceProvider,
-                runtimeCapabilities: _runtimeContext?.RuntimeCapabilities,
-                agentId: AgentId,
-                parentAgentMetadata: AgentMetadata,
-                parentAgentStore: Config?.AgentStore,
-                config: Config,
-                clientSet: _clientSet,
-                contentStore: _contentStore,
-                structEvents: GetActiveStructEvents());
-
-            var beforeForkCommitContext = forkContext.AsBeforeThreadForkCommit(
-                sourceThread,
-                newThread,
-                fromMessageIndex,
-                string.IsNullOrWhiteSpace(fromMessageId) ? null : fromMessageId,
-                forkOptions);
-
-            await _middlewarePipeline.ExecuteBeforeThreadForkCommitAsync(
-                beforeForkCommitContext,
-                cancellationToken).ConfigureAwait(false);
-
-            targetJournalEvents = beforeForkCommitContext.HistoricalEvents;
-
-            forkContext.State.MiddlewareState.SaveToThread(newThread, _stateFactories);
-            if (sourceThread.Session != null)
+            if (!_middlewarePipeline.IsEmpty)
             {
-                forkContext.State.MiddlewareState.SaveToSession(sourceThread.Session, _stateFactories);
+                var forkEventCoordinator = GetActiveEventCoordinator();
+                var sessionState = MiddlewareState.LoadFromSession(sourceThread.Session, _stateFactories);
+                var threadState = MiddlewareState.LoadFromThread(newThread, _stateFactories);
+                var persistentState = sessionState.Merge(threadState);
+                var forkState = AgentLoopState.Initial(
+                    newThread.Messages,
+                    runId: Guid.NewGuid().ToString("N"),
+                    conversationId: sourceThread.SessionId,
+                    agentName: _name,
+                    persistentState: persistentState);
+
+                var forkContext = new Middleware.AgentContext(
+                    agentName: _name,
+                    conversationId: sourceThread.SessionId,
+                    initialState: forkState,
+                    eventCoordinator: forkEventCoordinator,
+                    threadEvents: Config?.SessionStore is { } forkStore
+                        ? CreateEventPublisher(forkStore, forkEventCoordinator)
+                        : null,
+                    session: sourceThread.Session,
+                    thread: newThread,
+                    cancellationToken: cancellationToken,
+                    effectiveChatClient: _defaultChatClientHandle,
+                    chatClientResolver: _chatClientResolver,
+                    services: _serviceProvider,
+                    runtimeCapabilities: _runtimeContext?.RuntimeCapabilities,
+                    agentId: AgentId,
+                    parentAgentMetadata: AgentMetadata,
+                    parentAgentStore: Config?.AgentStore,
+                    config: Config,
+                    clientSet: _clientSet,
+                    contentStore: _contentStore,
+                    structEvents: GetActiveStructEvents());
+
+                var beforeForkCommitContext = forkContext.AsBeforeThreadForkCommit(
+                    sourceThread,
+                    newThread,
+                    fromMessageIndex,
+                    string.IsNullOrWhiteSpace(fromMessageId) ? null : fromMessageId,
+                    forkOptions);
+
+                await _middlewarePipeline.ExecuteBeforeThreadForkCommitAsync(
+                    beforeForkCommitContext,
+                    cancellationToken).ConfigureAwait(false);
+
+                targetJournalEvents = beforeForkCommitContext.HistoricalEvents;
+
+                forkContext.State.MiddlewareState.SaveToThread(newThread, _stateFactories);
+                if (sourceThread.Session != null)
+                    forkContext.State.MiddlewareState.SaveToSession(sourceThread.Session, _stateFactories);
             }
+        }
+        catch (Exception exception)
+        {
+            await AbortForkOperationAsync(forkOperationStore, forkOperation, exception).ConfigureAwait(false);
+            throw;
         }
 
         var targetKey = new ThreadKey(newThread.SessionId, newThread.Id);
-        if (forkOperation.Status == ThreadForkOperationStatus.Prepared)
+        IReadOnlyList<AgentEvent> registryEvents;
+        try
         {
-            forkOperation = forkOperation with
+            if (forkOperation.Status == ThreadForkOperationStatus.Prepared)
             {
-                Status = ThreadForkOperationStatus.ChildrenPreparing,
-                Revision = forkOperation.Revision + 1
-            };
-            await forkOperationStore.WriteThreadForkOperationAsync(
-                forkOperation,
-                new ThreadForkOperationWriteCondition(forkOperation.Revision - 1),
+                forkOperation = forkOperation with
+                {
+                    Status = ThreadForkOperationStatus.ChildrenPreparing,
+                    Revision = forkOperation.Revision + 1
+                };
+                await forkOperationStore.WriteThreadForkOperationAsync(
+                    forkOperation,
+                    new ThreadForkOperationWriteCondition(forkOperation.Revision - 1),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            registryEvents = await PlanSubAgentRegistryForForkAsync(
+                store,
+                new ThreadKey(sourceThread.SessionId, sourceThread.Id),
+                targetKey,
+                sourceForkBoundary,
+                forkOperationId,
+                requestFingerprint,
+                forkOptions.SubAgents ?? Config.DefaultSubAgentForkOptions,
                 cancellationToken).ConfigureAwait(false);
         }
-        var registryEvents = await PlanSubAgentRegistryForForkAsync(
-            store,
-            new ThreadKey(sourceThread.SessionId, sourceThread.Id),
-            targetKey,
-            sourceForkBoundary,
-            forkOperationId,
-            requestFingerprint,
-            forkOptions.SubAgents ?? Config.DefaultSubAgentForkOptions,
-            cancellationToken).ConfigureAwait(false);
+        catch (Exception exception)
+        {
+            await AbortForkOperationAsync(forkOperationStore, forkOperation, exception).ConfigureAwait(false);
+            throw;
+        }
+        List<AgentEvent> plannedTargetEvents;
+        try
+        {
         var preparedChildren = registryEvents.OfType<SubAgentChildRegisteredEvent>()
             .Select(static evt => evt.Child.ChildThread)
             .Where(static route => route is not null)
@@ -6928,7 +6946,6 @@ public sealed partial class Agent : IAsyncDisposable
             throw new InvalidOperationException("thread_fork_child_seed_changed");
         newThread.Preparation = new ThreadPreparationDescriptor(
             forkOperationId, sourceKey, requestFingerprint);
-        List<AgentEvent> plannedTargetEvents;
         if (targetJournalEvents is not null)
         {
             if (targetJournalEvents.Any(IsThreadStructuralEvent))
@@ -6993,6 +7010,12 @@ public sealed partial class Agent : IAsyncDisposable
         newThread.Preparation = new ThreadPreparationDescriptor(
             forkOperationId, sourceKey, requestFingerprint, forkOperation.TargetSeedFingerprint);
         plannedTargetEvents[0] = ThreadEventFactory.ThreadCreated(newThread);
+        }
+        catch (Exception exception)
+        {
+            await AbortForkOperationAsync(forkOperationStore, forkOperation, exception).ConfigureAwait(false);
+            throw;
+        }
 
         try
         {
@@ -7569,6 +7592,29 @@ public sealed partial class Agent : IAsyncDisposable
                 operation.TargetSeedFingerprint,
                 StringComparison.Ordinal))
             throw new InvalidOperationException("thread_fork_target_seed_mismatch");
+    }
+
+    private static async ValueTask AbortForkOperationAsync(
+        IThreadForkOperationStore store,
+        ThreadForkOperationRecord operation,
+        Exception exception)
+    {
+        var latest = await store.GetThreadForkOperationAsync(operation.OperationId, CancellationToken.None)
+            .ConfigureAwait(false) ?? operation;
+        if (latest.Status is ThreadForkOperationStatus.Committed or
+            ThreadForkOperationStatus.ReconciliationRequired or
+            ThreadForkOperationStatus.Aborted)
+            return;
+        var aborted = latest with
+        {
+            Status = ThreadForkOperationStatus.Aborted,
+            Revision = latest.Revision + 1,
+            Error = exception.Message
+        };
+        await store.WriteThreadForkOperationAsync(
+            aborted,
+            new ThreadForkOperationWriteCondition(latest.Revision),
+            CancellationToken.None).ConfigureAwait(false);
     }
 
     private static async ValueTask<IReadOnlyList<AgentEvent>> PlanSubAgentRegistryForForkAsync(
