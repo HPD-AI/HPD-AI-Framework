@@ -27,10 +27,20 @@ internal sealed record FunctionExecutionPreparation(
     AIFunction? Function,
     IReadOnlyDictionary<string, object?> Arguments,
     ResolvedFunctionInvocation? ResolvedInvocation,
+    FunctionAuthorityStamp? AuthorityStamp,
     BeforeFunctionContext? BeforeFunctionContext,
     FunctionExecutionOutcome? ImmediateOutcome,
     string? ToolHarnessName,
     ToolCallType? CallType);
+
+internal sealed record FunctionAuthorityStamp(
+    AIFunction Function,
+    string ContractFingerprint,
+    string Action,
+    JsonElement CanonicalAction,
+    AgentInvocationMode Mode,
+    AgentInvocationModePolicy Policy,
+    AgentInvocationModeHandling Handling);
 
 internal sealed record FunctionBodyExecutionResult(
     FunctionExecutionPreparation Preparation,
@@ -273,6 +283,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 Function: null,
                 Arguments: new Dictionary<string, object?>(),
                 ResolvedInvocation: null,
+                AuthorityStamp: null,
                 BeforeFunctionContext: null,
                 ImmediateOutcome: outcome,
                 ToolHarnessName: null,
@@ -308,6 +319,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 function,
                 Arguments: new Dictionary<string, object?>(),
                 ResolvedInvocation: null,
+                AuthorityStamp: null,
                 BeforeFunctionContext: null,
                 ImmediateOutcome: outcome,
                 ToolHarnessName: toolharnessName,
@@ -340,6 +352,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 Function: null,
                 Arguments: new Dictionary<string, object?>(),
                 ResolvedInvocation: null,
+                AuthorityStamp: null,
                 BeforeFunctionContext: null,
                 ImmediateOutcome: outcome,
                 ToolHarnessName: null,
@@ -349,6 +362,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
         IReadOnlyDictionary<string, object?> arguments = (IReadOnlyDictionary<string, object?>?)(functionCall.Arguments ?? new Dictionary<string, object?>())
             ?? new Dictionary<string, object?>();
         ResolvedFunctionInvocation? resolvedInvocation = null;
+        FunctionAuthorityStamp? authorityStamp = null;
         if (function is HPDAIFunctionFactory.HPDAIFunction hpdFunction)
         {
             var ingressProvenance = FunctionArgumentIngressProvenance.Original;
@@ -393,6 +407,12 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                         pair.Key != AIFunctionArgumentsExtensions.JsonSerializerOptionsKey &&
                         pair.Key != AIFunctionArgumentsExtensions.BoundArgumentsKey)
                     .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+                authorityStamp = new FunctionAuthorityStamp(
+                    function,
+                    hpdFunction.ContractDescriptor?.CanonicalSchemaFingerprint
+                        ?? throw new InvalidOperationException("Action functions require a canonical contract fingerprint."),
+                    resolvedInvocation.Action!, resolvedInvocation.ValidatedAction!.CanonicalJson.Clone(),
+                    resolvedInvocation.Mode, resolvedInvocation.Policy, resolvedInvocation.Handling);
             }
             else
             {
@@ -465,6 +485,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 function,
                 arguments,
                 resolvedInvocation,
+                authorityStamp,
                 beforeFunctionContext,
                 ImmediateOutcome: outcome,
                 ToolHarnessName: toolharnessName,
@@ -477,6 +498,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             function,
             arguments,
             resolvedInvocation,
+            authorityStamp,
             beforeFunctionContext,
             ImmediateOutcome: null,
             ToolHarnessName: toolharnessName,
@@ -506,7 +528,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             Exception: null, WasBlocked: true, WasUnknown: false, WasOutputTool: false,
             ShouldTerminate: false, toolharnessName, callType, new ToolResultMetadata(), invocation);
         return new FunctionExecutionPreparation(
-            functionCall, invocation, function, new Dictionary<string, object?>(), null, null,
+            functionCall, invocation, function, new Dictionary<string, object?>(), null, null, null,
             outcome, toolharnessName, callType);
     }
 
@@ -663,15 +685,21 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
         FunctionExecutionPreparation preparation,
         Middleware.FunctionRequest request)
     {
-        if (preparation.Function is not HPDAIFunctionFactory.HPDAIFunction prepared ||
+        if (preparation.AuthorityStamp is not { } stamp ||
+            preparation.Function is not HPDAIFunctionFactory.HPDAIFunction prepared ||
             prepared.HPDOptions.OperationContract is not { } contract)
             return;
-        if (!ReferenceEquals(preparation.Function, request.Function))
+        if (!ReferenceEquals(stamp.Function, request.Function) ||
+            !string.Equals(prepared.ContractDescriptor?.CanonicalSchemaFingerprint,
+                stamp.ContractFingerprint, StringComparison.Ordinal) ||
+            preparation.ResolvedInvocation is not { } invocation ||
+            invocation.Action != stamp.Action || invocation.Mode != stamp.Mode ||
+            invocation.Policy != stamp.Policy || invocation.Handling != stamp.Handling)
             throw new InvalidOperationException("function_authority_drift: wrapping middleware replaced the authorized function.");
         if (!preparation.Arguments.TryGetValue(contract.ActionArgumentName, out var expected) ||
             !request.Arguments.TryGetValue(contract.ActionArgumentName, out var actual))
             throw new InvalidOperationException("function_authority_drift: wrapping middleware removed the authorized action.");
-        var expectedJson = ToCanonicalElement(expected);
+        var expectedJson = stamp.CanonicalAction;
         var actualJson = ToCanonicalElement(actual);
         if (!JsonElement.DeepEquals(expectedJson, actualJson) ||
             ContainsExactProperty(actualJson, "invocationMode"))

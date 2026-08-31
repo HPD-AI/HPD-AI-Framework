@@ -67,7 +67,7 @@ public class HPDAIFunctionFactory
             Description = options.Description ?? "";
             ContractDescriptor = JsonSchema.ValueKind == JsonValueKind.Undefined
                 ? null
-                : AIFunctionContractDescriptor.Create(Name, JsonSchema);
+                : AIFunctionContractDescriptor.Create(Name, JsonSchema, options.OperationContract);
             CanonicalInputContract = JsonSchema.ValueKind == JsonValueKind.Undefined
                 ? null
                 : CanonicalJsonInputContract.Create(JsonSchema);
@@ -342,10 +342,22 @@ public sealed record AIFunctionContractDescriptor
     /// <summary>Gets a detached copy of the canonical composed schema.</summary>
     public required JsonElement CanonicalSchema { get; init; }
 
-    internal static AIFunctionContractDescriptor Create(string functionName, JsonElement schema)
+    internal static AIFunctionContractDescriptor Create(
+        string functionName,
+        JsonElement schema,
+        AIFunctionOperationContract? operationContract = null)
     {
-        var canonical = schema.GetRawText();
-        var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)))
+        var canonical = new StringBuilder(schema.GetRawText());
+        if (operationContract is not null)
+        {
+            canonical.Append('|').Append(operationContract.ActionArgumentName)
+                .Append('|').Append(operationContract.Discriminator);
+            foreach (var (action, policy) in operationContract.Actions.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+                canonical.Append('|').Append(action).Append(':')
+                    .Append((int)policy.InvocationModePolicy).Append(':')
+                    .Append((int)policy.InvocationModeHandling);
+        }
+        var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString())))
             .ToLowerInvariant();
         return new AIFunctionContractDescriptor
         {

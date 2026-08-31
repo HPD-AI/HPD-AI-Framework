@@ -121,6 +121,7 @@ internal static class FunctionInvocationRuntime
                 "Background invocation requires an active agent runtime.");
         }
 
+        var operationContext = parentContext.CreateOperationProjection();
         var receipt = await AgentLocalOperationScheduler.StartAsync(
             operations,
             AgentOperationSourceKind.LocalTool,
@@ -132,7 +133,6 @@ internal static class FunctionInvocationRuntime
             request.OperationNotification,
             async (_, runtimeToken) =>
             {
-                var operationContext = parentContext.CreateOperationProjection();
                 var result = await request.InvokeFunctionAsync(
                     sanitizedArguments,
                     operationContext,
