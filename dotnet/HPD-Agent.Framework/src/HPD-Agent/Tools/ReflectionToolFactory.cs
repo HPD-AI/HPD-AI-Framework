@@ -318,7 +318,7 @@ internal static class ReflectionToolFactory
                 FunctionPermission = new AIFunctionPermissionDeclaration
                 {
                     RequiresPermission = true,
-                    Authority = $"multiagent/{Uri.EscapeDataString(name)}",
+                    Authority = $"function/{Uri.EscapeDataString(name)}",
                     Source = PermissionDeclarationSource.FrameworkDefault
                 },
                 SerializerOptions = serializerOptions,

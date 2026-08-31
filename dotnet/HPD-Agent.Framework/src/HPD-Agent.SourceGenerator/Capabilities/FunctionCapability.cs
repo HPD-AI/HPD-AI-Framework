@@ -210,7 +210,7 @@ $@"({asyncKeyword} (arguments, functionContext, cancellationToken) =>
         options.AppendLine($"                Name = {nameCode},");
         options.AppendLine($"                Description = {descriptionCode},");
         if (RequiresPermission)
-            options.AppendLine($"                FunctionPermission = {CreatePermissionDeclaration(true, PermissionAuthority ?? GeneratedScope(FunctionName), PermissionPolicyDescriptorId, PermissionInteractionDescriptorId, "FunctionAttribute")},");
+            options.AppendLine($"                FunctionPermission = {CreatePermissionDeclaration(true, PermissionAuthority ?? GeneratedAuthority(FunctionName), PermissionPolicyDescriptorId, PermissionInteractionDescriptorId, "FunctionAttribute")},");
         options.AppendLine($"                PermissionDescriptors = {GeneratePermissionDescriptorsCode(relevantParams)},");
         options.AppendLine($"                InvocationModePolicy = global::HPD.Agent.AgentInvocationModePolicy.{InvocationModePolicy},");
         options.AppendLine($"                InvocationModeHandling = global::HPD.Agent.AgentInvocationModeHandling.{InvocationModeHandling},");
@@ -366,7 +366,7 @@ $@"HPDAIFunctionFactory.Create(
         if (!hasOverride)
             return CreatePermissionDeclaration(
                 RequiresPermission,
-                PermissionAuthority ?? GeneratedScope(FunctionName, action),
+                PermissionAuthority ?? GeneratedAuthority(FunctionName, action),
                 PermissionPolicyDescriptorId,
                 PermissionInteractionDescriptorId,
                 RequiresPermission ? "FunctionAttribute" : "FrameworkDefault");
@@ -382,13 +382,13 @@ $@"HPDAIFunctionFactory.Create(
         };
         return CreatePermissionDeclaration(
             required,
-            authority.Value.Value as string ?? GeneratedScope(FunctionName, action),
+            authority.Value.Value as string ?? GeneratedAuthority(FunctionName, action),
             (policy.Value.Value as ITypeSymbol)?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             (interaction.Value.Value as ITypeSymbol)?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             "ActionOverride");
     }
 
-    private static string GeneratedScope(string function, string? action = null) => action is null
+    private static string GeneratedAuthority(string function, string? action = null) => action is null
         ? $"function/{Uri.EscapeDataString(function)}"
         : $"function/{Uri.EscapeDataString(function)}/action/{Uri.EscapeDataString(action)}";
 

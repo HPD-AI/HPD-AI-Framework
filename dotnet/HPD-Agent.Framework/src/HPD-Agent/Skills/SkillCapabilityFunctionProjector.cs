@@ -214,8 +214,8 @@ public static class SkillCapabilityFunctionProjector
                 ? new AIFunctionPermissionDeclaration
                 {
                     RequiresPermission = true,
-                    Authority = $"skill/{Uri.EscapeDataString(name)}",
-                    Source = PermissionDeclarationSource.FunctionAttribute
+                    Authority = $"function/{Uri.EscapeDataString(name)}",
+                    Source = PermissionDeclarationSource.FrameworkDefault
                 }
                 : null,
             SchemaProvider = inputContract is null

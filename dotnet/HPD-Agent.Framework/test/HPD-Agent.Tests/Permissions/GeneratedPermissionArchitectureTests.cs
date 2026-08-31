@@ -10,13 +10,13 @@ public sealed class GeneratedPermissionArchitectureTests
     public void Composition_fingerprint_changes_with_permission_authority()
     {
         using var schema = JsonDocument.Parse("""{"type":"object","properties":{},"additionalProperties":false}""");
-        var first = CreateFunction("scope/one");
-        var second = CreateFunction("scope/two");
+        var first = CreateFunction("authority/one");
+        var second = CreateFunction("authority/two");
 
         Assert.NotEqual(first.ContractDescriptor!.CanonicalSchemaFingerprint,
             second.ContractDescriptor!.CanonicalSchemaFingerprint);
 
-        HPDAIFunctionFactory.HPDAIFunction CreateFunction(string scope) =>
+        HPDAIFunctionFactory.HPDAIFunction CreateFunction(string authority) =>
             (HPDAIFunctionFactory.HPDAIFunction)HPDAIFunctionFactory.Create(
                 static (_, _, _) => Task.FromResult<object?>(null),
                 new HPDAIFunctionFactoryOptions
@@ -26,7 +26,7 @@ public sealed class GeneratedPermissionArchitectureTests
                     FunctionPermission = new AIFunctionPermissionDeclaration
                     {
                         RequiresPermission = true,
-                        Authority = scope,
+                        Authority = authority,
                         Source = PermissionDeclarationSource.FunctionAttribute
                     }
                 });
@@ -38,11 +38,11 @@ public sealed class GeneratedPermissionArchitectureTests
         using var schema = JsonDocument.Parse("""
             {"type":"object","properties":{"request":{"oneOf":[{"type":"object","properties":{"action":{"type":"string","const":"read"}},"required":["action"],"additionalProperties":false}]}},"required":["request"],"additionalProperties":false}
             """);
-        var first = Create("scope/one");
-        var second = Create("scope/two");
+        var first = Create("authority/one");
+        var second = Create("authority/two");
         Assert.NotEqual(first.CompositionFingerprint, second.CompositionFingerprint);
 
-        VerifiedAIFunctionActionComposition Create(string scope) => new(
+        VerifiedAIFunctionActionComposition Create(string authority) => new(
             schema.RootElement,
             new AIFunctionOperationContract
             {
@@ -57,7 +57,7 @@ public sealed class GeneratedPermissionArchitectureTests
                         Permission = new AIFunctionPermissionDeclaration
                         {
                             RequiresPermission = true,
-                            Authority = scope,
+                            Authority = authority,
                             PolicyDescriptorId = "policy",
                             InteractionDescriptorId = "interaction",
                             Source = PermissionDeclarationSource.ActionOverride
@@ -78,16 +78,16 @@ public sealed class GeneratedPermissionArchitectureTests
             FunctionPermission = new AIFunctionPermissionDeclaration
             {
                 RequiresPermission = true,
-                Authority = "scope/original",
+                Authority = "authority/original",
                 Source = PermissionDeclarationSource.FunctionAttribute
             }
         };
         var function = (HPDAIFunctionFactory.HPDAIFunction)HPDAIFunctionFactory.Create(
             static (_, _, _) => Task.FromResult<object?>(null), options);
 
-        options.FunctionPermission = options.FunctionPermission with { Authority = "scope/mutated" };
+        options.FunctionPermission = options.FunctionPermission with { Authority = "authority/mutated" };
 
-        Assert.Equal("scope/original", function.PermissionDeclaration!.Authority);
+        Assert.Equal("authority/original", function.PermissionDeclaration!.Authority);
         Assert.Null(typeof(HPDAIFunctionFactory.HPDAIFunction).GetProperty("HPDOptions"));
     }
 
