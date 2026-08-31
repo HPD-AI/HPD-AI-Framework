@@ -69,7 +69,8 @@ public sealed class CollapseAttribute : Attribute
     /// <summary>
     /// Middleware types owned by this ToolHarness.
     /// Each type must implement <see cref="HPD.Agent.Middleware.IToolHarnessMiddleware"/> and
-    /// declare a supported generated, reflection, or services-owned activation contract.
+    /// declare a supported source-generated constructor shape, explicit exact-type override
+    /// factory, or explicitly services-owned activation contract.
     /// Middleware is activated lazily in the execution-local ToolHarness pipeline on first
     /// applicable use, including rehydrated executions, and is released during final execution-owner
     /// teardown. Its lifetime is independent of descriptive system-prompt persistence.
