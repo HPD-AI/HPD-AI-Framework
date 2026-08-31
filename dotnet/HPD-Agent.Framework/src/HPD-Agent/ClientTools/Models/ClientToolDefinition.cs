@@ -62,13 +62,7 @@ public sealed record ClientToolDefinition
         if (OperationContract is null)
             return null;
 
-        if (!arguments.TryGetValue(OperationContract.Discriminator, out var rawAction) ||
-            !TryReadString(rawAction, out var action))
-        {
-            throw new ArgumentException(
-                $"Compound tool requires string discriminator '{OperationContract.Discriminator}'.",
-                nameof(arguments));
-        }
+        var action = AgentInvocationModes.ResolveDiscriminator(arguments, OperationContract.Discriminator);
 
         if (!OperationContract.Actions.TryGetValue(action, out var actionPolicy))
             throw new ArgumentException($"Unknown compound tool action '{action}'.", nameof(arguments));
@@ -79,24 +73,6 @@ public sealed record ClientToolDefinition
             ClientToolPolicy.Resolve(DefaultPolicy, actionPolicy));
     }
 
-    private static bool TryReadString(object? value, out string result)
-    {
-        if (value is string text && !string.IsNullOrWhiteSpace(text))
-        {
-            result = text;
-            return true;
-        }
-
-        if (value is JsonElement { ValueKind: JsonValueKind.String } element &&
-            !string.IsNullOrWhiteSpace(element.GetString()))
-        {
-            result = element.GetString()!;
-            return true;
-        }
-
-        result = string.Empty;
-        return false;
-    }
 }
 
 /// <summary>Defines a closed discriminated operation family.</summary>

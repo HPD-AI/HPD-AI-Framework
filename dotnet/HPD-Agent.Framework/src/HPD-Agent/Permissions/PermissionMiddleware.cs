@@ -114,6 +114,16 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         {
             var function = funcInfo.Function;
             var functionName = funcInfo.FunctionName;
+            // Action-contracted functions are admitted only after canonical preparation has
+            // produced ValidatedFunctionAction. Their per-call hook is the sole permission
+            // authority; the batch hook must not derive a competing scope from raw arguments.
+            if (function is HPDAIFunctionFactory.HPDAIFunction
+                {
+                    HPDOptions.OperationContract: not null
+                })
+            {
+                continue;
+            }
             if (!TryGetPermissionKey(
                     function,
                     functionName,

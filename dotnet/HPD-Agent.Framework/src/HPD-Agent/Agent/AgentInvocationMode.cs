@@ -516,6 +516,72 @@ public static class AgentInvocationModes
         return sanitized;
     }
 
+    /// <summary>Copies a root argument dictionary while resolving and removing invocationMode.</summary>
+    /// <param name="arguments">The authoritative argument dictionary.</param>
+    /// <param name="requestedMode">Receives the optional requested mode.</param>
+    /// <returns>A detached dictionary containing only domain arguments.</returns>
+    public static IReadOnlyDictionary<string, object?> CreateSanitizedArgumentDictionary(
+        IReadOnlyDictionary<string, object?> arguments,
+        out AgentInvocationMode? requestedMode)
+    {
+        ArgumentNullException.ThrowIfNull(arguments);
+        requestedMode = null;
+        var sanitized = new Dictionary<string, object?>(StringComparer.Ordinal);
+        foreach (var (key, value) in arguments)
+        {
+            if (string.Equals(key, "invocationMode", StringComparison.Ordinal))
+            {
+                if (requestedMode is not null)
+                    throw new InvalidOperationException("invocationMode must occur at most once.");
+                requestedMode = ParseRequestedMode(value);
+            }
+            else
+            {
+                sanitized[key] = value;
+            }
+        }
+        return sanitized;
+    }
+
+    /// <summary>Reads an exact string discriminator from an argument dictionary.</summary>
+    /// <param name="arguments">The authoritative domain arguments.</param>
+    /// <param name="discriminator">The exact discriminator property name.</param>
+    /// <returns>The non-empty discriminator value.</returns>
+    public static string ResolveDiscriminator(
+        IReadOnlyDictionary<string, object?> arguments,
+        string discriminator)
+    {
+        ArgumentNullException.ThrowIfNull(arguments);
+        ArgumentException.ThrowIfNullOrWhiteSpace(discriminator);
+        if (!arguments.TryGetValue(discriminator, out var raw) ||
+            raw is not string && raw is not JsonElement)
+            throw new ArgumentException($"Compound tool requires string discriminator '{discriminator}'.", nameof(arguments));
+        var value = raw is string text
+            ? text
+            : ((JsonElement)raw).ValueKind == JsonValueKind.String ? ((JsonElement)raw).GetString() : null;
+        if (string.IsNullOrWhiteSpace(value))
+            throw new ArgumentException($"Compound tool requires string discriminator '{discriminator}'.", nameof(arguments));
+        return value;
+    }
+
+    private static AgentInvocationMode ParseRequestedMode(object? value)
+    {
+        if (value is AgentInvocationMode mode)
+            return mode;
+        var text = value switch
+        {
+            string candidate => candidate,
+            JsonElement { ValueKind: JsonValueKind.String } json => json.GetString(),
+            _ => null
+        };
+        return text?.ToLowerInvariant() switch
+        {
+            "synchronous" => AgentInvocationMode.Synchronous,
+            "background" => AgentInvocationMode.Background,
+            _ => throw new InvalidOperationException("invocationMode must be either 'synchronous' or 'background'.")
+        };
+    }
+
     /// <summary>
     /// Removes the model-facing <c>invocationMode</c> control from a JSON argument object.
     /// </summary>

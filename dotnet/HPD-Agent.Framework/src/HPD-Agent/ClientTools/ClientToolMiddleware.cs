@@ -691,7 +691,7 @@ public class ClientToolMiddleware : IAgentMiddleware
         var requestId = Guid.NewGuid().ToString();
         var toolName = context.Function.Name;
         var tool = ReadClientToolDefinition(context);
-        var sanitizedArguments = CreateSanitizedArgumentDictionary(context.Arguments, out var requestedMode);
+        var sanitizedArguments = AgentInvocationModes.CreateSanitizedArgumentDictionary(context.Arguments, out var requestedMode);
         ClientToolResolvedOperation? operation;
         try
         {
@@ -841,54 +841,6 @@ public class ClientToolMiddleware : IAgentMiddleware
             },
             _config.InvokeTimeout,
             ct).ConfigureAwait(false);
-    }
-
-    private static IReadOnlyDictionary<string, object?> CreateSanitizedArgumentDictionary(
-        IReadOnlyDictionary<string, object?> arguments,
-        out AgentInvocationMode? requestedMode)
-    {
-        requestedMode = null;
-        var sanitized = new Dictionary<string, object?>(StringComparer.Ordinal);
-        foreach (var (key, value) in arguments)
-        {
-            if (string.Equals(key, "invocationMode", StringComparison.Ordinal))
-            {
-                requestedMode = ParseRequestedMode(value);
-                continue;
-            }
-
-            sanitized[key] = value;
-        }
-
-        return sanitized;
-    }
-
-    private static AgentInvocationMode ParseRequestedMode(object? value)
-    {
-        if (value is AgentInvocationMode mode)
-            return mode;
-
-        if (value is string text)
-        {
-            if (string.Equals(text, "synchronous", StringComparison.OrdinalIgnoreCase))
-                return AgentInvocationMode.Synchronous;
-            if (string.Equals(text, "background", StringComparison.OrdinalIgnoreCase))
-                return AgentInvocationMode.Background;
-        }
-
-        if (value is JsonElement json)
-        {
-            if (json.ValueKind != JsonValueKind.String)
-                throw new InvalidOperationException("invocationMode must be either 'synchronous' or 'background'.");
-
-            var jsonText = json.GetString();
-            if (string.Equals(jsonText, "synchronous", StringComparison.OrdinalIgnoreCase))
-                return AgentInvocationMode.Synchronous;
-            if (string.Equals(jsonText, "background", StringComparison.OrdinalIgnoreCase))
-                return AgentInvocationMode.Background;
-        }
-
-        throw new InvalidOperationException("invocationMode must be either 'synchronous' or 'background'.");
     }
 
     private static object? HandleCompletedOutcome(
