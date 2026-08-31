@@ -1161,6 +1161,36 @@ public sealed record AgentOperationTransitionedEvent : AgentEvent
     public string? ProviderDeduplicationKey { get; init; }
 }
 
+/// <summary>Durably records the bounded semantic facts used to execute a function call.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("FUNCTION_INVOCATION_AUDITED")]
+public sealed record FunctionInvocationAuditedEvent : AgentEvent
+{
+    /// <inheritdoc />
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+
+    /// <summary>Gets the immutable bounded invocation projection.</summary>
+    public required FunctionInvocationAuditProjection Invocation { get; init; }
+}
+
+/// <summary>Records a ToolBody failure that occurred after an operation registration committed.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("TOOL_BODY_OPERATION_COMMITTED_FAILURE")]
+public sealed record ToolBodyOperationCommittedFailureEvent : AgentEvent
+{
+    /// <inheritdoc />
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+
+    /// <summary>Gets the bounded invocation projection.</summary>
+    public required FunctionInvocationAuditProjection Invocation { get; init; }
+
+    /// <summary>Gets the single committed operation receipt and call identity.</summary>
+    public required CommittedToolBodyOperation CommittedOperation { get; init; }
+
+    /// <summary>Gets the safe failure description.</summary>
+    public required string ErrorMessage { get; init; }
+}
+
  #endregion
 
 #region Middleware Events

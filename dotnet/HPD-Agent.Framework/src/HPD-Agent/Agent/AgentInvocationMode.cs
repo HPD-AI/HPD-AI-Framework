@@ -131,6 +131,27 @@ public sealed record CommittedToolBodyOperation
     public required string FunctionCallId { get; init; }
 }
 
+/// <summary>Provides a bounded durable projection of one resolved function invocation.</summary>
+public sealed record FunctionInvocationAuditProjection
+{
+    /// <summary>Gets the function name.</summary>
+    public required string FunctionName { get; init; }
+    /// <summary>Gets the model tool-call identifier.</summary>
+    public required string FunctionCallId { get; init; }
+    /// <summary>Gets the selected action, when the function is action-contracted.</summary>
+    public string? Action { get; init; }
+    /// <summary>Gets the mode requested by the caller, when supplied.</summary>
+    public AgentInvocationMode? RequestedMode { get; init; }
+    /// <summary>Gets the effective execution mode.</summary>
+    public required AgentInvocationMode ResolvedMode { get; init; }
+    /// <summary>Gets the effective invocation policy.</summary>
+    public required AgentInvocationModePolicy Policy { get; init; }
+    /// <summary>Gets the effective handling strategy.</summary>
+    public required AgentInvocationModeHandling Handling { get; init; }
+    /// <summary>Gets the authoritative argument ingress provenance.</summary>
+    public required FunctionArgumentIngressProvenance IngressProvenance { get; init; }
+}
+
 /// <summary>Provides a detached constructor-free view of a structurally validated action.</summary>
 public sealed record ValidatedFunctionAction
 {

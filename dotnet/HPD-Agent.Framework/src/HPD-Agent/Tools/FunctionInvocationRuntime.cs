@@ -121,8 +121,11 @@ internal static class FunctionInvocationRuntime
                 "Background invocation requires an active agent runtime.");
         }
 
-        var operationContext = parentContext.CreateOperationProjection();
-        var receipt = await AgentLocalOperationScheduler.StartAsync(
+        var operationContext = parentContext.CreateOperationProjection(out var clientExecutionOwner);
+        AgentOperationReceipt receipt;
+        try
+        {
+            receipt = await AgentLocalOperationScheduler.StartAsync(
             operations,
             AgentOperationSourceKind.LocalTool,
             request.Name,
@@ -140,7 +143,15 @@ internal static class FunctionInvocationRuntime
 
                 return new AgentOperationCompletion(ToolResultText.FromResult(result));
             },
-            parentContext.ToolHarnessExecutionScope).ConfigureAwait(false);
+            parentContext.ToolHarnessExecutionScope,
+            clientExecutionOwner).ConfigureAwait(false);
+        }
+        catch
+        {
+            if (clientExecutionOwner is not null)
+                await clientExecutionOwner.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
 
         return new AgentInvocationResult
         {

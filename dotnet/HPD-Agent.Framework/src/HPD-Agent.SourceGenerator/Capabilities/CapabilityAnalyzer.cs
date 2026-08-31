@@ -1008,6 +1008,15 @@ internal static class CapabilityAnalyzer
         List<Diagnostic> diagnostics,
         Location location)
     {
+        var misplaced = parameters.Where(parameter =>
+            parameter.Symbol?.Type.GetAttributes().Any(attribute =>
+                attribute.AttributeClass?.Name == "AIFunctionActionAttribute") == true).ToArray();
+        if (misplaced.Length != 0)
+        {
+            diagnostics.Add(Diagnostic.Create(ActionFunctionDiagnostics.InvalidContract, location,
+                "AIFunctionActionAttribute is valid only on cases of the function's direct closed union parameter"));
+            return false;
+        }
         var candidates = parameters.Where(parameter => parameter.Contract is UnionContractNode union &&
             union.Cases.Any(unionCase => unionCase.ConcreteType.GetAttributes().Any(attribute =>
                 attribute.AttributeClass?.Name == "AIFunctionActionAttribute"))).ToArray();
@@ -1039,6 +1048,20 @@ internal static class CapabilityAnalyzer
                 continue;
             }
             var declared = attributes[0].ConstructorArguments.FirstOrDefault().Value as string;
+            foreach (var named in attributes[0].NamedArguments)
+            {
+                var numeric = named.Value.Value is null
+                    ? 0
+                    : Convert.ToInt32(named.Value.Value, System.Globalization.CultureInfo.InvariantCulture);
+                var maximum = named.Key == "InvocationModePolicy" ? 3 :
+                    named.Key == "InvocationModeHandling" ? 2 : int.MaxValue;
+                if (numeric < 0 || numeric > maximum)
+                {
+                    diagnostics.Add(Diagnostic.Create(ActionFunctionDiagnostics.InvalidContract, location,
+                        $"action '{unionCase.Discriminator}' declares unsupported {named.Key} value '{numeric}'"));
+                    valid = false;
+                }
+            }
             if (string.IsNullOrWhiteSpace(declared) ||
                 !string.Equals(declared, unionCase.Discriminator, StringComparison.Ordinal))
             {

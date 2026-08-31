@@ -14,6 +14,7 @@ internal static class AgentLocalOperationScheduler
         AgentOperationNotificationPolicy notification,
         Func<string, CancellationToken, ValueTask<AgentOperationCompletion>> work,
         Middleware.ToolHarnessExecutionScope? toolHarnessExecutionScope = null,
+        IAsyncDisposable? additionalExecutionOwner = null,
         CancellationToken runtimeCancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(registry);
@@ -23,7 +24,8 @@ internal static class AgentLocalOperationScheduler
         ArgumentNullException.ThrowIfNull(work);
 
         var operationId = Guid.NewGuid().ToString("N");
-        var executionOwner = toolHarnessExecutionScope?.TransferToOperation(operationId);
+        var harnessOwner = toolHarnessExecutionScope?.TransferToOperation(operationId);
+        var executionOwner = CompositeExecutionOwner.Create(harnessOwner, additionalExecutionOwner);
         var controller = new LocalController(runtimeCancellationToken);
         var observer = new LocalObserver(controller, work);
         var now = DateTimeOffset.UtcNow;
@@ -63,6 +65,29 @@ internal static class AgentLocalOperationScheduler
         controller.Bind(operation);
         observer.Start(operation);
         return ToReceipt(operation.Snapshot);
+    }
+
+    private sealed class CompositeExecutionOwner : IAsyncDisposable
+    {
+        private readonly IAsyncDisposable[] _owners;
+        private CompositeExecutionOwner(IAsyncDisposable[] owners) => _owners = owners;
+
+        internal static IAsyncDisposable? Create(params IAsyncDisposable?[] owners)
+        {
+            var materialized = owners.Where(static owner => owner is not null).Cast<IAsyncDisposable>().ToArray();
+            return materialized.Length switch
+            {
+                0 => null,
+                1 => materialized[0],
+                _ => new CompositeExecutionOwner(materialized)
+            };
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            for (var index = _owners.Length - 1; index >= 0; index--)
+                await _owners[index].DisposeAsync().ConfigureAwait(false);
+        }
     }
 
     private static AgentOperationReceipt ToReceipt(AgentOperationSnapshot snapshot) => new()

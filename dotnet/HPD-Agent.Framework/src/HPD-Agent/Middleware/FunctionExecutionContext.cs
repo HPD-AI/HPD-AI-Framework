@@ -108,14 +108,19 @@ public sealed class FunctionExecutionContext
         _parentSessionStore = null;
         _parentAgentStore = null;
         _parentConfig = source._parentConfig;
-        _clientSet = null;
-        _effectiveChatClient = null;
+        _clientSet = source._clientSet;
+        _effectiveChatClient = source._effectiveChatClient;
         _toolHarnessExecutionScope = null;
         _operationCommitGate = source._operationCommitGate;
     }
 
-    /// <summary>Creates a context projection that does not retain foreground result or harness state.</summary>
-    internal FunctionExecutionContext CreateOperationProjection() => new(this);
+    /// <summary>Creates an operation-owned context projection and acquires its client lifetime lease.</summary>
+    /// <param name="executionOwner">Receives the lease that must be owned by the operation.</param>
+    internal FunctionExecutionContext CreateOperationProjection(out IAsyncDisposable? executionOwner)
+    {
+        executionOwner = _clientSet?.AcquireBorrowedLease();
+        return new(this);
+    }
 
     public FunctionInvocationSnapshot InvocationSnapshot { get; }
 
@@ -221,7 +226,7 @@ public sealed class FunctionExecutionContext
             notification,
             work,
             _toolHarnessExecutionScope,
-            cancellationToken);
+            runtimeCancellationToken: cancellationToken);
         return _operationCommitGate is null
             ? StartAsync()
             : _operationCommitGate.StartOperationAsync(StartAsync, cancellationToken);

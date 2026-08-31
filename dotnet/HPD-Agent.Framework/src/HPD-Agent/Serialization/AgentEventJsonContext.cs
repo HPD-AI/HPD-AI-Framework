@@ -221,6 +221,10 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(IReadOnlyList<MiddlewareStateChange>))]
 [JsonSerializable(typeof(List<MiddlewareStateChange>))]
 [JsonSerializable(typeof(StateScope))]
+[JsonSerializable(typeof(FunctionInvocationAuditProjection))]
+[JsonSerializable(typeof(FunctionInvocationAuditedEvent))]
+[JsonSerializable(typeof(ToolBodyOperationCommittedFailureEvent))]
+[JsonSerializable(typeof(CommittedToolBodyOperation))]
 
 // Channel Routing Enums
 [JsonSerializable(typeof(EventChannel))]

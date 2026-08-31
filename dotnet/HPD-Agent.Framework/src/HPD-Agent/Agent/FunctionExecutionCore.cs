@@ -795,6 +795,35 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 $"Error in AfterFunction middleware: {afterEx.Message}") { Exception = afterEx });
         }
 
+        if (preparation.ResolvedInvocation is { } resolved)
+        {
+            var audit = new FunctionInvocationAuditProjection
+            {
+                FunctionName = functionCall.Name,
+                FunctionCallId = functionCall.CallId,
+                Action = resolved.Action,
+                RequestedMode = resolved.RequestedMode,
+                ResolvedMode = resolved.Mode,
+                Policy = resolved.Policy,
+                Handling = resolved.Handling,
+                IngressProvenance = resolved.IngressProvenance
+            };
+            await agentContext.PublishAsync(new FunctionInvocationAuditedEvent
+            {
+                Invocation = audit
+            }).ConfigureAwait(false);
+            if (bodyResult.CommittedToolBodyOperation is { } committed &&
+                afterFunctionContext.Exception is { } committedFailure)
+            {
+                await agentContext.PublishAsync(new ToolBodyOperationCommittedFailureEvent
+                {
+                    Invocation = audit,
+                    CommittedOperation = committed,
+                    ErrorMessage = committedFailure.Message
+                }).ConfigureAwait(false);
+            }
+        }
+
         return new FunctionExecutionOutcome(
             functionCall.CallId,
             functionCall.Name,
