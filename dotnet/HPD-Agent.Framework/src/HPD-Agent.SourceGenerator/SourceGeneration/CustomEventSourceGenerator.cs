@@ -589,7 +589,9 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         var hasHandwrittenManifest = assemblyAttributes.Any(static attribute =>
             attribute.AttributeClass?.Name == "HpdAgentEventModuleManifestAttribute");
         options.GlobalOptions.TryGetValue("build_property.HpdAgentEventModuleId", out var configuredModuleId);
-        var moduleId = !string.IsNullOrWhiteSpace(configuredModuleId)
+        var moduleId = StringComparer.Ordinal.Equals(compilation.AssemblyName, "HPD-Agent")
+            ? "hpd.agent.core"
+            : !string.IsNullOrWhiteSpace(configuredModuleId)
             ? configuredModuleId!
             : compilation.AssemblyName
             ?? "HPD.Agent.Module";

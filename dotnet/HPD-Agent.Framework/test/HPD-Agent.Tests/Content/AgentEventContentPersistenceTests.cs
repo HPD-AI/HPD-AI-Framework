@@ -108,6 +108,25 @@ public class AgentEventContentPersistenceTests
         Assert.Equal(HPD.Events.EventKind.Diagnostic, observed.Value.Kind);
     }
 
+    [Fact]
+    public async Task ConcurrentRetries_ConvergeWithoutFailureDiagnostics()
+    {
+        var store = new InMemoryContentStore();
+        var diagnostics = new System.Collections.Concurrent.ConcurrentQueue<AgentEventArchiveDiagnostic>();
+        var archiver = new AgentEventContentArchiver(store, diagnostics.Enqueue);
+        var evt = new PersistableContentTestEvent("same")
+        {
+            EventId = "event-concurrent",
+            SessionId = "session-concurrent"
+        };
+
+        await Task.WhenAll(Enumerable.Range(0, 32)
+            .Select(_ => archiver.ArchiveAsync(Codec, evt).AsTask()));
+
+        Assert.Single(await store.QueryAsync(ContentScope.Create("session-concurrent")));
+        Assert.Empty(diagnostics);
+    }
+
     private sealed class ThrowingContentStore : IContentStore
     {
         public ValueTask<ContentInfo> WriteAsync(ContentScope scope, Stream data, ContentMetadata metadata,

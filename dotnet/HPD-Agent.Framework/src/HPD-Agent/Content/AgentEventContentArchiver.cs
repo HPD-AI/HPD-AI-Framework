@@ -108,6 +108,27 @@ public sealed class AgentEventContentArchiver : IAgentEventContentArchiver
                 },
                 cancellationToken).ConfigureAwait(false);
         }
+        catch (ContentConflictException)
+        {
+            // A concurrent publication facade may have won the deterministic create race.
+            // Treat the exact same event archive as converged success, not an archival failure.
+            try
+            {
+                var existing = await _store.StatAsync(new ContentAddress(scope, contentId), cancellationToken)
+                    .ConfigureAwait(false);
+                if (existing?.Tags is not null &&
+                    existing.Tags.TryGetValue("event.type", out var existingType) &&
+                    existing.Tags.TryGetValue("event.id", out var existingId) &&
+                    StringComparer.Ordinal.Equals(existingType, descriptor.Discriminator) &&
+                    StringComparer.Ordinal.Equals(existingId, eventId))
+                    return;
+                Report(value, "A conflicting content object occupies the deterministic event archive identity.");
+            }
+            catch (Exception exception)
+            {
+                Report(value, "Content archival conflict reconciliation failed.", exception);
+            }
+        }
         catch (Exception exception)
         {
             // Publication already succeeded. Archival is observable best-effort work and never

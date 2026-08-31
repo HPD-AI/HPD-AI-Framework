@@ -846,7 +846,11 @@ namespace HPD.Agent.Diagnostics {{
                 return false;
             }));
         if (ownsAgentEvents && !string.IsNullOrWhiteSpace(compilation.AssemblyName))
+        {
+            if (StringComparer.Ordinal.Equals(compilation.AssemblyName, "HPD-Agent"))
+                return "global::HPD.Agent.Serialization.CoreAgentEventModule";
             return $"global::HPD.Agent.Serialization.{GetGeneratedEventProviderTypeName(compilation.AssemblyName!)}";
+        }
 
         return null;
     }

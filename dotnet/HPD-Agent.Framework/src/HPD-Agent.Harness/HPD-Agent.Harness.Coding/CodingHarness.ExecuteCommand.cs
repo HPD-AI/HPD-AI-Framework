@@ -2379,10 +2379,12 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
     {
         if (!Directory.Exists(spoolRoot) || maxDirectories <= 0) return;
         var processedDirectories = 0;
-        foreach (var directory in Directory.EnumerateDirectories(spoolRoot)
-                     .OrderBy(static path => path, StringComparer.Ordinal))
+        var scannedDirectories = 0;
+        var scanBudget = checked(maxDirectories * 4);
+        foreach (var directory in Directory.EnumerateDirectories(spoolRoot))
         {
-            if (processedDirectories >= maxDirectories) break;
+            if (processedDirectories >= maxDirectories || scannedDirectories >= scanBudget) break;
+            scannedDirectories++;
             cancellationToken.ThrowIfCancellationRequested();
             FileStream? lease = null;
             try
