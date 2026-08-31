@@ -11,6 +11,8 @@ using Microsoft.Extensions.DependencyInjection;
 namespace HPD.Agent;
 
 /// <summary>Durable execution-scoped result for an idempotent child continuation.</summary>
+/// <param name="ContinuationExecutionId">The deterministic continuation execution identifier.</param>
+/// <param name="Output">The exact terminal text result, or <see langword="null"/> when no text was produced.</param>
 [HPD.Agent.Serialization.DurableEvent]
 [HPD.Agent.Serialization.EventType("SUBAGENT_CONTINUATION_RECEIPT")]
 public sealed record SubAgentContinuationReceiptEvent(

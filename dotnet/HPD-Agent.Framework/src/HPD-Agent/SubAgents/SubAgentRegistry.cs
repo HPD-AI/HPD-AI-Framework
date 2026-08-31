@@ -122,6 +122,11 @@ public sealed record SubAgentControllerGrantedEvent(
     ThreadKey ChildThread) : AgentEvent;
 
 /// <summary>Dedicated child-keyed authority-journal entry granting or revoking one exact parent controller.</summary>
+/// <param name="Controller">The parent route receiving or losing authority.</param>
+/// <param name="LocalId">The child identifier in the controller's registry.</param>
+/// <param name="ForkOperationId">The topology operation that admitted the authority.</param>
+/// <param name="ForkOperationSource">The root journal containing that operation.</param>
+/// <param name="Revoked">Whether this entry is a revocation tombstone.</param>
 [HPD.Agent.Serialization.DurableEvent]
 [HPD.Agent.Serialization.EventType("SUBAGENT_CHILD_CONTROLLER_AUTHORITY")]
 public sealed record SubAgentChildControllerAuthorityEvent(
@@ -135,6 +140,15 @@ public sealed record SubAgentChildControllerAuthorityEvent(
 public static class SubAgentControllerAuthority
 {
     /// <summary>Idempotently grants one parent control through the owning fork operation.</summary>
+    /// <param name="store">The durable session store.</param>
+    /// <param name="child">The shared child route.</param>
+    /// <param name="controller">The parent route receiving authority.</param>
+    /// <param name="localId">The child identifier local to the controller.</param>
+    /// <param name="forkOperationId">The admitting fork operation identifier.</param>
+    /// <param name="forkOperationSource">The root journal containing the operation.</param>
+    /// <param name="cancellationToken">Cancels the conditional write.</param>
+    /// <returns>A task that completes after the conditional authority append commits.</returns>
+    /// <exception cref="InvalidOperationException">The child is missing or conditional admission cannot converge.</exception>
     public static async ValueTask GrantAsync(
         ISessionStore store,
         ThreadKey child,
@@ -176,6 +190,15 @@ public static class SubAgentControllerAuthority
     }
 
     /// <summary>Idempotently revokes one exact child/controller grant with a durable tombstone.</summary>
+    /// <param name="store">The durable session store.</param>
+    /// <param name="child">The shared child route.</param>
+    /// <param name="controller">The parent route losing authority.</param>
+    /// <param name="localId">The child identifier local to the controller.</param>
+    /// <param name="forkOperationId">The admitting fork operation identifier.</param>
+    /// <param name="forkOperationSource">The root journal containing the operation.</param>
+    /// <param name="cancellationToken">Cancels the conditional write.</param>
+    /// <returns>A task that completes after the conditional tombstone append commits.</returns>
+    /// <exception cref="InvalidOperationException">The child is missing or conditional admission cannot converge.</exception>
     public static async ValueTask RevokeAsync(
         ISessionStore store,
         ThreadKey child,
@@ -215,6 +238,12 @@ public static class SubAgentControllerAuthority
     }
 
     /// <summary>Checks the latest exact child/controller grant and its committed fork authority.</summary>
+    /// <param name="store">The durable session store.</param>
+    /// <param name="child">The shared child route.</param>
+    /// <param name="controller">The candidate controlling parent.</param>
+    /// <param name="localId">The child identifier local to the controller.</param>
+    /// <param name="cancellationToken">Cancels the authority projection.</param>
+    /// <returns><see langword="true"/> only when a live grant and committed matching topology outcome exist.</returns>
     public static async ValueTask<bool> IsGrantedAsync(
         ISessionStore store,
         ThreadKey child,

@@ -87,6 +87,15 @@ public enum ThreadForkOperationStatus
 }
 
 /// <summary>Reports one direct-child outcome produced by a parent fork.</summary>
+/// <param name="LocalId">The child identifier local to <paramref name="OwningParent"/>.</param>
+/// <param name="Policy">The policy applied to this topology edge.</param>
+/// <param name="Source">The source child route, when one existed.</param>
+/// <param name="Target">The resulting child route, when one remains available.</param>
+/// <param name="Availability">The resulting child availability.</param>
+/// <param name="TargetSeedFingerprint">The prepared target seed fingerprint for copied children.</param>
+/// <param name="SourceBoundary">The admitted source boundary for copied children.</param>
+/// <param name="OwningParent">The source parent that owns the local identifier.</param>
+/// <param name="Controller">The target parent authorized to resolve the result.</param>
 public sealed record SubAgentForkChildOutcome(
     string LocalId,
     SubAgentForkPolicy Policy,

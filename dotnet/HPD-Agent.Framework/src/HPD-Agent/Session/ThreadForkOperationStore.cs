@@ -3,6 +3,11 @@ using System.Runtime.CompilerServices;
 namespace HPD.Agent;
 
 /// <summary>Typed immutable preparation authority embedded in a staged thread descriptor.</summary>
+/// <param name="OperationId">The owning fork operation identifier.</param>
+/// <param name="Source">The root source journal containing the operation authority.</param>
+/// <param name="RequestFingerprint">The immutable canonical request fingerprint.</param>
+/// <param name="TargetSeedFingerprint">The canonical staged-target fingerprint, when planned.</param>
+/// <param name="SourceBoundary">The exact admitted source boundary, when planned.</param>
 public sealed record ThreadPreparationDescriptor(
     string OperationId,
     ThreadKey Source,
@@ -11,6 +16,10 @@ public sealed record ThreadPreparationDescriptor(
     ThreadJournalCursor? SourceBoundary = null);
 
 /// <summary>Typed immutable preparation authority embedded in a staged isolated session.</summary>
+/// <param name="OperationId">The owning fork operation identifier.</param>
+/// <param name="Source">The root source journal containing the operation authority.</param>
+/// <param name="RequestFingerprint">The immutable canonical request fingerprint.</param>
+/// <param name="TargetSeedFingerprint">The canonical staged-target fingerprint, when planned.</param>
 public sealed record SessionPreparationDescriptor(
     string OperationId,
     ThreadKey Source,

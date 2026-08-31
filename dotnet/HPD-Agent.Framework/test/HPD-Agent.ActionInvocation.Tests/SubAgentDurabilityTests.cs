@@ -231,6 +231,12 @@ public sealed class SubAgentDurabilityTests
 
         Assert.True(await SubAgentControllerAuthority.IsGrantedAsync(
             store, child, controller, new SubAgentLocalId("reviewer-1")));
+        var childEvents = new List<AgentEvent>();
+        await foreach (var batch in store.ReadThreadEventsAsync(
+                           child,
+                           new ThreadEventReadRequest(ThreadJournalCursor.Start(1))))
+            childEvents.AddRange(batch.Events);
+        Assert.DoesNotContain(childEvents, static evt => evt is SubAgentChildControllerAuthorityEvent);
         Assert.False(await SubAgentControllerAuthority.IsGrantedAsync(
             store, child, new ThreadKey("session", "other"), new SubAgentLocalId("reviewer-1")));
         await SubAgentControllerAuthority.RevokeAsync(
