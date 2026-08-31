@@ -103,7 +103,7 @@ public sealed record SubAgentChildUnavailableEvent(
     SubAgentChildAvailability Availability,
     string Reason) : AgentEvent;
 
-/// <summary>Seeds the complete bounded registry during destructive journal compaction.</summary>
+/// <summary>Seeds the registry and durable creation replay receipts during destructive journal compaction.</summary>
 [HPD.Agent.Serialization.DurableEvent]
 [HPD.Agent.Serialization.EventType("SUBAGENT_REGISTRY_SEED")]
 public sealed record SubAgentRegistrySeedEvent(
@@ -254,15 +254,15 @@ public sealed class SubAgentRegistryRebaseSeedProvider(SubAgentChildRegistry reg
     {
         var projection = await registry.ProjectAsync(thread, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
-        var pending = await CollectPendingCreationsAsync(thread, cancellationToken).ConfigureAwait(false);
-        if (projection.Children.Count == 0 && pending.Count == 0) return Array.Empty<AgentEvent>();
+        var creations = await CollectCreationsAsync(thread, cancellationToken).ConfigureAwait(false);
+        if (projection.Children.Count == 0 && creations.Count == 0) return Array.Empty<AgentEvent>();
         return
         [
             new SubAgentRegistrySeedEvent(
                 projection.Children.Values
                     .OrderBy(static child => child.LocalId.Value, StringComparer.Ordinal)
                     .ToArray(),
-                pending,
+                creations,
                 projection.ControllerGrants.OrderBy(static id => id.Value, StringComparer.Ordinal).ToArray())
             {
                 SessionId = thread.SessionId,
@@ -271,14 +271,14 @@ public sealed class SubAgentRegistryRebaseSeedProvider(SubAgentChildRegistry reg
         ];
     }
 
-    private async ValueTask<IReadOnlyList<SubAgentCreationRecord>> CollectPendingCreationsAsync(
+    private async ValueTask<IReadOnlyList<SubAgentCreationRecord>> CollectCreationsAsync(
         ThreadKey thread,
         CancellationToken cancellationToken)
     {
-        var pending = new List<SubAgentCreationRecord>();
+        var records = new List<SubAgentCreationRecord>();
         await foreach (var record in new JournalSubAgentCreationStore(registry.Store)
-            .ReadPendingSubAgentCreationsAsync(thread, cancellationToken).ConfigureAwait(false))
-            pending.Add(record);
-        return pending;
+            .ReadSubAgentCreationsAsync(thread, cancellationToken).ConfigureAwait(false))
+            records.Add(record);
+        return records;
     }
 }

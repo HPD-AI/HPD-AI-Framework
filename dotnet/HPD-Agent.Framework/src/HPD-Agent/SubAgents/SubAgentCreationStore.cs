@@ -94,6 +94,11 @@ public interface ISubAgentCreationStore
         ThreadKey parent,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Reads every latest creation receipt that must survive compaction for idempotent replay.</summary>
+    IAsyncEnumerable<SubAgentCreationRecord> ReadSubAgentCreationsAsync(
+        ThreadKey parent,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Conditionally advances a creation record.</summary>
     ValueTask WriteSubAgentCreationAsync(
         SubAgentCreationRecord record,
@@ -174,6 +179,20 @@ public sealed class JournalSubAgentCreationStore(ISessionStore store) : ISubAgen
         foreach (var record in projection.Records.Values
                      .Where(static record => record.Phase is not SubAgentCreationPhase.Terminal)
                      .OrderBy(static record => record.LocalId.Value, StringComparer.Ordinal))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            yield return record;
+        }
+    }
+
+    /// <inheritdoc />
+    public async IAsyncEnumerable<SubAgentCreationRecord> ReadSubAgentCreationsAsync(
+        ThreadKey parent,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var projection = await SubAgentCreationProjection.ReadAsync(_store, parent, cancellationToken)
+            .ConfigureAwait(false);
+        foreach (var record in projection.Records.Values.OrderBy(static record => record.LocalId.Value, StringComparer.Ordinal))
         {
             cancellationToken.ThrowIfCancellationRequested();
             yield return record;

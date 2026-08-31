@@ -153,6 +153,13 @@ public static class SubAgentRuntime
             };
         }
 
+        if (admission.Creation.Phase is SubAgentCreationPhase.InitialExecutionAdmitted or
+            SubAgentCreationPhase.ReconciliationRequired)
+        {
+            return await RecoverAdmittedInvocationAsync(request, admission, mode, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         if (mode == AgentInvocationMode.Background)
             return await RegisterBackgroundInvocationAsync(request, admission).ConfigureAwait(false);
 
@@ -172,6 +179,61 @@ public static class SubAgentRuntime
                 InvocationId = result.InvocationId,
                 ThreadExecutionId = admission.Creation.ThreadExecutionId,
                 Output = result.Text
+            }
+        };
+    }
+
+    private static async Task<AgentInvocationResult> RecoverAdmittedInvocationAsync(
+        SubAgentInvocationRequest request,
+        AdmittedSubAgentInvocation admission,
+        AgentInvocationMode mode,
+        CancellationToken cancellationToken)
+    {
+        var store = request.ParentContext?.GetParentSessionStore()
+            ?? throw new InvalidOperationException("subagent_creation_requires_session_store");
+        var active = await ThreadExecutionControllerRegistry.For(store)
+            .FindActiveAsync(admission.Creation.ChildThread, cancellationToken).ConfigureAwait(false);
+        if (active.IsActive && string.Equals(
+                active.ThreadExecutionId,
+                admission.Creation.ThreadExecutionId,
+                StringComparison.Ordinal))
+        {
+            return new AgentInvocationResult
+            {
+                Mode = mode,
+                ToolResult = new SubAgentOperationResult
+                {
+                    Status = SubAgentOperationStatus.Running,
+                    Child = admission.LocalId?.Value,
+                    InvocationId = admission.Route.InvocationId,
+                    ThreadExecutionId = admission.Creation.ThreadExecutionId
+                }
+            };
+        }
+
+        var error = admission.Creation.Error ?? new SubAgentOperationError(
+            "subagent_creation_reconciliation_required",
+            "The initial child execution was durably admitted, but no matching live owner or terminal receipt exists. It will not be run again automatically.");
+        if (admission.Creation.Phase != SubAgentCreationPhase.ReconciliationRequired)
+        {
+            await AdvanceCreationAsync(
+                admission,
+                SubAgentCreationPhase.ReconciliationRequired,
+                SubAgentOperationStatus.Failed,
+                output: null,
+                error: error,
+                cancellationToken: CancellationToken.None).ConfigureAwait(false);
+        }
+        return new AgentInvocationResult
+        {
+            Mode = mode,
+            ToolResult = new SubAgentOperationResult
+            {
+                Status = SubAgentOperationStatus.Failed,
+                Child = admission.LocalId?.Value,
+                InvocationId = admission.Route.InvocationId,
+                ThreadExecutionId = admission.Creation.ThreadExecutionId,
+                Error = error
             }
         };
     }
