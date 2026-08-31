@@ -72,7 +72,7 @@ public sealed class CollapseAttribute : Attribute
     /// parameterless constructor (or a single-parameter config constructor — see proposal §5A).
     /// Instances are created at expansion time and disposed at turn end (or session end if
     /// <c>CollapsingConfig.PersistSystemPromptInjections = true</c>).
-    /// For middleware requiring DI, use <c>WithToolHarness&lt;T&gt;(opts =&gt; opts.AddScopedMiddleware(...))</c> instead.
+    /// Middleware requiring child-scope DI must declare <c>ToolHarnessMiddlewareLifetime(Services)</c>.
     /// </summary>
     /// <example>
     /// <code>

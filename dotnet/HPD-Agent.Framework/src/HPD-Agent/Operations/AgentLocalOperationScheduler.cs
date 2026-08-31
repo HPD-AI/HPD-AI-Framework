@@ -13,6 +13,7 @@ internal static class AgentLocalOperationScheduler
         IReadOnlyDictionary<string, string>? metadata,
         AgentOperationNotificationPolicy notification,
         Func<string, CancellationToken, ValueTask<AgentOperationCompletion>> work,
+        Middleware.ToolHarnessExecutionScope? toolHarnessExecutionScope = null,
         CancellationToken runtimeCancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(registry);
@@ -22,10 +23,14 @@ internal static class AgentLocalOperationScheduler
         ArgumentNullException.ThrowIfNull(work);
 
         var operationId = Guid.NewGuid().ToString("N");
+        var executionOwner = toolHarnessExecutionScope?.TransferToOperation(operationId);
         var controller = new LocalController(runtimeCancellationToken);
         var observer = new LocalObserver(controller, work);
         var now = DateTimeOffset.UtcNow;
-        var operation = await registry.RegisterAsync(new AgentOperationSnapshot
+        AgentOperation operation;
+        try
+        {
+            operation = await registry.RegisterAsync(new AgentOperationSnapshot
         {
             OperationId = operationId,
             SourceKind = sourceKind,
@@ -47,7 +52,14 @@ internal static class AgentLocalOperationScheduler
             UpdatedAt = now,
             Version = 0,
             Metadata = metadata
-        }, controller, observer).ConfigureAwait(false);
+            }, controller, observer, executionOwner).ConfigureAwait(false);
+        }
+        catch
+        {
+            if (executionOwner is not null)
+                await executionOwner.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
         controller.Bind(operation);
         observer.Start(operation);
         return ToReceipt(operation.Snapshot);

@@ -36,7 +36,7 @@ public sealed class LanguageServerMiddlewareTests
     public async Task AfterFunctionAsync_DoesNothingWhenDisabled()
     {
         var service = new FakeLanguageServerService { HasServer = true };
-        var middleware = new CodingLanguageServerMiddleware(
+        var middleware = CodingLanguageServerMiddleware.CreateForTesting(
             new LanguageServerOptions { Enabled = false },
             service);
         var context = CreateAfterFunctionContext(CreateAgentContext(), CreateReadFileSnapshot("/tmp/A.cs"));
@@ -51,7 +51,7 @@ public sealed class LanguageServerMiddlewareTests
     public async Task AfterFunctionAsync_DoesNotFailWhenNoServerIsAvailable()
     {
         var service = new FakeLanguageServerService { HasServer = false };
-        var middleware = new CodingLanguageServerMiddleware(new LanguageServerOptions(), service);
+        var middleware = CodingLanguageServerMiddleware.CreateForTesting(new LanguageServerOptions(), service);
         var context = CreateAfterFunctionContext(CreateAgentContext(), CreateReadFileSnapshot("/tmp/A.cs"));
 
         await middleware.AfterFunctionAsync(context, CancellationToken.None);
@@ -70,7 +70,7 @@ public sealed class LanguageServerMiddlewareTests
         try
         {
             var service = new FakeLanguageServerService { HasServer = true, Opened = true };
-            var middleware = new CodingLanguageServerMiddleware(new LanguageServerOptions(), service);
+            var middleware = CodingLanguageServerMiddleware.CreateForTesting(new LanguageServerOptions(), service);
             var agentContext = CreateAgentContext();
             var context = CreateAfterFunctionContext(agentContext, CreateReadFileSnapshot(path));
 
@@ -97,7 +97,7 @@ public sealed class LanguageServerMiddlewareTests
     public async Task AfterFunctionAsync_DoesNotOpenDocumentWhenReadFileFailed()
     {
         var service = new FakeLanguageServerService { HasServer = true };
-        var middleware = new CodingLanguageServerMiddleware(new LanguageServerOptions(), service);
+        var middleware = CodingLanguageServerMiddleware.CreateForTesting(new LanguageServerOptions(), service);
         var context = CreateAfterFunctionContext(CreateAgentContext(), snapshot: null);
 
         await middleware.AfterFunctionAsync(context, CancellationToken.None);
@@ -139,7 +139,7 @@ public sealed class LanguageServerMiddlewareTests
                 HasServer = true,
                 Diagnostics = [diagnosticSet]
             };
-            var middleware = new CodingLanguageServerMiddleware(new LanguageServerOptions(), service);
+            var middleware = CodingLanguageServerMiddleware.CreateForTesting(new LanguageServerOptions(), service);
             var context = CreateMutationAfterFunctionContext(
                 agentContext,
                 new CodingFileMutationSnapshot
@@ -216,7 +216,7 @@ public sealed class LanguageServerMiddlewareTests
                 }
             ]
         };
-        var middleware = new CodingLanguageServerMiddleware(new LanguageServerOptions(), service);
+        var middleware = CodingLanguageServerMiddleware.CreateForTesting(new LanguageServerOptions(), service);
         var context = CreateMutationAfterFunctionContext(
             agentContext,
             new CodingFileMutationSnapshot
@@ -269,7 +269,7 @@ public sealed class LanguageServerMiddlewareTests
         var uri = new Uri(path).AbsoluteUri;
         await File.WriteAllTextAsync(path, "class A { }\n");
         var service = new FakeLanguageServerService { HasServer = true, Opened = true };
-        var middleware = new CodingLanguageServerMiddleware(new LanguageServerOptions(), service);
+        var middleware = CodingLanguageServerMiddleware.CreateForTesting(new LanguageServerOptions(), service);
         var context = CreateMutationAfterFunctionContext(
             CreateAgentContext(),
             new CodingFileMutationSnapshot
@@ -356,7 +356,7 @@ public sealed class LanguageServerMiddlewareTests
             ]
         };
 
-        var middleware = new CodingLanguageServerMiddleware(
+        var middleware = CodingLanguageServerMiddleware.CreateForTesting(
             new LanguageServerOptions(),
             new FakeLanguageServerService());
 
@@ -382,7 +382,7 @@ public sealed class LanguageServerMiddlewareTests
     public async Task BeforeFunctionAsync_RecordsObservedCodingToolIntent()
     {
         var agentContext = CreateAgentContext();
-        var middleware = new CodingLanguageServerMiddleware(
+        var middleware = CodingLanguageServerMiddleware.CreateForTesting(
             new LanguageServerOptions(),
             new FakeLanguageServerService());
         var function = AIFunctionFactory.Create(() => "ok", "ReadFile");
@@ -442,7 +442,7 @@ public sealed class LanguageServerMiddlewareTests
             new AgentRunConfig());
         context.UpdateMiddlewareState<LanguageServerState>(_ => state);
 
-        await new CodingLanguageServerMiddleware(
+        await CodingLanguageServerMiddleware.CreateForTesting(
             new LanguageServerOptions(),
             new FakeLanguageServerService()).AfterMessageTurnAsync(context, CancellationToken.None);
 
@@ -472,7 +472,7 @@ public sealed class LanguageServerMiddlewareTests
                 }
             ]
         };
-        var middleware = new CodingLanguageServerMiddleware(
+        var middleware = CodingLanguageServerMiddleware.CreateForTesting(
             new LanguageServerOptions { ConfigVersion = 7 },
             service);
         var coordinator = new CapturingEventCoordinator();
@@ -516,7 +516,7 @@ public sealed class LanguageServerMiddlewareTests
         };
         var context = CreateMutationAfterFunctionContext(agentContext, mutation);
 
-        await new EnvironmentContextMiddleware().AfterFunctionAsync(context, CancellationToken.None);
+        await new EnvironmentContextMiddleware(new EnvironmentContextConfig()).AfterFunctionAsync(context, CancellationToken.None);
 
         var state = context.GetMiddlewareState<ReadFileState>();
         state.Should().NotBeNull();
@@ -541,7 +541,7 @@ public sealed class LanguageServerMiddlewareTests
         };
         var context = CreateMutationAfterFunctionContext(agentContext, mutation);
 
-        await new EnvironmentContextMiddleware().AfterFunctionAsync(context, CancellationToken.None);
+        await new EnvironmentContextMiddleware(new EnvironmentContextConfig()).AfterFunctionAsync(context, CancellationToken.None);
 
         var state = context.GetMiddlewareState<ReadFileState>();
         state.Should().NotBeNull();
@@ -553,7 +553,7 @@ public sealed class LanguageServerMiddlewareTests
     {
         var agentContext = CreateAgentContext();
         var path = Path.Combine(Path.GetTempPath(), $"hpd-mutation-{Guid.NewGuid():N}.cs");
-        var middleware = new EnvironmentContextMiddleware();
+        var middleware = new EnvironmentContextMiddleware(new EnvironmentContextConfig());
 
         await middleware.AfterFunctionAsync(
             CreateAfterFunctionContext(agentContext, CreateReadFileSnapshot(path)),
@@ -1344,7 +1344,8 @@ public sealed class LanguageServerMiddlewareTests
             }
         };
 
-        await using var middleware = new CodingLanguageServerMiddleware(options);
+        await using var workspaceRegistry = new LanguageServerWorkspaceRegistry();
+        await using var middleware = new CodingLanguageServerMiddleware(workspaceRegistry, smokeRoot!, options);
         var context = CreateMutationAfterFunctionContext(
             CreateAgentContext(),
             new CodingFileMutationSnapshot
@@ -1522,7 +1523,8 @@ public sealed class LanguageServerMiddlewareTests
             eventCoordinator ?? new EventCoordinator(),
             new Session("test-session"),
             new Thread("test-session", "test-agent"),
-            CancellationToken.None);
+            CancellationToken.None,
+            config: new AgentConfig { EventComposition = CodingEventTestCodec.Composition });
     }
 
     private static AfterFunctionContext CreateAfterFunctionContext(
@@ -2029,6 +2031,7 @@ public sealed class LanguageServerMiddlewareTests
 
     private sealed class CountingNullProvider : ILanguageServerProvider
     {
+        public string ConfigurationIdentity => "counting-null:v1";
         public int ResolveCount { get; private set; }
 
         public ValueTask<string?> ResolveRootAsync(

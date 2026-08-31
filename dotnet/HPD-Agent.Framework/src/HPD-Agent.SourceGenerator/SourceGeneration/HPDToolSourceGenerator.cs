@@ -184,13 +184,10 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
             .FirstOrDefault();
 
         // ToolHarness-scoped middleware (015): extract [Collapse(Middlewares = [...])] type names
-        List<string>? collapseMiddlewareTypeNames = null;
-        List<CollapseMiddlewareConfigEntry>? collapseMiddlewareConfigTypeNames = null;
+        List<CollapseMiddlewareEntry>? collapseMiddlewareEntries = null;
         if (isCollapsed)
         {
-            var middlewareResult = GetCollapseMiddlewareTypeNames(classDecl, semanticModel, diagnostics);
-            collapseMiddlewareTypeNames = middlewareResult.Parameterless;
-            collapseMiddlewareConfigTypeNames = middlewareResult.ConfigConstructor;
+            collapseMiddlewareEntries = GetCollapseMiddlewareEntries(classDecl, semanticModel, diagnostics);
         }
 
         return new ToolHarnessInfo
@@ -199,6 +196,7 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
             ClassName = classDecl.Identifier.ValueText,
             Description = description,
             Namespace = namespaceName,
+            AssemblyName = semanticModel.Compilation.AssemblyName ?? string.Empty,
 
             // PHASE 5: Unified Capabilities list (all capability types)
             Capabilities = capabilities!,
@@ -224,8 +222,7 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
             MetadataTypeName = metadataTypeName,
 
             // ToolHarness-scoped middleware (015)
-            CollapseMiddlewareTypeNames = collapseMiddlewareTypeNames,
-            CollapseMiddlewareConfigTypeNames = collapseMiddlewareConfigTypeNames
+            CollapseMiddlewareEntries = collapseMiddlewareEntries
         };
     }
 
@@ -416,6 +413,7 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
                     ClassName = first.ClassName,
                     Description = BuildToolHarnessDescription(functionCount, skillCount, subAgentCount, mcpServerCount, openApiCount),
                     Namespace = first.Namespace,
+                    AssemblyName = first.AssemblyName,
 
                     // PHASE 5: Unified Capabilities list (all capability types)
                     Capabilities = allCapabilities,
@@ -438,8 +436,7 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
                     ConfigConstructorTypeName = configConstructorTypeName,
                     MetadataTypeName = metadataTypeName,
                     // ToolHarness-scoped middleware (015): merge from any partial part that has them
-                    CollapseMiddlewareTypeNames = group.FirstOrDefault(p => p?.CollapseMiddlewareTypeNames != null)?.CollapseMiddlewareTypeNames,
-                    CollapseMiddlewareConfigTypeNames = group.FirstOrDefault(p => p?.CollapseMiddlewareConfigTypeNames != null)?.CollapseMiddlewareConfigTypeNames
+                    CollapseMiddlewareEntries = group.FirstOrDefault(p => p?.CollapseMiddlewareEntries != null)?.CollapseMiddlewareEntries
                 };
             })
             .ToList();
@@ -616,6 +613,7 @@ namespace HPD.Agent.Diagnostics {{
         sb.AppendLine("using System.Collections.Generic;");
         sb.AppendLine("using System.Runtime.CompilerServices;");
         sb.AppendLine("using System.Text.Json;");
+        sb.AppendLine("using System.Text.Json.Serialization;");
         sb.AppendLine("using System.Text.Json.Serialization.Metadata;");
         sb.AppendLine("using Microsoft.Extensions.AI;");
         sb.AppendLine("using HPD.Agent;  // For ToolHarnessFactory and IToolMetadata types");
@@ -748,40 +746,64 @@ namespace HPD.Agent.Diagnostics {{
                 sb.AppendLine($"                CollectOpenApiSources: null,");
             }
 
-            // ToolHarness-scoped middleware (015): emit CollapseMiddlewareFactories (parameterless ctors)
-            sb.AppendLine($"                // ========== HARNESS-SCOPED MIDDLEWARE (015) ==========");
-            if (ToolHarness.CollapseMiddlewareTypeNames != null && ToolHarness.CollapseMiddlewareTypeNames.Count > 0)
+            sb.AppendLine($"                StableIdentity: @\"{EscapeForVerbatim(ToolHarness.AssemblyName)}:{EscapeForVerbatim(ToolHarness.Namespace)}:{EscapeForVerbatim(ToolHarness.EffectiveName)}\",");
+            var agentResources = ToolHarness.CollapseMiddlewareEntries?
+                .Where(static entry => entry.AgentResourceTypeFqn is not null)
+                .GroupBy(static entry => entry.AgentResourceTypeFqn, StringComparer.Ordinal)
+                .Select(static group => group.First())
+                .ToArray();
+            if (agentResources is { Length: > 0 })
             {
-                sb.AppendLine($"                CollapseMiddlewareFactories: new global::System.Func<global::HPD.Agent.Middleware.IAgentMiddleware>[]");
-                sb.AppendLine($"                {{");
-                foreach (var typeName in ToolHarness.CollapseMiddlewareTypeNames)
+                sb.AppendLine("                AgentResources: new global::HPD.Agent.ToolHarnessAgentResourceDescriptor[]");
+                sb.AppendLine("                {");
+                foreach (var resource in agentResources)
                 {
-                    sb.AppendLine($"                    static () => new {typeName}(),");
+                    sb.AppendLine("                    new global::HPD.Agent.ToolHarnessAgentResourceDescriptor");
+                    sb.AppendLine("                    {");
+                    sb.AppendLine($"                        ResourceType = typeof({resource.AgentResourceTypeFqn}),");
+                    sb.AppendLine($"                        ImplementationType = typeof({resource.AgentResourceImplementationTypeFqn}),");
+                    sb.AppendLine($"                        Factory = static () => new {resource.AgentResourceImplementationTypeFqn}()");
+                    sb.AppendLine("                    },");
                 }
-                sb.AppendLine($"                }},");
+                sb.AppendLine("                },");
             }
-            else
+            if (ToolHarness.CollapseMiddlewareEntries is { Count: > 0 })
             {
-                sb.AppendLine($"                CollapseMiddlewareFactories: null,");
-            }
-
-            // ToolHarness-scoped middleware (015 §5A): emit CollapseMiddlewareConfigFactories (config-ctor middlewares)
-            if (ToolHarness.CollapseMiddlewareConfigTypeNames != null && ToolHarness.CollapseMiddlewareConfigTypeNames.Count > 0)
-            {
-                sb.AppendLine($"                CollapseMiddlewareConfigFactories: new global::HPD.Agent.CollapseMiddlewareConfigFactory[]");
+                sb.AppendLine($"                Middleware: new global::HPD.Agent.ToolHarnessMiddlewareDescriptor[]");
                 sb.AppendLine($"                {{");
-                foreach (var entry in ToolHarness.CollapseMiddlewareConfigTypeNames)
+                foreach (var entry in ToolHarness.CollapseMiddlewareEntries)
                 {
-                    sb.AppendLine($"                    new global::HPD.Agent.CollapseMiddlewareConfigFactory(");
-                    sb.AppendLine($"                        MiddlewareTypeName: \"{entry.SimpleName}\",");
-                    sb.AppendLine($"                        Factory: static json => new {entry.FullyQualifiedTypeName}(");
-                    sb.AppendLine($"                            JsonSerializer.Deserialize(json, GetJsonTypeInfo<{entry.ConfigTypeFqn}>())!)),");
+                    sb.AppendLine("                    new global::HPD.Agent.ToolHarnessMiddlewareDescriptor");
+                    sb.AppendLine("                    {");
+                    sb.AppendLine($"                        MiddlewareType = typeof({entry.FullyQualifiedTypeName}),");
+                    if (entry.ServicesOwned)
+                    {
+                        sb.AppendLine($"                        Factory = static context => global::HPD.Agent.ToolHarnessMiddlewareActivation.ServicesOwned(context.GetRequiredService<{entry.FullyQualifiedTypeName}>())");
+                    }
+                    else if (entry.AgentResourceTypeFqn is not null)
+                    {
+                        sb.AppendLine($"                        ConfigurationType = typeof({entry.ConfigTypeFqn}),");
+                        sb.AppendLine($"                        Factory = static context => global::HPD.Agent.ToolHarnessMiddlewareActivation.ExecutionOwned(new {entry.FullyQualifiedTypeName}(context.GetRequiredAgentResource<{entry.AgentResourceTypeFqn}>(), context.GetCanonicalWorkspaceIdentity(), context.GetConfigurationOrDefault(GetJsonTypeInfo<{entry.ConfigTypeFqn}>({entry.JsonContextTypeFqn}.Default), static () => new {entry.ConfigTypeFqn}())) )");
+                    }
+                    else if (entry.ConfigTypeFqn is not null)
+                    {
+                        sb.AppendLine($"                        ConfigurationType = typeof({entry.ConfigTypeFqn}),");
+                        if (entry.ConfigHasGeneratedDefault)
+                            sb.AppendLine($"                        Factory = static context => global::HPD.Agent.ToolHarnessMiddlewareActivation.ExecutionOwned(new {entry.FullyQualifiedTypeName}(context.GetConfigurationOrDefault(GetJsonTypeInfo<{entry.ConfigTypeFqn}>({entry.JsonContextTypeFqn}.Default), static () => new {entry.ConfigTypeFqn}())))");
+                        else
+                            sb.AppendLine($"                        Factory = static context => global::HPD.Agent.ToolHarnessMiddlewareActivation.ExecutionOwned(new {entry.FullyQualifiedTypeName}(context.GetConfiguration(GetJsonTypeInfo<{entry.ConfigTypeFqn}>({entry.JsonContextTypeFqn}.Default))))");
+                    }
+                    else
+                    {
+                        sb.AppendLine($"                        Factory = static context => global::HPD.Agent.ToolHarnessMiddlewareActivation.ExecutionOwned(new {entry.FullyQualifiedTypeName}())");
+                    }
+                    sb.AppendLine("                    },");
                 }
                 sb.AppendLine($"                }}");
             }
             else
             {
-                sb.AppendLine($"                CollapseMiddlewareConfigFactories: null");
+                sb.AppendLine($"                Middleware: null");
             }
 
             if (eventModuleProvider is not null)
@@ -808,6 +830,10 @@ namespace HPD.Agent.Diagnostics {{
         sb.AppendLine();
         sb.AppendLine("            throw new NotSupportedException($\"No JSON metadata is registered for tool harness config type '{typeof(T).FullName}'. No JSON metadata is registered for tool metadata type '{typeof(T).FullName}'. No JSON metadata is registered for collapse middleware config type '{typeof(T).FullName}'.\");");
         sb.AppendLine("        }");
+        sb.AppendLine();
+        sb.AppendLine("        private static JsonTypeInfo<T> GetJsonTypeInfo<T>(JsonSerializerContext context)");
+        sb.AppendLine("            => context.GetTypeInfo(typeof(T)) as JsonTypeInfo<T>");
+        sb.AppendLine("                ?? throw new InvalidOperationException($\"Generated JSON context '{context.GetType()}' does not contain metadata for '{typeof(T)}'.\");");
         sb.AppendLine();
         sb.AppendLine("#pragma warning disable CA2255");
         sb.AppendLine("        [ModuleInitializer]");
@@ -1931,20 +1957,42 @@ $@"    /// <summary>
 
     /// <summary>
     /// Extracts middleware type info from <c>[Collapse(Middlewares = [typeof(T1), typeof(T2)])]</c>.
-    /// Splits results into two buckets:
-    /// <list type="bullet">
-    /// <item><c>Parameterless</c> — types with a public parameterless constructor → <c>CollapseMiddlewareFactories</c></item>
-    /// <item><c>ConfigConstructor</c> — types with a single config-parameter constructor → <c>CollapseMiddlewareConfigFactories</c> (§5A)</item>
-    /// </list>
-    /// Emits diagnostics for types that do not implement IAgentMiddleware or have neither constructor form.
-    /// Returns null fields (not empty lists) when no types of a given kind are found.
+    /// Emits ordered, explicitly owned activation descriptors for middleware declared by a ToolHarness.
     /// </summary>
-    private static (List<string>? Parameterless, List<CollapseMiddlewareConfigEntry>? ConfigConstructor)
-        GetCollapseMiddlewareTypeNames(
+    private static List<CollapseMiddlewareEntry>? GetCollapseMiddlewareEntries(
             ClassDeclarationSyntax classDecl,
             SemanticModel semanticModel,
             List<Diagnostic> diagnostics)
     {
+        var lifetimeAttributeType = semanticModel.Compilation.GetTypeByMetadataName(
+            "HPD.Agent.ToolHarnessMiddlewareLifetimeAttribute");
+        var jsonContextAttributeType = semanticModel.Compilation.GetTypeByMetadataName(
+            "HPD.Agent.ToolHarnessJsonContextAttribute");
+        var jsonSerializableAttributeType = semanticModel.Compilation.GetTypeByMetadataName(
+            "System.Text.Json.Serialization.JsonSerializableAttribute");
+        var agentResourceAttributeType = semanticModel.Compilation.GetTypeByMetadataName(
+            "HPD.Agent.ToolHarnessAgentResourceAttribute");
+
+        string? GetJsonContextType(ITypeSymbol configType)
+        {
+            var attribute = configType.GetAttributes().SingleOrDefault(candidate =>
+                jsonContextAttributeType is not null &&
+                SymbolEqualityComparer.Default.Equals(candidate.AttributeClass, jsonContextAttributeType));
+            if (attribute is null ||
+                attribute.ConstructorArguments.Length != 1 ||
+                attribute.ConstructorArguments[0].Value is not INamedTypeSymbol contextType)
+                return null;
+
+            var containsMetadata = contextType.GetAttributes().Any(candidate =>
+                jsonSerializableAttributeType is not null &&
+                SymbolEqualityComparer.Default.Equals(candidate.AttributeClass, jsonSerializableAttributeType) &&
+                candidate.ConstructorArguments.Length > 0 &&
+                SymbolEqualityComparer.Default.Equals(candidate.ConstructorArguments[0].Value as ITypeSymbol, configType));
+            return containsMetadata
+                ? contextType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+                : null;
+        }
+
         var allAttributes = classDecl.AttributeLists
             .SelectMany(attrList => attrList.Attributes);
 
@@ -1952,7 +2000,7 @@ $@"    /// <summary>
             a.Name.ToString() == "Collapse" || a.Name.ToString() == "CollapseAttribute");
 
         if (attr?.ArgumentList == null)
-            return (null, null);
+            return null;
 
         AttributeArgumentSyntax? middlewaresArg = null;
         foreach (var arg in attr.ArgumentList.Arguments)
@@ -1966,12 +2014,12 @@ $@"    /// <summary>
         }
 
         if (middlewaresArg == null)
-            return (null, null);
+            return null;
 
         // Expression should be an array initializer: [typeof(T1), typeof(T2)]
         // Represented as CollectionExpressionSyntax (C# 12) or ArrayCreationExpression / ImplicitArrayCreation
-        var parameterlessNames = new List<string>();
-        var configEntries = new List<CollapseMiddlewareConfigEntry>();
+        var entries = new List<CollapseMiddlewareEntry>();
+        var seenTypes = new HashSet<string>(StringComparer.Ordinal);
         var location = classDecl.GetLocation();
 
         System.Collections.Generic.IEnumerable<ExpressionSyntax>? elements = null;
@@ -1991,7 +2039,7 @@ $@"    /// <summary>
         }
 
         if (elements == null)
-            return (null, null);
+            return null;
 
         foreach (var elem in elements)
         {
@@ -2020,17 +2068,19 @@ $@"    /// <summary>
 
             var fqn = typeInfo.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
-            // Check for IAgentMiddleware implementation
-            bool implementsMiddleware = typeInfo.Type.AllInterfaces.Any(i =>
-                i.Name == "IAgentMiddleware" || i.ToDisplayString().EndsWith(".IAgentMiddleware"));
+            var markerType = semanticModel.Compilation.GetTypeByMetadataName(
+                "HPD.Agent.Middleware.IToolHarnessMiddleware");
+            bool implementsToolHarnessMarker = markerType is not null && typeInfo.Type.AllInterfaces.Any(i =>
+                SymbolEqualityComparer.Default.Equals(i, markerType));
 
-            if (!implementsMiddleware)
+            if (!implementsToolHarnessMarker)
             {
                 diagnostics.Add(Diagnostic.Create(
                     new DiagnosticDescriptor(
-                        "HPDAG0202",
-                        "Middleware type does not implement IAgentMiddleware",
-                        "ToolHarness '{0}': Type '{1}' in Middlewares does not implement IAgentMiddleware.",
+                        "HPDAG0203",
+                        "Middleware type does not implement IToolHarnessMiddleware",
+                        "ToolHarness '{0}': Type '{1}' is registered as scoped middleware but does not implement IToolHarnessMiddleware. " +
+                        "Implement IToolHarnessMiddleware; ToolHarness middleware is an explicit v9 contract.",
                         "HPDAgent.SourceGenerator",
                         DiagnosticSeverity.Error,
                         isEnabledByDefault: true),
@@ -2040,55 +2090,165 @@ $@"    /// <summary>
                 continue;
             }
 
-            // Warn if not marked with IToolHarnessMiddleware
-            bool implementsToolHarnessMarker = typeInfo.Type.AllInterfaces.Any(i =>
-                i.Name == "IToolHarnessMiddleware" || i.ToDisplayString().EndsWith(".IToolHarnessMiddleware"));
-
-            if (!implementsToolHarnessMarker)
-            {
-                diagnostics.Add(Diagnostic.Create(
-                    new DiagnosticDescriptor(
-                        "HPDAG0203",
-                        "Middleware type does not implement IToolHarnessMiddleware",
-                        "ToolHarness '{0}': Type '{1}' is registered as scoped middleware but does not implement IToolHarnessMiddleware. " +
-                        "Implement IToolHarnessMiddleware to signal toolharness-scoped intent. This is a warning only.",
-                        "HPDAgent.SourceGenerator",
-                        DiagnosticSeverity.Warning,
-                        isEnabledByDefault: true),
-                    location,
-                    classDecl.Identifier.ValueText,
-                    typeInfo.Type.Name));
-                // Still include — marker is optional
-            }
-
             if (typeInfo.Type is not INamedTypeSymbol namedType)
                 continue;
 
-            // §parameterless path: public parameterless constructor or value type
-            bool hasParameterlessCtor =
-                namedType.InstanceConstructors.Any(c => c.Parameters.IsEmpty && c.DeclaredAccessibility == Accessibility.Public)
-                || namedType.IsValueType;
+            if (!seenTypes.Add(fqn))
+            {
+                diagnostics.Add(Diagnostic.Create(
+                    new DiagnosticDescriptor("HPDAG0205", "Duplicate ToolHarness middleware",
+                        "ToolHarness '{0}' declares middleware type '{1}' more than once.",
+                        "HPDAgent.SourceGenerator", DiagnosticSeverity.Error, true),
+                    location, classDecl.Identifier.ValueText, namedType.Name));
+                continue;
+            }
 
+            if (namedType.IsAbstract || namedType.IsGenericType ||
+                namedType.DeclaredAccessibility is not Accessibility.Public and not Accessibility.Internal)
+            {
+                diagnostics.Add(Diagnostic.Create(
+                    new DiagnosticDescriptor("HPDAG0206", "Invalid ToolHarness middleware type",
+                        "ToolHarness '{0}' middleware '{1}' must be non-abstract, closed, and accessible.",
+                        "HPDAgent.SourceGenerator", DiagnosticSeverity.Error, true),
+                    location, classDecl.Identifier.ValueText, namedType.Name));
+                continue;
+            }
+
+            var lifetimeAttribute = namedType.GetAttributes().FirstOrDefault(candidate =>
+                lifetimeAttributeType is not null &&
+                SymbolEqualityComparer.Default.Equals(candidate.AttributeClass, lifetimeAttributeType));
+            var servicesOwned = false;
+            if (lifetimeAttribute is not null)
+            {
+                if (lifetimeAttribute.ConstructorArguments.Length != 1 ||
+                    lifetimeAttribute.ConstructorArguments[0].Value is not int ownership || ownership is < 0 or > 1)
+                {
+                    diagnostics.Add(Diagnostic.Create(
+                        new DiagnosticDescriptor("HPDAG0207", "Invalid ToolHarness middleware ownership",
+                            "ToolHarness '{0}' middleware '{1}' has invalid lifetime metadata.",
+                            "HPDAgent.SourceGenerator", DiagnosticSeverity.Error, true),
+                        location, classDecl.Identifier.ValueText, namedType.Name));
+                    continue;
+                }
+                servicesOwned = ownership == 1;
+            }
+
+            var publicConstructors = namedType.InstanceConstructors
+                .Where(static constructor => constructor.DeclaredAccessibility == Accessibility.Public)
+                .ToArray();
+            var resourceConstructors = publicConstructors.Where(constructor =>
+                constructor.Parameters.Length == 3 &&
+                constructor.Parameters[0].Type.GetAttributes().Any(attribute =>
+                    agentResourceAttributeType is not null &&
+                    SymbolEqualityComparer.Default.Equals(attribute.AttributeClass, agentResourceAttributeType)) &&
+                constructor.Parameters[1].Type.SpecialType == SpecialType.System_String &&
+                (constructor.Parameters[2].Type.Name.EndsWith("Config") || constructor.Parameters[2].Type.Name.EndsWith("Options")))
+                .ToArray();
+            var configConstructors = publicConstructors.Where(static constructor =>
+                constructor.Parameters.Length == 1 &&
+                (constructor.Parameters[0].Type.Name.EndsWith("Config") || constructor.Parameters[0].Type.Name.EndsWith("Options")))
+                .ToArray();
+            var hasParameterlessCtor = publicConstructors.Any(static constructor => constructor.Parameters.IsEmpty) || namedType.IsValueType;
+            var generatedShapeCount = (resourceConstructors.Length > 0 ? 1 : 0) +
+                (configConstructors.Length > 0 ? 1 : 0) + (hasParameterlessCtor ? 1 : 0);
+
+            if (servicesOwned)
+            {
+                // Explicit Services ownership suppresses every constructor-based generated path.
+                // The child container may legitimately construct the service through any DI shape,
+                // including an implicit/public parameterless constructor.
+                entries.Add(new CollapseMiddlewareEntry(namedType.Name, fqn, null, null, true));
+                continue;
+            }
+
+            if (generatedShapeCount > 1 || resourceConstructors.Length > 1 || configConstructors.Length > 1)
+            {
+                diagnostics.Add(Diagnostic.Create(
+                    new DiagnosticDescriptor("HPDAG0211", "Ambiguous middleware activation shape",
+                        "ToolHarness '{0}' execution-owned middleware '{1}' must expose exactly one supported generated activation shape.",
+                        "HPDAgent.SourceGenerator", DiagnosticSeverity.Error, true),
+                    location, classDecl.Identifier.ValueText, namedType.Name));
+                continue;
+            }
+
+            // Agent-owned resource constructor: (attributed resource, canonical workspace identity, config/options).
+            var resourceCtor = resourceConstructors.SingleOrDefault();
+            if (resourceCtor is not null)
+            {
+                var resourceAttribute = resourceCtor.Parameters[0].Type.GetAttributes()
+                    .Single(attribute => agentResourceAttributeType is not null &&
+                        SymbolEqualityComparer.Default.Equals(attribute.AttributeClass, agentResourceAttributeType));
+                if (resourceAttribute.ConstructorArguments.Length != 1 ||
+                    resourceAttribute.ConstructorArguments[0].Value is not INamedTypeSymbol implementationType ||
+                    implementationType.IsAbstract || implementationType.IsGenericType)
+                {
+                    diagnostics.Add(Diagnostic.Create(
+                        new DiagnosticDescriptor("HPDAG0208", "Invalid Agent resource declaration",
+                            "ToolHarness '{0}' middleware '{1}' requires an Agent resource with a concrete implementation type.",
+                            "HPDAgent.SourceGenerator", DiagnosticSeverity.Error, true),
+                        location, classDecl.Identifier.ValueText, namedType.Name));
+                    continue;
+                }
+
+                var configType = resourceCtor.Parameters[2].Type;
+                var jsonContextTypeFqn = GetJsonContextType(configType);
+                if (jsonContextTypeFqn is null)
+                {
+                    diagnostics.Add(Diagnostic.Create(
+                        new DiagnosticDescriptor("HPDAG0209", "Missing middleware configuration JSON metadata",
+                            "ToolHarness '{0}' middleware '{1}' configuration type '{2}' must declare ToolHarnessJsonContext(typeof(...)) for Native AOT activation.",
+                            "HPDAgent.SourceGenerator", DiagnosticSeverity.Error, true),
+                        location, classDecl.Identifier.ValueText, namedType.Name, configType.Name));
+                    continue;
+                }
+                entries.Add(new CollapseMiddlewareEntry(
+                    namedType.Name,
+                    fqn,
+                    configType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                    jsonContextTypeFqn,
+                    false,
+                    resourceCtor.Parameters[0].Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                    implementationType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                    true));
+                continue;
+            }
+
+            // §parameterless path: public parameterless constructor or value type
             if (hasParameterlessCtor)
             {
-                parameterlessNames.Add(fqn);
+                entries.Add(new CollapseMiddlewareEntry(namedType.Name, fqn, null, null, false));
                 continue;
             }
 
             // §5A path: single public constructor whose sole parameter type name ends with "Config"
-            var singleConfigCtor = namedType.InstanceConstructors.FirstOrDefault(c =>
-                c.DeclaredAccessibility == Accessibility.Public
-                && c.Parameters.Length == 1
-                && (c.Parameters[0].Type.Name.EndsWith("Config") || c.Parameters[0].Type.Name.EndsWith("Options")));
+            var singleConfigCtor = configConstructors.SingleOrDefault();
 
             if (singleConfigCtor != null)
             {
                 var configTypeFqn = singleConfigCtor.Parameters[0].Type
                     .ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                configEntries.Add(new CollapseMiddlewareConfigEntry(
+                var jsonContextTypeFqn = GetJsonContextType(singleConfigCtor.Parameters[0].Type);
+                if (jsonContextTypeFqn is null)
+                {
+                    diagnostics.Add(Diagnostic.Create(
+                        new DiagnosticDescriptor("HPDAG0209", "Missing middleware configuration JSON metadata",
+                            "ToolHarness '{0}' middleware '{1}' configuration type '{2}' must declare ToolHarnessJsonContext(typeof(...)) for Native AOT activation.",
+                            "HPDAgent.SourceGenerator", DiagnosticSeverity.Error, true),
+                        location, classDecl.Identifier.ValueText, namedType.Name, singleConfigCtor.Parameters[0].Type.Name));
+                    continue;
+                }
+                entries.Add(new CollapseMiddlewareEntry(
                     SimpleName: namedType.Name,
                     FullyQualifiedTypeName: fqn,
-                    ConfigTypeFqn: configTypeFqn));
+                    ConfigTypeFqn: configTypeFqn,
+                    JsonContextTypeFqn: jsonContextTypeFqn,
+                    ServicesOwned: false,
+                    ConfigHasGeneratedDefault:
+                        singleConfigCtor.Parameters[0].HasExplicitDefaultValue &&
+                        singleConfigCtor.Parameters[0].Type is INamedTypeSymbol configNamedType &&
+                        configNamedType.InstanceConstructors.Any(static constructor =>
+                            constructor.DeclaredAccessibility == Accessibility.Public &&
+                            constructor.Parameters.IsEmpty)));
                 continue;
             }
 
@@ -2098,7 +2258,7 @@ $@"    /// <summary>
                     "HPDAG0204",
                     "Scoped middleware requires a parameterless or single-config-parameter constructor",
                     "ToolHarness '{0}': Type '{1}' has no public parameterless constructor and no single-Config/Options-parameter constructor. " +
-                    "Use WithToolHarness<T>(opts => opts.AddScopedMiddleware(...)) to supply instances requiring DI.",
+                    "Use an explicit ToolHarnessMiddlewareLifetime(Services) declaration for child-scope activation.",
                     "HPDAgent.SourceGenerator",
                     DiagnosticSeverity.Error,
                     isEnabledByDefault: true),
@@ -2107,10 +2267,7 @@ $@"    /// <summary>
                 typeInfo.Type.Name));
         }
 
-        return (
-            parameterlessNames.Count > 0 ? parameterlessNames : null,
-            configEntries.Count > 0 ? configEntries : null
-        );
+        return entries.Count > 0 ? entries : null;
     }
 
     /// <summary>
@@ -2418,6 +2575,7 @@ $@"    /// <summary>
         sb.AppendLine("                        [\"IsContainer\"] = true,");
         // Use EffectiveName for ToolHarnessName metadata (always ClassName now)
         sb.AppendLine($"                        [\"ToolHarnessName\"] = \"{ToolHarness.EffectiveName}\",");
+        sb.AppendLine($"                        [\"ToolHarnessIdentity\"] = @\"{EscapeForVerbatim(ToolHarness.AssemblyName)}:{EscapeForVerbatim(ToolHarness.Namespace)}:{EscapeForVerbatim(ToolHarness.EffectiveName)}\",");
         sb.AppendLine($"                        [\"ReferencedFunctions\"] = new string[] {{ {string.Join(", ", allCapabilities.Select(c => $"\"{c}\""))} }},");
         sb.AppendLine($"                        [\"FunctionCount\"] = {totalCount},");
 

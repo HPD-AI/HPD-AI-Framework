@@ -1,3 +1,6 @@
+using HPD.Agent.Middleware;
+using Microsoft.Extensions.AI;
+
 namespace HPD.Agent.Tests.Operations;
 
 public sealed class AgentOperationTests
@@ -279,7 +282,8 @@ public sealed class AgentOperationTests
 
         await registry.ShutdownAsync(FastShutdown());
 
-        var snapshot = Assert.Single(registry.Snapshot());
+        Assert.Empty(registry.Snapshot());
+        var snapshot = sink.Events.OfType<AgentOperationTransitionedEvent>().Last().Operation;
         Assert.Equal(AgentOperationProviderStatus.Failed, snapshot.ProviderStatus);
         Assert.Equal(AgentOperationObservationStatus.Stopped, snapshot.ObservationStatus);
         Assert.Equal("shutdown_deadline_exceeded", snapshot.Failure?.Code);
@@ -297,7 +301,8 @@ public sealed class AgentOperationTests
 
         await registry.ShutdownAsync(FastShutdown());
 
-        var snapshot = Assert.Single(registry.Snapshot());
+        Assert.Empty(registry.Snapshot());
+        var snapshot = sink.Events.OfType<AgentOperationTransitionedEvent>().Last().Operation;
         Assert.Equal(AgentOperationProviderStatus.Accepted, snapshot.ProviderStatus);
         Assert.Equal(AgentOperationObservationStatus.Detached, snapshot.ObservationStatus);
         Assert.Equal(0, controller.CancellationRequests);
@@ -307,7 +312,8 @@ public sealed class AgentOperationTests
     [Fact]
     public async Task Shutdown_RequestCancellationPolicyCancelsThenDetachesRemoteOperation()
     {
-        var registry = new AgentOperationRegistry(new TestEventSink());
+        var sink = new TestEventSink();
+        var registry = new AgentOperationRegistry(sink);
         var controller = new RecordingController();
         await registry.RegisterAsync(CreateSnapshot(), controller);
 
@@ -316,7 +322,8 @@ public sealed class AgentOperationTests
             RemoteOperations = AgentRemoteOperationShutdownPolicy.RequestCancellation
         });
 
-        var snapshot = Assert.Single(registry.Snapshot());
+        Assert.Empty(registry.Snapshot());
+        var snapshot = sink.Events.OfType<AgentOperationTransitionedEvent>().Last().Operation;
         Assert.Equal(AgentOperationProviderStatus.Accepted, snapshot.ProviderStatus);
         Assert.Equal(AgentOperationObservationStatus.Detached, snapshot.ObservationStatus);
         Assert.Equal(1, controller.CancellationRequests);
@@ -352,7 +359,368 @@ public sealed class AgentOperationTests
         Assert.Equal("op-1", Assert.IsType<AgentOperationNotificationInputEvent>(delivered)
             .Notifications.Single().OperationId);
         Assert.False(input.Reader.TryRead(out _));
+        await WaitUntilAsync(() => Volatile.Read(ref suppressed) == 1, TimeSpan.FromSeconds(2));
         Assert.Equal(1, suppressed);
+    }
+
+    [Theory]
+    [InlineData(AgentOperationProviderStatus.Completed)]
+    [InlineData(AgentOperationProviderStatus.Failed)]
+    [InlineData(AgentOperationProviderStatus.Cancelled)]
+    public async Task TerminalTransition_ReleasesTransferredExecutionOwnerExactlyOnce(
+        AgentOperationProviderStatus terminalStatus)
+    {
+        var owner = new RecordingAsyncDisposable();
+        await using var operation = new AgentOperation(CreateSnapshot(), new TestEventSink(), executionOwner: owner);
+        await operation.TransitionAsync(
+            new AgentOperationTransition { ProviderStatus = AgentOperationProviderStatus.Running }, 0, default);
+
+        var transition = terminalStatus switch
+        {
+            AgentOperationProviderStatus.Completed => new AgentOperationTransition
+            {
+                ProviderStatus = terminalStatus,
+                Completion = new AgentOperationCompletion("done")
+            },
+            AgentOperationProviderStatus.Failed => new AgentOperationTransition
+            {
+                ProviderStatus = terminalStatus,
+                Failure = new AgentOperationFailure("failed", "failed")
+            },
+            _ => new AgentOperationTransition { ProviderStatus = terminalStatus }
+        };
+        await operation.TransitionAsync(transition, 1, default);
+        await operation.DisposeAsync();
+
+        Assert.Equal(1, owner.DisposeCount);
+    }
+
+    [Fact]
+    public async Task TerminalOwnerReleaseFailure_DoesNotEscapeDurableTransitionOrRepeatTerminalCommit()
+    {
+        var sink = new TestEventSink();
+        var owner = new RecordingAsyncDisposable(fail: true);
+        await using var operation = new AgentOperation(CreateSnapshot(), sink, executionOwner: owner);
+        await operation.TransitionAsync(
+            new AgentOperationTransition { ProviderStatus = AgentOperationProviderStatus.Running }, 0, default);
+
+        var result = await operation.TransitionAsync(new AgentOperationTransition
+        {
+            ProviderStatus = AgentOperationProviderStatus.Completed,
+            Completion = new AgentOperationCompletion("committed")
+        }, 1, default);
+
+        Assert.Equal(AgentOperationProviderStatus.Completed, result.Snapshot.ProviderStatus);
+        Assert.Equal(1, owner.DisposeCount);
+        Assert.Equal(2, sink.Events.OfType<AgentOperationTransitionedEvent>().Count());
+    }
+
+    [Fact]
+    public async Task TerminalOwner_IsDetachedUnderTransitionLock_AndDisposedAfterLockRelease()
+    {
+        AgentOperation? operation = null;
+        var owner = new RecordingAsyncDisposable(async () =>
+        {
+            var conflict = await Assert.ThrowsAsync<AgentOperationVersionConflictException>(() =>
+                operation!.TransitionAsync(new AgentOperationTransition(), -1, default).AsTask());
+            Assert.Equal(2, conflict.ActualVersion);
+        });
+        operation = new AgentOperation(CreateSnapshot(), new TestEventSink(), executionOwner: owner);
+        await operation.TransitionAsync(
+            new AgentOperationTransition { ProviderStatus = AgentOperationProviderStatus.Running }, 0, default);
+
+        await operation.TransitionAsync(new AgentOperationTransition
+        {
+            ProviderStatus = AgentOperationProviderStatus.Completed,
+            Completion = new AgentOperationCompletion("done")
+        }, 1, default).AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, owner.DisposeCount);
+        await operation.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task FailedRegistration_ReleasesTransferredExecutionOwner()
+    {
+        var owner = new RecordingAsyncDisposable();
+        await using var registry = new AgentOperationRegistry(new ThrowingEventSink());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            registry.RegisterAsync(CreateSnapshot(), executionOwner: owner).AsTask());
+
+        Assert.Equal(1, owner.DisposeCount);
+        Assert.Empty(registry.Snapshot());
+    }
+
+    [Fact]
+    public async Task CompactionRemoval_ReleasesTransferredExecutionOwnerExactlyOnce()
+    {
+        var owner = new RecordingAsyncDisposable();
+        var retention = new AgentOperationRetentionPolicy
+        {
+            TerminalRetention = TimeSpan.Zero,
+            ProviderDeduplicationRetention = TimeSpan.FromMinutes(1)
+        };
+        await using var registry = new AgentOperationRegistry(new TestEventSink(), retention);
+        var operation = await registry.RegisterAsync(CreateSnapshot(), executionOwner: owner);
+        await operation.TransitionAsync(new AgentOperationTransition
+        {
+            ProviderStatus = AgentOperationProviderStatus.Failed,
+            Failure = new AgentOperationFailure("failed", "failed")
+        }, 0, default);
+
+        await registry.CompactAsync(DateTimeOffset.UtcNow.AddSeconds(1), default);
+
+        Assert.Equal(1, owner.DisposeCount);
+        Assert.Empty(registry.Snapshot());
+    }
+
+    [Fact]
+    public async Task RegistryShutdown_ReleasesEveryTransferredOwnerDespiteCleanupFailure()
+    {
+        var first = new RecordingAsyncDisposable(fail: true);
+        var second = new RecordingAsyncDisposable();
+        var registry = new AgentOperationRegistry(new TestEventSink());
+        await registry.RegisterAsync(CreateSnapshot() with { OperationId = "first" }, executionOwner: first);
+        await registry.RegisterAsync(CreateSnapshot() with { OperationId = "second" }, executionOwner: second);
+
+        await registry.ShutdownAsync(FastShutdown());
+
+        Assert.Equal(1, first.DisposeCount);
+        Assert.Equal(1, second.DisposeCount);
+        Assert.Empty(registry.Snapshot());
+    }
+
+    [Theory]
+    [InlineData(AgentOperationProviderStatus.Completed)]
+    [InlineData(AgentOperationProviderStatus.Failed)]
+    [InlineData(AgentOperationProviderStatus.Cancelled)]
+    public async Task FunctionExecutionContext_StartOperationAsync_RetainsThenReleasesExecutionScope(
+        AgentOperationProviderStatus expectedStatus)
+    {
+        var disposed = 0;
+        var execution = ToolHarnessExecutionScope.Create(null);
+        var harness = new ToolHarnessFactory(
+            "OperationHarness",
+            typeof(object),
+            static () => new object(),
+            static (_, _, _) => [],
+            static () => [],
+            static () => [],
+            "tests:operation",
+            Middleware:
+            [
+                new ToolHarnessMiddlewareDescriptor
+                {
+                    MiddlewareType = typeof(OperationLifetimeProbe),
+                    Factory = _ => ToolHarnessMiddlewareActivation.ExecutionOwned(
+                        new OperationLifetimeProbe(() => Interlocked.Increment(ref disposed)))
+                }
+            ]);
+        await using (await execution.Registry.AcquireAsync(
+            harness,
+            new ToolHarnessActivationContext(
+                harness.ActivationIdentity, "execution", null, new AgentRunConfig()))) { }
+        var capabilities = new RuntimeCapabilityRegistry();
+        await using var registry = new AgentOperationRegistry(new TestEventSink());
+        capabilities.Set(registry);
+        var state = AgentLoopState.InitialSafe([], "run", "conversation", "agent");
+        var session = new global::HPD.Agent.Session("session");
+        var thread = new Thread("session", "agent") { Id = "thread" };
+        var agentContext = new AgentContext(
+            "agent", "conversation", state, new HPD.Events.Core.EventCoordinator(),
+            session, thread, default,
+            runtimeCapabilities: capabilities,
+            toolHarnessExecutionScope: execution,
+            threadExecutionId: "execution");
+        var function = AIFunctionFactory.Create(() => "ok", "operation_tool");
+        var before = agentContext.AsBeforeFunction(
+            function, "call", new Dictionary<string, object?>(), new AgentRunConfig());
+        var functionContext = new FunctionExecutionContext(before, new FunctionRequest
+        {
+            Function = function,
+            CallId = "call",
+            Arguments = new Dictionary<string, object?>(),
+            State = state,
+            EventCoordinator = agentContext.EventCoordinator
+        });
+        var workEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseWork = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var receipt = await functionContext.StartOperationAsync(
+            "operation",
+            null,
+            new AgentOperationNotificationPolicy(),
+            async (_, cancellationToken) =>
+            {
+                workEntered.TrySetResult();
+                await releaseWork.Task.WaitAsync(cancellationToken);
+                if (expectedStatus == AgentOperationProviderStatus.Failed)
+                    throw new InvalidOperationException("failed");
+                return new AgentOperationCompletion("done");
+            });
+
+        await workEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await execution.ReleaseForegroundAsync(ToolHarnessDeactivationReason.Completed);
+        Assert.Equal(0, disposed);
+        if (expectedStatus == AgentOperationProviderStatus.Cancelled)
+            await functionContext.CancelOperationAsync(receipt.OperationId);
+        else
+            releaseWork.TrySetResult();
+        await WaitUntilAsync(
+            () => registry.Snapshot().Single(snapshot => snapshot.OperationId == receipt.OperationId)
+                .ProviderStatus == expectedStatus,
+            TimeSpan.FromSeconds(5));
+        await execution.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(expectedStatus, registry.Snapshot().Single().ProviderStatus);
+        Assert.Equal(1, disposed);
+    }
+
+    [Fact]
+    public async Task HarnessOriginatedSchedulingFailure_ReleasesTransferredLeaseExactlyOnce()
+    {
+        var (execution, disposed) = await ActivatedExecutionAsync();
+        await using var registry = new AgentOperationRegistry(new ThrowingEventSink());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => AgentLocalOperationScheduler.StartAsync(
+            registry,
+            AgentOperationSourceKind.LocalTool,
+            "scheduling-failure",
+            new AgentExecutionAddress("agent", "session", "thread"),
+            "execution",
+            null,
+            null,
+            new AgentOperationNotificationPolicy(),
+            static (_, _) => ValueTask.FromResult(new AgentOperationCompletion("unreachable")),
+            execution).AsTask());
+        await execution.ReleaseForegroundAsync(ToolHarnessDeactivationReason.Failed);
+        await execution.Completion;
+
+        Assert.Equal(1, disposed());
+        Assert.Empty(registry.Snapshot());
+    }
+
+    [Fact]
+    public async Task HarnessOriginatedRegistryShutdown_ReleasesTransferredLeaseExactlyOnce()
+    {
+        var (execution, disposed) = await ActivatedExecutionAsync();
+        var registry = new AgentOperationRegistry(new TestEventSink());
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await AgentLocalOperationScheduler.StartAsync(
+            registry,
+            AgentOperationSourceKind.LocalTool,
+            "shutdown",
+            new AgentExecutionAddress("agent", "session", "thread"),
+            "execution",
+            null,
+            null,
+            new AgentOperationNotificationPolicy(),
+            async (_, cancellationToken) =>
+            {
+                entered.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                return new AgentOperationCompletion("unreachable");
+            },
+            execution);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await execution.ReleaseForegroundAsync(ToolHarnessDeactivationReason.Cancelled);
+
+        await registry.ShutdownAsync(FastShutdown());
+        await execution.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, disposed());
+        Assert.Empty(registry.Snapshot());
+    }
+
+    [Fact]
+    public async Task HarnessOriginatedCompactionRemoval_ReleasesTransferredLeaseExactlyOnce()
+    {
+        var (execution, disposed) = await ActivatedExecutionAsync();
+        var registry = new AgentOperationRegistry(
+            new TestEventSink(),
+            new AgentOperationRetentionPolicy
+            {
+                TerminalRetention = TimeSpan.Zero,
+                ProviderDeduplicationRetention = TimeSpan.FromMinutes(1)
+            });
+        var receipt = await AgentLocalOperationScheduler.StartAsync(
+            registry,
+            AgentOperationSourceKind.LocalTool,
+            "compact",
+            new AgentExecutionAddress("agent", "session", "thread"),
+            "execution",
+            null,
+            null,
+            new AgentOperationNotificationPolicy(),
+            static (_, _) => ValueTask.FromResult(new AgentOperationCompletion("done")),
+            execution);
+        await execution.ReleaseForegroundAsync(ToolHarnessDeactivationReason.Completed);
+        await WaitUntilAsync(
+            () => registry.Snapshot().Single().ProviderStatus == AgentOperationProviderStatus.Completed,
+            TimeSpan.FromSeconds(5));
+
+        await registry.CompactAsync(DateTimeOffset.UtcNow.AddSeconds(1), default);
+        await execution.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+        await registry.DisposeAsync();
+
+        Assert.Equal(1, disposed());
+        Assert.Empty(registry.Snapshot());
+        Assert.Contains(registry.Tombstones(), tombstone => tombstone.OperationId == receipt.OperationId);
+    }
+
+    [Theory]
+    [InlineData(AgentOperationSourceKind.McpTask)]
+    [InlineData(AgentOperationSourceKind.ProviderOperation)]
+    [InlineData(AgentOperationSourceKind.SubAgent)]
+    [InlineData(AgentOperationSourceKind.Workflow)]
+    [InlineData(AgentOperationSourceKind.MultiAgent)]
+    public async Task UnrelatedAndHydratableOperations_RegisterAndShutdownWithoutExecutionLease(
+        AgentOperationSourceKind sourceKind)
+    {
+        var snapshot = CreateSnapshot() with
+        {
+            OperationId = sourceKind.ToString(),
+            SourceKind = sourceKind,
+            Recovery = sourceKind is AgentOperationSourceKind.McpTask or AgentOperationSourceKind.ProviderOperation
+                ? new AgentOperationRecoveryReference("provider", "durable")
+                : null
+        };
+        var registry = new AgentOperationRegistry(new TestEventSink());
+
+        await registry.RegisterAsync(snapshot);
+        await registry.ShutdownAsync(FastShutdown());
+
+        Assert.Empty(registry.Snapshot());
+    }
+
+    private static async Task<(ToolHarnessExecutionScope Execution, Func<int> Disposed)>
+        ActivatedExecutionAsync()
+    {
+        var disposed = 0;
+        var execution = ToolHarnessExecutionScope.Create(null);
+        var harness = new ToolHarnessFactory(
+            "OperationHarness",
+            typeof(object),
+            static () => new object(),
+            static (_, _, _) => [],
+            static () => [],
+            static () => [],
+            "tests:operation-entrypoint",
+            Middleware:
+            [
+                new ToolHarnessMiddlewareDescriptor
+                {
+                    MiddlewareType = typeof(OperationLifetimeProbe),
+                    Factory = _ => ToolHarnessMiddlewareActivation.ExecutionOwned(
+                        new OperationLifetimeProbe(() => Interlocked.Increment(ref disposed)))
+                }
+            ]);
+        await using (await execution.Registry.AcquireAsync(
+            harness,
+            new ToolHarnessActivationContext(
+                harness.ActivationIdentity, "execution", null, new AgentRunConfig()))) { }
+        return (execution, () => Volatile.Read(ref disposed));
     }
 
     private static AgentShutdownOptions FastShutdown() => new()
@@ -360,6 +728,23 @@ public sealed class AgentOperationTests
         GracefulDrainTimeout = TimeSpan.FromMilliseconds(1),
         CancellationDrainTimeout = TimeSpan.FromMilliseconds(1)
     };
+
+    private sealed class OperationLifetimeProbe(Action onDispose)
+        : IToolHarnessMiddleware, IAsyncDisposable
+    {
+        public ValueTask DisposeAsync()
+        {
+            onDispose();
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> predicate, TimeSpan timeout)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        while (!predicate() && DateTimeOffset.UtcNow < deadline)
+            await Task.Delay(10);
+    }
 
     private static AgentOperation Create()
     {
@@ -439,5 +824,27 @@ public sealed class AgentOperationTests
             DisposeCount++;
             return ValueTask.CompletedTask;
         }
+    }
+
+    private sealed class RecordingAsyncDisposable(
+        Func<Task>? onDispose = null,
+        bool fail = false) : IAsyncDisposable
+    {
+        public int DisposeCount { get; private set; }
+
+        public async ValueTask DisposeAsync()
+        {
+            DisposeCount++;
+            if (onDispose is not null)
+                await onDispose();
+            if (fail)
+                throw new InvalidOperationException("owner cleanup failed");
+        }
+    }
+
+    private sealed class ThrowingEventSink : IAgentOperationEventSink
+    {
+        public ValueTask AppendAsync(AgentEvent operationEvent, CancellationToken cancellationToken) =>
+            ValueTask.FromException(new InvalidOperationException("journal failed"));
     }
 }

@@ -237,6 +237,7 @@ internal sealed class AgentOperation : IAsyncDisposable
     private readonly HashSet<string> _providerDeduplicationKeys = new(StringComparer.Ordinal);
     private readonly IAgentOperationEventSink _events;
     private AgentOperationSnapshot _snapshot;
+    private IAsyncDisposable? _executionOwner;
     private int _disposed;
 
     internal AgentOperation(
@@ -244,6 +245,7 @@ internal sealed class AgentOperation : IAsyncDisposable
         IAgentOperationEventSink events,
         IAgentOperationController? controller = null,
         IAsyncDisposable? observer = null,
+        IAsyncDisposable? executionOwner = null,
         IEnumerable<string>? providerDeduplicationKeys = null)
     {
         ValidateInitial(initial);
@@ -251,6 +253,7 @@ internal sealed class AgentOperation : IAsyncDisposable
         _events = events ?? throw new ArgumentNullException(nameof(events));
         Controller = controller;
         Observer = observer;
+        _executionOwner = executionOwner;
         if (providerDeduplicationKeys is not null)
             _providerDeduplicationKeys.UnionWith(providerDeduplicationKeys);
     }
@@ -273,6 +276,7 @@ internal sealed class AgentOperation : IAsyncDisposable
         await _transitionLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) == 2, this);
             if (_snapshot.ObservationStatus != AgentOperationObservationStatus.Reconciling)
                 throw new InvalidOperationException("Live resources may only attach while an operation is reconciling.");
             if (Controller is not null || Observer is not null)
@@ -293,9 +297,11 @@ internal sealed class AgentOperation : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(transition);
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) == 2, this);
+        IAsyncDisposable? executionOwner = null;
         await _transitionLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
             var current = _snapshot;
             if (current.Version != expectedVersion)
                 throw new AgentOperationVersionConflictException(expectedVersion, current.Version);
@@ -338,11 +344,18 @@ internal sealed class AgentOperation : IAsyncDisposable
             if (transition.ProviderDeduplicationKey is { Length: > 0 } committedKey)
                 _providerDeduplicationKeys.Add(committedKey);
             Volatile.Write(ref _snapshot, next);
+            if (terminal)
+                executionOwner = Interlocked.Exchange(ref _executionOwner, null);
             return new(true, next);
         }
         finally
         {
             _transitionLock.Release();
+            if (executionOwner is not null)
+            {
+                try { await executionOwner.DisposeAsync().ConfigureAwait(false); }
+                catch { /* Completion on the execution scope retains teardown failure evidence. */ }
+            }
         }
     }
 
@@ -350,17 +363,37 @@ internal sealed class AgentOperation : IAsyncDisposable
     {
         if (Interlocked.CompareExchange(ref _disposed, 1, 0) != 0)
             return;
+        List<Exception>? failures = null;
+        IAsyncDisposable? executionOwner;
+        await _transitionLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            executionOwner = Interlocked.Exchange(ref _executionOwner, null);
+            Volatile.Write(ref _disposed, 2);
+        }
+        finally
+        {
+            _transitionLock.Release();
+        }
         try
         {
             if (Observer is not null)
-                await Observer.DisposeAsync().ConfigureAwait(false);
+                try { await Observer.DisposeAsync().ConfigureAwait(false); }
+                catch (Exception ex) { (failures ??= []).Add(ex); }
             if (Controller is not null)
-                await Controller.DisposeAsync().ConfigureAwait(false);
+                try { await Controller.DisposeAsync().ConfigureAwait(false); }
+                catch (Exception ex) { (failures ??= []).Add(ex); }
+            if (executionOwner is not null)
+            {
+                try { await executionOwner.DisposeAsync().ConfigureAwait(false); }
+                catch { /* Execution-scope Completion retains teardown failure evidence. */ }
+            }
+            if (failures is { Count: > 0 })
+                throw new AggregateException("Agent operation cleanup failed.", failures);
         }
         finally
         {
             Volatile.Write(ref _disposed, 2);
-            _transitionLock.Dispose();
         }
     }
 

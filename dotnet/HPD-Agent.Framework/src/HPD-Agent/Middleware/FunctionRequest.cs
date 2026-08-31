@@ -46,6 +46,7 @@ namespace HPD.Agent.Middleware;
 /// </remarks>
 public sealed record FunctionRequest
 {
+    internal AgentContext? ExecutionContext { get; init; }
     /// <summary>
     /// The function being invoked.
     ///   Always available (never NULL)

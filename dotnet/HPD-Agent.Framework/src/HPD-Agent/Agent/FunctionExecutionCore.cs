@@ -433,6 +433,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             var resultMetadata = new ToolResultMetadata();
             var functionRequest = new Middleware.FunctionRequest
             {
+                ExecutionContext = agentContext,
                 Function = preparation.Function,
                 CallId = functionCall.CallId,
                 Arguments = preparation.Arguments,

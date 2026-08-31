@@ -67,6 +67,9 @@ public record ToolHarnessFactory(
     /// </summary>
     Func<Dictionary<string, string[]>> GetReferencedFunctions,
 
+    /// <summary>Required stable generated identity used as the execution-local activation key.</summary>
+    string StableIdentity,
+
     // ========== NEW: COLLAPSING METADATA (from [Collapse] attribute) ==========
 
     /// <summary>
@@ -176,50 +179,21 @@ public record ToolHarnessFactory(
     /// </summary>
     Action<object, Action<string, object, string>>? CollectOpenApiSources = null,
 
-    // ========== HARNESS-SCOPED MIDDLEWARE (015) ==========
+    /// <summary>Agent-owned resources required by generated middleware activation.</summary>
+    IReadOnlyList<ToolHarnessAgentResourceDescriptor>? AgentResources = null,
 
-    /// <summary>
-    /// AOT-safe factory delegates for middleware declared in <c>[Collapse(Middlewares = [...])]</c>
-    /// that have a public parameterless constructor.
-    /// Each delegate is a direct constructor call — <c>static () =&gt; new ConcreteType()</c> — emitted by
-    /// <c>HPDToolSourceGenerator</c> into <c>ToolHarnessRegistry.g.cs</c>.
-    /// Null when the toolharness declares no parameterless-constructor scoped middlewares.
-    /// Instances are created at container expansion time and live for the duration of that expansion.
-    /// </summary>
-    IReadOnlyList<Func<IAgentMiddleware>>? CollapseMiddlewareFactories = null,
-
-    /// <summary>
-    /// AOT-safe config-constructor factory delegates for middleware declared in
-    /// <c>[Collapse(Middlewares = [...])]</c> that have a single-parameter config constructor.
-    /// Each entry carries the middleware's simple type name (for matching against
-    /// <c>ToolHarnessReference.MiddlewareConfigs</c> keys) and a delegate that accepts a
-    /// <c>JsonElement</c> and returns an instantiated middleware.
-    /// Emitted by <c>HPDToolSourceGenerator</c> into <c>ToolHarnessRegistry.g.cs</c>.
-    /// Null when the toolharness declares no config-constructor scoped middlewares.
-    /// </summary>
-    IReadOnlyList<CollapseMiddlewareConfigFactory>? CollapseMiddlewareConfigFactories = null,
+    /// <summary>Ordered immutable middleware declaration carried by this harness.</summary>
+    IReadOnlyList<ToolHarnessMiddlewareDescriptor>? Middleware = null,
 
     /// <summary>
     /// Gets the immutable event module owned by this harness assembly, when it declares events.
     /// Hosted durable use requires this exact module to be present in the application composition.
     /// </summary>
     AgentEventModuleFragment? EventModule = null
-);
-
-/// <summary>
-/// Entry for a config-constructor toolharness-scoped middleware factory .
-/// Carries the middleware's simple type name for matching against
-/// <c>ToolHarnessReference.MiddlewareConfigs</c> map keys, and the factory delegate.
-/// </summary>
-/// <param name="MiddlewareTypeName">
-/// Simple (unqualified) class name of the middleware type, e.g. <c>"DbRateLimitMiddleware"</c>.
-/// Used to match entries in <c>ToolHarnessReference.MiddlewareConfigs</c>.
-/// </param>
-/// <param name="Factory">
-/// AOT-safe direct constructor delegate — e.g.
-/// <c>static json => new DbRateLimitMiddleware(json.Deserialize&lt;DbRateLimitConfig&gt;()!)</c>.
-/// </param>
-public record CollapseMiddlewareConfigFactory(
-    string MiddlewareTypeName,
-    Func<System.Text.Json.JsonElement, IAgentMiddleware> Factory
-);
+)
+{
+    /// <summary>Gets the non-empty stable activation identity.</summary>
+    public string ActivationIdentity => !string.IsNullOrWhiteSpace(StableIdentity)
+        ? StableIdentity
+        : throw new InvalidOperationException($"ToolHarness '{Name}' has no stable generated identity.");
+}

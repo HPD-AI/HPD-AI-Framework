@@ -131,7 +131,8 @@ internal static class FunctionInvocationRuntime
                     runtimeToken).ConfigureAwait(false);
 
                 return new AgentOperationCompletion(ToolResultText.FromResult(result));
-            }).ConfigureAwait(false);
+            },
+            parentContext.ToolHarnessExecutionScope).ConfigureAwait(false);
 
         return new AgentInvocationResult
         {

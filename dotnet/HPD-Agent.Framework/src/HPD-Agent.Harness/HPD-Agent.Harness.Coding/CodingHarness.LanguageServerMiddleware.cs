@@ -5,6 +5,7 @@ using Microsoft.Extensions.AI;
 
 namespace HPDOS.ToolHarnesses.Middleware;
 
+/// <summary>Coordinates Coding ToolHarness file operations with an Agent-owned workspace language-server service.</summary>
 public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAsyncDisposable
 {
     private const int MaxOpenDocumentBytes = 1024 * 1024;
@@ -20,34 +21,39 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
     private readonly LanguageServerOptions _options;
     private readonly ILanguageServerService _languageServerService;
     private readonly LanguageServerDiagnosticFormatter _formatter;
-    private readonly bool _ownsService;
+    private readonly ILanguageServerWorkspaceLease _workspaceLease;
 
-    public CodingLanguageServerMiddleware()
-        : this(new LanguageServerOptions())
-    {
-    }
-
-    public CodingLanguageServerMiddleware(LanguageServerOptions options)
-        : this(options, new LanguageServerService(options), ownsService: true)
-    {
-    }
-
+    /// <summary>Creates execution-owned middleware and acquires its workspace-service lease.</summary>
+    /// <param name="workspaceRegistry">The registry owned by the built Agent.</param>
+    /// <param name="canonicalWorkspaceIdentity">The canonical workspace captured at input acceptance.</param>
+    /// <param name="options">The generated middleware configuration.</param>
     public CodingLanguageServerMiddleware(
-        LanguageServerOptions options,
-        ILanguageServerService languageServerService)
-        : this(options, languageServerService, ownsService: false)
-    {
-    }
-
-    private CodingLanguageServerMiddleware(
-        LanguageServerOptions options,
-        ILanguageServerService languageServerService,
-        bool ownsService)
+        ILanguageServerWorkspaceRegistry workspaceRegistry,
+        string canonicalWorkspaceIdentity,
+        LanguageServerOptions options)
     {
         _options = options;
-        _languageServerService = languageServerService;
+        _workspaceLease = workspaceRegistry.Acquire(canonicalWorkspaceIdentity, options);
+        _languageServerService = _workspaceLease.Service;
         _formatter = new LanguageServerDiagnosticFormatter();
-        _ownsService = ownsService;
+    }
+
+    internal static CodingLanguageServerMiddleware CreateForTesting(
+        LanguageServerOptions options,
+        ILanguageServerService service) => new(options, new BorrowedWorkspaceLease(service));
+
+    private CodingLanguageServerMiddleware(LanguageServerOptions options, ILanguageServerWorkspaceLease workspaceLease)
+    {
+        _options = options;
+        _workspaceLease = workspaceLease;
+        _languageServerService = workspaceLease.Service;
+        _formatter = new LanguageServerDiagnosticFormatter();
+    }
+
+    private sealed class BorrowedWorkspaceLease(ILanguageServerService service) : ILanguageServerWorkspaceLease
+    {
+        public ILanguageServerService Service { get; } = service;
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     public Task BeforeIterationAsync(BeforeIterationContext context, CancellationToken cancellationToken)
@@ -187,8 +193,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
 
     public async ValueTask DisposeAsync()
     {
-        if (_ownsService)
-            await _languageServerService.DisposeAsync().ConfigureAwait(false);
+        await _workspaceLease.DisposeAsync().ConfigureAwait(false);
     }
 
     private async Task OpenReadFileDocumentAsync(

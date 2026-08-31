@@ -25,6 +25,7 @@ public sealed class FunctionExecutionContext
     private readonly IContentStore? _contentStore;
     private readonly AgentConfig? _parentConfig;
     private readonly AgentClientSet? _clientSet;
+    private readonly ToolHarnessExecutionScope? _toolHarnessExecutionScope;
 
     internal FunctionExecutionContext(
         HookContext hookContext,
@@ -60,6 +61,7 @@ public sealed class FunctionExecutionContext
         _parentAgentStore = hookContext.GetParentAgentStore();
         _parentConfig = hookContext.Config;
         _clientSet = hookContext.Base.ClientSet;
+        _toolHarnessExecutionScope = hookContext.Base.ToolHarnessExecutionScope;
     }
 
     public FunctionInvocationSnapshot InvocationSnapshot { get; }
@@ -104,6 +106,7 @@ public sealed class FunctionExecutionContext
     public IContentStore? ContentStore => _contentStore;
 
     internal AgentClientSet? ClientSet => _clientSet;
+    internal ToolHarnessExecutionScope? ToolHarnessExecutionScope => _toolHarnessExecutionScope;
 
     /// <summary>Gets the unified operation registry owned by the active runtime.</summary>
     internal AgentOperationRegistry? OperationRegistry =>
@@ -155,6 +158,7 @@ public sealed class FunctionExecutionContext
             metadata,
             notification,
             work,
+            _toolHarnessExecutionScope,
             cancellationToken);
     }
 

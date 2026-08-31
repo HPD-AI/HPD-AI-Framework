@@ -1,0 +1,50 @@
+name: ToolHarness Native AOT
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/toolharness-native-aot.yml'
+      - 'dotnet/HPD-Agent.Framework/src/HPD-Agent/**'
+      - 'dotnet/HPD-Agent.Framework/src/HPD-Agent.SourceGenerator/**'
+      - 'dotnet/HPD-Agent.Framework/test/HPD-Agent.ToolHarness.AotFixture/**'
+      - 'dotnet/HPD-Agent.Framework/test/HPD-Agent.ToolHarness.AotSmoke/**'
+      - 'dotnet/HPD-Environment.Framework/src/**'
+      - 'dotnet/shared/src/HPD-Events/**'
+      - 'dotnet/shared/src/HPD-Serialization/**'
+      - 'dotnet/Directory.Build.*'
+      - 'dotnet/Directory.Packages.props'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/toolharness-native-aot.yml'
+      - 'dotnet/HPD-Agent.Framework/src/HPD-Agent/**'
+      - 'dotnet/HPD-Agent.Framework/src/HPD-Agent.SourceGenerator/**'
+      - 'dotnet/HPD-Agent.Framework/test/HPD-Agent.ToolHarness.AotFixture/**'
+      - 'dotnet/HPD-Agent.Framework/test/HPD-Agent.ToolHarness.AotSmoke/**'
+      - 'dotnet/HPD-Environment.Framework/src/**'
+      - 'dotnet/shared/src/HPD-Events/**'
+      - 'dotnet/shared/src/HPD-Serialization/**'
+      - 'dotnet/Directory.Build.*'
+      - 'dotnet/Directory.Packages.props'
+
+permissions:
+  contents: read
+
+jobs:
+  publish-and-run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - name: Publish cross-assembly ToolHarness Native AOT smoke
+        run: >-
+          dotnet publish
+          dotnet/HPD-Agent.Framework/test/HPD-Agent.ToolHarness.AotSmoke/HPD-Agent.ToolHarness.AotSmoke.csproj
+          -c Release
+          -r linux-x64
+          --self-contained true
+      - name: Run cross-assembly ToolHarness Native AOT smoke
+        run: dotnet/HPD-Agent.Framework/test/HPD-Agent.ToolHarness.AotSmoke/bin/Release/net10.0/linux-x64/publish/HPD-Agent.ToolHarness.AotSmoke

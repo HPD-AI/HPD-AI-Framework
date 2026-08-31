@@ -197,7 +197,7 @@ public sealed class EnvironmentContextMiddlewareTests
     [Fact]
     public async Task BeforeIterationAsync_InsertsEnvironmentContextAfterSystemMessages()
     {
-        var middleware = new EnvironmentContextMiddleware();
+        var middleware = new EnvironmentContextMiddleware(new EnvironmentContextConfig());
         var messages = new List<ChatMessage>
         {
             new(ChatRole.System, "system one"),
@@ -231,7 +231,7 @@ public sealed class EnvironmentContextMiddlewareTests
         {
             Directory.SetCurrentDirectory(sourceDirectory);
             var hostProcessCwd = Directory.GetCurrentDirectory();
-            var middleware = new EnvironmentContextMiddleware();
+            var middleware = new EnvironmentContextMiddleware(new EnvironmentContextConfig());
             var messages = new List<ChatMessage> { new(ChatRole.User, "hello") };
             var context = CreateBeforeIterationContext(
                 CreateAgentContext(),
@@ -264,7 +264,7 @@ public sealed class EnvironmentContextMiddlewareTests
     [Fact]
     public async Task BeforeIterationAsync_DoesNotInjectAgainWhenCwdIsUnchanged()
     {
-        var middleware = new EnvironmentContextMiddleware();
+        var middleware = new EnvironmentContextMiddleware(new EnvironmentContextConfig());
         var agentContext = CreateAgentContext();
 
         var firstMessages = new List<ChatMessage> { new(ChatRole.User, "first") };
@@ -295,7 +295,7 @@ public sealed class EnvironmentContextMiddlewareTests
 
         try
         {
-            var middleware = new EnvironmentContextMiddleware();
+            var middleware = new EnvironmentContextMiddleware(new EnvironmentContextConfig());
             var agentContext = CreateAgentContext();
 
             Directory.SetCurrentDirectory(firstDirectory);
@@ -325,7 +325,7 @@ public sealed class EnvironmentContextMiddlewareTests
     [Fact]
     public async Task BeforeIterationAsync_StoresLastContextInMiddlewareState()
     {
-        var middleware = new EnvironmentContextMiddleware();
+        var middleware = new EnvironmentContextMiddleware(new EnvironmentContextConfig());
         var messages = new List<ChatMessage> { new(ChatRole.User, "hello") };
         var context = CreateBeforeIterationContext(messages);
 

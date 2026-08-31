@@ -34,6 +34,7 @@ internal sealed class AgentOperationRegistry : IAsyncDisposable
         AgentOperationSnapshot initial,
         IAgentOperationController? controller = null,
         IAsyncDisposable? observer = null,
+        IAsyncDisposable? executionOwner = null,
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
@@ -45,7 +46,7 @@ internal sealed class AgentOperationRegistry : IAsyncDisposable
             if (_operations.ContainsKey(initial.OperationId) || _retiredOperationIds.ContainsKey(initial.OperationId))
                 throw new InvalidOperationException($"Operation '{initial.OperationId}' is already registered.");
 
-            var operation = new AgentOperation(initial, _events, controller, observer);
+            var operation = new AgentOperation(initial, _events, controller, observer, executionOwner);
             try
             {
                 await _events.AppendAsync(new AgentOperationRegisteredEvent
@@ -265,6 +266,10 @@ internal sealed class AgentOperationRegistry : IAsyncDisposable
         options.Validate();
         if (Interlocked.CompareExchange(ref _disposed, 1, 0) != 0)
             return;
+        List<Exception>? failures = null;
+        await _registrationLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
 
         await WaitForLocalTerminalAsync(options.GracefulDrainTimeout).ConfigureAwait(false);
         var active = _operations.Values.Where(static operation => !IsTerminal(operation.Snapshot.ProviderStatus)).ToArray();
@@ -281,11 +286,15 @@ internal sealed class AgentOperationRegistry : IAsyncDisposable
                     try { await operation.Controller.RequestCancellationAsync(CancellationToken.None).ConfigureAwait(false); }
                     catch { }
                 }
-                await TryTransitionLatestAsync(operation, new AgentOperationTransition
+                try
                 {
-                    ObservationStatus = AgentOperationObservationStatus.Detached,
-                    ProviderDeduplicationKey = $"shutdown-detached:{snapshot.OperationId}"
-                }).ConfigureAwait(false);
+                    await TryTransitionLatestAsync(operation, new AgentOperationTransition
+                    {
+                        ObservationStatus = AgentOperationObservationStatus.Detached,
+                        ProviderDeduplicationKey = $"shutdown-detached:{snapshot.OperationId}"
+                    }).ConfigureAwait(false);
+                }
+                catch (Exception ex) { (failures ??= []).Add(ex); }
             }
             else if (operation.Controller is not null &&
                 (snapshot.Control.Capabilities & AgentOperationCapabilities.Cancel) != 0)
@@ -302,20 +311,33 @@ internal sealed class AgentOperationRegistry : IAsyncDisposable
             var remote = snapshot.SourceKind is AgentOperationSourceKind.McpTask or AgentOperationSourceKind.ProviderOperation;
             if (!remote && !IsTerminal(snapshot.ProviderStatus))
             {
-                await TryTransitionLatestAsync(operation, new AgentOperationTransition
+                try
                 {
-                    ProviderStatus = AgentOperationProviderStatus.Failed,
-                    ObservationStatus = AgentOperationObservationStatus.Stopped,
-                    Failure = new AgentOperationFailure(
-                        "shutdown_deadline_exceeded",
-                        "Local operation did not stop before the configured shutdown deadline."),
-                    ProviderDeduplicationKey = $"shutdown-forced:{snapshot.OperationId}"
-                }).ConfigureAwait(false);
+                    await TryTransitionLatestAsync(operation, new AgentOperationTransition
+                    {
+                        ProviderStatus = AgentOperationProviderStatus.Failed,
+                        ObservationStatus = AgentOperationObservationStatus.Stopped,
+                        Failure = new AgentOperationFailure(
+                            "shutdown_deadline_exceeded",
+                            "Local operation did not stop before the configured shutdown deadline."),
+                        ProviderDeduplicationKey = $"shutdown-forced:{snapshot.OperationId}"
+                    }).ConfigureAwait(false);
+                }
+                catch (Exception ex) { (failures ??= []).Add(ex); }
             }
 
-            await operation.DisposeAsync().ConfigureAwait(false);
+            try { await operation.DisposeAsync().ConfigureAwait(false); }
+            catch (Exception ex) { (failures ??= []).Add(ex); }
         }
-        _registrationLock.Dispose();
+        _operations.Clear();
+        }
+        finally
+        {
+            _registrationLock.Release();
+            _registrationLock.Dispose();
+        }
+        if (failures is { Count: > 0 })
+            throw new AggregateException("One or more Agent operations failed during shutdown.", failures);
     }
 
     private async ValueTask WaitForLocalTerminalAsync(TimeSpan timeout)
@@ -350,10 +372,14 @@ internal sealed class AgentOperationRegistry : IAsyncDisposable
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
         await _registrationLock.WaitAsync().ConfigureAwait(false);
+        List<Exception>? failures = null;
         try
         {
             foreach (var operation in _operations.Values)
-                await operation.DisposeAsync().ConfigureAwait(false);
+            {
+                try { await operation.DisposeAsync().ConfigureAwait(false); }
+                catch (Exception ex) { (failures ??= []).Add(ex); }
+            }
             _operations.Clear();
         }
         finally
@@ -361,5 +387,7 @@ internal sealed class AgentOperationRegistry : IAsyncDisposable
             _registrationLock.Release();
             _registrationLock.Dispose();
         }
+        if (failures is { Count: > 0 })
+            throw new AggregateException("One or more Agent operations failed to dispose.", failures);
     }
 }

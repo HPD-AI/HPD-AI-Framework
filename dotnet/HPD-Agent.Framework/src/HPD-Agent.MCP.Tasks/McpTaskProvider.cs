@@ -105,7 +105,7 @@ internal sealed class McpTaskProvider
             },
             controller,
             observer,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
         controller.Bind(operation);
         observer.Start(operation);
         return McpTaskStartResult.Created(ToReceipt(operation.Snapshot));

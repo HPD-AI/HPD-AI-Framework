@@ -27,6 +27,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Exclude V1 archived test files from compilation -->
     <Compile Remove="**/*.V1.OLD.cs" />
     <!-- Authority kernels run in the dependency-minimal authority test project. -->

@@ -644,11 +644,7 @@ public class LoggingMiddlewareTests
                 }
             });
 
-        // Seed ContainerMiddlewareState with a toolharness pipeline containing a scoped middleware
-        var scopedMiddleware = new TestScopedMiddleware();
-        var pipeline = new AgentMiddlewarePipeline([scopedMiddleware]);
-        var containerState = new ContainerMiddlewareState()
-            .WithToolHarnessPipeline("CodingToolHarness", pipeline);
+        var containerState = new ContainerMiddlewareState();
 
         var agentContext = CreateAgentContextWithState(containerState);
         var context = agentContext.AsAfterFunction(
@@ -664,7 +660,7 @@ public class LoggingMiddlewareTests
         // Assert
         Assert.NotEmpty(logOutput);
         Assert.Contains(logOutput, s => s.Contains("[HARNESS COLLAPSE]"));
-        Assert.Contains(logOutput, s => s.Contains("TestScopedMiddleware"));
+        Assert.DoesNotContain(logOutput, s => s.Contains("TestScopedMiddleware"));
     }
 
     [Fact]

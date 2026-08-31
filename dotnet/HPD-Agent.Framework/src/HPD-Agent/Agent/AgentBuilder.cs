@@ -160,13 +160,14 @@ public class AgentBuilder
     internal readonly HashSet<string> _builderAddedToolHarnesses = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Builder-time DI middleware instances for toolharness-scoped middleware .
-    /// Maps toolharness name -> list of middleware instances supplied via
-    /// <c>WithToolHarness&lt;T&gt;(opts => opts.AddScopedMiddleware(...))</c>.
-    /// Merged with attribute-declared factory middlewares at container expansion time.
+    /// Exact-type activation overrides for ToolHarness-scoped middleware.
+    /// Maps toolharness name to factories supplied via
+    /// <c>WithToolHarness&lt;T&gt;(opts =&gt; opts.OverrideMiddleware&lt;TMiddleware&gt;(...))</c>.
+    /// Substituted into the immutable generated descriptor position at execution activation time.
     /// </summary>
-    internal readonly Dictionary<string, List<Middleware.IAgentMiddleware>> _HARNESScopedMiddlewares
+    internal readonly Dictionary<string, Dictionary<Type, ToolHarnessMiddlewareFactory>> _toolHarnessMiddlewareOverrides
         = new(StringComparer.OrdinalIgnoreCase);
+    internal readonly HashSet<(string HarnessName, Type MiddlewareType)> _duplicateToolHarnessMiddlewareOverrides = [];
 
     /// <summary>Runtime skill sources grouped by their owning registered tool harness.</summary>
     internal readonly Dictionary<string, List<ISkillSource>> _skillSources
@@ -824,7 +825,7 @@ public class AgentBuilder
                     }
 
                     if (effectiveRef.MiddlewareConfigs is { Count: > 0 } &&
-                        builderFactory.CollapseMiddlewareConfigFactories != null)
+                        builderFactory.Middleware?.Any(static descriptor => descriptor.ConfigurationType is not null) == true)
                     {
                         _toolharnessMiddlewareConfigs[effectiveRef.Name] = effectiveRef.MiddlewareConfigs;
                     }
@@ -887,7 +888,7 @@ public class AgentBuilder
 
             // Handle middleware configs from config (§5A)
             if (effectiveRef.MiddlewareConfigs != null && effectiveRef.MiddlewareConfigs.Count > 0
-                && factory.CollapseMiddlewareConfigFactories != null)
+                && factory.Middleware?.Any(static descriptor => descriptor.ConfigurationType is not null) == true)
             {
                 _toolharnessMiddlewareConfigs[factory.Name] = effectiveRef.MiddlewareConfigs;
             }
@@ -2049,13 +2050,33 @@ public class AgentBuilder
 
             var selectedModule = composition.Fragments.FirstOrDefault(fragment =>
                 StringComparer.Ordinal.Equals(fragment.ModuleId, factory.EventModule.ModuleId));
-            if (!ReferenceEquals(selectedModule, factory.EventModule))
+            if (selectedModule is null || !EventModulesAreEquivalent(selectedModule, factory.EventModule))
             {
                 throw new InvalidOperationException(
                     $"ToolHarness '{factory.Name}' requires event module '{factory.EventModule.ModuleId}', " +
                     "but the selected application event composition does not contain that exact fragment.");
             }
         }
+    }
+
+    private static bool EventModulesAreEquivalent(
+        AgentEventModuleFragment selected,
+        AgentEventModuleFragment required)
+    {
+        if (!StringComparer.Ordinal.Equals(selected.ModuleId, required.ModuleId))
+            return false;
+        var selectedEvents = selected.Events
+            .OrderBy(static descriptor => descriptor.Discriminator, StringComparer.Ordinal)
+            .ToArray();
+        var requiredEvents = required.Events
+            .OrderBy(static descriptor => descriptor.Discriminator, StringComparer.Ordinal)
+            .ToArray();
+        return selectedEvents.Length == requiredEvents.Length &&
+            selectedEvents.Zip(requiredEvents).All(static pair =>
+                pair.First.EventType == pair.Second.EventType &&
+                StringComparer.Ordinal.Equals(pair.First.Discriminator, pair.Second.Discriminator) &&
+                pair.First.Durability == pair.Second.Durability &&
+                StringComparer.Ordinal.Equals(pair.First.ModuleId, pair.Second.ModuleId));
     }
 
     private IProviderExternalIdentityRegistry ResolveExternalIdentityRegistry(IServiceProvider? services)
@@ -2345,7 +2366,7 @@ public class AgentBuilder
                 buildData.MergedOptions.Tools,
                 _explicitlyRegisteredToolHarnesses.ToImmutableHashSet(StringComparer.OrdinalIgnoreCase),
                 _availableToolHarnesses,           // toolharness factory registry for scoped middleware
-                _HARNESScopedMiddlewares,    // builder-time DI instances
+                _toolHarnessMiddlewareOverrides,
                 _toolharnessMiddlewareConfigs,    // config-ctor middleware configs from ToolHarnessReference
                 _config.Collapsing,
                 _config.Skills,
@@ -2396,6 +2417,22 @@ public class AgentBuilder
     /// </summary>
     private Agent CreateAgent(AgentBuildDependencies buildData)
     {
+        var identityCollision = _selectedToolHarnessFactories
+            .GroupBy(static factory => factory.ActivationIdentity, StringComparer.Ordinal)
+            .FirstOrDefault(static group => group.Select(factory => factory.ToolHarnessType).Distinct().Skip(1).Any());
+        if (identityCollision is not null)
+            throw new InvalidOperationException(
+                $"ToolHarness stable identity collision '{identityCollision.Key}' was produced by: " +
+                string.Join(", ", identityCollision.Select(static factory => factory.ToolHarnessType.FullName)));
+
+        if (_duplicateToolHarnessMiddlewareOverrides.Count > 0)
+            throw new InvalidOperationException(
+                "Duplicate ToolHarness middleware overrides were registered: " +
+                string.Join(", ", _duplicateToolHarnessMiddlewareOverrides.Select(static conflict =>
+                    $"{conflict.HarnessName}:{conflict.MiddlewareType.FullName}")));
+
+        var agentResources = new AgentResourceRegistry(
+            _selectedToolHarnessFactories.SelectMany(static factory => factory.AgentResources ?? []));
         var agent = new Agent(
             _config!,
             buildData.ClientToUse,
@@ -2412,7 +2449,8 @@ public class AgentBuilder
             buildData.ClientSet,
             _runtimeSecretRegistry,
             _ownsSessionStore,
-            _ownsContentStore);
+            _ownsContentStore,
+            agentResources);
         if (_capabilityCatalog is not null)
             agent.SetCapabilityCatalog(
                 _capabilityCatalog,
@@ -4274,15 +4312,14 @@ public static class AgentBuilderToolHarnessExtensions
     }
 
     /// <summary>
-    /// Registers a toolharness and configures per-toolharness options such as DI-provided scoped middleware
-    /// . Use this overload when your toolharness-scoped middleware requires constructor
-    /// parameters that cannot be expressed via a parameterless constructor in
-    /// <c>[Collapse(Middlewares = [typeof(T)])]</c>.
+    /// Registers a ToolHarness and configures exact-type execution activation overrides.
+    /// Overrides retain the generated declaration position and must explicitly return disposal ownership.
     /// </summary>
     /// <example>
     /// <code>
     /// builder.WithToolHarness&lt;DatabaseToolHarness&gt;(opts =>
-    ///     opts.AddScopedMiddleware(new DbAuditMiddleware(sp.GetRequiredService&lt;IAuditLog&gt;())));
+    ///     opts.OverrideMiddleware&lt;DbAuditMiddleware&gt;(context =&gt;
+    ///         ToolHarnessMiddlewareActivation.ExecutionOwned(new DbAuditMiddleware(context.GetRequiredService&lt;IAuditLog&gt;()))));
     /// </code>
     /// </example>
     public static AgentBuilder WithToolHarness<T>(this AgentBuilder builder, Action<ToolHarnessOptions> configure, IToolMetadata? context = null) where T : class, new()
@@ -4294,15 +4331,26 @@ public static class AgentBuilderToolHarnessExtensions
         var options = new ToolHarnessOptions();
         configure(options);
 
-        if (options.ScopedMiddlewares.Count > 0)
+        if (options.MiddlewareOverrides.Count > 0)
         {
             var toolharnessName = typeof(T).Name;
-            if (!builder._HARNESScopedMiddlewares.TryGetValue(toolharnessName, out var list))
+            var factory = GetToolHarnessFactory(builder, typeof(T), toolharnessName);
+            var declared = (factory.Middleware ?? []).Select(static descriptor => descriptor.MiddlewareType).ToHashSet();
+            foreach (var middlewareType in options.MiddlewareOverrides.Keys)
             {
-                list = new List<Middleware.IAgentMiddleware>();
-                builder._HARNESScopedMiddlewares[toolharnessName] = list;
+                if (!declared.Contains(middlewareType))
+                    throw new InvalidOperationException($"ToolHarness '{toolharnessName}' cannot override undeclared middleware '{middlewareType}'.");
             }
-            list.AddRange(options.ScopedMiddlewares);
+            if (!builder._toolHarnessMiddlewareOverrides.TryGetValue(toolharnessName, out var registeredOverrides))
+            {
+                registeredOverrides = [];
+                builder._toolHarnessMiddlewareOverrides.Add(toolharnessName, registeredOverrides);
+            }
+            foreach (var pair in options.MiddlewareOverrides)
+            {
+                if (!registeredOverrides.TryAdd(pair.Key, pair.Value))
+                    builder._duplicateToolHarnessMiddlewareOverrides.Add((toolharnessName, pair.Key));
+            }
         }
 
         if (options.SkillSources.Count > 0)

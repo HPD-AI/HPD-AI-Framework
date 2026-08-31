@@ -11,6 +11,7 @@ namespace HPDOS.ToolHarnesses.Middleware;
 /// <summary>
 /// Config for <see cref="EnvironmentContextMiddleware"/>.
 /// </summary>
+[ToolHarnessJsonContext(typeof(global::CodingToolHarnessJsonContext))]
 public sealed class EnvironmentContextConfig
 {
     public string? ShellExecutableOverride { get; init; }
@@ -27,14 +28,9 @@ public sealed class EnvironmentContextMiddleware : IToolHarnessMiddleware
 {
     private readonly EnvironmentContextConfig _config;
 
-    public EnvironmentContextMiddleware()
-        : this(new EnvironmentContextConfig())
+    public EnvironmentContextMiddleware(EnvironmentContextConfig? config = null)
     {
-    }
-
-    public EnvironmentContextMiddleware(EnvironmentContextConfig config)
-    {
-        _config = config ?? throw new ArgumentNullException(nameof(config));
+        _config = config ?? new EnvironmentContextConfig();
     }
 
     public Task BeforeIterationAsync(BeforeIterationContext context, CancellationToken cancellationToken)

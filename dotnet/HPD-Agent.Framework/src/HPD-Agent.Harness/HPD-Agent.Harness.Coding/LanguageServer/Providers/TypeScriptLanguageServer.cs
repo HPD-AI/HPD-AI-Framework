@@ -15,6 +15,8 @@ namespace HPDOS.ToolHarnesses.Middleware;
 [LanguageServerExcludeRootMarkers("deno.json", "deno.jsonc")]
 public sealed partial class TypeScriptLanguageServer : ILanguageServerProvider
 {
+    public string ConfigurationIdentity => "typescript-language-server:v1";
+
     private static readonly StaticCommandLanguageServerProvider RootProvider = new(
         ["package.json", "tsconfig.json", "jsconfig.json", "package-lock.json", "bun.lockb", "bun.lock", "pnpm-lock.yaml", "yarn.lock"],
         "typescript-language-server",

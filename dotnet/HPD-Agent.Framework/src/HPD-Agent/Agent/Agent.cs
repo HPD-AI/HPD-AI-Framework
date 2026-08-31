@@ -110,7 +110,10 @@ public sealed partial class Agent : IAsyncDisposable
     private IReadOnlyList<IAgentCapabilitySource> _capabilitySources = [];
     private readonly AgentOperationRegistry _operationRegistry;
     private readonly ConcurrentDictionary<long, CancellationTokenSource> _activeTurnCancellations = new();
+    private readonly ConcurrentDictionary<long, Task> _toolHarnessExecutionCompletions = new();
+    private readonly AgentResourceRegistry _agentResources;
     private long _nextActiveTurnId;
+    private long _nextToolHarnessExecutionId;
     private readonly ContainerMiddleware? _containerMiddleware;
     private CancellationTokenSource? _skillWatchCancellation;
     private IReadOnlyList<Task> _skillWatchTasks = [];
@@ -293,7 +296,8 @@ public sealed partial class Agent : IAsyncDisposable
         AgentClientSet? clientSet = null,
         IAsyncDisposable? providerRuntimeOwner = null,
         bool ownsSessionStore = false,
-        bool ownsContentStore = false)
+        bool ownsContentStore = false,
+        IAsyncDisposable? agentResourceOwner = null)
     {
         _providerRegistry = providerRegistry;
         _contentStore = contentStore;
@@ -320,6 +324,7 @@ public sealed partial class Agent : IAsyncDisposable
             ?? throw new InvalidOperationException("AgentConfig.EventComposition must be resolved before Agent construction."));
         _clientSet = clientSet;
         _providerRuntimeOwner = providerRuntimeOwner;
+        _agentResources = agentResourceOwner as AgentResourceRegistry ?? new AgentResourceRegistry([]);
         _baseClient = clientSet?.Chat ?? baseClient;
         _defaultChatClientHandle = _baseClient is null
             ? null
@@ -2456,6 +2461,24 @@ public sealed partial class Agent : IAsyncDisposable
         var isResumeTurn = newInputMessages.Count == 0 && thread?.Messages.Count > 0;
         AgentChatClientLease? chatClientLease = null;
         AgentClientSet? runClientSet = null;
+        var toolHarnessExecutionScope = ToolHarnessExecutionScope.Create(
+            _serviceProvider,
+            exception => _agentLogger?.LogError(exception, "ToolHarness execution cleanup failed after input completion."));
+        var toolHarnessExecutionId = Interlocked.Increment(ref _nextToolHarnessExecutionId);
+        if (!_toolHarnessExecutionCompletions.TryAdd(toolHarnessExecutionId, toolHarnessExecutionScope.Completion))
+            throw new InvalidOperationException("Failed to track ToolHarness execution cleanup.");
+        _ = toolHarnessExecutionScope.Completion.ContinueWith(
+            (_, state) =>
+            {
+                var tuple = ((ConcurrentDictionary<long, Task> Completions, long Id))state!;
+                if (tuple.Completions.TryGetValue(tuple.Id, out var completion) && completion.IsCompletedSuccessfully)
+                    tuple.Completions.TryRemove(tuple.Id, out _);
+            },
+            (_toolHarnessExecutionCompletions, toolHarnessExecutionId),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+        var toolHarnessDeactivationReason = ToolHarnessDeactivationReason.Failed;
 
         try
         {
@@ -2586,7 +2609,7 @@ public sealed partial class Agent : IAsyncDisposable
                 cancellationToken: effectiveCancellationToken,
                 effectiveChatClient: chatClientLease?.Handle,
                 chatClientResolver: _chatClientResolver,
-                services: _serviceProvider,     // Pass service provider for DI
+                services: toolHarnessExecutionScope.Services,
                 runtimeCapabilities: _runtimeContext?.RuntimeCapabilities,
                 traceId: traceId,                // Propagate trace ID to all middleware-emitted events
                 threadExecutionId: activeInput?.ThreadExecutionId,
@@ -2598,7 +2621,9 @@ public sealed partial class Agent : IAsyncDisposable
                 contentStore: _contentStore,
                 structEvents: GetActiveStructEvents(),
                 inputHandler: async (input, ct) =>
-                    _ = await RunAsync(TargetActiveExecution(input), ct).ConfigureAwait(false));
+                    _ = await RunAsync(TargetActiveExecution(input), ct).ConfigureAwait(false),
+                toolHarnessExecutionScope: toolHarnessExecutionScope,
+                agentResources: _agentResources.Resources);
 
             // IMPORTANT: Create runConfig instance ONCE and reuse it throughout the entire turn
             // Middleware may modify the consolidated per-run concern objects.
@@ -4180,17 +4205,30 @@ public sealed partial class Agent : IAsyncDisposable
             }
 
             historyCompletionSource.TrySetResult(turnHistory);
+            toolHarnessDeactivationReason = ToolHarnessDeactivationReason.Completed;
         }
         finally
         {
+            var cleanupFailures = new List<Exception>();
+            if (toolHarnessDeactivationReason == ToolHarnessDeactivationReason.Failed && effectiveCancellationToken.IsCancellationRequested)
+                toolHarnessDeactivationReason = ToolHarnessDeactivationReason.Cancelled;
+            try { await toolHarnessExecutionScope.ReleaseForegroundAsync(toolHarnessDeactivationReason).ConfigureAwait(false); }
+            catch (Exception ex) { cleanupFailures.Add(ex); }
             _activeTurnCancellations.TryRemove(activeTurnId, out _);
             if (chatClientLease is not null)
-                await chatClientLease.DisposeAsync().ConfigureAwait(false);
+                try { await chatClientLease.DisposeAsync().ConfigureAwait(false); } catch (Exception ex) { cleanupFailures.Add(ex); }
             if (runClientSet is not null)
-                await runClientSet.DisposeAsync().ConfigureAwait(false);
+                try { await runClientSet.DisposeAsync().ConfigureAwait(false); } catch (Exception ex) { cleanupFailures.Add(ex); }
             if (turn.CatalogLease is not null)
-                await turn.CatalogLease.DisposeAsync().ConfigureAwait(false);
+                try { await turn.CatalogLease.DisposeAsync().ConfigureAwait(false); } catch (Exception ex) { cleanupFailures.Add(ex); }
             RootAgent = previousRootAgent;
+            if (cleanupFailures.Count > 0)
+            {
+                var cleanupFailure = new AggregateException("Agent execution cleanup failed.", cleanupFailures);
+                if (toolHarnessDeactivationReason == ToolHarnessDeactivationReason.Completed)
+                    throw cleanupFailure;
+                _agentLogger?.LogError(cleanupFailure, "Agent cleanup also failed while preserving the original execution failure.");
+            }
         }
     }
 
@@ -4368,13 +4406,21 @@ public sealed partial class Agent : IAsyncDisposable
 
     private async ValueTask DisposeCoreAsync()
     {
-        await StopAsync().ConfigureAwait(false);
+        var failures = new List<Exception>();
+        async ValueTask AttemptAsync(Func<ValueTask> cleanup)
+        {
+            try { await cleanup().ConfigureAwait(false); }
+            catch (Exception ex) { failures.Add(ex); }
+        }
+
+        await AttemptAsync(async () => await StopAsync().ConfigureAwait(false)).ConfigureAwait(false);
 
         _skillWatchCancellation?.Cancel();
         if (_skillWatchTasks.Count > 0)
         {
             try { await Task.WhenAll(_skillWatchTasks).ConfigureAwait(false); }
             catch (OperationCanceledException) { }
+            catch (Exception ex) { failures.Add(ex); }
         }
         _skillWatchCancellation?.Dispose();
 
@@ -4386,54 +4432,62 @@ public sealed partial class Agent : IAsyncDisposable
         }
 
         foreach (var subscription in structSubscriptions)
-            subscription.Dispose();
+            try { subscription.Dispose(); } catch (Exception ex) { failures.Add(ex); }
 
         foreach (var subscription in _eventSubscriptions)
-            subscription.Dispose();
+            try { subscription.Dispose(); } catch (Exception ex) { failures.Add(ex); }
 
-        await DrainActiveTurnsAsync(Config.Shutdown).ConfigureAwait(false);
-        await _operationRegistry.ShutdownAsync(Config.Shutdown).ConfigureAwait(false);
+        await AttemptAsync(() => DrainActiveTurnsAsync(Config.Shutdown)).ConfigureAwait(false);
+        await AttemptAsync(() => _operationRegistry.ShutdownAsync(Config.Shutdown)).ConfigureAwait(false);
+        try { await DrainToolHarnessExecutionCompletionsAsync().ConfigureAwait(false); }
+        catch (Exception ex) { failures.Add(ex); }
+        await AttemptAsync(() => _agentResources.DisposeAsync()).ConfigureAwait(false);
 
         if (_capabilityCatalog is not null)
         {
-            var leakedRevisionOwners = await _capabilityCatalog
-                .ShutdownAsync(Config.Shutdown.LeaseLeaks)
-                .ConfigureAwait(false);
-            if (leakedRevisionOwners > 0)
+            try
             {
-                _agentLogger?.LogWarning(
-                    "Agent shutdown found {LeakedRevisionOwnerCount} capability revision owner(s) still pinned by leaked leases; policy {LeaseLeakPolicy} was applied.",
-                    leakedRevisionOwners,
-                    Config.Shutdown.LeaseLeaks);
+                var leakedRevisionOwners = await _capabilityCatalog
+                    .ShutdownAsync(Config.Shutdown.LeaseLeaks)
+                    .ConfigureAwait(false);
+                if (leakedRevisionOwners > 0)
+                    _agentLogger?.LogWarning(
+                        "Agent shutdown found {LeakedRevisionOwnerCount} capability revision owner(s) still pinned by leaked leases; policy {LeaseLeakPolicy} was applied.",
+                        leakedRevisionOwners,
+                        Config.Shutdown.LeaseLeaks);
             }
+            catch (Exception ex) { failures.Add(ex); }
         }
         foreach (var source in _capabilitySources)
-            await source.DisposeAsync().ConfigureAwait(false);
+            await AttemptAsync(source.DisposeAsync).ConfigureAwait(false);
         if (_providerRuntimeOwner is not null)
-            await _providerRuntimeOwner.DisposeAsync().ConfigureAwait(false);
+            await AttemptAsync(_providerRuntimeOwner.DisposeAsync).ConfigureAwait(false);
         if (_clientSet != null)
-            await _clientSet.DisposeAsync().ConfigureAwait(false);
+            await AttemptAsync(_clientSet.DisposeAsync).ConfigureAwait(false);
         else
-            _baseClient?.Dispose();
-        await _chatClientResolver.DisposeAsync().ConfigureAwait(false);
-        await _textToSpeechClientManager.DisposeAsync().ConfigureAwait(false);
-        await _speechToTextClientManager.DisposeAsync().ConfigureAwait(false);
-        await _realtimeClientManager.DisposeAsync().ConfigureAwait(false);
-        await _imageGeneratorManager.DisposeAsync().ConfigureAwait(false);
-        await _embeddingGeneratorManager.DisposeAsync().ConfigureAwait(false);
-        await _hostedFileClientManager.DisposeAsync().ConfigureAwait(false);
-        await _realtimeProviderProtocolParticipant.DisposeAsync().ConfigureAwait(false);
+            try { _baseClient?.Dispose(); } catch (Exception ex) { failures.Add(ex); }
+        await AttemptAsync(_chatClientResolver.DisposeAsync).ConfigureAwait(false);
+        await AttemptAsync(_textToSpeechClientManager.DisposeAsync).ConfigureAwait(false);
+        await AttemptAsync(_speechToTextClientManager.DisposeAsync).ConfigureAwait(false);
+        await AttemptAsync(_realtimeClientManager.DisposeAsync).ConfigureAwait(false);
+        await AttemptAsync(_imageGeneratorManager.DisposeAsync).ConfigureAwait(false);
+        await AttemptAsync(_embeddingGeneratorManager.DisposeAsync).ConfigureAwait(false);
+        await AttemptAsync(_hostedFileClientManager.DisposeAsync).ConfigureAwait(false);
+        await AttemptAsync(_realtimeProviderProtocolParticipant.DisposeAsync).ConfigureAwait(false);
         if (_ownedHttpClients != null)
             foreach (var client in _ownedHttpClients)
-                client.Dispose();
+                try { client.Dispose(); } catch (Exception ex) { failures.Add(ex); }
         if (_eventCoordinator is IAsyncDisposable asyncEventCoordinator)
-            await asyncEventCoordinator.DisposeAsync().ConfigureAwait(false);
+            await AttemptAsync(asyncEventCoordinator.DisposeAsync).ConfigureAwait(false);
         else
-            (_eventCoordinator as IDisposable)?.Dispose();
+            try { (_eventCoordinator as IDisposable)?.Dispose(); } catch (Exception ex) { failures.Add(ex); }
         if (_ownsContentStore)
-            await DisposeOwnedStoreAsync(_contentStore).ConfigureAwait(false);
+            await AttemptAsync(() => DisposeOwnedStoreAsync(_contentStore)).ConfigureAwait(false);
         if (_ownsSessionStore)
-            await DisposeOwnedStoreAsync(Config.SessionStore).ConfigureAwait(false);
+            await AttemptAsync(() => DisposeOwnedStoreAsync(Config.SessionStore)).ConfigureAwait(false);
+
+        if (failures.Count > 0)
+            throw new AggregateException("Agent shutdown encountered one or more cleanup failures.", failures);
     }
 
     private static async ValueTask DisposeOwnedStoreAsync(object? store)
@@ -4468,6 +4522,15 @@ public sealed partial class Agent : IAsyncDisposable
                 _activeTurnCancellations.Count,
                 options.LeaseLeaks);
         }
+    }
+
+    private async ValueTask DrainToolHarnessExecutionCompletionsAsync()
+    {
+        if (_toolHarnessExecutionCompletions.IsEmpty)
+            return;
+
+        var completions = Task.WhenAll(_toolHarnessExecutionCompletions.Values);
+        await completions.ConfigureAwait(false);
     }
 
     /// <summary>

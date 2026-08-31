@@ -15,6 +15,8 @@
   </Folder>
   <Folder Name="/AOT Smoke Tests/">
     <Project Path="test/HPD-Agent.Skills.AotSmoke/HPD-Agent.Skills.AotSmoke.csproj" />
+    <Project Path="test/HPD-Agent.ToolHarness.AotFixture/HPD-Agent.ToolHarness.AotFixture.csproj" />
+    <Project Path="test/HPD-Agent.ToolHarness.AotSmoke/HPD-Agent.ToolHarness.AotSmoke.csproj" />
   </Folder>
   <Folder Name="/Web/">
     <Project Path="src/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj" />
@@ -124,6 +126,7 @@
   </Folder>
   <Folder Name="/Tests/">
     <Project Path="test/HPD-Agent.Tests/HPD-Agent.Tests.csproj" />
+    <Project Path="test/HPD-Agent.ToolHarness.Runtime.Tests/HPD-Agent.ToolHarness.Runtime.Tests.csproj" />
     <Project Path="test/HPD-Agent.Authority.Tests/HPD-Agent.Authority.Tests.csproj" />
     <Project Path="test/HPD-Agent.ProviderCatalog.Tests/HPD-Agent.ProviderCatalog.Tests.csproj" />
     <Project Path="test/HPD-Agent.LiveAudio.Contracts.Tests/HPD-Agent.LiveAudio.Contracts.Tests.csproj" />

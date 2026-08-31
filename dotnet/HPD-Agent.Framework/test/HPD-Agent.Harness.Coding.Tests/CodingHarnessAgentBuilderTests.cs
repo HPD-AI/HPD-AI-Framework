@@ -126,7 +126,7 @@ public class CodingToolHarnessAgentBuilderTests
             .OfType<CollapseAttribute>()
             .Should().ContainSingle().Subject;
 
-        collapse.Middlewares.Should().BeEquivalentTo([
+        collapse.Middlewares.Should().Equal([
             typeof(EnvironmentContextMiddleware),
             typeof(CodingLanguageServerMiddleware),
             typeof(ExecuteCommandPermissionMiddleware),

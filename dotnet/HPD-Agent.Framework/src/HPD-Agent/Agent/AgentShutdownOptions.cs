@@ -14,7 +14,7 @@ public enum AgentLeaseLeakPolicy
 {
     /// <summary>Report leaks and leave resources for process-level cleanup.</summary>
     ReportAndAbandonResources,
-    /// <summary>Fault outstanding turns, wait for release, and then dispose resources.</summary>
+    /// <summary>Force-release capability revisions after reporting leaks; admitted execution resources are still drained and never raced.</summary>
     ReportAndForceDispose
 }
 

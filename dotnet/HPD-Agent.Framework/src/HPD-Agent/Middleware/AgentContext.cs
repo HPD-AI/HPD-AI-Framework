@@ -50,6 +50,8 @@ public sealed class AgentContext
     private readonly Func<AgentInputEvent, CancellationToken, ValueTask>? _inputHandler;
     private readonly IServiceProvider? _services;
     private readonly IRuntimeCapabilityRegistry _runtimeCapabilities;
+    private readonly ToolHarnessExecutionScope? _toolHarnessExecutionScope;
+    private readonly IReadOnlyDictionary<Type, object> _agentResources;
 
     //
     // INTERNAL ACCESS (for adapters)
@@ -62,6 +64,10 @@ public sealed class AgentContext
     internal IAgentEventPublisher? ThreadEvents => _threadEvents;
 
     internal IStructEventHub StructEvents => _structEvents;
+    internal ToolHarnessPipelineRegistry? ToolHarnessPipelines => _toolHarnessExecutionScope?.Registry;
+    internal ToolHarnessExecutionScope? ToolHarnessExecutionScope => _toolHarnessExecutionScope;
+    internal string? CanonicalWorkspaceIdentity => _toolHarnessExecutionScope?.CanonicalWorkspaceIdentity;
+    internal IReadOnlyDictionary<Type, object> AgentResources => _agentResources;
 
     /// <summary>
     /// Effective chat-client handle for this invocation.
@@ -563,7 +569,9 @@ public sealed class AgentContext
         AgentClientSet? clientSet = null,
         IContentStore? contentStore = null,
         IStructEventHub? structEvents = null,
-        Func<AgentInputEvent, CancellationToken, ValueTask>? inputHandler = null)
+        Func<AgentInputEvent, CancellationToken, ValueTask>? inputHandler = null,
+        ToolHarnessExecutionScope? toolHarnessExecutionScope = null,
+        IReadOnlyDictionary<Type, object>? agentResources = null)
     {
         AgentName = agentName ?? throw new ArgumentNullException(nameof(agentName));
         ConversationId = conversationId;
@@ -586,6 +594,8 @@ public sealed class AgentContext
         _parentAgentStore = parentAgentStore;
         _services = services;
         _runtimeCapabilities = runtimeCapabilities ?? new RuntimeCapabilityRegistry();
+        _toolHarnessExecutionScope = toolHarnessExecutionScope;
+        _agentResources = agentResources ?? new Dictionary<Type, object>();
     }
 
     private static AgentMetadata? CreateRootAgentMetadata(string agentName, string? agentId)

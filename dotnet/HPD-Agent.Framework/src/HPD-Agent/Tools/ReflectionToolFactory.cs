@@ -63,7 +63,8 @@ internal static class ReflectionToolFactory
             FunctionResult: GetStringProperty(collapseAttribute, "FunctionResult"),
             SystemPrompt: GetStringProperty(collapseAttribute, "SystemPrompt"),
             FunctionNames: methods.Select(GetCapabilityName).ToArray(),
-            CollapseMiddlewareFactories: CreateCollapseMiddlewareFactories(collapseAttribute));
+            StableIdentity: $"{toolharnessType.Assembly.GetName().Name}:{toolharnessType.FullName ?? toolharnessType.Name}",
+            Middleware: RejectReflectionMiddleware(collapseAttribute));
 
         return true;
     }
@@ -94,7 +95,7 @@ internal static class ReflectionToolFactory
         return functions;
     }
 
-    private static IReadOnlyList<Func<IAgentMiddleware>>? CreateCollapseMiddlewareFactories(object? collapseAttribute)
+    private static IReadOnlyList<ToolHarnessMiddlewareDescriptor>? RejectReflectionMiddleware(object? collapseAttribute)
     {
         if (collapseAttribute?.GetType().GetProperty("Middlewares")?.GetValue(collapseAttribute) is not Type[] middlewareTypes ||
             middlewareTypes.Length == 0)
@@ -102,28 +103,9 @@ internal static class ReflectionToolFactory
             return null;
         }
 
-        var factories = new List<Func<IAgentMiddleware>>(middlewareTypes.Length);
-        foreach (var middlewareType in middlewareTypes)
-        {
-            if (!typeof(IAgentMiddleware).IsAssignableFrom(middlewareType))
-            {
-                throw new InvalidOperationException(
-                    $"Collapse middleware '{middlewareType.FullName}' must implement {nameof(IAgentMiddleware)}.");
-            }
-
-            ConstructorInfo? constructor = middlewareType.GetConstructor(Type.EmptyTypes);
-            if (constructor is null)
-            {
-                throw new InvalidOperationException(
-                    $"Reflection-registered collapse middleware '{middlewareType.FullName}' must have a public parameterless constructor. " +
-                    "Use builder middleware configuration or the source generator for configured constructors.");
-            }
-
-            factories.Add(() => (IAgentMiddleware)(constructor.Invoke(parameters: null)
-                ?? throw new InvalidOperationException($"Could not create collapse middleware '{middlewareType.FullName}'.")));
-        }
-
-        return factories;
+        throw new InvalidOperationException(
+            "Reflection-registered ToolHarness middleware is not supported. ToolHarness middleware requires " +
+            "source-generated stable identities, ownership, and Native AOT activation descriptors.");
     }
 
     private static AIFunction CreateToolHarnessContainer(
@@ -131,7 +113,8 @@ internal static class ReflectionToolFactory
         object collapseAttribute,
         JsonSerializerOptions serializerOptions)
     {
-        var toolharnessName = methods[0].DeclaringType!.Name;
+        var toolharnessType = methods[0].DeclaringType!;
+        var toolharnessName = toolharnessType.Name;
         var childFunctions = methods.Select(GetCapabilityName).ToArray();
         var description = GetStringProperty(collapseAttribute, "Description") ?? $"Tools in {toolharnessName}.";
         var functionResult = GetStringProperty(collapseAttribute, "FunctionResult");
@@ -155,6 +138,7 @@ internal static class ReflectionToolFactory
                     ["IsContainer"] = true,
                     ["IsToolHarnessContainer"] = true,
                     ["ToolHarnessName"] = toolharnessName,
+                    ["ToolHarnessIdentity"] = $"{toolharnessType.Assembly.GetName().Name}:{toolharnessType.FullName ?? toolharnessType.Name}",
                     ["ChildFunctions"] = childFunctions,
                     ["FunctionResult"] = functionResult,
                     ["SystemPrompt"] = systemPrompt,

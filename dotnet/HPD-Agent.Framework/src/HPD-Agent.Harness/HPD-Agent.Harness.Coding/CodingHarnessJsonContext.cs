@@ -14,6 +14,8 @@ using HPDOS.ToolHarnesses.Middleware;
     WriteIndented = false)]
 [JsonSerializable(typeof(AgentWorkspace))]
 [JsonSerializable(typeof(AgentWorkspaceRoot))]
+[JsonSerializable(typeof(LanguageServerOptions))]
+[JsonSerializable(typeof(EnvironmentContextConfig))]
 [JsonSerializable(typeof(IReadOnlyList<AgentWorkspaceRoot>), TypeInfoPropertyName = "AgentWorkspaceRootReadOnlyList")]
 [JsonSerializable(typeof(List<AgentWorkspaceRoot>), TypeInfoPropertyName = "AgentWorkspaceRootList")]
 

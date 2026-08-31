@@ -678,7 +678,7 @@ public sealed class ReadFileTests : IDisposable
             toolharnessName: "CodingToolHarness",
             resultMetadata: request.ResultMetadata);
 
-        await new EnvironmentContextMiddleware().AfterFunctionAsync(afterContext, CancellationToken.None);
+        await new EnvironmentContextMiddleware(new EnvironmentContextConfig()).AfterFunctionAsync(afterContext, CancellationToken.None);
 
         return afterContext.Result switch
         {

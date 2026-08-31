@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>HPD.Agent.Tests</RootNamespace>
+    <AssemblyName>HPD-Agent.ToolHarness.Runtime.Tests</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.6.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.3.0" />
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/HPD-Agent/HPD-Agent.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Hosting/HPD-Agent.Hosting.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="true" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="../HPD-Agent.Tests/Middleware/HarnessScopedMiddlewareTests.cs" Link="Middleware/HarnessScopedMiddlewareTests.cs" />
+    <Compile Include="../HPD-Agent.Tests/Middleware/AgentMiddlewarePipelineTests.cs" Link="Middleware/AgentMiddlewarePipelineTests.cs" />
+    <Compile Include="../HPD-Agent.Tests/Middleware/ToolScopingMiddlewareTests.cs" Link="Middleware/ToolScopingMiddlewareTests.cs" />
+    <Compile Include="../HPD-Agent.Tests/Middleware/V2/TestHelpers.cs" Link="Middleware/V2/TestHelpers.cs" />
+    <Compile Include="../HPD-Agent.Tests/Infrastructure/ScopedPluginTestHelper.cs" Link="Infrastructure/ScopedPluginTestHelper.cs" />
+    <Compile Include="../HPD-Agent.Tests/Operations/AgentOperationTests.cs" Link="Operations/AgentOperationTests.cs" />
+    <Compile Include="../HPD-Agent.Tests/SourceGenerator/HPDToolSourceGeneratorTests.cs" Link="SourceGenerator/HPDToolSourceGeneratorTests.cs" />
+  </ItemGroup>
+
+</Project>

@@ -206,8 +206,16 @@ public class AgentBuilderWithToolTests
         Assert.True((bool)container.AdditionalProperties!["IsContainer"]!);
         Assert.True((bool)container.AdditionalProperties["IsToolHarnessContainer"]!);
         Assert.Equal(new[] { "lookup_order" }, (string[])container.AdditionalProperties["ChildFunctions"]!);
-        var middlewareFactory = Assert.Single(factory.CollapseMiddlewareFactories!);
-        Assert.IsType<ReflectionScopedMiddleware>(middlewareFactory());
+        Assert.Empty(factory.Middleware ?? []);
+    }
+
+    [Fact]
+    public void ReflectionToolFactory_RejectsToolHarnessMiddleware()
+    {
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            ReflectionToolFactory.TryCreateToolHarnessFactory(
+                typeof(ReflectionMiddlewareRejectedHarness), out _, out _));
+        Assert.Contains("source-generated", error.Message);
     }
 
     [Fact]
@@ -351,8 +359,7 @@ public class ReflectionWeatherToolHarness
 [Collapse(
     "Support tools for orders and returns.",
     FunctionResult = "Support tools are active.",
-    SystemPrompt = "Use support tool results when available.",
-    Middlewares = [typeof(ReflectionScopedMiddleware)]
+    SystemPrompt = "Use support tool results when available."
 )]
 public class ReflectionSupportToolHarness
 {
@@ -366,6 +373,13 @@ public class ReflectionSupportToolHarness
 
 public sealed class ReflectionScopedMiddleware : IToolHarnessMiddleware
 {
+}
+
+[Collapse("Rejected", Middlewares = [typeof(ReflectionScopedMiddleware)])]
+public sealed class ReflectionMiddlewareRejectedHarness
+{
+    [AIFunction]
+    public string Ping() => "pong";
 }
 
 public class ReflectionAdvancedToolHarness
