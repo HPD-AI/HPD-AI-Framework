@@ -272,7 +272,8 @@ public sealed class FunctionExecutionContext
         IReadOnlyDictionary<string, string>? metadata,
         AgentOperationNotificationPolicy notification,
         Func<string, CancellationToken, ValueTask<AgentOperationCompletion>> work,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? operationId = null)
     {
         var registry = OperationRegistry ?? throw new InvalidOperationException(
             "Function execution does not have an active operation registry.");
@@ -295,7 +296,8 @@ public sealed class FunctionExecutionContext
                     work,
                     _toolHarnessExecutionScope,
                     clientExecutionOwner,
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken,
+                    operationId).ConfigureAwait(false);
             }
             catch
             {

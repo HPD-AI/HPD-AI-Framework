@@ -61,6 +61,52 @@ public sealed class SubAgentDurabilityTests
         Assert.NotNull(AgentEventJsonContext.Default.GetTypeInfo(typeof(ThreadForkOperationRecord)));
     }
 
+    [Fact]
+    public async Task PreparedSessionCreationIsConditionalAndIdempotent()
+    {
+        var store = new InMemorySessionStore(CoreAgentEventComposition.Instance.Codec);
+        var source = new ThreadKey("source-session", "source-thread");
+        var preparation = new SessionPreparationDescriptor("operation", source, "fingerprint");
+        var session = new Session("isolated") { Preparation = preparation };
+
+        Assert.Equal(SessionPreparationResult.Created, await store.TryPrepareSessionAsync(session));
+        Assert.Equal(SessionPreparationResult.ExistingOwned,
+            await store.TryPrepareSessionAsync(new Session("isolated") { Preparation = preparation }));
+        Assert.Equal(SessionPreparationResult.Conflict,
+            await store.TryPrepareSessionAsync(new Session("isolated")
+            {
+                Preparation = preparation with { OperationId = "other" }
+            }));
+        Assert.Null(await store.LoadSessionAsync("isolated"));
+    }
+
+    [Fact]
+    public async Task ForkOperationRoundTripsAuthoritativeFingerprintAndOutcomes()
+    {
+        var store = new InMemorySessionStore(CoreAgentEventComposition.Instance.Codec);
+        var source = new ThreadKey("session", "source");
+        await CreateThreadAsync(store, source);
+        var operationStore = new JournalThreadForkOperationStore(store, source);
+        var operation = new ThreadForkOperationRecord
+        {
+            OperationId = "fork-1",
+            Source = source,
+            Target = new ThreadKey("session", "target"),
+            SourceBoundary = new ThreadJournalCursor(1, 1),
+            RequestFingerprint = "ABC",
+            SubAgentPolicy = SubAgentForkPolicy.Detach,
+            Status = ThreadForkOperationStatus.Prepared,
+            Revision = 1,
+            PreparedChildren = [],
+            ChildOutcomes = []
+        };
+        await operationStore.WriteThreadForkOperationAsync(operation, new ThreadForkOperationWriteCondition(0));
+
+        var replay = await operationStore.GetThreadForkOperationAsync("fork-1");
+        Assert.Equal("ABC", replay!.RequestFingerprint);
+        Assert.Equal(operation.Target, replay.Target);
+    }
+
     private static async Task CreateThreadAsync(InMemorySessionStore store, ThreadKey key) =>
         _ = await store.AppendThreadEventsAsync(
             key,

@@ -269,6 +269,33 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore, IPermis
         }
     }
 
+    /// <inheritdoc />
+    public async ValueTask<SessionPreparationResult> TryPrepareSessionAsync(
+        Session session,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        var gate = _sessionGates.GetOrAdd(session.Id, static _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var path = GetSessionMetadataPath(session.Id);
+            if (File.Exists(path))
+            {
+                await using var read = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 16 * 1024, true);
+                var current = await JsonSerializer.DeserializeAsync(
+                    read, SessionJsonContext.Combined.Session, cancellationToken).ConfigureAwait(false);
+                return current?.Preparation == session.Preparation
+                    ? SessionPreparationResult.ExistingOwned
+                    : SessionPreparationResult.Conflict;
+            }
+            var json = JsonSerializer.Serialize(session, SessionJsonContext.Combined.Session);
+            await WriteAtomicallyAsync(path, json, cancellationToken).ConfigureAwait(false);
+            return SessionPreparationResult.Created;
+        }
+        finally { gate.Release(); }
+    }
+
     public async Task<List<string>> ListSessionIdsAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();

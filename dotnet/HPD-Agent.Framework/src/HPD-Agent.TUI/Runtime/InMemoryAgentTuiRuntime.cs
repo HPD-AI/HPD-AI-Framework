@@ -443,6 +443,30 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             BuildRuntimeChildren(threads));
     }
 
+    public async Task<IReadOnlyList<AgentTuiSubAgentInfo>> ListSubAgentsAsync(
+        string sessionId,
+        string threadId,
+        CancellationToken cancellationToken = default)
+    {
+        var store = _agent.Config?.SessionStore
+            ?? throw new InvalidOperationException("No session store configured.");
+        var registry = await new SubAgentChildRegistry(store)
+            .ProjectAsync(new ThreadKey(sessionId, threadId), cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        var results = new List<AgentTuiSubAgentInfo>();
+        foreach (var child in registry.Children.Values.OrderBy(static value => value.LocalId.Value, StringComparer.Ordinal))
+        {
+            var descriptor = child.ChildThread is { } route
+                ? await store.GetThreadAsync(route, cancellationToken).ConfigureAwait(false)
+                : null;
+            results.Add(new AgentTuiSubAgentInfo(
+                child.LocalId.Value, child.RoleName, child.Availability, child.ChildAgentId,
+                child.ChildThread?.SessionId, child.ChildThread?.ThreadId,
+                descriptor?.RuntimeChild?.Status, descriptor?.MessageCount ?? 0, child.UnavailableReason));
+        }
+        return results;
+    }
+
     public async Task DeleteThreadAsync(
         string sessionId,
         string threadId,

@@ -1,6 +1,5 @@
 using System.Collections.ObjectModel;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
 
@@ -104,7 +103,7 @@ public static class SubAgentsFunctionFactory
                 },
                 InvocationModePolicy = AgentInvocationModePolicy.SynchronousOnly,
                 InvocationModeHandling = AgentInvocationModeHandling.ToolBody,
-                ResultType = typeof(SubAgentOperationResult),
+                ResultType = typeof(SubAgentActionResult),
                 AdditionalProperties = new Dictionary<string, object?>
                 {
                     ["IsSubAgent"] = true,
@@ -166,94 +165,92 @@ public static class SubAgentsFunctionFactory
 
     private static JsonElement ComposeSchema(IReadOnlyList<SubAgentActionDescriptor> descriptors)
     {
-        var branches = new JsonArray();
-        foreach (var descriptor in descriptors)
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
         {
-            var properties = new JsonObject
-            {
-                ["action"] = ConstString(descriptor.Action, descriptor.Description),
-                ["input"] = StringProperty("The complete task for the subagent.")
-            };
-            var required = new JsonArray("action", "input");
-            if (descriptor.InvocationModePolicy == AgentInvocationModePolicy.ModelChoice)
-                properties["invocationMode"] = EnumString("synchronous", "background");
-            if (descriptor.ContextPolicy == SubAgentContextPolicy.ModelChoice)
-                properties["context"] = EnumString("fork", "fresh", "isolated");
-            branches.Add(ObjectBranch(properties, required));
+            writer.WriteStartObject();
+            writer.WriteString("type", "object");
+            writer.WritePropertyName("properties"); writer.WriteStartObject();
+            writer.WritePropertyName("request"); writer.WriteStartObject();
+            writer.WritePropertyName("oneOf"); writer.WriteStartArray();
+            foreach (var descriptor in descriptors)
+                WriteRoleBranch(writer, descriptor);
+            WriteControlBranch(writer, "continue", includeInput: true, includeMode: true);
+            WriteControlBranch(writer, "list");
+            WriteControlBranch(writer, "wait", wait: true);
+            WriteControlBranch(writer, "sendMessage", includeInput: true);
+            WriteControlBranch(writer, "cancel", cancel: true);
+            writer.WriteEndArray(); writer.WriteEndObject();
+            writer.WriteEndObject();
+            writer.WritePropertyName("required"); writer.WriteStartArray(); writer.WriteStringValue("request"); writer.WriteEndArray();
+            writer.WriteBoolean("additionalProperties", false);
+            writer.WriteEndObject();
         }
-        branches.Add(ControlBranch("continue", includeInput: true, includeMode: true));
-        branches.Add(ControlBranch("list"));
-        branches.Add(ControlBranch("wait", extra: new JsonObject
-        {
-            ["children"] = new JsonObject { ["type"] = "array", ["items"] = StringProperty(null) },
-            ["mode"] = EnumString("any", "all"),
-            ["timeoutSeconds"] = new JsonObject { ["type"] = "integer", ["minimum"] = 0 }
-        }));
-        branches.Add(ControlBranch("sendMessage", includeInput: true));
-        branches.Add(ControlBranch("cancel", extra: new JsonObject { ["reason"] = StringProperty(null) }));
-        var root = new JsonObject
-        {
-            ["type"] = "object",
-            ["properties"] = new JsonObject
-            {
-                ["request"] = new JsonObject { ["oneOf"] = branches }
-            },
-            ["required"] = new JsonArray("request"),
-            ["additionalProperties"] = false
-        };
-        return JsonSerializer.SerializeToElement(root);
+        using var document = JsonDocument.Parse(stream.ToArray());
+        return document.RootElement.Clone();
     }
 
-    private static JsonObject ControlBranch(
-        string action,
-        bool includeInput = false,
-        bool includeMode = false,
-        JsonObject? extra = null)
+    private static void WriteRoleBranch(Utf8JsonWriter writer, SubAgentActionDescriptor descriptor)
     {
-        var properties = new JsonObject { ["action"] = ConstString(action, null) };
-        var required = new JsonArray("action");
-        if (action != "list" && action != "wait")
-        {
-            properties["child"] = StringProperty("A parent-local child identifier.");
-            required.Add("child");
-        }
-        if (includeInput)
-        {
-            properties["input"] = StringProperty("The semantic input to deliver.");
-            required.Add("input");
-        }
-        if (includeMode) properties["invocationMode"] = EnumString("synchronous", "background");
-        if (extra is not null)
-            foreach (var property in extra) properties[property.Key] = property.Value?.DeepClone();
-        return ObjectBranch(properties, required);
+        WriteBranchStart(writer, descriptor.Action, descriptor.Description);
+        WriteStringSchema(writer, "input", "The complete task for the subagent.");
+        if (descriptor.InvocationModePolicy == AgentInvocationModePolicy.ModelChoice)
+            WriteEnumSchema(writer, "invocationMode", "synchronous", "background");
+        if (descriptor.ContextPolicy == SubAgentContextPolicy.ModelChoice)
+            WriteEnumSchema(writer, "context", "fork", "fresh", "isolated");
+        WriteBranchEnd(writer, "action", "input");
     }
 
-    private static JsonObject ObjectBranch(JsonObject properties, JsonArray required) => new()
+    private static void WriteControlBranch(
+        Utf8JsonWriter writer, string action, bool includeInput = false, bool includeMode = false,
+        bool wait = false, bool cancel = false)
     {
-        ["type"] = "object",
-        ["properties"] = properties,
-        ["required"] = required,
-        ["additionalProperties"] = false
-    };
+        WriteBranchStart(writer, action, null);
+        if (action is not "list" and not "wait") WriteStringSchema(writer, "child", "A parent-local child identifier.");
+        if (includeInput) WriteStringSchema(writer, "input", "The semantic input to deliver.");
+        if (includeMode) WriteEnumSchema(writer, "invocationMode", "synchronous", "background");
+        if (wait)
+        {
+            writer.WritePropertyName("children"); writer.WriteStartObject(); writer.WriteString("type", "array");
+            writer.WritePropertyName("items"); writer.WriteStartObject(); writer.WriteString("type", "string"); writer.WriteEndObject(); writer.WriteEndObject();
+            WriteEnumSchema(writer, "mode", "any", "all");
+            writer.WritePropertyName("timeoutSeconds"); writer.WriteStartObject(); writer.WriteString("type", "integer"); writer.WriteNumber("minimum", 0); writer.WriteEndObject();
+        }
+        if (cancel) WriteStringSchema(writer, "reason", null);
+        var required = new List<string> { "action" };
+        if (action is not "list" and not "wait") required.Add("child");
+        if (includeInput) required.Add("input");
+        WriteBranchEnd(writer, required.ToArray());
+    }
 
-    private static JsonObject ConstString(string value, string? description) => new()
+    private static void WriteBranchStart(Utf8JsonWriter writer, string action, string? description)
     {
-        ["type"] = "string",
-        ["const"] = value,
-        ["description"] = description
-    };
+        writer.WriteStartObject(); writer.WriteString("type", "object");
+        writer.WritePropertyName("properties"); writer.WriteStartObject();
+        writer.WritePropertyName("action"); writer.WriteStartObject(); writer.WriteString("type", "string");
+        writer.WriteString("const", action); if (description is not null) writer.WriteString("description", description); writer.WriteEndObject();
+    }
 
-    private static JsonObject StringProperty(string? description) => new()
+    private static void WriteBranchEnd(Utf8JsonWriter writer, params string[] required)
     {
-        ["type"] = "string",
-        ["description"] = description
-    };
+        writer.WriteEndObject(); writer.WritePropertyName("required"); writer.WriteStartArray();
+        foreach (var value in required) writer.WriteStringValue(value);
+        writer.WriteEndArray(); writer.WriteBoolean("additionalProperties", false); writer.WriteEndObject();
+    }
 
-    private static JsonObject EnumString(params string[] values) => new()
+    private static void WriteStringSchema(Utf8JsonWriter writer, string name, string? description)
     {
-        ["type"] = "string",
-        ["enum"] = new JsonArray(values.Select(static value => (JsonNode?)JsonValue.Create(value)).ToArray())
-    };
+        writer.WritePropertyName(name); writer.WriteStartObject(); writer.WriteString("type", "string");
+        if (description is not null) writer.WriteString("description", description); writer.WriteEndObject();
+    }
+
+    private static void WriteEnumSchema(Utf8JsonWriter writer, string name, params string[] values)
+    {
+        writer.WritePropertyName(name); writer.WriteStartObject(); writer.WriteString("type", "string");
+        writer.WritePropertyName("enum"); writer.WriteStartArray(); foreach (var value in values) writer.WriteStringValue(value);
+        writer.WriteEndArray(); writer.WriteEndObject();
+    }
+
 }
 
 internal sealed record BoundSubAgentAction(string Action, object? Value, JsonElement Branch);
@@ -286,8 +283,15 @@ public enum SubAgentOperationStatus { Running, Completed, Failed, Cancelled, Una
 /// <summary>Stable structured subagent operation error.</summary>
 public sealed record SubAgentOperationError(string Code, string Message);
 
+/// <summary>Closed structured result union returned by the unified <c>SubAgents</c> function.</summary>
+[System.Text.Json.Serialization.JsonPolymorphic(TypeDiscriminatorPropertyName = "$result")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(SubAgentOperationResult), "operation")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(SubAgentListResult), "list")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(SubAgentWaitResult), "wait")]
+public abstract record SubAgentActionResult;
+
 /// <summary>Structured result returned by every unified subagent action.</summary>
-public sealed record SubAgentOperationResult
+public sealed record SubAgentOperationResult : SubAgentActionResult
 {
     /// <summary>Gets the current operation status.</summary>
     public required SubAgentOperationStatus Status { get; init; }
@@ -314,7 +318,7 @@ public sealed record SubAgentListItem(
     string? Reason);
 
 /// <summary>Structured result returned by the <c>list</c> action.</summary>
-public sealed record SubAgentListResult(IReadOnlyList<SubAgentListItem> Children);
+public sealed record SubAgentListResult(IReadOnlyList<SubAgentListItem> Children) : SubAgentActionResult;
 
 /// <summary>One exact execution observed by the <c>wait</c> action.</summary>
 public sealed record SubAgentWaitItem(string Child, string? ThreadExecutionId, string Status);
@@ -322,7 +326,7 @@ public sealed record SubAgentWaitItem(string Child, string? ThreadExecutionId, s
 /// <summary>Structured observational result returned by the <c>wait</c> action.</summary>
 public sealed record SubAgentWaitResult(
     bool TimedOut,
-    IReadOnlyList<SubAgentWaitItem> Children);
+    IReadOnlyList<SubAgentWaitItem> Children) : SubAgentActionResult;
 
 internal static class SubAgentOperationDispatcher
 {

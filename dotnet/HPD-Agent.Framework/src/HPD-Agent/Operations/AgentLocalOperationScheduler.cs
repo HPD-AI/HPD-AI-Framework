@@ -15,7 +15,8 @@ internal static class AgentLocalOperationScheduler
         Func<string, CancellationToken, ValueTask<AgentOperationCompletion>> work,
         Middleware.ToolHarnessExecutionScope? toolHarnessExecutionScope = null,
         IAsyncDisposable? additionalExecutionOwner = null,
-        CancellationToken runtimeCancellationToken = default)
+        CancellationToken runtimeCancellationToken = default,
+        string? requestedOperationId = null)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
@@ -23,7 +24,9 @@ internal static class AgentLocalOperationScheduler
         ArgumentNullException.ThrowIfNull(notification);
         ArgumentNullException.ThrowIfNull(work);
 
-        var operationId = Guid.NewGuid().ToString("N");
+        var operationId = requestedOperationId ?? Guid.NewGuid().ToString("N");
+        if (requestedOperationId is not null && registry.TryGet(operationId, out var existing) && existing is not null)
+            return ToReceipt(existing.Snapshot);
         var harnessOwner = toolHarnessExecutionScope?.TransferToOperation(operationId);
         var executionOwner = CompositeExecutionOwner.Create(
             registry, operationId, name, harnessOwner, additionalExecutionOwner);

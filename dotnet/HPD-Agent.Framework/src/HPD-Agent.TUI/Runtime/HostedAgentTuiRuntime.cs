@@ -574,6 +574,21 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             .ConfigureAwait(false);
     }
 
+    public async Task<IReadOnlyList<AgentTuiSubAgentInfo>> ListSubAgentsAsync(
+        string sessionId,
+        string threadId,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await _http.GetAsync(
+            $"sessions/{Escape(sessionId)}/threads/{Escape(threadId)}/subagents", cancellationToken).ConfigureAwait(false);
+        if (response.StatusCode == HttpStatusCode.NotFound) return [];
+        if (!response.IsSuccessStatusCode)
+            await ThrowForUnexpectedResponseAsync(response, "list subagents", cancellationToken).ConfigureAwait(false);
+        return await ReadObjectAsync(response,
+            static element => element.Deserialize<IReadOnlyList<AgentTuiSubAgentInfo>>(JsonOptions) ?? [],
+            cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task DeleteThreadAsync(
         string sessionId,
         string threadId,

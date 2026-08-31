@@ -23,6 +23,40 @@ var result = await ((HPDAIFunctionFactory.HPDAIFunction)function).InvokeAsync(
     CreateContext(function),
     CancellationToken.None);
 
+var subAgentFunction = SubAgentsFunctionFactory.Create([new SubAgentActionDescriptor
+{
+    Action = "reviewer",
+    Description = "Reviews code.",
+    CapabilityId = CapabilityId.Create("aot:reviewer"),
+    Definition = SubAgent.FromConfig("reviewer", "reviewer-agent", "Reviews code.", new AgentConfig()),
+    InvocationModePolicy = AgentInvocationModePolicy.SynchronousOnly,
+    InvocationModeHandling = AgentInvocationModeHandling.ToolBody,
+    ContextPolicy = SubAgentContextPolicy.Fresh,
+    RequiresPermission = true,
+    BranchBinder = json => SubAgentGeneratedBranchBinder.Bind(json, allowContext: false)
+}]);
+if (!subAgentFunction.JsonSchema.GetRawText().Contains("reviewer", StringComparison.Ordinal))
+    return 4;
+var operationJson = JsonSerializer.Serialize<SubAgentActionResult>(new SubAgentOperationResult
+{
+    Status = SubAgentOperationStatus.Completed,
+    Child = "reviewer-1",
+    Output = "ok"
+}, HPDJsonContext.Default.SubAgentActionResult);
+var forkJson = JsonSerializer.Serialize(new ThreadForkResult
+{
+    OperationId = "fork-1",
+    Source = new ThreadKey("s", "source"),
+    Target = new ThreadKey("s", "target"),
+    SourceBoundary = new ThreadJournalCursor(1, 2),
+    SubAgentPolicy = SubAgentForkPolicy.Detach,
+    Status = ThreadForkOperationStatus.Committed,
+    Children = []
+}, HPDJsonContext.Default.ThreadForkResult);
+if (!operationJson.Contains("reviewer-1", StringComparison.Ordinal) ||
+    !forkJson.Contains("fork-1", StringComparison.Ordinal))
+    return 5;
+
 return result as string == "worker:2" && harness.InvocationCount == 1 ? 0 : 2;
 
 static global::HPD.Agent.Middleware.FunctionExecutionContext CreateContext(AIFunction function)

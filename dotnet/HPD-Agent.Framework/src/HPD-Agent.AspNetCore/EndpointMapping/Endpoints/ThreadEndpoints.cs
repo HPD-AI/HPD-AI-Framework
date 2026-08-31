@@ -31,6 +31,11 @@ internal static class ThreadEndpoints
             .WithName("GetThread")
             .WithSummary("Get thread metadata by ID");
 
+        endpoints.MapGet("/sessions/{sid}/threads/{bid}/subagents", (string sid, string bid, CancellationToken ct) =>
+                ListSubAgents(RouteValue.Decode(sid), RouteValue.Decode(bid), threads, ct))
+            .WithName("ListThreadSubAgents")
+            .WithSummary("List durable subagents owned by a parent thread");
+
         endpoints.MapPost("/agents/{agentId}/sessions/{sid}/threads", (string agentId, string sid, CreateThreadRequest request, CancellationToken ct) =>
                 CreateThread(RouteValue.Decode(agentId), RouteValue.Decode(sid), request, threads, ct))
             .WithName("CreateThread")
@@ -103,6 +108,19 @@ internal static class ThreadEndpoints
         {
             return Validation("GetThreadError", ex.Message);
         }
+    }
+
+    private static async Task<Results<Ok<List<SubAgentDto>>, NotFound, ValidationProblem>> ListSubAgents(
+        string sid, string bid, IAgentThreadService threads, CancellationToken ct = default)
+    {
+        try
+        {
+            var result = await threads.ListSubAgentsAsync(sid, bid, ct);
+            return result.Status == AgentServiceStatus.NotFound
+                ? TypedResults.NotFound()
+                : TypedResults.Ok(result.Value!.ToList());
+        }
+        catch (Exception ex) { return Validation("ListSubAgentsError", ex.Message); }
     }
 
     private static async Task<Results<Created<ThreadDto>, NotFound, Conflict, ValidationProblem>> CreateThread(

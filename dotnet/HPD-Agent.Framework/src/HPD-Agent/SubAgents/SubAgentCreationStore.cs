@@ -149,6 +149,7 @@ public sealed class JournalSubAgentCreationStore(ISessionStore store) : ISubAgen
                     $"subagent/{Normalize(request.RoleName)}/{Normalize(localId.Value)}/{invocationId[..12]}"),
                 InvocationId = invocationId,
                 ThreadExecutionId = Guid.NewGuid().ToString("N"),
+                AgentOperationId = $"subagent-{invocationId}",
                 Phase = SubAgentCreationPhase.Reserved,
                 Revision = 1,
                 CreatedAt = DateTimeOffset.UtcNow

@@ -53,6 +53,9 @@ public class Thread
     /// <summary>Parent session ID</summary>
     public string SessionId { get; init; }
 
+    /// <summary>Gets typed preparation authority while this thread is a staged fork target.</summary>
+    public ThreadPreparationDescriptor? Preparation { get; internal set; }
+
     /// <summary>
     /// Back-reference to the parent Session.
     /// Set by Session.CreateThread() and by the framework when loading from store.

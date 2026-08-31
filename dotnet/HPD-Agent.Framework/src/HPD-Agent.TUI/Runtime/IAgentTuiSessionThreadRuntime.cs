@@ -74,6 +74,11 @@ public interface IAgentTuiThreadRuntime
         string sessionId,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<AgentTuiSubAgentInfo>> ListSubAgentsAsync(
+        string sessionId,
+        string threadId,
+        CancellationToken cancellationToken = default);
+
     Task DeleteThreadAsync(
         string sessionId,
         string threadId,
@@ -125,6 +130,17 @@ public sealed record AgentTuiThreadForkInfo(
     SubAgentForkPolicy SubAgentPolicy,
     ThreadForkOperationStatus Status,
     IReadOnlyList<SubAgentForkChildOutcome> Children);
+
+public sealed record AgentTuiSubAgentInfo(
+    string LocalId,
+    string Role,
+    SubAgentChildAvailability Availability,
+    string AgentId,
+    string? SessionId,
+    string? ThreadId,
+    string? Status,
+    int MessageCount,
+    string? Reason);
 
 public sealed record AgentTuiThreadUpdate(
     string? Name = null,

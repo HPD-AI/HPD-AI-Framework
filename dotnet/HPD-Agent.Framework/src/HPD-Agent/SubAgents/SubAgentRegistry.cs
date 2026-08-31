@@ -279,6 +279,12 @@ public sealed class SubAgentRegistryRebaseSeedProvider(SubAgentChildRegistry reg
         await foreach (var record in new JournalSubAgentCreationStore(registry.Store)
             .ReadSubAgentCreationsAsync(thread, cancellationToken).ConfigureAwait(false))
             records.Add(record);
-        return records;
+        return records
+            .Where(static record => record.Phase is not SubAgentCreationPhase.Terminal)
+            .Concat(records.Where(static record => record.Phase == SubAgentCreationPhase.Terminal)
+                .OrderByDescending(static record => record.CreatedAt)
+                .Take(128))
+            .OrderBy(static record => record.LocalId.Value, StringComparer.Ordinal)
+            .ToArray();
     }
 }

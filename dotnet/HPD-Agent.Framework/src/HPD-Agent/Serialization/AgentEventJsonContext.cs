@@ -151,6 +151,7 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(ThreadForkResult))]
 [JsonSerializable(typeof(SubAgentForkChildOutcome))]
 [JsonSerializable(typeof(SubAgentOperationResult))]
+[JsonSerializable(typeof(SubAgentActionResult))]
 [JsonSerializable(typeof(SubAgentListResult))]
 [JsonSerializable(typeof(SubAgentWaitResult))]
 [JsonSerializable(typeof(AgentInputResult))]

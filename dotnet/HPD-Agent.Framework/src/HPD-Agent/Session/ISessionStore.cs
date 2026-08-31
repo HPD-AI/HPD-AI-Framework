@@ -53,6 +53,11 @@ public interface ISessionStore
         Session session,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Conditionally creates an invisible prepared session without overwriting a colliding route.</summary>
+    ValueTask<SessionPreparationResult> TryPrepareSessionAsync(
+        Session session,
+        CancellationToken cancellationToken = default);
+
     /// <summary>
     /// List all session IDs in storage.
     /// </summary>

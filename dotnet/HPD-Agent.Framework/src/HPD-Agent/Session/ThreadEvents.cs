@@ -34,7 +34,11 @@ public sealed record ThreadCreatedEvent(
     string? ForkedAtMessageId = null,
     int? ForkedAtMessageIndex = null,
     List<string>? ChildThreads = null,
-    Dictionary<string, string>? Ancestors = null) : AgentEvent;
+    Dictionary<string, string>? Ancestors = null) : AgentEvent
+{
+    /// <summary>Gets typed fork preparation authority while this event belongs to a staged target.</summary>
+    public ThreadPreparationDescriptor? Preparation { get; init; }
+}
 
 [HPD.Agent.Serialization.DurableEvent]
 [HPD.Agent.Serialization.EventType("THREAD_UPDATED")]
@@ -160,7 +164,10 @@ public static class ThreadEventFactory
             thread.ForkedAtMessageId,
             thread.ForkedAtMessageIndex,
             thread.ChildThreads.ToList(),
-            thread.Ancestors));
+            thread.Ancestors)
+        {
+            Preparation = thread.Preparation
+        });
 
     public static AgentEvent ThreadUpdated(Thread thread) =>
         Scope(thread.SessionId, thread.Id, new ThreadUpdatedEvent(

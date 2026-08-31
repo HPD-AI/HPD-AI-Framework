@@ -266,7 +266,8 @@ public static class SubAgentRuntime
                         AgentInvocationMode.Background,
                         runtimeToken).ConfigureAwait(false);
                     return new AgentOperationCompletion(result.Text);
-                }).ConfigureAwait(false);
+                },
+                operationId: admission.Creation.AgentOperationId).ConfigureAwait(false);
 
         await PersistBackgroundReceiptAsync(admission, receipt.OperationId).ConfigureAwait(false);
 

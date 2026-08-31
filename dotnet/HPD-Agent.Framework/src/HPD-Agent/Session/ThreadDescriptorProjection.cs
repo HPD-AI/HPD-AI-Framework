@@ -19,6 +19,7 @@ internal static class ThreadDescriptorProjection
         var visibility = current?.Visibility ?? ThreadVisibility.Visible;
         var fork = current?.Fork;
         var runtimeChild = current?.RuntimeChild;
+        var preparation = current?.Preparation;
         IReadOnlyDictionary<string, object> metadata = current?.Metadata
             ?? new Dictionary<string, object>(StringComparer.Ordinal);
 
@@ -37,6 +38,7 @@ internal static class ThreadDescriptorProjection
                 runtimeChild = CreateRuntimeChild(created.ParentSessionId, created.ParentThreadId, created.SubAgentName,
                     created.InvocationId, created.SubAgentSourceKind, created.ParentToolCallId,
                     created.ContextPolicy);
+                preparation = created.Preparation;
                 break;
 
             case ThreadUpdatedEvent updated:
@@ -86,7 +88,10 @@ internal static class ThreadDescriptorProjection
             messageIds.Count,
             fork,
             runtimeChild,
-            metadata);
+            metadata)
+        {
+            Preparation = preparation
+        };
     }
 
     private static IReadOnlyDictionary<string, object> CopyMetadata(Dictionary<string, object>? metadata)

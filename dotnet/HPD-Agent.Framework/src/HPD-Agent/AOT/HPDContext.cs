@@ -189,6 +189,7 @@ using Microsoft.Extensions.AI;
 [JsonSerializable(typeof(ThreadForkResult))]
 [JsonSerializable(typeof(SubAgentForkChildOutcome))]
 [JsonSerializable(typeof(SubAgentOperationResult))]
+[JsonSerializable(typeof(SubAgentActionResult))]
 [JsonSerializable(typeof(SubAgentListResult))]
 [JsonSerializable(typeof(SubAgentWaitResult))]
 [JsonSerializable(typeof(ThreadJournalCursor))]

@@ -12,6 +12,11 @@ public interface IAgentThreadService
         string sessionId,
         CancellationToken cancellationToken = default);
 
+    Task<AgentServiceResult<IReadOnlyList<SubAgentDto>>> ListSubAgentsAsync(
+        string sessionId,
+        string threadId,
+        CancellationToken cancellationToken = default);
+
     Task<AgentServiceResult<ThreadDto>> GetThreadAsync(
         string sessionId,
         string threadId,

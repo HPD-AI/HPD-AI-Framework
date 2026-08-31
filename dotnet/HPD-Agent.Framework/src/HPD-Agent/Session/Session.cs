@@ -43,6 +43,9 @@ public class Session
     /// <summary>Session-level metadata (not thread-specific)</summary>
     public Dictionary<string, object> Metadata { get; init; }
 
+    /// <summary>Gets typed preparation authority while this isolated session belongs to a staged fork.</summary>
+    public SessionPreparationDescriptor? Preparation { get; init; }
+
     /// <summary>
     /// Session-scoped middleware persistent state.
     /// Stores state that applies across all threads (e.g., permission choices, user preferences).

@@ -104,6 +104,21 @@ public sealed class InMemorySessionStore : ISessionStore, IThreadDeltaStore, HPD
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
+    public ValueTask<SessionPreparationResult> TryPrepareSessionAsync(
+        Session session,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_sessions.TryAdd(session.Id, session))
+            return ValueTask.FromResult(SessionPreparationResult.Created);
+        var current = _sessions[session.Id];
+        return ValueTask.FromResult(current.Preparation == session.Preparation
+            ? SessionPreparationResult.ExistingOwned
+            : SessionPreparationResult.Conflict);
+    }
+
     public async Task<List<string>> ListSessionIdsAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();

@@ -53,6 +53,30 @@ public sealed class AgentThreadService : IAgentThreadService
         return AgentServiceResult<ThreadGraphDto>.Success(new ThreadGraphDto(dtos, forkGroups, runtimeChildren));
     }
 
+    public async Task<AgentServiceResult<IReadOnlyList<SubAgentDto>>> ListSubAgentsAsync(
+        string sessionId,
+        string threadId,
+        CancellationToken cancellationToken = default)
+    {
+        var parent = new ThreadKey(sessionId, threadId);
+        if (await _sessionManager.Store.GetThreadAsync(parent, cancellationToken).ConfigureAwait(false) is null)
+            return AgentServiceResult<IReadOnlyList<SubAgentDto>>.NotFound;
+        var registry = await new SubAgentChildRegistry(_sessionManager.Store)
+            .ProjectAsync(parent, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var results = new List<SubAgentDto>();
+        foreach (var child in registry.Children.Values.OrderBy(static value => value.LocalId.Value, StringComparer.Ordinal))
+        {
+            var descriptor = child.ChildThread is { } route
+                ? await _sessionManager.Store.GetThreadAsync(route, cancellationToken).ConfigureAwait(false)
+                : null;
+            results.Add(new SubAgentDto(
+                child.LocalId.Value, child.RoleName, child.Availability, child.ChildAgentId,
+                child.ChildThread?.SessionId, child.ChildThread?.ThreadId,
+                descriptor?.RuntimeChild?.Status, descriptor?.MessageCount ?? 0, child.UnavailableReason));
+        }
+        return AgentServiceResult<IReadOnlyList<SubAgentDto>>.Success(results);
+    }
+
     public async Task<AgentServiceResult<ThreadDto>> GetThreadAsync(
         string sessionId,
         string threadId,
