@@ -850,12 +850,25 @@ internal static class ReflectionToolFactory
         AgentInvocationModePolicy defaultPolicy,
         AgentInvocationModeHandling defaultHandling)
     {
-        var candidates = parameters.Select(parameter => new
+        var analyzed = parameters.Select(parameter => new
         {
             Parameter = parameter,
             Polymorphic = parameter.ParameterType.GetCustomAttribute<JsonPolymorphicAttribute>(inherit: false),
             Cases = parameter.ParameterType.GetCustomAttributes<JsonDerivedTypeAttribute>(inherit: false).ToArray()
-        }).Where(candidate => candidate.Polymorphic is not null && candidate.Cases.Any(unionCase =>
+        }).ToArray();
+        foreach (var union in analyzed.Where(static candidate => candidate.Polymorphic is not null))
+        {
+            var declaredTypes = union.Cases.Select(static unionCase => unionCase.DerivedType).ToHashSet();
+            var undeclared = GetLoadableTypes(union.Parameter.ParameterType.Assembly).FirstOrDefault(type =>
+                type != union.Parameter.ParameterType &&
+                union.Parameter.ParameterType.IsAssignableFrom(type) &&
+                type.GetCustomAttribute<AIFunctionActionAttribute>(inherit: false) is not null &&
+                !declaredTypes.Contains(type));
+            if (undeclared is not null)
+                throw new InvalidOperationException(
+                    $"Action type '{undeclared.FullName}' is outside the function's declared closed union.");
+        }
+        var candidates = analyzed.Where(candidate => candidate.Polymorphic is not null && candidate.Cases.Any(unionCase =>
             unionCase.DerivedType.GetCustomAttribute<AIFunctionActionAttribute>(inherit: false) is not null)).ToArray();
         if (candidates.Length == 0) return null;
         if (candidates.Length != 1)
@@ -903,6 +916,18 @@ internal static class ReflectionToolFactory
 
     private static string GetSerializedParameterName(ParameterInfo parameter) =>
         parameter.Name ?? throw new InvalidOperationException("Model-facing parameters require a serialized name.");
+
+    private static IEnumerable<Type> GetLoadableTypes(Assembly assembly)
+    {
+        try
+        {
+            return assembly.GetTypes();
+        }
+        catch (ReflectionTypeLoadException exception)
+        {
+            return exception.Types.OfType<Type>();
+        }
+    }
 
     private static IEnumerable<MethodInfo> GetCapabilityMethods(Type toolharnessType)
     {
