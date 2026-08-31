@@ -8,6 +8,17 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Agent;
 
+/// <summary>Durable execution-scoped result for an idempotent child continuation.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("SUBAGENT_CONTINUATION_RECEIPT")]
+public sealed record SubAgentContinuationReceiptEvent(
+    string ContinuationExecutionId,
+    string? Output) : AgentEvent
+{
+    /// <inheritdoc />
+    public override string? ThreadExecutionId { get; init; } = ContinuationExecutionId;
+}
+
 /// <summary>
 /// Runtime services for invoking thread-native subagents.
 /// </summary>
@@ -719,14 +730,14 @@ public static class SubAgentRuntime
                 ?? throw new InvalidOperationException("subagent_unavailable: no agent runtime resolver is configured.");
             var route = child.ChildThread.Value;
             var input = branch.GetProperty("input").GetString() ?? string.Empty;
-            var active = await controller.FindActiveAsync(route, cancellationToken).ConfigureAwait(false);
-            if (active.IsActive)
-                return Failure("subagent_busy", "This child already has an active execution.", child.LocalId.Value);
             var continueKey = $"{functionContext.SessionId}|{functionContext.ThreadId}|{functionContext.FunctionCallId}|{child.LocalId.Value}|{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(input)))}";
             var continueDigest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(continueKey))).ToLowerInvariant();
             var executionId = $"continue-{continueDigest[..24]}";
             var invocationId = $"continue-{continueDigest[24..48]}";
             var operationId = $"subagent-continue-{continueDigest[..32]}";
+            var active = await controller.FindActiveAsync(route, cancellationToken).ConfigureAwait(false);
+            if (active.IsActive && !string.Equals(active.ThreadExecutionId, executionId, StringComparison.Ordinal))
+                return Failure("subagent_busy", "This child already has an active execution.", child.LocalId.Value);
             var durableReplay = await TryReserveExecutionAsync(
                     store, route, executionId, child.ChildAgentId, cancellationToken)
                 .ConfigureAwait(false);
@@ -734,6 +745,17 @@ public static class SubAgentRuntime
             {
                 if (durableReplay.Outcome is null)
                 {
+                    if (active.IsActive)
+                    {
+                        return new SubAgentOperationResult
+                        {
+                            Status = SubAgentOperationStatus.Running,
+                            Child = child.LocalId.Value,
+                            InvocationId = invocationId,
+                            ThreadExecutionId = executionId,
+                            AgentOperationId = operationId
+                        };
+                    }
                     return new SubAgentOperationResult
                     {
                         Status = SubAgentOperationStatus.Failed,
@@ -759,9 +781,6 @@ public static class SubAgentRuntime
                             "subagent_continue_failed", "The prior continuation did not succeed.")
                     };
                 }
-                var replayed = await store.ProjectThreadAsync(
-                    route.SessionId, route.ThreadId, ThreadProjectionPurpose.ThreadHistory, cancellationToken)
-                    .ConfigureAwait(false);
                 return new SubAgentOperationResult
                 {
                     Status = SubAgentOperationStatus.Completed,
@@ -769,7 +788,7 @@ public static class SubAgentRuntime
                     InvocationId = invocationId,
                     ThreadExecutionId = executionId,
                     AgentOperationId = operationId,
-                    Output = replayed?.Messages.LastOrDefault(static message => message.Role == ChatRole.Assistant)?.Text
+                    Output = durableReplay.Output
                 };
             }
             var requestedMode = functionContext.ResolvedInvocationMode;
@@ -892,11 +911,18 @@ public static class SubAgentRuntime
                 ThreadId = route.ThreadId,
                 ThreadExecutionId = executionId
             }, cancellationToken).ConfigureAwait(false);
-            await publisher.CommitAndPublishAsync(
+            var projected = await store.ProjectThreadAsync(
+                route.SessionId, route.ThreadId, ThreadProjectionPurpose.ThreadHistory, CancellationToken.None)
+                .ConfigureAwait(false);
+            var output = projected?.Messages.LastOrDefault(static message => message.Role == ChatRole.Assistant)?.Text;
+            await store.AppendThreadEventsAsync(
                 route,
-                new ThreadExecutionFinishedEvent(
-                    executionId, child.ChildAgentId, ThreadExecutionOutcome.Succeeded, DateTimeOffset.UtcNow),
-                CancellationToken.None).ConfigureAwait(false);
+                [
+                    new SubAgentContinuationReceiptEvent(executionId, output),
+                    new ThreadExecutionFinishedEvent(
+                        executionId, child.ChildAgentId, ThreadExecutionOutcome.Succeeded, DateTimeOffset.UtcNow)
+                ],
+                cancellationToken: CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception exception)
         {
@@ -913,7 +939,7 @@ public static class SubAgentRuntime
         }
     }
 
-    private static async ValueTask<(bool Reserved, ThreadExecutionOutcome? Outcome, SubAgentOperationError? Error)>
+    private static async ValueTask<(bool Reserved, ThreadExecutionOutcome? Outcome, SubAgentOperationError? Error, string? Output)>
         TryReserveExecutionAsync(
             ISessionStore store,
             ThreadKey route,
@@ -927,6 +953,7 @@ public static class SubAgentRuntime
                 ?? throw new InvalidOperationException("subagent_child_route_invalid");
             var started = false;
             ThreadExecutionFinishedEvent? terminal = null;
+            string? output = null;
             await foreach (var batch in store.ReadThreadEventsAsync(
                                route,
                                new ThreadEventReadRequest(ThreadJournalCursor.Start(head.Generation), head.ThreadSequenceNumber),
@@ -940,6 +967,9 @@ public static class SubAgentRuntime
                     else if (evt is ThreadExecutionFinishedEvent finished &&
                              string.Equals(finished.ThreadExecutionId, executionId, StringComparison.Ordinal))
                         terminal = finished;
+                    else if (evt is SubAgentContinuationReceiptEvent receipt &&
+                             string.Equals(receipt.ThreadExecutionId, executionId, StringComparison.Ordinal))
+                        output = receipt.Output;
                 }
             }
             if (started)
@@ -948,7 +978,8 @@ public static class SubAgentRuntime
                     terminal?.Outcome,
                     terminal?.Error is { } error
                         ? new SubAgentOperationError("subagent_continue_failed", error.Message)
-                        : null);
+                        : null,
+                    output);
             try
             {
                 await store.AppendThreadEventsAsync(
@@ -960,7 +991,7 @@ public static class SubAgentRuntime
                     }],
                     new ThreadAppendCondition(head.Cursor),
                     cancellationToken).ConfigureAwait(false);
-                return (true, null, null);
+                return (true, null, null, null);
             }
             catch (ThreadAppendConflictException) when (attempt < 15) { }
         }

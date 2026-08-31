@@ -108,6 +108,7 @@ public sealed class SubAgentContinuationRebaseSeedProvider(ISessionStore store)
         if (head is null) return [];
         var starts = new Dictionary<string, ThreadExecutionStartedEvent>(StringComparer.Ordinal);
         var terminals = new Dictionary<string, ThreadExecutionFinishedEvent>(StringComparer.Ordinal);
+        var receipts = new Dictionary<string, SubAgentContinuationReceiptEvent>(StringComparer.Ordinal);
         await foreach (var batch in _store.ReadThreadEventsAsync(
                            thread,
                            new ThreadEventReadRequest(ThreadJournalCursor.Start(head.Generation), head.ThreadSequenceNumber),
@@ -121,6 +122,8 @@ public sealed class SubAgentContinuationRebaseSeedProvider(ISessionStore store)
                 else if (evt is ThreadExecutionFinishedEvent finished &&
                          finished.ThreadExecutionId.StartsWith("continue-", StringComparison.Ordinal))
                     terminals[finished.ThreadExecutionId] = finished;
+                else if (evt is SubAgentContinuationReceiptEvent receipt)
+                    receipts[receipt.ContinuationExecutionId] = receipt;
             }
         }
         var seed = new List<AgentEvent>(starts.Count * 2);
@@ -134,6 +137,15 @@ public sealed class SubAgentContinuationRebaseSeedProvider(ISessionStore store)
             });
             if (terminals.TryGetValue(executionId, out var terminal))
             {
+                if (receipts.TryGetValue(executionId, out var receipt))
+                {
+                    seed.Add(receipt with
+                    {
+                        SessionId = thread.SessionId,
+                        ThreadId = thread.ThreadId,
+                        ThreadSequenceNumber = 0
+                    });
+                }
                 seed.Add(terminal with
                 {
                     SessionId = thread.SessionId,

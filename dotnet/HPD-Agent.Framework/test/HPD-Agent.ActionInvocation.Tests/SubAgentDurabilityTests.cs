@@ -151,6 +151,7 @@ public sealed class SubAgentDurabilityTests
             child,
             [
                 new ThreadExecutionStartedEvent("continue-abc", "child-agent", DateTimeOffset.UtcNow),
+                new SubAgentContinuationReceiptEvent("continue-abc", "scoped output"),
                 new ThreadExecutionFinishedEvent(
                     "continue-abc", "child-agent", ThreadExecutionOutcome.Succeeded, DateTimeOffset.UtcNow)
             ],
@@ -161,6 +162,7 @@ public sealed class SubAgentDurabilityTests
         Assert.Collection(
             seed,
             value => Assert.Equal("continue-abc", Assert.IsType<ThreadExecutionStartedEvent>(value).ThreadExecutionId),
+            value => Assert.Equal("scoped output", Assert.IsType<SubAgentContinuationReceiptEvent>(value).Output),
             value => Assert.Equal("continue-abc", Assert.IsType<ThreadExecutionFinishedEvent>(value).ThreadExecutionId));
     }
 
