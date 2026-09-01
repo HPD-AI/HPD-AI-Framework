@@ -4340,6 +4340,8 @@ public sealed partial class Agent : IAsyncDisposable
                     effectiveCancellationToken).ConfigureAwait(false);
                 foreach (var runtimeMessage in completedTurnContext.RuntimeContextMessages)
                 {
+                    if (runtimeMessage.GetSource() != AgentMessageSource.BackgroundNotification)
+                        continue;
                     var finalRuntimeMessage = completedTurnContext.TurnHistory.FirstOrDefault(message =>
                         ReferenceEquals(message, runtimeMessage) ||
                         (!string.IsNullOrWhiteSpace(runtimeMessage.MessageId) &&
