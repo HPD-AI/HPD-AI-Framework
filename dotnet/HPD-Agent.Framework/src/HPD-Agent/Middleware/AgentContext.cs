@@ -621,10 +621,10 @@ public sealed class AgentContext
     /// Creates a typed context for BeforeMessageTurn hook.
     /// </summary>
     internal BeforeMessageTurnContext AsBeforeMessageTurn(
-        ChatMessage? userMessage,
+        IReadOnlyList<ChatMessage> inputMessages,
         List<ChatMessage> conversationHistory,
         AgentRunConfig runConfig)
-        => new(this, userMessage, conversationHistory, runConfig);
+        => new(this, inputMessages, conversationHistory, runConfig);
 
     /// <summary>
     /// Creates a typed context for AfterMessageTurn hook.
@@ -632,8 +632,11 @@ public sealed class AgentContext
     internal AfterMessageTurnContext AsAfterMessageTurn(
         ChatResponse finalResponse,
         List<ChatMessage> turnHistory,
-        AgentRunConfig runConfig)
-        => new(this, finalResponse, turnHistory, runConfig);
+        AgentRunConfig runConfig,
+        AgentTurnTriggerSource triggerSource = AgentTurnTriggerSource.UserInput,
+        IReadOnlyList<ChatMessage>? userInputMessages = null,
+        IReadOnlyList<ChatMessage>? runtimeContextMessages = null)
+        => new(this, finalResponse, turnHistory, runConfig, triggerSource, userInputMessages, runtimeContextMessages);
 
     /// <summary>
     /// Creates a typed context for BeforeIteration hook.

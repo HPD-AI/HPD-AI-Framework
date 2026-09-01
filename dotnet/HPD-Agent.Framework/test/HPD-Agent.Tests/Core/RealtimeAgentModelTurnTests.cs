@@ -1107,9 +1107,9 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
             BeforeMessageTurnContext context,
             CancellationToken cancellationToken)
         {
-            if (context.UserMessage is { } message)
+            if (context.UserInputMessages[0] is { } message)
             {
-                context.UserMessage = new ChatMessage(message.Role, message.Contents.ToArray())
+                context.UserInputMessages[0] = new ChatMessage(message.Role, message.Contents.ToArray())
                 {
                     AdditionalProperties = message.AdditionalProperties,
                     AuthorName = message.AuthorName,

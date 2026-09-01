@@ -23,7 +23,7 @@ public class ContentUploadMiddlewareTests
 
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
-        Assert.Equal("Hello", context.UserMessage!.Text);
+        Assert.Equal("Hello", context.UserInputMessages[0].Text);
         Assert.Empty(capture.Events);
     }
 
@@ -44,9 +44,9 @@ public class ContentUploadMiddlewareTests
 
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
-        Assert.Equal(2, context.UserMessage!.Contents.Count);
-        Assert.IsType<TextContent>(context.UserMessage.Contents[0]);
-        var uriContent = Assert.IsType<UriContent>(context.UserMessage.Contents[1]);
+        Assert.Equal(2, context.UserInputMessages[0].Contents.Count);
+        Assert.IsType<TextContent>(context.UserInputMessages[0].Contents[0]);
+        var uriContent = Assert.IsType<UriContent>(context.UserInputMessages[0].Contents[1]);
         Assert.Equal(ContentReferenceResolverMiddleware.ContentUriScheme, uriContent.Uri.Scheme);
         Assert.Equal("image/png", uriContent.MediaType);
 
@@ -80,12 +80,12 @@ public class ContentUploadMiddlewareTests
 
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
-        Assert.NotSame(message, context.UserMessage);
-        Assert.Equal("message-1", context.UserMessage!.MessageId);
-        Assert.Equal(createdAt, context.UserMessage.CreatedAt);
-        Assert.Equal("ewoof", context.UserMessage.AuthorName);
-        Assert.Same(raw, context.UserMessage.RawRepresentation);
-        Assert.IsType<UriContent>(Assert.Single(context.UserMessage.Contents));
+        Assert.NotSame(message, context.UserInputMessages[0]);
+        Assert.Equal("message-1", context.UserInputMessages[0].MessageId);
+        Assert.Equal(createdAt, context.UserInputMessages[0].CreatedAt);
+        Assert.Equal("ewoof", context.UserInputMessages[0].AuthorName);
+        Assert.Same(raw, context.UserInputMessages[0].RawRepresentation);
+        Assert.IsType<UriContent>(Assert.Single(context.UserInputMessages[0].Contents));
     }
 
     [Fact]
@@ -112,7 +112,7 @@ public class ContentUploadMiddlewareTests
 
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
-        var hosted = Assert.IsType<HostedFileContent>(Assert.Single(context.UserMessage!.Contents));
+        var hosted = Assert.IsType<HostedFileContent>(Assert.Single(context.UserInputMessages[0].Contents));
         Assert.Equal("file-1", hosted.FileId);
         Assert.Equal("application/pdf", hosted.MediaType);
         Assert.Equal("report.pdf", hosted.Name);
@@ -137,7 +137,7 @@ public class ContentUploadMiddlewareTests
 
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
-        Assert.IsType<HostedFileContent>(Assert.Single(context.UserMessage!.Contents));
+        Assert.IsType<HostedFileContent>(Assert.Single(context.UserInputMessages[0].Contents));
         Assert.Single(hostedClient.Uploads);
         Assert.Empty(await contentStore.QueryAsync(ContentScope.Create(ContentStoreScopes.ForThread(session.Id, "main"))));
     }
@@ -196,7 +196,7 @@ public class ContentUploadMiddlewareTests
 
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
-        var uriContent = Assert.IsType<UriContent>(Assert.Single(context.UserMessage!.Contents));
+        var uriContent = Assert.IsType<UriContent>(Assert.Single(context.UserInputMessages[0].Contents));
         var stored = await contentStore.ReadBytesAsync(new ContentAddress(
             ContentScope.Create(ContentStoreScopes.ForThread(session.Id, "main")), uriContent.Uri.Host));
         Assert.NotNull(stored);
@@ -219,7 +219,7 @@ public class ContentUploadMiddlewareTests
 
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
-        Assert.Same(data, Assert.Single(context.UserMessage!.Contents));
+        Assert.Same(data, Assert.Single(context.UserInputMessages[0].Contents));
         Assert.Single(await capture.WaitForAsync<HostedFileUploadFailedEvent>());
     }
 
@@ -241,11 +241,11 @@ public class ContentUploadMiddlewareTests
 
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
-        Assert.Equal(4, context.UserMessage!.Contents.Count);
-        Assert.IsType<TextContent>(context.UserMessage.Contents[0]);
-        Assert.IsType<UriContent>(context.UserMessage.Contents[1]);
-        Assert.IsType<TextContent>(context.UserMessage.Contents[2]);
-        Assert.IsType<UriContent>(context.UserMessage.Contents[3]);
+        Assert.Equal(4, context.UserInputMessages[0].Contents.Count);
+        Assert.IsType<TextContent>(context.UserInputMessages[0].Contents[0]);
+        Assert.IsType<UriContent>(context.UserInputMessages[0].Contents[1]);
+        Assert.IsType<TextContent>(context.UserInputMessages[0].Contents[2]);
+        Assert.IsType<UriContent>(context.UserInputMessages[0].Contents[3]);
         Assert.Equal(2, (await capture.WaitForAsync<ContentUploadedEvent>(2)).Count);
     }
 
@@ -257,7 +257,7 @@ public class ContentUploadMiddlewareTests
         AgentClientSet? clientSet = null)
     {
         var context = CreateAgentContext(session, coordinator, clientSet);
-        return context.AsBeforeMessageTurn(userMessage, new List<ChatMessage>(), runConfig ?? new AgentRunConfig());
+        return context.AsBeforeMessageTurn([userMessage], new List<ChatMessage>(), runConfig ?? new AgentRunConfig());
     }
 
     private static AgentContext CreateAgentContext(
@@ -448,7 +448,7 @@ public class ContentReferenceResolverMiddlewareTests
         var context = CreateBeforeMessageTurnContext(session, originalMessage, capture.Coordinator, runConfig);
 
         await uploadMiddleware.BeforeMessageTurnAsync(context, CancellationToken.None);
-        var uploadedMessage = context.UserMessage!;
+        var uploadedMessage = context.UserInputMessages[0];
         Assert.IsType<UriContent>(uploadedMessage.Contents[0]);
 
         var iterationContext = CreateBeforeIterationContext(session, uploadedMessage, capture.Coordinator, runConfig);
@@ -473,7 +473,7 @@ public class ContentReferenceResolverMiddlewareTests
         var context = CreateBeforeMessageTurnContext(session, originalMessage, capture.Coordinator, runConfig, "main");
 
         await uploadMiddleware.BeforeMessageTurnAsync(context, CancellationToken.None);
-        var uploadedMessage = context.UserMessage!;
+        var uploadedMessage = context.UserInputMessages[0];
         var contentReference = Assert.IsType<UriContent>(uploadedMessage.Contents[0]);
 
         var siblingContext = CreateBeforeIterationContext(session, uploadedMessage, capture.Coordinator, runConfig, "alternate");
@@ -534,7 +534,7 @@ public class ContentReferenceResolverMiddlewareTests
             new Thread(session.Id, threadId, "test-agent"),
             CancellationToken.None);
 
-        return context.AsBeforeMessageTurn(userMessage, new List<ChatMessage>(), runConfig ?? new AgentRunConfig());
+        return context.AsBeforeMessageTurn([userMessage], new List<ChatMessage>(), runConfig ?? new AgentRunConfig());
     }
 }
 

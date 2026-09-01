@@ -858,7 +858,11 @@ public sealed partial class Agent : IAsyncDisposable
         if (newMessages.Count == 0)
             return;
 
-        thread.AddMessages(newMessages);
+        var threadHistoryMessages = newMessages
+            .Where(static message => message.GetPersistence() == AgentMessagePersistence.ThreadHistory)
+            .ToArray();
+        if (threadHistoryMessages.Length > 0)
+            thread.AddMessages(threadHistoryMessages);
 
         var store = Config?.SessionStore;
         if (store == null)
@@ -1537,6 +1541,75 @@ public sealed partial class Agent : IAsyncDisposable
                 cancellationToken)
             .ConfigureAwait(false);
 
+    private async Task<AgentInputResult> ExecuteCoordinatedInputAsync(
+        AgentInputEvent input,
+        AgentInputHandlerRegistration registration,
+        HPD.Events.IEventCoordinator eventCoordinator,
+        ActiveRuntimeInput? activeInput,
+        CancellationToken cancellationToken)
+    {
+        if (registration.RoutingClass != AgentInputRoutingClass.Work ||
+            Config.SessionStore is not { } executionStore ||
+            input.SessionId is not { Length: > 0 } executionSessionId ||
+            input.ThreadId is not { Length: > 0 } executionThreadId)
+        {
+            var unscopedResult = await RunInputDirectAsync(
+                    input, registration, eventCoordinator, activeInput, cancellationToken)
+                .ConfigureAwait(false);
+            if (input is AgentOperationNotificationInputEvent unscopedNotification)
+            {
+                await PublishAgentOperationNotificationDeliveredAsync(
+                        unscopedNotification, eventCoordinator, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            return unscopedResult;
+        }
+
+        if (string.IsNullOrWhiteSpace(input.ThreadExecutionId))
+            throw new InvalidOperationException("Coordinated work requires an admitted execution identity.");
+
+        var controller = ThreadExecutionControllerRegistry.For(executionStore);
+        var acquired = await controller.TryAcquireAsync(
+            new ThreadExecutionStartRequest(
+                new ThreadKey(executionSessionId, executionThreadId),
+                input.ThreadExecutionId,
+                this),
+            cancellationToken).ConfigureAwait(false);
+        if (!acquired.Acquired || acquired.Lease is null)
+            throw new InvalidOperationException($"thread_execution_busy:{acquired.ActiveThreadExecutionId}");
+
+        try
+        {
+            var result = await RunInputDirectAsync(
+                    input, registration, eventCoordinator, activeInput, cancellationToken)
+                .ConfigureAwait(false);
+            await controller.ReleaseAsync(
+                acquired.Lease,
+                new ThreadExecutionTerminalResult(ThreadExecutionOutcome.Succeeded),
+                CancellationToken.None).ConfigureAwait(false);
+            if (input is AgentOperationNotificationInputEvent notification)
+            {
+                await PublishAgentOperationNotificationDeliveredAsync(
+                        notification, eventCoordinator, CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
+            return result;
+        }
+        catch (Exception exception)
+        {
+            await controller.ReleaseAsync(
+                acquired.Lease,
+                new ThreadExecutionTerminalResult(
+                    exception is OperationCanceledException
+                        ? ThreadExecutionOutcome.Cancelled
+                        : ThreadExecutionOutcome.Failed,
+                    exception.GetType().Name,
+                    exception.Message),
+                CancellationToken.None).ConfigureAwait(false);
+            throw;
+        }
+    }
+
     private AgentInputHandlingContext CreateInputHandlingContext(
         HPD.Events.IEventCoordinator eventCoordinator,
         ActiveRuntimeInput? activeInput)
@@ -1555,8 +1628,7 @@ public sealed partial class Agent : IAsyncDisposable
             DefaultChatClient = _defaultChatClientHandle,
             ActiveInput = activeInput,
             RunMessagesAsync = RunMessagesInputAsync,
-            TryResolveClientToolOperation = ResolveClientToolOperation,
-            PublishAgentOperationNotificationDelivered = PublishAgentOperationNotificationDeliveredAsync
+            TryResolveClientToolOperation = ResolveClientToolOperation
         };
 
     private bool ResolveClientToolOperation(ClientToolOperationOutcomeEvent input)
@@ -1597,7 +1669,7 @@ public sealed partial class Agent : IAsyncDisposable
                 try
                 {
                     var registration = _inputDispatcher.GetRegistration(input.GetType());
-                    var inputResult = await RunInputDirectAsync(
+                    var inputResult = await ExecuteCoordinatedInputAsync(
                             input,
                             registration,
                             eventCoordinator,
@@ -1673,12 +1745,6 @@ public sealed partial class Agent : IAsyncDisposable
         HPD.Events.IEventCoordinator runtimeCoordinator,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(input.SessionId) ||
-            string.IsNullOrWhiteSpace(input.ThreadId))
-        {
-            return;
-        }
-
         foreach (var notification in input.Notifications)
         {
             await PublishScopedRuntimeEventAsync(new AgentOperationNotificationDeliveredEvent
@@ -1802,7 +1868,9 @@ public sealed partial class Agent : IAsyncDisposable
             runtimeNotificationDispatcher = new AgentOperationNotificationDispatcher(
                 _eventCoordinator,
                 runtimeThreadEvents,
-                runtimeInbox.Writer,
+                input => new PreparedAgentWorkAdmission(
+                    CaptureInput(input) with { ThreadExecutionId = Guid.NewGuid().ToString("N") },
+                    runtimeInbox.Writer),
                 runConfig);
 
             _runtimeCts = runtimeCts;
@@ -2107,49 +2175,12 @@ public sealed partial class Agent : IAsyncDisposable
             return await TrySteerAsync(steering, cancellationToken).ConfigureAwait(false);
 
         if (registration.RoutingClass == AgentInputRoutingClass.Work &&
-            Config.SessionStore is { } executionStore &&
-            input.SessionId is { Length: > 0 } executionSessionId &&
-            input.ThreadId is { Length: > 0 } executionThreadId)
+            string.IsNullOrWhiteSpace(input.ThreadExecutionId))
         {
             input = input with
             {
-                ThreadExecutionId = string.IsNullOrWhiteSpace(input.ThreadExecutionId)
-                    ? Guid.NewGuid().ToString("N")
-                    : input.ThreadExecutionId
+                ThreadExecutionId = Guid.NewGuid().ToString("N")
             };
-            var controller = ThreadExecutionControllerRegistry.For(executionStore);
-            var acquired = await controller.TryAcquireAsync(
-                new ThreadExecutionStartRequest(
-                    new ThreadKey(executionSessionId, executionThreadId),
-                    input.ThreadExecutionId!,
-                    this),
-                cancellationToken).ConfigureAwait(false);
-            if (!acquired.Acquired || acquired.Lease is null)
-                throw new InvalidOperationException(
-                    $"thread_execution_busy:{acquired.ActiveThreadExecutionId}");
-            try
-            {
-                var result = await RunCapturedInputCoreAsync(input, registration, cancellationToken)
-                    .ConfigureAwait(false);
-                await controller.ReleaseAsync(
-                    acquired.Lease,
-                    new ThreadExecutionTerminalResult(ThreadExecutionOutcome.Succeeded),
-                    CancellationToken.None).ConfigureAwait(false);
-                return result;
-            }
-            catch (Exception exception)
-            {
-                await controller.ReleaseAsync(
-                    acquired.Lease,
-                    new ThreadExecutionTerminalResult(
-                        exception is OperationCanceledException
-                            ? ThreadExecutionOutcome.Cancelled
-                            : ThreadExecutionOutcome.Failed,
-                        exception.GetType().Name,
-                        exception.Message),
-                    CancellationToken.None).ConfigureAwait(false);
-                throw;
-            }
         }
 
         return await RunCapturedInputCoreAsync(input, registration, cancellationToken).ConfigureAwait(false);
@@ -2168,7 +2199,6 @@ public sealed partial class Agent : IAsyncDisposable
 
             lock (_runtimeLock)
             {
-                _runtimeNotificationDispatcher?.UpdateRunConfig(input.RunConfig);
                 runtimeTransitioning = _runtimeStarting || _runtimeStopping;
                 runtimeWriter = !_runtimeStopping &&
                     _runtimeInbox != null &&
@@ -2192,7 +2222,9 @@ public sealed partial class Agent : IAsyncDisposable
                 throw new InvalidOperationException("Agent runtime is starting or stopping and cannot accept user input.");
         }
 
-        return await RunInputDirectAsync(input, registration, cancellationToken).ConfigureAwait(false);
+        return await ExecuteCoordinatedInputAsync(
+                input, registration, GetActiveEventCoordinator(), null, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <summary>Admits one captured work item to the running runtime.</summary>
@@ -2205,6 +2237,8 @@ public sealed partial class Agent : IAsyncDisposable
         var registration = _inputDispatcher.GetRegistration(input.GetType());
         if (registration.RoutingClass != AgentInputRoutingClass.Work)
             throw new ArgumentException("Only work inputs can be enqueued as runtime work.", nameof(input));
+        if (string.IsNullOrWhiteSpace(input.ThreadExecutionId))
+            input = input with { ThreadExecutionId = Guid.NewGuid().ToString("N") };
 
         ChannelWriter<AgentInputEvent>? runtimeWriter;
         var completion = new TaskCompletionSource<AgentRuntimeInputOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -2693,52 +2727,76 @@ public sealed partial class Agent : IAsyncDisposable
             // MIDDLEWARE: BeforeMessageTurnAsync (turn-level hook)
             // Pass shared message list - middleware mutations are visible to all immediately
             var beforeTurnContext = agentContext.AsBeforeMessageTurn(
-                userMessage: newInputMessages.FirstOrDefault(),
+                inputMessages: newInputMessages,
                 conversationHistory: sharedMessages,  // SAME shared list, no copy
                 runConfig: effectiveRunConfig);
+
+            var originalUserInputs = newInputMessages
+                .Where(static message => message.GetSource() == AgentMessageSource.UserInput)
+                .ToArray();
+            var originalRuntimeInputs = newInputMessages
+                .Where(static message => message.GetSource() != AgentMessageSource.UserInput)
+                .ToArray();
 
             await turnPipeline.ExecuteBeforeMessageTurnAsync(beforeTurnContext, effectiveCancellationToken);
 
             // V2: State updates are immediate - no GetPendingState() needed!
             state = agentContext.State;
 
-            // UPDATE TURN HISTORY: If middleware transformed the user message (e.g., DataContent → UriContent),
-            // replace it in turnHistory so the transformed version gets persisted to session
-            if (beforeTurnContext.UserMessage != null && newInputMessages.Count > 0)
+            if (beforeTurnContext.UserInputMessages.Count != originalUserInputs.Length ||
+                beforeTurnContext.RuntimeContextMessages.Count != originalRuntimeInputs.Length)
             {
-                var originalMessage = newInputMessages[0];
-                if (!ReferenceEquals(originalMessage, beforeTurnContext.UserMessage))
+                throw new InvalidOperationException(
+                    "Before-message-turn middleware may replace current input messages but cannot add or remove them.");
+            }
+
+            foreach (var runtimeMessage in beforeTurnContext.RuntimeContextMessages)
+            {
+                if (runtimeMessage.GetSource() == AgentMessageSource.BackgroundNotification &&
+                    (runtimeMessage.Role != ChatRole.System ||
+                     runtimeMessage.GetVisibility() != AgentMessageVisibility.Hidden ||
+                     runtimeMessage.GetPersistence() != AgentMessagePersistence.ModelContextOnly))
                 {
-                    // Middleware transformed the message - update every turn-owned message list.
-                    // turnHistory controls persistence; shared/effective messages control the LLM request.
-                    for (int i = 0; i < turnHistory.Count; i++)
-                    {
-                        if (ReferenceEquals(turnHistory[i], originalMessage))
-                        {
-                            turnHistory[i] = beforeTurnContext.UserMessage;
-                            break;
-                        }
-                    }
+                    throw new InvalidOperationException(
+                        "Background notification middleware must preserve system role, hidden visibility, and model-context-only persistence.");
+                }
+            }
 
-                    for (int i = 0; i < sharedMessages.Count; i++)
-                    {
-                        if (ReferenceEquals(sharedMessages[i], originalMessage))
-                        {
-                            sharedMessages[i] = beforeTurnContext.UserMessage;
-                            break;
-                        }
-                    }
+            var inputReplacements = originalUserInputs
+                .Zip(beforeTurnContext.UserInputMessages)
+                .Concat(originalRuntimeInputs.Zip(beforeTurnContext.RuntimeContextMessages));
+            foreach (var (originalMessage, replacementMessage) in inputReplacements)
+            {
+                if (ReferenceEquals(originalMessage, replacementMessage))
+                    continue;
 
-                    if (effectiveMessages is List<ChatMessage> effectiveList &&
-                        !ReferenceEquals(effectiveList, sharedMessages))
+                for (var i = 0; i < turnHistory.Count; i++)
+                {
+                    if (ReferenceEquals(turnHistory[i], originalMessage))
                     {
-                        for (int i = 0; i < effectiveList.Count; i++)
+                        turnHistory[i] = replacementMessage;
+                        break;
+                    }
+                }
+
+                for (var i = 0; i < sharedMessages.Count; i++)
+                {
+                    if (ReferenceEquals(sharedMessages[i], originalMessage))
+                    {
+                        sharedMessages[i] = replacementMessage;
+                        break;
+                    }
+                }
+
+                if (effectiveMessages is List<ChatMessage> effectiveList &&
+                    !ReferenceEquals(effectiveList, sharedMessages))
+                {
+                    for (var i = 0; i < effectiveList.Count; i++)
+                    {
+                        if (ReferenceEquals(effectiveList[i], originalMessage))
                         {
-                            if (ReferenceEquals(effectiveList[i], originalMessage))
-                            {
-                                effectiveList[i] = beforeTurnContext.UserMessage;
-                                break;
-                            }
+                            effectiveList[i] = replacementMessage;
+                            break;
                         }
                     }
                 }
@@ -4172,7 +4230,10 @@ public sealed partial class Agent : IAsyncDisposable
                 completedTurnContext = agentContext.AsAfterMessageTurn(
                     finalResponse: lastResponse,
                     turnHistory: turnHistory,
-                    runConfig: effectiveRunConfig);
+                    runConfig: effectiveRunConfig,
+                    triggerSource: beforeTurnContext.TriggerSource,
+                    userInputMessages: beforeTurnContext.UserInputMessages.ToArray(),
+                    runtimeContextMessages: beforeTurnContext.RuntimeContextMessages.ToArray());
                 // Async-iterator yields restore the caller's ExecutionContext between MoveNext calls.
                 // Re-establish the turn collector for the complete finalizer unwind so provider work
                 // dispatched by AfterMessageTurnAsync is owned by this closing message turn.

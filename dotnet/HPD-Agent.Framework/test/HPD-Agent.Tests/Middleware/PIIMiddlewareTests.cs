@@ -608,7 +608,7 @@ public class PIIMiddlewareTests
         // PIIMiddleware uses BeforeMessageTurnAsync, so create the appropriate context
         var userMessage = new ChatMessage(ChatRole.User, "test");
         return agentContext.AsBeforeMessageTurn(
-            userMessage,
+            [userMessage],
             new List<ChatMessage>(messages),
             new AgentRunConfig());
     }

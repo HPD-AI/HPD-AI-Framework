@@ -84,7 +84,6 @@ internal sealed class AgentInputHandlingContext
     public ActiveRuntimeInput? ActiveInput { get; init; }
     public required Func<UserMessagesInputEvent, ActiveRuntimeInput?, IEventCoordinator, CancellationToken, Task<AgentTurnResult>> RunMessagesAsync { get; init; }
     public required Func<ClientToolOperationOutcomeEvent, bool> TryResolveClientToolOperation { get; init; }
-    public Func<AgentOperationNotificationInputEvent, IEventCoordinator, CancellationToken, ValueTask>? PublishAgentOperationNotificationDelivered { get; init; }
 }
 
 internal sealed class AgentInputDispatcher
@@ -295,21 +294,10 @@ internal sealed class AgentOperationNotificationInputHandler : IAgentInputHandle
         AgentInputHandlingContext context,
         CancellationToken cancellationToken)
     {
-        var userInput = AgentOperationNotificationDispatcher.ToUserMessagesInput(input) with
-        {
-            AgentId = input.AgentId,
-            SessionId = input.SessionId,
-            ThreadId = input.ThreadId,
-            ThreadExecutionId = input.ThreadExecutionId,
-            RunConfig = input.RunConfig
-        };
+        var userInput = AgentOperationNotificationDispatcher.ToNotificationTurnInput(input);
 
         var result = await context.RunMessagesAsync(userInput, context.ActiveInput, context.EventCoordinator, cancellationToken)
             .ConfigureAwait(false);
-        if (context.PublishAgentOperationNotificationDelivered is { } publishDelivered)
-        {
-            await publishDelivered(input, context.EventCoordinator, cancellationToken).ConfigureAwait(false);
-        }
         return Completed(input, result);
     }
 }

@@ -1342,7 +1342,7 @@ public class ContainerMiddlewareTests
 
     private static BeforeMessageTurnContext CreateBeforeMessageTurnContext(ToolHarnessExecutionScope scope) =>
         CreateAgentContext(scope: scope).AsBeforeMessageTurn(
-            new ChatMessage(ChatRole.User, "test"), [], new AgentRunConfig());
+            [new ChatMessage(ChatRole.User, "test")], [], new AgentRunConfig());
 
     private static BeforeParallelBatchContext CreateBeforeParallelBatchContext(
         ToolHarnessExecutionScope scope,

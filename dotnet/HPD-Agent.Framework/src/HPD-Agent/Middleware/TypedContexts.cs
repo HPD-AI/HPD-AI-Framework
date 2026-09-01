@@ -9,49 +9,86 @@ namespace HPD.Agent.Middleware;
 // TURN LEVEL CONTEXTS
 //
 
-/// <summary>
-/// Context for BeforeMessageTurn hook.
-/// Available properties: UserMessage, ThreadHistory, RunConfig
-/// </summary>
+/// <summary>Identifies the semantic source that initiated a message turn.</summary>
+public enum AgentTurnTriggerSource
+{
+    /// <summary>User-authored conversational input initiated the turn.</summary>
+    UserInput = 0,
+    /// <summary>A queued unified operation notification initiated the turn.</summary>
+    BackgroundNotification,
+    /// <summary>Accepted steering initiated a continuation within the active turn.</summary>
+    SteeringContinuation,
+    /// <summary>Framework runtime context initiated the turn.</summary>
+    RuntimeContext,
+    /// <summary>The existing thread resumed without new input messages.</summary>
+    Resume
+}
+
+/// <summary>Context for the before-message-turn hook.</summary>
 public sealed class BeforeMessageTurnContext : HookContext
 {
-    /// <summary>
-    /// The new user message that initiated this turn.
-    /// </summary>
-    /// <remarks>
-    /// This can be <see langword="null"/> in continuation scenarios, such as resuming from a checkpoint
-    /// without new user input. Middleware may replace this value when transforming the current input
-    /// message, for example when converting uploaded content into provider-specific references. Replacing
-    /// this value updates the turn-owned message lists used for model input and persistence.
-    /// </remarks>
-    public ChatMessage? UserMessage { get; set; }
+    private readonly List<ChatMessage> _runtimeContextMessages;
 
-    /// <summary>
-    /// The active thread's model-visible message history for this turn.
-    /// </summary>
-    /// <remarks>
-    /// This is a shared mutable list. Middleware can add, insert, remove, or reorder messages to shape
-    /// what the model sees for the turn. Changes are visible to subsequent middleware and to the agent
-    /// loop immediately. Use this for context injection, compaction, planning state, and other thread
-    /// history transformations. Use <see cref="UserMessage"/> when transforming only the current input.
-    /// </remarks>
+    /// <summary>Gets the semantic source that initiated this turn.</summary>
+    public AgentTurnTriggerSource TriggerSource { get; }
+
+    /// <summary>Gets the owned mutable user-input messages for this turn.</summary>
+    public IList<ChatMessage> UserInputMessages { get; }
+
+    /// <summary>Gets the runtime-context messages for this turn.</summary>
+    public IReadOnlyList<ChatMessage> RuntimeContextMessages => _runtimeContextMessages;
+
+    /// <summary>Gets the active thread's model-visible message history for this turn.</summary>
     public List<ChatMessage> ThreadHistory { get; }
 
-    /// <summary>
-    /// Agent run options for this turn.
-    ///   Always available (never NULL)
-    /// Contains configuration like ClientToolInput, MaxIterations, etc.
-    /// </summary>
+    /// <summary>Gets the agent run options for this turn.</summary>
     public AgentRunConfig RunConfig { get; }
+
+    /// <summary>Replaces runtime-context content while preserving authoritative notification policy.</summary>
+    /// <param name="index">Zero-based runtime-context message index.</param>
+    /// <param name="replacement">Policy-preserving replacement message.</param>
+    public void ReplaceRuntimeContextMessage(int index, ChatMessage replacement)
+    {
+        ArgumentNullException.ThrowIfNull(replacement);
+        var current = _runtimeContextMessages[index];
+        if (replacement.Role != ChatRole.System ||
+            replacement.GetSource() != AgentMessageSource.BackgroundNotification ||
+            replacement.GetVisibility() != AgentMessageVisibility.Hidden ||
+            replacement.GetPersistence() != AgentMessagePersistence.ModelContextOnly)
+        {
+            throw new InvalidOperationException(
+                "Runtime notification replacements must remain hidden, system-role, model-context-only background notifications.");
+        }
+
+        if (!string.Equals(current.MessageId, replacement.MessageId, StringComparison.Ordinal))
+            throw new InvalidOperationException("Runtime notification replacement must preserve message identity.");
+
+        _runtimeContextMessages[index] = replacement;
+    }
 
     internal BeforeMessageTurnContext(
         AgentContext baseContext,
-        ChatMessage? userMessage,
+        IReadOnlyList<ChatMessage> inputMessages,
         List<ChatMessage> conversationHistory,
         AgentRunConfig runConfig)
         : base(baseContext)
     {
-        UserMessage = userMessage; // Can be null in continuation scenarios
+        ArgumentNullException.ThrowIfNull(inputMessages);
+        var users = inputMessages
+            .Where(static message => message.GetSource() == AgentMessageSource.UserInput)
+            .ToList();
+        _runtimeContextMessages = inputMessages
+            .Where(static message => message.GetSource() != AgentMessageSource.UserInput)
+            .ToList();
+        UserInputMessages = users;
+        TriggerSource = inputMessages.Count == 0
+            ? AgentTurnTriggerSource.Resume
+            : _runtimeContextMessages.Any(static message =>
+                message.GetSource() == AgentMessageSource.BackgroundNotification)
+                ? AgentTurnTriggerSource.BackgroundNotification
+                : users.Count > 0
+                    ? AgentTurnTriggerSource.UserInput
+                    : AgentTurnTriggerSource.RuntimeContext;
         ThreadHistory = conversationHistory ?? throw new ArgumentNullException(nameof(conversationHistory));
         RunConfig = runConfig ?? throw new ArgumentNullException(nameof(runConfig));
     }
@@ -63,6 +100,15 @@ public sealed class BeforeMessageTurnContext : HookContext
 /// </summary>
 public sealed class AfterMessageTurnContext : HookContext
 {
+    /// <summary>Gets the semantic source that initiated this completed turn.</summary>
+    public AgentTurnTriggerSource TriggerSource { get; }
+
+    /// <summary>Gets the user-authored input messages for this turn.</summary>
+    public IReadOnlyList<ChatMessage> UserInputMessages { get; }
+
+    /// <summary>Gets the non-user runtime-context messages for this turn.</summary>
+    public IReadOnlyList<ChatMessage> RuntimeContextMessages { get; }
+
     /// <summary>
     /// Final assistant response for this turn.
     ///   Always available (never NULL)
@@ -103,12 +149,18 @@ public sealed class AfterMessageTurnContext : HookContext
         AgentContext baseContext,
         ChatResponse finalResponse,
         List<ChatMessage> turnHistory,
-        AgentRunConfig runConfig)
+        AgentRunConfig runConfig,
+        AgentTurnTriggerSource triggerSource = AgentTurnTriggerSource.UserInput,
+        IReadOnlyList<ChatMessage>? userInputMessages = null,
+        IReadOnlyList<ChatMessage>? runtimeContextMessages = null)
         : base(baseContext)
     {
         FinalResponse = finalResponse ?? throw new ArgumentNullException(nameof(finalResponse));
         TurnHistory = turnHistory ?? throw new ArgumentNullException(nameof(turnHistory));
         RunConfig = runConfig ?? throw new ArgumentNullException(nameof(runConfig));
+        TriggerSource = triggerSource;
+        UserInputMessages = userInputMessages ?? [];
+        RuntimeContextMessages = runtimeContextMessages ?? [];
     }
 }
 

@@ -111,12 +111,12 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
 
         var options = EffectiveOptions(context.RunConfig);
 
-        if (!options.Enabled || context.UserMessage is null)
+        if (!options.Enabled || context.UserInputMessages.FirstOrDefault() is not { } userMessage)
         {
             return;
         }
 
-        var detections = _detector.Detect(context.UserMessage);
+        var detections = _detector.Detect(userMessage);
         if (detections.Count == 0)
         {
             return;
@@ -124,7 +124,8 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
 
         if (IsRealtimeTransport(context))
         {
-            context.UserMessage = RealtimeInputAudioPreparer.PrepareMessage(context.UserMessage);
+            userMessage = RealtimeInputAudioPreparer.PrepareMessage(userMessage);
+            context.UserInputMessages[0] = userMessage;
         }
 
         var sourceResolver = new AgentInputContentSourceResolver(
@@ -165,7 +166,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
                 var result = await _runner.RunAsync(new AudioInteractionRuntimeRequest
                 {
                     SessionId = sessionId,
-                    Inputs = context.UserMessage.Contents.ToArray(),
+                    Inputs = userMessage.Contents.ToArray(),
                     InputContentRefs = detections
                         .Select(detection => detection.InputContent)
                         .ToArray(),
@@ -227,8 +228,8 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
                 options.ProjectCommittedTranscriptsIntoUserMessage &&
                 detections.Any(detection => detection.InputContent.Kind is InputContentKind.Audio);
 
-            context.UserMessage = AnnotateMessage(
-                context.UserMessage,
+            context.UserInputMessages[0] = AnnotateMessage(
+                userMessage,
                 detections,
                 results,
                 options.AnnotateAudioInputMetadata,

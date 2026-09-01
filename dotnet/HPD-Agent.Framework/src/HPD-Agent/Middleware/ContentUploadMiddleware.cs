@@ -55,7 +55,7 @@ public class ContentUploadMiddleware : IAgentMiddleware
         if (session == null)
             return;
 
-        var message = context.UserMessage;
+        var message = context.UserInputMessages.FirstOrDefault();
         if (message == null)
             return;
 
@@ -106,7 +106,7 @@ public class ContentUploadMiddleware : IAgentMiddleware
             RawRepresentation = message.RawRepresentation
         };
 
-        context.UserMessage = updatedMessage;
+        context.UserInputMessages[0] = updatedMessage;
     }
 
     private async Task<AIContent> RouteUploadAsync(

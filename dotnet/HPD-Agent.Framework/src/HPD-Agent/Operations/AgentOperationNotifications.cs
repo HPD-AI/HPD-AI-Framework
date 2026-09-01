@@ -15,6 +15,8 @@ public sealed record AgentOperationNotification
     public required string ProviderStatus { get; init; }
     /// <summary>Gets a bounded completion or failure summary.</summary>
     public string? Summary { get; init; }
+    /// <summary>Gets the execution that produced the source operation transition.</summary>
+    public string? SourceThreadExecutionId { get; init; }
 }
 
 /// <summary>Requests semantic delivery of accepted operation notifications.</summary>
@@ -67,25 +69,29 @@ internal sealed class AgentOperationNotificationDispatcher : IDisposable
 {
     private readonly IAgentEventPublisher? _threadEvents;
     private readonly HPD.Events.IEventCoordinator _events;
-    private readonly System.Threading.Channels.ChannelWriter<AgentInputEvent> _input;
+    private readonly Func<AgentOperationNotificationInputEvent, PreparedAgentWorkAdmission> _prepareInput;
     private readonly IDisposable _subscription;
     private readonly object _lock = new();
     private readonly Dictionary<string, DateTimeOffset> _lastDelivery = new(StringComparer.Ordinal);
     private readonly HashSet<string> _terminalDeliveries = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, TaskCompletionSource<bool>> _pendingReservations = new(StringComparer.Ordinal);
+    private TaskCompletionSource _admissionsDrained = CompletedDrain();
     private AgentRunConfig? _runConfig;
+    private int _inflightAdmissions;
+    private bool _stopping;
     private int _disposed;
 
     internal AgentOperationNotificationDispatcher(
         HPD.Events.IEventCoordinator events,
         IAgentEventPublisher? threadEvents,
-        System.Threading.Channels.ChannelWriter<AgentInputEvent> input,
+        Func<AgentOperationNotificationInputEvent, PreparedAgentWorkAdmission> prepareInput,
         AgentRunConfig? runConfig)
     {
         _events = events ?? throw new ArgumentNullException(nameof(events));
         _threadEvents = threadEvents;
-        _input = input ?? throw new ArgumentNullException(nameof(input));
+        _prepareInput = prepareInput ?? throw new ArgumentNullException(nameof(prepareInput));
         _runConfig = runConfig;
-        _subscription = events.Subscribe<AgentOperationTransitionedEvent>(HandleAsync);
+        _subscription = events.Subscribe<AgentOperationTransitionedEvent>(DispatchAsync);
     }
 
     internal void UpdateRunConfig(AgentRunConfig? runConfig)
@@ -94,12 +100,36 @@ internal sealed class AgentOperationNotificationDispatcher : IDisposable
             lock (_lock) _runConfig = runConfig;
     }
 
+    private async ValueTask DispatchAsync(AgentOperationTransitionedEvent evt)
+    {
+        lock (_lock)
+        {
+            if (_stopping) return;
+            if (_inflightAdmissions++ == 0)
+                _admissionsDrained = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+
+        try
+        {
+            await HandleAsync(evt).ConfigureAwait(false);
+        }
+        finally
+        {
+            lock (_lock)
+            {
+                if (--_inflightAdmissions == 0)
+                    _admissionsDrained.TrySetResult();
+            }
+        }
+    }
+
     private async ValueTask HandleAsync(AgentOperationTransitionedEvent evt)
     {
         var operation = evt.Operation;
         var terminal = operation.ProviderStatus is AgentOperationProviderStatus.Completed or
             AgentOperationProviderStatus.Failed or AgentOperationProviderStatus.Cancelled;
-        var reason = Evaluate(operation, terminal);
+        var decision = await EvaluateAsync(operation, terminal).ConfigureAwait(false);
+        var reason = decision.SuppressionReason;
         if (reason is not null)
         {
             await PublishAsync(new AgentOperationNotificationSuppressedEvent
@@ -120,43 +150,90 @@ internal sealed class AgentOperationNotificationDispatcher : IDisposable
             OperationId = operation.OperationId,
             Name = operation.Name,
             ProviderStatus = operation.ProviderStatus.ToString().ToLowerInvariant(),
-            Summary = Bound(operation.Completion?.Summary ?? operation.Failure?.Message)
+            Summary = Bound(operation.Completion?.Summary ?? operation.Failure?.Message),
+            SourceThreadExecutionId = evt.ThreadExecutionId
         };
-        await PublishAsync(new AgentOperationNotificationQueuedEvent
-        {
-            Notification = notification,
-            QueuedAt = DateTimeOffset.UtcNow,
-            SessionId = evt.SessionId,
-            ThreadId = evt.ThreadId,
-            ThreadExecutionId = evt.ThreadExecutionId
-        }).ConfigureAwait(false);
         AgentRunConfig? runConfig;
         lock (_lock) runConfig = _runConfig;
-        await _input.WriteAsync(new AgentOperationNotificationInputEvent([notification])
+        try
         {
-            AgentId = operation.Address.AgentId,
-            SessionId = evt.SessionId,
-            ThreadId = evt.ThreadId,
-            ThreadExecutionId = evt.ThreadExecutionId,
-            RunConfig = runConfig
-        }).ConfigureAwait(false);
+            using var prepared = _prepareInput(new AgentOperationNotificationInputEvent([notification])
+            {
+                AgentId = operation.Address.AgentId,
+                SessionId = evt.SessionId,
+                ThreadId = evt.ThreadId,
+                RunConfig = runConfig
+            });
+            await PublishAsync(new AgentOperationNotificationQueuedEvent
+            {
+                Notification = notification,
+                QueuedAt = DateTimeOffset.UtcNow,
+                SessionId = evt.SessionId,
+                ThreadId = evt.ThreadId,
+                ThreadExecutionId = prepared.Input.ThreadExecutionId
+            }).ConfigureAwait(false);
+            prepared.CommitVisible();
+            Commit(decision);
+        }
+        catch
+        {
+            Rollback(decision);
+            throw;
+        }
     }
 
-    private string? Evaluate(AgentOperationSnapshot operation, bool terminal)
+    private async ValueTask<DeliveryDecision> EvaluateAsync(AgentOperationSnapshot operation, bool terminal)
     {
-        var now = DateTimeOffset.UtcNow;
         var policyKey = string.IsNullOrWhiteSpace(operation.Notification.DeduplicationKey)
             ? operation.OperationId
             : operation.Notification.DeduplicationKey;
+        while (true)
+        {
+            Task<bool>? pending = null;
+            lock (_lock)
+            {
+                var now = DateTimeOffset.UtcNow;
+                if (terminal && !operation.Notification.IncludeTerminal) return DeliveryDecision.Suppressed("terminal-disabled");
+                if (!terminal && !operation.Notification.IncludeProgress) return DeliveryDecision.Suppressed("progress-disabled");
+                if (terminal && _terminalDeliveries.Contains(policyKey)) return DeliveryDecision.Suppressed("terminal-duplicate");
+                if (!terminal && _lastDelivery.TryGetValue(policyKey, out var last) &&
+                    now - last < operation.Notification.MinimumInterval) return DeliveryDecision.Suppressed("minimum-interval");
+                if (_pendingReservations.TryGetValue(policyKey, out var existing))
+                {
+                    pending = existing.Task;
+                }
+                else
+                {
+                    var reservation = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    _pendingReservations.Add(policyKey, reservation);
+                    return new DeliveryDecision(null, policyKey, now, terminal, reservation);
+                }
+            }
+
+            await pending.ConfigureAwait(false);
+        }
+    }
+
+    private void Commit(DeliveryDecision decision)
+    {
+        if (decision.PolicyKey is null || decision.ReservedAt is null || decision.Reservation is null) return;
         lock (_lock)
         {
-            if (terminal && !operation.Notification.IncludeTerminal) return "terminal-disabled";
-            if (!terminal && !operation.Notification.IncludeProgress) return "progress-disabled";
-            if (terminal && !_terminalDeliveries.Add(policyKey)) return "terminal-duplicate";
-            if (!terminal && _lastDelivery.TryGetValue(policyKey, out var last) &&
-                now - last < operation.Notification.MinimumInterval) return "minimum-interval";
-            _lastDelivery[policyKey] = now;
-            return null;
+            _lastDelivery[decision.PolicyKey] = decision.ReservedAt.Value;
+            if (decision.Terminal)
+                _terminalDeliveries.Add(decision.PolicyKey);
+            _pendingReservations.Remove(decision.PolicyKey);
+            decision.Reservation.TrySetResult(true);
+        }
+    }
+
+    private void Rollback(DeliveryDecision decision)
+    {
+        if (decision.PolicyKey is null || decision.Reservation is null) return;
+        lock (_lock)
+        {
+            _pendingReservations.Remove(decision.PolicyKey);
+            decision.Reservation.TrySetResult(false);
         }
     }
 
@@ -168,23 +245,122 @@ internal sealed class AgentOperationNotificationDispatcher : IDisposable
             await _events.EmitAsync(evt).ConfigureAwait(false);
     }
 
-    internal static UserMessagesInputEvent ToUserMessagesInput(AgentOperationNotificationInputEvent input) => new()
+    internal static UserMessagesInputEvent ToNotificationTurnInput(AgentOperationNotificationInputEvent input) => new()
     {
-        Messages = [new ChatMessage(ChatRole.User, string.Join("\n", input.Notifications.Select(static notification =>
-            $"Operation {notification.OperationId} ({notification.Name}) is {notification.ProviderStatus}: {notification.Summary}")))]
+        Messages =
+        [
+            new ChatMessage(ChatRole.System, FormatNotifications(input.Notifications))
+                .WithPolicy(
+                    AgentMessageSource.BackgroundNotification,
+                    AgentMessageVisibility.Hidden,
+                    AgentMessagePersistence.ModelContextOnly)
+        ],
+        ClientInputId = input.ClientInputId,
+        AgentId = input.AgentId,
+        SessionId = input.SessionId,
+        ThreadId = input.ThreadId,
+        ThreadExecutionId = input.ThreadExecutionId,
+        RunConfig = input.RunConfig
     };
 
-    private static string? Bound(string? value) => value is null || value.Length <= 4096 ? value : value[..4096];
-    internal ValueTask CompleteAsync(CancellationToken cancellationToken)
+    internal static string FormatNotifications(IReadOnlyList<AgentOperationNotification> notifications)
     {
-        cancellationToken.ThrowIfCancellationRequested();
+        ArgumentNullException.ThrowIfNull(notifications);
+        if (notifications.Count is 0 or > 32)
+            throw new ArgumentOutOfRangeException(nameof(notifications), "Notification batches must contain between 1 and 32 items.");
+
+        var builder = new System.Text.StringBuilder("<agent-operation-notifications>");
+        foreach (var notification in notifications)
+        {
+            ValidateField(notification.NotificationId, 256, nameof(notification.NotificationId));
+            ValidateField(notification.OperationId, 256, nameof(notification.OperationId));
+            ValidateField(notification.Name, 512, nameof(notification.Name));
+            ValidateField(notification.ProviderStatus, 64, nameof(notification.ProviderStatus));
+            if (!string.Equals(notification.ProviderStatus, notification.ProviderStatus.ToLowerInvariant(), StringComparison.Ordinal))
+                throw new ArgumentException("Provider status must use lowercase canonical vocabulary.", nameof(notifications));
+
+            builder.Append("<notification id=\"")
+                .Append(EscapeXmlAttribute(notification.NotificationId))
+                .Append("\" operation-id=\"")
+                .Append(EscapeXmlAttribute(notification.OperationId))
+                .Append("\" name=\"")
+                .Append(EscapeXmlAttribute(notification.Name))
+                .Append("\" status=\"")
+                .Append(EscapeXmlAttribute(notification.ProviderStatus))
+                .Append("\">");
+            if (notification.Summary is not null)
+                builder.Append("<summary>").Append(EscapeXmlText(Bound(notification.Summary)!)).Append("</summary>");
+            builder.Append("</notification>");
+        }
+
+        builder.Append("</agent-operation-notifications>");
+        var formatted = builder.ToString();
+        if (System.Text.Encoding.UTF8.GetByteCount(formatted) > 64 * 1024)
+            throw new ArgumentOutOfRangeException(nameof(notifications), "Formatted notification batch exceeds 64 KiB.");
+        return formatted;
+    }
+
+    private static void ValidateField(string value, int maximumUtf8Bytes, string name)
+    {
+        if (string.IsNullOrWhiteSpace(value) || System.Text.Encoding.UTF8.GetByteCount(value) > maximumUtf8Bytes)
+            throw new ArgumentException($"{name} must be non-empty and at most {maximumUtf8Bytes} UTF-8 bytes.", name);
+    }
+
+    private static string EscapeXmlText(string value) => value
+        .Replace("&", "&amp;", StringComparison.Ordinal)
+        .Replace("<", "&lt;", StringComparison.Ordinal)
+        .Replace(">", "&gt;", StringComparison.Ordinal);
+
+    private static string EscapeXmlAttribute(string value) => EscapeXmlText(value)
+        .Replace("\"", "&quot;", StringComparison.Ordinal)
+        .Replace("'", "&apos;", StringComparison.Ordinal);
+
+    private static string? Bound(string? value)
+    {
+        if (value is null || System.Text.Encoding.UTF8.GetByteCount(value) <= 4096) return value;
+
+        var builder = new System.Text.StringBuilder();
+        var bytes = 0;
+        foreach (var rune in value.EnumerateRunes())
+        {
+            if (bytes + rune.Utf8SequenceLength > 4096) break;
+            builder.Append(rune);
+            bytes += rune.Utf8SequenceLength;
+        }
+        return builder.ToString();
+    }
+
+    private readonly record struct DeliveryDecision(
+        string? SuppressionReason,
+        string? PolicyKey,
+        DateTimeOffset? ReservedAt,
+        bool Terminal,
+        TaskCompletionSource<bool>? Reservation)
+    {
+        internal static DeliveryDecision Suppressed(string reason) => new(reason, null, null, false, null);
+    }
+    internal async ValueTask CompleteAsync(CancellationToken cancellationToken)
+    {
+        Task drained;
+        lock (_lock)
+        {
+            _stopping = true;
+            drained = _admissionsDrained.Task;
+        }
         Dispose();
-        return ValueTask.CompletedTask;
+        await drained.WaitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) == 0)
             _subscription.Dispose();
+    }
+
+    private static TaskCompletionSource CompletedDrain()
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        completion.SetResult();
+        return completion;
     }
 }

@@ -338,7 +338,13 @@ public sealed class AgentOperationTests
         var suppressed = 0;
         using var suppressionSubscription = events.Subscribe<AgentOperationNotificationSuppressedEvent>(
             _ => { Interlocked.Increment(ref suppressed); return ValueTask.CompletedTask; });
-        using var dispatcher = new AgentOperationNotificationDispatcher(events, null, input.Writer, null);
+        using var dispatcher = new AgentOperationNotificationDispatcher(
+            events,
+            null,
+            notification => new PreparedAgentWorkAdmission(
+                notification with { ThreadExecutionId = Guid.NewGuid().ToString("N") },
+                input.Writer),
+            null);
         var first = TerminalNotificationSnapshot("op-1", "same-policy-key");
         var second = TerminalNotificationSnapshot("op-2", "same-policy-key");
 
@@ -361,6 +367,99 @@ public sealed class AgentOperationTests
         Assert.False(input.Reader.TryRead(out _));
         await WaitUntilAsync(() => Volatile.Read(ref suppressed) == 1, TimeSpan.FromSeconds(2));
         Assert.Equal(1, suppressed);
+    }
+
+    [Fact]
+    public void NotificationConversionCreatesHiddenSystemRuntimeContextAndPreservesRouting()
+    {
+        var runConfig = new AgentRunConfig();
+        var source = new AgentOperationNotificationInputEvent(
+        [
+            new AgentOperationNotification
+            {
+                NotificationId = "notification-1",
+                OperationId = "operation-1",
+                Name = "build<&\"",
+                ProviderStatus = "completed",
+                Summary = "done < safely",
+                SourceThreadExecutionId = "source-execution"
+            }
+        ])
+        {
+            ClientInputId = "client-input",
+            AgentId = "agent",
+            SessionId = "session",
+            ThreadId = "thread",
+            ThreadExecutionId = "notification-execution",
+            RunConfig = runConfig
+        };
+
+        var converted = AgentOperationNotificationDispatcher.ToNotificationTurnInput(source);
+        var message = Assert.Single(converted.Messages);
+
+        Assert.Equal(ChatRole.System, message.Role);
+        Assert.Equal(AgentMessageSource.BackgroundNotification, message.GetSource());
+        Assert.Equal(AgentMessageVisibility.Hidden, message.GetVisibility());
+        Assert.Equal(AgentMessagePersistence.ModelContextOnly, message.GetPersistence());
+        Assert.Contains("name=\"build&lt;&amp;&quot;\"", message.Text);
+        Assert.Contains("<summary>done &lt; safely</summary>", message.Text);
+        Assert.Equal(source.ClientInputId, converted.ClientInputId);
+        Assert.Equal(source.AgentId, converted.AgentId);
+        Assert.Equal(source.SessionId, converted.SessionId);
+        Assert.Equal(source.ThreadId, converted.ThreadId);
+        Assert.Equal(source.ThreadExecutionId, converted.ThreadExecutionId);
+        Assert.Same(runConfig, converted.RunConfig);
+    }
+
+    [Fact]
+    public void NotificationFormattingPreservesBatchOrder()
+    {
+        static AgentOperationNotification Notification(string id) => new()
+        {
+            NotificationId = $"notification-{id}",
+            OperationId = $"operation-{id}",
+            Name = $"name-{id}",
+            ProviderStatus = "running"
+        };
+
+        var formatted = AgentOperationNotificationDispatcher.FormatNotifications(
+            [Notification("first"), Notification("second")]);
+
+        Assert.True(formatted.IndexOf("operation-first", StringComparison.Ordinal) <
+                    formatted.IndexOf("operation-second", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task NotificationAdmissionSeparatesSourceAndNotificationExecutionIdentities()
+    {
+        using var events = new HPD.Events.Core.EventCoordinator();
+        var input = System.Threading.Channels.Channel.CreateUnbounded<AgentInputEvent>();
+        AgentOperationNotificationQueuedEvent? queued = null;
+        using var queuedSubscription = events.Subscribe<AgentOperationNotificationQueuedEvent>(
+            evt => { queued = evt; return ValueTask.CompletedTask; });
+        using var dispatcher = new AgentOperationNotificationDispatcher(
+            events,
+            null,
+            notification => new PreparedAgentWorkAdmission(
+                notification with { ThreadExecutionId = "notification-execution" },
+                input.Writer),
+            null);
+        var operation = TerminalNotificationSnapshot("operation", "policy");
+
+        await events.EmitAsync(new AgentOperationTransitionedEvent
+        {
+            OperationId = operation.OperationId,
+            PreviousVersion = 0,
+            Operation = operation,
+            ThreadExecutionId = "source-execution"
+        });
+
+        var admitted = Assert.IsType<AgentOperationNotificationInputEvent>(await input.Reader.ReadAsync());
+        Assert.Equal("notification-execution", admitted.ThreadExecutionId);
+        Assert.Equal("source-execution", Assert.Single(admitted.Notifications).SourceThreadExecutionId);
+        Assert.NotNull(queued);
+        Assert.Equal("notification-execution", queued!.ThreadExecutionId);
+        Assert.Equal("source-execution", queued.Notification.SourceThreadExecutionId);
     }
 
     [Theory]

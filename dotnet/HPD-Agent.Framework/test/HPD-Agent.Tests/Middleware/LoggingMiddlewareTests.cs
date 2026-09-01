@@ -777,7 +777,7 @@ public class LoggingMiddlewareTests
     {
         var agentContext = CreateAgentContext();
         return agentContext.AsBeforeMessageTurn(
-            userMessage: new ChatMessage(ChatRole.User, "Test message"),
+            inputMessages: [new ChatMessage(ChatRole.User, "Test message")],
             conversationHistory: new List<ChatMessage>(),
             runConfig: new AgentRunConfig());
     }
