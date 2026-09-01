@@ -1552,9 +1552,38 @@ public sealed partial class Agent : IAsyncDisposable
         if (registration.RoutingClass == AgentInputRoutingClass.Work &&
             input.WorkIdentityAuthority == AgentWorkIdentityAuthority.CoordinatorAssigned)
         {
-            return await RunInputDirectAsync(
-                    input, registration, eventCoordinator, activeInput, cancellationToken)
-                .ConfigureAwait(false);
+            var reservation = input.WorkIdentityReservation as CoordinatorWorkReservation
+                ?? throw new InvalidOperationException("Coordinator-assigned work lacks its promotion reservation.");
+            var finished = false;
+            try
+            {
+                await reservation.PromoteAsync(cancellationToken).ConfigureAwait(false);
+                var result = await RunInputDirectAsync(
+                        input, registration, eventCoordinator, activeInput, cancellationToken)
+                    .ConfigureAwait(false);
+                await reservation.FinishAsync(
+                    ThreadExecutionOutcome.Succeeded, null, CancellationToken.None).ConfigureAwait(false);
+                finished = true;
+                if (input is AgentOperationNotificationInputEvent notification)
+                {
+                    await PublishAgentOperationNotificationDeliveredAsync(
+                        notification, eventCoordinator, CancellationToken.None).ConfigureAwait(false);
+                }
+                return result;
+            }
+            catch (Exception exception)
+            {
+                if (!finished)
+                {
+                    await reservation.FinishAsync(
+                        exception is OperationCanceledException
+                            ? ThreadExecutionOutcome.Cancelled
+                            : ThreadExecutionOutcome.Failed,
+                        exception,
+                        CancellationToken.None).ConfigureAwait(false);
+                }
+                throw;
+            }
         }
 
         if (registration.RoutingClass != AgentInputRoutingClass.Work ||

@@ -86,48 +86,42 @@ public sealed class AgentStreamingService : IAgentStreamingService
                 $"Thread '{threadId}' in session '{sessionId}' already has an active execution.");
         }
 
-        input = ApplyRouteScope(input, agentId, sessionId, threadId, execution.ThreadExecutionId);
-        input = agent.AuthorizeCoordinatorAssignedWork(input, execution.Reservation);
         var publisher = new AgentEventPublisher(
             _sessionManager.Store,
             agent.EventCoordinator,
             _eventContentArchiver);
-        var startCommitted = false;
+        execution.Reservation.BindPromotion(
+            async ct =>
+            {
+                await publisher.CommitAndPublishAsync(
+                    new ThreadKey(sessionId, threadId),
+                    new ThreadExecutionStartedEvent(execution.ThreadExecutionId, agentId, DateTimeOffset.UtcNow)
+                    {
+                        SessionId = sessionId,
+                        ThreadId = threadId
+                    },
+                    ct).ConfigureAwait(false);
+                if (!_sessionManager.ActivateThreadExecution(sessionId, threadId, execution.ThreadExecutionId))
+                    throw new InvalidOperationException($"Thread execution '{execution.ThreadExecutionId}' lost its reserved ownership before promotion.");
+            },
+            async (outcome, error, ct) => await CommitTerminalAsync(
+                execution,
+                publisher,
+                outcome == ThreadExecutionOutcome.Cancelled,
+                outcome == ThreadExecutionOutcome.Failed ? error : null,
+                ct).ConfigureAwait(false));
+        input = ApplyRouteScope(input, agentId, sessionId, threadId, execution.ThreadExecutionId);
+        input = agent.AuthorizeCoordinatorAssignedWork(input, execution.Reservation);
 
         try
         {
             await agent.StartAsync(input.RunConfig, CancellationToken.None).ConfigureAwait(false);
-            await publisher.CommitAndPublishAsync(
-                new ThreadKey(sessionId, threadId),
-                new ThreadExecutionStartedEvent(execution.ThreadExecutionId, agentId, execution.StartedAt)
-                {
-                    SessionId = sessionId,
-                    ThreadId = threadId
-                },
-                cancellationToken).ConfigureAwait(false);
-            startCommitted = true;
-
-            if (!_sessionManager.ActivateThreadExecution(sessionId, threadId, execution.ThreadExecutionId))
-                throw new InvalidOperationException($"Thread execution '{execution.ThreadExecutionId}' lost its reserved ownership before activation.");
-
             var submission = await agent.SubmitRuntimeInputAsync(input, CancellationToken.None).ConfigureAwait(false);
-            _ = FinishExecutionAsync(execution, submission, publisher, runtimePin);
+            _ = ObserveExecutionAsync(execution, submission, runtimePin);
         }
-        catch (Exception ex)
+        catch
         {
-            if (startCommitted)
-            {
-                await CommitTerminalAsync(
-                    execution,
-                    publisher,
-                    cancelled: ex is OperationCanceledException,
-                    error: ex,
-                    CancellationToken.None).ConfigureAwait(false);
-            }
-            else
-            {
-                _sessionManager.ReleaseThreadExecution(sessionId, threadId, execution.ThreadExecutionId);
-            }
+            _sessionManager.ReleaseThreadExecution(sessionId, threadId, execution.ThreadExecutionId);
             runtimePin.Dispose();
             throw;
         }
@@ -232,21 +226,14 @@ public sealed class AgentStreamingService : IAgentStreamingService
         }
     }
 
-    private async Task FinishExecutionAsync(
+    private async Task ObserveExecutionAsync(
         ThreadExecutionState execution,
         RuntimeInputReceipt submission,
-        IAgentEventPublisher publisher,
         IDisposable runtimePin)
     {
         try
         {
-            var outcome = await submission.Completion.ConfigureAwait(false);
-            await CommitTerminalAsync(
-                execution,
-                publisher,
-                outcome.Cancelled,
-                outcome.Error,
-                CancellationToken.None).ConfigureAwait(false);
+            _ = await submission.Completion.ConfigureAwait(false);
             runtimePin.Dispose();
             submission.Dispose();
         }

@@ -215,6 +215,30 @@ internal sealed record CoordinatorWorkReservation(
     string ThreadId,
     string ThreadExecutionId)
 {
+    private Func<CancellationToken, ValueTask>? _promote;
+    private Func<ThreadExecutionOutcome, Exception?, CancellationToken, ValueTask>? _finish;
+
+    internal void BindPromotion(
+        Func<CancellationToken, ValueTask> promote,
+        Func<ThreadExecutionOutcome, Exception?, CancellationToken, ValueTask> finish)
+    {
+        ArgumentNullException.ThrowIfNull(promote);
+        ArgumentNullException.ThrowIfNull(finish);
+        if (Interlocked.CompareExchange(ref _promote, promote, null) is not null)
+            throw new InvalidOperationException("Coordinator work reservation is already bound.");
+        _finish = finish;
+    }
+
+    internal ValueTask PromoteAsync(CancellationToken cancellationToken) =>
+        (_promote ?? throw new InvalidOperationException("Coordinator work reservation is not bound."))(cancellationToken);
+
+    internal ValueTask FinishAsync(
+        ThreadExecutionOutcome outcome,
+        Exception? error,
+        CancellationToken cancellationToken) =>
+        (_finish ?? throw new InvalidOperationException("Coordinator work reservation is not bound."))(
+            outcome, error, cancellationToken);
+
     internal bool Matches(AgentInputEvent input) =>
         string.Equals(AgentId, input.AgentId, StringComparison.Ordinal) &&
         string.Equals(SessionId, input.SessionId, StringComparison.Ordinal) &&
