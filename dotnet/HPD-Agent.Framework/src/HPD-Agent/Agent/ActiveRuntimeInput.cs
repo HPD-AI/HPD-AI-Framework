@@ -98,7 +98,11 @@ internal sealed class AgentWorkScheduler
                 lock (_gate)
                 {
                     var admitted = _writer.TryWrite(input);
-                    System.Diagnostics.Debug.Assert(admitted, "A shutdown-pinned prepared admission must remain writable.");
+                    if (!admitted)
+                    {
+                        System.Environment.FailFast(
+                            "Agent work scheduler invariant violated: a shutdown-pinned prepared admission was not writable.");
+                    }
                     ReleasePreparation();
                 }
             },

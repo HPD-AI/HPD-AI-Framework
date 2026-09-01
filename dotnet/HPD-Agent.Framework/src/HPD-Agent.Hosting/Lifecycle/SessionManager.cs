@@ -102,13 +102,17 @@ public abstract class SessionManager : IDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
+        var executionId = Guid.NewGuid().ToString("N");
         var candidate = new ThreadExecutionState(
-            Guid.NewGuid().ToString("N"),
+            executionId,
             agentId,
             sessionId,
             threadId,
             DateTimeOffset.UtcNow,
-            ThreadExecutionOwnership.Reserved);
+            ThreadExecutionOwnership.Reserved)
+        {
+            Reservation = new CoordinatorWorkReservation(agentId, sessionId, threadId, executionId)
+        };
 
         var key = ThreadExecutionKey(sessionId, threadId);
         if (_threadExecutions.TryAdd(key, candidate))
@@ -357,7 +361,10 @@ public sealed record ThreadExecutionState(
     string SessionId,
     string ThreadId,
     DateTimeOffset StartedAt,
-    ThreadExecutionOwnership Ownership);
+    ThreadExecutionOwnership Ownership)
+{
+    internal CoordinatorWorkReservation Reservation { get; init; } = null!;
+}
 
 public enum ThreadExecutionOwnership
 {

@@ -71,7 +71,6 @@ public sealed partial class Agent : IAsyncDisposable
     private readonly object _structHandlerLock = new();
     private readonly List<RuntimeStructHandlerSubscription> _structHandlerSubscriptions = new();
     private readonly object _runtimeLock = new();
-    private readonly object _coordinatorWorkIdentityReservation = new();
     private Channel<AgentInputEvent>? _runtimeInbox;
     private AgentWorkScheduler? _runtimeWorkScheduler;
     private CancellationTokenSource? _runtimeCts;
@@ -1611,7 +1610,9 @@ public sealed partial class Agent : IAsyncDisposable
                         ? ThreadExecutionOutcome.Cancelled
                         : ThreadExecutionOutcome.Failed,
                     DateTimeOffset.UtcNow,
-                    new ThreadExecutionError(exception.GetType().Name, exception.Message))
+                    exception is OperationCanceledException
+                        ? null
+                        : new ThreadExecutionError(exception.GetType().Name, exception.Message))
                 {
                     SessionId = input.SessionId,
                     ThreadId = input.ThreadId,
@@ -2238,15 +2239,20 @@ public sealed partial class Agent : IAsyncDisposable
         return await RunCapturedInputCoreAsync(input, registration, cancellationToken).ConfigureAwait(false);
     }
 
-    internal AgentInputEvent AuthorizeCoordinatorAssignedWork(AgentInputEvent input)
+    internal AgentInputEvent AuthorizeCoordinatorAssignedWork(
+        AgentInputEvent input,
+        CoordinatorWorkReservation reservation)
     {
         ArgumentNullException.ThrowIfNull(input);
+        ArgumentNullException.ThrowIfNull(reservation);
         if (string.IsNullOrWhiteSpace(input.ThreadExecutionId))
             throw new ArgumentException("Coordinator-assigned work requires an execution ID.", nameof(input));
+        if (!reservation.Matches(input))
+            throw new InvalidOperationException("Coordinator work does not match its execution reservation.");
         return input with
         {
             WorkIdentityAuthority = AgentWorkIdentityAuthority.CoordinatorAssigned,
-            WorkIdentityReservation = _coordinatorWorkIdentityReservation,
+            WorkIdentityReservation = reservation,
             WorkIdentityValidated = false
         };
     }
@@ -2260,7 +2266,8 @@ public sealed partial class Agent : IAsyncDisposable
 
         if (input.WorkIdentityAuthority == AgentWorkIdentityAuthority.CoordinatorAssigned)
         {
-            if (!ReferenceEquals(input.WorkIdentityReservation, _coordinatorWorkIdentityReservation) ||
+            if (input.WorkIdentityReservation is not CoordinatorWorkReservation reservation ||
+                !reservation.Matches(input) ||
                 string.IsNullOrWhiteSpace(input.ThreadExecutionId))
             {
                 throw new InvalidOperationException("Coordinator-assigned work lacks a valid reservation proof.");

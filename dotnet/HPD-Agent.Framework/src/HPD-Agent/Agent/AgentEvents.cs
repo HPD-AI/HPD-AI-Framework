@@ -209,6 +209,19 @@ internal enum AgentWorkIdentityAuthority
     CoordinatorAssigned
 }
 
+internal sealed record CoordinatorWorkReservation(
+    string AgentId,
+    string SessionId,
+    string ThreadId,
+    string ThreadExecutionId)
+{
+    internal bool Matches(AgentInputEvent input) =>
+        string.Equals(AgentId, input.AgentId, StringComparison.Ordinal) &&
+        string.Equals(SessionId, input.SessionId, StringComparison.Ordinal) &&
+        string.Equals(ThreadId, input.ThreadId, StringComparison.Ordinal) &&
+        string.Equals(ThreadExecutionId, input.ThreadExecutionId, StringComparison.Ordinal);
+}
+
 /// <summary>
 /// Selects how one conversational input is delivered. This policy belongs only
 /// to <see cref="UserMessagesInputEvent"/>; fixed-routing semantic commands do

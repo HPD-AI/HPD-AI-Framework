@@ -507,6 +507,24 @@ public sealed class AgentOperationTests
             [Notification("valid", "made-up-status")]));
     }
 
+    [Fact]
+    public void CoordinatorReservationRejectsForgedExecutionIdentity()
+    {
+        var reservation = new CoordinatorWorkReservation("agent", "session", "thread", "execution");
+        var valid = new UserMessagesInputEvent
+        {
+            Messages = [new ChatMessage(ChatRole.User, "work")],
+            AgentId = "agent",
+            SessionId = "session",
+            ThreadId = "thread",
+            ThreadExecutionId = "execution"
+        };
+
+        Assert.True(reservation.Matches(valid));
+        Assert.False(reservation.Matches(valid with { ThreadExecutionId = "forged" }));
+        Assert.False(reservation.Matches(valid with { ThreadId = "other-thread" }));
+    }
+
     [Theory]
     [InlineData(AgentOperationProviderStatus.Completed)]
     [InlineData(AgentOperationProviderStatus.Failed)]
