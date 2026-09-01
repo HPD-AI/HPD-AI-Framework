@@ -35,7 +35,7 @@ internal sealed class OpenAICodexProvider :
     /// <summary>Creates the backend for the default observed experimental endpoint.</summary>
     public OpenAICodexProvider() : this(
         new Uri("https://chatgpt.com/backend-api/codex/responses"),
-        OpenAICodexModelPolicy.ObservedV1) { }
+        OpenAICodexModelPolicy.AccountDiscoveredV1) { }
 
     /// <summary>Creates the backend for one exact experimental Responses endpoint.</summary>
     /// <param name="responsesEndpoint">The authority- and path-pinned endpoint.</param>
@@ -44,7 +44,7 @@ internal sealed class OpenAICodexProvider :
         OpenAICodexModelPolicy? modelPolicy = null)
     {
         _responsesEndpoint = responsesEndpoint ?? throw new ArgumentNullException(nameof(responsesEndpoint));
-        _modelPolicy = modelPolicy ?? OpenAICodexModelPolicy.ObservedV1;
+        _modelPolicy = modelPolicy ?? OpenAICodexModelPolicy.AccountDiscoveredV1;
     }
 
     /// <inheritdoc />
@@ -137,7 +137,8 @@ internal sealed class OpenAICodexProvider :
             Transport = new System.ClientModel.Primitives.HttpClientPipelineTransport(httpClient)
         };
         var sdk = new OpenAIClient(new System.ClientModel.ApiKeyCredential("hpd-experimental-unused"), options);
-        var client = sdk.GetResponsesClient().AsIChatClient(model);
+        var responsesClient = sdk.GetResponsesClient().AsIChatClient(model);
+        var client = new OpenAICodexMessagePolicyChatClient(responsesClient);
         return ValueTask.FromResult(new ProviderClientConstruction<IChatClient>
         {
             Client = client,

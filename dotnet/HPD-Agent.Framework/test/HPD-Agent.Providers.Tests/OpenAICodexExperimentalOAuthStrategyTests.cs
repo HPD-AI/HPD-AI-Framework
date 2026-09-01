@@ -19,6 +19,19 @@ public sealed class OpenAICodexExperimentalOAuthStrategyTests
     }
 
     [Fact]
+    public void AccountDiscoveredPolicy_AcceptsExactDiscoveredModelIds()
+    {
+        var policy = OpenAICodexModelPolicy.AccountDiscoveredV1;
+
+        Assert.Equal("account-discovered-v1", policy.Version);
+        Assert.Empty(policy.SupportedModels);
+        Assert.True(policy.IsSupported("gpt-5.4"));
+        Assert.True(policy.IsSupported("gpt-5.6-sol"));
+        Assert.False(policy.IsSupported(null));
+        Assert.False(policy.IsSupported(" "));
+    }
+
+    [Fact]
     public async Task BrowserFlow_UsesObservedParametersAndCreatesAccountBoundSigner()
     {
         var handler = new RoutingHandler(async request =>
@@ -59,6 +72,11 @@ public sealed class OpenAICodexExperimentalOAuthStrategyTests
         Assert.Equal("access-one", request.Headers.Authorization.Parameter);
         Assert.Equal("account-one", Assert.Single(request.Headers.GetValues("ChatGPT-Account-Id")));
         Assert.Equal("hpd-agent", Assert.Single(request.Headers.GetValues("originator")));
+
+        using var models = new HttpRequestMessage(HttpMethod.Get,
+            "https://chatgpt.com/backend-api/codex/models?client_version=1.0.0");
+        await signed.Lease.Signer.SignAsync(models);
+        Assert.Equal("access-one", models.Headers.Authorization!.Parameter);
     }
 
     [Fact]

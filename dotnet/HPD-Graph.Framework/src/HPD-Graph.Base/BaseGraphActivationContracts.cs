@@ -266,6 +266,12 @@ public static class BaseGraphActivationRegistration
                 Version = definitionVersion,
                 OwningModuleId = "hpd.graph",
                 ExecutionClass = BaseActivationExecutionClass.AtLeastOnceWorker,
+                ReceiptRetention = new BaseActivationReceiptRetentionPolicy
+                {
+                    FormatVersion = 1,
+                    DuplicateResolutionLifetime = TimeSpan.FromHours(24),
+                    ProtectedBackupCoverage = BaseActivationProtectedBackupCoverage.NotRequired,
+                },
                 Grants = grants,
                 SourceGrantIds = sourceGrantIds,
                 Retry = new BaseActivationRetryProfile
@@ -380,8 +386,9 @@ internal sealed class BaseGraphActivationHandler(
             || input.CanonicalCheckpoint is not null && (input.CheckpointChecksum?.Length != 32
                 || !CryptographicOperations.FixedTimeEquals(
                     SHA256.HashData(input.CanonicalCheckpoint.Value.Utf8.Span), input.CheckpointChecksum.ToArray())))
-            return new BaseActivationHandlerResult<BaseGraphActivationResult>
-            { FailureCode = "hpd.graph.execution.contractInvalid", Retryable = false };
+            return new BaseActivationFailed<BaseGraphActivationResult>
+            {
+                FailureCode = "hpd.graph.execution.contractInvalid", Retryable = false };
 
         string executionId = context.OccurrenceId ?? input.ExecutionId;
         var runtimeGraph = new GraphConfigCompiler().Compile(graph);
@@ -418,8 +425,9 @@ internal sealed class BaseGraphActivationHandler(
         {
             GraphCheckpoint? checkpoint = checkpointStore.Latest;
             if (checkpoint is null)
-                return new BaseActivationHandlerResult<BaseGraphActivationResult>
-                { FailureCode = "hpd.graph.execution.checkpointMissing", Retryable = false };
+                return new BaseActivationFailed<BaseGraphActivationResult>
+            {
+                FailureCode = "hpd.graph.execution.checkpointMissing", Retryable = false };
             string canonicalCheckpoint = GraphCheckpointCodec.Serialize(checkpoint);
             byte[] checkpointBytes = Encoding.UTF8.GetBytes(canonicalCheckpoint);
             BaseMutationRequestFingerprint fingerprint = BaseMutationRequestFingerprint.Create(
@@ -459,14 +467,16 @@ internal sealed class BaseGraphActivationHandler(
                     options,
                     cancellationToken).ConfigureAwait(false);
             if (persisted is not BaseSuccess<BaseModuleMutationExecutionResult<BaseGraphCheckpointPersistResult>>)
-                return new BaseActivationHandlerResult<BaseGraphActivationResult>
-                { FailureCode = "hpd.graph.execution.checkpointCommitFailed", Retryable = true };
+                return new BaseActivationFailed<BaseGraphActivationResult>
+            {
+                FailureCode = "hpd.graph.execution.checkpointCommitFailed", Retryable = true };
             return Result(executionId, graphContext, BaseGraphActivationOutcome.Checkpointed);
         }
         catch
         {
-            return new BaseActivationHandlerResult<BaseGraphActivationResult>
-            { FailureCode = "hpd.graph.execution.failed", Retryable = false };
+            return new BaseActivationFailed<BaseGraphActivationResult>
+            {
+                FailureCode = "hpd.graph.execution.failed", Retryable = false };
         }
         return Result(executionId, graphContext, BaseGraphActivationOutcome.Succeeded);
     }
@@ -478,7 +488,7 @@ internal sealed class BaseGraphActivationHandler(
     {
         byte[] completed = SHA256.HashData(Encoding.UTF8.GetBytes(string.Join(
             '\n', graphContext.CompletedNodes.Order(StringComparer.Ordinal))));
-        return new BaseActivationHandlerResult<BaseGraphActivationResult>
+        return new BaseActivationSucceeded<BaseGraphActivationResult>
         {
             Result = new BaseGraphActivationResult
             {

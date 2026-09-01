@@ -293,7 +293,7 @@ public sealed class ConnectorAspNetCoreEndpointTests
         {
             Enqueue = "graph.enqueue", Observe = "graph.observe", Claim = "graph.claim",
             Execute = "graph.execute", Renew = "graph.renew", Complete = "graph.complete",
-            Fail = "graph.fail", Cancel = "graph.cancel", Inspect = "graph.inspect",
+            Fail = "graph.fail", Yield = "graph.yield", Cancel = "graph.cancel", Inspect = "graph.inspect",
             Replay = "graph.replay", Migrate = "graph.migrate", Reconcile = "graph.reconcile",
             Retry = "graph.retry", Dispose = "graph.dispose", Remove = "graph.remove", Repair = "graph.repair",
         },
@@ -301,9 +301,9 @@ public sealed class ConnectorAspNetCoreEndpointTests
         {
             MaximumInputBytes = 1_048_576,
             MaximumResultBytes = 65_536,
-            MaximumAttempts = 3,
-            MaximumRenewalsPerAttempt = 128,
-            MaximumChildrenPerAttempt = 128,
+            MaximumAttempts = 3, MaximumYields = 0,
+            MaximumRenewalsPerSlice = 128,
+            MaximumChildrenPerSlice = 128,
             MaximumLineageDepth = 32,
             LeaseDuration = TimeSpan.FromMinutes(1),
             HandlerTimeout = TimeSpan.FromMinutes(30),

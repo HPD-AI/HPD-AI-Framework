@@ -23,6 +23,9 @@ public sealed class OpenAICodexExperimentalOptions
     /// <summary>Gets or sets the exact Codex Responses endpoint authorized for bearer credentials.</summary>
     public Uri ResponsesEndpoint { get; set; } = new("https://chatgpt.com/backend-api/codex/responses");
 
+    /// <summary>Gets or sets the exact Codex model-discovery endpoint authorized for bearer credentials.</summary>
+    public Uri ModelsEndpoint { get; set; } = new("https://chatgpt.com/backend-api/codex/models");
+
     /// <summary>Gets or sets the identifying originator sent during authorization and inference.</summary>
     public string Originator { get; set; } = "hpd-agent";
 
@@ -281,7 +284,11 @@ public sealed class OpenAICodexExperimentalOAuthStrategy : IProviderAuthenticati
         cancellationToken.ThrowIfCancellationRequested();
         var accountId = current.ProviderState?.GetValueOrDefault("chatgpt_account_id");
         return ValueTask.FromResult<ProviderCredential>(new ProviderCredential.SignedRequest(
-            new SignerLease(new CodexSigner(current.Secrets.AccessToken.Value.Span, accountId, _options.ResponsesEndpoint, _options.Originator))));
+            new SignerLease(new CodexSigner(
+                current.Secrets.AccessToken.Value.Span,
+                accountId,
+                [_options.ResponsesEndpoint, _options.ModelsEndpoint],
+                _options.Originator))));
     }
 
     /// <inheritdoc />
@@ -560,6 +567,10 @@ public sealed class OpenAICodexExperimentalOAuthStrategy : IProviderAuthenticati
             !string.IsNullOrEmpty(options.ResponsesEndpoint.UserInfo) || !string.IsNullOrEmpty(options.ResponsesEndpoint.Query) ||
             !string.IsNullOrEmpty(options.ResponsesEndpoint.Fragment))
             throw new ArgumentException("The experimental Responses endpoint must be an exact HTTPS URI.", nameof(options));
+        if (!options.ModelsEndpoint.IsAbsoluteUri || options.ModelsEndpoint.Scheme != Uri.UriSchemeHttps ||
+            !string.IsNullOrEmpty(options.ModelsEndpoint.UserInfo) || !string.IsNullOrEmpty(options.ModelsEndpoint.Query) ||
+            !string.IsNullOrEmpty(options.ModelsEndpoint.Fragment))
+            throw new ArgumentException("The experimental models endpoint must be an exact HTTPS URI.", nameof(options));
         if (options.MaximumResponseBytes is < 1024 or > 4 * 1024 * 1024)
             throw new ArgumentOutOfRangeException(nameof(options), "The response limit must be between 1 KiB and 4 MiB.");
     }
@@ -617,7 +628,7 @@ public sealed class OpenAICodexExperimentalOAuthStrategy : IProviderAuthenticati
         [JsonPropertyName("expires_in")] public int? ExpiresIn { get; set; }
     }
 
-    private sealed class CodexSigner(ReadOnlySpan<char> token, string? accountId, Uri endpoint, string originator)
+    private sealed class CodexSigner(ReadOnlySpan<char> token, string? accountId, IReadOnlyList<Uri> endpoints, string originator)
         : IProviderRequestSigner, IAsyncDisposable
     {
         private char[]? _token = token.ToArray();
@@ -626,8 +637,10 @@ public sealed class OpenAICodexExperimentalOAuthStrategy : IProviderAuthenticati
             cancellationToken.ThrowIfCancellationRequested();
             var value = _token ?? throw new ObjectDisposedException(nameof(CodexSigner));
             var uri = request.RequestUri ?? throw new InvalidOperationException("A request URI is required before signing.");
-            if (uri.Scheme != Uri.UriSchemeHttps || !string.Equals(uri.IdnHost, endpoint.IdnHost, StringComparison.OrdinalIgnoreCase) ||
-                uri.Port != endpoint.Port || !string.Equals(uri.AbsolutePath, endpoint.AbsolutePath, StringComparison.Ordinal))
+            if (uri.Scheme != Uri.UriSchemeHttps || !endpoints.Any(endpoint =>
+                    string.Equals(uri.IdnHost, endpoint.IdnHost, StringComparison.OrdinalIgnoreCase)
+                    && uri.Port == endpoint.Port
+                    && string.Equals(uri.AbsolutePath, endpoint.AbsolutePath, StringComparison.Ordinal)))
                 throw new InvalidOperationException("The experimental Codex credential cannot be sent to this authority or path.");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", new string(value));
             if (!string.IsNullOrWhiteSpace(accountId)) request.Headers.TryAddWithoutValidation("ChatGPT-Account-Id", accountId);

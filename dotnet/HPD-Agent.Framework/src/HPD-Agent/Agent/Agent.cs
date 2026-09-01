@@ -2129,6 +2129,12 @@ public sealed partial class Agent : IAsyncDisposable
                 drainTimeout = beforeStop.DrainTimeout;
             }
         }
+        catch (OperationCanceledException)
+        {
+            // Stop has already been committed by StopAsync. Cancellation can skip the
+            // graceful phase, but it cannot abandon the runtime in a stopping state.
+            drainPendingInputs = false;
+        }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             stopError = ex;
@@ -2148,9 +2154,9 @@ public sealed partial class Agent : IAsyncDisposable
         {
             try
             {
-                await runtimeNotificationDispatcher.CompleteAsync(cancellationToken).ConfigureAwait(false);
+                await runtimeNotificationDispatcher.CompleteAsync(CancellationToken.None).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex)
             {
                 stopError ??= ex;
                 exceptions ??= new List<Exception>();
@@ -2159,7 +2165,18 @@ public sealed partial class Agent : IAsyncDisposable
         }
 
         if (runtimeWorkScheduler is not null)
-            await runtimeWorkScheduler.StopPreparing().WaitAsync(cancellationToken).ConfigureAwait(false);
+        {
+            try
+            {
+                await runtimeWorkScheduler.StopPreparing().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                stopError ??= ex;
+                exceptions ??= new List<Exception>();
+                exceptions.Add(ex);
+            }
+        }
 
         runtimeContext.CompleteInputWriter();
 
@@ -2188,9 +2205,16 @@ public sealed partial class Agent : IAsyncDisposable
 
                 try
                 {
-                    await runtimeTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+                    // The caller token bounds graceful drain. Once it expires we cancel
+                    // locally owned work and await convergence before disposing anything
+                    // that the runtime may still publish through.
+                    await runtimeTask.ConfigureAwait(false);
                 }
-                catch (Exception innerEx) when (innerEx is not OperationCanceledException)
+                catch (OperationCanceledException)
+                {
+                    // Expected when forced cancellation terminates the runtime loop.
+                }
+                catch (Exception innerEx)
                 {
                     stopError ??= innerEx;
                     exceptions ??= new List<Exception>();
@@ -2210,9 +2234,9 @@ public sealed partial class Agent : IAsyncDisposable
 
         try
         {
-            await runtimeContext.DisposeRegisteredResourcesAsync(cancellationToken).ConfigureAwait(false);
+            await runtimeContext.DisposeRegisteredResourcesAsync(CancellationToken.None).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex)
         {
             stopError ??= ex;
             exceptions ??= new List<Exception>();
@@ -2223,9 +2247,9 @@ public sealed partial class Agent : IAsyncDisposable
         {
             await _middlewarePipeline.ExecuteAfterStoppedAsync(
                 runtimeContext.AsAfterStopped(reason, stopError),
-                cancellationToken).ConfigureAwait(false);
+                CancellationToken.None).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex)
         {
             exceptions ??= new List<Exception>();
             exceptions.Add(ex);
