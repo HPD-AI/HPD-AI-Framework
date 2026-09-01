@@ -3028,7 +3028,7 @@ public sealed partial class Agent : IAsyncDisposable
 
                                     if (functionCall.Arguments != null && functionCall.Arguments.Count > 0)
                                     {
-                                        var argsJson = SerializeFunctionArgumentsForEvent(functionCall);
+                                        var argsJson = FunctionCallArgumentSerializer.Serialize(functionCall);
                                         yield return new ToolCallArgsEvent(functionCall.CallId, argsJson) { TraceId = traceId };
                                     }
                                 }
@@ -3534,7 +3534,7 @@ public sealed partial class Agent : IAsyncDisposable
 
                                     if (functionCall.Arguments != null && functionCall.Arguments.Count > 0)
                                     {
-                                        var argsJson = SerializeFunctionArgumentsForEvent(functionCall);
+                                        var argsJson = FunctionCallArgumentSerializer.Serialize(functionCall);
 
                                         yield return new ToolCallArgsEvent(functionCall.CallId, argsJson) { TraceId = traceId };
                                     }
@@ -3709,7 +3709,7 @@ public sealed partial class Agent : IAsyncDisposable
 
                                             if (functionCall.Arguments != null && functionCall.Arguments.Count > 0)
                                             {
-                                                var argsJson = SerializeFunctionArgumentsForEvent(functionCall);
+                                                var argsJson = FunctionCallArgumentSerializer.Serialize(functionCall);
 
                                                 yield return new ToolCallArgsEvent(functionCall.CallId, argsJson) { TraceId = traceId };
                                             }
@@ -3907,7 +3907,7 @@ public sealed partial class Agent : IAsyncDisposable
                                         toolRequest.CallId,
                                         assistantMessageId,
                                         toolRequest.Name,
-                                        SerializeFunctionArgumentsForEvent(toolRequest))
+                                        FunctionCallArgumentSerializer.Serialize(toolRequest))
                                     { TraceId = traceId };
                                 }
                             }
@@ -3999,7 +3999,7 @@ public sealed partial class Agent : IAsyncDisposable
                                     result.CallId,
                                     assistantMessageId,
                                     toolRequest.Name,
-                                    SerializeFunctionArgumentsForEvent(toolRequest))
+                                    FunctionCallArgumentSerializer.Serialize(toolRequest))
                                 { TraceId = traceId };
                                 callIdToToolHarness.TryGetValue(result.CallId, out var toolharnessName);
                                 callIdToCallType.TryGetValue(result.CallId, out var callType);
@@ -4330,15 +4330,6 @@ public sealed partial class Agent : IAsyncDisposable
     private static List<AIContent> CoalesceTextContents(List<AIContent> contents)
     {
         return ThreadMessageEventConverter.CoalesceTextContents(contents);
-    }
-
-    private static string SerializeFunctionArgumentsForEvent(FunctionCallContent functionCall)
-    {
-        return functionCall.Arguments is { Count: > 0 }
-            ? JsonSerializer.Serialize(
-                functionCall.Arguments,
-                HPDJsonContext.Default.DictionaryStringObject)
-            : "{}";
     }
 
     private static List<ChatMessage> ProjectMessagesForModelHistory(
@@ -9304,9 +9295,7 @@ internal static class ContentExtractor
                     break;
                 case FunctionCallContent fc:
                     sb.Append("|F:").Append(fc.Name).Append(":").Append(fc.CallId).Append(":");
-                    sb.Append(JsonSerializer.Serialize(
-                        fc.Arguments ?? new Dictionary<string, object?>(),
-                        HPDJsonContext.Default.DictionaryStringObject));
+                    sb.Append(FunctionCallArgumentSerializer.Serialize(fc));
                     break;
                 case FunctionResultContent fr:
                     sb.Append("|FR:").Append(fr.CallId).Append(":");

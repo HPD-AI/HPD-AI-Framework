@@ -314,6 +314,22 @@ public sealed class ActionScopedFunctionInvocationTests
     }
 
     [Fact]
+    public void FunctionArgumentSerializationSupportsAIFunctionArgumentsContract()
+    {
+        var arguments = FunctionExecutionCore.CreateInvocationArguments(
+            ParsedArguments("""{"request":{"action":"run","value":2}}"""));
+        var call = new FunctionCallContent("call-1", "ActionTool", arguments);
+
+        var serialized = FunctionCallArgumentSerializer.Serialize(call);
+        var canonicalized = ContentExtractor.Canonicalize([call]);
+
+        using var document = JsonDocument.Parse(serialized);
+        Assert.Equal("run", document.RootElement
+            .GetProperty("request").GetProperty("action").GetString());
+        Assert.Contains(serialized, canonicalized, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CreateActionSchema_RejectsRecursiveReference()
     {
         using var document = JsonDocument.Parse("""
