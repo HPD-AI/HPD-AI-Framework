@@ -1030,11 +1030,12 @@ public static class SubAgentRuntime
         ArgumentNullException.ThrowIfNull(policy);
         policy.Validate();
         await using var inheritedClientLease = controllingContext?.ClientSet?.AcquireBorrowedLease();
-        await childAgent.RunAsync(new UserMessagesInputEvent
+        var childInput = new UserMessagesInputEvent
         {
             Messages = [new ChatMessage(ChatRole.User, input)],
             SessionId = childThread.SessionId,
             ThreadId = childThread.ThreadId,
+            AgentId = childAgent.AgentId,
             ThreadExecutionId = threadExecutionId,
             RunConfig = SubAgentRunConfig.Resolve(
                 policy,
@@ -1044,7 +1045,52 @@ public static class SubAgentRuntime
                 childAgent.ProviderComposition),
             InheritedChatClient = controllingContext?.GetEffectiveChatClientHandle(),
             InheritedChatMode = policy.Clients.Chat
-        }, cancellationToken).ConfigureAwait(false);
+        };
+        var reservation = new CoordinatorWorkReservation(
+            childAgent.AgentId, childThread.SessionId, childThread.ThreadId, threadExecutionId);
+        var executionStore = controllingContext?.GetParentSessionStore() ?? childAgent.Config.SessionStore
+            ?? throw new InvalidOperationException("subagent_unavailable: no durable child session store is configured.");
+        reservation.BindPromotion(
+            static _ => ValueTask.CompletedTask,
+            (outcome, error, finishCancellationToken) => FinishReservedExecutionAsync(
+                executionStore, childThread, threadExecutionId, childAgent.AgentId,
+                outcome, error, finishCancellationToken));
+        await childAgent.RunAsync(
+            childAgent.AuthorizeCoordinatorAssignedWork(childInput, reservation),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async ValueTask FinishReservedExecutionAsync(
+        ISessionStore store,
+        ThreadKey route,
+        string executionId,
+        string agentId,
+        ThreadExecutionOutcome outcome,
+        Exception? exception,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; attempt < 16; attempt++)
+        {
+            var head = await store.GetThreadEventHeadAsync(route, cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("subagent_child_route_invalid");
+            var error = outcome == ThreadExecutionOutcome.Failed
+                ? new ThreadExecutionError(
+                    exception?.GetType().Name ?? "SubAgentExecutionFailed",
+                    exception?.Message ?? "Subagent execution failed.")
+                : null;
+            try
+            {
+                await store.AppendThreadEventsAsync(
+                    route,
+                    [new ThreadExecutionFinishedEvent(
+                        executionId, agentId, outcome, DateTimeOffset.UtcNow, error)],
+                    new ThreadAppendCondition(head.Cursor),
+                    cancellationToken).ConfigureAwait(false);
+                return;
+            }
+            catch (ThreadAppendConflictException) when (attempt < 15) { }
+        }
+        throw new InvalidOperationException("subagent_execution_finish_conflict");
     }
 
     private static async ValueTask<string?> ReadExecutionTextAsync(
