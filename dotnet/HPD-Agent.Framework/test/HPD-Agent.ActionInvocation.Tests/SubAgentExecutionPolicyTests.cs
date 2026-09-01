@@ -85,6 +85,97 @@ public sealed class SubAgentExecutionPolicyTests
     }
 
     [Fact]
+    public async Task FamilyResolutionDisposalDrainsConcurrentAdmittedFactoriesAndReleasesTheirOwners()
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = 0;
+        var owners = new List<IAsyncDisposable>();
+        var disposed = 0;
+        var clients = new AgentClientSet();
+        clients.SetLeases(owners);
+        clients.SetFamilyResolver(async (_, _) =>
+        {
+            Interlocked.Increment(ref entered);
+            await release.Task;
+            lock (owners) owners.Add(new CallbackOwner(() => Interlocked.Increment(ref disposed)));
+            return new object();
+        });
+        var first = clients.ResolveFamilyAsync<object>(ProviderClientFamily.Realtime).AsTask();
+        var second = clients.ResolveFamilyAsync<object>(ProviderClientFamily.HostedFiles).AsTask();
+        await WaitUntilAsync(() => Volatile.Read(ref entered) == 2);
+
+        var disposal = clients.DisposeAsync().AsTask();
+        Assert.False(disposal.IsCompleted);
+        release.TrySetResult();
+        await Task.WhenAll(first, second);
+        await disposal;
+
+        Assert.Equal(2, disposed);
+        await Assert.ThrowsAsync<ObjectDisposedException>(async () =>
+            await clients.ResolveFamilyAsync<object>(ProviderClientFamily.Embeddings));
+    }
+
+    [Theory]
+    [InlineData(ProviderClientFamily.VoiceActivityDetection)]
+    [InlineData(ProviderClientFamily.EndOfTurnDetection)]
+    public async Task ComponentFamiliesHonorWholeParentInheritanceAtConsumption(
+        ProviderClientFamily family)
+    {
+        var identity = ProviderClientExecutionIdentity.CreateSafe(
+            "provider", "backend", family, null, "adapter", "usage");
+        var parentComponent = new object();
+        await using var parent = new AgentClientSet();
+        Assert.Same(parentComponent, await parent.GetProviderComponentAsync(
+            family, identity,
+            _ => ValueTask.FromResult(new ProviderClientConstruction<object>
+            {
+                Client = parentComponent,
+                Owner = new CallbackOwner(() => { })
+            })));
+        await using var child = new AgentClientSet();
+        child.SetComponentInheritance(new SubAgentClientInheritanceSource(
+            parent,
+            family == ProviderClientFamily.VoiceActivityDetection
+                ? new AgentClientInheritance { VoiceActivityDetection = ClientFamilyInheritanceMode.InheritResolved }
+                : new AgentClientInheritance { EndOfTurnDetection = ClientFamilyInheritanceMode.InheritResolved }));
+        var ownCalls = 0;
+
+        var inherited = await child.GetProviderComponentAsync<object>(
+            family, identity,
+            _ =>
+            {
+                Interlocked.Increment(ref ownCalls);
+                throw new InvalidOperationException();
+            });
+
+        Assert.Same(parentComponent, inherited);
+        Assert.Equal(0, ownCalls);
+    }
+
+    [Theory]
+    [InlineData(ProviderClientFamily.VoiceActivityDetection)]
+    [InlineData(ProviderClientFamily.EndOfTurnDetection)]
+    public async Task ComponentFamiliesUseClosedMissingPlanFallbackAndFailMissingParent(
+        ProviderClientFamily family)
+    {
+        var identity = ProviderClientExecutionIdentity.CreateSafe(
+            "provider", "backend", family, null, "adapter", "usage");
+        await using var child = new AgentClientSet();
+        child.SetComponentInheritance(new SubAgentClientInheritanceSource(
+            null,
+            family == ProviderClientFamily.VoiceActivityDetection
+                ? new AgentClientInheritance { VoiceActivityDetection = ClientFamilyInheritanceMode.FallbackToParent }
+                : new AgentClientInheritance { EndOfTurnDetection = ClientFamilyInheritanceMode.FallbackToParent }));
+
+        var exception = await Assert.ThrowsAsync<AgentRunConfigurationException>(async () =>
+            await child.GetProviderComponentAsync<object>(family, identity,
+                _ => throw new AgentRunConfigurationException(
+                    "ProviderDefaultRequired", $"clients.{family}", "missing")));
+
+        Assert.Equal("subagent_parent_client_unavailable", exception.Code);
+    }
+
+    [Fact]
     public void SafeExecutionFingerprintUsesOnlySanitizedRuntimeIdentity()
     {
         var first = ProviderClientExecutionIdentity.CreateSafe(
@@ -94,6 +185,22 @@ public sealed class SubAgentExecutionPolicyTests
 
         Assert.Equal(first.SafeConfigurationFingerprint, second.SafeConfigurationFingerprint);
         Assert.DoesNotContain("openai", first.SafeConfigurationFingerprint, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> predicate)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        while (!predicate())
+            await Task.Delay(10, timeout.Token);
+    }
+
+    private sealed class CallbackOwner(Action dispose) : IAsyncDisposable
+    {
+        public ValueTask DisposeAsync()
+        {
+            dispose();
+            return ValueTask.CompletedTask;
+        }
     }
 
 }

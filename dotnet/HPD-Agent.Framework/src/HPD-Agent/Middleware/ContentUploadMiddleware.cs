@@ -276,8 +276,7 @@ public class ContentUploadMiddleware : IAgentMiddleware
             return runClient;
 
         return context.ClientSet is null ? null :
-            await context.ClientSet.ResolveFamilyAsync<IHostedFileClient>(
-                Providers.ProviderClientFamily.HostedFiles, cancellationToken).ConfigureAwait(false);
+            await context.ClientSet.GetHostedFilesAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static string? ExtractFileName(AIContent content)

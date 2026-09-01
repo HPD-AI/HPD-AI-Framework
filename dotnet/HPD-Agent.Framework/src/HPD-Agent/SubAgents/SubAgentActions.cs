@@ -86,6 +86,10 @@ public sealed record SubAgentDeclarationCatalog
     }
 }
 
+internal sealed record SubAgentDeclarationCatalogPin(
+    IReadOnlyList<SubAgentActionDescriptor> Actions,
+    SubAgentDeclarationCatalog Catalog);
+
 /// <summary>Immutable generated declaration for one model-facing subagent creation action.</summary>
 public sealed record SubAgentActionDescriptor
 {

@@ -28,13 +28,21 @@ internal sealed class SubAgentAvailabilityMiddleware : IAgentMiddleware
     {
         if (context.Options.Tools is null) return;
         var publishedActions = ReadActions(context.Options.Tools);
-        var catalog = SubAgentDeclarationCatalog.Create(publishedActions);
+        var pin = context.RunConfig.SubAgentCatalogPin;
+        if (pin is null)
+        {
+            pin = new SubAgentDeclarationCatalogPin(
+                publishedActions,
+                SubAgentDeclarationCatalog.Create(publishedActions));
+            context.RunConfig.SubAgentCatalogPin = pin;
+        }
+        var catalog = pin.Catalog;
         catalog.ValidateOverrides(context.RunConfig.SubAgents);
         var depth = context.GetParentAgentMetadata()?.Depth ?? 0;
         var maximumDepth = context.Base.Config?.MaxSubAgentDepth ?? 4;
         var expanded = context.GetMiddlewareState<ContainerMiddlewareState>()?.ExpandedContainers
             ?? System.Collections.Immutable.ImmutableHashSet<string>.Empty;
-        var available = publishedActions.Where(action =>
+        var available = pin.Actions.Where(action =>
                 IsCreationVisible(action, expanded) &&
                 depth < maximumDepth && action.Definition.Availability.AllowsInvocationFrom(depth))
             .ToArray();
@@ -103,4 +111,5 @@ internal sealed class SubAgentAvailabilityMiddleware : IAgentMiddleware
         string AvailabilityDigest,
         string CatalogRevision,
         int CompositionVersion);
+
 }

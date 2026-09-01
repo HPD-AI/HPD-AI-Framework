@@ -152,6 +152,9 @@ public class AgentRunConfig
     [JsonIgnore]
     internal SubAgentClientInheritanceSource? SubAgentClientInheritance { get; set; }
 
+    [JsonIgnore]
+    internal SubAgentDeclarationCatalogPin? SubAgentCatalogPin { get; set; }
+
     /// <summary>Gets or sets per-run system-instruction behavior.</summary>
     public SystemInstructionsRunConfig? SystemInstructions { get; set; }
 

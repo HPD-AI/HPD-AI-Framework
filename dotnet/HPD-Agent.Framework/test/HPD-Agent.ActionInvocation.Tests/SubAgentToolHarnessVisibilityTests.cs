@@ -46,19 +46,26 @@ public sealed class SubAgentToolHarnessVisibilityTests
     }
 
     [Fact]
-    public async Task PublishedHarnessRevisionReplacesThePinnedDeclarationCatalogForANewIteration()
+    public async Task PublishedHarnessRevisionRemainsPinnedWithinRunAndRefreshesForNextRun()
     {
         var core = CreateDescriptor("core", "CoreHarness", requiresActivation: false);
         var initial = SubAgentsFunctionFactory.Create([core]);
         var middleware = new SubAgentAvailabilityMiddleware([initial], toolHarnessActivationEnabled: true);
         var research = CreateDescriptor("researcher", "ResearchHarness", requiresActivation: false);
         var refreshed = SubAgentsFunctionFactory.Create([core, research]);
-        var context = CreateIterationContext([refreshed]);
+        var activeRunConfig = new AgentRunConfig();
+        var first = CreateIterationContext([initial], runConfig: activeRunConfig, runId: "run-1");
+        await middleware.BeforeIterationAsync(first, CancellationToken.None);
+        var sameRun = CreateIterationContext([refreshed], runConfig: activeRunConfig, runId: "run-1");
+        await middleware.BeforeIterationAsync(sameRun, CancellationToken.None);
+        var nextRun = CreateIterationContext([refreshed], runId: "run-2");
 
-        await middleware.BeforeIterationAsync(context, CancellationToken.None);
+        await middleware.BeforeIterationAsync(nextRun, CancellationToken.None);
 
-        var function = Assert.IsAssignableFrom<AIFunction>(Assert.Single(context.Options.Tools!));
-        Assert.Equal(["core", "researcher"], GetRoleActions(function).Order());
+        Assert.Equal(["core"], GetRoleActions(
+            Assert.IsAssignableFrom<AIFunction>(Assert.Single(sameRun.Options.Tools!))));
+        Assert.Equal(["core", "researcher"], GetRoleActions(
+            Assert.IsAssignableFrom<AIFunction>(Assert.Single(nextRun.Options.Tools!))).Order());
     }
 
     [Fact]
@@ -189,11 +196,12 @@ public sealed class SubAgentToolHarnessVisibilityTests
         IReadOnlyList<AITool> tools,
         Session? session = null,
         Thread? thread = null,
-        AgentRunConfig? runConfig = null)
+        AgentRunConfig? runConfig = null,
+        string runId = "run")
     {
         session ??= new Session("session");
         thread ??= new Thread("parent", "parent-agent") { Session = session };
-        var state = AgentLoopState.InitialSafe([], "run", "conversation", "parent-agent");
+        var state = AgentLoopState.InitialSafe([], runId, "conversation", "parent-agent");
         var agentContext = new AgentContext(
             "parent-agent", "conversation", state, new HPD.Events.Core.EventCoordinator(),
             session, thread, CancellationToken.None);

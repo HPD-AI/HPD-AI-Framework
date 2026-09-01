@@ -175,6 +175,23 @@ public sealed record SubAgentExecutionPolicy
     /// <summary>Gets the canonical SHA-256 policy fingerprint.</summary>
     public required string Fingerprint { get; init; }
 
+    /// <summary>Reconstructs the child run configuration represented by this durable policy.</summary>
+    /// <param name="controllingRun">The current authorized controller's run configuration.</param>
+    /// <param name="controllingClients">The current controller's execution-scoped client set.</param>
+    /// <param name="childDefaults">The durable child agent configuration.</param>
+    /// <param name="composition">The generated provider composition used to snapshot provider payloads.</param>
+    /// <returns>An independent child run configuration with lazy client-family inheritance installed.</returns>
+    public AgentRunConfig CreateChildRunConfig(
+        AgentRunConfig? controllingRun = null,
+        AgentClientSet? controllingClients = null,
+        AgentConfig? childDefaults = null,
+        ProviderComposition? composition = null)
+    {
+        Validate();
+        return SubAgentRunConfig.Resolve(
+            this, controllingRun, controllingClients, childDefaults, composition);
+    }
+
     internal static SubAgentExecutionPolicy Create(
         SubAgentRunConfigFields inheritedFields,
         AgentClientInheritance clients)

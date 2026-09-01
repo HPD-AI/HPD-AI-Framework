@@ -1,6 +1,7 @@
 using HPD.Agent.Providers;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
+using System.Collections.Concurrent;
 
 namespace HPD.Agent;
 
@@ -20,8 +21,8 @@ public sealed partial class Agent
         if (!hasConfiguredFamily)
             return null;
         var leases = new List<IAsyncDisposable>();
-        var resolved = new Dictionary<ProviderClientFamily, ProviderClientConfig>();
-        var identities = new Dictionary<ProviderClientFamily, ProviderClientExecutionIdentity>();
+        var resolved = new ConcurrentDictionary<ProviderClientFamily, ProviderClientConfig>();
+        var identities = new ConcurrentDictionary<ProviderClientFamily, ProviderClientExecutionIdentity>();
         var result = new AgentClientSet
         {
             ResolvedConfigs = resolved,
@@ -29,6 +30,7 @@ public sealed partial class Agent
         };
         result.SetOwnedClients(new HashSet<object>(ReferenceEqualityComparer.Instance));
         result.SetLeases(leases);
+        result.SetComponentInheritance(runConfig.SubAgentClientInheritance);
         result.SetFamilyResolver((family, token) => ResolveRequestedFamilyAsync(
             family, runConfig, leases, resolved, identities, token));
         return result;
@@ -38,8 +40,8 @@ public sealed partial class Agent
         ProviderClientFamily family,
         AgentRunConfig runConfig,
         List<IAsyncDisposable> leases,
-        Dictionary<ProviderClientFamily, ProviderClientConfig> resolved,
-        Dictionary<ProviderClientFamily, ProviderClientExecutionIdentity> identities,
+        ConcurrentDictionary<ProviderClientFamily, ProviderClientConfig> resolved,
+        ConcurrentDictionary<ProviderClientFamily, ProviderClientExecutionIdentity> identities,
         CancellationToken cancellationToken) => family switch
     {
         ProviderClientFamily.TextToSpeech => await ResolveFamilyAsync(
@@ -78,8 +80,8 @@ public sealed partial class Agent
         IReadOnlyList<Func<TClient, IServiceProvider?, TClient>>? middleware,
         ProviderClientManager<TClient> manager,
         List<IAsyncDisposable> leases,
-        Dictionary<ProviderClientFamily, ProviderClientConfig> resolved,
-        Dictionary<ProviderClientFamily, ProviderClientExecutionIdentity> identities,
+        ConcurrentDictionary<ProviderClientFamily, ProviderClientConfig> resolved,
+        ConcurrentDictionary<ProviderClientFamily, ProviderClientExecutionIdentity> identities,
         CancellationToken cancellationToken)
         where TClient : class
     {
@@ -242,7 +244,10 @@ public sealed partial class Agent
             }
         }
 
-        leases.Add(lease);
+        lock (leases)
+            leases.Add(lease);
+        lock (resolved)
+        {
         var authoring = runConfig ?? agent.Clients.GetFamilyConfig(family);
         if (authoring is not null)
             resolved[family] = ProviderClientConfigSnapshot.Clone(authoring);
@@ -253,26 +258,30 @@ public sealed partial class Agent
             effective.ModelName,
             $"{effective.Provider.Backend.ProviderKey}/{effective.Provider.Backend.BackendKey}/{family}",
             effective.Provider.Backend.ProviderKey);
+        }
         return lease.Client;
         }
     }
 
     private void CopyBuilderSelection(
         ProviderClientFamily family,
-        Dictionary<ProviderClientFamily, ProviderClientConfig> resolved,
-        Dictionary<ProviderClientFamily, ProviderClientExecutionIdentity> identities)
+        ConcurrentDictionary<ProviderClientFamily, ProviderClientConfig> resolved,
+        ConcurrentDictionary<ProviderClientFamily, ProviderClientExecutionIdentity> identities)
     {
-        if (_clientSet?.GetResolvedConfig(family) is { } config)
-            resolved[family] = config;
-        if (_clientSet?.GetExecutionIdentity(family) is { } identity)
-            identities[family] = identity;
+        lock (resolved)
+        {
+            if (_clientSet?.GetResolvedConfig(family) is { } config)
+                resolved[family] = config;
+            if (_clientSet?.GetExecutionIdentity(family) is { } identity)
+                identities[family] = identity;
+        }
     }
 
     private static async ValueTask<TClient> GetRequiredParentClientAsync<TClient>(
         ProviderClientFamily family,
         SubAgentClientInheritanceSource? inheritance,
-        Dictionary<ProviderClientFamily, ProviderClientConfig> resolved,
-        Dictionary<ProviderClientFamily, ProviderClientExecutionIdentity> identities,
+        ConcurrentDictionary<ProviderClientFamily, ProviderClientConfig> resolved,
+        ConcurrentDictionary<ProviderClientFamily, ProviderClientExecutionIdentity> identities,
         CancellationToken cancellationToken)
         where TClient : class
     {
@@ -284,10 +293,13 @@ public sealed partial class Agent
                 "subagent_parent_client_unavailable",
                 $"clients.{family}",
                 $"The controlling execution has no resolved {family} client.");
-        if (parent!.GetResolvedConfig(family) is { } config)
-            resolved[family] = config;
-        if (parent.GetExecutionIdentity(family) is { } identity)
-            identities[family] = identity;
+        lock (resolved)
+        {
+            if (parent!.GetResolvedConfig(family) is { } config)
+                resolved[family] = config;
+            if (parent.GetExecutionIdentity(family) is { } identity)
+                identities[family] = identity;
+        }
         return client;
     }
 
@@ -408,8 +420,8 @@ public sealed partial class Agent
         ProviderClientFamily family,
         ProviderClientConfig? config,
         List<IAsyncDisposable> leases,
-        Dictionary<ProviderClientFamily, ProviderClientConfig> resolved,
-        Dictionary<ProviderClientFamily, ProviderClientExecutionIdentity> identities)
+        ConcurrentDictionary<ProviderClientFamily, ProviderClientConfig> resolved,
+        ConcurrentDictionary<ProviderClientFamily, ProviderClientExecutionIdentity> identities)
         where TClient : class
     {
         if (runtimeOverride is ClientOverride<TClient>.Transferred transferred)
@@ -418,7 +430,7 @@ public sealed partial class Agent
                 throw new InvalidOperationException("A per-run override must declare Run lifetime.");
             if (!transferred.TryConsume())
                 throw new InvalidOperationException("A transferred client override can be installed exactly once.");
-            leases.Add(transferred.Owner);
+            lock (leases) leases.Add(transferred.Owner);
         }
         if (string.IsNullOrWhiteSpace(runtimeOverride.ProviderKey) ||
             string.IsNullOrWhiteSpace(runtimeOverride.BackendKey) ||
@@ -427,15 +439,18 @@ public sealed partial class Agent
                 "subagent_provider_attribution_missing",
                 $"clients.{family}",
                 "A selected provider client override must declare provider, backend, and operation-adapter identity.");
-        if (config is not null)
-            resolved[family] = config;
-        identities[family] = ProviderClientExecutionIdentity.CreateSafe(
-            runtimeOverride.ProviderKey,
-            runtimeOverride.BackendKey,
-            family,
-            config?.ModelName,
-            runtimeOverride.OperationAdapterKey,
-            runtimeOverride.ProviderKey);
+        lock (resolved)
+        {
+            if (config is not null)
+                resolved[family] = config;
+            identities[family] = ProviderClientExecutionIdentity.CreateSafe(
+                runtimeOverride.ProviderKey,
+                runtimeOverride.BackendKey,
+                family,
+                config?.ModelName,
+                runtimeOverride.OperationAdapterKey,
+                runtimeOverride.ProviderKey);
+        }
         return runtimeOverride.Client;
     }
 

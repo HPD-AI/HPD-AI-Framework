@@ -1031,7 +1031,7 @@ public sealed partial class Agent : IAsyncDisposable
 
         var properties = string.Join(",", message.AdditionalProperties
             .OrderBy(pair => pair.Key, StringComparer.Ordinal)
-            .Select(pair => $"{JsonSerializer.Serialize(pair.Key)}:{CanonicalizeSnapshotValue(pair.Value)}"));
+            .Select(pair => $"{SerializeSnapshotString(pair.Key)}:{CanonicalizeSnapshotValue(pair.Value)}"));
         return $"{messageJson}|{{{properties}}}";
     }
 
@@ -1039,7 +1039,7 @@ public sealed partial class Agent : IAsyncDisposable
         => value switch
         {
             null => "null",
-            string text => JsonSerializer.Serialize(text),
+            string text => SerializeSnapshotString(text),
             bool boolean => boolean ? "true" : "false",
             byte or sbyte or short or ushort or int or uint or long or ulong or float or double or decimal
                 => Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture)!,
@@ -1048,8 +1048,12 @@ public sealed partial class Agent : IAsyncDisposable
                 .OrderBy(key => Convert.ToString(key, System.Globalization.CultureInfo.InvariantCulture), StringComparer.Ordinal)
                 .Select(key => $"{CanonicalizeSnapshotValue(key)}:{CanonicalizeSnapshotValue(dictionary[key])}")) + "}",
             System.Collections.IEnumerable sequence => "[" + string.Join(",", sequence.Cast<object?>().Select(CanonicalizeSnapshotValue)) + "]",
-            _ => JsonSerializer.Serialize(value.ToString())
+            _ => SerializeSnapshotString(value.ToString() ?? string.Empty)
         };
+
+    private static string SerializeSnapshotString(string value) => JsonSerializer.Serialize(
+        value,
+        Serialization.AgentEventJsonContext.Default.String);
 
     private static void EnsureMessageIdentity(ChatMessage message)
     {
@@ -3294,8 +3298,7 @@ public sealed partial class Agent : IAsyncDisposable
                             : null;
                         var realtimeModel = selectedTransport is Middleware.AgentModelTransport.Realtime &&
                             effectiveClientSet is not null
-                            ? await effectiveClientSet.ResolveFamilyAsync<IRealtimeClient>(
-                                Providers.ProviderClientFamily.Realtime,
+                            ? await effectiveClientSet.GetRealtimeAsync(
                                 effectiveCancellationToken).ConfigureAwait(false)
                             : null;
 

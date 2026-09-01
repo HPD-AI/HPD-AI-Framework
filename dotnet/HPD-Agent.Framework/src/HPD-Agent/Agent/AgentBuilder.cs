@@ -3000,13 +3000,14 @@ public class AgentBuilder
     private AgentClientSet CreateAuxiliaryClientSet()
     {
         var resolvedConfigs = new Dictionary<ProviderClientFamily, ProviderClientConfig>();
+        var identities = new Dictionary<ProviderClientFamily, ProviderClientExecutionIdentity>();
         var clients = _config?.Clients ?? new AgentClientsConfig();
-        var textToSpeech = CaptureOverride(ProviderClientFamily.TextToSpeech, clients.TextToSpeech, clients.TextToSpeech?.Override?.Client, resolvedConfigs);
-        var speechToText = CaptureOverride(ProviderClientFamily.SpeechToText, clients.SpeechToText, clients.SpeechToText?.Override?.Client, resolvedConfigs);
-        var realtime = CaptureOverride(ProviderClientFamily.Realtime, clients.Realtime, clients.Realtime?.Override?.Client, resolvedConfigs);
-        var imageGenerator = CaptureOverride(ProviderClientFamily.ImageGeneration, clients.ImageGeneration, clients.ImageGeneration?.Override?.Client, resolvedConfigs);
-        var embeddingGenerator = CaptureOverride(ProviderClientFamily.Embeddings, clients.Embeddings, clients.Embeddings?.Override?.Client, resolvedConfigs);
-        var hostedFiles = CaptureOverride(ProviderClientFamily.HostedFiles, clients.HostedFiles, clients.HostedFiles?.Override?.Client, resolvedConfigs);
+        var textToSpeech = CaptureOverride(ProviderClientFamily.TextToSpeech, clients.TextToSpeech, clients.TextToSpeech?.Override, resolvedConfigs, identities);
+        var speechToText = CaptureOverride(ProviderClientFamily.SpeechToText, clients.SpeechToText, clients.SpeechToText?.Override, resolvedConfigs, identities);
+        var realtime = CaptureOverride(ProviderClientFamily.Realtime, clients.Realtime, clients.Realtime?.Override, resolvedConfigs, identities);
+        var imageGenerator = CaptureOverride(ProviderClientFamily.ImageGeneration, clients.ImageGeneration, clients.ImageGeneration?.Override, resolvedConfigs, identities);
+        var embeddingGenerator = CaptureOverride(ProviderClientFamily.Embeddings, clients.Embeddings, clients.Embeddings?.Override, resolvedConfigs, identities);
+        var hostedFiles = CaptureOverride(ProviderClientFamily.HostedFiles, clients.HostedFiles, clients.HostedFiles?.Override, resolvedConfigs, identities);
 
         return new AgentClientSet
         {
@@ -3016,23 +3017,35 @@ public class AgentBuilder
             ImageGenerator = imageGenerator,
             EmbeddingGenerator = embeddingGenerator,
             HostedFiles = hostedFiles,
-            ResolvedConfigs = resolvedConfigs
+            ResolvedConfigs = resolvedConfigs,
+            ExecutionIdentities = identities
         };
     }
 
     private static TClient? CaptureOverride<TClient>(
         ProviderClientFamily family,
         ProviderClientConfig? config,
-        TClient? client,
-        Dictionary<ProviderClientFamily, ProviderClientConfig> resolvedConfigs)
+        ClientOverride<TClient>? clientOverride,
+        Dictionary<ProviderClientFamily, ProviderClientConfig> resolvedConfigs,
+        Dictionary<ProviderClientFamily, ProviderClientExecutionIdentity> identities)
         where TClient : class
     {
-        if (client is null)
+        if (clientOverride is null)
             return null;
 
         if (config is not null)
             resolvedConfigs[family] = ProviderClientConfigSnapshot.Clone(config);
-        return client;
+        if (!string.IsNullOrWhiteSpace(clientOverride.ProviderKey) &&
+            !string.IsNullOrWhiteSpace(clientOverride.BackendKey) &&
+            !string.IsNullOrWhiteSpace(clientOverride.OperationAdapterKey))
+            identities[family] = ProviderClientExecutionIdentity.CreateSafe(
+                clientOverride.ProviderKey,
+                clientOverride.BackendKey,
+                family,
+                config?.ModelName,
+                clientOverride.OperationAdapterKey,
+                clientOverride.ProviderKey);
+        return clientOverride.Client;
     }
 
     private TClient ApplyMiddleware<TClient>(TClient client, IReadOnlyList<Func<TClient, IServiceProvider?, TClient>>? middleware, string description)
