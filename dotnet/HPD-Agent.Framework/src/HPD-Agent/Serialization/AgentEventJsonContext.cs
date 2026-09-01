@@ -160,6 +160,11 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(AgentInputResult.Control))]
 [JsonSerializable(typeof(AgentInputResult.AudioSession))]
 [JsonSerializable(typeof(AudioSessionInputResult))]
+[JsonSerializable(typeof(UserMessagesInputEvent))]
+[JsonSerializable(typeof(AudioSessionInputEvent))]
+[JsonSerializable(typeof(CompactThreadInputEvent))]
+[JsonSerializable(typeof(AgentOperationNotificationInputEvent))]
+[JsonSerializable(typeof(ClientTools.ClientToolOperationOutcomeEvent))]
 
 // Content Events
 
