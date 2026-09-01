@@ -376,7 +376,8 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             }
             else
             {
-                if (hpdFunction.HPDOptions.OperationContract is not null)
+                if (hpdFunction.HPDOptions.OperationContract is not null &&
+                    hpdFunction.CanonicalInputContract is null)
                     return CreatePreparationRejection(functionCall, invocation, function, toolharnessName, callType,
                         "raw_json_required",
                         "Action-contracted functions require authoritative raw JSON arguments.");

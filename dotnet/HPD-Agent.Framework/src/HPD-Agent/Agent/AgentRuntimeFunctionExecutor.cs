@@ -103,16 +103,7 @@ internal sealed class AgentRuntimeFunctionExecutor : IRuntimeFunctionExecutor
         var batchId = Guid.NewGuid().ToString("N");
         for (var i = 0; i < calls.Count; i++)
         {
-            var providerCall = calls[i];
-            var call = providerCall.Arguments is AIFunctionArguments rawArguments &&
-                rawArguments.GetJson().ValueKind != System.Text.Json.JsonValueKind.Undefined
-                ? providerCall
-                : new FunctionCallContent(
-                    providerCall.CallId,
-                    providerCall.Name,
-                    FunctionExecutionCore.CreateInvocationArguments(
-                        (IReadOnlyDictionary<string, object?>?)(providerCall.Arguments ??
-                            new Dictionary<string, object?>())));
+            var call = calls[i];
             var invocation = new ToolInvocationInfo(
                 batchId,
                 call.CallId,
