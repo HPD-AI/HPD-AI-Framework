@@ -181,6 +181,9 @@ public abstract record AgentEvent : HPD.Events.Event
 /// </summary>
 public abstract record AgentInputEvent
 {
+    internal AgentWorkIdentityAuthority WorkIdentityAuthority { get; init; }
+    internal object? WorkIdentityReservation { get; init; }
+    internal bool WorkIdentityValidated { get; init; }
     /// <summary>Client-owned correlation identifier for reconciling submitted input with admitted transcript messages.</summary>
     public string? ClientInputId { get; init; }
 
@@ -198,6 +201,12 @@ public abstract record AgentInputEvent
 
     /// <summary>Identifier of the accepted input execution assigned by the coordinating runtime.</summary>
     public string? ThreadExecutionId { get; init; }
+}
+
+internal enum AgentWorkIdentityAuthority
+{
+    FrameworkAllocate,
+    CoordinatorAssigned
 }
 
 /// <summary>

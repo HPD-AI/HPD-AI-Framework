@@ -116,7 +116,8 @@ public sealed class AfterMessageTurnContext : HookContext
     public ChatResponse FinalResponse { get; }
 
     /// <summary>
-    /// Messages that will be persisted to the thread after this turn completes.
+    /// Complete current-turn message history. Persistence is decided per message policy;
+    /// runtime-context messages remain model-context-only and are never thread history.
     ///   Always available (never NULL)
     /// MUTABLE - middleware can filter/modify before persistence
     /// </summary>

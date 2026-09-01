@@ -153,6 +153,24 @@ internal sealed class AgentOperationNotificationDispatcher : IDisposable
             Summary = Bound(operation.Completion?.Summary ?? operation.Failure?.Message),
             SourceThreadExecutionId = evt.ThreadExecutionId
         };
+        try
+        {
+            _ = FormatNotifications([notification]);
+        }
+        catch (Exception exception) when (exception is ArgumentException or System.Xml.XmlException)
+        {
+            Rollback(decision);
+            await PublishAsync(new AgentOperationNotificationSuppressedEvent
+            {
+                OperationId = operation.OperationId,
+                Reason = "invalid-notification-payload",
+                SuppressedAt = DateTimeOffset.UtcNow,
+                SessionId = evt.SessionId,
+                ThreadId = evt.ThreadId,
+                ThreadExecutionId = evt.ThreadExecutionId
+            }).ConfigureAwait(false);
+            return;
+        }
         AgentRunConfig? runConfig;
         lock (_lock) runConfig = _runConfig;
         try
@@ -172,8 +190,8 @@ internal sealed class AgentOperationNotificationDispatcher : IDisposable
                 ThreadId = evt.ThreadId,
                 ThreadExecutionId = prepared.Input.ThreadExecutionId
             }).ConfigureAwait(false);
-            prepared.CommitVisible();
             Commit(decision);
+            prepared.CommitVisible();
         }
         catch
         {
@@ -269,31 +287,41 @@ internal sealed class AgentOperationNotificationDispatcher : IDisposable
         if (notifications.Count is 0 or > 32)
             throw new ArgumentOutOfRangeException(nameof(notifications), "Notification batches must contain between 1 and 32 items.");
 
-        var builder = new System.Text.StringBuilder("<agent-operation-notifications>");
-        foreach (var notification in notifications)
+        var builder = new System.Text.StringBuilder();
+        using (var writer = System.Xml.XmlWriter.Create(builder, new System.Xml.XmlWriterSettings
         {
-            ValidateField(notification.NotificationId, 256, nameof(notification.NotificationId));
-            ValidateField(notification.OperationId, 256, nameof(notification.OperationId));
-            ValidateField(notification.Name, 512, nameof(notification.Name));
-            ValidateField(notification.ProviderStatus, 64, nameof(notification.ProviderStatus));
-            if (!string.Equals(notification.ProviderStatus, notification.ProviderStatus.ToLowerInvariant(), StringComparison.Ordinal))
-                throw new ArgumentException("Provider status must use lowercase canonical vocabulary.", nameof(notifications));
+            OmitXmlDeclaration = true,
+            ConformanceLevel = System.Xml.ConformanceLevel.Document
+        }))
+        {
+            writer.WriteStartElement("agent-operation-notifications");
+            foreach (var notification in notifications)
+            {
+                ValidateField(notification.NotificationId, 256, nameof(notification.NotificationId));
+                ValidateField(notification.OperationId, 256, nameof(notification.OperationId));
+                ValidateField(notification.Name, 512, nameof(notification.Name));
+                ValidateField(notification.ProviderStatus, 64, nameof(notification.ProviderStatus));
+                if (!Enum.TryParse<AgentOperationProviderStatus>(notification.ProviderStatus, true, out var parsedStatus) ||
+                    !string.Equals(notification.ProviderStatus, parsedStatus.ToString().ToLowerInvariant(), StringComparison.Ordinal))
+                {
+                    throw new ArgumentException("Provider status must use the lowercase canonical provider-status vocabulary.", nameof(notifications));
+                }
 
-            builder.Append("<notification id=\"")
-                .Append(EscapeXmlAttribute(notification.NotificationId))
-                .Append("\" operation-id=\"")
-                .Append(EscapeXmlAttribute(notification.OperationId))
-                .Append("\" name=\"")
-                .Append(EscapeXmlAttribute(notification.Name))
-                .Append("\" status=\"")
-                .Append(EscapeXmlAttribute(notification.ProviderStatus))
-                .Append("\">");
-            if (notification.Summary is not null)
-                builder.Append("<summary>").Append(EscapeXmlText(Bound(notification.Summary)!)).Append("</summary>");
-            builder.Append("</notification>");
+                writer.WriteStartElement("notification");
+                writer.WriteAttributeString("id", notification.NotificationId);
+                writer.WriteAttributeString("operation-id", notification.OperationId);
+                writer.WriteAttributeString("name", notification.Name);
+                writer.WriteAttributeString("status", notification.ProviderStatus);
+                if (notification.Summary is not null)
+                {
+                    writer.WriteStartElement("summary");
+                    writer.WriteString(Bound(notification.Summary)!);
+                    writer.WriteEndElement();
+                }
+                writer.WriteEndElement();
+            }
+            writer.WriteEndElement();
         }
-
-        builder.Append("</agent-operation-notifications>");
         var formatted = builder.ToString();
         if (System.Text.Encoding.UTF8.GetByteCount(formatted) > 64 * 1024)
             throw new ArgumentOutOfRangeException(nameof(notifications), "Formatted notification batch exceeds 64 KiB.");
@@ -305,15 +333,6 @@ internal sealed class AgentOperationNotificationDispatcher : IDisposable
         if (string.IsNullOrWhiteSpace(value) || System.Text.Encoding.UTF8.GetByteCount(value) > maximumUtf8Bytes)
             throw new ArgumentException($"{name} must be non-empty and at most {maximumUtf8Bytes} UTF-8 bytes.", name);
     }
-
-    private static string EscapeXmlText(string value) => value
-        .Replace("&", "&amp;", StringComparison.Ordinal)
-        .Replace("<", "&lt;", StringComparison.Ordinal)
-        .Replace(">", "&gt;", StringComparison.Ordinal);
-
-    private static string EscapeXmlAttribute(string value) => EscapeXmlText(value)
-        .Replace("\"", "&quot;", StringComparison.Ordinal)
-        .Replace("'", "&apos;", StringComparison.Ordinal);
 
     private static string? Bound(string? value)
     {

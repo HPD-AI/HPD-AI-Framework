@@ -341,9 +341,11 @@ public sealed class AgentOperationTests
         using var dispatcher = new AgentOperationNotificationDispatcher(
             events,
             null,
-            notification => new PreparedAgentWorkAdmission(
-                notification with { ThreadExecutionId = Guid.NewGuid().ToString("N") },
-                input.Writer),
+            notification =>
+            {
+                var admitted = notification with { ThreadExecutionId = Guid.NewGuid().ToString("N") };
+                return new PreparedAgentWorkAdmission(admitted, () => input.Writer.TryWrite(admitted), () => { });
+            },
             null);
         var first = TerminalNotificationSnapshot("op-1", "same-policy-key");
         var second = TerminalNotificationSnapshot("op-2", "same-policy-key");
@@ -440,9 +442,11 @@ public sealed class AgentOperationTests
         using var dispatcher = new AgentOperationNotificationDispatcher(
             events,
             null,
-            notification => new PreparedAgentWorkAdmission(
-                notification with { ThreadExecutionId = "notification-execution" },
-                input.Writer),
+            notification =>
+            {
+                var admitted = notification with { ThreadExecutionId = "notification-execution" };
+                return new PreparedAgentWorkAdmission(admitted, () => input.Writer.TryWrite(admitted), () => { });
+            },
             null);
         var operation = TerminalNotificationSnapshot("operation", "policy");
 
@@ -460,6 +464,47 @@ public sealed class AgentOperationTests
         Assert.NotNull(queued);
         Assert.Equal("notification-execution", queued!.ThreadExecutionId);
         Assert.Equal("source-execution", queued.Notification.SourceThreadExecutionId);
+    }
+
+    [Fact]
+    public async Task PreparedSchedulerAdmissionPinsShutdownAndCommitsExactlyOnce()
+    {
+        var gate = new object();
+        var channel = System.Threading.Channels.Channel.CreateUnbounded<AgentInputEvent>();
+        var scheduler = new AgentWorkScheduler(gate, channel.Writer);
+        var input = new UserMessagesInputEvent
+        {
+            Messages = [new ChatMessage(ChatRole.User, "work")],
+            ThreadExecutionId = "execution"
+        };
+        using var prepared = scheduler.Prepare(input);
+
+        var drained = scheduler.StopPreparing();
+        Assert.False(drained.IsCompleted);
+        prepared.CommitVisible();
+        prepared.CommitVisible();
+
+        await drained.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Same(input, await channel.Reader.ReadAsync());
+        Assert.False(channel.Reader.TryRead(out _));
+        Assert.Throws<InvalidOperationException>(() => scheduler.Prepare(input));
+    }
+
+    [Fact]
+    public void NotificationFormattingRejectsXmlIllegalContentAndUnknownStatus()
+    {
+        static AgentOperationNotification Notification(string name, string status) => new()
+        {
+            NotificationId = "notification",
+            OperationId = "operation",
+            Name = name,
+            ProviderStatus = status
+        };
+
+        Assert.ThrowsAny<Exception>(() => AgentOperationNotificationDispatcher.FormatNotifications(
+            [Notification("invalid\u0001name", "completed")]));
+        Assert.Throws<ArgumentException>(() => AgentOperationNotificationDispatcher.FormatNotifications(
+            [Notification("valid", "made-up-status")]));
     }
 
     [Theory]

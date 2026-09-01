@@ -37,24 +37,100 @@ internal sealed class ActiveRuntimeInput
 
 internal sealed class PreparedAgentWorkAdmission : IDisposable
 {
-    private readonly ChannelWriter<AgentInputEvent> _writer;
+    private readonly Action _commit;
+    private readonly Action _abort;
     private int _state;
 
-    internal PreparedAgentWorkAdmission(AgentInputEvent input, ChannelWriter<AgentInputEvent> writer)
+    internal PreparedAgentWorkAdmission(AgentInputEvent input, Action commit, Action abort)
     {
         Input = input ?? throw new ArgumentNullException(nameof(input));
-        _writer = writer ?? throw new ArgumentNullException(nameof(writer));
+        _commit = commit ?? throw new ArgumentNullException(nameof(commit));
+        _abort = abort ?? throw new ArgumentNullException(nameof(abort));
     }
 
     internal AgentInputEvent Input { get; }
 
     internal void CommitVisible()
     {
-        if (Interlocked.CompareExchange(ref _state, 1, 0) != 0)
-            throw new InvalidOperationException("Prepared work admission is no longer pending.");
-        if (!_writer.TryWrite(Input))
-            throw new InvalidOperationException("Prepared work could not become visible after admission.");
+        if (Interlocked.CompareExchange(ref _state, 1, 0) == 0)
+            _commit();
     }
 
-    public void Dispose() => Interlocked.CompareExchange(ref _state, 2, 0);
+    public void Dispose()
+    {
+        if (Interlocked.CompareExchange(ref _state, 2, 0) == 0)
+            _abort();
+    }
+}
+
+internal sealed class AgentWorkScheduler
+{
+    private readonly object _gate;
+    private readonly ChannelWriter<AgentInputEvent> _writer;
+    private TaskCompletionSource _drained = CompletedDrain();
+    private int _preparedCount;
+    private bool _stopping;
+
+    internal AgentWorkScheduler(object gate, ChannelWriter<AgentInputEvent> writer)
+    {
+        _gate = gate ?? throw new ArgumentNullException(nameof(gate));
+        _writer = writer ?? throw new ArgumentNullException(nameof(writer));
+    }
+
+    internal PreparedAgentWorkAdmission Prepare(
+        AgentInputEvent input,
+        Action? reserveCompletion = null,
+        Action? abortCompletion = null)
+    {
+        lock (_gate)
+        {
+            if (_stopping)
+                throw new InvalidOperationException("Agent runtime is stopping and cannot prepare queued work.");
+            reserveCompletion?.Invoke();
+            if (_preparedCount++ == 0)
+                _drained = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+
+        return new PreparedAgentWorkAdmission(
+            input,
+            commit: () =>
+            {
+                lock (_gate)
+                {
+                    var admitted = _writer.TryWrite(input);
+                    System.Diagnostics.Debug.Assert(admitted, "A shutdown-pinned prepared admission must remain writable.");
+                    ReleasePreparation();
+                }
+            },
+            abort: () =>
+            {
+                lock (_gate)
+                {
+                    abortCompletion?.Invoke();
+                    ReleasePreparation();
+                }
+            });
+    }
+
+    internal Task StopPreparing()
+    {
+        lock (_gate)
+        {
+            _stopping = true;
+            return _drained.Task;
+        }
+    }
+
+    private void ReleasePreparation()
+    {
+        if (--_preparedCount == 0)
+            _drained.TrySetResult();
+    }
+
+    private static TaskCompletionSource CompletedDrain()
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        completion.SetResult();
+        return completion;
+    }
 }

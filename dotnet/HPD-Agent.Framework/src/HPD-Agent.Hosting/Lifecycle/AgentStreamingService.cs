@@ -87,6 +87,7 @@ public sealed class AgentStreamingService : IAgentStreamingService
         }
 
         input = ApplyRouteScope(input, agentId, sessionId, threadId, execution.ThreadExecutionId);
+        input = agent.AuthorizeCoordinatorAssignedWork(input);
         var publisher = new AgentEventPublisher(
             _sessionManager.Store,
             agent.EventCoordinator,
