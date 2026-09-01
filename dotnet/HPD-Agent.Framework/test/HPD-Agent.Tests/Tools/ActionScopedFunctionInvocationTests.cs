@@ -159,11 +159,11 @@ public sealed class ActionScopedFunctionInvocationTests
             CancellationToken.None);
         var core = new FunctionExecutionCore(
             new Middleware.AgentMiddlewarePipeline([]));
-        var call = new FunctionCallContent(
+        var call = FunctionExecutionCore.NormalizeProviderFunctionCall(new FunctionCallContent(
             "call-1",
             function.Name,
             JsonSerializer.Deserialize<Dictionary<string, object?>>(
-                """{"request":{"action":"run","value":2}}""")!);
+                """{"request":{"action":"run","value":2}}""")!));
 
         var preparation = await core.PrepareFunctionAsync(
             call,
@@ -179,6 +179,61 @@ public sealed class ActionScopedFunctionInvocationTests
         Assert.Equal(
             FunctionArgumentIngressProvenance.Canonicalized,
             preparation.ResolvedInvocation?.IngressProvenance);
+    }
+
+    [Fact]
+    public async Task Preparation_RejectsUnmarkedAdHocDictionaryIngress()
+    {
+        JsonElement Schema()
+        {
+            using var document = JsonDocument.Parse("""
+                {
+                  "type":"object",
+                  "properties":{"request":{"oneOf":[
+                    {"type":"object","properties":{"action":{"type":"string","const":"read"}},"required":["action"],"additionalProperties":false},
+                    {"type":"object","properties":{"action":{"type":"string","const":"run"},"value":{"type":"integer"}},"required":["action","value"],"additionalProperties":false}
+                  ]}},
+                  "required":["request"],"additionalProperties":false
+                }
+                """);
+            return document.RootElement.Clone();
+        }
+
+        var function = Assert.IsType<HPDAIFunctionFactory.HPDAIFunction>(HPDAIFunctionFactory.Create(
+            (_, _, _) => Task.FromResult<object?>("ok"),
+            new HPDAIFunctionFactoryOptions
+            {
+                Name = "ActionTool",
+                SchemaProvider = Schema,
+                OperationContract = Contract()
+            }));
+        var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
+        var agentContext = new Middleware.AgentContext(
+            "AgentA",
+            "conversation-1",
+            state,
+            new HPD.Events.EventCoordinator(),
+            session: null,
+            thread: null,
+            CancellationToken.None);
+        var core = new FunctionExecutionCore(new Middleware.AgentMiddlewarePipeline([]));
+        var call = new FunctionCallContent(
+            "call-1",
+            function.Name,
+            JsonSerializer.Deserialize<Dictionary<string, object?>>(
+                """{"request":{"action":"run","value":2}}""")!);
+
+        var preparation = await core.PrepareFunctionAsync(
+            call,
+            new ChatOptions { Tools = [function] },
+            new AgentRunConfig(),
+            agentContext,
+            invocation: null,
+            CancellationToken.None,
+            admit: false);
+
+        var result = Assert.IsType<JsonElement>(preparation.ImmediateOutcome?.Result);
+        Assert.Equal("raw_json_required", result.GetProperty("errors")[0].GetProperty("error_code").GetString());
     }
 
     [Fact]

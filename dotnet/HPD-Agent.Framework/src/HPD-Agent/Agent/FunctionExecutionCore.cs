@@ -376,8 +376,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             }
             else
             {
-                if (hpdFunction.HPDOptions.OperationContract is not null &&
-                    hpdFunction.CanonicalInputContract is null)
+                if (hpdFunction.HPDOptions.OperationContract is not null)
                     return CreatePreparationRejection(functionCall, invocation, function, toolharnessName, callType,
                         "raw_json_required",
                         "Action-contracted functions require authoritative raw JSON arguments.");
@@ -778,6 +777,33 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
         invocationArguments.SetIngressProvenance(
             sourceArguments?.GetIngressProvenance() ?? FunctionArgumentIngressProvenance.Canonicalized);
         return invocationArguments;
+    }
+
+    /// <summary>
+    /// Normalizes a function call received directly from a model provider into HPD's trusted
+    /// canonical invocation representation.
+    /// </summary>
+    /// <param name="providerCall">The function call emitted by the active model provider.</param>
+    /// <returns>
+    /// The original call when it already carries authoritative JSON; otherwise, a call whose parsed
+    /// arguments carry canonicalized provenance. Duplicate-property evidence cannot be recovered
+    /// after an upstream provider adapter has parsed the JSON object.
+    /// </returns>
+    internal static FunctionCallContent NormalizeProviderFunctionCall(FunctionCallContent providerCall)
+    {
+        ArgumentNullException.ThrowIfNull(providerCall);
+        if (providerCall.Arguments is AIFunctionArguments supplied &&
+            supplied.GetJson().ValueKind != JsonValueKind.Undefined)
+        {
+            return providerCall;
+        }
+
+        return new FunctionCallContent(
+            providerCall.CallId,
+            providerCall.Name,
+            CreateInvocationArguments(
+                (IReadOnlyDictionary<string, object?>?)(providerCall.Arguments ??
+                    new Dictionary<string, object?>())));
     }
 
     internal async Task<FunctionExecutionOutcome> CompleteFunctionAsync(

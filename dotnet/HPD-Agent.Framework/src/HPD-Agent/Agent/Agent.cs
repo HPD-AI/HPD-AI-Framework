@@ -3461,7 +3461,7 @@ public sealed partial class Agent : IAsyncDisposable
                                         }
                                         else if (content is FunctionCallContent functionCall)
                                         {
-                                            toolRequests.Add(functionCall);
+                                            toolRequests.Add(FunctionExecutionCore.NormalizeProviderFunctionCall(functionCall));
                                             assistantContents.Add(functionCall);
                                         }
                                     }
@@ -3714,7 +3714,7 @@ public sealed partial class Agent : IAsyncDisposable
                                                 yield return new ToolCallArgsEvent(functionCall.CallId, argsJson) { TraceId = traceId };
                                             }
 
-                                            toolRequests.Add(functionCall);
+                                            toolRequests.Add(FunctionExecutionCore.NormalizeProviderFunctionCall(functionCall));
                                             assistantContents.Add(functionCall);
                                         }
                                     }
