@@ -56,6 +56,30 @@ public class HPDToolSourceGeneratorTests
     }
 
     [Fact]
+    public void GeneratedSubAgentDescriptor_CarriesToolHarnessActivationProvenance()
+    {
+        var source = """
+            using HPD.Agent;
+
+            namespace GeneratedContracts;
+
+            [Collapse("Specialists on demand.")]
+            public partial class ResearchHarness
+            {
+                [SubAgent]
+                public static SubAgent Researcher() => SubAgent.FromConfig(
+                    "research-agent", "researcher", "Researches.", new AgentConfig());
+            }
+            """;
+
+        var (generatedCode, diagnostics) = RunGenerator(source);
+
+        Assert.Empty(diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Contains("ParentToolHarness = @\"ResearchHarness\"", generatedCode);
+        Assert.Contains("RequiresToolHarnessActivation = true", generatedCode);
+    }
+
+    [Fact]
     public void GeneratedToolHarness_WithDynamicCollapseInstructions_ContainsCorrectCode()
     {
         // Arrange - Using an expression (method call) as attribute value

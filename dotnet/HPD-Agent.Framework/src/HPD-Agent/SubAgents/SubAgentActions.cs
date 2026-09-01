@@ -8,6 +8,10 @@ namespace HPD.Agent;
 /// <summary>Immutable generated declaration for one model-facing subagent creation action.</summary>
 public sealed record SubAgentActionDescriptor
 {
+    /// <summary>Gets the declaring ToolHarness model identity used for creation visibility.</summary>
+    public required string ParentToolHarness { get; init; }
+    /// <summary>Gets whether creation requires the declaring ToolHarness to be expanded.</summary>
+    public required bool RequiresToolHarnessActivation { get; init; }
     /// <summary>Gets the exact closed-union discriminator.</summary>
     public required string Action { get; init; }
     /// <summary>Gets the model-facing role description.</summary>

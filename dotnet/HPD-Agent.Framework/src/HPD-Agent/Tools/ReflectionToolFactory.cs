@@ -66,20 +66,25 @@ internal static class ReflectionToolFactory
             FunctionNames: methods.Select(GetCapabilityName).ToArray(),
             StableIdentity: $"{toolharnessType.Assembly.GetName().Name}:{toolharnessType.FullName ?? toolharnessType.Name}",
             Middleware: RejectReflectionMiddleware(collapseAttribute),
-            CreateSubAgentActions: instance => CreateSubAgentActionDescriptors(methods, instance));
+            CreateSubAgentActions: instance => CreateSubAgentActionDescriptors(
+                methods, instance, toolharnessType.Name, collapseAttribute is not null));
 
         return true;
     }
 
     private static IReadOnlyList<SubAgentActionDescriptor> CreateSubAgentActionDescriptors(
         IEnumerable<MethodInfo> methods,
-        object instance)
+        object instance,
+        string parentToolHarness,
+        bool requiresToolHarnessActivation)
     {
         return methods.Where(method => HasAttribute(method, "SubAgentAttribute")).Select(method =>
         {
             var definition = InvokeCapabilityMethod<SubAgent>(method, method.IsStatic ? null : instance);
             return new SubAgentActionDescriptor
             {
+                ParentToolHarness = parentToolHarness,
+                RequiresToolHarnessActivation = requiresToolHarnessActivation,
                 Action = definition.Name,
                 Description = definition.Description,
                 CapabilityId = CapabilityId.Create($"reflection:{method.DeclaringType?.FullName}.{method.Name}"),

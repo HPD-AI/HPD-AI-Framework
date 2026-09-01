@@ -1349,6 +1349,8 @@ namespace HPD.Agent.Diagnostics {{
         sb.AppendLine();
         sb.AppendLine("        static global::HPD.Agent.SubAgentActionDescriptor CreateDescriptor(global::HPD.Agent.SubAgent definition, global::HPD.Agent.CapabilityId capabilityId, bool requiresPermission) => new()");
         sb.AppendLine("        {");
+        sb.AppendLine($"            ParentToolHarness = @\"{toolHarness.EffectiveName.Replace("\"", "\"\"")}\",");
+        sb.AppendLine($"            RequiresToolHarnessActivation = {toolHarness.IsCollapsed.ToString().ToLowerInvariant()},");
         sb.AppendLine("            Action = definition.Name,");
         sb.AppendLine("            Description = definition.Description,");
         sb.AppendLine("            CapabilityId = capabilityId,");

@@ -25,6 +25,8 @@ var result = await ((HPDAIFunctionFactory.HPDAIFunction)function).InvokeAsync(
 
 var subAgentFunction = SubAgentsFunctionFactory.Create([new SubAgentActionDescriptor
 {
+    ParentToolHarness = "AotSmokeHarness",
+    RequiresToolHarnessActivation = false,
     Action = "reviewer",
     Description = "Reviews code.",
     CapabilityId = CapabilityId.Create("aot:reviewer"),

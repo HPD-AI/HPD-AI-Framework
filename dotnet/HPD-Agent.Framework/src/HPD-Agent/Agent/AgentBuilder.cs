@@ -2441,7 +2441,10 @@ public class AgentBuilder
         // Run after every framework tool-list mutator so unavailable thread-native
         // subagents cannot be reintroduced by collapsing or client-tool projection.
         if (buildData.MergedOptions?.Tools is not null)
-            _middlewares.Add(new SubAgentAvailabilityMiddleware(buildData.MergedOptions.Tools));
+            _middlewares.Add(new SubAgentAvailabilityMiddleware(
+                buildData.MergedOptions.Tools,
+                _config.Collapsing?.Enabled == true,
+                _config.Collapsing?.NeverCollapse));
 
         // Register LoggingMiddleware LAST (if enabled via WithLogging())
         // This ensures it logs the FINAL state after all other middleware have run

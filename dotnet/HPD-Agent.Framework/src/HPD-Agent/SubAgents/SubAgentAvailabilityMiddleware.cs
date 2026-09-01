@@ -8,10 +8,15 @@ namespace HPD.Agent;
 internal sealed class SubAgentAvailabilityMiddleware : IAgentMiddleware
 {
     private readonly IReadOnlyList<SubAgentActionDescriptor> _actions;
+    private readonly bool _toolHarnessActivationEnabled;
+    private readonly HashSet<string> _neverCollapse;
     private readonly ConcurrentDictionary<ProjectionKey, AIFunction?> _cache = new();
 
     /// <summary>Captures immutable role descriptors; functions are composed per parent revision.</summary>
-    public SubAgentAvailabilityMiddleware(IEnumerable<AITool> allTools)
+    public SubAgentAvailabilityMiddleware(
+        IEnumerable<AITool> allTools,
+        bool toolHarnessActivationEnabled,
+        IEnumerable<string>? neverCollapse = null)
     {
         ArgumentNullException.ThrowIfNull(allTools);
         _actions = allTools.OfType<AIFunction>()
@@ -20,6 +25,8 @@ internal sealed class SubAgentAvailabilityMiddleware : IAgentMiddleware
                 function.AdditionalProperties.TryGetValue("SubAgentActions", out var value) &&
                 value is IReadOnlyList<SubAgentActionDescriptor> actions ? actions : [])
             .ToArray();
+        _toolHarnessActivationEnabled = toolHarnessActivationEnabled;
+        _neverCollapse = new HashSet<string>(neverCollapse ?? [], StringComparer.OrdinalIgnoreCase);
     }
 
     /// <inheritdoc />
@@ -28,7 +35,10 @@ internal sealed class SubAgentAvailabilityMiddleware : IAgentMiddleware
         if (context.Options.Tools is null) return;
         var depth = context.GetParentAgentMetadata()?.Depth ?? 0;
         var maximumDepth = context.Base.Config?.MaxSubAgentDepth ?? 4;
+        var expanded = context.GetMiddlewareState<ContainerMiddlewareState>()?.ExpandedContainers
+            ?? System.Collections.Immutable.ImmutableHashSet<string>.Empty;
         var available = _actions.Where(action =>
+                IsCreationVisible(action, expanded) &&
                 depth < maximumDepth && action.Definition.Availability.AllowsInvocationFrom(depth))
             .ToArray();
         long generation = 0;
@@ -49,6 +59,8 @@ internal sealed class SubAgentAvailabilityMiddleware : IAgentMiddleware
         var parent = new ThreadKey(context.SessionId ?? string.Empty, context.ThreadId ?? string.Empty);
         var digest = string.Join('|', available.Select(static action => string.Join(':',
             action.Action,
+            action.ParentToolHarness,
+            action.RequiresToolHarnessActivation,
             action.Description,
             action.CapabilityId.Value,
             action.Definition.AgentId,
@@ -68,6 +80,14 @@ internal sealed class SubAgentAvailabilityMiddleware : IAgentMiddleware
             .Concat(function is null ? [] : [function])
             .ToList();
     }
+
+    private bool IsCreationVisible(
+        SubAgentActionDescriptor action,
+        System.Collections.Immutable.ImmutableHashSet<string> expanded) =>
+        !_toolHarnessActivationEnabled ||
+        !action.RequiresToolHarnessActivation ||
+        _neverCollapse.Contains(action.ParentToolHarness) ||
+        expanded.Contains(action.ParentToolHarness, StringComparer.OrdinalIgnoreCase);
 
     private readonly record struct ProjectionKey(
         ThreadKey Parent,

@@ -45,6 +45,8 @@ public class AgentBuilderWithToolTests
     {
         var descriptor = new SubAgentActionDescriptor
         {
+            ParentToolHarness = "TestHarness",
+            RequiresToolHarnessActivation = false,
             Action = "reviewer",
             Description = "Reviews code.",
             CapabilityId = CapabilityId.Create("test:reviewer"),
@@ -236,6 +238,8 @@ public class AgentBuilderWithToolTests
 
         Assert.Equal("support_escalation", subAgent.Action);
         Assert.Equal("Escalates support questions to a specialist.", subAgent.Description);
+        Assert.Equal(nameof(ReflectionAdvancedToolHarness), subAgent.ParentToolHarness);
+        Assert.False(subAgent.RequiresToolHarnessActivation);
     }
 
     [Fact]
