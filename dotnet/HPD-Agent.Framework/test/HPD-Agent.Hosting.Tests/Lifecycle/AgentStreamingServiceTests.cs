@@ -358,6 +358,96 @@ public sealed class AgentStreamingServiceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task SubmitInputAsync_RoutesSteeringBeforeNewWorkReservation()
+    {
+        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync(
+            "agent-1", "session-hosted-steer");
+        var stored = await _agentManager.CreateDefinitionAsync(new AgentConfig
+        {
+            Name = "agent-1",
+            Clients = new AgentClientsConfig
+            {
+                Chat = new ChatClientConfig
+                {
+                    Provider = TestAgentFactory.TestSelection(),
+                    ModelName = "test-model"
+                }
+            }
+        }, "agent-1");
+        await _agentManager.GetOrBuildAgentRuntimeAsync(stored.Id, sessionId, threadId);
+        _sessionManager.TryReserveThreadExecution(stored.Id, sessionId, threadId, out var execution)
+            .Should().BeTrue();
+        _sessionManager.ActivateThreadExecution(sessionId, threadId, execution.ThreadExecutionId)
+            .Should().BeTrue();
+
+        var submitted = await _service.SubmitInputAsync(
+            stored.Id,
+            sessionId,
+            threadId,
+            new UserMessagesInputEvent
+            {
+                Delivery = AgentInputDelivery.Steer,
+                ThreadExecutionId = execution.ThreadExecutionId,
+                Messages = [new ChatMessage(ChatRole.User, "steer")]
+            });
+
+        submitted.Status.Should().Be(AgentServiceStatus.Success);
+        submitted.ErrorCode.Should().BeNull();
+        submitted.Value!.Disposition.Should().Be("no_active_execution");
+        submitted.Value.ActiveExecution!.ThreadExecutionId.Should().Be(execution.ThreadExecutionId);
+    }
+
+    [Fact]
+    public async Task SubmitInputAsync_ReturnsMismatchForStaleSteeringExecutionId()
+    {
+        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync(
+            "agent-1", "session-hosted-stale-steer");
+        _sessionManager.TryReserveThreadExecution("agent-1", sessionId, threadId, out var execution)
+            .Should().BeTrue();
+        _sessionManager.ActivateThreadExecution(sessionId, threadId, execution.ThreadExecutionId)
+            .Should().BeTrue();
+
+        var submitted = await _service.SubmitInputAsync(
+            "agent-1",
+            sessionId,
+            threadId,
+            new UserMessagesInputEvent
+            {
+                Delivery = AgentInputDelivery.Steer,
+                ThreadExecutionId = "stale-execution",
+                Messages = [new ChatMessage(ChatRole.User, "steer")]
+            });
+
+        submitted.Status.Should().Be(AgentServiceStatus.Success);
+        submitted.Value!.Disposition.Should().Be("active_execution_mismatch");
+        submitted.Value.ActiveExecution!.ThreadExecutionId.Should().Be(execution.ThreadExecutionId);
+    }
+
+    [Fact]
+    public async Task SubmitInputAsync_QueuedWorkStillConflictsWithActiveExecution()
+    {
+        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync(
+            "agent-1", "session-hosted-queued-conflict");
+        _sessionManager.TryReserveThreadExecution("agent-1", sessionId, threadId, out var execution)
+            .Should().BeTrue();
+        _sessionManager.ActivateThreadExecution(sessionId, threadId, execution.ThreadExecutionId)
+            .Should().BeTrue();
+
+        var submitted = await _service.SubmitInputAsync(
+            "agent-1",
+            sessionId,
+            threadId,
+            new UserMessagesInputEvent
+            {
+                Delivery = AgentInputDelivery.Queue,
+                Messages = [new ChatMessage(ChatRole.User, "queue")]
+            });
+
+        submitted.Status.Should().Be(AgentServiceStatus.Conflict);
+        submitted.ErrorCode.Should().Be("ThreadExecutionActive");
+    }
+
+    [Fact]
     public async Task SubmitInputAsync_ExecutesSessionControlDirectlyWithoutReservingWorkSlot()
     {
         var (sessionId, threadId) = await _sessionManager.CreateSessionAsync(

@@ -63,6 +63,10 @@ public sealed class AgentStreamingService : IAgentStreamingService
         AgentInputEvent input,
         CancellationToken cancellationToken = default)
     {
+        if (input is UserMessagesInputEvent { Delivery: AgentInputDelivery.Steer })
+            return await SubmitActiveControlAsync(agentId, sessionId, threadId, input, cancellationToken)
+                .ConfigureAwait(false);
+
         var registration = AgentInputDispatcher.GetBuiltInRegistration(input.GetType());
         if (registration.RoutingClass == AgentInputRoutingClass.ActiveControl)
             return await SubmitActiveControlAsync(agentId, sessionId, threadId, input, cancellationToken)
