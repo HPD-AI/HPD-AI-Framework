@@ -48,4 +48,31 @@ await firstStore.AppendThreadEventAsync(
 
 var reopenedStore = new FileSessionStore(root, composition.Codec);
 var events = await reopenedStore.CollectThreadEventsAsync("aot-session", "main");
-return events?.OfType<AotFixtureEvent>().SingleOrDefault()?.Value == "persisted" ? 0 : 3;
+if (events?.OfType<AotFixtureEvent>().SingleOrDefault()?.Value != "persisted")
+    return 3;
+
+var policy = SubAgentRunConfig.Inherit().CompilePolicy();
+var parent = new ThreadKey("aot-session", "subagent-parent");
+await firstStore.AppendThreadEventAsync(parent.SessionId, parent.ThreadId,
+    new SubAgentCreationReservedEvent(new SubAgentCreationRecord
+    {
+        Key = new SubAgentCreationKey(parent, "call", CapabilityId.Create("aot:worker")),
+        Request = new SubAgentCreationRequest
+        {
+            RoleName = "worker",
+            ChildAgentId = "worker-agent",
+            Context = SubAgentCreationContext.Fresh,
+            InputFingerprint = "input",
+            ExecutionPolicy = policy
+        },
+        LocalId = new SubAgentLocalId("worker-1"),
+        ChildThread = new ThreadKey(parent.SessionId, "worker-thread"),
+        InvocationId = "invocation",
+        ThreadExecutionId = "execution",
+        Phase = SubAgentCreationPhase.Reserved,
+        Revision = 1,
+        CreatedAt = DateTimeOffset.UtcNow
+    }));
+var replayedPolicy = (await reopenedStore.CollectThreadEventsAsync(parent.SessionId, parent.ThreadId))?
+    .OfType<SubAgentCreationReservedEvent>().SingleOrDefault()?.Record.Request.ExecutionPolicy;
+return replayedPolicy == policy ? 0 : 6;

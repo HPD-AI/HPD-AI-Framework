@@ -7,8 +7,6 @@ namespace HPD.Agent;
 /// <summary>Projects the unified subagent action surface for the current parent and iteration.</summary>
 internal sealed class SubAgentAvailabilityMiddleware : IAgentMiddleware
 {
-    private readonly IReadOnlyList<SubAgentActionDescriptor> _actions;
-    private readonly SubAgentDeclarationCatalog _catalog;
     private readonly bool _toolHarnessActivationEnabled;
     private readonly HashSet<string> _neverCollapse;
     private readonly ConcurrentDictionary<ProjectionKey, AIFunction?> _cache = new();
@@ -20,13 +18,7 @@ internal sealed class SubAgentAvailabilityMiddleware : IAgentMiddleware
         IEnumerable<string>? neverCollapse = null)
     {
         ArgumentNullException.ThrowIfNull(allTools);
-        _actions = allTools.OfType<AIFunction>()
-            .Where(static function => string.Equals(function.Name, SubAgentsFunctionFactory.FunctionName, StringComparison.Ordinal))
-            .SelectMany(static function =>
-                function.AdditionalProperties.TryGetValue("SubAgentActions", out var value) &&
-                value is IReadOnlyList<SubAgentActionDescriptor> actions ? actions : [])
-            .ToArray();
-        _catalog = SubAgentDeclarationCatalog.Create(_actions);
+        _ = SubAgentDeclarationCatalog.Create(ReadActions(allTools));
         _toolHarnessActivationEnabled = toolHarnessActivationEnabled;
         _neverCollapse = new HashSet<string>(neverCollapse ?? [], StringComparer.OrdinalIgnoreCase);
     }
@@ -35,12 +27,14 @@ internal sealed class SubAgentAvailabilityMiddleware : IAgentMiddleware
     public async Task BeforeIterationAsync(BeforeIterationContext context, CancellationToken cancellationToken)
     {
         if (context.Options.Tools is null) return;
-        _catalog.ValidateOverrides(context.RunConfig.SubAgents);
+        var publishedActions = ReadActions(context.Options.Tools);
+        var catalog = SubAgentDeclarationCatalog.Create(publishedActions);
+        catalog.ValidateOverrides(context.RunConfig.SubAgents);
         var depth = context.GetParentAgentMetadata()?.Depth ?? 0;
         var maximumDepth = context.Base.Config?.MaxSubAgentDepth ?? 4;
         var expanded = context.GetMiddlewareState<ContainerMiddlewareState>()?.ExpandedContainers
             ?? System.Collections.Immutable.ImmutableHashSet<string>.Empty;
-        var available = _actions.Where(action =>
+        var available = publishedActions.Where(action =>
                 IsCreationVisible(action, expanded) &&
                 depth < maximumDepth && action.Definition.Availability.AllowsInvocationFrom(depth))
             .ToArray();
@@ -72,7 +66,7 @@ internal sealed class SubAgentAvailabilityMiddleware : IAgentMiddleware
             action.ContextPolicy,
             action.RequiresPermission,
             action.Definition.Availability.MaximumChildDepth)));
-        var projectionKey = new ProjectionKey(parent, generation, revision, depth, digest, _catalog.Revision, 1);
+        var projectionKey = new ProjectionKey(parent, generation, revision, depth, digest, catalog.Revision, 1);
         if (_cache.Count >= 256)
             _cache.Clear();
         var function = _cache.GetOrAdd(projectionKey, _ =>
@@ -83,6 +77,15 @@ internal sealed class SubAgentAvailabilityMiddleware : IAgentMiddleware
             .Concat(function is null ? [] : [function])
             .ToList();
     }
+
+    private static IReadOnlyList<SubAgentActionDescriptor> ReadActions(IEnumerable<AITool> tools) =>
+        tools.OfType<AIFunction>()
+            .Where(static function => string.Equals(
+                function.Name, SubAgentsFunctionFactory.FunctionName, StringComparison.Ordinal))
+            .SelectMany(static function =>
+                function.AdditionalProperties.TryGetValue("SubAgentActions", out var value) &&
+                value is IReadOnlyList<SubAgentActionDescriptor> actions ? actions : [])
+            .ToArray();
 
     private bool IsCreationVisible(
         SubAgentActionDescriptor action,

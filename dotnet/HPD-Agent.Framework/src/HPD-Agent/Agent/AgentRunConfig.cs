@@ -149,6 +149,9 @@ public class AgentRunConfig
     /// </summary>
     public AgentClientsConfig Clients { get; set; } = new();
 
+    [JsonIgnore]
+    internal SubAgentClientInheritanceSource? SubAgentClientInheritance { get; set; }
+
     /// <summary>Gets or sets per-run system-instruction behavior.</summary>
     public SystemInstructionsRunConfig? SystemInstructions { get; set; }
 

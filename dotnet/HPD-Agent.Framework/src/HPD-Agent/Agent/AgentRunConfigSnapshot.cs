@@ -40,6 +40,7 @@ internal static class AgentRunConfigSnapshot
             SubAgentRunConfigFields.All,
             composition);
         snapshot.Clients = CloneClients(source.Clients);
+        snapshot.SubAgentClientInheritance = source.SubAgentClientInheritance;
         snapshot.SubAgents = CloneSubAgentOverrides(source.SubAgents);
         SnapshotProviderPayloads(snapshot.Clients, composition);
         snapshot.Evaluations = SnapshotEvaluations(source.Evaluations);

@@ -126,7 +126,7 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
                 return new UriContent(directUri, info.ContentType);
             }
 
-            var hostedFileClient = GetHostedFileClient(context);
+            var hostedFileClient = await GetHostedFileClientAsync(context, cancellationToken).ConfigureAwait(false);
             if (hostedFileClient != null)
             {
                 var hosted = await UploadToHostedFileAsync(
@@ -229,15 +229,16 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
         };
     }
 
-    private IHostedFileClient? GetHostedFileClient(BeforeIterationContext context)
+    private static async ValueTask<IHostedFileClient?> GetHostedFileClientAsync(
+        BeforeIterationContext context,
+        CancellationToken cancellationToken)
     {
         if (context.RunConfig.Clients.HostedFiles?.Override?.Client is { } runClient)
             return runClient;
 
-        if (context.ClientSet?.HostedFiles is { } buildClient)
-            return buildClient;
-
-        return null;
+        return context.ClientSet is null ? null :
+            await context.ClientSet.ResolveFamilyAsync<IHostedFileClient>(
+                Providers.ProviderClientFamily.HostedFiles, cancellationToken).ConfigureAwait(false);
     }
 
     private static string ExtractContentId(Uri uri)

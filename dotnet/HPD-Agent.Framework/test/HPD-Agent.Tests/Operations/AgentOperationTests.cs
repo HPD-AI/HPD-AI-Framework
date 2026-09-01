@@ -1,4 +1,5 @@
 using HPD.Agent.Middleware;
+using HPD.Agent.Tests.Infrastructure;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Tests.Operations;
@@ -776,6 +777,59 @@ public sealed class AgentOperationTests
 
         Assert.Equal(expectedStatus, registry.Snapshot().Single().ProviderStatus);
         Assert.Equal(1, disposed);
+    }
+
+    [Fact]
+    public async Task FunctionExecutionContext_StartOperationAsync_OwnsSelectedChatLeaseUntilBackgroundCompletion()
+    {
+        var owner = new RecordingAsyncDisposable();
+        var handle = AgentChatClientHandle.Owned(
+            new FakeChatClient(), owner, AgentChatClientSource.RuntimeProvider);
+        await using var foregroundLease = handle.AcquireLease();
+        var capabilities = new RuntimeCapabilityRegistry();
+        await using var registry = new AgentOperationRegistry(new TestEventSink());
+        capabilities.Set(registry);
+        var state = AgentLoopState.InitialSafe([], "run", "conversation", "agent");
+        var session = new global::HPD.Agent.Session("session");
+        var thread = new Thread("session", "agent") { Id = "thread" };
+        var agentContext = new AgentContext(
+            "agent", "conversation", state, new HPD.Events.Core.EventCoordinator(),
+            session, thread, default,
+            effectiveChatClient: handle,
+            runtimeCapabilities: capabilities,
+            threadExecutionId: "execution");
+        var function = AIFunctionFactory.Create(() => "ok", "operation_tool");
+        var before = agentContext.AsBeforeFunction(
+            function, "call", new Dictionary<string, object?>(), new AgentRunConfig());
+        var functionContext = new FunctionExecutionContext(before, new FunctionRequest
+        {
+            Function = function,
+            CallId = "call",
+            Arguments = new Dictionary<string, object?>(),
+            State = state,
+            EventCoordinator = agentContext.EventCoordinator
+        });
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var receipt = await functionContext.StartOperationAsync(
+            "chat-owner", null, new AgentOperationNotificationPolicy(),
+            async (_, cancellationToken) =>
+            {
+                entered.TrySetResult();
+                await release.Task.WaitAsync(cancellationToken);
+                return new AgentOperationCompletion("done");
+            });
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await foregroundLease.DisposeAsync();
+        Assert.Equal(0, owner.DisposeCount);
+
+        release.TrySetResult();
+        await WaitUntilAsync(
+            () => registry.Snapshot().Single(value => value.OperationId == receipt.OperationId)
+                .ProviderStatus == AgentOperationProviderStatus.Completed,
+            TimeSpan.FromSeconds(5));
+        Assert.Equal(1, owner.DisposeCount);
     }
 
     [Fact]

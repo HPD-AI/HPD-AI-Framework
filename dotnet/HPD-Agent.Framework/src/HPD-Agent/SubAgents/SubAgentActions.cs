@@ -37,9 +37,18 @@ public sealed record SubAgentDeclarationCatalog
         var canonical = string.Join("\n", ordered.Select(static value => string.Join('|',
             value.CapabilityId.Value,
             value.ParentToolHarness,
+            value.RequiresToolHarnessActivation,
             value.Action,
             value.Definition.AgentId,
-            value.Definition.Name)));
+            value.Definition.Name,
+            value.Description,
+            value.Definition.RunConfig.CompilePolicy().Fingerprint,
+            AllowanceFingerprint(value.Definition.RunConfig.OverrideAllowance),
+            value.InvocationModePolicy,
+            value.InvocationModeHandling,
+            value.ContextPolicy,
+            value.RequiresPermission,
+            value.Definition.Availability.MaximumChildDepth)));
         return new SubAgentDeclarationCatalog
         {
             Revision = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
@@ -47,6 +56,19 @@ public sealed record SubAgentDeclarationCatalog
             Declarations = new ReadOnlyDictionary<CapabilityId, SubAgentActionDescriptor>(map)
         };
     }
+
+    private static string AllowanceFingerprint(SubAgentRunPolicyOverrideAllowance allowance) => string.Join(',',
+        (int)allowance.MayEnableInheritedFields,
+        (int)allowance.MayDisableInheritedFields,
+        allowance.Clients.Chat,
+        allowance.Clients.TextToSpeech,
+        allowance.Clients.SpeechToText,
+        allowance.Clients.Realtime,
+        allowance.Clients.ImageGeneration,
+        allowance.Clients.Embeddings,
+        allowance.Clients.HostedFiles,
+        allowance.Clients.VoiceActivityDetection,
+        allowance.Clients.EndOfTurnDetection);
 
     internal void ValidateOverrides(SubAgentRunOverrides overrides)
     {

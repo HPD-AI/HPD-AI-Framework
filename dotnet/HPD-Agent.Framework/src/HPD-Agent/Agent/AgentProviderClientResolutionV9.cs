@@ -11,121 +11,68 @@ public sealed partial class Agent
         CancellationToken cancellationToken)
     {
         var agent = Config ?? throw new InvalidOperationException("Agent configuration is not available.");
-        var composition = _chatClientResolver.Composition;
         var hasConfiguredFamily = Enum.GetValues<ProviderClientFamily>()
             .Where(static family => family is not ProviderClientFamily.Chat)
-            .Any(family => runConfig.Clients.GetFamilyConfig(family) is not null ||
+            .Any(family => runConfig.SubAgentClientInheritance?.GetMode(family) is not ClientFamilyInheritanceMode.UseOwn ||
+                runConfig.Clients.GetFamilyConfig(family) is not null ||
                 agent.Clients.GetFamilyConfig(family) is not null ||
                 agent.ProviderDefaults.Any(value => value.Family == family));
         if (!hasConfiguredFamily)
             return null;
-        var needsProviderComposition = Enum.GetValues<ProviderClientFamily>()
-            .Where(static family => family is not ProviderClientFamily.Chat)
-            .Any(family => NeedsProviderResolution(
-                family,
-                runConfig.Clients.GetFamilyConfig(family),
-                agent.Clients.GetFamilyConfig(family),
-                agent.ProviderDefaults));
-        if (needsProviderComposition && (composition is null || _providerRegistry is null))
-            throw new AgentRunConfigurationException(
-                "ProviderCompositionNotInstalled",
-                "clients",
-                "Provider client resolution requires a generated provider composition.");
-
         var leases = new List<IAsyncDisposable>();
         var resolved = new Dictionary<ProviderClientFamily, ProviderClientConfig>();
         var identities = new Dictionary<ProviderClientFamily, ProviderClientExecutionIdentity>();
-        try
+        var result = new AgentClientSet
         {
-            var textToSpeech = await ResolveFamilyAsync(
-                ProviderClientFamily.TextToSpeech,
-                runConfig.Clients.TextToSpeech,
-                _clientSet?.TextToSpeech,
-                Config.ClientMiddleware?.TextToSpeech,
-                _textToSpeechClientManager,
-                leases,
-                resolved,
-                identities,
-                cancellationToken).ConfigureAwait(false);
-            var speechToText = await ResolveFamilyAsync(
-                ProviderClientFamily.SpeechToText,
-                runConfig.Clients.SpeechToText,
-                _clientSet?.SpeechToText,
-                Config.ClientMiddleware?.SpeechToText,
-                _speechToTextClientManager,
-                leases,
-                resolved,
-                identities,
-                cancellationToken).ConfigureAwait(false);
-            var realtime = await ResolveFamilyAsync(
-                ProviderClientFamily.Realtime,
-                runConfig.Clients.Realtime,
-                _clientSet?.Realtime,
-                Config.ClientMiddleware?.Realtime,
-                _realtimeClientManager,
-                leases,
-                resolved,
-                identities,
-                cancellationToken).ConfigureAwait(false);
-            var image = await ResolveFamilyAsync(
-                ProviderClientFamily.ImageGeneration,
-                runConfig.Clients.ImageGeneration,
-                _clientSet?.ImageGenerator,
-                Config.ClientMiddleware?.ImageGeneration,
-                _imageGeneratorManager,
-                leases,
-                resolved,
-                identities,
-                cancellationToken).ConfigureAwait(false);
-            var embeddings = await ResolveFamilyAsync(
-                ProviderClientFamily.Embeddings,
-                runConfig.Clients.Embeddings,
-                _clientSet?.EmbeddingGenerator,
-                Config.ClientMiddleware?.Embeddings,
-                _embeddingGeneratorManager,
-                leases,
-                resolved,
-                identities,
-                cancellationToken).ConfigureAwait(false);
-            var hostedFiles = await ResolveFamilyAsync(
-                ProviderClientFamily.HostedFiles,
-                runConfig.Clients.HostedFiles,
-                _clientSet?.HostedFiles,
-                Config.ClientMiddleware?.HostedFiles,
-                _hostedFileClientManager,
-                leases,
-                resolved,
-                identities,
-                cancellationToken).ConfigureAwait(false);
-
-            var result = new AgentClientSet
-            {
-                TextToSpeech = textToSpeech,
-                SpeechToText = speechToText,
-                Realtime = realtime,
-                ImageGenerator = image,
-                EmbeddingGenerator = embeddings,
-                HostedFiles = hostedFiles,
-                ResolvedConfigs = resolved,
-                ExecutionIdentities = identities
-            };
-            // Provider-client managers own cached constructions. A run owns only
-            // the leases it acquired; disposing the client instances directly
-            // would poison cache entries that later runs are expected to reuse.
-            result.SetOwnedClients(new HashSet<object>(ReferenceEqualityComparer.Instance));
-            result.SetLeases(leases);
-            return result;
-        }
-        catch
-        {
-            for (var index = leases.Count - 1; index >= 0; index--)
-                await leases[index].DisposeAsync().ConfigureAwait(false);
-            throw;
-        }
+            ResolvedConfigs = resolved,
+            ExecutionIdentities = identities
+        };
+        result.SetOwnedClients(new HashSet<object>(ReferenceEqualityComparer.Instance));
+        result.SetLeases(leases);
+        result.SetFamilyResolver((family, token) => ResolveRequestedFamilyAsync(
+            family, runConfig, leases, resolved, identities, token));
+        return result;
     }
+
+    private async ValueTask<object?> ResolveRequestedFamilyAsync(
+        ProviderClientFamily family,
+        AgentRunConfig runConfig,
+        List<IAsyncDisposable> leases,
+        Dictionary<ProviderClientFamily, ProviderClientConfig> resolved,
+        Dictionary<ProviderClientFamily, ProviderClientExecutionIdentity> identities,
+        CancellationToken cancellationToken) => family switch
+    {
+        ProviderClientFamily.TextToSpeech => await ResolveFamilyAsync(
+            family, runConfig.SubAgentClientInheritance, runConfig.Clients.TextToSpeech,
+            _clientSet?.TextToSpeech, Config!.ClientMiddleware?.TextToSpeech,
+            _textToSpeechClientManager, leases, resolved, identities, cancellationToken).ConfigureAwait(false),
+        ProviderClientFamily.SpeechToText => await ResolveFamilyAsync(
+            family, runConfig.SubAgentClientInheritance, runConfig.Clients.SpeechToText,
+            _clientSet?.SpeechToText, Config!.ClientMiddleware?.SpeechToText,
+            _speechToTextClientManager, leases, resolved, identities, cancellationToken).ConfigureAwait(false),
+        ProviderClientFamily.Realtime => await ResolveFamilyAsync(
+            family, runConfig.SubAgentClientInheritance, runConfig.Clients.Realtime,
+            _clientSet?.Realtime, Config!.ClientMiddleware?.Realtime,
+            _realtimeClientManager, leases, resolved, identities, cancellationToken).ConfigureAwait(false),
+        ProviderClientFamily.ImageGeneration => await ResolveFamilyAsync(
+            family, runConfig.SubAgentClientInheritance, runConfig.Clients.ImageGeneration,
+            _clientSet?.ImageGenerator, Config!.ClientMiddleware?.ImageGeneration,
+            _imageGeneratorManager, leases, resolved, identities, cancellationToken).ConfigureAwait(false),
+        ProviderClientFamily.Embeddings => await ResolveFamilyAsync(
+            family, runConfig.SubAgentClientInheritance, runConfig.Clients.Embeddings,
+            _clientSet?.EmbeddingGenerator, Config!.ClientMiddleware?.Embeddings,
+            _embeddingGeneratorManager, leases, resolved, identities, cancellationToken).ConfigureAwait(false),
+        ProviderClientFamily.HostedFiles => await ResolveFamilyAsync(
+            family, runConfig.SubAgentClientInheritance, runConfig.Clients.HostedFiles,
+            _clientSet?.HostedFiles, Config!.ClientMiddleware?.HostedFiles,
+            _hostedFileClientManager, leases, resolved, identities, cancellationToken).ConfigureAwait(false),
+        ProviderClientFamily.VoiceActivityDetection or ProviderClientFamily.EndOfTurnDetection => null,
+        _ => throw new ArgumentOutOfRangeException(nameof(family))
+    };
 
     private async ValueTask<TClient?> ResolveFamilyAsync<TClient>(
         ProviderClientFamily family,
+        SubAgentClientInheritanceSource? inheritance,
         ProviderClientConfig? runConfig,
         TClient? builderDefault,
         IReadOnlyList<Func<TClient, IServiceProvider?, TClient>>? middleware,
@@ -136,21 +83,62 @@ public sealed partial class Agent
         CancellationToken cancellationToken)
         where TClient : class
     {
+        var inheritanceMode = inheritance?.GetMode(family) ?? ClientFamilyInheritanceMode.UseOwn;
+        if (inheritanceMode == ClientFamilyInheritanceMode.InheritResolved)
+            return await GetRequiredParentClientAsync<TClient>(
+                family, inheritance, resolved, identities, cancellationToken).ConfigureAwait(false);
+
+        if (inheritanceMode == ClientFamilyInheritanceMode.FallbackToParent)
+        {
+            var hasOwnPlan = runConfig is not null || builderDefault is not null ||
+                Config!.Clients.GetFamilyConfig(family) is not null ||
+                Config.ProviderDefaults.Any(value => value.Family == family);
+            if (!hasOwnPlan)
+                return await GetRequiredParentClientAsync<TClient>(
+                    family, inheritance, resolved, identities, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                return await ResolveOwnFamilyAsync().ConfigureAwait(false);
+            }
+            catch (AgentRunConfigurationException exception) when (
+                exception.Code is "ProviderDefaultRequired" or "ProviderProfileRequired")
+            {
+                return await GetRequiredParentClientAsync<TClient>(
+                    family, inheritance, resolved, identities, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        return await ResolveOwnFamilyAsync().ConfigureAwait(false);
+
+        async ValueTask<TClient?> ResolveOwnFamilyAsync()
+        {
         var runtimeOverride = GetOverride<TClient>(runConfig);
         if (runtimeOverride is not null)
-            return InstallRunOverride(runtimeOverride, leases);
+            return InstallRunOverride(runtimeOverride, family, runConfig, leases, resolved, identities);
         var agentOverride = GetOverride<TClient>(Config!.Clients.GetFamilyConfig(family));
         if (agentOverride is not null)
-            return InstallRunOverride(agentOverride, leases);
+            return InstallRunOverride(
+                agentOverride, family, Config.Clients.GetFamilyConfig(family), leases, resolved, identities);
         if (runConfig is null && builderDefault is not null)
+        {
+            CopyBuilderSelection(family, resolved, identities);
             return builderDefault;
+        }
 
         var agent = Config!;
         if (runConfig is null && agent.Clients.GetFamilyConfig(family) is null &&
             !agent.ProviderDefaults.Any(value => value.Family == family))
+        {
+            CopyBuilderSelection(family, resolved, identities);
             return builderDefault;
+        }
 
-        var composition = _chatClientResolver.Composition!;
+        var composition = _chatClientResolver.Composition;
+        if (composition is null || _providerRegistry is null)
+            throw new AgentRunConfigurationException(
+                "ProviderCompositionNotInstalled",
+                $"clients.{family}",
+                "Provider client resolution requires a generated provider composition.");
         var effective = new EffectiveProviderClientConfigResolver(composition)
             .Resolve(agent, family, runConfig is null ? null : CreateRunFamily(family, runConfig), _providerProfileIndex);
         var providerKey = effective.Provider.Backend.ProviderKey;
@@ -258,43 +246,50 @@ public sealed partial class Agent
         var authoring = runConfig ?? agent.Clients.GetFamilyConfig(family);
         if (authoring is not null)
             resolved[family] = ProviderClientConfigSnapshot.Clone(authoring);
-        identities[family] = new ProviderClientExecutionIdentity
-        {
-            ProviderKey = effective.Provider.Backend.ProviderKey,
-            BackendKey = effective.Provider.Backend.BackendKey,
-            Family = family,
-            ModelName = effective.ModelName,
-            OperationAdapterKey = $"{effective.Provider.Backend.ProviderKey}/{effective.Provider.Backend.BackendKey}/{family}",
-            UsageSemanticsKey = effective.Provider.Backend.ProviderKey,
-            SafeConfigurationFingerprint = effective.ConstructionFingerprint
-        };
+        identities[family] = ProviderClientExecutionIdentity.CreateSafe(
+            effective.Provider.Backend.ProviderKey,
+            effective.Provider.Backend.BackendKey,
+            family,
+            effective.ModelName,
+            $"{effective.Provider.Backend.ProviderKey}/{effective.Provider.Backend.BackendKey}/{family}",
+            effective.Provider.Backend.ProviderKey);
         return lease.Client;
+        }
     }
 
-    private static bool NeedsProviderResolution(
+    private void CopyBuilderSelection(
         ProviderClientFamily family,
-        ProviderClientConfig? runConfig,
-        ProviderClientConfig? agentConfig,
-        IEnumerable<AgentProviderFamilyDefault> defaults)
+        Dictionary<ProviderClientFamily, ProviderClientConfig> resolved,
+        Dictionary<ProviderClientFamily, ProviderClientExecutionIdentity> identities)
     {
-        if (HasOverride(family, runConfig) || HasOverride(family, agentConfig))
-            return false;
-
-        return runConfig is not null || agentConfig is not null ||
-            defaults.Any(value => value.Family == family);
+        if (_clientSet?.GetResolvedConfig(family) is { } config)
+            resolved[family] = config;
+        if (_clientSet?.GetExecutionIdentity(family) is { } identity)
+            identities[family] = identity;
     }
 
-    private static bool HasOverride(ProviderClientFamily family, ProviderClientConfig? config) =>
-        family switch
-        {
-            ProviderClientFamily.TextToSpeech => GetOverride<ITextToSpeechClient>(config) is not null,
-            ProviderClientFamily.SpeechToText => GetOverride<ISpeechToTextClient>(config) is not null,
-            ProviderClientFamily.Realtime => GetOverride<IRealtimeClient>(config) is not null,
-            ProviderClientFamily.ImageGeneration => GetOverride<IImageGenerator>(config) is not null,
-            ProviderClientFamily.Embeddings => GetOverride<IEmbeddingGenerator<string, Embedding<float>>>(config) is not null,
-            ProviderClientFamily.HostedFiles => GetOverride<IHostedFileClient>(config) is not null,
-            _ => false
-        };
+    private static async ValueTask<TClient> GetRequiredParentClientAsync<TClient>(
+        ProviderClientFamily family,
+        SubAgentClientInheritanceSource? inheritance,
+        Dictionary<ProviderClientFamily, ProviderClientConfig> resolved,
+        Dictionary<ProviderClientFamily, ProviderClientExecutionIdentity> identities,
+        CancellationToken cancellationToken)
+        where TClient : class
+    {
+        var parent = inheritance?.ParentClients;
+        var client = parent is null ? null : await parent.ResolveFamilyAsync<TClient>(
+            family, cancellationToken).ConfigureAwait(false);
+        if (client is null)
+            throw new AgentRunConfigurationException(
+                "subagent_parent_client_unavailable",
+                $"clients.{family}",
+                $"The controlling execution has no resolved {family} client.");
+        if (parent!.GetResolvedConfig(family) is { } config)
+            resolved[family] = config;
+        if (parent.GetExecutionIdentity(family) is { } identity)
+            identities[family] = identity;
+        return client;
+    }
 
     private static Func<CancellationToken, ValueTask<ProviderClientConstruction<TClient>>>
         CreateConstructionFactory<TClient>(
@@ -410,7 +405,11 @@ public sealed partial class Agent
 
     private static TClient InstallRunOverride<TClient>(
         ClientOverride<TClient> runtimeOverride,
-        List<IAsyncDisposable> leases)
+        ProviderClientFamily family,
+        ProviderClientConfig? config,
+        List<IAsyncDisposable> leases,
+        Dictionary<ProviderClientFamily, ProviderClientConfig> resolved,
+        Dictionary<ProviderClientFamily, ProviderClientExecutionIdentity> identities)
         where TClient : class
     {
         if (runtimeOverride is ClientOverride<TClient>.Transferred transferred)
@@ -421,6 +420,22 @@ public sealed partial class Agent
                 throw new InvalidOperationException("A transferred client override can be installed exactly once.");
             leases.Add(transferred.Owner);
         }
+        if (string.IsNullOrWhiteSpace(runtimeOverride.ProviderKey) ||
+            string.IsNullOrWhiteSpace(runtimeOverride.BackendKey) ||
+            string.IsNullOrWhiteSpace(runtimeOverride.OperationAdapterKey))
+            throw new AgentRunConfigurationException(
+                "subagent_provider_attribution_missing",
+                $"clients.{family}",
+                "A selected provider client override must declare provider, backend, and operation-adapter identity.");
+        if (config is not null)
+            resolved[family] = config;
+        identities[family] = ProviderClientExecutionIdentity.CreateSafe(
+            runtimeOverride.ProviderKey,
+            runtimeOverride.BackendKey,
+            family,
+            config?.ModelName,
+            runtimeOverride.OperationAdapterKey,
+            runtimeOverride.ProviderKey);
         return runtimeOverride.Client;
     }
 

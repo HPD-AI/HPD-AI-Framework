@@ -178,8 +178,31 @@ public sealed class FunctionExecutionContext
     /// <param name="executionOwner">Receives the lease that must be owned by the operation.</param>
     internal FunctionExecutionContext CreateOperationProjection(out IAsyncDisposable? executionOwner)
     {
-        executionOwner = _clientSet?.AcquireBorrowedLease();
+        executionOwner = AcquireOperationExecutionOwner();
         return new(this);
+    }
+
+    private IAsyncDisposable? AcquireOperationExecutionOwner()
+    {
+        var clientSetLease = _clientSet?.AcquireBorrowedLease();
+        AgentChatClientLease? chatLease = null;
+        try
+        {
+            chatLease = _effectiveChatClient?.AcquireLease();
+            return (clientSetLease, chatLease) switch
+            {
+                (null, null) => null,
+                (not null, null) => clientSetLease,
+                (null, not null) => chatLease,
+                _ => new CompositeExecutionOwner(clientSetLease!, chatLease!)
+            };
+        }
+        catch
+        {
+            if (clientSetLease is not null)
+                clientSetLease.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            throw;
+        }
     }
 
     public FunctionInvocationSnapshot InvocationSnapshot { get; }
@@ -281,7 +304,7 @@ public sealed class FunctionExecutionContext
             throw new InvalidOperationException("Operations require a session and thread address.");
         async ValueTask<AgentOperationReceipt> StartAsync()
         {
-            var clientExecutionOwner = _clientSet?.AcquireBorrowedLease();
+            var clientExecutionOwner = AcquireOperationExecutionOwner();
             try
             {
                 return await AgentLocalOperationScheduler.StartAsync(
@@ -309,6 +332,17 @@ public sealed class FunctionExecutionContext
         return _operationCommitGate is null
             ? StartAsync()
             : _operationCommitGate.StartOperationAsync(StartAsync, cancellationToken);
+    }
+
+    private sealed class CompositeExecutionOwner(
+        IAsyncDisposable clientSetLease,
+        IAsyncDisposable chatLease) : IAsyncDisposable
+    {
+        public async ValueTask DisposeAsync()
+        {
+            await chatLease.DisposeAsync().ConfigureAwait(false);
+            await clientSetLease.DisposeAsync().ConfigureAwait(false);
+        }
     }
 
 

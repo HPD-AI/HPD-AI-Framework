@@ -9,6 +9,42 @@ namespace HPD.Agent.ActionInvocation.Tests;
 public sealed class SubAgentCreationCrashRecoveryTests
 {
     [Fact]
+    public async Task PendingCreationProjectionRejectsTamperedExecutionPolicy()
+    {
+        var store = new InMemorySessionStore(CoreAgentEventComposition.Instance.Codec);
+        var parent = new ThreadKey("session", "parent");
+        await CreateParentAsync(store, parent);
+        var policy = SubAgentRunConfig.Inherit().CompilePolicy();
+        var key = new SubAgentCreationKey(parent, "call", CapabilityId.Create("test:worker"));
+        var record = new SubAgentCreationRecord
+        {
+            Key = key,
+            Request = new SubAgentCreationRequest
+            {
+                RoleName = "worker",
+                ChildAgentId = "worker-agent",
+                Context = SubAgentCreationContext.Fresh,
+                InputFingerprint = "input",
+                ExecutionPolicy = policy with { Fingerprint = new string('0', policy.Fingerprint.Length) }
+            },
+            LocalId = new SubAgentLocalId("worker-1"),
+            ChildThread = new ThreadKey("session", "child"),
+            InvocationId = "invocation",
+            ThreadExecutionId = "execution",
+            Phase = SubAgentCreationPhase.Reserved,
+            Revision = 1,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        await store.AppendThreadEventsAsync(parent,
+            [new SubAgentCreationReservedEvent(record)], cancellationToken: CancellationToken.None);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await new JournalSubAgentCreationStore(store).GetSubAgentCreationAsync(key));
+
+        Assert.Equal("subagent_execution_policy_mismatch", exception.Message);
+    }
+
+    [Fact]
     public async Task IsolatedCreationMaterializesAndReplaysTheReservedExactRoute()
     {
         var store = new InMemorySessionStore(CoreAgentEventComposition.Instance.Codec);

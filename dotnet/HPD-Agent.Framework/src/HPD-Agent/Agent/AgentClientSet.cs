@@ -14,6 +14,7 @@ public sealed class AgentClientSet : IAsyncDisposable
     private int _borrowCount;
     private bool _disposeRequested;
     private bool _disposed;
+    private AgentClientFamilyResolutionSource? _familyResolver;
     public IChatClient? Chat { get; init; }
     public ITextToSpeechClient? TextToSpeech { get; init; }
     public ISpeechToTextClient? SpeechToText { get; init; }
@@ -49,7 +50,13 @@ public sealed class AgentClientSet : IAsyncDisposable
                 ? new Dictionary<ProviderClientFamily, ProviderClientExecutionIdentity>()
                 : new Dictionary<ProviderClientFamily, ProviderClientExecutionIdentity>
                 {
-                    [ProviderClientFamily.Chat] = executionIdentity
+                    [ProviderClientFamily.Chat] = ProviderClientExecutionIdentity.CreateSafe(
+                        executionIdentity.ProviderKey,
+                        executionIdentity.BackendKey,
+                        ProviderClientFamily.Chat,
+                        executionIdentity.ModelName,
+                        executionIdentity.OperationAdapterKey,
+                        executionIdentity.UsageSemanticsKey)
                 }
         };
     }
@@ -66,6 +73,38 @@ public sealed class AgentClientSet : IAsyncDisposable
 
     internal void SetLeases(IReadOnlyList<IAsyncDisposable> leases)
         => _leases = leases;
+
+    internal void SetFamilyResolver(
+        Func<ProviderClientFamily, CancellationToken, ValueTask<object?>> resolver)
+        => _familyResolver = new AgentClientFamilyResolutionSource(resolver);
+
+    internal async ValueTask<TClient?> ResolveFamilyAsync<TClient>(
+        ProviderClientFamily family,
+        CancellationToken cancellationToken = default)
+        where TClient : class
+    {
+        var existing = GetFamilyClient(family);
+        if (existing is not null)
+            return existing as TClient ?? throw new InvalidOperationException(
+                $"Resolved family '{family}' does not implement '{typeof(TClient).Name}'.");
+        if (_familyResolver is null)
+            return null;
+        var resolved = await _familyResolver.ResolveAsync(family, cancellationToken).ConfigureAwait(false);
+        return resolved as TClient ?? (resolved is null ? null : throw new InvalidOperationException(
+            $"Resolved family '{family}' does not implement '{typeof(TClient).Name}'."));
+    }
+
+    private object? GetFamilyClient(ProviderClientFamily family) => family switch
+    {
+        ProviderClientFamily.Chat => Chat,
+        ProviderClientFamily.TextToSpeech => TextToSpeech,
+        ProviderClientFamily.SpeechToText => SpeechToText,
+        ProviderClientFamily.Realtime => Realtime,
+        ProviderClientFamily.ImageGeneration => ImageGenerator,
+        ProviderClientFamily.Embeddings => EmbeddingGenerator,
+        ProviderClientFamily.HostedFiles => HostedFiles,
+        _ => null
+    };
 
     internal IAsyncDisposable AcquireBorrowedLease()
     {
@@ -150,5 +189,27 @@ public sealed class AgentClientSet : IAsyncDisposable
             await asyncDisposable.DisposeAsync().ConfigureAwait(false);
         else if (value is IDisposable disposable)
             disposable.Dispose();
+    }
+
+    private sealed class AgentClientFamilyResolutionSource(
+        Func<ProviderClientFamily, CancellationToken, ValueTask<object?>> resolver)
+    {
+        private readonly object _gate = new();
+        private readonly Dictionary<ProviderClientFamily, Task<object?>> _resolved = [];
+
+        internal ValueTask<object?> ResolveAsync(
+            ProviderClientFamily family,
+            CancellationToken cancellationToken)
+        {
+            lock (_gate)
+            {
+                if (!_resolved.TryGetValue(family, out var task))
+                {
+                    task = resolver(family, cancellationToken).AsTask();
+                    _resolved.Add(family, task);
+                }
+                return new ValueTask<object?>(task);
+            }
+        }
     }
 }

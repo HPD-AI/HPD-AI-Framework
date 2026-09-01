@@ -213,7 +213,7 @@ public sealed class SubAgentRunConfigTests
     }
 
     [Fact]
-    public void InheritResolved_NonChatFamily_UsesCurrentParentPlanAndClient()
+    public void InheritResolved_NonChatFamily_InstallsWholeClientSourceWithoutCopyingConfiguration()
     {
         var client = new FakeTextToSpeechClient();
         var parentClients = new AgentClientSet
@@ -233,10 +233,11 @@ public sealed class SubAgentRunConfigTests
 
         var child = selection.Resolve(new AgentRunConfig(), parentClients, new AgentConfig());
 
-        child.Clients.TextToSpeech!.Provider?.Key.Should().Be("parent-speech");
-        child.Clients.TextToSpeech.ModelName.Should().Be("parent-model");
-        child.Clients.TextToSpeech.VoiceId.Should().Be("parent-voice");
-        child.Clients.TextToSpeech.Override!.Client.Should().BeSameAs(client);
+        child.Clients.TextToSpeech.Should().BeNull();
+        child.SubAgentClientInheritance.Should().NotBeNull();
+        child.SubAgentClientInheritance!.ParentClients.Should().BeSameAs(parentClients);
+        child.SubAgentClientInheritance.GetMode(ProviderClientFamily.TextToSpeech)
+            .Should().Be(ClientFamilyInheritanceMode.InheritResolved);
     }
 
     [Fact]

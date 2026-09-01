@@ -3292,8 +3292,11 @@ public sealed partial class Agent : IAsyncDisposable
                         var chatModel = selectedTransport is Middleware.AgentModelTransport.Chat
                             ? chatClientLease?.Client
                             : null;
-                        var realtimeModel = selectedTransport is Middleware.AgentModelTransport.Realtime
-                            ? effectiveClientSet?.Realtime
+                        var realtimeModel = selectedTransport is Middleware.AgentModelTransport.Realtime &&
+                            effectiveClientSet is not null
+                            ? await effectiveClientSet.ResolveFamilyAsync<IRealtimeClient>(
+                                Providers.ProviderClientFamily.Realtime,
+                                effectiveCancellationToken).ConfigureAwait(false)
                             : null;
 
                         if (selectedTransport is Middleware.AgentModelTransport.Chat && chatModel is null)
@@ -3453,6 +3456,11 @@ public sealed partial class Agent : IAsyncDisposable
                             var selectedIdentity = family is Providers.ProviderClientFamily.Chat
                                 ? chatClientLease?.Handle.ExecutionIdentity
                                 : effectiveClientSet?.GetExecutionIdentity(family);
+                            if (selectedIdentity is null)
+                                throw new AgentRunConfigurationException(
+                                    "subagent_provider_attribution_missing",
+                                    $"clients.{family}",
+                                    "The selected runtime client has no safe execution identity.");
                             var operationId = Guid.NewGuid().ToString("N");
                             ProviderOperationAccountingScope.Current?.RegisterAttempt(new(
                                 operationId, logicalModelOperationId, attemptNumber,
@@ -3460,8 +3468,8 @@ public sealed partial class Agent : IAsyncDisposable
                                     ? ProviderOperationKind.RealtimeModelResponse
                                     : ProviderOperationKind.ChatModelResponse,
                                 family,
-                                selectedIdentity?.ProviderKey ?? selected?.Provider?.Key,
-                                selectedIdentity?.ModelName ?? selected?.ModelName));
+                                selectedIdentity.ProviderKey,
+                                selectedIdentity.ModelName));
                             ProviderUsageAccumulator? usageAccumulator = null;
                             UsageUpdateSemantics ResolveAttemptUsageSemantics()
                             {
@@ -3471,10 +3479,10 @@ public sealed partial class Agent : IAsyncDisposable
                                     : request.ChatModel?.GetService(typeof(ProviderStreamingUsageSemanticsDeclaration))
                                         as ProviderStreamingUsageSemanticsDeclaration;
                                 return ProviderStreamingUsageSemanticsCatalog.Resolve(
-                                    selectedIdentity?.ProviderKey ?? selected?.Provider?.Key, family, declaration);
+                                    selectedIdentity.ProviderKey, family, declaration);
                             }
                             var transcriptionAttempts = new Dictionary<string, (string OperationId, UsageDetails? Usage)>(StringComparer.Ordinal);
-                            string? attemptModelId = selectedIdentity?.ModelName ?? selected?.ModelName;
+                            string? attemptModelId = selectedIdentity.ModelName;
                             string? attemptResponseId = null;
                             await using var attemptEnumerator = modelTurnExecutor
                                 .RunAsync(request, attemptCancellationToken)

@@ -3,8 +3,6 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using System.Security.Cryptography;
-using System.Text;
 
 namespace HPD.Agent;
 
@@ -76,7 +74,9 @@ internal sealed class AgentChatClientHandle
         EffectiveProviderClientConfig? effectiveConfig)
     {
         if (client.GetService(typeof(ProviderClientExecutionIdentity)) is ProviderClientExecutionIdentity declared)
-            return declared;
+            return ProviderClientExecutionIdentity.CreateSafe(
+                declared.ProviderKey, declared.BackendKey, ProviderClientFamily.Chat,
+                declared.ModelName, declared.OperationAdapterKey, declared.UsageSemanticsKey);
         var provider = effectiveConfig?.Provider.Backend.ProviderKey ?? resolvedConfig?.Provider?.Key;
         var backend = effectiveConfig?.Provider.Backend.BackendKey ?? resolvedConfig?.Provider?.Backend;
         if (string.IsNullOrWhiteSpace(provider) || string.IsNullOrWhiteSpace(backend))
@@ -84,18 +84,10 @@ internal sealed class AgentChatClientHandle
         var usage = client.GetService(typeof(ProviderStreamingUsageSemanticsDeclaration))
             as ProviderStreamingUsageSemanticsDeclaration;
         var adapter = usage?.AdapterId ?? $"{provider}/{backend}/chat";
-        var fingerprint = effectiveConfig?.ConstructionFingerprint ?? Convert.ToHexString(SHA256.HashData(
-            Encoding.UTF8.GetBytes(string.Join('|', provider, backend, resolvedConfig?.ModelName, adapter))));
-        return new ProviderClientExecutionIdentity
-        {
-            ProviderKey = provider,
-            BackendKey = backend,
-            Family = ProviderClientFamily.Chat,
-            ModelName = effectiveConfig?.ModelName ?? resolvedConfig?.ModelName,
-            OperationAdapterKey = adapter,
-            UsageSemanticsKey = usage?.AdapterId ?? provider,
-            SafeConfigurationFingerprint = fingerprint
-        };
+        return ProviderClientExecutionIdentity.CreateSafe(
+            provider, backend, ProviderClientFamily.Chat,
+            effectiveConfig?.ModelName ?? resolvedConfig?.ModelName,
+            adapter, usage?.AdapterId ?? provider);
     }
 
     internal static ProviderClientExecutionIdentity? CreateOverrideExecutionIdentity(
@@ -104,7 +96,9 @@ internal sealed class AgentChatClientHandle
         ProviderClientConfig? config)
     {
         if (client.GetService(typeof(ProviderClientExecutionIdentity)) is ProviderClientExecutionIdentity declared)
-            return declared;
+            return ProviderClientExecutionIdentity.CreateSafe(
+                declared.ProviderKey, declared.BackendKey, ProviderClientFamily.Chat,
+                declared.ModelName, declared.OperationAdapterKey, declared.UsageSemanticsKey);
         var provider = value.ProviderKey ?? config?.Provider?.Key;
         var backend = value.BackendKey ?? config?.Provider?.Backend;
         var usage = client.GetService(typeof(ProviderStreamingUsageSemanticsDeclaration))
@@ -112,17 +106,9 @@ internal sealed class AgentChatClientHandle
         var adapter = value.OperationAdapterKey ?? usage?.AdapterId;
         if (string.IsNullOrWhiteSpace(provider) || string.IsNullOrWhiteSpace(backend) || string.IsNullOrWhiteSpace(adapter))
             return null;
-        return new ProviderClientExecutionIdentity
-        {
-            ProviderKey = provider,
-            BackendKey = backend,
-            Family = ProviderClientFamily.Chat,
-            ModelName = config?.ModelName,
-            OperationAdapterKey = adapter,
-            UsageSemanticsKey = usage?.AdapterId ?? provider,
-            SafeConfigurationFingerprint = Convert.ToHexString(SHA256.HashData(
-                Encoding.UTF8.GetBytes(string.Join('|', provider, backend, config?.ModelName, adapter))))
-        };
+        return ProviderClientExecutionIdentity.CreateSafe(
+            provider, backend, ProviderClientFamily.Chat, config?.ModelName,
+            adapter, usage?.AdapterId ?? provider);
     }
 
     public AgentChatClientLease AcquireLease()

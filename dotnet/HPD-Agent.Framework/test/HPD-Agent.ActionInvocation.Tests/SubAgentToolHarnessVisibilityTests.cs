@@ -46,6 +46,22 @@ public sealed class SubAgentToolHarnessVisibilityTests
     }
 
     [Fact]
+    public async Task PublishedHarnessRevisionReplacesThePinnedDeclarationCatalogForANewIteration()
+    {
+        var core = CreateDescriptor("core", "CoreHarness", requiresActivation: false);
+        var initial = SubAgentsFunctionFactory.Create([core]);
+        var middleware = new SubAgentAvailabilityMiddleware([initial], toolHarnessActivationEnabled: true);
+        var research = CreateDescriptor("researcher", "ResearchHarness", requiresActivation: false);
+        var refreshed = SubAgentsFunctionFactory.Create([core, research]);
+        var context = CreateIterationContext([refreshed]);
+
+        await middleware.BeforeIterationAsync(context, CancellationToken.None);
+
+        var function = Assert.IsAssignableFrom<AIFunction>(Assert.Single(context.Options.Tools!));
+        Assert.Equal(["core", "researcher"], GetRoleActions(function).Order());
+    }
+
+    [Fact]
     public async Task ExistingChildKeepsControlSurfaceWhenCreationHarnessIsInactive()
     {
         var store = new InMemorySessionStore(CoreAgentEventComposition.Instance.Codec);

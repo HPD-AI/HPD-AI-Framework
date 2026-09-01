@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json.Serialization;
 
 namespace HPD.Agent.Providers;
@@ -225,6 +227,34 @@ public sealed record ProviderClientExecutionIdentity
     public required string UsageSemanticsKey { get; init; }
     /// <summary>Gets a stable fingerprint containing no credential or authorization material.</summary>
     public required string SafeConfigurationFingerprint { get; init; }
+
+    internal static ProviderClientExecutionIdentity CreateSafe(
+        string providerKey,
+        string backendKey,
+        ProviderClientFamily family,
+        string? modelName,
+        string operationAdapterKey,
+        string usageSemanticsKey)
+    {
+        var canonical = string.Join('\n',
+            providerKey.Trim().ToLowerInvariant(),
+            backendKey.Trim().ToLowerInvariant(),
+            ((int)family).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            modelName?.Trim() ?? string.Empty,
+            operationAdapterKey.Trim(),
+            usageSemanticsKey.Trim());
+        return new ProviderClientExecutionIdentity
+        {
+            ProviderKey = providerKey,
+            BackendKey = backendKey,
+            Family = family,
+            ModelName = modelName,
+            OperationAdapterKey = operationAdapterKey,
+            UsageSemanticsKey = usageSemanticsKey,
+            SafeConfigurationFingerprint = Convert.ToHexString(
+                SHA256.HashData(Encoding.UTF8.GetBytes(canonical)))
+        };
+    }
 }
 
 /// <summary>Deeply immutable portable defaults shared by the nine provider-family factories.</summary>

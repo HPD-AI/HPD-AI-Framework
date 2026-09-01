@@ -296,14 +296,19 @@ internal sealed record SubAgentCreationProjection(
                 switch (evt)
                 {
                     case SubAgentCreationReservedEvent reserved:
+                        reserved.Record.Request.ExecutionPolicy.Validate();
                         records[reserved.Record.Key] = reserved.Record;
                         break;
                     case SubAgentCreationAdvancedEvent advanced:
+                        advanced.Record.Request.ExecutionPolicy.Validate();
                         records[advanced.Record.Key] = advanced.Record;
                         break;
                     case SubAgentRegistrySeedEvent seed:
                         foreach (var record in seed.PendingCreations)
+                        {
+                            record.Request.ExecutionPolicy.Validate();
                             records[record.Key] = record;
+                        }
                         break;
                 }
             }

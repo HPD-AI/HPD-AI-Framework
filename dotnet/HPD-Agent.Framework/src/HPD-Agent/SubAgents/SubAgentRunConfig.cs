@@ -406,77 +406,7 @@ public sealed class SubAgentRunConfig
         AgentConfig? childDefaults,
         AgentClientInheritance clients)
     {
-        if (parentClients is null)
-            return;
-
-        InheritFamily(ProviderClientFamily.Realtime, clients.Realtime);
-        InheritFamily(ProviderClientFamily.ImageGeneration, clients.ImageGeneration);
-        InheritFamily(ProviderClientFamily.Embeddings, clients.Embeddings);
-        InheritFamily(ProviderClientFamily.TextToSpeech, clients.TextToSpeech);
-        InheritFamily(ProviderClientFamily.SpeechToText, clients.SpeechToText);
-        InheritFamily(ProviderClientFamily.HostedFiles, clients.HostedFiles);
-
-        void InheritFamily(ProviderClientFamily family, ClientFamilyInheritanceMode mode)
-        {
-            if (mode == ClientFamilyInheritanceMode.UseOwn)
-                return;
-
-            var own = result.Clients.GetFamilyConfig(family);
-            if (mode == ClientFamilyInheritanceMode.FallbackToParent &&
-                (own is not null || childDefaults?.ResolveClientConfig(family) is not null))
-                return;
-
-            var parent = parentClients.GetResolvedConfig(family);
-            var parentClient = GetClient(parentClients, family);
-            if (parent is null || parentClient is null)
-                return;
-
-            var inherited = ProviderClientConfigSnapshot.Clone(parent);
-            if (own is not null)
-                inherited = EffectiveProviderClientConfigResolver.OverlayResolvedInheritance(parent, own);
-            if (own?.Provider is null)
-                SetOverride(inherited, family, parentClient);
-            result.Clients.SetFamilyConfig(family, inherited);
-        }
-    }
-
-    private static object? GetClient(AgentClientSet clients, ProviderClientFamily family) => family switch
-    {
-        ProviderClientFamily.Realtime => clients.Realtime,
-        ProviderClientFamily.ImageGeneration => clients.ImageGenerator,
-        ProviderClientFamily.Embeddings => clients.EmbeddingGenerator,
-        ProviderClientFamily.TextToSpeech => clients.TextToSpeech,
-        ProviderClientFamily.SpeechToText => clients.SpeechToText,
-        ProviderClientFamily.HostedFiles => clients.HostedFiles,
-        _ => null
-    };
-
-    private static void SetOverride(
-        ProviderClientConfig config,
-        ProviderClientFamily family,
-        object client)
-    {
-        switch (family)
-        {
-            case ProviderClientFamily.Realtime:
-                ((RealtimeClientConfig)config).Override = ClientOverride<Microsoft.Extensions.AI.IRealtimeClient>.Borrow((Microsoft.Extensions.AI.IRealtimeClient)client);
-                break;
-            case ProviderClientFamily.ImageGeneration:
-                ((ImageGenerationClientConfig)config).Override = ClientOverride<Microsoft.Extensions.AI.IImageGenerator>.Borrow((Microsoft.Extensions.AI.IImageGenerator)client);
-                break;
-            case ProviderClientFamily.Embeddings:
-                ((EmbeddingsClientConfig)config).Override = ClientOverride<Microsoft.Extensions.AI.IEmbeddingGenerator>.Borrow((Microsoft.Extensions.AI.IEmbeddingGenerator)client);
-                break;
-            case ProviderClientFamily.TextToSpeech:
-                ((TextToSpeechClientConfig)config).Override = ClientOverride<Microsoft.Extensions.AI.ITextToSpeechClient>.Borrow((Microsoft.Extensions.AI.ITextToSpeechClient)client);
-                break;
-            case ProviderClientFamily.SpeechToText:
-                ((SpeechToTextClientConfig)config).Override = ClientOverride<Microsoft.Extensions.AI.ISpeechToTextClient>.Borrow((Microsoft.Extensions.AI.ISpeechToTextClient)client);
-                break;
-            case ProviderClientFamily.HostedFiles:
-                ((HostedFilesClientConfig)config).Override = ClientOverride<Microsoft.Extensions.AI.IHostedFileClient>.Borrow((Microsoft.Extensions.AI.IHostedFileClient)client);
-                break;
-        }
+        result.SubAgentClientInheritance = new SubAgentClientInheritanceSource(parentClients, clients);
     }
 
     internal static SubAgentRunConfigFields ValidateFields(SubAgentRunConfigFields fields)
@@ -485,6 +415,25 @@ public sealed class SubAgentRunConfig
             throw new ArgumentOutOfRangeException(nameof(fields), fields, "Unknown subagent run-configuration fields.");
         return fields;
     }
+}
+
+internal sealed record SubAgentClientInheritanceSource(
+    AgentClientSet? ParentClients,
+    AgentClientInheritance Modes)
+{
+    internal ClientFamilyInheritanceMode GetMode(ProviderClientFamily family) => family switch
+    {
+        ProviderClientFamily.Chat => Modes.Chat,
+        ProviderClientFamily.Realtime => Modes.Realtime,
+        ProviderClientFamily.ImageGeneration => Modes.ImageGeneration,
+        ProviderClientFamily.Embeddings => Modes.Embeddings,
+        ProviderClientFamily.TextToSpeech => Modes.TextToSpeech,
+        ProviderClientFamily.SpeechToText => Modes.SpeechToText,
+        ProviderClientFamily.HostedFiles => Modes.HostedFiles,
+        ProviderClientFamily.VoiceActivityDetection => Modes.VoiceActivityDetection,
+        ProviderClientFamily.EndOfTurnDetection => Modes.EndOfTurnDetection,
+        _ => throw new ArgumentOutOfRangeException(nameof(family))
+    };
 }
 
 internal static class AgentRunConfigInheritance

@@ -1251,60 +1251,6 @@ public static class SubAgentRuntime
         return new SubAgentWaitItem(localId, executionId, "unavailable");
     }
 
-    private static async ValueTask<SubAgentLocalId?> RegisterChildAsync(
-        SubAgentInvocationRequest request,
-        SubAgentInvocationRoute route,
-        SubAgentContextPolicy contextPolicy,
-        CancellationToken cancellationToken)
-    {
-        var context = request.ParentContext;
-        var store = context?.GetParentSessionStore();
-        if (context?.SessionId is null || context.ThreadId is null || store is null)
-            return null;
-        var parent = new ThreadKey(context.SessionId, context.ThreadId);
-        var registry = new SubAgentChildRegistry(store);
-        for (var attempt = 0; attempt < 8; attempt++)
-        {
-            var projection = await registry.ProjectAsync(parent, cancellationToken: cancellationToken)
-                .ConfigureAwait(false);
-            var availableChildren = projection.Entries.Values.OfType<SubAgentAvailableChild>()
-                .Select(static entry => entry.Child).ToArray();
-            var replay = availableChildren.FirstOrDefault(child =>
-                string.Equals(child.ParentToolCallId, context.FunctionCallId, StringComparison.Ordinal) &&
-                child.CapabilityId == request.CapabilityId);
-            if (replay is not null) return replay.LocalId;
-            var ordinal = projection.Entries.Values.Count(entry =>
-                string.Equals(entry.RoleName, request.Definition.Name, StringComparison.Ordinal)) + 1;
-            var localId = new SubAgentLocalId($"{Normalize(request.Definition.Name)}-{ordinal}");
-            var child = new SubAgentChildReference
-            {
-                LocalId = localId,
-                RoleName = request.Definition.Name,
-                CapabilityId = request.CapabilityId,
-                ChildAgentId = request.Definition.AgentId,
-                ChildThread = new ThreadKey(route.SessionId, route.ThreadId),
-                CreationContext = contextPolicy switch
-                {
-                    SubAgentContextPolicy.Fork => SubAgentCreationContext.Fork,
-                    SubAgentContextPolicy.Fresh => SubAgentCreationContext.Fresh,
-                    SubAgentContextPolicy.Isolated => SubAgentCreationContext.Isolated,
-                    _ => throw new InvalidOperationException("ModelChoice must resolve before child registration.")
-                },
-                CreationInvocationId = route.InvocationId,
-                ParentToolCallId = context.FunctionCallId,
-                ExecutionPolicy = request.Definition.RunConfig.Compile(),
-                CreatedAt = DateTimeOffset.UtcNow
-            };
-            try
-            {
-                return (await registry.RegisterAsync(parent, child, cancellationToken).ConfigureAwait(false)).LocalId;
-            }
-            catch (InvalidOperationException exception) when (
-                exception.Message == "subagent_creation_conflict" && attempt < 7) { }
-        }
-        throw new InvalidOperationException("subagent_creation_conflict");
-    }
-
     /// <summary>
     /// Resolves the session and thread used by a subagent invocation.
     /// </summary>
