@@ -147,7 +147,7 @@ internal static class ThreadEndpoints
         }
     }
 
-    private static async Task<Results<Created<ThreadDto>, NotFound, ValidationProblem>> ForkThread(
+    private static async Task<Results<Created<ThreadForkResultDto>, NotFound, ValidationProblem>> ForkThread(
         string agentId,
         string sid,
         string bid,
@@ -160,7 +160,8 @@ internal static class ThreadEndpoints
             var result = await threads.ForkThreadAsync(agentId, sid, bid, request, ct);
             return result.Status switch
             {
-                AgentServiceStatus.Success => TypedResults.Created($"/sessions/{sid}/threads/{result.Value!.Id}", result.Value),
+                AgentServiceStatus.Success => TypedResults.Created(
+                    $"/sessions/{sid}/threads/{result.Value!.Target.Id}", result.Value),
                 AgentServiceStatus.NotFound => TypedResults.NotFound(),
                 _ => Validation(result, "ForkThreadError", "Fork thread failed.")
             };
