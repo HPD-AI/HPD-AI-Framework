@@ -97,7 +97,11 @@ internal sealed class EvalTurnCapture
                 break;
 
             case PermissionResponseEvent e:
-                buffer.RecordPermissionResponse(e.PermissionId, e.Approved);
+                buffer.RecordPermissionResponse();
+                break;
+
+            case PermissionDeniedEvent e:
+                buffer.RecordPermissionDenied(e.FunctionCallId);
                 break;
 
             case AgentTurnCapabilitiesPinnedEvent e:

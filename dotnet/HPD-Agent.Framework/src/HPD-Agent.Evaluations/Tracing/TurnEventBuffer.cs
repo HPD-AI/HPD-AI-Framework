@@ -101,14 +101,9 @@ internal sealed class TurnEventBuffer
         _permissionCallIds[permissionId] = callId;
     }
 
-    public void RecordPermissionResponse(string permissionId, bool approved)
+    public void RecordPermissionResponse()
     {
         RecordEvent();
-        if (approved)
-            return;
-
-        if (_permissionCallIds.TryGetValue(permissionId, out var callId))
-            _deniedCallIds[callId] = true;
     }
 
     public void RecordCapabilities(AgentTurnCapabilityIdentity identity)
