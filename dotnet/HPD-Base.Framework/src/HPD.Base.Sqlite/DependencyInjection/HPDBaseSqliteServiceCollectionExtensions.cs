@@ -26,6 +26,10 @@ public static class HPDBaseSqliteServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configured);
+        if (services.Any(static descriptor => descriptor.ServiceType == typeof(IRecordStore)
+                || descriptor.ServiceType == typeof(IRecordMutationStore)
+                || descriptor.ServiceType == typeof(IAtomicRecordStore)))
+            throw new InvalidOperationException("base.store.authorityAmbiguous");
         if (services.Any(static descriptor => descriptor.ServiceType == typeof(HPDBaseSqliteOptions) || descriptor.ServiceType == typeof(IOptions<HPDBaseSqliteOptions>)))
             throw new InvalidOperationException("base.store.authorityAmbiguous");
         HPDBaseSqliteOptions options = Clone(configured);
@@ -45,13 +49,18 @@ public static class HPDBaseSqliteServiceCollectionExtensions
                     ? provider.GetRequiredService<BaseOpaqueTokenProtector>()
                     : null,
                 mutationProjectionContributors: provider.GetServices<ISqliteAtomicMutationProjection>(),
-                semanticCertificationOwner: provider.GetService<BaseInstalledSemanticActivationProviderOwner>());
+                semanticCertificationOwner: provider.GetService<BaseInstalledSemanticActivationProviderOwner>(),
+                logicalIndexCapability: options.LogicalIndexCertificationCapability);
         });
         services.TryAddSingleton<IRecordStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
         services.TryAddSingleton<IRecordMutationStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
         services.TryAddSingleton<IAtomicRecordStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
         services.TryAddSingleton<IBaseSubjectLifecycleStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
         services.TryAddSingleton<ITransactionalMutationJournalStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
+        services.TryAddSingleton<IBaseStudioDynamicStoreAuthoritySource>(provider => provider.GetRequiredService<SqliteRecordStore>());
+        services.TryAddSingleton<IBaseStudioControlInspectionStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
+        services.TryAddSingleton<IBaseStudioEvidenceStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
+        services.TryAddSingleton<IBaseStudioInfrastructureInventoryStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
         if (options.ContributeRelationalDescriptors)
         {
             services.TryAddSingleton<SqliteRelationalDescriptorProvider>();
@@ -115,5 +124,7 @@ public static class HPDBaseSqliteServiceCollectionExtensions
         SubjectRetirementConsumers = value.SubjectRetirementConsumers.Select(static item => BaseSubjectRetirementRegistry.Normalize(item)).ToArray(),
         SubjectRetirementPolicies = value.SubjectRetirementPolicies.Select(static item => BaseSubjectRetirementRegistry.NormalizePolicy(item)).ToArray(),
         SubjectLifecycleInspectionAuthorities = value.SubjectLifecycleInspectionAuthorities.Select(static item => item with { }).ToArray(),
+        LogicalIndexCertificationCapability = value.LogicalIndexCertificationCapability is null
+            ? null : BaseLogicalIndexProviderContract.CloneCapability(value.LogicalIndexCertificationCapability),
     };
 }

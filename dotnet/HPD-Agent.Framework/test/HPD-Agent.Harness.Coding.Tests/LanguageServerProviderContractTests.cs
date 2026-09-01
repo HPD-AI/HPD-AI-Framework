@@ -421,6 +421,7 @@ public sealed class LanguageServerProviderContractTests
 
     private sealed class CancellationAwareProvider : ILanguageServerProvider
     {
+        public string ConfigurationIdentity => "cancellation-aware:v1";
         public ValueTask<string?> ResolveRootAsync(LanguageServerRootContext context, CancellationToken cancellationToken = default)
             => ValueTask.FromResult<string?>(context.WorkspaceRoot);
 
@@ -436,6 +437,7 @@ public sealed class LanguageServerProviderContractTests
 
     private sealed class BlockingLaunchProvider : ILanguageServerProvider
     {
+        public string ConfigurationIdentity => "blocking-launch:v1";
         public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public ValueTask<string?> ResolveRootAsync(LanguageServerRootContext context, CancellationToken cancellationToken = default)

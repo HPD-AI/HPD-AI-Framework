@@ -12,7 +12,9 @@ namespace HPD.Agent.Tests.SourceGenerator;
 
 public class HPDToolSourceGeneratorTests
 {
-    private static (string? generatedCode, ImmutableArray<Diagnostic> diagnostics) RunGenerator(string source)
+    private static (string? generatedCode, ImmutableArray<Diagnostic> diagnostics) RunGenerator(
+        string source,
+        bool includeCompilationDiagnostics = false)
     {
         var parseOptions = CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Latest);
 
@@ -40,6 +42,9 @@ public class HPDToolSourceGeneratorTests
                 optionsProvider: null)
             .RunGeneratorsAndUpdateCompilation(compilation, out var outputCompilation, out var diagnostics);
 
+        if (includeCompilationDiagnostics)
+            diagnostics = diagnostics.AddRange(outputCompilation.GetDiagnostics());
+
         var generatedSyntaxTrees = outputCompilation.SyntaxTrees
             .Where(st => st.FilePath.Contains("g.cs")) // Filter for generated files
             .ToImmutableArray();
@@ -48,6 +53,30 @@ public class HPDToolSourceGeneratorTests
         var generatedSourceCode = string.Join("\n\n", generatedSyntaxTrees.Select(st => st.GetText().ToString()));
 
         return (generatedSourceCode, diagnostics);
+    }
+
+    [Fact]
+    public void GeneratedSubAgentDescriptor_CarriesToolHarnessActivationProvenance()
+    {
+        var source = """
+            using HPD.Agent;
+
+            namespace GeneratedContracts;
+
+            [Collapse("Specialists on demand.")]
+            public partial class ResearchHarness
+            {
+                [SubAgent]
+                public static SubAgent Researcher() => SubAgent.FromConfig(
+                    "research-agent", "researcher", "Researches.", new AgentConfig());
+            }
+            """;
+
+        var (generatedCode, diagnostics) = RunGenerator(source);
+
+        Assert.Empty(diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Contains("ParentToolHarness = @\"ResearchHarness\"", generatedCode);
+        Assert.Contains("RequiresToolHarnessActivation = true", generatedCode);
     }
 
     [Fact]
@@ -214,21 +243,162 @@ namespace TestToolHarnesses
         Assert.DoesNotContain("JsonSerializer.Deserialize", generatedCode);
     }
 
-    // ── T047 ─────────────────────────────────────────────────────────────────
-    // §5A: middleware with a single-config-parameter constructor → emitted into
-    // CollapseMiddlewareConfigFactories with the correct MiddlewareTypeName and
-    // a Factory lambda that deserialises the JsonElement.
     [Fact]
-    public void SourceGen_EmitsCollapseMiddlewareConfigFactories_ForConfigCtorMiddleware()
+    public void GeneratedToolHarness_ActionUnion_ComposesBranchPolicyBeforeFactory()
+    {
+        var source = """
+            using System.Text.Json.Serialization;
+            using HPD.Agent;
+            namespace GeneratedContracts
+            {
+                [JsonPolymorphic(TypeDiscriminatorPropertyName = "action")]
+                [JsonDerivedType(typeof(Read), "read")]
+                [JsonDerivedType(typeof(Run), "run")]
+                public abstract record Request;
+                [AIFunctionAction("read")]
+                public sealed record Read(string Id) : Request;
+                [AIFunctionAction("run", InvocationModePolicy = AIFunctionActionInvocationModePolicy.ModelChoice,
+                    InvocationModeHandling = AIFunctionActionInvocationModeHandling.ToolBody)]
+                public sealed record Run(string Id) : Request;
+                [Collapse("Action", FunctionResult = "ok")]
+                public partial class Harness
+                {
+                    [AIFunction]
+                    public string Execute(Request request) => "ok";
+                }
+            }
+            """;
+
+        var (generatedCode, diagnostics) = RunGenerator(source);
+
+        Assert.Empty(diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Contains("VerifiedAIFunctionActionComposition", generatedCode);
+        Assert.DoesNotContain("OperationContractSchemaComposed", generatedCode);
+        Assert.Contains("AIFunctionOperationContract", generatedCode);
+        Assert.Contains("\\\"invocationMode\\\"", generatedCode);
+    }
+
+    [Fact]
+    public void GeneratedToolHarness_ActionMismatch_ReportsDiagnostic()
+    {
+        var source = """
+            using System.Text.Json.Serialization;
+            using HPD.Agent;
+            namespace GeneratedContracts
+            {
+                [JsonPolymorphic(TypeDiscriminatorPropertyName = "action")]
+                [JsonDerivedType(typeof(Read), "read")]
+                public abstract record Request;
+                [AIFunctionAction("wrong")]
+                public sealed record Read(string Id) : Request;
+                [Collapse("Action", FunctionResult = "ok")]
+                public partial class Harness
+                {
+                    [AIFunction]
+                    public string Execute(Request request) => "ok";
+                }
+            }
+            """;
+
+        var (_, diagnostics) = RunGenerator(source);
+
+        Assert.Contains(diagnostics, diagnostic => diagnostic.Id == "HPD070");
+    }
+
+    [Fact]
+    public void GeneratedToolHarness_InvalidActionEnum_ReportsDiagnostic()
+    {
+        var source = """
+            using System.Text.Json.Serialization;
+            using HPD.Agent;
+            namespace GeneratedContracts
+            {
+                [JsonPolymorphic(TypeDiscriminatorPropertyName = "action")]
+                [JsonDerivedType(typeof(Read), "read")]
+                public abstract record Request;
+                [AIFunctionAction("read", InvocationModePolicy = (AIFunctionActionInvocationModePolicy)99)]
+                public sealed record Read(string Id) : Request;
+                [Collapse("Action", FunctionResult = "ok")]
+                public partial class Harness
+                {
+                    [AIFunction] public string Execute(Request request) => "ok";
+                }
+            }
+            """;
+
+        var (_, diagnostics) = RunGenerator(source);
+
+        Assert.Contains(diagnostics, diagnostic => diagnostic.Id == "HPD070");
+    }
+
+    [Fact]
+    public void GeneratedToolHarness_ActionAnnotationOutsideUnion_ReportsDiagnostic()
+    {
+        var source = """
+            using HPD.Agent;
+            namespace GeneratedContracts
+            {
+                [AIFunctionAction("read")]
+                public sealed record Request(string Id);
+                [Collapse("Action", FunctionResult = "ok")]
+                public partial class Harness
+                {
+                    [AIFunction] public string Execute(Request request) => "ok";
+                }
+            }
+            """;
+
+        var (_, diagnostics) = RunGenerator(source);
+
+        Assert.Contains(diagnostics, diagnostic => diagnostic.Id == "HPD070");
+    }
+
+    [Fact]
+    public void GeneratedToolHarness_UndeclaredDerivedAction_ReportsDiagnostic()
+    {
+        var source = """
+            using System.Text.Json.Serialization;
+            using HPD.Agent;
+            namespace GeneratedContracts
+            {
+                [JsonPolymorphic(TypeDiscriminatorPropertyName = "action")]
+                [JsonDerivedType(typeof(Read), "read")]
+                public abstract record Request;
+                [AIFunctionAction("read")]
+                public sealed record Read(string Id) : Request;
+                [AIFunctionAction("hidden")]
+                public sealed record Hidden(string Id) : Request;
+                [Collapse("Action", FunctionResult = "ok")]
+                public partial class Harness
+                {
+                    [AIFunction] public string Execute(Request request) => "ok";
+                }
+            }
+            """;
+
+        var (_, diagnostics) = RunGenerator(source);
+
+        Assert.Contains(diagnostics, diagnostic => diagnostic.Id == "HPD070");
+    }
+
+    // ── T047 ─────────────────────────────────────────────────────────────────
+    // Config constructors become generated execution-owned descriptors.
+    [Fact]
+    public void SourceGen_EmitsExecutionOwnedDescriptor_ForConfigCtorMiddleware()
     {
         var source = @"
 using HPD.Agent;
 using HPD.Agent.Middleware;
 using System;
+using System.Text.Json.Serialization;
 
 namespace Ns
 {
+    [ToolHarnessJsonContext(typeof(ConfigCtorJsonContext))]
     public class MyConfig { }
+
+    [JsonSerializable(typeof(MyConfig))]
+    public partial class ConfigCtorJsonContext : JsonSerializerContext { }
 
     public class ConfigCtorMiddleware : IToolHarnessMiddleware
     {
@@ -248,15 +418,14 @@ namespace Ns
 
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
         Assert.NotNull(generatedCode);
-        Assert.Contains("CollapseMiddlewareConfigFactories:", generatedCode);
-        Assert.Contains(@"MiddlewareTypeName: ""ConfigCtorMiddleware""", generatedCode);
-        Assert.Contains("Factory: static json => new", generatedCode);
+        Assert.Contains("Middleware: new global::HPD.Agent.ToolHarnessMiddlewareDescriptor[]", generatedCode);
+        Assert.Contains("MiddlewareType = typeof(global::Ns.ConfigCtorMiddleware)", generatedCode);
+        Assert.Contains("ToolHarnessMiddlewareActivation.ExecutionOwned", generatedCode);
         Assert.Contains("ConfigCtorMiddleware(", generatedCode);
         AssertDoesNotContainGenericRawTextDeserialize(generatedCode, "Ns.MyConfig", "MyConfig");
-        Assert.Contains("JsonSerializer.Deserialize(json, GetJsonTypeInfo<Ns.MyConfig>())", StripGlobalQualifiers(generatedCode));
-        Assert.Contains("No JSON metadata is registered for collapse middleware config type", generatedCode);
-        // Parameterless bucket must be null (no parameterless-ctor middlewares)
-        Assert.Contains("CollapseMiddlewareFactories: null,", generatedCode);
+        Assert.Contains(
+            "context.GetConfiguration(GetJsonTypeInfo<Ns.MyConfig>(Ns.ConfigCtorJsonContext.Default))",
+            StripGlobalQualifiers(generatedCode));
     }
 
     [Fact]
@@ -363,10 +532,9 @@ namespace Ns
     }
 
     // ── T048 ─────────────────────────────────────────────────────────────────
-    // §factory: middleware with a parameterless constructor → emitted into
-    // CollapseMiddlewareFactories as a static lambda; config bucket stays null.
+    // Parameterless constructors become generated execution-owned descriptors.
     [Fact]
-    public void SourceGen_EmitsCollapseMiddlewareFactories_ForParameterlessCtorMiddleware()
+    public void SourceGen_EmitsExecutionOwnedDescriptor_ForParameterlessCtorMiddleware()
     {
         var source = @"
 using HPD.Agent;
@@ -393,11 +561,9 @@ namespace Ns
 
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
         Assert.NotNull(generatedCode);
-        Assert.Contains("CollapseMiddlewareFactories: new global::System.Func<global::HPD.Agent.Middleware.IAgentMiddleware>[]", generatedCode);
-        Assert.Contains("static () => new", generatedCode);
+        Assert.Contains("Middleware: new global::HPD.Agent.ToolHarnessMiddlewareDescriptor[]", generatedCode);
+        Assert.Contains("ToolHarnessMiddlewareActivation.ExecutionOwned", generatedCode);
         Assert.Contains("ParamlessMiddleware()", generatedCode);
-        // Config bucket must be null (no config-ctor middlewares)
-        Assert.Contains("CollapseMiddlewareConfigFactories: null", generatedCode);
     }
 
     // ── T049 ─────────────────────────────────────────────────────────────────
@@ -413,7 +579,7 @@ using System;
 
 namespace Ns
 {
-    public class MultiParamMiddleware : IAgentMiddleware
+    public class MultiParamMiddleware : IToolHarnessMiddleware
     {
         public MultiParamMiddleware(string a, int b) { }
     }
@@ -430,6 +596,350 @@ namespace Ns
         var (generatedCode, diagnostics) = RunGenerator(source);
 
         Assert.Contains(diagnostics, d => d.Id == "HPDAG0204" && d.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void SourceGen_Emits_HPDAG0209_WhenMiddlewareConfigHasNoGeneratedJsonContext()
+    {
+        var source = @"
+using HPD.Agent;
+using HPD.Agent.Middleware;
+
+namespace Ns
+{
+    public sealed class SampleOptions { }
+    public sealed class ConfiguredMiddleware : IToolHarnessMiddleware
+    {
+        public ConfiguredMiddleware(SampleOptions config) { }
+    }
+
+    [Collapse(""Configured toolharness"", FunctionResult = ""ok"",
+        Middlewares = [typeof(ConfiguredMiddleware)])]
+    public partial class ConfiguredToolHarness
+    {
+        [AIFunction]
+        public string Ping() => ""pong"";
+    }
+}
+";
+        var (_, diagnostics) = RunGenerator(source);
+
+        Assert.Contains(diagnostics, diagnostic =>
+            diagnostic.Id == "HPDAG0209" && diagnostic.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void SourceGen_EmitsBalancedAotConfigFactory_WhenContextContainsMetadata()
+    {
+        var source = @"
+using HPD.Agent;
+using HPD.Agent.Middleware;
+using System.Text.Json.Serialization;
+
+namespace Ns
+{
+    [ToolHarnessJsonContext(typeof(SampleJsonContext))]
+    public sealed class SampleOptions { }
+    [JsonSerializable(typeof(SampleOptions))]
+    public partial class SampleJsonContext : JsonSerializerContext { }
+    public sealed class ConfiguredMiddleware : IToolHarnessMiddleware
+    {
+        public ConfiguredMiddleware(SampleOptions config) { }
+    }
+
+    [Collapse(""Configured toolharness"", FunctionResult = ""ok"",
+        Middlewares = [typeof(ConfiguredMiddleware)])]
+    public partial class ConfiguredToolHarness
+    {
+        [AIFunction]
+        public string Ping() => ""pong"";
+    }
+}
+";
+        var (generatedCode, diagnostics) = RunGenerator(source);
+
+        Assert.DoesNotContain(diagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.Contains(
+            "ToolHarnessMiddlewareActivation.ExecutionOwned(new global::Ns.ConfiguredMiddleware(context.GetConfiguration(GetJsonTypeInfo<global::Ns.SampleOptions>(global::Ns.SampleJsonContext.Default))))",
+            generatedCode);
+    }
+
+    [Fact]
+    public void SourceGen_OptionalConfigConstructor_EmitsAotSafeGeneratedDefault()
+    {
+        var source = @"
+using HPD.Agent;
+using HPD.Agent.Middleware;
+using System.Text.Json.Serialization;
+
+namespace Ns
+{
+    [ToolHarnessJsonContext(typeof(OptionalJsonContext))]
+    public sealed class OptionalConfig { }
+    [JsonSerializable(typeof(OptionalConfig))]
+    public partial class OptionalJsonContext : JsonSerializerContext { }
+    public sealed class OptionalMiddleware : IToolHarnessMiddleware
+    {
+        public OptionalMiddleware(OptionalConfig? config = null) { }
+    }
+    [Collapse(""Optional"", Middlewares = [typeof(OptionalMiddleware)])]
+    public partial class OptionalHarness
+    {
+        [AIFunction]
+        public string Ping() => ""pong"";
+    }
+}
+";
+
+        var (generatedCode, diagnostics) = RunGenerator(source);
+
+        Assert.Empty(diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Contains(
+            "context.GetConfigurationOrDefault(GetJsonTypeInfo<Ns.OptionalConfig>(Ns.OptionalJsonContext.Default), static () => new Ns.OptionalConfig())",
+            StripGlobalQualifiers(generatedCode));
+    }
+
+    [Fact]
+    public void SourceGen_Emits_HPDAG0211_ForAmbiguousExecutionActivationShapes()
+    {
+        var source = @"
+using HPD.Agent;
+using HPD.Agent.Middleware;
+namespace Ns
+{
+    public sealed class SampleOptions { }
+    public sealed class AmbiguousMiddleware : IToolHarnessMiddleware
+    {
+        public AmbiguousMiddleware() { }
+        public AmbiguousMiddleware(SampleOptions options) { }
+    }
+    [Collapse(""Ambiguous"", Middlewares = [typeof(AmbiguousMiddleware)])]
+    public partial class Harness { [AIFunction] public string Ping() => ""pong""; }
+}
+";
+        var (_, diagnostics) = RunGenerator(source);
+        Assert.Contains(diagnostics, diagnostic => diagnostic.Id == "HPDAG0211");
+    }
+
+    [Fact]
+    public void SourceGen_ServicesOwnershipSuppressesConstructorActivationAndUsesExactChildScope()
+    {
+        var source = @"
+using HPD.Agent;
+using HPD.Agent.Middleware;
+namespace Ns
+{
+    [ToolHarnessMiddlewareLifetime(ToolHarnessMiddlewareOwnership.Services)]
+    public sealed class ServicesMiddleware : IToolHarnessMiddleware
+    {
+        public ServicesMiddleware() { }
+    }
+    [Collapse(""Services"", Middlewares = [typeof(ServicesMiddleware)])]
+    public partial class Harness { [AIFunction] public string Ping() => ""pong""; }
+}
+";
+        var (generatedCode, diagnostics) = RunGenerator(source);
+        Assert.DoesNotContain(diagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.Contains(
+            "ToolHarnessMiddlewareActivation.ServicesOwned(context.GetRequiredService<global::Ns.ServicesMiddleware>())",
+            generatedCode);
+        Assert.DoesNotContain("new global::Ns.ServicesMiddleware()", generatedCode);
+    }
+
+    [Fact]
+    public void SourceGen_PreservesMiddlewareDeclarationOrder()
+    {
+        var source = """
+            using HPD.Agent;
+            using HPD.Agent.Middleware;
+            namespace Ns
+            {
+                public sealed class First : IToolHarnessMiddleware { }
+                public sealed class Second : IToolHarnessMiddleware { }
+                public sealed class Third : IToolHarnessMiddleware { }
+                [Collapse("Ordered", Middlewares = [typeof(Second), typeof(First), typeof(Third)])]
+                public partial class Harness { [AIFunction] public string Ping() => "pong"; }
+            }
+            """;
+
+        var (generatedCode, diagnostics) = RunGenerator(source);
+
+        Assert.Empty(diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        var second = generatedCode!.IndexOf("MiddlewareType = typeof(global::Ns.Second)", StringComparison.Ordinal);
+        var first = generatedCode.IndexOf("MiddlewareType = typeof(global::Ns.First)", StringComparison.Ordinal);
+        var third = generatedCode.IndexOf("MiddlewareType = typeof(global::Ns.Third)", StringComparison.Ordinal);
+        Assert.True(second >= 0 && second < first && first < third);
+    }
+
+    [Fact]
+    public void SourceGen_DoesNotInferServicesOwnershipFromDisposalOrConstructorShape()
+    {
+        var source = """
+            using System;
+            using System.Threading.Tasks;
+            using HPD.Agent;
+            using HPD.Agent.Middleware;
+            namespace Ns
+            {
+                public sealed class DisposableMiddleware : IToolHarnessMiddleware, IDisposable, IAsyncDisposable
+                {
+                    public void Dispose() { }
+                    public ValueTask DisposeAsync() => default;
+                }
+                [Collapse("Owned", Middlewares = [typeof(DisposableMiddleware)])]
+                public partial class Harness { [AIFunction] public string Ping() => "pong"; }
+            }
+            """;
+
+        var (generatedCode, diagnostics) = RunGenerator(source);
+
+        Assert.Empty(diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Contains("ToolHarnessMiddlewareActivation.ExecutionOwned(new global::Ns.DisposableMiddleware())", generatedCode);
+        Assert.DoesNotContain("ToolHarnessMiddlewareActivation.ServicesOwned", generatedCode);
+    }
+
+    [Fact]
+    public void SourceGen_DoesNotInferServicesOwnershipFromDiRegistrationPresence()
+    {
+        var source = """
+            using HPD.Agent;
+            using HPD.Agent.Middleware;
+            using Microsoft.Extensions.DependencyInjection;
+            namespace Ns
+            {
+                public sealed class Candidate : IToolHarnessMiddleware { }
+                public static class Registration
+                {
+                    public static void Add(IServiceCollection services) => services.AddScoped<Candidate>();
+                }
+                [Collapse("DI", Middlewares = [typeof(Candidate)])]
+                public partial class Harness { [AIFunction] public string Ping() => "pong"; }
+            }
+            """;
+
+        var (generatedCode, diagnostics) = RunGenerator(source);
+
+        Assert.Empty(diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Contains(
+            "ToolHarnessMiddlewareActivation.ExecutionOwned(new global::Ns.Candidate())",
+            generatedCode);
+        Assert.DoesNotContain("ToolHarnessMiddlewareActivation.ServicesOwned", generatedCode);
+    }
+
+    [Theory]
+    [InlineData("public sealed class Candidate { }", "Outer.Candidate", "HPDAG0203")]
+    [InlineData("public abstract class Candidate : IToolHarnessMiddleware { }", "Outer.Candidate", "HPDAG0206")]
+    [InlineData("public sealed class Candidate<T> : IToolHarnessMiddleware { }", "Outer.Candidate<int>", "HPDAG0206")]
+    [InlineData("private sealed class Candidate : IToolHarnessMiddleware { }", "Outer.Candidate", "HPDAG0206")]
+    public void SourceGen_RejectsInvalidMiddlewareContracts(
+        string declaration,
+        string typeExpression,
+        string diagnosticId)
+    {
+        var source = $$"""
+            using HPD.Agent;
+            using HPD.Agent.Middleware;
+            namespace Ns
+            {
+                public static class Outer
+                {
+                    {{declaration}}
+                }
+                [Collapse("Invalid", Middlewares = [typeof({{typeExpression}})])]
+                public partial class Harness { [AIFunction] public string Ping() => "pong"; }
+            }
+            """;
+
+        var (_, diagnostics) = RunGenerator(source);
+
+        Assert.Contains(diagnostics, diagnostic => diagnostic.Id == diagnosticId && diagnostic.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void SourceGen_Emits_HPDAG0205_ForDuplicateMiddleware()
+    {
+        var source = """
+            using HPD.Agent;
+            using HPD.Agent.Middleware;
+            namespace Ns
+            {
+                public sealed class Candidate : IToolHarnessMiddleware { }
+                [Collapse("Duplicate", Middlewares = [typeof(Candidate), typeof(Candidate)])]
+                public partial class Harness { [AIFunction] public string Ping() => "pong"; }
+            }
+            """;
+
+        var (_, diagnostics) = RunGenerator(source);
+        Assert.Contains(diagnostics, diagnostic => diagnostic.Id == "HPDAG0205");
+    }
+
+    [Fact]
+    public void SourceGen_Emits_HPDAG0207_ForInvalidOwnershipMetadata()
+    {
+        var source = """
+            using HPD.Agent;
+            using HPD.Agent.Middleware;
+            namespace Ns
+            {
+                [ToolHarnessMiddlewareLifetime((ToolHarnessMiddlewareOwnership)99)]
+                public sealed class Candidate : IToolHarnessMiddleware { }
+                [Collapse("Lifetime", Middlewares = [typeof(Candidate)])]
+                public partial class Harness { [AIFunction] public string Ping() => "pong"; }
+            }
+            """;
+
+        var (_, diagnostics) = RunGenerator(source);
+        Assert.Contains(diagnostics, diagnostic => diagnostic.Id == "HPDAG0207");
+    }
+
+    [Fact]
+    public void SourceGen_ConflictingOwnershipAttributes_FailCompilation()
+    {
+        var source = """
+            using HPD.Agent;
+            using HPD.Agent.Middleware;
+            namespace Ns
+            {
+                [ToolHarnessMiddlewareLifetime(ToolHarnessMiddlewareOwnership.Execution)]
+                [ToolHarnessMiddlewareLifetime(ToolHarnessMiddlewareOwnership.Services)]
+                public sealed class Candidate : IToolHarnessMiddleware { }
+                [Collapse("Conflicting lifetime", Middlewares = [typeof(Candidate)])]
+                public partial class Harness { [AIFunction] public string Ping() => "pong"; }
+            }
+            """;
+
+        var (_, diagnostics) = RunGenerator(source, includeCompilationDiagnostics: true);
+
+        Assert.Contains(diagnostics, diagnostic => diagnostic.Id == "CS0579");
+    }
+
+    [Fact]
+    public void SourceGen_Emits_HPDAG0208_ForAbstractAgentResourceImplementation()
+    {
+        var source = """
+            using System.Text.Json.Serialization;
+            using HPD.Agent;
+            using HPD.Agent.Middleware;
+            namespace Ns
+            {
+                public abstract class ResourceImplementation { }
+                [ToolHarnessAgentResource(typeof(ResourceImplementation))]
+                public interface IResource { }
+                [ToolHarnessJsonContext(typeof(OptionsJsonContext))]
+                public sealed class CandidateOptions { }
+                [JsonSerializable(typeof(CandidateOptions))]
+                public partial class OptionsJsonContext : JsonSerializerContext { }
+                public sealed class Candidate : IToolHarnessMiddleware
+                {
+                    public Candidate(IResource resource, string workspace, CandidateOptions options) { }
+                }
+                [Collapse("Resource", Middlewares = [typeof(Candidate)])]
+                public partial class Harness { [AIFunction] public string Ping() => "pong"; }
+            }
+            """;
+
+        var (_, diagnostics) = RunGenerator(source);
+        Assert.Contains(diagnostics, diagnostic => diagnostic.Id == "HPDAG0208");
     }
 
     private static string StripGlobalQualifiers(string? generatedCode)

@@ -2,6 +2,24 @@ using HPD.Agent;
 
 namespace HPDOS.ToolHarnesses.Middleware;
 
+/// <summary>Agent-owned registry of language-server services keyed by workspace and server configuration.</summary>
+[ToolHarnessAgentResource(typeof(LanguageServerWorkspaceRegistry))]
+public interface ILanguageServerWorkspaceRegistry : IAsyncDisposable
+{
+    /// <summary>Acquires an execution-owned reference to the matching Agent-owned service.</summary>
+    /// <param name="canonicalWorkspaceIdentity">The canonical workspace captured when the input execution was accepted.</param>
+    /// <param name="options">The complete language-server configuration used to form the sharing key.</param>
+    /// <returns>A lease that retains the keyed service for the accepted execution.</returns>
+    ILanguageServerWorkspaceLease Acquire(string canonicalWorkspaceIdentity, LanguageServerOptions options);
+}
+
+/// <summary>Execution-owned reference to an Agent-owned language-server workspace service.</summary>
+public interface ILanguageServerWorkspaceLease : IAsyncDisposable
+{
+    /// <summary>Gets the language-server service retained by this lease.</summary>
+    ILanguageServerService Service { get; }
+}
+
 public interface ILanguageServerService : IAsyncDisposable
 {
     ValueTask<IReadOnlyList<LanguageServerStatus>> GetStatusAsync(
@@ -45,7 +63,7 @@ public interface ILanguageServerRegistryProvider
     IEnumerable<LanguageServerDefinition> GetAll();
 }
 
-public interface ILanguageServerProvider
+public interface ILanguageServerProvider : ILanguageServerConfigurationIdentity
 {
     ValueTask<string?> ResolveRootAsync(
         LanguageServerRootContext context,
@@ -58,6 +76,13 @@ public interface ILanguageServerProvider
     ValueTask<LanguageServerInitialization> CreateInitializationAsync(
         LanguageServerInitializationContext context,
         CancellationToken cancellationToken = default);
+}
+
+/// <summary>Supplies stable configuration identity when provider instances may be recreated.</summary>
+public interface ILanguageServerConfigurationIdentity
+{
+    /// <summary>Gets a value that changes whenever language-server provider behavior changes.</summary>
+    string ConfigurationIdentity { get; }
 }
 
 public interface ILanguageServerToolResolver
@@ -78,6 +103,7 @@ public interface ILanguageServerToolResolver
         CancellationToken cancellationToken = default);
 }
 
+[ToolHarnessJsonContext(typeof(global::CodingToolHarnessJsonContext))]
 public sealed record LanguageServerOptions
 {
     public bool Enabled { get; init; } = true;
@@ -101,6 +127,10 @@ public sealed record LanguageServerOptions
 
     public IReadOnlyDictionary<string, object?> WorkspaceConfiguration { get; init; }
         = new Dictionary<string, object?>(StringComparer.Ordinal);
+
+    /// <summary>Stable identity for non-empty workspace configuration values used in Agent-level service sharing.</summary>
+    public string? WorkspaceConfigurationIdentity { get; init; }
+
 
     public int ConfigVersion { get; init; }
 }

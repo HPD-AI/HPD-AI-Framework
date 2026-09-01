@@ -120,7 +120,7 @@ public sealed class CodingHarnessGeneratedContractTests
 
     [Theory]
     [InlineData("EditFile", "{\"path\":\"file.txt\",\"edits\":[{\"oldString\":\"a\",\"newString\":\"b\",\"unexpected\":true}]}", "edits[0].unexpected")]
-    [InlineData("ExecuteCommand", "{\"request\":{\"action\":\"stop\",\"backgroundHandleId\":\"cmd_1\",\"command\":\"echo no\"}}", "request.command")]
+    [InlineData("ExecuteCommand", "{\"request\":{\"action\":\"stop\",\"backgroundHandleId\":\"cmd_1\",\"command\":\"echo no\"}}", "request.backgroundHandleId")]
     [InlineData("Debug", "{\"request\":{\"action\":\"continue\",\"debugTreeId\":\"tree_1\",\"threadId\":1,\"host\":\"localhost\"}}", "request.host")]
     [InlineData("Grep", "{\"pattern\":\"TODO\",\"outputMode\":\"content\"}", "outputMode")]
     public async Task GeneratedBinding_RejectsAliasesWrongBranchesAndEnumCasing(

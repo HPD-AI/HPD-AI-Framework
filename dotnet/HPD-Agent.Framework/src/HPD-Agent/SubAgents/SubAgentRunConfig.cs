@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using HPD.Agent.Providers;
 
 namespace HPD.Agent;
@@ -32,11 +34,14 @@ public enum SubAgentRunConfigFields
     /// <summary>Structured output and custom streaming output behavior.</summary>
     Output = 1 << 6,
 
+    /// <summary>Per-run container recovery and model-visible history behavior.</summary>
+    Collapsing = 1 << 7,
+
     /// <summary>
     /// The framework default: inherit the execution environment without replacing the child agent's
     /// instructions, tools, input, output contract, or evaluation behavior.
     /// </summary>
-    Default = Permissions | Execution | Compaction | Context,
+    Default = Permissions | Execution | Compaction | Context | Collapsing,
 
     /// <summary>Inherits every run-configuration group.</summary>
     All = Default | Instructions | Tools | Output
@@ -65,6 +70,191 @@ public sealed record AgentClientInheritance
 
     /// <summary>Gets the hosted-files-family inheritance policy.</summary>
     public ClientFamilyInheritanceMode HostedFiles { get; init; } = ClientFamilyInheritanceMode.FallbackToParent;
+
+    /// <summary>Gets the voice-activity-detection-family inheritance policy.</summary>
+    public ClientFamilyInheritanceMode VoiceActivityDetection { get; init; } = ClientFamilyInheritanceMode.UseOwn;
+
+    /// <summary>Gets the end-of-turn-detection-family inheritance policy.</summary>
+    public ClientFamilyInheritanceMode EndOfTurnDetection { get; init; } = ClientFamilyInheritanceMode.UseOwn;
+}
+
+/// <summary>Declares which parent-run policy changes a subagent author permits.</summary>
+public sealed record SubAgentRunPolicyOverrideAllowance
+{
+    /// <summary>Gets fields that a parent run may add to the declaration's inherited fields.</summary>
+    public SubAgentRunConfigFields MayEnableInheritedFields { get; init; }
+
+    /// <summary>Gets fields that a parent run may remove from the declaration's inherited fields.</summary>
+    public SubAgentRunConfigFields MayDisableInheritedFields { get; init; }
+
+    /// <summary>Gets the client families whose inheritance mode a parent run may replace.</summary>
+    public AgentClientInheritanceOverrideAllowance Clients { get; init; } = new();
+}
+
+/// <summary>Declares per-family permission for a parent-run inheritance-mode override.</summary>
+public sealed record AgentClientInheritanceOverrideAllowance
+{
+    /// <summary>Gets whether Chat may be overridden.</summary>
+    public bool Chat { get; init; }
+    /// <summary>Gets whether text-to-speech may be overridden.</summary>
+    public bool TextToSpeech { get; init; }
+    /// <summary>Gets whether speech-to-text may be overridden.</summary>
+    public bool SpeechToText { get; init; }
+    /// <summary>Gets whether Realtime may be overridden.</summary>
+    public bool Realtime { get; init; }
+    /// <summary>Gets whether image generation may be overridden.</summary>
+    public bool ImageGeneration { get; init; }
+    /// <summary>Gets whether embeddings may be overridden.</summary>
+    public bool Embeddings { get; init; }
+    /// <summary>Gets whether hosted files may be overridden.</summary>
+    public bool HostedFiles { get; init; }
+    /// <summary>Gets whether voice-activity detection may be overridden.</summary>
+    public bool VoiceActivityDetection { get; init; }
+    /// <summary>Gets whether end-of-turn detection may be overridden.</summary>
+    public bool EndOfTurnDetection { get; init; }
+}
+
+/// <summary>Contains optional parent-run replacements for client-family inheritance modes.</summary>
+public sealed record AgentClientInheritancePatch
+{
+    /// <summary>Gets the optional Chat replacement.</summary>
+    public ClientFamilyInheritanceMode? Chat { get; init; }
+    /// <summary>Gets the optional text-to-speech replacement.</summary>
+    public ClientFamilyInheritanceMode? TextToSpeech { get; init; }
+    /// <summary>Gets the optional speech-to-text replacement.</summary>
+    public ClientFamilyInheritanceMode? SpeechToText { get; init; }
+    /// <summary>Gets the optional Realtime replacement.</summary>
+    public ClientFamilyInheritanceMode? Realtime { get; init; }
+    /// <summary>Gets the optional image-generation replacement.</summary>
+    public ClientFamilyInheritanceMode? ImageGeneration { get; init; }
+    /// <summary>Gets the optional embeddings replacement.</summary>
+    public ClientFamilyInheritanceMode? Embeddings { get; init; }
+    /// <summary>Gets the optional hosted-files replacement.</summary>
+    public ClientFamilyInheritanceMode? HostedFiles { get; init; }
+    /// <summary>Gets the optional voice-activity-detection replacement.</summary>
+    public ClientFamilyInheritanceMode? VoiceActivityDetection { get; init; }
+    /// <summary>Gets the optional end-of-turn-detection replacement.</summary>
+    public ClientFamilyInheritanceMode? EndOfTurnDetection { get; init; }
+}
+
+/// <summary>Overrides one declared subagent policy for a single parent invocation.</summary>
+public sealed record SubAgentRunPolicyOverride
+{
+    /// <summary>Gets the stable generated capability to override.</summary>
+    public required CapabilityId CapabilityId { get; init; }
+
+    /// <summary>Gets a complete replacement inherited-field set, or <see langword="null"/>.</summary>
+    public SubAgentRunConfigFields? InheritedFields { get; init; }
+
+    /// <summary>Gets per-family inheritance-mode replacements.</summary>
+    public AgentClientInheritancePatch? Clients { get; init; }
+}
+
+/// <summary>Contains capability-targeted subagent policy overrides for one parent invocation.</summary>
+public sealed record SubAgentRunOverrides
+{
+    /// <summary>Gets the canonical capability override list.</summary>
+    public IReadOnlyList<SubAgentRunPolicyOverride> Capabilities { get; init; } = [];
+}
+
+/// <summary>Immutable versioned policy required to reconstruct a durable child execution.</summary>
+public sealed record SubAgentExecutionPolicy
+{
+    /// <summary>The only policy contract version understood by this runtime.</summary>
+    public const int CurrentContractVersion = 1;
+
+    /// <summary>Gets the durable policy contract version.</summary>
+    public required int ContractVersion { get; init; }
+
+    /// <summary>Gets the parent run-configuration groups eligible for inheritance.</summary>
+    public required SubAgentRunConfigFields InheritedFields { get; init; }
+
+    /// <summary>Gets the complete nine-family client inheritance policy.</summary>
+    public required AgentClientInheritance Clients { get; init; }
+
+    /// <summary>Gets the canonical SHA-256 policy fingerprint.</summary>
+    public required string Fingerprint { get; init; }
+
+    /// <summary>Reconstructs the child run configuration represented by this durable policy.</summary>
+    /// <param name="controllingRun">The current authorized controller's run configuration.</param>
+    /// <param name="controllingClients">The current controller's execution-scoped client set.</param>
+    /// <param name="childDefaults">The durable child agent configuration.</param>
+    /// <param name="composition">The generated provider composition used to snapshot provider payloads.</param>
+    /// <returns>An independent child run configuration with lazy client-family inheritance installed.</returns>
+    public AgentRunConfig CreateChildRunConfig(
+        AgentRunConfig? controllingRun = null,
+        AgentClientSet? controllingClients = null,
+        AgentConfig? childDefaults = null,
+        ProviderComposition? composition = null)
+    {
+        Validate();
+        return SubAgentRunConfig.Resolve(
+            this, controllingRun, controllingClients, childDefaults, composition);
+    }
+
+    internal static SubAgentExecutionPolicy Create(
+        SubAgentRunConfigFields inheritedFields,
+        AgentClientInheritance clients)
+    {
+        SubAgentRunConfig.ValidateFields(inheritedFields);
+        ValidateClients(clients);
+        return new SubAgentExecutionPolicy
+        {
+            ContractVersion = CurrentContractVersion,
+            InheritedFields = inheritedFields,
+            Clients = clients with { },
+            Fingerprint = ComputeFingerprint(CurrentContractVersion, inheritedFields, clients)
+        };
+    }
+
+    internal void Validate()
+    {
+        if (ContractVersion != CurrentContractVersion)
+            throw new InvalidOperationException("subagent_execution_policy_invalid");
+        SubAgentRunConfig.ValidateFields(InheritedFields);
+        ValidateClients(Clients);
+        if (!string.Equals(
+                Fingerprint,
+                ComputeFingerprint(ContractVersion, InheritedFields, Clients),
+                StringComparison.Ordinal))
+            throw new InvalidOperationException("subagent_execution_policy_mismatch");
+    }
+
+    private static string ComputeFingerprint(
+        int version,
+        SubAgentRunConfigFields fields,
+        AgentClientInheritance clients)
+    {
+        var canonical = string.Join("|", new[]
+        {
+            "hpd.subagent.execution-policy",
+            version.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ((int)fields).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ((int)clients.Chat).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ((int)clients.TextToSpeech).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ((int)clients.SpeechToText).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ((int)clients.Realtime).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ((int)clients.ImageGeneration).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ((int)clients.Embeddings).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ((int)clients.HostedFiles).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ((int)clients.VoiceActivityDetection).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ((int)clients.EndOfTurnDetection).ToString(System.Globalization.CultureInfo.InvariantCulture)
+        });
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
+    }
+
+    private static void ValidateClients(AgentClientInheritance clients)
+    {
+        ArgumentNullException.ThrowIfNull(clients);
+        foreach (var value in new[]
+        {
+            clients.Chat, clients.TextToSpeech, clients.SpeechToText, clients.Realtime,
+            clients.ImageGeneration, clients.Embeddings, clients.HostedFiles,
+            clients.VoiceActivityDetection, clients.EndOfTurnDetection
+        })
+            if (!Enum.IsDefined(value))
+                throw new InvalidOperationException("subagent_execution_policy_invalid");
+    }
 }
 
 /// <summary>
@@ -76,16 +266,14 @@ public sealed record AgentClientInheritance
 /// </remarks>
 public sealed class SubAgentRunConfig
 {
-    private readonly Action<AgentRunConfig>? _configure;
-
     private SubAgentRunConfig(
         SubAgentRunConfigFields inheritedFields,
         AgentClientInheritance clients,
-        Action<AgentRunConfig>? configure)
+        SubAgentRunPolicyOverrideAllowance overrideAllowance)
     {
         InheritedFields = inheritedFields;
         Clients = clients;
-        _configure = configure;
+        OverrideAllowance = overrideAllowance;
     }
 
     /// <summary>Gets the parent run-configuration groups selected for inheritance.</summary>
@@ -94,53 +282,67 @@ public sealed class SubAgentRunConfig
     /// <summary>Gets the explicit inheritance policy for every client family.</summary>
     public AgentClientInheritance Clients { get; }
 
+    /// <summary>Gets the parent-run policy changes admitted by this declaration.</summary>
+    public SubAgentRunPolicyOverrideAllowance OverrideAllowance { get; }
+
     /// <summary>Creates the default parent run-configuration inheritance selection.</summary>
     public static SubAgentRunConfig Inherit()
-        => new(SubAgentRunConfigFields.Default, new AgentClientInheritance(), configure: null);
+        => new(SubAgentRunConfigFields.Default, new AgentClientInheritance(), new());
 
     /// <summary>Creates a selection that inherits exactly the supplied groups.</summary>
     /// <param name="fields">The complete set of groups to inherit.</param>
     public static SubAgentRunConfig InheritOnly(SubAgentRunConfigFields fields)
-        => new(ValidateFields(fields), new AgentClientInheritance(), configure: null);
+        => new(ValidateFields(fields), new AgentClientInheritance(), new());
 
     /// <summary>Creates an isolated child run configuration with no inherited parent values.</summary>
     public static SubAgentRunConfig Isolated()
-        => new(SubAgentRunConfigFields.None, CreateUseOwnClients(), configure: null);
+        => new(SubAgentRunConfigFields.None, CreateUseOwnClients(), new());
 
     /// <summary>Returns a new selection with the supplied per-family client inheritance policy.</summary>
     /// <param name="clients">The complete client-family inheritance policy.</param>
     public SubAgentRunConfig WithClients(AgentClientInheritance clients)
     {
         ArgumentNullException.ThrowIfNull(clients);
-        return new SubAgentRunConfig(InheritedFields, clients, _configure);
+        return new SubAgentRunConfig(InheritedFields, clients with { }, OverrideAllowance);
     }
 
     /// <summary>Adds groups to the inheritance selection.</summary>
     public SubAgentRunConfig Include(SubAgentRunConfigFields fields)
-        => new(InheritedFields | ValidateFields(fields), Clients, _configure);
+        => new(InheritedFields | ValidateFields(fields), Clients, OverrideAllowance);
 
     /// <summary>Removes groups from the inheritance selection.</summary>
     public SubAgentRunConfig Exclude(SubAgentRunConfigFields fields)
-        => new(InheritedFields & ~ValidateFields(fields), Clients, _configure);
+        => new(InheritedFields & ~ValidateFields(fields), Clients, OverrideAllowance);
 
-    /// <summary>
-    /// Applies explicit child-only overrides after inherited values have been copied.
-    /// </summary>
-    /// <param name="configure">A callback that configures the independent child snapshot.</param>
-    public SubAgentRunConfig Override(Action<AgentRunConfig> configure)
+    /// <summary>Returns a declaration that admits the supplied parent-run policy changes.</summary>
+    public SubAgentRunConfig AllowParentRunOverrides(SubAgentRunPolicyOverrideAllowance allowance)
     {
-        ArgumentNullException.ThrowIfNull(configure);
-        return new SubAgentRunConfig(
-            InheritedFields,
-            Clients,
-            _configure is null
-                ? configure
-                : config =>
-                {
-                    _configure(config);
-                    configure(config);
-                });
+        ArgumentNullException.ThrowIfNull(allowance);
+        ValidateFields(allowance.MayEnableInheritedFields);
+        ValidateFields(allowance.MayDisableInheritedFields);
+        return new SubAgentRunConfig(InheritedFields, Clients, allowance with { Clients = allowance.Clients with { } });
     }
+
+    internal SubAgentExecutionPolicy Compile(SubAgentRunPolicyOverride? runOverride = null)
+    {
+        if (runOverride is null)
+            return SubAgentExecutionPolicy.Create(InheritedFields, Clients);
+
+        var fields = runOverride.InheritedFields ?? InheritedFields;
+        ValidateFields(fields);
+        var enabled = fields & ~InheritedFields;
+        var disabled = InheritedFields & ~fields;
+        if ((enabled & ~OverrideAllowance.MayEnableInheritedFields) != 0 ||
+            (disabled & ~OverrideAllowance.MayDisableInheritedFields) != 0)
+            throw new InvalidOperationException("subagent_override_inherited_field_not_permitted");
+
+        var clients = ApplyClientPatch(Clients, runOverride.Clients, OverrideAllowance.Clients);
+        return SubAgentExecutionPolicy.Create(fields, clients);
+    }
+
+    /// <summary>Compiles this declaration into the immutable policy persisted with a durable child.</summary>
+    /// <returns>A validated, fingerprinted execution policy.</returns>
+    public SubAgentExecutionPolicy CompilePolicy() => Compile();
 
     private static AgentClientInheritance CreateUseOwnClients() => new()
     {
@@ -150,7 +352,9 @@ public sealed class SubAgentRunConfig
         Embeddings = ClientFamilyInheritanceMode.UseOwn,
         TextToSpeech = ClientFamilyInheritanceMode.UseOwn,
         SpeechToText = ClientFamilyInheritanceMode.UseOwn,
-        HostedFiles = ClientFamilyInheritanceMode.UseOwn
+        HostedFiles = ClientFamilyInheritanceMode.UseOwn,
+        VoiceActivityDetection = ClientFamilyInheritanceMode.UseOwn,
+        EndOfTurnDetection = ClientFamilyInheritanceMode.UseOwn
     };
 
     internal AgentRunConfig Resolve(
@@ -162,9 +366,55 @@ public sealed class SubAgentRunConfig
         var result = parent is null
             ? new AgentRunConfig()
             : AgentRunConfigInheritance.CreateSnapshot(parent, InheritedFields, composition);
-        _configure?.Invoke(result);
         ApplyClientInheritance(result, parentClients, childDefaults, Clients);
         return result;
+    }
+
+    internal static AgentRunConfig Resolve(
+        SubAgentExecutionPolicy policy,
+        AgentRunConfig? parent,
+        AgentClientSet? parentClients = null,
+        AgentConfig? childDefaults = null,
+        ProviderComposition? composition = null)
+    {
+        ArgumentNullException.ThrowIfNull(policy);
+        policy.Validate();
+        var result = parent is null
+            ? new AgentRunConfig()
+            : AgentRunConfigInheritance.CreateSnapshot(parent, policy.InheritedFields, composition);
+        ApplyClientInheritance(result, parentClients, childDefaults, policy.Clients);
+        return result;
+    }
+
+    private static AgentClientInheritance ApplyClientPatch(
+        AgentClientInheritance source,
+        AgentClientInheritancePatch? patch,
+        AgentClientInheritanceOverrideAllowance allowance)
+    {
+        if (patch is null) return source with { };
+        ClientFamilyInheritanceMode Pick(
+            ClientFamilyInheritanceMode current,
+            ClientFamilyInheritanceMode? requested,
+            bool permitted)
+        {
+            if (requested is null) return current;
+            if (!permitted) throw new InvalidOperationException("subagent_client_inheritance_not_permitted");
+            if (!Enum.IsDefined(requested.Value))
+                throw new InvalidOperationException("subagent_execution_policy_invalid");
+            return requested.Value;
+        }
+        return new AgentClientInheritance
+        {
+            Chat = Pick(source.Chat, patch.Chat, allowance.Chat),
+            TextToSpeech = Pick(source.TextToSpeech, patch.TextToSpeech, allowance.TextToSpeech),
+            SpeechToText = Pick(source.SpeechToText, patch.SpeechToText, allowance.SpeechToText),
+            Realtime = Pick(source.Realtime, patch.Realtime, allowance.Realtime),
+            ImageGeneration = Pick(source.ImageGeneration, patch.ImageGeneration, allowance.ImageGeneration),
+            Embeddings = Pick(source.Embeddings, patch.Embeddings, allowance.Embeddings),
+            HostedFiles = Pick(source.HostedFiles, patch.HostedFiles, allowance.HostedFiles),
+            VoiceActivityDetection = Pick(source.VoiceActivityDetection, patch.VoiceActivityDetection, allowance.VoiceActivityDetection),
+            EndOfTurnDetection = Pick(source.EndOfTurnDetection, patch.EndOfTurnDetection, allowance.EndOfTurnDetection)
+        };
     }
 
     internal static void ApplyClientInheritance(
@@ -173,90 +423,34 @@ public sealed class SubAgentRunConfig
         AgentConfig? childDefaults,
         AgentClientInheritance clients)
     {
-        if (parentClients is null)
-            return;
-
-        InheritFamily(ProviderClientFamily.Realtime, clients.Realtime);
-        InheritFamily(ProviderClientFamily.ImageGeneration, clients.ImageGeneration);
-        InheritFamily(ProviderClientFamily.Embeddings, clients.Embeddings);
-        InheritFamily(ProviderClientFamily.TextToSpeech, clients.TextToSpeech);
-        InheritFamily(ProviderClientFamily.SpeechToText, clients.SpeechToText);
-        InheritFamily(ProviderClientFamily.HostedFiles, clients.HostedFiles);
-
-        void InheritFamily(ProviderClientFamily family, ClientFamilyInheritanceMode mode)
-        {
-            if (mode == ClientFamilyInheritanceMode.UseOwn)
-                return;
-
-            var own = result.Clients.GetFamilyConfig(family);
-            if (mode == ClientFamilyInheritanceMode.FallbackToParent &&
-                (own is not null || childDefaults?.ResolveClientConfig(family) is not null))
-                return;
-
-            var parent = parentClients.GetResolvedConfig(family);
-            var parentClient = GetClient(parentClients, family);
-            if (parent is null || parentClient is null)
-                return;
-
-            var inherited = ProviderClientConfigResolver.Clone(parent);
-            SetOverride(inherited, family, parentClient);
-            if (own is not null)
-            {
-                var baseline = new AgentClientsConfig();
-                baseline.SetFamilyConfig(family, inherited);
-                var overrides = new AgentClientsConfig();
-                overrides.SetFamilyConfig(family, own);
-                inherited = ProviderClientConfigResolver.Resolve(baseline, family, overrides)!;
-            }
-            result.Clients.SetFamilyConfig(family, inherited);
-        }
+        result.SubAgentClientInheritance = new SubAgentClientInheritanceSource(parentClients, clients);
     }
 
-    private static object? GetClient(AgentClientSet clients, ProviderClientFamily family) => family switch
-    {
-        ProviderClientFamily.Realtime => clients.Realtime,
-        ProviderClientFamily.ImageGeneration => clients.ImageGenerator,
-        ProviderClientFamily.Embeddings => clients.EmbeddingGenerator,
-        ProviderClientFamily.TextToSpeech => clients.TextToSpeech,
-        ProviderClientFamily.SpeechToText => clients.SpeechToText,
-        ProviderClientFamily.HostedFiles => clients.HostedFiles,
-        _ => null
-    };
-
-    private static void SetOverride(
-        ProviderClientConfig config,
-        ProviderClientFamily family,
-        object client)
-    {
-        switch (family)
-        {
-            case ProviderClientFamily.Realtime:
-                ((RealtimeClientConfig)config).Override = new() { Client = (Microsoft.Extensions.AI.IRealtimeClient)client };
-                break;
-            case ProviderClientFamily.ImageGeneration:
-                ((ImageGenerationClientConfig)config).Override = new() { Client = (Microsoft.Extensions.AI.IImageGenerator)client };
-                break;
-            case ProviderClientFamily.Embeddings:
-                ((EmbeddingsClientConfig)config).Override = new() { Client = (Microsoft.Extensions.AI.IEmbeddingGenerator)client };
-                break;
-            case ProviderClientFamily.TextToSpeech:
-                ((TextToSpeechClientConfig)config).Override = new() { Client = (Microsoft.Extensions.AI.ITextToSpeechClient)client };
-                break;
-            case ProviderClientFamily.SpeechToText:
-                ((SpeechToTextClientConfig)config).Override = new() { Client = (Microsoft.Extensions.AI.ISpeechToTextClient)client };
-                break;
-            case ProviderClientFamily.HostedFiles:
-                ((HostedFilesClientConfig)config).Override = new() { Client = (Microsoft.Extensions.AI.IHostedFileClient)client };
-                break;
-        }
-    }
-
-    private static SubAgentRunConfigFields ValidateFields(SubAgentRunConfigFields fields)
+    internal static SubAgentRunConfigFields ValidateFields(SubAgentRunConfigFields fields)
     {
         if ((fields & ~SubAgentRunConfigFields.All) != 0)
             throw new ArgumentOutOfRangeException(nameof(fields), fields, "Unknown subagent run-configuration fields.");
         return fields;
     }
+}
+
+internal sealed record SubAgentClientInheritanceSource(
+    AgentClientSet? ParentClients,
+    AgentClientInheritance Modes)
+{
+    internal ClientFamilyInheritanceMode GetMode(ProviderClientFamily family) => family switch
+    {
+        ProviderClientFamily.Chat => Modes.Chat,
+        ProviderClientFamily.Realtime => Modes.Realtime,
+        ProviderClientFamily.ImageGeneration => Modes.ImageGeneration,
+        ProviderClientFamily.Embeddings => Modes.Embeddings,
+        ProviderClientFamily.TextToSpeech => Modes.TextToSpeech,
+        ProviderClientFamily.SpeechToText => Modes.SpeechToText,
+        ProviderClientFamily.HostedFiles => Modes.HostedFiles,
+        ProviderClientFamily.VoiceActivityDetection => Modes.VoiceActivityDetection,
+        ProviderClientFamily.EndOfTurnDetection => Modes.EndOfTurnDetection,
+        _ => throw new ArgumentOutOfRangeException(nameof(family))
+    };
 }
 
 internal static class AgentRunConfigInheritance
@@ -275,7 +469,10 @@ internal static class AgentRunConfigInheritance
             {
                 PermissionOverrides = source.Security.PermissionOverrides is null
                     ? null
-                    : new Dictionary<string, bool>(source.Security.PermissionOverrides),
+                    : source.Security.PermissionOverrides.Select(static value => value with
+                    {
+                        Selector = value.Selector with { }
+                    }).ToArray(),
                 Sandbox = source.Security.Sandbox with
                 {
                     Capabilities = source.Security.Sandbox.Capabilities with
@@ -308,6 +505,9 @@ internal static class AgentRunConfigInheritance
 
         if (Has(fields, SubAgentRunConfigFields.Compaction))
             result.Compaction = AgentRunConfigSnapshot.CloneCompaction(source.Compaction, composition);
+
+        if (Has(fields, SubAgentRunConfigFields.Collapsing))
+            result.Collapsing = AgentRunConfigSnapshot.CloneCollapsing(source.Collapsing);
 
         if (Has(fields, SubAgentRunConfigFields.Context))
         {

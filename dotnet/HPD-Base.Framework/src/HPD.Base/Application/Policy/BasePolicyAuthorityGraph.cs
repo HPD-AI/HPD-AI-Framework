@@ -46,12 +46,13 @@ public interface IBaseGrantAuthoritySource
 /// <summary>Opaque graph-issued registration for one grant authority.</summary>
 public sealed class BaseInstalledGrantRegistration
 {
+    private readonly byte[] _checksum;
     internal BaseInstalledGrantRegistration(string id, int version, object owner, byte[] checksum)
     {
         Id = id;
         Version = version;
         Owner = owner;
-        Checksum = checksum;
+        _checksum = checksum.ToArray();
     }
 
     /// <summary>Gets the stable grant identity.</summary>
@@ -59,7 +60,9 @@ public sealed class BaseInstalledGrantRegistration
     /// <summary>Gets the positive grant version.</summary>
     public int Version { get; }
     internal object Owner { get; }
-    internal byte[] Checksum { get; }
+    /// <summary>Returns the frozen grant-registration checksum.</summary>
+    public byte[] GetChecksum() => _checksum.ToArray();
+    internal ReadOnlySpan<byte> Checksum => _checksum;
 }
 
 /// <summary>Provides one source with its exact graph-issued grant registrations.</summary>
@@ -168,7 +171,8 @@ public sealed class BasePolicyAuthorityBuilder
         BasePolicyAuthorityCanonicalizer.Validate(definition);
         if (grant is not null && !string.Equals(definition.Id, grant.Id, StringComparison.Ordinal))
             throw new InvalidOperationException(BasePolicyAuthorityErrorCodes.Invalid);
-        if (_grants.Any(value => value.Definition.Id == definition.Id))
+        if (_grants.Any(value => value.Definition.Id == definition.Id
+            && value.Definition.Version == definition.Version))
             throw new InvalidOperationException(BasePolicyAuthorityErrorCodes.Duplicate);
         object owner = new();
         byte[] checksum = BasePolicyAuthorityCanonicalizer.HashGrantDefinition(definition, grant);

@@ -127,6 +127,19 @@ public sealed record WorkProtocolState
         };
     }
 
+    /// <summary>Fences an expired claim while retaining its outcome as indeterminate until owner reconciliation.</summary>
+    /// <param name="observedAt">Authoritative observation time at or after the claim expiry.</param>
+    /// <returns>An indeterminate retained attempt, or an unchanged rejection.</returns>
+    public WorkProtocolTransition ExpireClaim(NamedTime observedAt)
+    {
+        if (Claim is null) return Reject("claim-not-active");
+        if (!observedAt.IsValid || observedAt.Kind != TimeKind.Observed || observedAt.Value < Claim.ExpiresAt.Value)
+            return Reject("claim-not-expired");
+        var attempts = checked(AttemptCount + 1);
+        var disposition = attempts == Requirement.MaximumAttemptCount ? WorkDisposition.Exhausted : WorkDisposition.RetryRequired;
+        return Accept(new(Requirement, ClaimEpoch, null, attempts, disposition, true), "expired-claim-indeterminate");
+    }
+
     /// <summary>Resolves an indeterminate attempt without inferring success from worker or queue state.</summary>
     /// <param name="ownerPostconditionVerified">Whether fresh owner evidence proves the postcondition.</param>
     /// <returns>A verified terminal or retry/exhaustion transition.</returns>

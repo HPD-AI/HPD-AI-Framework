@@ -15,6 +15,8 @@
   </Folder>
   <Folder Name="/AOT Smoke Tests/">
     <Project Path="test/HPD-Agent.Skills.AotSmoke/HPD-Agent.Skills.AotSmoke.csproj" />
+    <Project Path="test/HPD-Agent.ToolHarness.AotFixture/HPD-Agent.ToolHarness.AotFixture.csproj" />
+    <Project Path="test/HPD-Agent.ToolHarness.AotSmoke/HPD-Agent.ToolHarness.AotSmoke.csproj" />
   </Folder>
   <Folder Name="/Web/">
     <Project Path="src/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj" />
@@ -71,7 +73,8 @@
     <Project Path="src/HPD-Agent.Bots/HPD-Agent.Bots.SourceGenerator/HPD-Agent.Bots.SourceGenerator.csproj" />
   </Folder>
   <Folder Name="/Audio/">
-    <Project Path="src/HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
+    <Project Path="src/HPD-Agent.Audio/HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
+    <Project Path="src/HPD-Agent.Audio.LiveKit.NativeAssets/HPD-Agent.Audio.LiveKit.NativeAssets.csproj" />
     <Project Path="src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.OpenAI/HPD-Agent.Providers.Audio.OpenAI.csproj" />
     <Project Path="src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.ElevenLabs/HPD-Agent.Providers.Audio.ElevenLabs.csproj" />
     <Project Path="src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.Silero/HPD-Agent.Providers.Audio.Silero.csproj" />
@@ -88,10 +91,15 @@
     <Project Path="src/HPD-Agent.TextExtraction/HPD-Agent.TextExtraction.csproj" />
     <Project Path="src/HPD-Agent.FFI/HPD-Agent.FFI.csproj" />
     <Project Path="src/HPD-Agent.MCP/HPD-Agent.MCP.csproj" />
+    <Project Path="src/HPD-Agent.MCP.Tasks/HPD-Agent.MCP.Tasks.csproj" />
     <Project Path="src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.Core/HPD-Agent.Sandbox.Core.csproj" />
     <Project Path="src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.Local/HPD-Agent.Sandbox.Local.csproj" />
     <Project Path="src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.AppleVirtualization/HPD-Agent.Sandbox.AppleVirtualization.csproj" />
     <Project Path="src/HPD-Agent.Evaluations/HPD-Agent.Evaluations.csproj" />
+  </Folder>
+  <Folder Name="/Tests/MCP/">
+    <Project Path="test/HPD-Agent.MCP.AotSmoke/HPD-Agent.MCP.AotSmoke.csproj" />
+    <Project Path="test/HPD-Agent.MCP.Tasks.AotSmoke/HPD-Agent.MCP.Tasks.AotSmoke.csproj" />
   </Folder>
   <Folder Name="/TUI/">
     <Project Path="src/HPD-Agent.TUI/HPD-Agent.TUI.csproj" />
@@ -118,6 +126,7 @@
   </Folder>
   <Folder Name="/Tests/">
     <Project Path="test/HPD-Agent.Tests/HPD-Agent.Tests.csproj" />
+    <Project Path="test/HPD-Agent.ToolHarness.Runtime.Tests/HPD-Agent.ToolHarness.Runtime.Tests.csproj" />
     <Project Path="test/HPD-Agent.Authority.Tests/HPD-Agent.Authority.Tests.csproj" />
     <Project Path="test/HPD-Agent.ProviderCatalog.Tests/HPD-Agent.ProviderCatalog.Tests.csproj" />
     <Project Path="test/HPD-Agent.LiveAudio.Contracts.Tests/HPD-Agent.LiveAudio.Contracts.Tests.csproj" />

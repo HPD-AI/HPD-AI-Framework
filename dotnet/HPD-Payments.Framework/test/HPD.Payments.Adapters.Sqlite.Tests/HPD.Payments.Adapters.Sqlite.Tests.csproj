@@ -1,6 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><IsTestProject>false</IsTestProject></PropertyGroup>
+  <PropertyGroup>
+    <IsTestProject>false</IsTestProject><OutputType>Exe</OutputType><NoWarn>$(NoWarn);CA2007;CA1303</NoWarn>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <DefineConstants>$(DefineConstants);PAYMENTS_SQLITE</DefineConstants>
+    <PublishAot>true</PublishAot><PublishTrimmed>true</PublishTrimmed><SelfContained>true</SelfContained><IsAotCompatible>true</IsAotCompatible>
+    <InvariantGlobalization>true</InvariantGlobalization><EnableTrimAnalyzer>true</EnableTrimAnalyzer><JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/HPD.Payments.Adapters.Sqlite/HPD.Payments.Adapters.Sqlite.csproj" />
+    <ProjectReference Include="../../src/HPD.Payments.Runtime/HPD.Payments.Runtime.csproj" />
+    <ProjectReference Include="../../src/HPD.Payments.Profiles.Distributed/HPD.Payments.Profiles.Distributed.csproj" />
+    <ProjectReference Include="../../../HPD-Base.Framework/src/HPD.Base.Sqlite/HPD.Base.Sqlite.csproj" />
   </ItemGroup>
+  <ItemGroup><Compile Include="../HPD.Payments.BaseIntegration.Tests/Program.cs" Link="Program.cs" /></ItemGroup>
 </Project>

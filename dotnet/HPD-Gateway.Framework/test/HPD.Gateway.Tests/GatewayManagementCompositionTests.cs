@@ -537,7 +537,7 @@ public sealed class GatewayManagementCompositionTests
                 IntentId = intentId.Value,
                 Kind = GatewayAdministrativeObservationKind.Failed,
                 ResultCode = "base.admin.rejected",
-                ResultJson = "{}"u8.ToArray(),
+                ResultJson = BaseBinary.From("{}"u8),
             })).RequireValue();
 
         (await provider.GetRequiredService<IGatewayManagementAdministration>()
@@ -586,8 +586,8 @@ public sealed class GatewayManagementCompositionTests
                         AuthorizationPolicy = actor.AuthorizationPolicy,
                         SubjectDigest = "crash-window",
                         PurgeCollectionId = GatewayAuthoritySchema.AdministrativeAudit,
-                        PurgeRecordIdsJson = JsonSerializer.SerializeToUtf8Bytes(
-                            ids, GatewayManagementJsonContext.Default.StringArray),
+                        PurgeRecordIdsJson = BaseBinary.From(JsonSerializer.SerializeToUtf8Bytes(
+                            ids, GatewayManagementJsonContext.Default.StringArray)),
                     }).AsTask();
                 await session.Collection(GatewayAdministrativeExecutionState.Collection).CreateAsync(
                     GatewayAuthorityRecordIds.CommandFact(

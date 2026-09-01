@@ -43,7 +43,11 @@ public sealed record ThreadDescriptor(
     int MessageCount,
     ThreadForkDescriptor? Fork,
     ThreadRuntimeChildDescriptor? RuntimeChild,
-    IReadOnlyDictionary<string, object> Metadata);
+    IReadOnlyDictionary<string, object> Metadata)
+{
+    /// <summary>Gets typed preparation authority for a staged fork target.</summary>
+    public ThreadPreparationDescriptor? Preparation { get; init; }
+}
 
 public sealed record ThreadForkDescriptor(
     string SourceThreadId,
@@ -57,7 +61,6 @@ public sealed record ThreadRuntimeChildDescriptor(
     string? ParentSessionId,
     string? ParentThreadId,
     string? SubAgentName,
-    string? SubAgentTaskName,
     string? InvocationId,
     string? SubAgentSourceKind,
     string? ParentToolCallId,

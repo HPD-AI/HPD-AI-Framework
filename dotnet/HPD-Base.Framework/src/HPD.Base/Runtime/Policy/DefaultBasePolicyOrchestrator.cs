@@ -32,6 +32,25 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
         CancellationToken cancellationToken = default) =>
         EvaluateAsync(request, cancellationToken);
 
+    public ValueTask<OperationResult<BasePolicyEvaluation>> EvaluateStudioAsync(BaseStudioPolicyRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (string.IsNullOrWhiteSpace(request.StudioOperationId) || string.IsNullOrWhiteSpace(request.StudioModuleId) ||
+            request.StudioResourceIdentity?.Length > 8_192 || request.Operation.Audience != HPDBaseEndpointAudience.ControlPlane)
+            return ValueTask.FromResult(InvalidAuthority());
+        return EvaluateAsync(new BasePolicyRequest
+        {
+            Principal = request.Principal, Operation = request.Operation, Collection = null, ResourceKind = PolicyResourceKind.Studio,
+            PolicyRefs = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["base.studio.operation"] = request.StudioOperationId, ["base.studio.module"] = request.StudioModuleId,
+                ["base.studio.resource"] = request.StudioResourceKind ?? string.Empty,
+                ["base.studio.resourceIdentity"] = request.StudioResourceIdentity ?? string.Empty,
+            },
+        }, cancellationToken);
+    }
+
     private async ValueTask<OperationResult<BasePolicyEvaluation>> EvaluateAsync(
         BasePolicyRequest request,
         CancellationToken cancellationToken)
@@ -169,8 +188,14 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
                     if (!textInfluences.TryGetValue(fieldId, out List<FilterExpression>? values)) textInfluences.Add(fieldId, values = []);
                     values.Add(influenceFilter);
                 }
-            readMask = IntersectMasks(request.Collection, readMask, decision.Constraints?.ReadMask);
-            writeMask = IntersectMasks(request.Collection, writeMask, decision.Constraints?.WriteMask);
+            if (request.ResourceKind == PolicyResourceKind.Studio && decision.Constraints is
+                { RecordFilter: not null } or { WriteCheck: not null } or { ReadMask: not null } or { WriteMask: not null })
+                return InvalidAuthority();
+            if (request.Collection is not null)
+            {
+                readMask = IntersectMasks(request.Collection, readMask, decision.Constraints?.ReadMask);
+                writeMask = IntersectMasks(request.Collection, writeMask, decision.Constraints?.WriteMask);
+            }
         }
 
         if (applied.Count == 0)
@@ -301,6 +326,10 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
             RecordId = request.RecordId?.Value, VectorIndexId = request.VectorIndexId, TextIndexId = request.TextIndexId,
             VectorSpaceId = request.VectorSpaceId, SubjectContractId = request.SubjectContractId,
             SubjectContractVersion = request.SubjectContractVersion,
+            StudioOperationId = request.ResourceKind == PolicyResourceKind.Studio ? request.PolicyRefs?["base.studio.operation"] : null,
+            StudioModuleId = request.ResourceKind == PolicyResourceKind.Studio ? request.PolicyRefs?["base.studio.module"] : null,
+            StudioResourceKind = request.ResourceKind == PolicyResourceKind.Studio ? request.PolicyRefs?["base.studio.resource"] : null,
+            StudioResourceIdentity = request.ResourceKind == PolicyResourceKind.Studio ? request.PolicyRefs?["base.studio.resourceIdentity"] : null,
         },
         Grants = grants,
         PolicyRefs = request.PolicyRefs,

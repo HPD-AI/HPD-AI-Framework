@@ -1,6 +1,4 @@
 import type {
-  BackgroundHandleKind,
-  BackgroundHandleOperation,
   ClientToolAugmentation,
   ClientToolBackgroundOperationState,
   ClientToolHarnessDefinition,
@@ -8,6 +6,7 @@ import type {
   ClientToolInvokeOutcomeKind,
   ToolResultContent,
 } from './client-tools.js';
+import type { AgentOperationCapabilities, AgentOperationKind } from './operations.js';
 
 export type ClientAppProviderBindingPolicy =
   | 'Exclusive'
@@ -249,8 +248,8 @@ export interface ClientToolProviderInvokeOutcomeMessage {
   content?: ToolResultContent[];
   error?: ClientToolError;
   clientOperationId?: string;
-  handleKind?: BackgroundHandleKind;
-  supportedOperations?: BackgroundHandleOperation;
+  operationKind?: AgentOperationKind;
+  operationCapabilities?: AgentOperationCapabilities;
   augmentation?: ClientToolAugmentation;
 }
 

@@ -83,7 +83,9 @@ internal sealed class BaseRealtimeLiveQueryTransport(IServiceProvider services)
         catch (JsonException) { throw new BaseLiveQueryException(BaseLiveQueryErrorCodes.RequestInvalid, "The registered live-query input is invalid."); }
         if (parameters is null) throw new BaseLiveQueryException(BaseLiveQueryErrorCodes.RequestInvalid, "The registered live-query input is invalid.");
         IBaseRegisteredReadRuntime runtime = services.GetRequiredService<IBaseRegisteredReadRuntime>();
-        int maximum = Math.Clamp(registration.Plan.Budgets.MaxResultRows, 1, 500);
+        int maximum = registration.Plan.Topology == BaseRelationalReadTopology.CompoundCount
+            ? registration.Plan.CompoundCountBranches.Length
+            : Math.Clamp(registration.Plan.Budgets.MaxResultRows, 1, 500);
         return await coordinator.SubscribeAsync(new BaseLiveQueryRequest<JsonElement>
         {
             QueryId = correlationId,

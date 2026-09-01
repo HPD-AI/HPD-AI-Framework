@@ -49,6 +49,7 @@ public static class AdminUserPasswordEndpoints
         string id,
         AdminResetPasswordRequest request,
         UserManager<ApplicationUser> userManager,
+        IAuthPasswordResetCommand passwordReset,
         IAuthAuditWriter auditWriter,
         IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
@@ -57,10 +58,8 @@ public static class AdminUserPasswordEndpoints
         if (user is null)
             return Results.NotFound();
 
-        // Generate a password-reset token on behalf of the admin.
-        // No current password is required — admin authority is sufficient.
-        var token = await userManager.GeneratePasswordResetTokenAsync(user);
-        var result = await userManager.ResetPasswordAsync(user, token, request.Password);
+        IdentityResult result = await passwordReset.ResetByAuthorityAsync(
+            user, request.Password, ct);
 
         if (!result.Succeeded)
             return Results.BadRequest(result.Errors);
@@ -73,9 +72,6 @@ public static class AdminUserPasswordEndpoints
 
             await userManager.UpdateAsync(user);
         }
-
-        // Rotate security stamp to force re-login with the new password.
-        await userManager.UpdateSecurityStampAsync(user);
 
         await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.PasswordReset, correlationContext, user.Id, cancellationToken: ct);
 

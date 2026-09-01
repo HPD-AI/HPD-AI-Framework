@@ -3,6 +3,7 @@
     <AssemblyName>HPD.Payments.Worker</AssemblyName>
     <RootNamespace>HPD.Payments.Worker</RootNamespace>
     <OutputType>Exe</OutputType>
+    <PublishAot>true</PublishAot><PublishTrimmed>true</PublishTrimmed><NoWarn>$(NoWarn);CA1515;CA1303</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../HPD.Payments.Profiles.Embedded/HPD.Payments.Profiles.Embedded.csproj" />

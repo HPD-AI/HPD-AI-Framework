@@ -20,7 +20,7 @@ public sealed class SqliteLoggingTests
         using var loggerFactory = CreateLoggerFactory(collector);
         await using var store = new SqliteRecordStore(Options(path), loggerFactory);
 
-        var result = await store.GetAsync(Collection(), new RecordId("one"), Operation(BaseOperationKind.Get));
+        var result = await store.GetAsync(Collection(), RecordId.Create("one"), Operation(BaseOperationKind.Get));
 
         result.Status.Should().Be(OperationStatus.StoreError);
         var record = collector.RecordsFor(3000).Should().ContainSingle().Subject;
@@ -77,7 +77,7 @@ public sealed class SqliteLoggingTests
             using var loggerFactory = CreateLoggerFactory(collector);
             await using var store = new SqliteRecordStore(Options(path), loggerFactory);
 
-            var result = await store.GetAsync(Collection(), new RecordId("one"), Operation(BaseOperationKind.Get));
+            var result = await store.GetAsync(Collection(), RecordId.Create("one"), Operation(BaseOperationKind.Get));
 
             result.Status.Should().Be(OperationStatus.StoreError);
             AssertContract(collector.RecordsFor(3008).Should().ContainSingle().Subject, 3008);
@@ -283,7 +283,7 @@ public sealed class SqliteLoggingTests
         using var document = JsonDocument.Parse("""{"title":"safe"}""");
         return new RecordCreateRequest
         {
-            RequestedId = new RecordId(id),
+            RequestedId = RecordId.Create(id),
             Payload = new RecordPayload { Kind = RecordPayloadKind.Json, Json = document.RootElement.Clone() }
         };
     }

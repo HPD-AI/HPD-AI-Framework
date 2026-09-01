@@ -35,6 +35,12 @@ public sealed class BaseExportedSubjectAttribute(string id) : Attribute
     public bool ActiveValue { get; set; } = true;
     /// <summary>Gets or sets the stable required Boolean tombstone-state field ID.</summary>
     public required string TombstoneFieldId { get; set; }
+    /// <summary>Gets or sets the required canonical UTC tombstone-instant field ID, or null when not stored.</summary>
+    public string? TombstoneInstantFieldId { get; set; }
+    /// <summary>Gets or sets the required nonnegative Int64 lifecycle-sequence field ID, or null when not stored.</summary>
+    public string? TombstoneSequenceFieldId { get; set; }
+    /// <summary>Gets or sets the authority required by the final retirement path.</summary>
+    public BaseSubjectFinalExecutionMode FinalRetirementExecutionMode { get; set; }
     /// <summary>Gets or sets whether coordinated retirement may be installed.</summary>
     public bool SupportsCoordinatedRetirement { get; set; }
     /// <summary>Gets or sets the stable required ordinal scope field ID.</summary>

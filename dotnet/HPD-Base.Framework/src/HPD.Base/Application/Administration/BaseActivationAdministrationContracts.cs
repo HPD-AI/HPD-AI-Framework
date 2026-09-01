@@ -105,6 +105,13 @@ public sealed record BaseActivationAdministrationMaintenanceRequest : BaseActiva
 /// <summary>Requests one ControlPlane disposed-activation pruning page.</summary>
 public sealed record BaseActivationAdministrationPruneRequest : BaseActivationAdministrationPageRequest;
 
+/// <summary>Requests one ControlPlane activation-instance receipt compaction page.</summary>
+public sealed record BaseActivationAdministrationReceiptCompactionRequest : BaseActivationAdministrationPageRequest
+{
+    /// <summary>Gets the optional exclusive receipt sequence paired with <see cref="BaseActivationAdministrationPageRequest.AfterActivationId"/>.</summary>
+    public long? AfterReceiptSequence { get; init; }
+}
+
 /// <summary>Requests one installed callback-free activation migration.</summary>
 public sealed record BaseActivationAdministrationMigrationRequest
 {

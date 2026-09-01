@@ -1,4 +1,5 @@
 using HPD.Payments.Contracts.EntitlementGrantRemovalFact;
+using HPD.Payments.Contracts.Tests.EntitlementGrantRemovalFact.QuotaPolicy;
 using HPD.Payments.Primitives.Identity;
 using HPD.Payments.Primitives.Results;
 using HPD.Payments.Primitives.Time;
@@ -11,6 +12,7 @@ public static class EntitlementContractTests
     /// <summary>Checks append-only lineage, interval, scope, generation, result, and default-invalid behavior.</summary>
     public static void Run()
     {
+        QuotaPolicyEvidenceTests.Run();
         var scope = ScopeId.Create("tenant-a", "live", "entitlement");
         var other = ScopeId.Create("tenant-b", "live", "entitlement");
         var subject = Id(scope, "subjects", "account", "a1");

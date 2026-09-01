@@ -35,7 +35,18 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         BaseMutationRequestIdentity identity,
         BaseModuleMutationExecutionOptions? options,
         CancellationToken cancellationToken) =>
-        ExecuteCoreAsync(session, definition, generatedIdentity, request, identity, options, null, cancellationToken);
+        ExecuteCoreAsync(session, definition, generatedIdentity, request, null, identity, options, null, cancellationToken);
+
+    internal ValueTask<BaseResult<BaseModuleMutationExecutionResult<TResult>>> ExecuteWireAsync<TRequest, TResult>(
+        BaseSession session,
+        BaseRegisteredModuleMutationDefinition definition,
+        BaseGeneratedModuleMutationIdentity<TRequest, TResult> generatedIdentity,
+        TRequest request,
+        ReadOnlyMemory<byte> requestJson,
+        BaseMutationRequestIdentity identity,
+        BaseModuleMutationExecutionOptions? options,
+        CancellationToken cancellationToken) =>
+        ExecuteCoreAsync(session, definition, generatedIdentity, request, requestJson, identity, options, null, cancellationToken);
 
     internal ValueTask<BaseResult<BaseModuleMutationExecutionResult<TResult>>> ExecuteTransactionalAsync<TRequest, TResult>(
         BaseSession session,
@@ -45,13 +56,25 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         BaseMutationRequestIdentity identity,
         BaseTransactionalActivationCandidate activation,
         CancellationToken cancellationToken) =>
-        ExecuteCoreAsync(session, definition, generatedIdentity, request, identity, null, activation, cancellationToken);
+        ExecuteCoreAsync(session, definition, generatedIdentity, request, null, identity, null, activation, cancellationToken);
+
+    internal ValueTask<BaseResult<BaseModuleMutationExecutionResult<TResult>>> ExecuteWireTransactionalAsync<TRequest, TResult>(
+        BaseSession session,
+        BaseRegisteredModuleMutationDefinition definition,
+        BaseGeneratedModuleMutationIdentity<TRequest, TResult> generatedIdentity,
+        TRequest request,
+        ReadOnlyMemory<byte> requestJson,
+        BaseMutationRequestIdentity identity,
+        BaseTransactionalActivationCandidate activation,
+        CancellationToken cancellationToken) =>
+        ExecuteCoreAsync(session, definition, generatedIdentity, request, requestJson, identity, null, activation, cancellationToken);
 
     private async ValueTask<BaseResult<BaseModuleMutationExecutionResult<TResult>>> ExecuteCoreAsync<TRequest, TResult>(
         BaseSession session,
         BaseRegisteredModuleMutationDefinition definition,
         BaseGeneratedModuleMutationIdentity<TRequest, TResult> generatedIdentity,
         TRequest request,
+        ReadOnlyMemory<byte>? wireRequestJson,
         BaseMutationRequestIdentity identity,
         BaseModuleMutationExecutionOptions? options,
         BaseTransactionalActivationCandidate? transactionalActivation,
@@ -81,7 +104,16 @@ internal sealed class DefaultBaseModuleMutationRuntime(
                 cancellationToken).ConfigureAwait(false))
             return Failure<TResult>(OperationStatus.PolicyDenied, BaseModuleMutationErrorCodes.Unauthorized, ErrorCategory.Authorization);
         byte[] requestBytes;
-        try { requestBytes = JsonSerializer.SerializeToUtf8Bytes(request, generatedIdentity.RequestTypeInfo); }
+        JsonElement requestElement;
+        try
+        {
+            requestBytes = wireRequestJson is { } wire
+                ? CanonicalRequest(wire.Span, definition.Limits.MaximumRequestBytes)
+                : CanonicalRequest(JsonSerializer.SerializeToUtf8Bytes(request, generatedIdentity.RequestTypeInfo), definition.Limits.MaximumRequestBytes);
+            using JsonDocument requestDocument = JsonDocument.Parse(requestBytes);
+            requestElement = requestDocument.RootElement.Clone();
+            BaseModuleProgramEvaluator<TRequest, TResult>.ValidateDto(requestBytes, generatedIdentity.RequestBindings, providerInfluenced: false);
+        }
         catch { return Failure<TResult>(OperationStatus.ValidationFailed, BaseModuleMutationErrorCodes.Invalid, ErrorCategory.Validation); }
         if (requestBytes.LongLength > definition.Limits.MaximumRequestBytes)
             return Failure<TResult>(OperationStatus.ValidationFailed, BaseModuleMutationErrorCodes.LimitExceeded, ErrorCategory.Validation);
@@ -92,17 +124,59 @@ internal sealed class DefaultBaseModuleMutationRuntime(
                 session, semanticDefinition, options!.SemanticActivation!, cancellationToken).ConfigureAwait(false))
             return Failure<TResult>(OperationStatus.PolicyDenied, BaseModuleMutationErrorCodes.Unauthorized, ErrorCategory.Authorization);
         IReadOnlyDictionary<string, CollectionDefinition> installed = collections.Collections;
-        var requestEvaluator = new BaseModuleProgramEvaluator<TRequest, TResult>(definition, generatedIdentity, request, null, installed);
+        var requestEvaluator = new BaseModuleProgramEvaluator<TRequest, TResult>(
+            definition, generatedIdentity, requestElement, null, installed, definition.Limits);
+        try
+        {
+            IReadOnlyDictionary<string, BaseModuleGuard> guards = definition.Template.Guards
+                .ToDictionary(static value => value.Id, StringComparer.Ordinal);
+            HashSet<string> reachableGuards = ReachableGuardIds(definition.Template, guards);
+            foreach (string guardId in reachableGuards.Order(StringComparer.Ordinal))
+                if (BaseModuleMutationContractValidator.IsRequestOnlyGuard(guardId, guards))
+                    _ = requestEvaluator.Guard(guardId);
+            foreach (BaseModulePrecondition precondition in definition.Template.Preconditions)
+                if (!requestEvaluator.Guard(precondition.GuardId))
+                    return Failure<TResult>(OperationStatus.ValidationFailed,
+                        "base.moduleMutation.requirementFailed", ErrorCategory.Validation);
+        }
+        catch (BaseModuleScalarContractException)
+        {
+            return Failure<TResult>(OperationStatus.ValidationFailed,
+                BaseModuleMutationErrorCodes.Invalid, ErrorCategory.Validation);
+        }
+        catch (BaseModuleRequestLimitException)
+        {
+            return Failure<TResult>(OperationStatus.ValidationFailed,
+                BaseModuleMutationErrorCodes.LimitExceeded, ErrorCategory.Validation);
+        }
+        catch (OverflowException)
+        {
+            return Failure<TResult>(OperationStatus.ValidationFailed,
+                BaseModuleMutationErrorCodes.LimitExceeded, ErrorCategory.Validation);
+        }
+        catch
+        {
+            return Failure<TResult>(OperationStatus.ValidationFailed,
+                BaseModuleMutationErrorCodes.Invalid, ErrorCategory.Validation);
+        }
         BaseModuleMutationCaptureExtension extension;
         CollectionDefinition[] authorityCollections;
         try
         {
-            extension = BuildCaptureExtension(definition, requestEvaluator, session, registry, installed, requestBytes);
+            extension = BuildCaptureExtension(definition, requestEvaluator, session, registry, installed, requestBytes, out int disabledCaptures);
+            if (disabledCaptures > definition.Limits.MaximumDisabledCaptures)
+                return Failure<TResult>(OperationStatus.ValidationFailed,
+                    BaseModuleMutationErrorCodes.LimitExceeded, ErrorCategory.Validation);
             authorityCollections = extension.Records.Select(static value => value.Collection)
                 .Concat(extension.RelationTargets.Select(static value => value.TargetCollection))
                 .Concat(definition.SystemCollectionIds.Select(id => installed[id]))
                 .DistinctBy(static value => value.Id, StringComparer.Ordinal)
                 .OrderBy(static value => value.Id, StringComparer.Ordinal).ToArray();
+        }
+        catch (BaseModuleRequestLimitException)
+        {
+            return Failure<TResult>(OperationStatus.ValidationFailed,
+                BaseModuleMutationErrorCodes.LimitExceeded, ErrorCategory.Validation);
         }
         catch { return Failure<TResult>(OperationStatus.ValidationFailed, BaseModuleMutationErrorCodes.Invalid, ErrorCategory.Validation); }
 
@@ -111,6 +185,8 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             ?? storeRegistration?.Store as IAtomicRecordStore;
         if (atomicStore is null || !BaseModuleMutationCapabilityContract.Supports(definition.Limits, atomicStore.Capabilities.ModuleMutation))
             return Failure<TResult>(OperationStatus.Unsupported, BaseModuleMutationErrorCodes.CapabilityMissing, ErrorCategory.Unsupported);
+        BaseMutationRequestIdentity receiptIdentity = BindReceiptIdentity(
+            identity, definition, session.ApplicationId, storeRegistration!.StoreId);
         if (semanticDefinition is not null && options?.SemanticActivation is BaseSemanticActivationGuardedRetireRequest
             && ExternalRecoverySelected(storeRegistration!.StoreId))
         {
@@ -120,11 +196,11 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             try
             {
                 RecordMutationExecutionResult existing = await atomicStore.ResolveAtomicReceiptAsync(
-                    replay, identity, definition.Limits.Deadlines.ReceiptResolutionTimeout, cancellationToken).ConfigureAwait(false);
+                    replay, receiptIdentity, definition.Limits.Deadlines.ReceiptResolutionTimeout, cancellationToken).ConfigureAwait(false);
                 if (existing.Outcome == RecordMutationExecutionOutcome.Committed && replay.Result is not null)
                 {
                     if (!await FinalizeStoredSemanticRecoveryAsync(storeRegistration.StoreId, replay.SemanticReceipt,
-                            existing.ReceiptAuthority, identity, cancellationToken).ConfigureAwait(false))
+                            existing.ReceiptAuthority, receiptIdentity, cancellationToken).ConfigureAwait(false))
                         return Failure<TResult>(OperationStatus.StoreError, BaseSemanticActivationErrorCodes.ExternalPublicationPending, ErrorCategory.Store);
                     return new BaseSuccess<BaseModuleMutationExecutionResult<TResult>>(replay.Result,
                         OperationStatus.Ok, null, null, null, null);
@@ -149,13 +225,13 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         BaseAtomicSemanticActivationExtension? semantic;
         byte[] localStructuralDigest = SHA256.HashData(Encoding.UTF8.GetBytes(
             $"base.moduleMutation.receipt.v1\0{definition.Id}\0{definition.Version}\0{Convert.ToHexString(definition.Checksum.ToArray())}\0{Convert.ToHexString(requestBytes)}"));
-        try { semantic = CreateSemanticExtension(definition, options, semanticRegistry, acceptedTimes, authority.Value, storeRegistration!.StoreId, request, generatedIdentity); }
+        try { semantic = CreateSemanticExtension(definition, options, semanticRegistry, acceptedTimes, authority.Value, storeRegistration!.StoreId, requestElement, generatedIdentity); }
         catch { return Failure<TResult>(OperationStatus.ValidationFailed, "base.semanticActivation.contractInvalid", ErrorCategory.Validation); }
         SemanticRecoveryExecution? recovery = null;
         if (semantic?.Operation is BaseSemanticActivationRetireIntent)
         {
             BaseResult<SemanticRecoveryExecution?> recoveryResult = await PrepareSemanticRecoveryAsync(
-                atomicStore, semantic, identity, localStructuralDigest, semanticDefinition!, cancellationToken).ConfigureAwait(false);
+                atomicStore, semantic, receiptIdentity, localStructuralDigest, semanticDefinition!, cancellationToken).ConfigureAwait(false);
             if (recoveryResult is not BaseSuccess<SemanticRecoveryExecution?> recoverySuccess)
                 return Failure<TResult>(recoveryResult.Status, ((BaseFailure<SemanticRecoveryExecution?>)recoveryResult).Error);
             recovery = recoverySuccess.Value;
@@ -178,9 +254,11 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             Items = [],
         };
         var processor = new BaseModuleMutationProcessor<TRequest, TResult>(
-            definition, generatedIdentity, request, intent, extension, options?.ActivationGuard,
-            options?.ActivationCreation, semantic, limits, installed,
-            session.Principal, moduleOperation, operationPolicy.Value,
+            definition, generatedIdentity, requestElement, intent, extension, options?.ActivationGuard,
+            options?.ActivationCreation, semantic,
+            (semanticDefinition?.Compaction as BaseSemanticActivationSubjectRetirementCompaction)?.SubjectReferenceRequestPropertyId,
+            limits, installed,
+            session.Principal, moduleOperation, operationPolicy.Value, requestEvaluator.EstablishedRequestGuards,
             schemaValidator, policy, normalizer, subjects, lifecycleConsumers, retirement, semanticMigrations, transactionalActivation);
         var executionRequest = new RecordMutationExecutionRequest
         {
@@ -189,7 +267,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             CommitCompletionTimeout = options?.MaximumWait ?? definition.Limits.Deadlines.CommitObservationTimeout,
             AtomicRequest = new BaseAtomicMutationExecutionRequest
             {
-                Identity = identity,
+                Identity = receiptIdentity,
                 StructuralDigest = localStructuralDigest,
                 ExpiresAt = timeProvider.GetUtcNow().Add(definition.ReceiptPolicy.Lifetime),
                 MaxReceiptBytes = checked((int)Math.Min(definition.Limits.MaximumReceiptBytes, int.MaxValue)),
@@ -215,7 +293,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         {
             if (recovery is not null)
             {
-                BaseSemanticRecoveryCancellationDisposition? cancelled = await CancelSemanticRecoveryAsync(recovery, identity, execution,
+                BaseSemanticRecoveryCancellationDisposition? cancelled = await CancelSemanticRecoveryAsync(recovery, receiptIdentity, execution,
                     executionRequest.AtomicRequest!, cancellationToken).ConfigureAwait(false);
                 if (cancelled is BaseSemanticRecoveryCancellationDisposition.AlreadyFinalized
                     or BaseSemanticRecoveryCancellationDisposition.CommitBoundPending)
@@ -226,13 +304,13 @@ internal sealed class DefaultBaseModuleMutationRuntime(
                     RecordMutationExecutionResult resolved;
                     try
                     {
-                        resolved = await atomicStore.ResolveAtomicReceiptAsync(resolver, identity,
+                        resolved = await atomicStore.ResolveAtomicReceiptAsync(resolver, receiptIdentity,
                             definition.Limits.Deadlines.ReceiptResolutionTimeout, cancellationToken).ConfigureAwait(false);
                     }
                     catch { return Failure<TResult>(OperationStatus.StoreError, BaseSemanticActivationErrorCodes.ExternalPublicationPending, ErrorCategory.Store); }
                     if (resolved.ReceiptResolution == BaseAtomicReceiptResolutionDisposition.Found && resolver.Result is not null
                         && await FinalizeStoredSemanticRecoveryAsync(storeRegistration!.StoreId, resolver.SemanticReceipt,
-                            resolved.ReceiptAuthority, identity, cancellationToken).ConfigureAwait(false))
+                            resolved.ReceiptAuthority, receiptIdentity, cancellationToken).ConfigureAwait(false))
                         return new BaseSuccess<BaseModuleMutationExecutionResult<TResult>>(resolver.Result,
                             OperationStatus.Ok, null, null, null, null);
                     return Failure<TResult>(OperationStatus.StoreError, BaseSemanticActivationErrorCodes.ExternalPublicationPending, ErrorCategory.Store);
@@ -241,11 +319,16 @@ internal sealed class DefaultBaseModuleMutationRuntime(
                     or BaseSemanticRecoveryCancellationDisposition.AlreadyCancelled))
                     return Failure<TResult>(OperationStatus.StoreError, BaseSemanticActivationErrorCodes.ExternalPublicationPending, ErrorCategory.Store);
             }
-            return Failure<TResult>(execution.Processing?.Error is { } error ? OperationStatus.StoreError : OperationStatus.Conflict,
-                execution.Processing?.Error ?? execution.Error ?? Error(BaseModuleMutationErrorCodes.GenerationConflict, ErrorCategory.Conflict));
+            BaseError failure = execution.Processing?.Error is { } processingError
+                ? processingError.Code == BaseMutationRequestErrorCodes.FingerprintConflict
+                    ? Error(BaseMutationRequestErrorCodes.FingerprintConflict, ErrorCategory.Conflict)
+                    : processingError
+                : NormalizeProviderExecutionError(execution.Error);
+            return Failure<TResult>(failure.Category == ErrorCategory.Store
+                ? OperationStatus.StoreError : OperationStatus.Conflict, failure);
         }
         if (recovery is not null && !await FinalizeSemanticRecoveryAsync(
-                recovery, processor.SemanticReceipt, execution.ReceiptAuthority, identity, cancellationToken).ConfigureAwait(false))
+                recovery, processor.SemanticReceipt, execution.ReceiptAuthority, receiptIdentity, cancellationToken).ConfigureAwait(false))
             return Failure<TResult>(OperationStatus.StoreError, BaseSemanticActivationErrorCodes.ExternalPublicationPending, ErrorCategory.Store);
         return new BaseSuccess<BaseModuleMutationExecutionResult<TResult>>(
             processor.Result with
@@ -571,7 +654,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         BaseActivationAcceptedTimeAuthority acceptedTime,
         BaseAtomicMutationAuthorityRequirement authority,
         string logicalStoreId,
-        TRequest request,
+        JsonElement request,
         BaseGeneratedModuleMutationIdentity<TRequest, TResult> requestIdentity)
     {
         BaseSemanticActivationGuardedRequest? requested = options?.SemanticActivation;
@@ -748,6 +831,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             Activation = new BaseSemanticActivationCreateIntent
             {
                 Definition = request.Activation with { Checksum = request.Activation.Checksum.ToArray().ToImmutableArray() },
+                ReceiptRetention = installed.ReceiptRetention with { },
                 CanonicalInput = request.CanonicalInput.ToArray().ToImmutableArray(), InputChecksum = request.InputChecksum.ToArray().ToImmutableArray(),
                 Scope = request.Scope with { Value = request.Scope.Value is null ? null : new string(request.Scope.Value.AsSpan()) }, Due = dueAuthority,
                 Priority = 0, InitiallyEligible = true,
@@ -772,7 +856,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
 
     private BaseSemanticActivationSubjectLifetimeBinding? ExtractSubjectLifetime<TRequest, TResult>(
         BaseSemanticActivationKeyDefinition definition,
-        TRequest request,
+        JsonElement request,
         BaseGeneratedModuleMutationIdentity<TRequest, TResult> identity,
         byte[] proposedScopeBinding)
     {
@@ -785,7 +869,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         BaseModuleDtoPropertyBinding[] matches = identity.RequestBindings.Values
             .Where(value => value.StablePropertyId == compaction.SubjectReferenceRequestPropertyId).ToArray();
         if (matches.Length != 1) throw new InvalidOperationException("base.semanticActivation.contractInvalid");
-        JsonElement current = JsonSerializer.SerializeToElement(request, identity.RequestTypeInfo);
+        JsonElement current = request;
         for (int index = 0; index < matches[0].WirePropertyPath.Count; index++)
         {
             if (current.ValueKind != JsonValueKind.Object || !current.TryGetProperty(matches[0].WirePropertyPath[index], out current))
@@ -856,6 +940,8 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         IAtomicRecordStore? store = receiptRegistration?.AtomicExecutionStore ?? receiptRegistration?.Store as IAtomicRecordStore;
         if (store is null || !BaseModuleMutationCapabilityContract.Supports(definition.Limits, store.Capabilities.ModuleMutation))
             return Failure<TResult>(OperationStatus.NotFound, BaseModuleMutationErrorCodes.ReceiptUnavailable, ErrorCategory.NotFound);
+        BaseMutationRequestIdentity receiptIdentity = BindReceiptIdentity(
+            identity, definition, session.ApplicationId, receiptRegistration!.StoreId);
         var resolver = new BaseModuleMutationReceiptResolver<TResult>(
             definition, generatedIdentity.ResultTypeInfo, generatedIdentity.ResultBindings,
             session.Principal, session.Operation(BaseOperationKind.ModuleMutation, definition.Id), policy);
@@ -863,16 +949,48 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         try
         {
             resolution = await store.ResolveAtomicReceiptAsync(
-                resolver, identity, definition.Limits.Deadlines.ReceiptResolutionTimeout, cancellationToken).ConfigureAwait(false);
+                resolver, receiptIdentity, definition.Limits.Deadlines.ReceiptResolutionTimeout, cancellationToken).ConfigureAwait(false);
         }
         catch { return Failure<TResult>(OperationStatus.NotFound, BaseModuleMutationErrorCodes.ReceiptUnavailable, ErrorCategory.NotFound); }
         if (resolution.Outcome != RecordMutationExecutionOutcome.Committed || resolver.Result is null)
             return Failure<TResult>(OperationStatus.NotFound, BaseModuleMutationErrorCodes.ReceiptUnavailable, ErrorCategory.NotFound);
         if (resolver.SemanticReceipt?.RecoveryPublication is not null
             && !await FinalizeStoredSemanticRecoveryAsync(receiptRegistration!.StoreId, resolver.SemanticReceipt,
-                resolution.ReceiptAuthority, identity, cancellationToken).ConfigureAwait(false))
+                resolution.ReceiptAuthority, receiptIdentity, cancellationToken).ConfigureAwait(false))
             return Failure<TResult>(OperationStatus.StoreError, BaseSemanticActivationErrorCodes.ExternalPublicationPending, ErrorCategory.Store);
         return new BaseSuccess<BaseModuleMutationExecutionResult<TResult>>(resolver.Result, OperationStatus.Ok, null, null, null, null);
+    }
+
+    private static BaseMutationRequestIdentity BindReceiptIdentity(
+        BaseMutationRequestIdentity identity,
+        BaseRegisteredModuleMutationDefinition definition,
+        string applicationId,
+        string logicalStoreId)
+    {
+        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        Append(hash, "base.moduleMutation.receiptAuthority.v1"u8);
+        Append(hash, Encoding.UTF8.GetBytes(applicationId));
+        Append(hash, Encoding.UTF8.GetBytes(logicalStoreId));
+        Append(hash, Encoding.UTF8.GetBytes(definition.Id));
+        Span<byte> version = stackalloc byte[4];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(version, definition.Version);
+        Append(hash, version);
+        Append(hash, definition.Checksum.ToArray());
+        Append(hash, Encoding.UTF8.GetBytes(identity.Scope));
+        Append(hash, Encoding.UTF8.GetBytes(identity.Operation));
+        return BaseMutationRequestIdentity.Create(
+            Convert.ToHexStringLower(hash.GetHashAndReset()),
+            definition.Id,
+            identity.IdempotencyKey,
+            identity.Fingerprint);
+
+        static void Append(IncrementalHash hash, ReadOnlySpan<byte> value)
+        {
+            Span<byte> length = stackalloc byte[4];
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(length, value.Length);
+            hash.AppendData(length);
+            hash.AppendData(value);
+        }
     }
 
     private IAtomicRecordStore? ResolveOneStore(CollectionDefinition[] authorityCollections)
@@ -964,26 +1082,35 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         BaseSession session,
         BaseModuleMutationRegistry registry,
         IReadOnlyDictionary<string, CollectionDefinition> collections,
-        byte[] requestBytes)
+        byte[] requestBytes,
+        out int disabledCaptures)
     {
         var records = ImmutableArray.CreateBuilder<BaseModuleRecordCaptureRequest>();
         var generations = ImmutableArray.CreateBuilder<BaseModuleGenerationCaptureRequest>();
         var relations = ImmutableArray.CreateBuilder<BaseModuleRelationTargetCaptureRequest>();
+        disabledCaptures = 0;
         foreach (BaseModuleCapture capture in definition.Template.Captures.OrderBy(static value => value.Id, StringComparer.Ordinal))
         {
+            if (capture.EnableGuardId is not null && !evaluator.Guard(capture.EnableGuardId))
+            {
+                disabledCaptures = checked(disabledCaptures + 1);
+                continue;
+            }
             if (capture is BaseModuleRecordCapture record)
             {
                 BaseModuleProgramValue id = evaluator.Evaluate(record.RecordId);
                 records.Add(new BaseModuleRecordCaptureRequest
                 {
                     Ordinal = records.Count, CaptureId = record.Id, Collection = collections[record.CollectionId],
-                    RecordId = new RecordId(id.Value.GetString() ?? throw new InvalidOperationException()), Presence = record.Presence,
+                    RecordId = RecordId.Create(id.Value.GetString() ?? throw new InvalidOperationException()), Presence = record.Presence,
                 });
             }
             else if (capture is BaseModuleGenerationCapture generation)
             {
                 BaseModuleGenerationCellDefinition cell = registry.FindCell(generation.CellId) ?? throw new InvalidOperationException();
-                BaseModuleProgramValue key = generation.Key is null ? BaseModuleProgramValue.Missing : evaluator.Evaluate(generation.Key);
+                BaseModuleProgramValue key = generation.Key is null
+                    ? BaseModuleProgramValue.Missing(BaseModuleProgramValueProvenance.HostConstant)
+                    : evaluator.Evaluate(generation.Key);
                 OperationContext operation = session.Operation(BaseOperationKind.ModuleMutation, definition.Id);
                 generations.Add(new BaseModuleGenerationCaptureRequest
                 {
@@ -999,7 +1126,9 @@ internal sealed class DefaultBaseModuleMutationRuntime(
                 });
             }
         }
-        foreach (BaseModuleStatement statement in EnumerateStatements(definition.Template.Body))
+        IReadOnlyDictionary<string, BaseModuleGuard> guards = definition.Template.Guards
+            .ToDictionary(static value => value.Id, StringComparer.Ordinal);
+        foreach (BaseModuleStatement statement in EnumerateCaptureStatements(definition.Template.Body, evaluator, guards))
         {
             string? collectionId = statement switch
             {
@@ -1024,6 +1153,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
                 FieldDefinition? field = collection.Fields?.SingleOrDefault(value => string.Equals(value.Id, property.StablePropertyId, StringComparison.Ordinal));
                 if (field?.Relation is not { OwningSide: BaseRelationOwningSide.Source } relation) continue;
                 BaseModuleProgramValue target = evaluator.Evaluate(property.Value);
+                if (target.Value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined) continue;
                 IEnumerable<string> ids = target.Value.ValueKind == JsonValueKind.Array
                     ? target.Value.EnumerateArray().Select(static value => value.GetString() ?? throw new InvalidOperationException()).ToArray()
                     : [target.Value.GetString() ?? throw new InvalidOperationException()];
@@ -1032,11 +1162,11 @@ internal sealed class DefaultBaseModuleMutationRuntime(
                     if (relations.Any(value => string.Equals(value.SourceStatementId, statement.Id, StringComparison.Ordinal)
                         && string.Equals(value.SourceFieldId, field.Id, StringComparison.Ordinal)
                         && string.Equals(value.TargetCollection.Id, relation.TargetCollectionId, StringComparison.Ordinal)
-                        && value.TargetRecordId == new RecordId(id))) continue;
+                        && value.TargetRecordId == RecordId.Create(id))) continue;
                     relations.Add(new BaseModuleRelationTargetCaptureRequest
                     {
                         Ordinal = relations.Count, SourceStatementId = statement.Id, SourceFieldId = field.Id,
-                        TargetCollection = collections[relation.TargetCollectionId], TargetRecordId = new RecordId(id),
+                        TargetCollection = collections[relation.TargetCollectionId], TargetRecordId = RecordId.Create(id),
                     });
                 }
             }
@@ -1058,6 +1188,158 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             if (statement is not BaseModuleIfStatement branch) continue;
             foreach (BaseModuleStatement nested in EnumerateStatements(branch.WhenTrue)) yield return nested;
             foreach (BaseModuleStatement nested in EnumerateStatements(branch.WhenFalse)) yield return nested;
+        }
+    }
+
+    private static IEnumerable<BaseModuleStatement> EnumerateActiveStatements<TRequest, TResult>(
+        BaseModuleMutationBlock block,
+        BaseModuleProgramEvaluator<TRequest, TResult> evaluator)
+    {
+        foreach (BaseModuleStatement statement in block.Statements)
+        {
+            if (statement is BaseModuleIfStatement branch)
+            {
+                BaseModuleMutationBlock selected = evaluator.Guard(branch.GuardId)
+                    ? branch.WhenTrue
+                    : branch.WhenFalse;
+                foreach (BaseModuleStatement child in EnumerateActiveStatements(selected, evaluator))
+                    yield return child;
+                continue;
+            }
+
+            yield return statement;
+        }
+    }
+
+    internal static IEnumerable<BaseModuleStatement> EnumerateCaptureStatements<TRequest, TResult>(
+        BaseModuleMutationBlock block,
+        BaseModuleProgramEvaluator<TRequest, TResult> evaluator,
+        IReadOnlyDictionary<string, BaseModuleGuard> guards)
+    {
+        foreach (BaseModuleStatement statement in block.Statements)
+        {
+            if (statement is not BaseModuleIfStatement branch)
+            {
+                yield return statement;
+                continue;
+            }
+
+            if (BaseModuleMutationContractValidator.IsRequestOnlyGuard(branch.GuardId, guards))
+            {
+                BaseModuleMutationBlock selected = evaluator.Guard(branch.GuardId)
+                    ? branch.WhenTrue
+                    : branch.WhenFalse;
+                foreach (BaseModuleStatement child in EnumerateCaptureStatements(selected, evaluator, guards))
+                    yield return child;
+                continue;
+            }
+
+            foreach (BaseModuleStatement child in EnumerateCaptureStatements(branch.WhenTrue, evaluator, guards))
+                yield return child;
+            foreach (BaseModuleStatement child in EnumerateCaptureStatements(branch.WhenFalse, evaluator, guards))
+                yield return child;
+        }
+    }
+
+    private static HashSet<string> ReachableGuardIds(
+        BaseModuleMutationTemplate template,
+        IReadOnlyDictionary<string, BaseModuleGuard> guards)
+    {
+        var reachable = new HashSet<string>(StringComparer.Ordinal);
+        foreach (BaseModuleCapture capture in template.Captures)
+        {
+            Add(capture.EnableGuardId);
+            foreach (BaseModuleValueExpression expression in (IEnumerable<BaseModuleValueExpression>)(capture switch
+            {
+                BaseModuleRecordCapture record => [record.RecordId],
+                BaseModuleGenerationCapture { Key: { } key } => [key],
+                _ => [],
+            }))
+                AddExpression(expression);
+        }
+        foreach (BaseModulePrecondition precondition in template.Preconditions) Add(precondition.GuardId);
+        AddBlock(template.Body);
+        AddExpression(template.Result.Value);
+        return reachable;
+
+        void Add(string? id)
+        {
+            if (id is null || !reachable.Add(id) || !guards.TryGetValue(id, out BaseModuleGuard? guard)) return;
+            switch (guard)
+            {
+                case BaseModuleLogicalGuard logical:
+                    foreach (string child in logical.ChildGuardIds) Add(child);
+                    break;
+                case BaseModuleSetGuard set:
+                    AddSet(set.Left);
+                    if (set.Right is { } right) AddSet(right);
+                    break;
+            }
+            foreach (BaseModuleValueExpression expression in (IEnumerable<BaseModuleValueExpression>)(guard switch
+            {
+                BaseModuleRevisionEqualsGuard value => [value.Expected],
+                BaseModuleFieldEqualsGuard value => [value.Expected],
+                BaseModuleFieldComparisonGuard value => [value.Expected],
+                BaseModuleGenerationGuard { Expected: { } expected } => [expected],
+                BaseModuleValueEqualsGuard value => [value.Left, value.Right],
+                BaseModuleValueComparisonGuard value => [value.Left, value.Right],
+                BaseModuleValuePresenceGuard value => [value.Value],
+                _ => [],
+            }))
+                AddExpression(expression);
+        }
+
+        void AddSet(BaseModuleStaticSet set)
+        {
+            foreach (BaseModuleStaticSetMember member in set.Members)
+            {
+                Add(member.EnableGuardId);
+                AddExpression(member.Value);
+            }
+        }
+
+        void AddBlock(BaseModuleMutationBlock block)
+        {
+            foreach (BaseModuleStatement statement in block.Statements)
+            {
+                switch (statement)
+                {
+                    case BaseModuleIfStatement branch:
+                        Add(branch.GuardId); AddBlock(branch.WhenTrue); AddBlock(branch.WhenFalse); break;
+                    case BaseModuleRequireStatement require: Add(require.GuardId); break;
+                    case BaseModuleCreateStatement create: AddExpression(create.RecordId); AddExpression(create.Payload); break;
+                    case BaseModulePatchStatement patch:
+                        AddExpression(patch.RecordId); AddExpression(patch.Patch); AddExpression(patch.ExpectedRevision); break;
+                    case BaseModuleReplaceStatement replace:
+                        AddExpression(replace.RecordId); AddExpression(replace.Payload); AddExpression(replace.ExpectedRevision); break;
+                    case BaseModuleDeleteStatement delete:
+                        AddExpression(delete.RecordId); AddExpression(delete.ExpectedRevision); break;
+                    case BaseModuleUpsertStatement upsert:
+                        AddExpression(upsert.RecordId); AddExpression(upsert.Create); AddExpression(upsert.Update);
+                        AddExpression(upsert.ExpectedRevision); break;
+                }
+            }
+        }
+
+        void AddExpression(BaseModuleValueExpression? expression)
+        {
+            if (expression is null) return;
+            switch (expression)
+            {
+                case BaseModuleConditionalExpression conditional:
+                    Add(conditional.GuardId); AddExpression(conditional.WhenTrue); AddExpression(conditional.WhenFalse); break;
+                case BaseModuleCoalesceExpression coalesce:
+                    foreach (BaseModuleValueExpression value in coalesce.Values) AddExpression(value); break;
+                case BaseModuleBinaryNumericExpression numeric:
+                    AddExpression(numeric.Left); AddExpression(numeric.Right); break;
+                case BaseModuleRecordIdConversionExpression conversion: AddExpression(conversion.Source); break;
+                case BaseModuleGenerationKeyFromGuidExpression conversion: AddExpression(conversion.Source); break;
+                case BaseModulePresenceLiftExpression lift: AddExpression(lift.Source); break;
+                case BaseModuleIncarnationBytesExpression conversion: AddExpression(conversion.Source); break;
+                case BaseModuleSha256HexStringIdentityExpression identity: AddExpression(identity.Source); break;
+                case BaseModuleObjectExpression value:
+                    foreach (BaseModuleObjectPropertyExpression property in value.Properties) AddExpression(property.Value); break;
+            }
         }
     }
 
@@ -1092,11 +1374,40 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             _ => false,
         };
 
+    internal static byte[] CanonicalRequest(ReadOnlySpan<byte> json, long maximumBytes)
+    {
+        int maximum = checked((int)Math.Min(maximumBytes, int.MaxValue));
+        return BaseCanonicalJson.Canonicalize(json, new BaseCanonicalJsonLimits
+        {
+            MaximumCanonicalBytes = maximum,
+            MaximumDepth = 64,
+            MaximumTotalNodes = 65_536,
+            MaximumTotalStringUtf8Bytes = maximum,
+            MaximumTotalNameUtf8Bytes = maximum,
+            MaximumArrayItemsPerContainer = 16_384,
+            MaximumObjectPropertiesPerContainer = 16_384,
+        });
+    }
+
     private static BaseFailure<BaseModuleMutationExecutionResult<TResult>> Failure<TResult>(OperationStatus status, string code, ErrorCategory category) =>
         Failure<TResult>(status, Error(code, category));
     private static BaseFailure<BaseModuleMutationExecutionResult<TResult>> Failure<TResult>(OperationStatus status, BaseError error) =>
         new(status, error, null, null);
-    private static BaseError Error(string code, ErrorCategory category) => new() { Code = code, Message = "The registered module mutation could not be completed.", Category = category };
+    private static BaseError Error(string code, ErrorCategory category) => new() { Code = code,
+        Message = code == BaseModuleMutationErrorCodes.ProviderContractInvalid
+            ? "The module mutation provider returned invalid evidence."
+            : "The registered module mutation could not be completed.", Category = category };
+    private static BaseError NormalizeProviderExecutionError(BaseError? error) => error?.Code switch
+    {
+        BaseMutationErrorCodes.TransactionTimeout => Error(BaseMutationErrorCodes.TransactionTimeout, ErrorCategory.Store),
+        BaseMutationErrorCodes.TransactionConflict or BaseMutationErrorCodes.RevisionConflict =>
+            Error(BaseModuleMutationErrorCodes.GenerationConflict, ErrorCategory.Conflict),
+        BaseMutationRequestErrorCodes.FingerprintConflict =>
+            Error(BaseMutationRequestErrorCodes.FingerprintConflict, ErrorCategory.Conflict),
+        BaseModuleMutationErrorCodes.ProviderContractInvalid =>
+            Error(BaseModuleMutationErrorCodes.ProviderContractInvalid, ErrorCategory.Store),
+        _ => Error(BaseModuleMutationErrorCodes.StoreError, ErrorCategory.Store),
+    };
     private static string Digest(params string[] values) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\0', values)))).ToLowerInvariant();
 }
 
@@ -1130,6 +1441,8 @@ internal sealed class BaseModuleMutationReceiptResolver<TResult>(
             return Failed();
         try
         {
+            BaseModuleProgramEvaluator<object, TResult>.ValidateDto(
+                module.CanonicalResultBytes.AsSpan(), resultBindings, providerInfluenced: true);
             TResult? typed = JsonSerializer.Deserialize(module.CanonicalResultBytes.AsSpan(), resultTypeInfo);
             if (typed is null) return Failed();
             Result = new BaseModuleMutationExecutionResult<TResult>
@@ -1143,17 +1456,21 @@ internal sealed class BaseModuleMutationReceiptResolver<TResult>(
                 BaseAtomicReceiptWire.From(committedResult), HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire)).ToImmutableArray();
             return new AtomicMutationProcessingResult(AtomicMutationProcessingOutcome.ReadyToCommit, committedResult);
         }
+        catch (BaseModuleScalarContractException) { return Failed(BaseModuleMutationErrorCodes.ProviderContractInvalid, ErrorCategory.Store); }
         catch { return Failed(); }
     }
 
-    private static AtomicMutationProcessingResult Failed() => new(
+    private static AtomicMutationProcessingResult Failed() => Failed(BaseModuleMutationErrorCodes.ReceiptUnavailable, ErrorCategory.Authorization);
+    private static AtomicMutationProcessingResult Failed(string code, ErrorCategory category) => new(
         AtomicMutationProcessingOutcome.Failed,
         [],
         new BaseError
         {
-            Code = BaseModuleMutationErrorCodes.ReceiptUnavailable,
-            Message = "The stored module mutation receipt cannot be resolved.",
-            Category = ErrorCategory.Authorization,
+            Code = code,
+            Message = code == BaseModuleMutationErrorCodes.ProviderContractInvalid
+                ? "The module mutation provider returned invalid evidence."
+                : "The stored module mutation receipt cannot be resolved.",
+            Category = category,
         });
 }
 

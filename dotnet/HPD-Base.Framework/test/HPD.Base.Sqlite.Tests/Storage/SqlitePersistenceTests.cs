@@ -15,11 +15,11 @@ public sealed class SqlitePersistenceTests
         {
             var options = new HPDBaseSqliteOptions { DataSource = path, Collections = [SqliteTestFactory.Collection()] };
             var first = SqliteTestFactory.Create(options);
-            var create = await first.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("one"), Payload = Payload("durable") }, Operation(BaseOperationKind.Create));
+            var create = await first.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = RecordId.Create("one"), Payload = Payload("durable") }, Operation(BaseOperationKind.Create));
             create.Status.Should().Be(OperationStatus.Created);
 
             var second = SqliteTestFactory.Create(options);
-            var get = await second.GetAsync(Collection(), new RecordId("one"), Operation(BaseOperationKind.Get));
+            var get = await second.GetAsync(Collection(), RecordId.Create("one"), Operation(BaseOperationKind.Get));
             get.Status.Should().Be(OperationStatus.Ok);
             get.Value!.Payload.Fields!["title"].GetString().Should().Be("durable");
         }

@@ -58,9 +58,9 @@ public class EvalTestWebApplicationFactory : IDisposable
                 // Register the shared score store so EvalEndpoints can resolve it
                 services.AddSingleton<IScoreStore>(ScoreStore);
                 services.AddSingleton<IDatasetStore>(DatasetStore);
-                services.AddHPDAgent("test-agent", options =>
+                services.AddTestApplicationCompositions().AddHPDAgent("test-agent", options =>
                 {
-                    options.SessionStore = new FileSessionStore(Path.Combine(Path.GetTempPath(), $"hpd-eval-tests-{Guid.NewGuid()}"));
+                    options.SessionStore = new FileSessionStore(Path.Combine(Path.GetTempPath(), $"hpd-eval-tests-{Guid.NewGuid()}"), HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec);
                 });
             })
             .Configure(app =>

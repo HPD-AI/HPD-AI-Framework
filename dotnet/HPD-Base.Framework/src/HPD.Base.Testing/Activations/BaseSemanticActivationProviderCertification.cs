@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 
 namespace HPD.Base.Testing;
@@ -243,6 +244,14 @@ public static class BaseSemanticActivationProviderCertification
         ("noncooperative-release", BaseSemanticActivationCertificationOperation.NonCooperativeRelease, false),
     ];
 
+    private static readonly ImmutableArray<string> MaintenanceV3 =
+    [
+        "maintenance-compact-zero", "maintenance-compact-multipage", "maintenance-progress-invisible",
+        "maintenance-resume", "maintenance-replay", "maintenance-fingerprint-conflict",
+        "maintenance-migrate", "maintenance-remove", "maintenance-owned-results",
+        "maintenance-incarnation-substitution",
+    ];
+
     /// <summary>Executes every contract case against an isolated production-provider fixture.</summary>
     public static async ValueTask<BaseSemanticActivationCertificationReport> RunAsync(
         IBaseSemanticActivationCertificationFixtureFactory factory, TimeSpan caseTimeout,
@@ -261,6 +270,9 @@ public static class BaseSemanticActivationProviderCertification
                     or BaseSemanticActivationCertificationFault.InterruptMaintenancePublication or BaseSemanticActivationCertificationFault.InterruptRestorePublication
                     or BaseSemanticActivationCertificationFault.CorruptRecoveryEntry or BaseSemanticActivationCertificationFault.RetentionOvertake,
                 fault, caseTimeout, cancellationToken).ConfigureAwait(false));
+        foreach (string id in MaintenanceV3)
+            results.Add(await ExecuteAsync(factory, id, ordinal++, BaseSemanticActivationCertificationOperation.Maintain,
+                true, null, caseTimeout, cancellationToken).ConfigureAwait(false));
         ImmutableArray<BaseSemanticActivationCertificationCaseResult> cases = results.ToImmutable();
         if (!cases.Select(static item => item.Id).SequenceEqual(BaseSemanticActivationCertificationContract.MandatoryCaseIds, StringComparer.Ordinal))
             throw new InvalidOperationException("base.semanticActivation.certificationInvalid");
@@ -275,7 +287,7 @@ public static class BaseSemanticActivationProviderCertification
         await using IBaseSemanticActivationCertificationFixture fixture = await factory.CreateAsync(
             id, ordinal, DateTimeOffset.UtcNow.Add(timeout), cancellationToken).ConfigureAwait(false);
         ValidateFixture(factory.Subject, fixture);
-        if (maintenance && !fixture.SemanticProvider.SemanticActivationCapability.MaintenanceSupported)
+        if (!Advertised(id, fixture.SemanticProvider.SemanticActivationCapability))
             return Case(id, ordinal, BaseSemanticActivationCertificationApplicability.NotAdvertised,
                 OperationStatus.Ok, null, OperationStatus.Unsupported, "base.semanticActivation.certification.notAdvertised",
                 null, BaseAtomicReceiptResolutionDisposition.NotApplicable, null, [], 1, NotAdvertisedObservation());
@@ -285,7 +297,7 @@ public static class BaseSemanticActivationProviderCertification
         if (installedFault is { } injected) await fixture.InstallFaultAsync(new() { Fault = injected, Occurrence = 1 }, cancellationToken).ConfigureAwait(false);
         BaseSemanticActivationCertificationOperationInput input = await fixture.CreateInputAsync(operation, cancellationToken).ConfigureAwait(false);
         CertificationInvocation invocation;
-        try { invocation = await InvokeAsync(fixture, operation, input, timeout, cancellationToken).ConfigureAwait(false); }
+        try { invocation = await InvokeAsync(fixture, id, operation, input, timeout, cancellationToken).ConfigureAwait(false); }
         catch (Exception exception) when (exception is not OperationCanceledException)
         { invocation = new(OperationStatus.StoreError, "base.semanticActivation.certification.failed", null, BaseAtomicReceiptResolutionDisposition.NotApplicable); }
         bool hostReceiptResolved = true;
@@ -320,7 +332,8 @@ public static class BaseSemanticActivationProviderCertification
     }
 
     private static async ValueTask<CertificationInvocation> InvokeAsync(
-        IBaseSemanticActivationCertificationFixture fixture, BaseSemanticActivationCertificationOperation operation,
+        IBaseSemanticActivationCertificationFixture fixture, string caseId,
+        BaseSemanticActivationCertificationOperation operation,
         BaseSemanticActivationCertificationOperationInput input, TimeSpan timeout, CancellationToken cancellationToken)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken); deadline.CancelAfter(timeout);
@@ -412,12 +425,302 @@ public static class BaseSemanticActivationProviderCertification
                     ? failure.Error.Code : BaseSemanticActivationErrorCodes.ProviderContractInvalid, null,
                     BaseAtomicReceiptResolutionDisposition.NotApplicable);
         }
-        if (operation == BaseSemanticActivationCertificationOperation.Maintain && fixture.SemanticAdministration is { } admin && input.Maintenance is not null)
-        { BaseResult<BaseSemanticActivationMaintenanceResult> value = await admin.ExecuteAsync(input.Maintenance, deadline.Token).ConfigureAwait(false); return new(value.Status, value is BaseFailure<BaseSemanticActivationMaintenanceResult> f ? f.Error.Code : null, null, BaseAtomicReceiptResolutionDisposition.NotApplicable); }
+        if (operation == BaseSemanticActivationCertificationOperation.Maintain
+            && fixture.SemanticAdministration is { } admin && input.Maintenance is not null)
+            return await InvokeMaintenanceCaseAsync(
+                caseId, admin, input.Maintenance, input.Inspection, deadline.Token).ConfigureAwait(false);
         if (operation is BaseSemanticActivationCertificationOperation.BackupRestore or BaseSemanticActivationCertificationOperation.RecoveryFloor
             && input.Backup is not null && input.Restore is not null)
         { using var artifact = new MemoryStream(); OperationResult<BaseBackupManifest> backup = await fixture.CreateBackupAsync(artifact, input.Backup, deadline.Token).ConfigureAwait(false); if (!backup.IsSuccess()) return new(backup.Status, backup.Error?.Code, null, BaseAtomicReceiptResolutionDisposition.NotApplicable); artifact.Position = 0; OperationResult<BaseRestoreResult> restore = await fixture.RestoreAsync(artifact, input.Restore, deadline.Token).ConfigureAwait(false); return new(restore.Status, restore.Error?.Code, null, BaseAtomicReceiptResolutionDisposition.NotApplicable); }
         return new(OperationStatus.Unsupported, "base.semanticActivation.certification.operationUnavailable", null, BaseAtomicReceiptResolutionDisposition.NotApplicable);
+    }
+
+    private static async ValueTask<CertificationInvocation> InvokeMaintenanceCaseAsync(
+        string caseId, IBaseSemanticActivationAdministration administration,
+        BaseSemanticActivationMaintenanceRequest request,
+        BaseSemanticActivationProviderInspectionRequest? inspection,
+        CancellationToken cancellationToken)
+    {
+        static CertificationInvocation Invalid(BaseResult<BaseSemanticActivationMaintenanceResult> result) =>
+            new(result.Status, result is BaseFailure<BaseSemanticActivationMaintenanceResult> failure
+                ? failure.Error.Code : BaseSemanticActivationErrorCodes.ProviderContractInvalid,
+                null, BaseAtomicReceiptResolutionDisposition.NotApplicable);
+        BaseResult<BaseSemanticActivationMaintenanceResult> first = await administration.ExecuteAsync(
+            request, cancellationToken).ConfigureAwait(false);
+        if (caseId == "maintenance-incarnation-substitution")
+        {
+            byte[] wrong = request.ProviderIncarnation.ToArray(); wrong[0] ^= 0x80;
+            BaseResult<BaseSemanticActivationMaintenanceResult> rejected = await administration.ExecuteAsync(
+                request with { ProviderIncarnation = wrong.ToImmutableArray() }, cancellationToken).ConfigureAwait(false);
+            return rejected is BaseFailure<BaseSemanticActivationMaintenanceResult>
+                { Status: OperationStatus.ValidationFailed, Error.Code: BaseSemanticActivationErrorCodes.Invalid }
+                ? new(first.Status, null, null, BaseAtomicReceiptResolutionDisposition.NotApplicable)
+                : Invalid(rejected);
+        }
+        if (first is not BaseSuccess<BaseSemanticActivationMaintenanceResult> success)
+            return Invalid(first);
+        BaseSemanticActivationMaintenanceResult initial = success.Value;
+        if (caseId == "maintenance-migrate")
+        {
+            if (initial.Disposition != BaseSemanticActivationMaintenanceDisposition.InProgress
+                || initial.ExaminedRows != 1 || initial.ChangedRows != 0
+                || initial.Checkpoint is null)
+            {
+                return new(OperationStatus.StoreError, BaseSemanticActivationErrorCodes.ProviderContractInvalid,
+                    null, BaseAtomicReceiptResolutionDisposition.NotApplicable);
+            }
+            BaseSemanticActivationMaintenanceResult current = initial;
+            for (int page = 1;
+                 page < request.Limits.MaximumPages
+                 && current.Disposition == BaseSemanticActivationMaintenanceDisposition.InProgress;
+                 page++)
+            {
+                BaseResult<BaseSemanticActivationMaintenanceResult> resumed = await administration.ExecuteAsync(
+                    request, cancellationToken).ConfigureAwait(false);
+                if (resumed is not BaseSuccess<BaseSemanticActivationMaintenanceResult> resumedSuccess)
+                    return Invalid(resumed);
+                current = resumedSuccess.Value;
+            }
+            if (current.Disposition != BaseSemanticActivationMaintenanceDisposition.Completed
+                || current.ExaminedRows != 2 || current.ChangedRows != 2
+                || current.PreviousAuthorityGeneration != request.ExpectedSemanticAuthorityGeneration
+                || current.ResultingAuthorityGeneration != checked(request.ExpectedSemanticAuthorityGeneration + 1))
+            {
+                return new(OperationStatus.StoreError, BaseSemanticActivationErrorCodes.ProviderContractInvalid,
+                    null, BaseAtomicReceiptResolutionDisposition.NotApplicable);
+            }
+            BaseResult<BaseSemanticActivationMaintenanceResult> replayed = await administration.ExecuteAsync(
+                request, cancellationToken).ConfigureAwait(false);
+            return replayed is BaseSuccess<BaseSemanticActivationMaintenanceResult> replay
+                && replay.Value.Disposition == BaseSemanticActivationMaintenanceDisposition.Duplicate
+                && replay.Value.ReceiptDisposition == BaseMutationRequestDisposition.Duplicate
+                && CryptographicOperations.FixedTimeEquals(
+                    replay.Value.ResultChecksum.AsSpan(), current.ResultChecksum.AsSpan())
+                ? new(first.Status, null, null, BaseAtomicReceiptResolutionDisposition.NotApplicable)
+                : Invalid(replayed);
+        }
+        if (caseId == "maintenance-remove")
+        {
+            if (initial.Disposition != BaseSemanticActivationMaintenanceDisposition.Completed
+                || initial.ExaminedRows != 0 || initial.ChangedRows != 0
+                || initial.PreviousAuthorityGeneration != request.ExpectedSemanticAuthorityGeneration
+                || initial.ResultingAuthorityGeneration != checked(request.ExpectedSemanticAuthorityGeneration + 1))
+                return new(OperationStatus.StoreError, BaseSemanticActivationErrorCodes.ProviderContractInvalid,
+                    null, BaseAtomicReceiptResolutionDisposition.NotApplicable);
+            BaseResult<BaseSemanticActivationMaintenanceResult> replayed = await administration.ExecuteAsync(
+                request, cancellationToken).ConfigureAwait(false);
+            return replayed is BaseSuccess<BaseSemanticActivationMaintenanceResult> replay
+                && replay.Value.Disposition == BaseSemanticActivationMaintenanceDisposition.Duplicate
+                && replay.Value.ReceiptDisposition == BaseMutationRequestDisposition.Duplicate
+                && CryptographicOperations.FixedTimeEquals(
+                    replay.Value.ResultChecksum.AsSpan(), initial.ResultChecksum.AsSpan())
+                ? new(first.Status, null, null, BaseAtomicReceiptResolutionDisposition.NotApplicable)
+                : Invalid(replayed);
+        }
+        if (caseId == "maintenance-compact-zero")
+            return initial is
+                { Disposition: BaseSemanticActivationMaintenanceDisposition.Completed,
+                  ExaminedRows: 0, ChangedRows: 0 }
+                && initial.PreviousAuthorityGeneration == initial.ResultingAuthorityGeneration
+                ? new(first.Status, null, null, BaseAtomicReceiptResolutionDisposition.NotApplicable)
+                : new(OperationStatus.StoreError, BaseSemanticActivationErrorCodes.ProviderContractInvalid,
+                    null, BaseAtomicReceiptResolutionDisposition.NotApplicable);
+        if (caseId is "maintenance-compact-multipage"
+            or "maintenance-progress-invisible"
+            or "maintenance-resume")
+        {
+            if (initial.Disposition != BaseSemanticActivationMaintenanceDisposition.InProgress
+                || initial.ExaminedRows != 1 || initial.ChangedRows != 0
+                || initial.PreviousAuthorityGeneration != request.ExpectedSemanticAuthorityGeneration
+                || initial.ResultingAuthorityGeneration != request.ExpectedSemanticAuthorityGeneration
+                || initial.Checkpoint is not { CompletedPages: 1, CompletedRows: 1 })
+            {
+                return new(OperationStatus.StoreError, BaseSemanticActivationErrorCodes.ProviderContractInvalid,
+                    null, BaseAtomicReceiptResolutionDisposition.NotApplicable);
+            }
+
+            if (caseId == "maintenance-resume")
+            {
+                ImmutableArray<byte> fingerprint =
+                    BaseSemanticActivationMaintenanceContract.RequestFingerprint(request);
+                BaseResult<BaseSemanticActivationMaintenanceResult> resolved = await administration.ResolveAsync(
+                    new BaseSemanticActivationMaintenanceResolutionRequest
+                    {
+                        Definition = request.Definition,
+                        ProviderIncarnation = request.ProviderIncarnation,
+                        Identity = request.Identity,
+                        MaintenanceId = Convert.ToHexStringLower(fingerprint.AsSpan()),
+                        RequestFingerprint = fingerprint,
+                        Deadline = request.Limits.Deadline,
+                    }, cancellationToken).ConfigureAwait(false);
+                if (resolved is not BaseSuccess<BaseSemanticActivationMaintenanceResult> stored
+                    || stored.Value.Disposition != BaseSemanticActivationMaintenanceDisposition.InProgress
+                    || stored.Value.Checkpoint is null
+                    || !CryptographicOperations.FixedTimeEquals(
+                        stored.Value.Checkpoint.Checksum.AsSpan(), initial.Checkpoint.Checksum.AsSpan()))
+                    return Invalid(resolved);
+            }
+
+            if (caseId == "maintenance-progress-invisible")
+            {
+                if (inspection is null)
+                    return new(OperationStatus.StoreError,
+                        BaseSemanticActivationErrorCodes.ProviderContractInvalid,
+                        null, BaseAtomicReceiptResolutionDisposition.NotApplicable);
+                BaseResult<BaseSemanticActivationProviderInspectionPage> observed =
+                    await administration.InspectAsync(inspection, cancellationToken).ConfigureAwait(false);
+                if (observed is not BaseSuccess<BaseSemanticActivationProviderInspectionPage> page
+                    || page.Value.CapturedAuthorityGeneration
+                        != request.ExpectedSemanticAuthorityGeneration
+                    || page.Value.Items.Length != 1
+                    || page.Value.Items.Any(static item =>
+                        item.State != BaseSemanticActivationSlotState.Retired))
+                {
+                    return observed is BaseFailure<BaseSemanticActivationProviderInspectionPage> failure
+                        ? new(failure.Status, failure.Error.Code, null,
+                            BaseAtomicReceiptResolutionDisposition.NotApplicable)
+                        : new(OperationStatus.StoreError,
+                            BaseSemanticActivationErrorCodes.ProviderContractInvalid,
+                            null, BaseAtomicReceiptResolutionDisposition.NotApplicable);
+                }
+                if (page.Value.Next is null)
+                {
+                    return new(OperationStatus.StoreError,
+                        BaseSemanticActivationErrorCodes.ProviderContractInvalid,
+                        null, BaseAtomicReceiptResolutionDisposition.NotApplicable);
+                }
+                BaseSemanticActivationProviderInspectionRequest continuation = inspection with
+                {
+                    After = page.Value.Next,
+                    RuntimeRequestAuthorityChecksum = [],
+                };
+                continuation = continuation with
+                {
+                    RuntimeRequestAuthorityChecksum =
+                        BaseSemanticActivationInspectionContract.RequestChecksum(continuation),
+                };
+                BaseResult<BaseSemanticActivationProviderInspectionPage> nextObserved =
+                    await administration.InspectAsync(continuation, cancellationToken).ConfigureAwait(false);
+                if (nextObserved is not BaseSuccess<BaseSemanticActivationProviderInspectionPage> next
+                    || next.Value.CapturedAuthorityGeneration
+                        != request.ExpectedSemanticAuthorityGeneration
+                    || next.Value.Items.Length != 1
+                    || next.Value.Items[0].State != BaseSemanticActivationSlotState.Retired)
+                {
+                    return nextObserved is BaseFailure<BaseSemanticActivationProviderInspectionPage> failure
+                        ? new(failure.Status, failure.Error.Code, null,
+                            BaseAtomicReceiptResolutionDisposition.NotApplicable)
+                        : new(OperationStatus.StoreError,
+                            BaseSemanticActivationErrorCodes.ProviderContractInvalid,
+                            null, BaseAtomicReceiptResolutionDisposition.NotApplicable);
+                }
+            }
+
+            BaseResult<BaseSemanticActivationMaintenanceResult> resumed = await administration.ExecuteAsync(
+                request, cancellationToken).ConfigureAwait(false);
+            if (resumed is not BaseSuccess<BaseSemanticActivationMaintenanceResult> completed
+                || completed.Value.Disposition != BaseSemanticActivationMaintenanceDisposition.Completed
+                || completed.Value.ExaminedRows != 2 || completed.Value.ChangedRows != 2
+                || completed.Value.PreviousAuthorityGeneration != request.ExpectedSemanticAuthorityGeneration
+                || completed.Value.ResultingAuthorityGeneration
+                    != checked(request.ExpectedSemanticAuthorityGeneration + 1)
+                || completed.Value.Checkpoint is not null)
+            {
+                return Invalid(resumed);
+            }
+
+            BaseResult<BaseSemanticActivationMaintenanceResult> replayed = await administration.ExecuteAsync(
+                request, cancellationToken).ConfigureAwait(false);
+            return replayed is BaseSuccess<BaseSemanticActivationMaintenanceResult> replay
+                && replay.Value.Disposition == BaseSemanticActivationMaintenanceDisposition.Duplicate
+                && replay.Value.ReceiptDisposition == BaseMutationRequestDisposition.Duplicate
+                && CryptographicOperations.FixedTimeEquals(
+                    replay.Value.ResultChecksum.AsSpan(), completed.Value.ResultChecksum.AsSpan())
+                ? new(first.Status, null, null, BaseAtomicReceiptResolutionDisposition.NotApplicable)
+                : Invalid(replayed);
+        }
+        if (caseId == "maintenance-replay")
+        {
+            BaseResult<BaseSemanticActivationMaintenanceResult> replayed = await administration.ExecuteAsync(
+                request, cancellationToken).ConfigureAwait(false);
+            if (replayed is not BaseSuccess<BaseSemanticActivationMaintenanceResult> replay
+                || replay.Value.Disposition != BaseSemanticActivationMaintenanceDisposition.Duplicate
+                || replay.Value.ReceiptDisposition != BaseMutationRequestDisposition.Duplicate
+                || !CryptographicOperations.FixedTimeEquals(
+                    replay.Value.ResultChecksum.AsSpan(), initial.ResultChecksum.AsSpan()))
+                return Invalid(replayed);
+            byte[] unknownDigest = SHA256.HashData("base.semanticActivation.certification.unknownMaintenance.v1"u8);
+            BaseMutationRequestIdentity unknownIdentity = BaseMutationRequestIdentity.Create(
+                "semantic-certification", "compact", "unknown-maintenance",
+                BaseMutationRequestFingerprint.Create(unknownDigest));
+            BaseResult<BaseSemanticActivationMaintenanceResult> unknown = await administration.ResolveAsync(
+                new BaseSemanticActivationMaintenanceResolutionRequest
+                {
+                    Definition = request.Definition,
+                    ProviderIncarnation = request.ProviderIncarnation,
+                    Identity = unknownIdentity,
+                    MaintenanceId = Convert.ToHexStringLower(unknownDigest),
+                    RequestFingerprint = unknownDigest.ToImmutableArray(),
+                    Deadline = request.Limits.Deadline,
+                }, cancellationToken).ConfigureAwait(false);
+            return unknown is BaseFailure<BaseSemanticActivationMaintenanceResult>
+                { Status: OperationStatus.StoreError,
+                  Error.Code: BaseSemanticActivationErrorCodes.MaintenanceIndeterminate }
+                && replay.Value.Disposition == BaseSemanticActivationMaintenanceDisposition.Duplicate
+                ? new(first.Status, null, null, BaseAtomicReceiptResolutionDisposition.NotApplicable)
+                : Invalid(unknown);
+        }
+        if (caseId == "maintenance-fingerprint-conflict")
+        {
+            BaseSemanticActivationMaintenanceRequest conflicting = request switch
+            {
+                BaseSemanticActivationCompactRequest compact => compact with
+                {
+                    Limits = compact.Limits with
+                    {
+                        MaximumBytes = checked(compact.Limits.MaximumBytes - 1),
+                    },
+                },
+                BaseSemanticActivationMigrateRequest migrate => migrate with
+                {
+                    Limits = migrate.Limits with
+                    {
+                        MaximumBytes = checked(migrate.Limits.MaximumBytes - 1),
+                    },
+                },
+                BaseSemanticActivationRemoveRequest remove => remove with
+                {
+                    Limits = remove.Limits with
+                    {
+                        MaximumBytes = checked(remove.Limits.MaximumBytes - 1),
+                    },
+                },
+                _ => throw new InvalidOperationException("base.semanticActivation.certificationInvalid"),
+            };
+            BaseResult<BaseSemanticActivationMaintenanceResult> rejected = await administration.ExecuteAsync(
+                conflicting, cancellationToken).ConfigureAwait(false);
+            return rejected is BaseFailure<BaseSemanticActivationMaintenanceResult>
+                { Status: OperationStatus.Conflict, Error.Code: BaseSemanticActivationErrorCodes.FingerprintConflict }
+                ? new(first.Status, null, null, BaseAtomicReceiptResolutionDisposition.NotApplicable)
+                : Invalid(rejected);
+        }
+        if (caseId == "maintenance-owned-results")
+        {
+            byte[]? exposed = ImmutableCollectionsMarshal.AsArray(initial.ResultChecksum);
+            if (exposed is null || exposed.Length != 32)
+                return new(OperationStatus.StoreError, BaseSemanticActivationErrorCodes.ProviderContractInvalid,
+                    null, BaseAtomicReceiptResolutionDisposition.NotApplicable);
+            byte[] original = exposed.ToArray(); exposed[0] ^= 0x80;
+            BaseResult<BaseSemanticActivationMaintenanceResult> replayed = await administration.ExecuteAsync(
+                request, cancellationToken).ConfigureAwait(false);
+            return replayed is BaseSuccess<BaseSemanticActivationMaintenanceResult> replay
+                && replay.Value.Disposition == BaseSemanticActivationMaintenanceDisposition.Duplicate
+                && CryptographicOperations.FixedTimeEquals(
+                    replay.Value.ResultChecksum.AsSpan(), original)
+                ? new(first.Status, null, null, BaseAtomicReceiptResolutionDisposition.NotApplicable)
+                : Invalid(replayed);
+        }
+        return new(first.Status, null, null, BaseAtomicReceiptResolutionDisposition.NotApplicable);
     }
 
     private static OperationStatus MapStatus(RecordMutationExecutionResult value) => value.Outcome switch
@@ -429,6 +732,19 @@ public static class BaseSemanticActivationProviderCertification
         RecordMutationExecutionOutcome.RollbackConfirmed when value.Error?.Code == BaseSemanticActivationErrorCodes.ProviderContractInvalid => OperationStatus.CapabilityUnavailable,
         _ => OperationStatus.StoreError,
     };
+
+    private static bool Advertised(string id, BaseSemanticActivationCapability capability) => id is
+        "inspection" or "maintenance-authority" or "maintenance"
+            ? capability.MaintenanceSupported
+            : id.StartsWith("maintenance-", StringComparison.Ordinal) && id != "maintenance-authority"
+                ? capability.MaintenanceSupported
+            : id is "fault-NonCooperativeMaintenance" or "fault-InterruptMaintenancePublication"
+                ? capability.MaintenanceSupported && capability.RestoreRecoveryFloorsSupported
+            : id is "backup-restore" or "recovery-floor" or "fault-NonCooperativeRestore"
+                or "fault-CorruptRecoveryEntry" or "fault-InterruptRestorePublication" or "fault-RetentionOvertake"
+                ? capability.RestoreRecoveryFloorsSupported
+                    && !capability.BackupModes.IsEmpty && !capability.RestoreModes.IsEmpty
+                : true;
 
     private static CertificationInvocation InvalidInput() => new(OperationStatus.ValidationFailed,
         "base.semanticActivation.certification.inputInvalid", null, BaseAtomicReceiptResolutionDisposition.NotApplicable);

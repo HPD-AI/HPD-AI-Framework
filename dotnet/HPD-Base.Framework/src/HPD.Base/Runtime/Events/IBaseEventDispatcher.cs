@@ -24,3 +24,21 @@ public interface IBaseCommittedMutationObserver
         BaseRecordMutationEvent mutation,
         CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// Observes a destructive restore after the provider has committed and Runtime has
+/// validated the resulting store authority.
+/// </summary>
+/// <remarks>
+/// Implementations cannot roll the restore back. They receive no backup payload or
+/// provider exception and must make repeated observation idempotent.
+/// </remarks>
+public interface IBaseCommittedRestoreObserver
+{
+    /// <summary>Observes one validated successful restore before the administration call returns.</summary>
+    /// <param name="restore">The deeply owned installed restore authority.</param>
+    /// <param name="cancellationToken">The bounded post-commit observation lifetime.</param>
+    ValueTask ObserveAsync(
+        BaseRestoreResult restore,
+        CancellationToken cancellationToken = default);
+}

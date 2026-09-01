@@ -38,7 +38,7 @@ internal sealed class SqliteVecProvider(SqliteRecordStore store, SqliteVecModel 
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
             double distance = reader.GetDouble(3); if (!double.IsFinite(distance)) throw new InvalidOperationException("SQLiteVec returned a non-finite distance."); if (distance == 0D) distance = 0D;
-            candidates.Add(new BaseVectorCandidate { RecordId = new RecordId(reader.GetString(0)), IndexedRevision = new RevisionToken(reader.GetString(1)), IndexedPosition = new BaseMutationJournalPosition(reader.GetInt64(2)), Rank = candidates.Count + 1, Measure = new BaseVectorMeasure { Function = index.Definition.Function, Value = index.Definition.Function == BaseVectorFunction.CosineSimilarity ? 1D - distance : distance, Direction = index.Definition.Function == BaseVectorFunction.CosineSimilarity ? BaseVectorMeasureDirection.HigherIsNearer : BaseVectorMeasureDirection.LowerIsNearer } });
+            candidates.Add(new BaseVectorCandidate { RecordId = RecordId.Create(reader.GetString(0)), IndexedRevision = new RevisionToken(reader.GetString(1)), IndexedPosition = new BaseMutationJournalPosition(reader.GetInt64(2)), Rank = candidates.Count + 1, Measure = new BaseVectorMeasure { Function = index.Definition.Function, Value = index.Definition.Function == BaseVectorFunction.CosineSimilarity ? 1D - distance : distance, Direction = index.Definition.Function == BaseVectorFunction.CosineSimilarity ? BaseVectorMeasureDirection.HigherIsNearer : BaseVectorMeasureDirection.LowerIsNearer } });
         }
         return new BaseVectorProviderResult { Snapshot = request.Snapshot, Candidates = candidates.ToArray(), Accuracy = BaseVectorResultAccuracy.Exact };
     }

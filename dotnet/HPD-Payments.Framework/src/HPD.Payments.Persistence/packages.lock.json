@@ -18,6 +18,7 @@
           "HPD.Payments.Primitives": "[0.1.0, )"
         }
       }
-    }
+    },
+    "net10.0/osx-arm64": {}
   }
 }

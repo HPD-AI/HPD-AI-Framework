@@ -74,7 +74,7 @@ public class ProviderRegistry : IProviderRegistry
         }
     }
 
-    public TProvider? GetProvider<TProvider>(string providerKey) where TProvider : class, IProvider
+    public TProvider? GetProvider<TProvider>(string providerKey) where TProvider : class
     {
         _lock.EnterReadLock();
         try

@@ -42,7 +42,7 @@ public sealed class L45SubjectReferenceValueTests
     [Fact]
     public void Reference_codec_owns_exact_canonical_wire_shape()
     {
-        const string json = "{\"subjectId\":\"0194f778-5cd1-7d17-ae1f-8f95b3114a20\",\"authorityEpoch\":\"AAAAAAAAAAAAAAAAAAAAAA\",\"incarnation\":\"AAAAAAAAAAFCQkJCQkJCQkJCQkJCQkJC\"}";
+        const string json = "{\"authorityEpoch\":\"AAAAAAAAAAAAAAAAAAAAAA\",\"incarnation\":\"AAAAAAAAAAFCQkJCQkJCQkJCQkJCQkJC\",\"subjectId\":\"0194f778-5cd1-7d17-ae1f-8f95b3114a20\"}";
 
         BaseSubjectReference<UserSubject> value = JsonSerializer.Deserialize<BaseSubjectReference<UserSubject>>(json);
 
@@ -209,6 +209,8 @@ public sealed class L45SubjectReferenceValueTests
         ValidationGrantId = "hpd.auth.user.validate",
         AdministrationGrantId = "hpd.auth.user.admin",
         TombstoneFieldId = "user.tombstoned",
+        TombstoneMetadata = new() { Instant = new() { Kind = BaseSubjectTombstoneMetadataBindingKind.NotStored }, Sequence = new() { Kind = BaseSubjectTombstoneMetadataBindingKind.NotStored } },
+        FinalRetirementExecutionMode = BaseSubjectFinalExecutionMode.OrdinaryOrActivationGuarded,
         SupportsCoordinatedRetirement = false,
         Audiences = [HPDBaseEndpointAudience.Application],
         ValidationPlan = new BaseSubjectValidationPlanDefinition

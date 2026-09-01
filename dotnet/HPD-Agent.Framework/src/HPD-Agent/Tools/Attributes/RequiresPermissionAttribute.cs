@@ -10,5 +10,12 @@ using System;
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
 public sealed class RequiresPermissionAttribute : Attribute
 {
-    // This attribute acts as a simple boolean flag and requires no parameters.
+    /// <summary>Gets or sets the application-owned stable permission authority identifier.</summary>
+    public string? PermissionAuthority { get; set; }
+
+    /// <summary>Gets or sets the permission policy implementation for this function.</summary>
+    public Type? PermissionPolicy { get; set; }
+
+    /// <summary>Gets or sets the permission interaction implementation for this function.</summary>
+    public Type? PermissionInteraction { get; set; }
 }

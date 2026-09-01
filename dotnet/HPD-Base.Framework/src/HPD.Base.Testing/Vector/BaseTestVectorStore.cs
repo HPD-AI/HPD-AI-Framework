@@ -135,7 +135,7 @@ internal sealed class BaseTestVectorProvider(BaseTestVectorStore store, BaseTest
         else if (options.CertificationFault == BaseVectorCertificationFaultKind.DuplicateCandidates && ranked.Length != 0)
             ranked = [ranked[0], ranked[0] with { Rank = 2 }];
         else if (options.CertificationFault == BaseVectorCertificationFaultKind.OversizedCandidates && ranked.Length != 0)
-            ranked = Enumerable.Range(0, request.Take + 1).Select(index => ranked[0] with { Rank = index + 1, RecordId = new RecordId($"oversized-{index}") }).ToArray();
+            ranked = Enumerable.Range(0, request.Take + 1).Select(index => ranked[0] with { Rank = index + 1, RecordId = RecordId.Create($"oversized-{index}") }).ToArray();
         return new BaseVectorProviderResult { Snapshot = request.Snapshot, Candidates = ranked, Accuracy = BaseVectorResultAccuracy.Exact };
     }
 

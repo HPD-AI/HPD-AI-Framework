@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace HPD.Base;
 
@@ -25,8 +26,13 @@ internal sealed class DefaultHPDBaseAdministration(
     BaseSemanticActivationControlTokenCodec semanticControlTokens,
     BaseSubjectControlOperationalState subjectControlState,
     HPDBaseInstalledFeatures features,
-    TimeProvider timeProvider) : IHPDBaseAdministration
+    TimeProvider timeProvider,
+    IEnumerable<IBaseCommittedRestoreObserver> restoreObservers,
+    IOptions<HPDBaseRuntimeOptions> runtimeOptions) : IHPDBaseAdministration
 {
+    private readonly IBaseCommittedRestoreObserver[] _restoreObservers = restoreObservers.ToArray();
+    private readonly TimeSpan _postCommitWorkTimeout = runtimeOptions.Value.Events.PostCommitWorkTimeout;
+
     public BaseAdministrationCapability Capability =>
         stores.GetRegistrations().Select(static registration => registration.Store).OfType<IRecordStoreAdministration>().ToArray() is [{ } administration]
             ? administration.AdministrationCapability
@@ -81,6 +87,7 @@ internal sealed class DefaultHPDBaseAdministration(
         var providerRequest = new BaseSemanticActivationProviderInspectionRequest
         {
             ApplicationId = features.LogicalSchema.ApplicationId, LogicalStoreId = storeId, RestoreEpoch = authority.RestoreEpoch,
+            ProviderIncarnation = provider.ProviderIncarnation,
             Definition = request.Definition, State = request.State, After = after, Take = request.Take,
             Limits = effectiveInspectionLimits, RuntimeRequestAuthorityChecksum = [],
         };
@@ -104,12 +111,12 @@ internal sealed class DefaultHPDBaseAdministration(
         ImmutableArray<BaseSemanticActivationInspectionItem> items = page.Items.Select(item => new BaseSemanticActivationInspectionItem
         {
             State = item.State, SlotGeneration = item.SlotGeneration, RetirementPosition = item.RetirementPosition,
-            ItemToken = semanticInspectionTokens.Protect(new(features.LogicalSchema.ApplicationId, storeId, authority.RestoreEpoch,
+            ItemToken = semanticInspectionTokens.Protect(new(features.LogicalSchema.ApplicationId, storeId, provider.ProviderIncarnation, authority.RestoreEpoch,
                 request.Definition, request.State, request.Take, item.Boundary, expiry)),
             SanitizedChecksum = SHA256.HashData(item.StateChecksum.AsSpan()).ToImmutableArray(),
         }).ToImmutableArray();
         BaseSemanticActivationInspectionToken? next = page.Next is null ? null : semanticInspectionTokens.Protect(new(
-            features.LogicalSchema.ApplicationId, storeId, authority.RestoreEpoch, request.Definition, request.State,
+            features.LogicalSchema.ApplicationId, storeId, provider.ProviderIncarnation, authority.RestoreEpoch, request.Definition, request.State,
             request.Take, page.Next, expiry));
         byte[] sanitized = SHA256.HashData(page.Checksum.AsSpan());
         return new BaseSuccess<BaseSemanticActivationInspectionPage>(new()
@@ -239,6 +246,7 @@ internal sealed class DefaultHPDBaseAdministration(
         var authorityRequest = new BaseSemanticActivationMaintenanceAuthorityRequest
         {
             ApplicationId = features.LogicalSchema.ApplicationId, LogicalStoreId = storeId,
+            ProviderIncarnation = provider.ProviderIncarnation,
             RestoreEpoch = storeAuthority.RestoreEpoch, Definition = definition,
             SemanticAuthorityGeneration = storeAuthority.SemanticAuthorityGeneration,
             MaximumRows = Math.Min(maximumRows, providerMaximumRows),
@@ -274,7 +282,11 @@ internal sealed class DefaultHPDBaseAdministration(
                 Compact = null, Remove = null,
             }, OperationStatus.Ok, null, null, null, null);
         int pageSize = Math.Min(256, provider.SemanticActivationCapability.MaximumMaintenancePageSize);
-        long requiredPages = authority.ExaminedRows / pageSize + (authority.ExaminedRows % pageSize == 0 ? 0 : 1);
+        long authorityPages = authority.ExaminedRows / pageSize + (authority.ExaminedRows % pageSize == 0 ? 0 : 1);
+        // Compaction first stages the selected authority and then rebinds the complete
+        // surviving authority graph. Both passes consume the installed page budget.
+        long requiredPages = checked(authorityPages * 2);
+        long requiredRows = checked(authority.ExaminedRows * 2);
         if (requiredPages > int.MaxValue)
             return SemanticAdminFailure<BaseSemanticActivationControlDescriptor>(OperationStatus.ValidationFailed,
                 BaseSemanticActivationErrorCodes.BudgetExceeded, ErrorCategory.Validation);
@@ -282,14 +294,14 @@ internal sealed class DefaultHPDBaseAdministration(
         {
             PageSize = pageSize,
             MaximumPages = checked((int)Math.Max(1, requiredPages)),
-            MaximumRows = authority.ExaminedRows,
+            MaximumRows = requiredRows,
             MaximumBytes = Math.Min(provider.SemanticActivationCapability.MaximumTransientBytes,
                 Math.Max(authority.CanonicalBytes, installed.Limits.Execution.MaximumTransientBytes)),
             Deadline = installed.Limits.Deadlines.MaintenanceTimeout,
         };
         DateTimeOffset expiry = timeProvider.GetUtcNow().AddMinutes(15);
         BaseSemanticActivationControlTokenPayload Payload(BaseSemanticActivationControlTokenKind kind) => new(kind,
-            features.LogicalSchema.ApplicationId, storeId, storeAuthority.RestoreEpoch, definition,
+            features.LogicalSchema.ApplicationId, storeId, provider.ProviderIncarnation, storeAuthority.RestoreEpoch, definition,
             semanticActivations.DefinitionSetChecksum, authority.SemanticAuthorityGeneration, authority.LiveCount,
             authority.RetiredCount, authority.AbsenceCount, authority.RetiredAuthorityChecksum,
             authority.DefinitionStateChecksum, authority.AbsenceAuthorityChecksum, limits, null, expiry);
@@ -358,7 +370,7 @@ internal sealed class DefaultHPDBaseAdministration(
         ImmutableArray<byte> fingerprint = BaseSemanticActivationMaintenanceContract.RequestFingerprint(original);
         var request = new BaseSemanticActivationMaintenanceResolutionRequest
         {
-            Definition = payload.Definition, Identity = original.Identity,
+            Definition = payload.Definition, ProviderIncarnation = payload.ProviderIncarnation, Identity = original.Identity,
             MaintenanceId = Convert.ToHexStringLower(fingerprint.AsSpan()), RequestFingerprint = fingerprint,
             Deadline = payload.Limits.Deadline,
         };
@@ -478,13 +490,59 @@ internal sealed class DefaultHPDBaseAdministration(
                     if (temporaryPath is not null) try { File.Delete(temporaryPath); } catch { }
                 }
             }, cancellationToken).ConfigureAwait(false);
-        if (result is BaseSuccess<BaseRestoreResult>)
+        if (result is BaseSuccess<BaseRestoreResult> restored)
         {
+            bool observerFailed = await NotifyRestoreObserversAsync(restored.Value).ConfigureAwait(false);
+            if (observerFailed)
+            {
+                OperationWarning[] warnings =
+                [
+                    .. restored.Warnings ?? [],
+                    new OperationWarning
+                    {
+                        Code = "base.runtime.restoreObserverFailed",
+                        Message = "A committed restore observer failed.",
+                    },
+                ];
+                result = new BaseSuccess<BaseRestoreResult>(
+                    restored.Value, restored.Status, warnings,
+                    restored.Revision, restored.Events, restored.Diagnostics);
+            }
             try { await services.GetRequiredService<BaseSubjectControlDispatcher>().ReconcileAsync(cancellationToken).ConfigureAwait(false); }
             catch when (!cancellationToken.IsCancellationRequested) { }
         }
         return result;
     }
+
+    private async ValueTask<bool> NotifyRestoreObserversAsync(BaseRestoreResult restore)
+    {
+        bool failed = false;
+        foreach (IBaseCommittedRestoreObserver observer in _restoreObservers)
+        {
+            using var lifetime = new CancellationTokenSource(_postCommitWorkTimeout);
+            try
+            {
+                await observer.ObserveAsync(Clone(restore), lifetime.Token)
+                    .AsTask()
+                    .WaitAsync(lifetime.Token)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                failed = true;
+            }
+        }
+        return failed;
+    }
+
+    private static BaseRestoreResult Clone(BaseRestoreResult value) => new()
+    {
+        StoreId = new string(value.StoreId.AsSpan()),
+        Status = value.Status,
+        InstalledStoreIdentityDigest = new string(value.InstalledStoreIdentityDigest.AsSpan()),
+        RestoreEpoch = value.RestoreEpoch,
+        RecoveryImageRetained = value.RecoveryImageRetained,
+    };
 
     internal static async ValueTask<BaseResult<BaseSemanticRecoveryRestoreAuthority>> ReadSemanticRestoreAuthorityAsync(
         BaseSemanticRecoveryAuthorityRegistry semanticRecovery, string applicationId,
@@ -954,7 +1012,13 @@ internal sealed class DefaultHPDBaseAdministration(
             && page.Accounting.TransientBytes <= definition.Limits.Provider.MaximumTransientBytes
             && page.Items.All(item => item.Definition.Id == definition.Id
                 && item.Definition.Version == definition.Version
-                && CryptographicOperations.FixedTimeEquals(item.Definition.Checksum.AsSpan(), definition.Checksum.AsSpan()))
+                && CryptographicOperations.FixedTimeEquals(item.Definition.Checksum.AsSpan(), definition.Checksum.AsSpan())
+                && item.MaximumYields == definition.Limits.MaximumYields
+                && BaseActivationControlChecksumContract.Matches(item.ControlChecksum.AsSpan(),
+                    item.ActivationId, item.Generation, item.State, item.EffectiveDueAt,
+                    item.YieldCount, item.MaximumYields, item.ExecutionSliceOrdinal,
+                    item.AttemptStartedAt, item.SliceStartedAt,
+                    item.TerminalYieldDisposition, item.TerminalYieldFailureCode))
             && CanonicallyOrdered(page.Items)
             && (page.Next is null || page.Items.Length != 0 && BoundaryEquals(page.Next, page.Items[^1]));
         if (!valid)
@@ -983,6 +1047,96 @@ internal sealed class DefaultHPDBaseAdministration(
                 AfterActivationId = value.AfterActivationId, Take = value.Take,
                 AcceptedTime = accepted, Identity = value.Identity, Limits = definition.Limits.Provider,
             }, token), static definition => definition.Grants.Remove, cancellationToken);
+
+    public ValueTask<BaseResult<BaseActivationReceiptCompactionResult>> CompactActivationReceiptsAsync(
+        BaseActivationAdministrationReceiptCompactionRequest request,
+        CancellationToken cancellationToken = default) =>
+        RouteActivationPageAsync(request, async (provider, definition, scope, accepted, value, token) =>
+        {
+            OperationResult<BaseActivationReceiptCompactionAuthority> authority =
+                await provider.CaptureReceiptCompactionAuthorityAsync(new BaseActivationReceiptCompactionAuthorityRequest
+                {
+                    ApplicationId = accepted.ApplicationId,
+                    Definition = new BaseActivationDefinitionKey
+                    {
+                        Id = definition.Id, Version = definition.Version, Checksum = definition.Checksum,
+                    },
+                    ReceiptRetention = definition.ReceiptRetention,
+                    Scope = scope,
+                    Limits = definition.Limits.Provider,
+                }, token).ConfigureAwait(false);
+            if (!authority.IsSuccess() || authority.Value is null)
+            {
+                bool known = authority.Error is { } error
+                    && (authority.Status == OperationStatus.Conflict
+                        && error.Code is "base.activation.removalBlocked" or "base.activation.maintenanceConflict"
+                        && error.Category == ErrorCategory.Conflict
+                    || authority.Status == OperationStatus.CapabilityUnavailable
+                        && error.Code == "base.activation.capabilityUnavailable"
+                        && error.Category == ErrorCategory.Capability);
+                if (!known)
+                {
+                    activationProviderGate.QuarantineContractViolation();
+                    return BaseActivationFailureContract.ProviderContractInvalid<BaseActivationReceiptCompactionResult>();
+                }
+                return new OperationResult<BaseActivationReceiptCompactionResult>
+                {
+                    Status = authority.Status,
+                    Error = authority.Error,
+                    Warnings = authority.Warnings,
+                    Diagnostics = authority.Diagnostics,
+                };
+            }
+            if (!ReceiptCompactionAuthorityValid(
+                authority.Value, definition.ReceiptRetention, accepted.ApplicationId, value.StoreId))
+            {
+                activationProviderGate.QuarantineContractViolation();
+                return BaseActivationFailureContract.ProviderContractInvalid<BaseActivationReceiptCompactionResult>();
+            }
+            return await provider.CompactActivationReceiptsAsync(new BaseActivationReceiptCompactionRequest
+            {
+                ApplicationId = accepted.ApplicationId,
+                Definition = new BaseActivationDefinitionKey
+                {
+                    Id = definition.Id, Version = definition.Version, Checksum = definition.Checksum,
+                },
+                ReceiptRetention = definition.ReceiptRetention,
+                Scope = scope,
+                AcceptedTime = accepted,
+                After = value.AfterActivationId is null ? null : new BaseActivationReceiptCompactionCursor
+                {
+                    ActivationId = value.AfterActivationId,
+                    ReceiptSequence = value.AfterReceiptSequence!.Value,
+                },
+                Take = value.Take,
+                BackupFloor = authority.Value.BackupFloor,
+                ExpectedReservation = authority.Value.Reservation,
+                Limits = definition.Limits.Provider,
+                Identity = value.Identity,
+            }, token).ConfigureAwait(false);
+        }, static definition => definition.Grants.Remove, cancellationToken);
+
+    private static bool ReceiptCompactionAuthorityValid(
+        BaseActivationReceiptCompactionAuthority authority,
+        BaseActivationReceiptRetentionPolicy retention,
+        string applicationId,
+        string logicalStoreId)
+    {
+        if (!BaseActivationYieldReservationContract.IsValid(authority.Reservation)
+            || !Enum.IsDefined(authority.BackupFloor.Kind)) return false;
+        return retention.ProtectedBackupCoverage switch
+        {
+            BaseActivationProtectedBackupCoverage.NotRequired =>
+                authority.BackupFloor.Kind == BaseActivationReceiptBackupFloorKind.NotApplicable
+                && authority.BackupFloor.Checkpoint is null,
+            BaseActivationProtectedBackupCoverage.Required =>
+                authority.BackupFloor.Kind == BaseActivationReceiptBackupFloorKind.Checkpoint
+                && BaseActivationBackupCoverageCheckpointContract.IsValid(authority.BackupFloor.Checkpoint)
+                && authority.BackupFloor.Checkpoint!.ApplicationId == applicationId
+                && authority.BackupFloor.Checkpoint.LogicalStoreId == logicalStoreId,
+            _ => false,
+        };
+    }
 
     public async ValueTask<BaseResult<BaseActivationMigrationResult>> MigrateActivationAsync(
         BaseActivationAdministrationMigrationRequest request, CancellationToken cancellationToken = default)
@@ -1032,19 +1186,42 @@ internal sealed class DefaultHPDBaseAdministration(
                 SourceDefinition = migration.Definition.Source, ActivationId = request.ActivationId,
                 ExpectedGeneration = request.ExpectedGeneration, AcceptedTime = accepted, Limits = source.Limits.Provider,
             }, token), source.Limits.Provider.AcquisitionTimeout, source.Limits.Provider.TransactionTimeout, cancellationToken).ConfigureAwait(false);
-        if (candidateCall.Outcome != BaseActivationProviderCallOutcome.Completed || candidateCall.Value?.Value is not { } candidate)
+        if (candidateCall.Outcome != BaseActivationProviderCallOutcome.Completed)
             return ActivationPageFailure<BaseActivationMigrationResult>(
                 candidateCall.Outcome is BaseActivationProviderCallOutcome.TimedOut or BaseActivationProviderCallOutcome.Capacity
-                    ? OperationStatus.CapabilityUnavailable : candidateCall.Value?.Status ?? OperationStatus.StoreError,
-                candidateCall.Value?.Error?.Code ?? "base.activation.migrationConflict",
-                candidateCall.Value?.Error?.Category ?? ErrorCategory.Store);
+                    ? OperationStatus.CapabilityUnavailable : OperationStatus.StoreError,
+                "base.activation.migrationConflict", ErrorCategory.Store);
+        if (candidateCall.Value is null || candidateCall.Value.IsSuccess() && candidateCall.Value.Value is null)
+            return ActivationProviderContractInvalid<BaseActivationMigrationResult>();
+        if (!candidateCall.Value.IsSuccess())
+            return NormalizeMigrationProviderFailure<BaseActivationMigrationResult, BaseActivationMigrationCandidate>(candidateCall.Value,
+                candidatePhase: true);
+        BaseActivationMigrationCandidate candidate = candidateCall.Value.Value!;
         if (candidate.ActivationId != request.ActivationId || candidate.Generation != request.ExpectedGeneration
-            || candidate.InputChecksum.Length != 32 || candidate.ControlChecksum.Length != 32
+            || candidate.SourceDefinition.Id != migration.Definition.Source.Id
+            || candidate.SourceDefinition.Version != migration.Definition.Source.Version
+            || !CryptographicOperations.FixedTimeEquals(
+                candidate.SourceDefinition.Checksum.AsSpan(), migration.Definition.Source.Checksum.AsSpan())
+            || candidate.State is not (BaseActivationState.Pending or BaseActivationState.RetryPending
+                or BaseActivationState.Exhausted or BaseActivationState.Cancelled)
+            || candidate.InputChecksum.Length != 32
+            || !BaseActivationControlChecksumContract.Matches(
+                candidate.ControlChecksum.AsSpan(), candidate.ActivationId, candidate.Generation, candidate.State,
+                candidate.EffectiveDueAt, candidate.YieldCount, candidate.MaximumYields,
+                candidate.ExecutionSliceOrdinal, candidate.AttemptStartedAt, candidate.SliceStartedAt,
+                candidate.TerminalYieldDisposition, candidate.TerminalYieldFailureCode)
             || !CryptographicOperations.FixedTimeEquals(SHA256.HashData(candidate.CanonicalInput.AsSpan()), candidate.InputChecksum.AsSpan())
-            || candidate.CanonicalInput.Length > source.Limits.MaximumInputBytes)
-            return ActivationPageFailure<BaseActivationMigrationResult>(OperationStatus.StoreError, "base.activation.providerContractInvalid", ErrorCategory.Store);
+            || candidate.CanonicalInput.Length > source.Limits.MaximumInputBytes
+            || candidate.Accounting.EvidenceBytes != checked(
+                candidate.CanonicalInput.Length + candidate.InputChecksum.Length + candidate.ControlChecksum.Length)
+            || !AccountingValid(candidate.Accounting, 1, source.Limits.Provider))
+            return ActivationProviderContractInvalid<BaseActivationMigrationResult>();
         ImmutableArray<byte> replacementInput;
         try { replacementInput = migration.Project(candidate.CanonicalInput.AsSpan()); }
+        catch (BaseActivationDtoContractException exception) when (exception.Code == "base.activation.providerContractInvalid")
+        {
+            return ActivationProviderContractInvalid<BaseActivationMigrationResult>();
+        }
         catch (JsonException)
         { return ActivationPageFailure<BaseActivationMigrationResult>(OperationStatus.ValidationFailed, "base.activation.migrationInvalid", ErrorCategory.Validation); }
         if (replacementInput.Length > target.Limits.MaximumInputBytes)
@@ -1053,7 +1230,8 @@ internal sealed class DefaultHPDBaseAdministration(
             $"base.activation.migration.id.v1\0{Convert.ToHexString(migration.Definition.Checksum.AsSpan())}\n{request.ActivationId}\n{request.ExpectedGeneration}\n{Convert.ToHexString(request.Identity.Fingerprint.ToArray())}")));
         var intent = new BaseActivationCreateIntent
         {
-            Ordinal = 0, Definition = migration.Definition.Target,
+            Ordinal = 0, Definition = migration.Definition.Target, MaximumYields = target.Limits.MaximumYields,
+            ReceiptRetention = target.ReceiptRetention with { },
             CanonicalInput = replacementInput, InputChecksum = SHA256.HashData(replacementInput.AsSpan()).ToImmutableArray(),
             Scope = request.Scope with { }, RequestedDueAt = request.DueAt?.ToUnixTimeMilliseconds() ?? accepted.CapturedUtc,
             EffectiveDueAt = request.DueAt?.ToUnixTimeMilliseconds() ?? accepted.CapturedUtc,
@@ -1071,16 +1249,43 @@ internal sealed class DefaultHPDBaseAdministration(
                 MigrationChecksum = migration.Definition.Checksum, AcceptedTime = accepted,
                 Identity = request.Identity, Limits = source.Limits.Provider,
             }, token), source.Limits.Provider.AcquisitionTimeout, source.Limits.Provider.TransactionTimeout, cancellationToken).ConfigureAwait(false);
-        if (migrated.Outcome != BaseActivationProviderCallOutcome.Completed || migrated.Value is null)
+        if (migrated.Outcome != BaseActivationProviderCallOutcome.Completed)
             return ActivationPageFailure<BaseActivationMigrationResult>(OperationStatus.StoreError, "base.activation.storeError", ErrorCategory.Store);
+        if (migrated.Value is null || migrated.Value.IsSuccess() && migrated.Value.Value is null)
+            return ActivationProviderContractInvalid<BaseActivationMigrationResult>();
         if (migrated.Value.IsSuccess() && migrated.Value.Value is { } committed
             && (committed.SourceActivationId != request.ActivationId
+                || committed.SourceDefinition.Id != migration.Definition.Source.Id
+                || committed.SourceDefinition.Version != migration.Definition.Source.Version
+                || !CryptographicOperations.FixedTimeEquals(
+                    committed.SourceDefinition.Checksum.AsSpan(), migration.Definition.Source.Checksum.AsSpan())
                 || committed.SourceGeneration != request.ExpectedGeneration + 1
-                || committed.SourceControlChecksum.Length != 32
-                || committed.ReplacementActivationId != replacementId || committed.ReplacementGeneration != 1
-                || committed.ReplacementControlChecksum.Length != 32
+                || !BaseActivationControlChecksumContract.Matches(
+                    committed.SourceControlChecksum.AsSpan(), request.ActivationId,
+                    request.ExpectedGeneration + 1, BaseActivationState.Migrated,
+                    candidate.EffectiveDueAt, candidate.YieldCount, candidate.MaximumYields,
+                    candidate.ExecutionSliceOrdinal, candidate.AttemptStartedAt, candidate.SliceStartedAt,
+                    null, null)
+                || committed.ReplacementActivationId != replacementId
+                || committed.ReplacementDefinition.Id != migration.Definition.Target.Id
+                || committed.ReplacementDefinition.Version != migration.Definition.Target.Version
+                || !CryptographicOperations.FixedTimeEquals(
+                    committed.ReplacementDefinition.Checksum.AsSpan(), migration.Definition.Target.Checksum.AsSpan())
+                || committed.ReplacementGeneration != 1
+                || !BaseActivationControlChecksumContract.Matches(
+                    committed.ReplacementControlChecksum.AsSpan(), replacementId, 1, BaseActivationState.Pending,
+                    intent.EffectiveDueAt ?? intent.RequestedDueAt, 0, intent.MaximumYields,
+                    0, null, null, null, null)
+                || committed.MigrationId != migration.Definition.Id
+                || committed.MigrationVersion != migration.Definition.Version
+                || !CryptographicOperations.FixedTimeEquals(
+                    committed.MigrationChecksum.AsSpan(), migration.Definition.Checksum.AsSpan())
+                || committed.Disposition is not (BaseMutationRequestDisposition.Committed or BaseMutationRequestDisposition.Duplicate)
                 || !AccountingValid(committed.Accounting, 1, source.Limits.Provider)))
-            return ActivationPageFailure<BaseActivationMigrationResult>(OperationStatus.StoreError, "base.activation.providerContractInvalid", ErrorCategory.Store);
+            return ActivationProviderContractInvalid<BaseActivationMigrationResult>();
+        if (!migrated.Value.IsSuccess())
+            return NormalizeMigrationProviderFailure<BaseActivationMigrationResult, BaseActivationMigrationResult>(migrated.Value,
+                candidatePhase: false);
         return BaseResultMapper.Map<BaseActivationMigrationResult, BaseActivationMigrationResult>(migrated.Value, static value => value);
     }
 
@@ -1147,6 +1352,9 @@ internal sealed class DefaultHPDBaseAdministration(
         ArgumentNullException.ThrowIfNull(request); cancellationToken.ThrowIfCancellationRequested();
         BaseActivationDefinition? definition = activations.Find(request.DefinitionId, request.DefinitionVersion);
         if (definition is null || request.Take is < 1 or > 256
+            || request is BaseActivationAdministrationReceiptCompactionRequest compaction
+                && (compaction.AfterActivationId is null) != (compaction.AfterReceiptSequence is null)
+            || request is BaseActivationAdministrationReceiptCompactionRequest { AfterReceiptSequence: < 1 }
             || stores.GetRegistration(request.StoreId)?.Store is not IBaseActivationProvider provider
             || !BaseActivationCertificationReceiptContract.Validate(provider.Descriptor))
             return ActivationPageFailure<TResult>(OperationStatus.PolicyDenied, "base.activation.unauthorized", ErrorCategory.Authorization);
@@ -1188,17 +1396,37 @@ internal sealed class DefaultHPDBaseAdministration(
             return ActivationPageFailure<TResult>(OperationStatus.StoreError, "base.activation.storeError", ErrorCategory.Store);
         OperationResult<TResult> result = call.Value;
         if (!result.IsSuccess() || result.Value is null)
+        {
+            if (request is BaseActivationAdministrationReceiptCompactionRequest
+                && !KnownReceiptCompactionFailure(result))
+                return ActivationProviderContractInvalid<TResult>();
             return BaseResultMapper.Map<TResult, TResult>(result, static value => value);
+        }
         bool valid = result.Value switch
         {
             BaseActivationMaintenancePage page => ValidateMaintenancePage(page, request.Take, definition.Limits.Provider),
             BaseActivationPrunePage page => ValidatePrunePage(page, request.Take, definition.Limits.Provider),
+            BaseActivationReceiptCompactionResult page => ValidateReceiptCompactionPage(page, request.Take, definition.Limits.Provider),
             _ => false,
         };
-        return valid
-            ? BaseResultMapper.Map<TResult, TResult>(result, static value => value)
-            : ActivationPageFailure<TResult>(OperationStatus.StoreError, "base.activation.providerContractInvalid", ErrorCategory.Store);
+        if (valid) return BaseResultMapper.Map<TResult, TResult>(result, static value => value);
+        return request is BaseActivationAdministrationReceiptCompactionRequest
+            ? ActivationProviderContractInvalid<TResult>()
+            : ActivationPageFailure<TResult>(OperationStatus.StoreError,
+                "base.activation.providerContractInvalid", ErrorCategory.Store);
     }
+
+    private static bool KnownReceiptCompactionFailure<TResult>(OperationResult<TResult> result) =>
+        result.Error is { } error
+        && (result.Status == OperationStatus.Conflict
+                && error.Code is "base.activation.maintenanceConflict" or "base.activation.removalBlocked"
+                && error.Category == ErrorCategory.Conflict
+            || result.Status == OperationStatus.ValidationFailed
+                && error.Code == "base.activation.budgetExceeded"
+                && error.Category == ErrorCategory.Validation
+            || result.Status == OperationStatus.StoreError
+                && error.Code == "base.activation.receiptCorrupt"
+                && error.Category == ErrorCategory.Store);
 
     private static bool ValidateMaintenancePage(
         BaseActivationMaintenancePage page, int take, BaseActivationExecutionLimits limits)
@@ -1221,14 +1449,36 @@ internal sealed class DefaultHPDBaseAdministration(
 
     private static bool ValidatePrunePage(BaseActivationPrunePage page, int take, BaseActivationExecutionLimits limits)
     {
-        int candidates = checked(page.Items.Length + (page.Completed ? 0 : 1));
+        int candidates = page.Items.Length;
+        int boundaryProbe = page.Completed ? 0 : 1;
         long evidenceBytes = 0;
         foreach (BaseActivationPruneEvidence item in page.Items)
             evidenceBytes = checked(evidenceBytes + BaseActivationPruneEvidenceContract.MeasureCanonicalBytes(item));
         if (page.Items.Length > take || candidates > limits.MaximumCandidates
+            || page.DeletedReceiptCount < 0
+            || page.DeletedYieldReceiptCount < 0
+            || page.DeletedYieldReceiptCount > page.DeletedReceiptCount
+            || !BaseActivationInstanceReceiptChainContract.IsValid(page.PriorChain)
+            || !BaseActivationInstanceReceiptChainContract.IsValid(page.ResultingChain)
+            || !BaseActivationYieldReservationContract.IsValid(page.PriorReservation)
+            || !BaseActivationYieldReservationContract.IsValid(page.ResultingReservation)
+            || page.PriorChain.CurrentSequence != page.ResultingChain.CurrentSequence
+            || !CryptographicOperations.FixedTimeEquals(
+                page.PriorChain.OrderedChecksum.AsSpan(), page.ResultingChain.OrderedChecksum.AsSpan())
+            || page.ResultingChain.Generation != page.PriorChain.Generation
+                + (page.DeletedReceiptCount == 0 ? 0 : 1)
+            || page.ResultingReservation.MaximumSlots != page.PriorReservation.MaximumSlots
+            || page.ResultingReservation.ReservedUnusedSlots != page.PriorReservation.ReservedUnusedSlots
+            || page.PriorReservation.RetainedUsedSlots < page.DeletedYieldReceiptCount
+            || page.ResultingReservation.RetainedUsedSlots
+                != page.PriorReservation.RetainedUsedSlots - page.DeletedYieldReceiptCount
+            || page.ResultingReservation.Generation != page.PriorReservation.Generation
+                + (page.DeletedYieldReceiptCount == 0 ? 0 : 1)
             || !AccountingValid(page.Accounting, candidates, limits)
             || page.Accounting.EvidenceBytes != evidenceBytes
-            || page.Accounting.IndexOperations != checked(1 + page.Items.Length * 2)) return false;
+            || page.Accounting.ReadIntervals != 1 + boundaryProbe
+            || page.Accounting.IndexOperations != checked(
+                1 + boundaryProbe + page.Items.Length * 2 + page.DeletedReceiptCount * 2)) return false;
         for (int index = 0; index < page.Items.Length; index++)
             if (!BaseActivationPruneEvidenceContract.IsValid(page.Items[index])
                 || index != 0 && string.CompareOrdinal(page.Items[index - 1].ActivationId, page.Items[index].ActivationId) >= 0)
@@ -1236,6 +1486,42 @@ internal sealed class DefaultHPDBaseAdministration(
         return page.Completed
             ? page.NextActivationId is null
             : page.Items.Length != 0 && page.NextActivationId == page.Items[^1].ActivationId;
+    }
+
+    private static bool ValidateReceiptCompactionPage(
+        BaseActivationReceiptCompactionResult page,
+        int take,
+        BaseActivationExecutionLimits limits)
+    {
+        if (page.ExaminedCount < 0 || page.ExaminedCount > take
+            || page.DeletedCount < 0 || page.DeletedCount > page.ExaminedCount
+            || page.DeletedYieldReceiptCount < 0
+            || page.DeletedYieldReceiptCount > page.DeletedCount
+            || page.DeletedAuthorityOrderedDigest.Length != 32
+            || !BaseActivationInstanceReceiptChainContract.IsValid(page.PriorChain)
+            || !BaseActivationInstanceReceiptChainContract.IsValid(page.ResultingChain)
+            || !BaseActivationYieldReservationContract.IsValid(page.PriorReservation)
+            || !BaseActivationYieldReservationContract.IsValid(page.ResultingReservation)
+            || page.PriorChain.CurrentSequence != page.ResultingChain.CurrentSequence
+            || !CryptographicOperations.FixedTimeEquals(
+                page.PriorChain.OrderedChecksum.AsSpan(), page.ResultingChain.OrderedChecksum.AsSpan())
+            || page.ResultingChain.Generation < page.PriorChain.Generation
+            || page.ResultingChain.Generation > page.PriorChain.Generation + 1
+            || page.ResultingReservation.MaximumSlots != page.PriorReservation.MaximumSlots
+            || page.ResultingReservation.ReservedUnusedSlots != page.PriorReservation.ReservedUnusedSlots
+            || page.PriorReservation.RetainedUsedSlots < page.DeletedYieldReceiptCount
+            || page.ResultingReservation.RetainedUsedSlots
+                != page.PriorReservation.RetainedUsedSlots - page.DeletedYieldReceiptCount
+            || !AccountingValid(page.Accounting, page.ExaminedCount, limits)
+            || page.Completed != (page.Next is null)
+            || page.Next is { ReceiptSequence: < 1 }
+            || !Enum.IsDefined(page.Disposition)
+            || page.Disposition is not (BaseMutationRequestDisposition.Committed or BaseMutationRequestDisposition.Duplicate))
+            return false;
+        return page.ResultingChain.Generation == page.PriorChain.Generation
+                + (page.DeletedCount == 0 ? 0 : 1)
+            && page.ResultingReservation.Generation == page.PriorReservation.Generation
+                + (page.DeletedYieldReceiptCount == 0 ? 0 : 1);
     }
 
     private static bool AccountingValid(BaseActivationAccounting accounting, int candidates, BaseActivationExecutionLimits limits) =>
@@ -1248,6 +1534,35 @@ internal sealed class DefaultHPDBaseAdministration(
 
     private static BaseFailure<TResult> ActivationPageFailure<TResult>(OperationStatus status, string code, ErrorCategory category) =>
         new(status, new BaseError { Code = code, Message = "The activation administration request could not be completed.", Category = category }, null, null);
+
+    private BaseFailure<TResult> ActivationProviderContractInvalid<TResult>()
+    {
+        activationProviderGate.QuarantineContractViolation();
+        OperationResult<TResult> result = BaseActivationFailureContract.ProviderContractInvalid<TResult>();
+        return new(result.Status, result.Error!, null, null);
+    }
+
+    private BaseFailure<TResult> NormalizeMigrationProviderFailure<TResult, TProviderResult>(
+        OperationResult<TProviderResult> result,
+        bool candidatePhase)
+    {
+        BaseError? error = result.Error;
+        bool accepted = error is not null && (
+            result.Status == OperationStatus.Conflict
+                && error.Category == ErrorCategory.Conflict
+                && error.Code == "base.activation.migrationConflict"
+            || candidatePhase
+                && result.Status == OperationStatus.ValidationFailed
+                && error.Category == ErrorCategory.Validation
+                && error.Code == "base.activation.budgetExceeded"
+            || !candidatePhase
+                && result.Status == OperationStatus.CapabilityUnavailable
+                && error.Category == ErrorCategory.Capability
+                && error.Code == "base.activation.capacityUnavailable");
+        return accepted
+            ? ActivationPageFailure<TResult>(result.Status, error!.Code, error.Category)
+            : ActivationProviderContractInvalid<TResult>();
+    }
 
     private static bool CanonicallyOrdered(ImmutableArray<BaseActivationAdministrationItem> items)
     {
@@ -1564,6 +1879,8 @@ internal sealed class DefaultHPDBaseAdministration(
         BaseSemanticActivationMaintenanceResult result)
     {
         if (!Enum.IsDefined(result.Disposition) || result.PreviousAuthorityGeneration <= 0
+            || result.ProviderIncarnation.Length != 32
+            || !CryptographicOperations.FixedTimeEquals(result.ProviderIncarnation.AsSpan(), request.ProviderIncarnation.AsSpan())
             || result.ResultingAuthorityGeneration < result.PreviousAuthorityGeneration || result.ExaminedRows < 0
             || result.ChangedRows < 0 || result.ChangedRows > result.ExaminedRows || result.CanonicalBytes < 0
             || !BaseSemanticActivationMaintenanceContract.ReceiptDispositionIsValid(result.Disposition, result.ReceiptDisposition)) return false;
@@ -1571,6 +1888,8 @@ internal sealed class DefaultHPDBaseAdministration(
         {
             BaseSemanticActivationMaintenanceCheckpoint? checkpoint = result.Checkpoint;
             return checkpoint is not null && checkpoint.MaintenanceId == request.MaintenanceId
+                && checkpoint.ProviderIncarnation.Length == 32
+                && CryptographicOperations.FixedTimeEquals(checkpoint.ProviderIncarnation.AsSpan(), request.ProviderIncarnation.AsSpan())
                 && DefinitionAuthorityMatches(checkpoint.Definition, request.Definition)
                 && CryptographicOperations.FixedTimeEquals(checkpoint.RequestFingerprint.AsSpan(), request.RequestFingerprint.AsSpan())
                 && CryptographicOperations.FixedTimeEquals(checkpoint.Checksum.AsSpan(),
@@ -1586,11 +1905,14 @@ internal sealed class DefaultHPDBaseAdministration(
 
     private static BaseSemanticActivationMaintenanceResult CloneSemanticMaintenance(BaseSemanticActivationMaintenanceResult value) => value with
     {
+        ProviderIncarnation = value.ProviderIncarnation.ToArray().ToImmutableArray(),
         AuthorityChecksum = value.AuthorityChecksum.ToArray().ToImmutableArray(),
         ResultChecksum = value.ResultChecksum.ToArray().ToImmutableArray(),
         CommitObservationChecksum = value.CommitObservationChecksum.ToArray().ToImmutableArray(),
         Checkpoint = value.Checkpoint is null ? null : value.Checkpoint with
         {
+            ProviderIncarnation = value.Checkpoint.ProviderIncarnation.ToArray().ToImmutableArray(),
+            FenceToken = value.Checkpoint.FenceToken.ToArray().ToImmutableArray(),
             Definition = value.Checkpoint.Definition with { Checksum = value.Checkpoint.Definition.Checksum.ToArray().ToImmutableArray() },
             After = value.Checkpoint.After is null ? null : value.Checkpoint.After with
             {
@@ -1720,7 +2042,7 @@ internal sealed class DefaultHPDBaseAdministration(
         if (compact)
             return new BaseSemanticActivationCompactRequest
             {
-                Identity = identity, Definition = payload.Definition,
+                Identity = identity, ProviderIncarnation = payload.ProviderIncarnation, Definition = payload.Definition,
                 ExpectedSemanticAuthorityGeneration = payload.SemanticAuthorityGeneration, Limits = payload.Limits,
                 ExpectedRetiredCount = payload.RetiredCount, ExpectedRetiredChecksum = payload.RetiredAuthorityChecksum,
             };
@@ -1730,7 +2052,7 @@ internal sealed class DefaultHPDBaseAdministration(
             throw new InvalidOperationException(BaseSemanticActivationErrorCodes.GraphChanged);
         return new BaseSemanticActivationRemoveRequest
         {
-            Identity = identity, Definition = payload.Definition,
+            Identity = identity, ProviderIncarnation = payload.ProviderIncarnation, Definition = payload.Definition,
             ExpectedSemanticAuthorityGeneration = payload.SemanticAuthorityGeneration, Limits = payload.Limits,
             RemovalAuthority = removal, ExpectedLiveCount = payload.LiveCount, ExpectedRetiredCount = payload.RetiredCount,
             ExpectedAbsenceCount = payload.AbsenceCount, ExpectedDefinitionStateChecksum = payload.DefinitionStateChecksum,

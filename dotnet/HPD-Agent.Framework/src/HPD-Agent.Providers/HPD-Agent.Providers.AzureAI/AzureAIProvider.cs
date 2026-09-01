@@ -3,18 +3,16 @@
 using System;
 using System.Collections.Generic;
 using System.ClientModel.Primitives;
+using System.Text.Json;
 using System.Threading;
 using Azure;
 using Azure.AI.OpenAI;
 using Azure.AI.Projects;
 using Azure.Core;
-using Azure.Identity;
 using HPD.Agent;
 using HPD.Agent.Providers;
 using HPD.Agent.ErrorHandling;
-using HPD.Agent.Secrets;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Agent.Providers.AzureAI;
 
@@ -41,11 +39,13 @@ namespace HPD.Agent.Providers.AzureAI;
 /// </para>
 /// </remarks>
 [HpdProvider("azure-ai", "Azure AI (Projects)")]
+[HpdProviderBackend("azure", ProviderAuthenticationKind.ApiKey, IsDefaultBackend = true, DefaultSecretKey = "azure-ai:ApiKey")]
+[HpdProviderBackend("azure", ProviderAuthenticationKind.ExternalIdentity, IsDefaultAuthentication = true)]
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(AzureAIProviderConfig), typeof(AzureAIJsonContext))]
 [HpdProviderSecretAlias("azure-ai:ApiKey", "AZURE_AI_API_KEY")]
 [HpdProviderSecretAlias("azure-ai:Endpoint", "AZURE_AI_ENDPOINT")]
-internal class AzureAIProvider : IChatClientProvider, IProviderSecretAliasProvider
+internal class AzureAIProvider : IProvider, IProviderClientFactory<IChatClient>, IProviderSecretAliasProvider
 {
     public string ProviderKey => "azure-ai";
     public string DisplayName => "Azure AI (Projects)";
@@ -61,19 +61,22 @@ internal class AzureAIProvider : IChatClientProvider, IProviderSecretAliasProvid
             new("azure-ai:Endpoint", new[] { "AZURE_AI_ENDPOINT" }),
         };
 
-    public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public ProviderClientCredentialBinding ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor)
     {
-        // Get secret resolver from services
-        var secrets = services?.GetService<ISecretResolver>();
-        if (secrets == null)
-        {
-            throw new InvalidOperationException(
-                "ISecretResolver is required for provider initialization. " +
-                "Ensure the agent builder is properly configured with secret resolution.");
-        }
+        ArgumentNullException.ThrowIfNull(descriptor);
+        return ProviderClientCredentialBinding.ConstructionTime;
+    }
 
-        // Resolve required endpoint using ISecretResolver (Azure requires endpoint)
-        string endpoint = await secrets.RequireAsync("azure-ai:Endpoint", "Azure AI", config.Endpoint, cancellationToken).ConfigureAwait(false);
+    /// <inheritdoc />
+    public ValueTask<ProviderClientConstruction<IChatClient>> CreateAsync(
+        ProviderClientConstructionContext context, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
+        var config = context.EffectiveConfig;
+        var endpointUri = config.Endpoint ?? throw new InvalidOperationException(
+            "Azure AI requires an explicit endpoint in provider configuration.");
 
         string? modelName = config.ModelName;
         if (string.IsNullOrEmpty(modelName))
@@ -82,58 +85,52 @@ internal class AzureAIProvider : IChatClientProvider, IProviderSecretAliasProvid
         }
 
         // Get typed config
-        var azureConfig = config.ProviderConfig as AzureAIProviderConfig;
-
-        var authMode = azureConfig?.AuthMode ?? AzureAIAuthMode.Auto;
-        string? apiKey = authMode == AzureAIAuthMode.DefaultAzureCredential
-            ? null
-            : secrets.ResolveOrDefaultAsync("azure-ai:ApiKey", config.ApiKey, CancellationToken.None)
-                .GetAwaiter()
-                .GetResult();
-
-        if (authMode == AzureAIAuthMode.ApiKey && string.IsNullOrEmpty(apiKey))
-        {
-            throw new InvalidOperationException(
-                "Azure AI API key authentication was requested, but no API key was configured. " +
-                "Set apiKey, AZURE_AI_API_KEY, or change AuthMode to DefaultAzureCredential.");
-        }
+        var azureConfig = config.ProviderConfiguration.CanonicalPayload.IsEmpty ? null :
+            JsonSerializer.Deserialize(config.ProviderConfiguration.CanonicalPayload.AsSpan(), AzureAIJsonContext.Default.AzureAIProviderConfig);
 
         // Create chat client based on endpoint type
         IChatClient chatClient;
-        Uri endpointUri = new Uri(endpoint);
+        var credential = context.CredentialBinding is ProviderCredentialBindingContext.ConstructionTime construction
+            ? construction.Lease.Credential
+            : throw new InvalidOperationException("Azure AI requires a construction credential lease.");
 
         // Check if this is an Azure AI Projects endpoint
-        if (endpoint.Contains("services.ai.azure.com") && endpoint.Contains("/api/projects/"))
+        if (endpointUri.Host.EndsWith("services.ai.azure.com", StringComparison.OrdinalIgnoreCase) &&
+            endpointUri.AbsolutePath.Contains("/api/projects/", StringComparison.OrdinalIgnoreCase))
         {
             // Azure AI Projects endpoint - only supports OAuth (DefaultAzureCredential)
             // For Azure AI Foundry, API keys are not supported - must use OAuth
-            if (!string.IsNullOrEmpty(apiKey))
+            if (credential is not ProviderCredential.ExternalIdentity external)
             {
                 throw new InvalidOperationException(
                     "Azure AI Foundry/Projects endpoints require OAuth authentication. " +
-                    "Set AuthMode = DefaultAzureCredential or omit the API key.");
+                    "Select a registered external identity for this backend.");
             }
-
-            TokenCredential credential = new DefaultAzureCredential();
-            chatClient = CreateProjectsChatClient(endpointUri, modelName, credential, azureConfig);
+            if (external.Lease.Credential is not TokenCredential tokenCredential)
+                throw new InvalidOperationException("The selected Azure AI external identity is not an Azure.Core.TokenCredential.");
+            chatClient = CreateProjectsChatClient(endpointUri, modelName, tokenCredential, azureConfig);
         }
         else
         {
             // Traditional Azure OpenAI endpoint - supports both auth methods
-            if (string.IsNullOrEmpty(apiKey))
+            if (credential is ProviderCredential.ExternalIdentity external)
             {
-                // Use OAuth
-                TokenCredential credential = new DefaultAzureCredential();
-                chatClient = CreateAzureOpenAIChatClient(endpointUri, modelName, credential, azureConfig);
+                if (external.Lease.Credential is not TokenCredential tokenCredential)
+                    throw new InvalidOperationException("The selected Azure AI external identity is not an Azure.Core.TokenCredential.");
+                chatClient = CreateAzureOpenAIChatClient(endpointUri, modelName, tokenCredential, azureConfig);
             }
-            else
+            else if (credential is ProviderCredential.ApiKey apiKey)
             {
-                // Use API key
-                chatClient = CreateAzureOpenAIChatClientWithKey(endpointUri, modelName, apiKey, azureConfig);
+                chatClient = CreateAzureOpenAIChatClientWithKey(endpointUri, modelName, apiKey.Value.Value.ToString(), azureConfig);
             }
+            else throw new InvalidOperationException("Azure AI requires API-key or external-identity authentication.");
         }
 
-        return chatClient;
+        return ValueTask.FromResult(new ProviderClientConstruction<IChatClient>
+        {
+            Client = chatClient,
+            Owner = ProviderClientConstructionUtilities.Own(chatClient)
+        });
     }
 
     private static IChatClient CreateProjectsChatClient(
@@ -304,19 +301,17 @@ internal class AzureAIProvider : IChatClientProvider, IProviderSecretAliasProvid
         };
     }
 
-    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
+    public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
     {
         var errors = new List<string>();
 
         if (string.IsNullOrEmpty(config.ModelName))
             errors.Add("Model name (deployment name) is required for Azure AI");
 
-        var azureConfig = config.ProviderConfig as AzureAIProviderConfig;
+        var azureConfig = config.ProviderConfiguration.CanonicalPayload.IsEmpty ? null :
+            JsonSerializer.Deserialize(config.ProviderConfiguration.CanonicalPayload.AsSpan(), AzureAIJsonContext.Default.AzureAIProviderConfig);
         if (azureConfig is not null)
         {
-            if (!Enum.IsDefined(azureConfig.AuthMode))
-                errors.Add("Azure AI AuthMode must be Auto, ApiKey, or DefaultAzureCredential.");
-
             if (azureConfig.ProjectServiceVersion.HasValue && !Enum.IsDefined(azureConfig.ProjectServiceVersion.Value))
                 errors.Add("Azure AI ProjectServiceVersion must be a supported AIProjectClientOptions.ServiceVersion value.");
 

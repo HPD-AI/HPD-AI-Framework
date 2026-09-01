@@ -6,6 +6,7 @@ using System.Collections.Generic;
 namespace HPD.Agent.Providers.Hyperbolic;
 
 [HpdProvider("hyperbolic", "Hyperbolic")]
+[HpdProviderBackend("platform", ProviderAuthenticationKind.ApiKey, IsDefaultBackend = true, IsDefaultAuthentication = true, DefaultSecretKey = "hyperbolic:ApiKey")]
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(HyperbolicProviderConfig), typeof(HyperbolicJsonContext))]
 [HpdProviderSecretAlias("hyperbolic:ApiKey", "HYPERBOLIC_API_KEY")]
@@ -44,6 +45,7 @@ internal sealed class HyperbolicProvider : OpenAICompatibleChatProviderBase<Hype
     };
 
     protected override OpenAICompatibleProviderDefinition Definition => ProviderDefinition;
+    protected override System.Text.Json.Serialization.Metadata.JsonTypeInfo<HyperbolicProviderConfig> ConfigurationTypeInfo => HyperbolicJsonContext.Default.HyperbolicProviderConfig;
 
     public override IProviderErrorHandler CreateErrorHandler()
         => new OpenAICompatibleErrorHandler(DisplayName);

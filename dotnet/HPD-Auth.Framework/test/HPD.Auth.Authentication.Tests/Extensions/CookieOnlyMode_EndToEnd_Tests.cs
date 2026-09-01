@@ -46,13 +46,13 @@ public class CookieOnlyMode_EndToEnd_Tests
             opts.AppName    = dbName;
             opts.Jwt.Secret = null;  // cookie-only mode
         })
-        .UseInMemorySqliteForTests()
+        .UseBaseTestHost()
         .AddAuthentication();
 
         builder.Services.AddAuthorization();
 
         var app = builder.Build();
-        app.Services.InitializeHPDAuthDevelopmentDatabaseAsync().GetAwaiter().GetResult();
+        app.Services.InitializeHPDAuthBaseTestHostAsync().GetAwaiter().GetResult();
         app.UseRouting();
         app.UseAuthentication();
         app.UseAuthorization();

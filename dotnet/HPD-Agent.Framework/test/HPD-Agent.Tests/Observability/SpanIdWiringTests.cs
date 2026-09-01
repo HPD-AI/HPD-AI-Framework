@@ -300,14 +300,14 @@ public class SpanIdWiringTests : AgentTestBase
         {
             Name = "guarded_tool",
             Description = "A tool requiring permission",
-            RequiresPermission = true
+            FunctionPermission = AIFunctionPermissionDeclaration.Required("PermissionTool")
         };
         var guardedTool = HPDAIFunctionFactory.Create(
             async (args, _, ct) => "result", sensitiveOptions);
 
         var config = DefaultConfig();
         config.EnsureChatClientConfig();
-        config.EnsureChatClientConfig().ProviderKey = "test";
+        config.EnsureChatClientConfig().Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" };
         config.EnsureChatClientConfig().ModelName = "test-model";
         config.ServerConfiguredTools = [guardedTool];
 

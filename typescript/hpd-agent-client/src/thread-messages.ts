@@ -5,6 +5,7 @@ import {
   type AgentMessageSource,
   type AgentMessageVisibility,
   type ToolResultPayload,
+  type ThreadMessageReplacedEvent,
 } from './types/events.js';
 import type {
   AIContent,
@@ -88,6 +89,18 @@ export function projectThreadEventsToMessages(events: readonly ThreadEvent[]): T
         message.role = 'user';
         message.contents.push({ $type: 'text', text });
       }
+    } else if (event.type === EventTypes.THREAD_MESSAGE_REPLACED) {
+      const replaced = event as ThreadEvent & ThreadMessageReplacedEvent;
+      const replacement = replaced.replacement;
+      if (!replacement || replacement.messageId !== replaced.messageId || !byId.has(replaced.messageId)) continue;
+      byId.set(replaced.messageId, {
+        id: replaced.messageId,
+        role: replacement.role,
+        contents: replacement.contents,
+        additionalProperties: replacement.additionalProperties ?? undefined,
+        timestamp: replacement.createdAt ?? getStringProperty(event, 'timestamp') ?? new Date().toISOString(),
+        authorName: replacement.authorName ?? undefined,
+      });
     } else if (event.type === EventTypes.REASONING_MESSAGE_START) {
       ensureMessage(event);
     } else if (event.type === EventTypes.REASONING_DELTA) {

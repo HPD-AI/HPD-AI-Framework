@@ -20,7 +20,7 @@ public class TestIntegrationSubAgents
                 SystemInstructions = "You are a meteorology expert. Provide weather information.",
                 MaxAgenticIterations = 10,
                 Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
-                    ProviderKey = "openrouter",
+                    Provider = new HPD.Agent.Providers.ProviderReference { Key = "openrouter" },
                     ModelName = "google/gemini-2.0-flash-exp:free"
                 } }
             });
@@ -39,7 +39,7 @@ public class TestIntegrationSubAgents
                 SystemInstructions = "You are a mathematics expert. Solve problems step-by-step.",
                 MaxAgenticIterations = 15,
                 Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
-                    ProviderKey = "openrouter",
+                    Provider = new HPD.Agent.Providers.ProviderReference { Key = "openrouter" },
                     ModelName = "google/gemini-2.0-flash-exp:free"
                 } }
             });
@@ -58,7 +58,7 @@ public class TestIntegrationSubAgents
                 SystemInstructions = "You are a senior software engineer. Review code for quality and security.",
                 MaxAgenticIterations = 20,
                 Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
-                    ProviderKey = "openrouter",
+                    Provider = new HPD.Agent.Providers.ProviderReference { Key = "openrouter" },
                     ModelName = "google/gemini-2.0-flash-exp:free"
                 } }
             });

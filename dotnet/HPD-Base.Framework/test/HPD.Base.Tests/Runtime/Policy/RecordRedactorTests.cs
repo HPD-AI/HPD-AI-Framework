@@ -83,7 +83,7 @@ public sealed class RecordRedactorTests
     private static RecordEnvelope Record() => new()
     {
         CollectionId = "items",
-        Id = new RecordId("rec_1"),
+        Id = RecordId.Create("rec_1"),
         Payload = new RecordPayload
         {
             Kind = RecordPayloadKind.FieldMap,

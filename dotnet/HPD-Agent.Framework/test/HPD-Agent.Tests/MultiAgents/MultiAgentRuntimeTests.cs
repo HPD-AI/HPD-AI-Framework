@@ -19,11 +19,9 @@ public class MultiAgentRuntimeTests
             },
             CancellationToken.None);
 
-        result.Mode.Should().Be(AgentInvocationMode.Background);
-        result.Background.Should().NotBeNull();
-        result.Background!.Status.Should().Be("background_unavailable");
-        result.Background.SourceKind.Should().Be(BackgroundTaskSourceKind.MultiAgent);
-        result.Background.Name.Should().Be("draft_and_review");
+        result.Mode.Should().Be(AgentInvocationMode.Synchronous);
+        result.Operation.Should().BeNull();
+        result.Text.Should().StartWith("background_unavailable:");
     }
 
     private sealed class NoopWorkflow : IMultiAgentWorkflow

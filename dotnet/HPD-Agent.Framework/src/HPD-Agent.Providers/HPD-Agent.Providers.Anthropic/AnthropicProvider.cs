@@ -6,13 +6,12 @@ using Anthropic.Core;
 using HPD.Agent;
 using HPD.Agent.Providers;
 using HPD.Agent.ErrorHandling;
-using HPD.Agent.Secrets;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Agent.Providers.Anthropic;
 
 [HpdProvider("anthropic", "Anthropic (Claude)", DocumentationUrl = "https://docs.anthropic.com/")]
+[HpdProviderBackend("platform", ProviderAuthenticationKind.ApiKey, IsDefaultBackend = true, IsDefaultAuthentication = true, DefaultSecretKey = "anthropic:ApiKey")]
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderPayload(
     ProviderClientFamily.Chat,
@@ -25,7 +24,7 @@ namespace HPD.Agent.Providers.Anthropic;
     typeof(AnthropicChatRequestOptions),
     typeof(AnthropicJsonContext))]
 [HpdProviderSecretAlias("anthropic:ApiKey", "ANTHROPIC_API_KEY")]
-internal class AnthropicProvider : IChatClientProvider, IProviderSecretAliasProvider
+internal class AnthropicProvider : IProvider, IProviderClientFactory<IChatClient>, IProviderSecretAliasProvider
 {
     public string ProviderKey => "anthropic";
     public string DisplayName => "Anthropic (Claude)";
@@ -40,34 +39,40 @@ internal class AnthropicProvider : IChatClientProvider, IProviderSecretAliasProv
             new("anthropic:ApiKey", new[] { "ANTHROPIC_API_KEY" }),
         };
 
-    public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
+    public ProviderClientCredentialBinding ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor)
     {
-        // Get secret resolver from services
-        var secrets = services?.GetService<ISecretResolver>();
-        if (secrets == null)
-        {
-            throw new InvalidOperationException(
-                "ISecretResolver is required for provider initialization. " +
-                "Ensure the agent builder is properly configured with secret resolution.");
-        }
+        ArgumentNullException.ThrowIfNull(descriptor);
+        return ProviderClientCredentialBinding.ConstructionTime;
+    }
 
-        // Resolve API key using ISecretResolver
-        string apiKey = await secrets.RequireAsync("anthropic:ApiKey", "Anthropic", config.ApiKey, cancellationToken).ConfigureAwait(false);
+    public ValueTask<ProviderClientConstruction<IChatClient>> CreateAsync(
+        ProviderClientConstructionContext context,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
+        var config = context.EffectiveConfig;
+        var apiKey = ProviderClientConstructionUtilities.GetRequiredApiKey(context.CredentialBinding);
 
         // Create the official Anthropic client
         var anthropicClient = new AnthropicClient(new ClientOptions
         {
             ApiKey = apiKey,
-            BaseUrl = config.Endpoint ?? "https://api.anthropic.com"
+            BaseUrl = config.Endpoint?.AbsoluteUri ?? "https://api.anthropic.com"
         });
 
-        var maxTokens = (config as ChatClientConfig)?.MaxOutputTokens ?? 4096;
+        const int maxTokens = 4096;
         var chatClient = anthropicClient.AsIChatClient(config.ModelName, maxTokens);
 
-        return new AnthropicConfiguredChatClient(
+        IChatClient configured = new AnthropicConfiguredChatClient(
             chatClient,
             config.ModelName,
             maxTokens);
+        return ValueTask.FromResult(new ProviderClientConstruction<IChatClient>
+        {
+            Client = configured,
+            Owner = ProviderClientConstructionUtilities.Own(configured)
+        });
     }
 
     public IProviderErrorHandler CreateErrorHandler()
@@ -99,12 +104,11 @@ internal class AnthropicProvider : IChatClientProvider, IProviderSecretAliasProv
         };
     }
 
-    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
+    public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
     {
-        // Note: API key validation is now deferred to CreateChatClient where ISecretResolver is available
-        // This method only validates config structure, not secret resolution
-
-        if (string.IsNullOrEmpty(config.ModelName))
+        if (config.Family != ProviderClientFamily.Chat)
+            return ProviderValidationResult.Failure("Anthropic supports only chat.");
+        if (string.IsNullOrWhiteSpace(config.ModelName))
             return ProviderValidationResult.Failure("Model name is required");
 
         return ProviderValidationResult.Success();

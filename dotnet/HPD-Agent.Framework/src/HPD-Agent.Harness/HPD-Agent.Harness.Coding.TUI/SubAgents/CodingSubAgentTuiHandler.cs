@@ -13,9 +13,9 @@ internal sealed class CodingSubAgentTuiHandler : IAgentTuiEventHandler, IAgentTu
 
     public bool CanHandle(AgentEvent evt) => evt switch
     {
-        ToolCallStartEvent start => IsSubAgent(start.Name),
+        ToolCallStartEvent start => IsSubAgents(start.Name),
         ToolCallArgsEvent => true,
-        ToolCallResultEvent result => IsSubAgent(result.Name),
+        ToolCallResultEvent result => IsSubAgents(result.Name),
         ToolCallEndEvent => true,
         SubAgentInvocationStartedEvent or SubAgentInvocationCompletedEvent or
             SubAgentInvocationFailedEvent or SubAgentInvocationCancelledEvent => true,
@@ -23,7 +23,7 @@ internal sealed class CodingSubAgentTuiHandler : IAgentTuiEventHandler, IAgentTu
     };
 
     public bool CanHandleToolCall(string? toolHarnessName, string toolName, ToolCallType? callType)
-        => IsSubAgent(toolName);
+        => IsSubAgents(toolName);
 
     public ValueTask HandleAsync(AgentEvent evt, AgentTuiEventContext context, CancellationToken cancellationToken)
     {
@@ -32,7 +32,7 @@ internal sealed class CodingSubAgentTuiHandler : IAgentTuiEventHandler, IAgentTu
 
         switch (evt)
         {
-            case ToolCallStartEvent start when IsSubAgent(start.Name):
+            case ToolCallStartEvent start when IsSubAgents(start.Name):
                 entry = store.GetOrCreate(start.CallId, start.Name);
                 break;
             case ToolCallArgsEvent args when store.ByCall.TryGetValue(args.CallId, out entry):
@@ -43,7 +43,6 @@ internal sealed class CodingSubAgentTuiHandler : IAgentTuiEventHandler, IAgentTu
                 entry.InvocationId = started.InvocationId;
                 store.ByInvocation[started.InvocationId] = entry;
                 entry.RoleName = started.RoleName;
-                entry.TaskName = started.TaskName;
                 entry.ContextPolicy = started.ContextPolicy;
                 entry.Mode = started.Mode;
                 entry.State = CodingSubAgentState.Running;
@@ -63,7 +62,7 @@ internal sealed class CodingSubAgentTuiHandler : IAgentTuiEventHandler, IAgentTu
                 entry.State = CodingSubAgentState.Cancelled;
                 entry.Detail = Limit(cancelled.Reason, ErrorLimit);
                 break;
-            case ToolCallResultEvent result when IsSubAgent(result.Name) && store.ByCall.TryGetValue(result.CallId, out entry):
+            case ToolCallResultEvent result when IsSubAgents(result.Name) && store.ByCall.TryGetValue(result.CallId, out entry):
                 if (entry.State == CodingSubAgentState.Preparing)
                 {
                     entry.State = CodingSubAgentState.Completed;
@@ -87,8 +86,12 @@ internal sealed class CodingSubAgentTuiHandler : IAgentTuiEventHandler, IAgentTu
         {
             using var document = JsonDocument.Parse(json);
             var root = document.RootElement;
-            if (root.TryGetProperty("taskName", out var task) && task.ValueKind == JsonValueKind.String)
-                entry.TaskName = task.GetString();
+            if (root.TryGetProperty("request", out var request) && request.ValueKind == JsonValueKind.Object)
+                root = request;
+            if (root.TryGetProperty("action", out var action) && action.ValueKind == JsonValueKind.String)
+                entry.RoleName = action.GetString() ?? entry.RoleName;
+            if (root.TryGetProperty("child", out var child) && child.ValueKind == JsonValueKind.String)
+                entry.TaskName = child.GetString();
             if (root.TryGetProperty("input", out var input) && input.ValueKind == JsonValueKind.String)
                 entry.Detail = Limit(input.GetString(), PromptLimit);
         }
@@ -113,10 +116,8 @@ internal sealed class CodingSubAgentTuiHandler : IAgentTuiEventHandler, IAgentTu
             context.Shell.Transcript.FinalizeLive(key, transcriptEntry.AsFinal());
     }
 
-    private static bool IsSubAgent(string? name)
-        => name is not null && (name.Equals("explore", StringComparison.OrdinalIgnoreCase) ||
-            name.Equals("worker", StringComparison.OrdinalIgnoreCase) ||
-            name.Equals("reviewer", StringComparison.OrdinalIgnoreCase));
+    private static bool IsSubAgents(string? name)
+        => string.Equals(name, SubAgentsFunctionFactory.FunctionName, StringComparison.Ordinal);
 
     private static string? Limit(string? value, int limit)
     {

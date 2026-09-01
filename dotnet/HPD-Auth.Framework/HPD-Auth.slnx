@@ -7,6 +7,7 @@
   </Configurations>
   <Folder Name="/Core/">
     <Project Path="src/HPD.Auth/HPD.Auth.csproj" />
+    <Project Path="src/HPD.Auth.Base/HPD.Auth.Base.csproj" />
     <Project Path="src/HPD.Auth.Core/HPD.Auth.Core.csproj" />
   </Folder>
   <Folder Name="/Modules/">
@@ -19,10 +20,9 @@
     <Project Path="src/HPD.Auth.OAuth/HPD.Auth.OAuth.csproj" />
     <Project Path="src/HPD.Auth.TwoFactor/HPD.Auth.TwoFactor.csproj" />
   </Folder>
-  <Folder Name="/Studio/">
-    <Project Path="src/HPD.Auth.Studio/HPD.Auth.Studio.csproj" />
-  </Folder>
   <Folder Name="/Tests/">
+    <Project Path="test/HPD.Auth.Base.ConsumerProof/HPD.Auth.Base.ConsumerProof.csproj" />
+    <Project Path="test/HPD.Auth.Base.ContractTests/HPD.Auth.Base.ContractTests.csproj" />
     <Project Path="test/HPD.Auth.Tests/HPD.Auth.Tests.csproj" />
     <Project Path="test/HPD.Auth.Core.Tests/HPD.Auth.Core.Tests.csproj" />
     <Project Path="test/HPD.Auth.Admin.Tests/HPD.Auth.Admin.Tests.csproj" />
@@ -31,7 +31,10 @@
     <Project Path="test/HPD.Auth.Authorization.Tests/HPD.Auth.Authorization.Tests.csproj" />
     <Project Path="test/HPD.Auth.ControlPlane.AspNetCore.Tests/HPD.Auth.ControlPlane.AspNetCore.Tests.csproj" />
     <Project Path="test/HPD.Auth.Infrastructure.Tests/HPD.Auth.Infrastructure.Tests.csproj" />
+    <Project Path="test/HPD.Auth.NativeAotSmoke/HPD.Auth.NativeAotSmoke.csproj" />
     <Project Path="test/HPD.Auth.OAuth.Tests/HPD.Auth.OAuth.Tests.csproj" />
     <Project Path="test/HPD.Auth.TwoFactor.Tests/HPD.Auth.TwoFactor.Tests.csproj" />
+  </Folder>
+  <Folder Name="/Tools/">
   </Folder>
 </Solution>

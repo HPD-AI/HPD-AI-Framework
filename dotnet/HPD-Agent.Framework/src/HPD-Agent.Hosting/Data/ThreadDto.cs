@@ -49,7 +49,6 @@ public record ThreadDto(
     string? ParentSessionId = null,
     string? ParentThreadId = null,
     string? SubAgentName = null,
-    string? SubAgentTaskName = null,
     string? InvocationId = null,
     string? SubAgentSourceKind = null,
     string? ParentToolCallId = null,
@@ -65,6 +64,18 @@ public record ThreadGraphDto(
     IReadOnlyList<ThreadDto> Threads,
     IReadOnlyList<ThreadForkGroupDto> ForkGroups,
     IReadOnlyList<ThreadRuntimeChildDto> RuntimeChildren);
+
+/// <summary>Registry-backed durable subagent summary scoped to one parent thread.</summary>
+public sealed record SubAgentDto(
+    string LocalId,
+    string Role,
+    SubAgentChildAvailability Availability,
+    string? AgentId,
+    string? SessionId,
+    string? ThreadId,
+    string? Status,
+    int MessageCount,
+    string? Reason);
 
 /// <summary>
 /// A set of branch choices that diverge from the same semantic fork point.
@@ -135,7 +146,6 @@ public record ThreadRuntimeChildDto(
     ThreadKind Kind,
     ThreadVisibility Visibility,
     string? SubAgentName,
-    string? SubAgentTaskName,
     string? InvocationId,
     string? SubAgentSourceKind,
     string? ParentToolCallId,

@@ -15,7 +15,7 @@ public static class AgentBuilderExtensions
     public static AgentBuilder WithTogether(
         this AgentBuilder builder,
         string model = "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-        string? apiKey = null,
+        ProviderAuthentication? authentication = null,
         string? endpoint = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -25,8 +25,11 @@ public static class AgentBuilderExtensions
 
         var chatConfig = new ChatClientConfig
         {
-            ProviderKey = "together",
-            ApiKey = apiKey,
+            Provider = new ProviderReference
+            {
+                Key = "together",
+                Authentication = authentication ?? new ApiKeyProviderAuthentication { SecretKey = "together:ApiKey" }
+            },
             Endpoint = endpoint,
             ModelName = model
         };
@@ -36,6 +39,8 @@ public static class AgentBuilderExtensions
 
         return builder;
     }
+    /// <summary>Configures Together chat with a literal runtime-only API key.</summary>
+    public static AgentBuilder WithTogether(this AgentBuilder builder, string model, ReadOnlySpan<char> apiKey, string? endpoint = null) => builder.WithTogether(model, builder.RegisterExplicitApiKey(apiKey), endpoint);
 
     /// <summary>
     /// Adds Together-specific runtime chat request options to the chat defaults.
@@ -73,7 +78,7 @@ public static class AgentBuilderExtensions
     public static AgentBuilder WithTogetherEmbeddings(
         this AgentBuilder builder,
         string model = "BAAI/bge-base-en-v1.5",
-        string? apiKey = null,
+        ProviderAuthentication? authentication = null,
         string? endpoint = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -83,8 +88,11 @@ public static class AgentBuilderExtensions
 
         var embeddingConfig = new EmbeddingsClientConfig
         {
-            ProviderKey = "together",
-            ApiKey = apiKey,
+            Provider = new ProviderReference
+            {
+                Key = "together",
+                Authentication = authentication ?? new ApiKeyProviderAuthentication { SecretKey = "together:ApiKey" }
+            },
             Endpoint = endpoint,
             ModelName = model
         };
@@ -93,4 +101,6 @@ public static class AgentBuilderExtensions
         builder.Config.SetClientConfig(ProviderClientFamily.Embeddings, embeddingConfig);
         return builder;
     }
+    /// <summary>Configures Together embeddings with a literal runtime-only API key.</summary>
+    public static AgentBuilder WithTogetherEmbeddings(this AgentBuilder builder, string model, ReadOnlySpan<char> apiKey, string? endpoint = null) => builder.WithTogetherEmbeddings(model, builder.RegisterExplicitApiKey(apiKey), endpoint);
 }

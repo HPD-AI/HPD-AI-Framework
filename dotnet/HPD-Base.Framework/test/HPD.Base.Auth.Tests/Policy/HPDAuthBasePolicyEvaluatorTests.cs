@@ -653,7 +653,7 @@ public sealed class HPDBaseAuthPolicyEvaluatorTests
     private static RecordEnvelope Record(string id, RecordPayload payload) => new()
     {
         CollectionId = "items",
-        Id = new RecordId(id),
+        Id = RecordId.Create(id),
         Payload = payload,
         Metadata = new RecordMetadata
         {

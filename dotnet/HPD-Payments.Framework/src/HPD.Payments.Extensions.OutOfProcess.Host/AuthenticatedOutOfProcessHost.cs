@@ -43,7 +43,8 @@ internal sealed class AuthenticatedOutOfProcessHost
         }
 
         var dynamicRequest = new DynamicExtensionRequest(request.RequestId, _manifest.ExtensionId,
-            _manifest.ContractVersion, _manifest.ConfigurationRevision, request.CopyPayload());
+            _manifest.ContractVersion, _manifest.CodeRevision, _manifest.ConfigurationRevision,
+            _manifest.ArtifactDigest, request.CopyPayload());
         var result = await _lane.InvokeAsync(dynamicRequest, cancellationToken).ConfigureAwait(false);
         var responsePayload = result.CopyPayload();
         var response = OutOfProcessProtocol.Create(_protocolVersion, OutOfProcessFrameKind.Response,

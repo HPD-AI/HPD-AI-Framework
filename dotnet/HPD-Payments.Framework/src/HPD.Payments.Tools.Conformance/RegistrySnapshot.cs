@@ -74,12 +74,13 @@ internal sealed class RegistrySnapshot
         {
             if (claim.ExpectedProofState != "Untested" || claim.CellId != "BASELINE-" + claim.CanonicalId)
                 throw new InvalidDataException("Baseline claim identity or proof state is invalid.");
-            var blocked = claim.Applicability == "Blocked" && claim.Res009Status == "BlockedPendingExplicitAcceptance";
             var pending = claim.Applicability == "ApplicablePendingSelection" && claim.Res009Status == "NotAffected";
-            if (!blocked && !pending) throw new InvalidDataException("Baseline applicability and RES-009 disposition conflict.");
+            var accepted = claim.Applicability == "ApplicablePendingSelection" && claim.Res009Status == "AcceptedPendingImplementation";
+            if (!accepted && !pending) throw new InvalidDataException("Baseline applicability and RES-009 disposition conflict.");
         }
-        if (claims.Count(static x => x.Applicability == "Blocked") != 28 || routes.Count(static x => x.Res009Affected) != 28)
-            throw new InvalidDataException("RES-009 blocked counts changed.");
+        if (claims.Count(static x => x.Res009Status == "AcceptedPendingImplementation") != 28 ||
+            routes.Count(static x => x.Res009Affected) != 28)
+            throw new InvalidDataException("RES-009 accepted-pending-implementation counts changed.");
         if (routes.Select(static x => x.Prefix).Distinct(StringComparer.Ordinal).Count() != 33 ||
             !Enumerable.Range(1, 6).Select(static x => $"TEST-{x:000}").All(routeIds.Contains))
             throw new InvalidDataException("Prefix or TEST route inventory changed.");

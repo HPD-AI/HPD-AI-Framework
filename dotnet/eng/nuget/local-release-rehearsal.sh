@@ -105,7 +105,7 @@ HPD_AGENT_PROJECTS=(
   "$ROOT/HPD-Graph.Framework/src/HPD-Graph.SourceGenerator/HPD-Graph.SourceGenerator.csproj"
   "$ROOT/HPD-Graph.Framework/src/HPD-Graph.Core/HPD-Graph.Core.csproj"
   "$ROOT/HPD-Agent.Framework/src/HPD-Agent/HPD-Agent.csproj"
-  "$ROOT/HPD-Agent.Framework/src/HPD-Agent.Audio/HPD-Agent.Audio.csproj"
+  "$ROOT/HPD-Agent.Framework/src/HPD-Agent.Audio/HPD-Agent.Audio/HPD-Agent.Audio.csproj"
   "$ROOT/HPD-Agent.Framework/src/HPD-Agent.Hosting/HPD-Agent.Hosting.csproj"
   "$ROOT/HPD-Agent.Framework/src/HPD-Agent.Evaluations/HPD-Agent.Evaluations.csproj"
   "$ROOT/HPD-Agent.Framework/src/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj"

@@ -25,13 +25,13 @@ public sealed class SubAgentTuiTests
     public async Task InvocationLifecycle_UpdatesAndFinalizesOneSemanticCell()
     {
         var state = CreateState();
-        await state.ApplyEventAsync(new ToolCallStartEvent("call-1", "reviewer", "message-1"));
+        await state.ApplyEventAsync(new ToolCallStartEvent("call-1", "SubAgents", "message-1"));
         await state.ApplyEventAsync(new ToolCallArgsEvent(
             "call-1",
-            """{"taskName":"Review Helium","input":"Read and analyze the Helium project."}"""));
+            """{"action":"reviewer","input":"Read and analyze the Helium project."}"""));
         await state.ApplyEventAsync(new SubAgentInvocationStartedEvent(
             "invocation-1", "call-1", "reviewer-agent", "session-1", "child-1",
-            "reviewer", "Review Helium", SubAgentContextPolicy.Fresh, AgentInvocationMode.Synchronous));
+            "reviewer", SubAgentContextPolicy.Fresh, AgentInvocationMode.Synchronous));
 
         var running = Assert.IsType<CodingSubAgentCell>(Assert.Single(Rows(state)).Cell);
         running.State.Should().Be(CodingSubAgentState.Running);
@@ -64,22 +64,42 @@ public sealed class SubAgentTuiTests
     public async Task LongPromptAndSummary_AreBounded()
     {
         var state = CreateState();
-        await state.ApplyEventAsync(new ToolCallStartEvent("call-1", "worker", "message-1"));
+        await state.ApplyEventAsync(new ToolCallStartEvent("call-1", "SubAgents", "message-1"));
         await state.ApplyEventAsync(new ToolCallArgsEvent(
-            "call-1", $$"""{"taskName":"Work","input":"{{new string('p', 400)}}"}"""));
+            "call-1", $$"""{"action":"worker","input":"{{new string('p', 400)}}"}"""));
 
         Assert.IsType<CodingSubAgentCell>(Assert.Single(Rows(state)).Cell)
             .Detail!.Length.Should().Be(160);
 
         await state.ApplyEventAsync(new SubAgentInvocationStartedEvent(
             "invocation-1", "call-1", "worker-agent", "session-1", "child-1",
-            "worker", "Work", SubAgentContextPolicy.Fork, AgentInvocationMode.Background));
+            "worker", SubAgentContextPolicy.Fork, AgentInvocationMode.Background));
         await state.ApplyEventAsync(new SubAgentInvocationCompletedEvent(
             "invocation-1", new string('s', 500)));
 
         var completed = Assert.IsType<CodingSubAgentCell>(Assert.Single(Rows(state)).Cell);
         completed.Detail!.Length.Should().Be(240);
         completed.Mode.Should().Be(AgentInvocationMode.Background);
+    }
+
+    [Fact]
+    public async Task UnifiedControlAction_UsesActionAndChildAsSemanticLabels()
+    {
+        var state = CreateState();
+        await state.ApplyEventAsync(new ToolCallStartEvent("call-1", "SubAgents", "message-1"));
+        await state.ApplyEventAsync(new ToolCallArgsEvent(
+            "call-1", """{"request":{"action":"continue","child":"worker-1","input":"finish tests"}}"""));
+
+        var cell = Assert.IsType<CodingSubAgentCell>(Assert.Single(Rows(state)).Cell);
+        cell.RoleName.Should().Be("continue");
+        cell.TaskName.Should().Be("worker-1");
+        cell.Detail.Should().Be("finish tests");
+
+        await state.ApplyEventAsync(new ToolCallResultEvent(
+            "call-1", new ToolResultPayload { Text = "completed" }, Name: "SubAgents"));
+
+        Assert.IsType<CodingSubAgentCell>(Assert.Single(Rows(state)).Cell)
+            .State.Should().Be(CodingSubAgentState.Completed);
     }
 
     private static AgentTuiSessionState CreateState()

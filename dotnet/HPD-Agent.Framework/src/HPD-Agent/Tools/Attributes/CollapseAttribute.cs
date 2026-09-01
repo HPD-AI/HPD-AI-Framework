@@ -67,12 +67,15 @@ public sealed class CollapseAttribute : Attribute
     public string? SystemPrompt { get; set; }
 
     /// <summary>
-    /// Middleware types to activate when this container is expanded by the LLM.
-    /// Each type must implement <see cref="HPD.Agent.Middleware.IAgentMiddleware"/> and have a
-    /// parameterless constructor (or a single-parameter config constructor — see proposal §5A).
-    /// Instances are created at expansion time and disposed at turn end (or session end if
-    /// <c>CollapsingConfig.PersistSystemPromptInjections = true</c>).
-    /// For middleware requiring DI, use <c>WithToolHarness&lt;T&gt;(opts =&gt; opts.AddScopedMiddleware(...))</c> instead.
+    /// Middleware types owned by this ToolHarness.
+    /// Each type must implement <see cref="HPD.Agent.Middleware.IToolHarnessMiddleware"/> and
+    /// declare a supported source-generated constructor shape, explicit exact-type override
+    /// factory, or explicitly services-owned activation contract.
+    /// Middleware is activated lazily in the execution-local ToolHarness pipeline on first
+    /// applicable use, including rehydrated executions, and is released during final execution-owner
+    /// teardown. Its lifetime is independent of descriptive system-prompt persistence.
+    /// Middleware resolved from the execution child scope must declare
+    /// <c>ToolHarnessMiddlewareLifetime(Services)</c>.
     /// </summary>
     /// <example>
     /// <code>

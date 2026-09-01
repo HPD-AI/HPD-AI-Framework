@@ -29,6 +29,14 @@ public sealed record ExternalEffectProtocolState
         return new(operation, ExternalEffectState.NotDispatched, initialFactDigest);
     }
 
+    /// <summary>Rehydrates one previously admitted knowledge state from authenticated persistence.</summary>
+    public static ExternalEffectProtocolState Restore(ExternalEffectOperation operation, ExternalEffectState state, CanonicalDigest latestFactDigest)
+    {
+        ArgumentNullException.ThrowIfNull(operation); ArgumentNullException.ThrowIfNull(latestFactDigest);
+        if (state == ExternalEffectState.None || !Enum.IsDefined(state)) throw new ArgumentOutOfRangeException(nameof(state));
+        return new(operation, state, latestFactDigest);
+    }
+
     /// <summary>Records local dispatch start without claiming that bytes crossed the boundary.</summary>
     public ExternalEffectProtocolTransition BeginDispatch(CanonicalDigest factDigest)
     {

@@ -33,10 +33,12 @@ public sealed record BaseActivationLimits
     public required long MaximumResultBytes { get; init; }
     /// <summary>Gets the maximum attempts.</summary>
     public required int MaximumAttempts { get; init; }
-    /// <summary>Gets the maximum renewals per attempt.</summary>
-    public required int MaximumRenewalsPerAttempt { get; init; }
-    /// <summary>Gets the maximum guarded children per attempt.</summary>
-    public required int MaximumChildrenPerAttempt { get; init; }
+    /// <summary>Gets the maximum durable yields.</summary>
+    public required long MaximumYields { get; init; }
+    /// <summary>Gets the maximum renewals per execution slice.</summary>
+    public required int MaximumRenewalsPerSlice { get; init; }
+    /// <summary>Gets the maximum guarded children per execution slice.</summary>
+    public required int MaximumChildrenPerSlice { get; init; }
     /// <summary>Gets the maximum lineage depth.</summary>
     public required int MaximumLineageDepth { get; init; }
     /// <summary>Gets the default lease duration.</summary>
@@ -64,8 +66,63 @@ public sealed record BaseActivationHandlerBinding
     public required string ResultTypeId { get; init; }
     /// <summary>Gets the exact worker subject kind.</summary>
     public required AccessSubjectKind WorkerSubjectKind { get; init; }
+    /// <summary>Gets the stable handler semantic-authority identity.</summary>
+    public string SemanticAuthorityId { get; init; } = string.Empty;
+    /// <summary>Gets the positive handler semantic-authority version.</summary>
+    public int SemanticAuthorityVersion { get; init; }
+    /// <summary>Gets the Runtime-owned semantic-authority checksum.</summary>
+    public ImmutableArray<byte> SemanticAuthorityChecksum { get; init; }
     /// <summary>Gets the Runtime-owned canonical checksum.</summary>
     public required ImmutableArray<byte> Checksum { get; init; }
+}
+
+/// <summary>Contains application-authored handler binding data without Runtime-owned checksums.</summary>
+public sealed record BaseActivationHandlerDraft
+{
+    /// <summary>Gets the stable handler identity.</summary>
+    public required string Id { get; init; }
+    /// <summary>Gets the positive handler version.</summary>
+    public required int Version { get; init; }
+    /// <summary>Gets the stable factory identity.</summary>
+    public required string FactoryId { get; init; }
+    /// <summary>Gets the exact worker subject kind.</summary>
+    public required AccessSubjectKind WorkerSubjectKind { get; init; }
+    /// <summary>Gets the reviewed handler semantic authority.</summary>
+    public required BaseActivationHandlerSemanticAuthority SemanticAuthority { get; init; }
+}
+
+/// <summary>Contains Runtime-checksummed immutable semantic authority for one configured handler.</summary>
+public sealed class BaseActivationHandlerSemanticAuthority
+{
+    private BaseActivationHandlerSemanticAuthority(string id, int version, byte[] artifact, byte[] checksum)
+    { Id = id; Version = version; CanonicalArtifact = artifact; Checksum = checksum; }
+    /// <summary>Gets the stable semantic-authority identity.</summary>
+    public string Id { get; }
+    /// <summary>Gets the positive semantic-authority version.</summary>
+    public int Version { get; }
+    /// <summary>Gets a defensive copy of the canonical semantic artifact.</summary>
+    public ReadOnlyMemory<byte> CanonicalArtifact { get; }
+    /// <summary>Gets the Runtime-owned semantic-authority checksum.</summary>
+    public ReadOnlyMemory<byte> Checksum { get; }
+
+    /// <summary>Creates semantic authority from reviewed canonical bytes without accepting a raw checksum.</summary>
+    public static BaseActivationHandlerSemanticAuthority Create(
+        string id, int version, ReadOnlySpan<byte> canonicalArtifact = default)
+    {
+        BaseApplicationId.Validate(id, nameof(id));
+        if (version < 1 || canonicalArtifact.Length > 4 * 1024 * 1024)
+            throw new InvalidOperationException("base.activation.definitionInvalid");
+        byte[] artifact = canonicalArtifact.ToArray();
+        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        AppendSemantic(hash, "base.activation.handler.semantic.v1\0"); AppendSemantic(hash, id);
+        Span<byte> encoded = stackalloc byte[4]; System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(encoded, version);
+        hash.AppendData(encoded); AppendSemantic(hash, artifact);
+        return new(new string(id.AsSpan()), version, artifact, hash.GetHashAndReset());
+    }
+
+    private static void AppendSemantic(IncrementalHash hash, string value) => AppendSemantic(hash, System.Text.Encoding.UTF8.GetBytes(value));
+    private static void AppendSemantic(IncrementalHash hash, ReadOnlySpan<byte> value)
+    { Span<byte> size = stackalloc byte[4]; System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(size, value.Length); hash.AppendData(size); hash.AppendData(value); }
 }
 
 /// <summary>Defines one graph-installed durable activation.</summary>
@@ -85,6 +142,8 @@ public sealed record BaseActivationGrantSet
     public required string Complete { get; init; }
     /// <summary>Gets the exact failed-attempt grant identity.</summary>
     public required string Fail { get; init; }
+    /// <summary>Gets the exact durable-yield grant identity.</summary>
+    public required string Yield { get; init; }
     /// <summary>Gets the exact cancellation grant identity.</summary>
     public required string Cancel { get; init; }
     /// <summary>Gets the exact inspection grant identity.</summary>
@@ -105,6 +164,26 @@ public sealed record BaseActivationGrantSet
     public required string Repair { get; init; }
 }
 
+/// <summary>Identifies whether physical activation-receipt deletion requires authenticated backup coverage.</summary>
+public enum BaseActivationProtectedBackupCoverage
+{
+    /// <summary>Receipt compaction does not require a protected-backup checkpoint.</summary>
+    NotRequired = 0,
+    /// <summary>Receipt compaction requires a checkpoint covering the exact receipt-chain prefix.</summary>
+    Required = 1,
+}
+
+/// <summary>Defines exact duplicate-resolution and protected-backup floors for activation receipts.</summary>
+public sealed record BaseActivationReceiptRetentionPolicy
+{
+    /// <summary>Gets the closed policy format version; L76 requires exactly one.</summary>
+    public required int FormatVersion { get; init; }
+    /// <summary>Gets the exact whole-millisecond duplicate-resolution lifetime.</summary>
+    public required TimeSpan DuplicateResolutionLifetime { get; init; }
+    /// <summary>Gets whether authenticated protected-backup coverage is required before deletion.</summary>
+    public required BaseActivationProtectedBackupCoverage ProtectedBackupCoverage { get; init; }
+}
+
 /// <summary>Defines one graph-installed durable activation.</summary>
 public sealed record BaseActivationDefinition
 {
@@ -120,6 +199,12 @@ public sealed record BaseActivationDefinition
     public required string InputTypeId { get; init; }
     /// <summary>Gets the L41 result graph-node identity.</summary>
     public required string ResultTypeId { get; init; }
+    /// <summary>Gets the generated input DTO-authority checksum.</summary>
+    public ImmutableArray<byte> InputDtoAuthorityChecksum { get; init; }
+    /// <summary>Gets the generated result DTO-authority checksum.</summary>
+    public ImmutableArray<byte> ResultDtoAuthorityChecksum { get; init; }
+    /// <summary>Gets the paired generated DTO-authority checksum.</summary>
+    public ImmutableArray<byte> DtoAuthorityChecksum { get; init; }
     /// <summary>Gets the canonical L42 input-field graph checksum.</summary>
     public ImmutableArray<byte> InputDisclosureChecksum { get; init; }
     /// <summary>Gets the canonical L42 result-field graph checksum.</summary>
@@ -130,6 +215,8 @@ public sealed record BaseActivationDefinition
     public required ImmutableArray<string> SourceGrantIds { get; init; }
     /// <summary>Gets deterministic retry policy.</summary>
     public required BaseActivationRetryProfile Retry { get; init; }
+    /// <summary>Gets exact activation-receipt retention authority.</summary>
+    public required BaseActivationReceiptRetentionPolicy ReceiptRetention { get; init; }
     /// <summary>Gets effective definition limits.</summary>
     public required BaseActivationLimits Limits { get; init; }
     /// <summary>Gets the worker handler binding, forbidden for transactional operations.</summary>
@@ -138,6 +225,33 @@ public sealed record BaseActivationDefinition
     public BaseTransactionalActivationTarget? TransactionalTarget { get; init; }
     /// <summary>Gets the Runtime-owned canonical checksum.</summary>
     public required ImmutableArray<byte> Checksum { get; init; }
+}
+
+/// <summary>Contains only application-authored activation definition inputs.</summary>
+public sealed record BaseActivationDefinitionDraft
+{
+    /// <summary>Gets the stable activation identity.</summary>
+    public required string Id { get; init; }
+    /// <summary>Gets the positive definition version.</summary>
+    public required int Version { get; init; }
+    /// <summary>Gets the owning module identity.</summary>
+    public required string OwningModuleId { get; init; }
+    /// <summary>Gets the execution class.</summary>
+    public required BaseActivationExecutionClass ExecutionClass { get; init; }
+    /// <summary>Gets complete grants.</summary>
+    public required BaseActivationGrantSet Grants { get; init; }
+    /// <summary>Gets exact source grants.</summary>
+    public required ImmutableArray<string> SourceGrantIds { get; init; }
+    /// <summary>Gets retry authority.</summary>
+    public required BaseActivationRetryProfile Retry { get; init; }
+    /// <summary>Gets exact activation-receipt retention authority.</summary>
+    public required BaseActivationReceiptRetentionPolicy ReceiptRetention { get; init; }
+    /// <summary>Gets exact execution limits.</summary>
+    public required BaseActivationLimits Limits { get; init; }
+    /// <summary>Gets the worker handler draft.</summary>
+    public BaseActivationHandlerDraft? Handler { get; init; }
+    /// <summary>Gets the closed transactional target.</summary>
+    public BaseTransactionalActivationTarget? TransactionalTarget { get; init; }
 }
 
 /// <summary>Identifies one closed BASE operation executable as a transactional activation.</summary>
@@ -234,6 +348,50 @@ public sealed class BaseActivationContext
     /// <summary>Gets the cancellation signal for cooperative handler work.</summary>
     public CancellationToken CancellationToken { get; }
 
+    /// <summary>Opens typed collection operations through this activation's principal-bound session.</summary>
+    /// <typeparam name="T">The registered record type.</typeparam>
+    /// <param name="collection">The generated collection contract.</param>
+    /// <returns>A collection session that cannot escape this activation's principal and application graph.</returns>
+    public BaseCollectionSession<T> Collection<T>(BaseCollection<T> collection) => _session.Collection(collection);
+
+    /// <summary>Gets installed lifecycle consumers through this activation's principal-bound session.</summary>
+    public BaseSubjectLifecycleSession SubjectLifecycle => _session.SubjectLifecycle;
+
+    /// <summary>Gets installed retirement consumers through this activation's principal-bound session.</summary>
+    public BaseSubjectRetirementSession SubjectRetirements => _session.SubjectRetirements;
+
+    /// <summary>Resolves one installed exported-subject contract through this activation's principal-bound session.</summary>
+    /// <typeparam name="TSubject">The exact generated subject marker type.</typeparam>
+    /// <param name="registration">The generated exported-subject registration.</param>
+    /// <returns>The typed exported-subject contract bound to the current activation authority.</returns>
+    public BaseExportedSubjectContract<TSubject> GetExportedSubjectContract<TSubject>(
+        BaseGeneratedSubjectRegistration registration) =>
+        _session.GetExportedSubjectContract<TSubject>(registration);
+
+    /// <summary>Gets installed registered reads through this activation's principal-bound session.</summary>
+    public BaseSessionReads Reads => _session.Reads;
+
+    /// <summary>
+    /// Creates the exact installed L50 request identity for a child operation without
+    /// exposing the activation's principal-bound session or provider authority.
+    /// </summary>
+    /// <typeparam name="TRequest">The generated request type.</typeparam>
+    /// <typeparam name="TResult">The generated result type.</typeparam>
+    /// <param name="operation">The installed generated operation identity.</param>
+    /// <param name="request">The complete request.</param>
+    /// <param name="idempotencyKey">The stable child-attempt key.</param>
+    /// <returns>An identity bound to the activation principal, tenant, operation, and request.</returns>
+    public BaseMutationRequestIdentity CreateModuleMutationRequestIdentity<TRequest, TResult>(
+        BaseGeneratedModuleMutationIdentity<TRequest, TResult> operation,
+        TRequest request,
+        string idempotencyKey)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentException.ThrowIfNullOrWhiteSpace(idempotencyKey);
+        return _session.ModuleMutations.Get(operation).CreateRequestIdentity(request, idempotencyKey);
+    }
+
     /// <summary>Renews the current lease and atomically publishes its replacement observation.</summary>
     public async ValueTask<OperationResult<BaseActivationLeaseObservation>> RenewAsync(
         CancellationToken cancellationToken = default)
@@ -264,16 +422,11 @@ public sealed class BaseActivationContext
                     || renewed.Value.Claim.ClaimEpoch != Claim.ClaimEpoch
                     || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
                         renewed.Value.Claim.FencingToken.AsSpan(), Claim.FencingToken.AsSpan())))
-                return new OperationResult<BaseActivationLeaseObservation>
-                {
-                    Status = OperationStatus.StoreError,
-                    Error = new BaseError
-                    {
-                        Code = "base.activation.providerContractInvalid",
-                        Message = "The provider returned invalid renewal authority.",
-                        Category = ErrorCategory.Store,
-                    },
-                };
+            {
+                (_session.Services.GetService(typeof(BaseActivationProviderExecutionGate)) as BaseActivationProviderExecutionGate)
+                    ?.QuarantineContractViolation();
+                return BaseActivationFailureContract.ProviderContractInvalid<BaseActivationLeaseObservation>();
+            }
             Lease = renewed.Value.Lease;
             _renewals = checked(_renewals + 1);
             return OperationResults.Ok(Lease);
@@ -287,7 +440,10 @@ public sealed class BaseActivationContext
         BaseApplicationId.Validate(stepId, nameof(stepId));
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(childOrdinal);
         return BaseMutationRequestIdentity.Create(
-            $"activation:{Claim.ActivationId}", stepId, childOrdinal.ToString(System.Globalization.CultureInfo.InvariantCulture), fingerprint);
+            $"activation:{Claim.ActivationId}:slice:{Claim.ExecutionSliceOrdinal.ToString(System.Globalization.CultureInfo.InvariantCulture)}",
+            stepId,
+            childOrdinal.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            fingerprint);
     }
 
     /// <summary>Creates one same-store fence for a receipt-safe child operation.</summary>
@@ -363,6 +519,34 @@ public sealed class BaseActivationContext
         };
     }
 
+    /// <summary>Creates final-retirement execution options fenced to this exact live claim.</summary>
+    public BaseSubjectFinalRetirementExecutionOptions GuardSubjectFinalRetirement(
+        string stepId,
+        int childOrdinal,
+        BaseMutationRequestIdentity identity,
+        BaseSubjectFinalRetirementExecutionOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        return (options ?? new BaseSubjectFinalRetirementExecutionOptions()) with
+        {
+            ActivationGuard = GuardChild(stepId, childOrdinal, identity.Fingerprint),
+        };
+    }
+
+    /// <summary>Creates final-purge execution options fenced to this exact live claim.</summary>
+    public BaseSubjectFinalPurgeExecutionOptions GuardSubjectFinalPurge(
+        string stepId,
+        int childOrdinal,
+        BaseMutationRequestIdentity identity,
+        BaseSubjectFinalPurgeExecutionOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        return (options ?? new BaseSubjectFinalPurgeExecutionOptions()) with
+        {
+            ActivationGuard = GuardChild(stepId, childOrdinal, identity.Fingerprint),
+        };
+    }
+
     /// <summary>Creates the L47 checkpoint fence for one exact identified child.</summary>
     public BaseActivationGuard GuardLifecycleCheckpoint(
         string stepId,
@@ -401,6 +585,27 @@ public sealed class BaseActivationContext
     }
 
     /// <summary>
+    /// Resolves one historical identified module-mutation result through this
+    /// activation's principal-bound session without re-executing the operation.
+    /// </summary>
+    /// <typeparam name="TRequest">The installed request contract type.</typeparam>
+    /// <typeparam name="TResult">The installed result contract type.</typeparam>
+    /// <param name="operation">The exact generated operation identity.</param>
+    /// <param name="identity">The original complete request identity.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The stored identified result or a typed resolution failure.</returns>
+    public ValueTask<BaseResult<BaseModuleMutationExecutionResult<TResult>>> ResolveModuleMutationAsync<TRequest, TResult>(
+        BaseGeneratedModuleMutationIdentity<TRequest, TResult> operation,
+        BaseMutationRequestIdentity identity,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(identity);
+        return _session.ModuleMutations.Get(operation)
+            .ResolveAsync(identity, cancellationToken);
+    }
+
+    /// <summary>
     /// Creates L50 options that atomically persist guarded module state and one
     /// graph-installed child activation in the same provider transaction.
     /// </summary>
@@ -434,6 +639,8 @@ public sealed class BaseActivationContext
                 Version = activation.Version,
                 Checksum = activation.Checksum.ToArray().ToImmutableArray(),
             },
+            MaximumYields = activation.MaximumYields,
+            ReceiptRetention = activation.ReceiptRetention with { },
             CanonicalInput = canonicalInput.ToImmutableArray(),
             InputChecksum = inputChecksum.ToImmutableArray(),
             Scope = Scope with { },
@@ -537,25 +744,49 @@ public sealed class BaseActivationContext
     }
 }
 
-/// <summary>Contains the closed result returned by a worker handler.</summary>
-public sealed record BaseActivationHandlerResult<TResult>
+/// <summary>Base of the closed activation-handler result union.</summary>
+public abstract record BaseActivationHandlerResult<TResult>
 {
-    /// <summary>Gets the successful result when completion was selected.</summary>
-    public TResult? Result { get; init; }
-    /// <summary>Gets the stable safe failure code when failure was selected.</summary>
-    public string? FailureCode { get; init; }
+    private protected BaseActivationHandlerResult() { }
+}
+
+/// <summary>Reports successful logical completion.</summary>
+public sealed record BaseActivationSucceeded<TResult> : BaseActivationHandlerResult<TResult>
+{
+    /// <summary>Gets the successful result.</summary>
+    public required TResult Result { get; init; }
+}
+
+/// <summary>Reports one stable failed handler outcome.</summary>
+public sealed record BaseActivationFailed<TResult> : BaseActivationHandlerResult<TResult>
+{
+    /// <summary>Gets the stable safe failure code.</summary>
+    public required string FailureCode { get; init; }
     /// <summary>Gets whether the failure may enter deterministic retry.</summary>
-    public bool Retryable { get; init; }
+    public required bool Retryable { get; init; }
+}
+
+/// <summary>Reports committed bounded progress that must resume as the same activation.</summary>
+public sealed record BaseActivationYielded<TResult> : BaseActivationHandlerResult<TResult>
+{
+    /// <summary>Gets the closed durable-yield request.</summary>
+    public required BaseActivationYield Yield { get; init; }
 }
 
 /// <summary>Contains an inert source-generated activation registration identity.</summary>
 public sealed class BaseActivationRegistrationIdentity<TInput, TResult> : IBaseSerializerMetadataSource
 {
+    private readonly BaseSerializerContextRegistration? _registration;
+    private readonly IReadOnlyList<BaseSerializerPropertyDeclaration>? _declarations;
+    private readonly BaseGeneratedActivationDtoAuthority<TInput, TResult>? _authority;
+    private readonly JsonTypeInfo<TInput>? _legacyInput;
+    private readonly JsonTypeInfo<TResult>? _legacyResult;
     /// <summary>Initializes an inert registration identity.</summary>
-    public BaseActivationRegistrationIdentity(
+    internal BaseActivationRegistrationIdentity(
         string id,
         int version,
         ReadOnlyMemory<byte> checksum,
+        BaseActivationReceiptRetentionPolicy receiptRetention,
         JsonTypeInfo<TInput> input,
         JsonTypeInfo<TResult> result,
         IReadOnlyList<BaseModuleDtoPropertyBinding> inputBindings,
@@ -563,34 +794,82 @@ public sealed class BaseActivationRegistrationIdentity<TInput, TResult> : IBaseS
     {
         Id = new string(id.AsSpan());
         Version = version;
+        MaximumYields = 0;
+        ReceiptRetention = receiptRetention with { };
         Checksum = checksum.ToArray();
-        Input = input;
-        Result = result;
+        _legacyInput = input;
+        _legacyResult = result;
         InputBindings = FreezeBindings(inputBindings, typeof(TInput));
         ResultBindings = FreezeBindings(resultBindings, typeof(TResult));
     }
+
+    private BaseActivationRegistrationIdentity(
+        BaseActivationDefinition definition,
+        BaseGeneratedActivationDtoAuthority<TInput, TResult> authority)
+    {
+        _authority = authority;
+        Id = definition.Id; Version = definition.Version; MaximumYields = definition.Limits.MaximumYields;
+        ReceiptRetention = definition.ReceiptRetention with { }; Checksum = definition.Checksum.ToArray();
+        InputBindings = authority.InputBindings.Values.ToArray(); ResultBindings = authority.ResultBindings.Values.ToArray();
+        _registration = authority.SerializerRegistration; _declarations = authority.SerializerDeclarations;
+    }
+
+    internal static BaseActivationRegistrationIdentity<TInput, TResult> Generated(
+        BaseActivationDefinition definition,
+        BaseGeneratedActivationDtoAuthority<TInput, TResult> authority) => new(definition, authority);
 
     /// <summary>Gets the definition identity.</summary>
     public string Id { get; }
     /// <summary>Gets the definition version.</summary>
     public int Version { get; }
+    /// <summary>Gets the immutable maximum durable yields.</summary>
+    public long MaximumYields { get; }
+    /// <summary>Gets immutable activation-receipt retention authority.</summary>
+    public BaseActivationReceiptRetentionPolicy ReceiptRetention { get; }
     /// <summary>Gets the canonical definition checksum.</summary>
     public ReadOnlyMemory<byte> Checksum { get; }
     /// <summary>Gets source-generated input metadata.</summary>
-    public JsonTypeInfo<TInput> Input { get; }
+    public JsonTypeInfo<TInput> Input => _authority?.InputTypeInfo ?? _legacyInput
+        ?? throw new InvalidOperationException("base.schema.serializer.ownerRequired");
     /// <summary>Gets source-generated result metadata.</summary>
-    public JsonTypeInfo<TResult> Result { get; }
+    public JsonTypeInfo<TResult> Result => _authority?.ResultTypeInfo ?? _legacyResult
+        ?? throw new InvalidOperationException("base.schema.serializer.ownerRequired");
     /// <summary>Gets the exact graph-owned L42 input-property bindings.</summary>
     public IReadOnlyList<BaseModuleDtoPropertyBinding> InputBindings { get; }
     /// <summary>Gets the exact graph-owned L42 result-property bindings.</summary>
     public IReadOnlyList<BaseModuleDtoPropertyBinding> ResultBindings { get; }
+    internal byte[] CanonicalInput(TInput value) => _authority is null
+        ? System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(value, Input)
+        : _authority.CanonicalInput(value);
+    internal byte[] CanonicalResult(TResult value) => _authority is null
+        ? System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(value, Result)
+        : _authority.CanonicalResult(value);
+    internal TInput DecodeInput(ReadOnlySpan<byte> value, bool providerInfluenced)
+    {
+        if (_authority is not null) return _authority.DecodeInput(value, providerInfluenced);
+        TInput? decoded = System.Text.Json.JsonSerializer.Deserialize(value, Input);
+        return decoded ?? throw new System.Text.Json.JsonException();
+    }
+    internal TResult DecodeResult(ReadOnlySpan<byte> value, bool providerInfluenced)
+    {
+        if (_authority is not null) return _authority.DecodeResult(value, providerInfluenced);
+        TResult? decoded = System.Text.Json.JsonSerializer.Deserialize(value, Result);
+        return decoded ?? throw new System.Text.Json.JsonException();
+    }
+    internal bool UsesAuthority(BaseGeneratedActivationDtoAuthority<TInput, TResult> authority) =>
+        ReferenceEquals(_authority, authority)
+        && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+            _authority.DtoAuthorityChecksum.Span, authority.DtoAuthorityChecksum.Span);
     IReadOnlyList<System.Text.Json.Serialization.Metadata.JsonTypeInfo> IBaseSerializerMetadataSource.Roots => [Input, Result];
-    bool IBaseSerializerMetadataSource.Generated => false;
-    BaseSerializerContextRegistration? IBaseSerializerMetadataSource.Registration => null;
+    bool IBaseSerializerMetadataSource.Generated => _registration is not null;
+    BaseSerializerContextRegistration? IBaseSerializerMetadataSource.Registration => _registration;
     IReadOnlyList<Type> IBaseSerializerMetadataSource.RootTypes => [typeof(TInput), typeof(TResult)];
-    IReadOnlyList<BaseSerializerPropertyDeclaration>? IBaseSerializerMetadataSource.SerializerDeclarations => null;
+    IReadOnlyList<BaseSerializerPropertyDeclaration>? IBaseSerializerMetadataSource.SerializerDeclarations => _declarations;
     CollectionDefinition? IBaseSerializerMetadataSource.CollectionDefinition => null;
-    void IBaseSerializerMetadataSource.Bind(BaseSerializerMetadataOwner owner) { }
+    void IBaseSerializerMetadataSource.Bind(BaseSerializerMetadataOwner owner)
+    {
+        if (_authority is not null) _authority.BindOwner(owner);
+    }
 
     private static IReadOnlyList<BaseModuleDtoPropertyBinding> FreezeBindings(
         IReadOnlyList<BaseModuleDtoPropertyBinding> bindings,
@@ -606,30 +885,148 @@ public sealed class BaseActivationRegistrationIdentity<TInput, TResult> : IBaseS
 }
 
 /// <summary>Registers one graph-owned activation handler and its closed codecs.</summary>
-public sealed record BaseActivationHandlerRegistration<TInput, TResult>
+public sealed class BaseActivationHandlerRegistration<TInput, TResult>
 {
+    internal BaseActivationHandlerRegistration(
+        BaseActivationDefinition definition,
+        BaseActivationRegistrationIdentity<TInput, TResult> identity,
+        Func<IServiceProvider, IBaseActivationHandler<TInput, TResult>> factory)
+    {
+        Definition = definition;
+        Identity = identity;
+        Factory = factory;
+    }
+
     /// <summary>Gets the sealed activation definition.</summary>
-    public required BaseActivationDefinition Definition { get; init; }
+    public BaseActivationDefinition Definition { get; }
     /// <summary>Gets the inert generated identity.</summary>
-    public required BaseActivationRegistrationIdentity<TInput, TResult> Identity { get; init; }
+    public BaseActivationRegistrationIdentity<TInput, TResult> Identity { get; }
     /// <summary>Gets the graph-owned Native-AOT-safe handler factory.</summary>
-    public required Func<IServiceProvider, IBaseActivationHandler<TInput, TResult>> Factory { get; init; }
+    internal Func<IServiceProvider, IBaseActivationHandler<TInput, TResult>> Factory { get; }
+
+    internal BaseActivationHandlerRegistration<TInput, TResult> WithDefinition(BaseActivationDefinition definition) =>
+        new(definition, Identity, Factory);
 }
 
 /// <summary>Registers one handler-free transactional activation and its closed codecs.</summary>
-public sealed record BaseTransactionalActivationRegistration<TInput, TResult>
+public sealed class BaseTransactionalActivationRegistration<TInput, TResult>
 {
+    internal BaseTransactionalActivationRegistration(
+        BaseActivationDefinition definition,
+        BaseActivationRegistrationIdentity<TInput, TResult> identity)
+    {
+        Definition = definition;
+        Identity = identity;
+    }
+
     /// <summary>Gets the sealed activation definition.</summary>
-    public required BaseActivationDefinition Definition { get; init; }
+    public BaseActivationDefinition Definition { get; }
     /// <summary>Gets the inert generated identity.</summary>
-    public required BaseActivationRegistrationIdentity<TInput, TResult> Identity { get; init; }
+    public BaseActivationRegistrationIdentity<TInput, TResult> Identity { get; }
+
+    internal BaseTransactionalActivationRegistration<TInput, TResult> WithDefinition(BaseActivationDefinition definition) =>
+        new(definition, Identity);
 }
 
 /// <summary>Builds one sealed activation registration from closed graph-owned inputs.</summary>
 public static class BaseActivationDefinitionBuilder
 {
+    /// <summary>Creates one sealed worker activation from generated DTO authority.</summary>
+    public static BaseActivationHandlerRegistration<TInput, TResult> CreateGenerated<TInput, TResult>(
+        BaseActivationDefinitionDraft draft,
+        BaseGeneratedActivationDtoAuthority<TInput, TResult> authority,
+        Func<IServiceProvider, IBaseActivationHandler<TInput, TResult>> factory)
+    {
+        ArgumentNullException.ThrowIfNull(draft); ArgumentNullException.ThrowIfNull(authority); ArgumentNullException.ThrowIfNull(factory);
+        if (draft.OwningModuleId != authority.OwningModuleId
+            || draft.ExecutionClass == BaseActivationExecutionClass.TransactionalOperation || draft.Handler is null
+            || draft.TransactionalTarget is not null)
+            throw new InvalidOperationException("base.activation.definitionInvalid");
+        BaseActivationHandlerDraft handler = draft.Handler;
+        ImmutableArray<byte> handlerChecksum = HandlerChecksum(draft, authority, handler).ToImmutableArray();
+        BaseActivationDefinition sealedDefinition = BaseActivationContract.Seal(new BaseActivationDefinition
+        {
+            Id = draft.Id, Version = draft.Version, OwningModuleId = draft.OwningModuleId,
+            ExecutionClass = draft.ExecutionClass, InputTypeId = authority.InputTypeId, ResultTypeId = authority.ResultTypeId,
+            InputDtoAuthorityChecksum = authority.InputDtoAuthorityChecksum.ToArray().ToImmutableArray(),
+            ResultDtoAuthorityChecksum = authority.ResultDtoAuthorityChecksum.ToArray().ToImmutableArray(),
+            DtoAuthorityChecksum = authority.DtoAuthorityChecksum.ToArray().ToImmutableArray(),
+            InputDisclosureChecksum = authority.InputDisclosureChecksum.ToArray().ToImmutableArray(),
+            ResultDisclosureChecksum = authority.ResultDisclosureChecksum.ToArray().ToImmutableArray(),
+            Grants = draft.Grants, SourceGrantIds = draft.SourceGrantIds, Retry = draft.Retry,
+            ReceiptRetention = draft.ReceiptRetention, Limits = draft.Limits,
+            Handler = new BaseActivationHandlerBinding
+            {
+                Id = handler.Id, Version = handler.Version, FactoryId = handler.FactoryId,
+                InputTypeId = authority.InputTypeId, ResultTypeId = authority.ResultTypeId,
+                WorkerSubjectKind = handler.WorkerSubjectKind,
+                SemanticAuthorityId = handler.SemanticAuthority.Id,
+                SemanticAuthorityVersion = handler.SemanticAuthority.Version,
+                SemanticAuthorityChecksum = handler.SemanticAuthority.Checksum.ToArray().ToImmutableArray(),
+                Checksum = handlerChecksum,
+            }, TransactionalTarget = null, Checksum = [],
+        });
+        return new BaseActivationHandlerRegistration<TInput, TResult>(
+            sealedDefinition,
+            BaseActivationRegistrationIdentity<TInput, TResult>.Generated(sealedDefinition, authority),
+            factory);
+    }
+
+    /// <summary>Creates one sealed transactional activation from generated DTO authority.</summary>
+    public static BaseTransactionalActivationRegistration<TInput, TResult> CreateGeneratedTransactional<TInput, TResult>(
+        BaseActivationDefinitionDraft draft,
+        BaseGeneratedActivationDtoAuthority<TInput, TResult> authority)
+    {
+        ArgumentNullException.ThrowIfNull(draft); ArgumentNullException.ThrowIfNull(authority);
+        if (draft.OwningModuleId != authority.OwningModuleId
+            || draft.ExecutionClass != BaseActivationExecutionClass.TransactionalOperation || draft.Handler is not null
+            || draft.TransactionalTarget is null)
+            throw new InvalidOperationException("base.activation.definitionInvalid");
+        BaseActivationDefinition sealedDefinition = BaseActivationContract.Seal(new BaseActivationDefinition
+        {
+            Id = draft.Id, Version = draft.Version, OwningModuleId = draft.OwningModuleId,
+            ExecutionClass = draft.ExecutionClass, InputTypeId = authority.InputTypeId, ResultTypeId = authority.ResultTypeId,
+            InputDtoAuthorityChecksum = authority.InputDtoAuthorityChecksum.ToArray().ToImmutableArray(),
+            ResultDtoAuthorityChecksum = authority.ResultDtoAuthorityChecksum.ToArray().ToImmutableArray(),
+            DtoAuthorityChecksum = authority.DtoAuthorityChecksum.ToArray().ToImmutableArray(),
+            InputDisclosureChecksum = authority.InputDisclosureChecksum.ToArray().ToImmutableArray(),
+            ResultDisclosureChecksum = authority.ResultDisclosureChecksum.ToArray().ToImmutableArray(),
+            Grants = draft.Grants, SourceGrantIds = draft.SourceGrantIds, Retry = draft.Retry,
+            ReceiptRetention = draft.ReceiptRetention, Limits = draft.Limits,
+            Handler = null, TransactionalTarget = draft.TransactionalTarget, Checksum = [],
+        });
+        return new BaseTransactionalActivationRegistration<TInput, TResult>(
+            sealedDefinition,
+            BaseActivationRegistrationIdentity<TInput, TResult>.Generated(sealedDefinition, authority));
+    }
+
+    private static byte[] HandlerChecksum<TInput, TResult>(BaseActivationDefinitionDraft definition,
+        BaseGeneratedActivationDtoAuthority<TInput, TResult> authority, BaseActivationHandlerDraft handler)
+    {
+        BaseApplicationId.Validate(handler.Id, nameof(handler)); BaseApplicationId.Validate(handler.FactoryId, nameof(handler));
+        if (handler.Version < 1 || !Enum.IsDefined(handler.WorkerSubjectKind)) throw new InvalidOperationException("base.activation.definitionInvalid");
+        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        AppendHandler(hash, "base.activation.handler.v2\0"); AppendHandler(hash, definition.Id); AppendHandler(hash, definition.Version);
+        AppendHandler(hash, definition.OwningModuleId); AppendHandler(hash, handler.Id); AppendHandler(hash, handler.Version);
+        AppendHandler(hash, handler.FactoryId); AppendHandler(hash, (int)handler.WorkerSubjectKind);
+        AppendHandler(hash, handler.SemanticAuthority.Id); AppendHandler(hash, handler.SemanticAuthority.Version);
+        AppendHandler(hash, handler.SemanticAuthority.Checksum.Span); AppendHandler(hash, authority.DtoAuthorityChecksum.Span);
+        AppendHandler(hash, definition.ReceiptRetention.FormatVersion);
+        AppendHandler(hash, definition.ReceiptRetention.DuplicateResolutionLifetime.Ticks);
+        AppendHandler(hash, (int)definition.ReceiptRetention.ProtectedBackupCoverage);
+        return hash.GetHashAndReset();
+    }
+
+    private static void AppendHandler(IncrementalHash hash, string value) => AppendHandler(hash, Encoding.UTF8.GetBytes(value));
+    private static void AppendHandler(IncrementalHash hash, int value)
+    { Span<byte> bytes = stackalloc byte[4]; System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(bytes, value); hash.AppendData(bytes); }
+    private static void AppendHandler(IncrementalHash hash, long value)
+    { Span<byte> bytes = stackalloc byte[8]; System.Buffers.Binary.BinaryPrimitives.WriteInt64BigEndian(bytes, value); hash.AppendData(bytes); }
+    private static void AppendHandler(IncrementalHash hash, ReadOnlySpan<byte> value)
+    { Span<byte> size = stackalloc byte[4]; System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(size, value.Length); hash.AppendData(size); hash.AppendData(value); }
+
     /// <summary>Computes canonical authority and returns one inert registration.</summary>
-    public static BaseActivationHandlerRegistration<TInput, TResult> Create<TInput, TResult>(
+    internal static BaseActivationHandlerRegistration<TInput, TResult> Create<TInput, TResult>(
         BaseActivationDefinition definition,
         JsonTypeInfo<TInput> input,
         JsonTypeInfo<TResult> result,
@@ -648,18 +1045,17 @@ public static class BaseActivationDefinitionBuilder
             InputDisclosureChecksum = DisclosureChecksum(inputBindings),
             ResultDisclosureChecksum = DisclosureChecksum(resultBindings),
         });
-        return new BaseActivationHandlerRegistration<TInput, TResult>
-        {
-            Definition = sealedDefinition,
-            Identity = new BaseActivationRegistrationIdentity<TInput, TResult>(
-                sealedDefinition.Id, sealedDefinition.Version, sealedDefinition.Checksum.ToArray(), input, result,
+        return new BaseActivationHandlerRegistration<TInput, TResult>(
+            sealedDefinition,
+            new BaseActivationRegistrationIdentity<TInput, TResult>(
+                sealedDefinition.Id, sealedDefinition.Version, sealedDefinition.Checksum.ToArray(),
+                sealedDefinition.ReceiptRetention, input, result,
                 inputBindings, resultBindings),
-            Factory = factory,
-        };
+            factory);
     }
 
     /// <summary>Computes canonical authority for one handler-free transactional activation.</summary>
-    public static BaseTransactionalActivationRegistration<TInput, TResult> CreateTransactional<TInput, TResult>(
+    internal static BaseTransactionalActivationRegistration<TInput, TResult> CreateTransactional<TInput, TResult>(
         BaseActivationDefinition definition,
         JsonTypeInfo<TInput> input,
         JsonTypeInfo<TResult> result,
@@ -676,13 +1072,12 @@ public static class BaseActivationDefinitionBuilder
             InputDisclosureChecksum = DisclosureChecksum(inputBindings),
             ResultDisclosureChecksum = DisclosureChecksum(resultBindings),
         });
-        return new BaseTransactionalActivationRegistration<TInput, TResult>
-        {
-            Definition = sealedDefinition,
-            Identity = new BaseActivationRegistrationIdentity<TInput, TResult>(
-                sealedDefinition.Id, sealedDefinition.Version, sealedDefinition.Checksum.ToArray(), input, result,
-                inputBindings, resultBindings),
-        };
+        return new BaseTransactionalActivationRegistration<TInput, TResult>(
+            sealedDefinition,
+            new BaseActivationRegistrationIdentity<TInput, TResult>(
+                sealedDefinition.Id, sealedDefinition.Version, sealedDefinition.Checksum.ToArray(),
+                sealedDefinition.ReceiptRetention, input, result,
+                inputBindings, resultBindings));
     }
 
     private static ImmutableArray<byte> DisclosureChecksum(IReadOnlyList<BaseModuleDtoPropertyBinding> bindings)
@@ -698,7 +1093,7 @@ public static class BaseActivationDefinitionBuilder
             Append(hash, binding.PropertyType?.AssemblyQualifiedName ?? string.Empty);
             Append(hash, (int)binding.Confidentiality);
             Append(hash, (int)binding.RecordDisclosure);
-            Append(hash, binding.Nullable ? 1 : 0);
+            Append(hash, binding.Nullability == BaseFieldNullability.Nullable ? 1 : 0);
         }
         return hash.GetHashAndReset().ToImmutableArray();
     }
@@ -774,8 +1169,7 @@ internal sealed class BaseInstalledTransactionalActivationRegistration<TInput, T
         BaseMutationRequestIdentity identity, BaseActivationEnqueueOptions? options,
         CancellationToken cancellationToken)
     {
-        TInput? input = System.Text.Json.JsonSerializer.Deserialize(canonicalInput.Span, registration.Identity.Input);
-        if (input is null) throw new System.Text.Json.JsonException();
+        TInput input = registration.Identity.DecodeInput(canonicalInput.Span, providerInfluenced: true);
         return runtime.EnqueueAsync(session, Definition, registration.Identity, input, identity, options, cancellationToken);
     }
 
@@ -784,9 +1178,8 @@ internal sealed class BaseInstalledTransactionalActivationRegistration<TInput, T
         ReadOnlyMemory<byte> canonicalResult, BaseMutationRequestIdentity identity,
         CancellationToken cancellationToken)
     {
-        TResult? result = System.Text.Json.JsonSerializer.Deserialize(canonicalResult.Span, registration.Identity.Result);
-        if (result is null) throw new System.Text.Json.JsonException();
-        byte[] bytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(result, registration.Identity.Result);
+        TResult result = registration.Identity.DecodeResult(canonicalResult.Span, providerInfluenced: true);
+        byte[] bytes = registration.Identity.CanonicalResult(result);
         return runtime.CompleteAsync(session, Definition, claim, bytes.ToImmutableArray(), identity, cancellationToken);
     }
 }
@@ -805,8 +1198,7 @@ internal sealed class BaseActivationRegistration<TInput, TResult>(
         BaseMutationRequestIdentity identity, BaseActivationEnqueueOptions? options,
         CancellationToken cancellationToken)
     {
-        TInput? input = System.Text.Json.JsonSerializer.Deserialize(canonicalInput.Span, registration.Identity.Input);
-        if (input is null) throw new System.Text.Json.JsonException();
+        TInput input = registration.Identity.DecodeInput(canonicalInput.Span, providerInfluenced: true);
         return runtime.EnqueueAsync(session, Definition, registration.Identity, input, identity, options, cancellationToken);
     }
     public ValueTask<OperationResult<BaseActivationTransitionResult>> CompleteAsync(
@@ -814,9 +1206,8 @@ internal sealed class BaseActivationRegistration<TInput, TResult>(
         ReadOnlyMemory<byte> canonicalResult, BaseMutationRequestIdentity identity,
         CancellationToken cancellationToken)
     {
-        TResult? result = System.Text.Json.JsonSerializer.Deserialize(canonicalResult.Span, registration.Identity.Result);
-        if (result is null) throw new System.Text.Json.JsonException();
-        byte[] bytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(result, registration.Identity.Result);
+        TResult result = registration.Identity.DecodeResult(canonicalResult.Span, providerInfluenced: true);
+        byte[] bytes = registration.Identity.CanonicalResult(result);
         return runtime.CompleteAsync(session, Definition, claim, bytes.ToImmutableArray(), identity, cancellationToken);
     }
     public ValueTask<OperationResult<BaseActivationDispatchResult>> RunOneAsync(
@@ -870,6 +1261,9 @@ internal static class BaseActivationContract
             OwningModuleId = new string(source.OwningModuleId.AsSpan()),
             InputTypeId = new string(source.InputTypeId.AsSpan()),
             ResultTypeId = new string(source.ResultTypeId.AsSpan()),
+            InputDtoAuthorityChecksum = source.InputDtoAuthorityChecksum.IsDefault ? [] : source.InputDtoAuthorityChecksum.ToArray().ToImmutableArray(),
+            ResultDtoAuthorityChecksum = source.ResultDtoAuthorityChecksum.IsDefault ? [] : source.ResultDtoAuthorityChecksum.ToArray().ToImmutableArray(),
+            DtoAuthorityChecksum = source.DtoAuthorityChecksum.IsDefault ? [] : source.DtoAuthorityChecksum.ToArray().ToImmutableArray(),
             InputDisclosureChecksum = source.InputDisclosureChecksum.ToArray().ToImmutableArray(),
             ResultDisclosureChecksum = source.ResultDisclosureChecksum.ToArray().ToImmutableArray(),
             Grants = CloneGrants(source.Grants),
@@ -879,8 +1273,14 @@ internal static class BaseActivationContract
                 RetryableFailureCodes = source.Retry.RetryableFailureCodes.Order(StringComparer.Ordinal)
                     .Select(static value => new string(value.AsSpan())).ToImmutableArray(),
             },
+            ReceiptRetention = source.ReceiptRetention with { },
             Limits = source.Limits with { Provider = source.Limits.Provider with { }, AtomicCreation = source.Limits.AtomicCreation with { Deadlines = source.Limits.AtomicCreation.Deadlines with { } } },
-            Handler = source.Handler is null ? null : source.Handler with { Checksum = source.Handler.Checksum.ToArray().ToImmutableArray() },
+            Handler = source.Handler is null ? null : source.Handler with
+            {
+                SemanticAuthorityId = new string(source.Handler.SemanticAuthorityId.AsSpan()),
+                SemanticAuthorityChecksum = source.Handler.SemanticAuthorityChecksum.IsDefault ? [] : source.Handler.SemanticAuthorityChecksum.ToArray().ToImmutableArray(),
+                Checksum = source.Handler.Checksum.ToArray().ToImmutableArray(),
+            },
             TransactionalTarget = source.TransactionalTarget switch
             {
                 BaseSelectionMutationActivationTarget value => value with
@@ -913,18 +1313,40 @@ internal static class BaseActivationContract
         BaseApplicationId.Validate(value.Id, nameof(value.Id));
         BaseApplicationId.Validate(value.OwningModuleId, nameof(value.OwningModuleId));
         ValidateGrants(value.Grants);
+        bool generated = !value.DtoAuthorityChecksum.IsDefaultOrEmpty;
         if (value.Version <= 0 || string.IsNullOrWhiteSpace(value.InputTypeId) || string.IsNullOrWhiteSpace(value.ResultTypeId)
             || value.InputDisclosureChecksum.Length != SHA256.HashSizeInBytes
-            || value.ResultDisclosureChecksum.Length != SHA256.HashSizeInBytes)
+            || value.ResultDisclosureChecksum.Length != SHA256.HashSizeInBytes
+            || generated && (value.InputDtoAuthorityChecksum.Length != SHA256.HashSizeInBytes
+                || value.ResultDtoAuthorityChecksum.Length != SHA256.HashSizeInBytes
+                || value.DtoAuthorityChecksum.Length != SHA256.HashSizeInBytes)
+            || !generated && (!value.InputDtoAuthorityChecksum.IsDefaultOrEmpty || !value.ResultDtoAuthorityChecksum.IsDefaultOrEmpty))
             throw new InvalidOperationException("base.activation.definitionInvalid");
         if (value.ExecutionClass == BaseActivationExecutionClass.TransactionalOperation
             ? value.TransactionalTarget is null || value.Handler is not null
             : value.TransactionalTarget is not null || value.Handler is null)
             throw new InvalidOperationException("base.activation.definitionInvalid");
+        if (generated && value.Handler is { } generatedHandler)
+        {
+            BaseApplicationId.Validate(generatedHandler.SemanticAuthorityId, nameof(value.Handler));
+            if (generatedHandler.SemanticAuthorityVersion < 1
+                || generatedHandler.SemanticAuthorityChecksum.Length != SHA256.HashSizeInBytes
+                || generatedHandler.Checksum.Length != SHA256.HashSizeInBytes
+                || generatedHandler.InputTypeId != value.InputTypeId || generatedHandler.ResultTypeId != value.ResultTypeId)
+                throw new InvalidOperationException("base.activation.definitionInvalid");
+        }
         ValidateTarget(value.TransactionalTarget);
-        if (value.Retry.MaximumAttempts is < 1 or > 1024 || value.Limits.MaximumAttempts != value.Retry.MaximumAttempts ||
+        long receiptLifetimeTicks = value.ReceiptRetention.DuplicateResolutionLifetime.Ticks;
+        if (value.ReceiptRetention.FormatVersion != 1
+            || !Enum.IsDefined(value.ReceiptRetention.ProtectedBackupCoverage)
+            || receiptLifetimeTicks % TimeSpan.TicksPerMillisecond != 0
+            || value.ReceiptRetention.DuplicateResolutionLifetime < TimeSpan.FromHours(1)
+            || value.ReceiptRetention.DuplicateResolutionLifetime > TimeSpan.FromDays(90)
+            || value.Retry.MaximumAttempts is < 1 or > 1024 || value.Limits.MaximumAttempts != value.Retry.MaximumAttempts ||
             value.Limits.MaximumInputBytes is < 1 or > 4L * 1024 * 1024 || value.Limits.MaximumResultBytes is < 1 or > 4L * 1024 * 1024 ||
-            value.Limits.MaximumRenewalsPerAttempt is < 1 or > 4096 || value.Limits.MaximumChildrenPerAttempt is < 1 or > 4096 ||
+            value.Limits.MaximumYields is < 0 or > 1_000_000 ||
+            value.ExecutionClass != BaseActivationExecutionClass.AtLeastOnceWorker && value.Limits.MaximumYields != 0 ||
+            value.Limits.MaximumRenewalsPerSlice is < 1 or > 4096 || value.Limits.MaximumChildrenPerSlice is < 1 or > 4096 ||
             value.Limits.HandlerTimeout <= TimeSpan.Zero || value.Limits.HandlerTimeout > TimeSpan.FromHours(24) ||
             value.Retry.InitialDelayMilliseconds < 0 || value.Retry.MaximumDelayMilliseconds < value.Retry.InitialDelayMilliseconds ||
             value.Retry.MultiplierNumerator <= 0 || value.Retry.MultiplierDenominator <= 0 || value.Retry.JitterBasisPoints is < 0 or > 10_000)
@@ -934,22 +1356,43 @@ internal static class BaseActivationContract
     private static byte[] ComputeChecksum(BaseActivationDefinition value)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        Append(hash, "base.activation.definition.v2\0"); Append(hash, value.Id); Append(hash, value.Version);
+        bool generated = !value.DtoAuthorityChecksum.IsDefaultOrEmpty;
+        Append(hash, generated ? "base.activation.definition.v3\0" : "base.activation.definition.v2\0"); Append(hash, value.Id); Append(hash, value.Version);
         Append(hash, value.OwningModuleId); Append(hash, (int)value.ExecutionClass); Append(hash, value.InputTypeId); Append(hash, value.ResultTypeId);
+        if (generated)
+        {
+            Append(hash, value.InputDtoAuthorityChecksum.AsSpan()); Append(hash, value.ResultDtoAuthorityChecksum.AsSpan());
+            Append(hash, value.DtoAuthorityChecksum.AsSpan());
+        }
         Append(hash, value.InputDisclosureChecksum.AsSpan()); Append(hash, value.ResultDisclosureChecksum.AsSpan());
         Append(hash, value.Grants.Enqueue); Append(hash, value.Grants.Observe); Append(hash, value.Grants.Claim);
         Append(hash, value.Grants.Execute); Append(hash, value.Grants.Renew); Append(hash, value.Grants.Complete);
-        Append(hash, value.Grants.Fail); Append(hash, value.Grants.Cancel); Append(hash, value.Grants.Inspect);
+        Append(hash, value.Grants.Fail); Append(hash, value.Grants.Yield); Append(hash, value.Grants.Cancel); Append(hash, value.Grants.Inspect);
         Append(hash, value.Grants.Replay); Append(hash, value.Grants.Migrate); Append(hash, value.Grants.Reconcile); Append(hash, value.Grants.Retry);
         Append(hash, value.Grants.Dispose); Append(hash, value.Grants.Remove); Append(hash, value.Grants.Repair);
         foreach (string grant in value.SourceGrantIds) Append(hash, grant);
         Append(hash, value.Retry.MaximumAttempts); Append(hash, value.Retry.InitialDelayMilliseconds); Append(hash, value.Retry.MaximumDelayMilliseconds);
         Append(hash, value.Retry.MultiplierNumerator); Append(hash, value.Retry.MultiplierDenominator); Append(hash, value.Retry.JitterBasisPoints);
         foreach (string code in value.Retry.RetryableFailureCodes) Append(hash, code);
+        Append(hash, value.ReceiptRetention.FormatVersion);
+        Append(hash, value.ReceiptRetention.DuplicateResolutionLifetime.Ticks);
+        Append(hash, (int)value.ReceiptRetention.ProtectedBackupCoverage);
         Append(hash, value.Limits.MaximumInputBytes); Append(hash, value.Limits.MaximumResultBytes); Append(hash, value.Limits.MaximumAttempts);
-        Append(hash, value.Limits.MaximumRenewalsPerAttempt); Append(hash, value.Limits.MaximumChildrenPerAttempt); Append(hash, value.Limits.MaximumLineageDepth);
+        Append(hash, value.Limits.MaximumYields);
+        Append(hash, value.Limits.MaximumRenewalsPerSlice); Append(hash, value.Limits.MaximumChildrenPerSlice); Append(hash, value.Limits.MaximumLineageDepth);
         Append(hash, value.Limits.LeaseDuration.Ticks); Append(hash, value.Limits.HandlerTimeout.Ticks);
-        if (value.Handler is not null) { Append(hash, value.Handler.Id); Append(hash, value.Handler.Version); Append(hash, value.Handler.FactoryId); Append(hash, value.Handler.Checksum.AsSpan()); }
+        if (generated) { AppendProviderLimits(hash, value.Limits.Provider); AppendAtomicLimits(hash, value.Limits.AtomicCreation); }
+        if (value.Handler is not null)
+        {
+            Append(hash, value.Handler.Id); Append(hash, value.Handler.Version); Append(hash, value.Handler.FactoryId);
+            if (generated)
+            {
+                Append(hash, value.Handler.InputTypeId); Append(hash, value.Handler.ResultTypeId); Append(hash, (int)value.Handler.WorkerSubjectKind);
+                Append(hash, value.Handler.SemanticAuthorityId); Append(hash, value.Handler.SemanticAuthorityVersion);
+                Append(hash, value.Handler.SemanticAuthorityChecksum.AsSpan());
+            }
+            Append(hash, value.Handler.Checksum.AsSpan());
+        }
         switch (value.TransactionalTarget)
         {
             case BaseSelectionMutationActivationTarget selection:
@@ -959,6 +1402,43 @@ internal static class BaseActivationContract
             default: Append(hash, 0); break;
         }
         return hash.GetHashAndReset();
+    }
+
+    private static void AppendProviderLimits(IncrementalHash hash, BaseActivationExecutionLimits value)
+    {
+        Append(hash, value.MaximumCandidates); Append(hash, value.MaximumInputBytes); Append(hash, value.MaximumResultBytes);
+        Append(hash, value.MaximumEvidenceBytes); Append(hash, value.MaximumTransientBytes); Append(hash, value.MaximumReadIntervals);
+        Append(hash, value.MaximumIndexOperations); Append(hash, value.AcquisitionTimeout.Ticks); Append(hash, value.TransactionTimeout.Ticks);
+        Append(hash, value.CommitObservationTimeout.Ticks); Append(hash, value.ReceiptResolutionTimeout.Ticks);
+    }
+
+    private static void AppendAtomicLimits(IncrementalHash hash, BaseAtomicMutationExecutionLimits value)
+    {
+        Append(hash, value.Schema is null ? 0 : 1);
+        if (value.Schema is { } schema)
+        {
+            Append(hash, schema.MaximumRecords); Append(hash, schema.MaximumCanonicalBytes); Append(hash, schema.MaximumJsonNodes);
+            Append(hash, schema.MaximumConstraintEvaluations); Append(hash, schema.MaximumPredicateEvaluations); Append(hash, schema.MaximumKeys);
+            Append(hash, schema.MaximumKeyBytes); Append(hash, schema.MaximumUniqueCandidates); Append(hash, schema.MaximumUniqueChecks);
+            Append(hash, schema.MaximumIntervals); Append(hash, schema.MaximumIntervalBytes); Append(hash, schema.MaximumEvidenceBytes);
+            Append(hash, schema.MaximumTransientBytes);
+        }
+        Append(hash, value.MaximumItems); Append(hash, value.MaximumQueryNodes); Append(hash, value.MaximumQueryDepth);
+        Append(hash, value.MaximumLiteralValues); Append(hash, value.MaximumSelectedRecords); Append(hash, value.MaximumProducedMutations);
+        Append(hash, value.MaximumQueryExecutions); Append(hash, value.MaximumPreviousStateRequirements); Append(hash, value.MaximumRecordCaptures);
+        Append(hash, value.MaximumRelationTargetCaptures); Append(hash, value.MaximumGenerationReads); Append(hash, value.MaximumGenerationComparisons);
+        Append(hash, value.MaximumGenerationIncrements); Append(hash, value.MaximumGuardNodes); Append(hash, value.MaximumGuardDepth);
+        Append(hash, value.MaximumStatements); Append(hash, value.MaximumBranches); Append(hash, value.MaximumExpressionNodes);
+        Append(hash, value.MaximumSelectedBytes); Append(hash, value.MaximumEvidenceBytes); Append(hash, value.MaximumTransientBytes);
+        Append(hash, value.MaximumReadIntervals); Append(hash, value.MaximumSubjectValidations); Append(hash, value.MaximumAuthorityReads);
+        Append(hash, value.MaximumRelationChecks); Append(hash, value.MaximumUniqueConstraintChecks); Append(hash, value.MaximumRetirementProjections);
+        Append(hash, value.MaximumRetirementBarrierReads); Append(hash, value.MaximumRetirementAcknowledgementReads);
+        Append(hash, value.MaximumRetirementPublications); Append(hash, value.MaximumRequestBytes); Append(hash, value.MaximumGenerationBytes);
+        Append(hash, value.MaximumWrittenBytes); Append(hash, value.MaximumFactBytes); Append(hash, value.MaximumJournalBytes);
+        Append(hash, value.MaximumReceiptBytes); Append(hash, value.MaximumResultBytes); Append(hash, value.MaximumRetirementEvidenceBytes);
+        Append(hash, value.MaximumRetirementPublicationBytes); Append(hash, value.Deadlines.AcquisitionTimeout.Ticks);
+        Append(hash, value.Deadlines.TransactionTimeout.Ticks); Append(hash, value.Deadlines.CommitObservationTimeout.Ticks);
+        Append(hash, value.Deadlines.ReceiptResolutionTimeout.Ticks);
     }
 
     private static void ValidateTarget(BaseTransactionalActivationTarget? target)
@@ -993,7 +1473,7 @@ internal static class BaseActivationContract
             Enqueue = new string(value.Enqueue.AsSpan()), Observe = new string(value.Observe.AsSpan()),
             Claim = new string(value.Claim.AsSpan()), Execute = new string(value.Execute.AsSpan()),
             Renew = new string(value.Renew.AsSpan()), Complete = new string(value.Complete.AsSpan()),
-            Fail = new string(value.Fail.AsSpan()), Cancel = new string(value.Cancel.AsSpan()),
+            Fail = new string(value.Fail.AsSpan()), Yield = new string(value.Yield.AsSpan()), Cancel = new string(value.Cancel.AsSpan()),
             Inspect = new string(value.Inspect.AsSpan()), Replay = new string(value.Replay.AsSpan()),
             Migrate = new string(value.Migrate.AsSpan()), Reconcile = new string(value.Reconcile.AsSpan()),
             Retry = new string(value.Retry.AsSpan()),
@@ -1008,7 +1488,7 @@ internal static class BaseActivationContract
         BaseApplicationId.Validate(value.Enqueue, nameof(value.Enqueue)); BaseApplicationId.Validate(value.Observe, nameof(value.Observe));
         BaseApplicationId.Validate(value.Claim, nameof(value.Claim)); BaseApplicationId.Validate(value.Execute, nameof(value.Execute));
         BaseApplicationId.Validate(value.Renew, nameof(value.Renew)); BaseApplicationId.Validate(value.Complete, nameof(value.Complete));
-        BaseApplicationId.Validate(value.Fail, nameof(value.Fail)); BaseApplicationId.Validate(value.Cancel, nameof(value.Cancel));
+        BaseApplicationId.Validate(value.Fail, nameof(value.Fail)); BaseApplicationId.Validate(value.Yield, nameof(value.Yield)); BaseApplicationId.Validate(value.Cancel, nameof(value.Cancel));
         BaseApplicationId.Validate(value.Inspect, nameof(value.Inspect)); BaseApplicationId.Validate(value.Replay, nameof(value.Replay));
         BaseApplicationId.Validate(value.Migrate, nameof(value.Migrate)); BaseApplicationId.Validate(value.Reconcile, nameof(value.Reconcile));
         BaseApplicationId.Validate(value.Retry, nameof(value.Retry));

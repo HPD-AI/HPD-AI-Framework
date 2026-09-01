@@ -6,6 +6,7 @@ using System.Collections.Generic;
 namespace HPD.Agent.Providers.Perplexity;
 
 [HpdProvider("perplexity", "Perplexity")]
+[HpdProviderBackend("platform", ProviderAuthenticationKind.ApiKey, IsDefaultBackend = true, IsDefaultAuthentication = true, DefaultSecretKey = "perplexity:ApiKey")]
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(PerplexityProviderConfig), typeof(PerplexityJsonContext))]
 [HpdProviderSecretAlias("perplexity:ApiKey", "PERPLEXITY_API_KEY")]
@@ -53,6 +54,7 @@ internal sealed class PerplexityProvider : OpenAICompatibleChatProviderBase<Perp
     };
 
     protected override OpenAICompatibleProviderDefinition Definition => ProviderDefinition;
+    protected override System.Text.Json.Serialization.Metadata.JsonTypeInfo<PerplexityProviderConfig> ConfigurationTypeInfo => PerplexityJsonContext.Default.PerplexityProviderConfig;
 
     public override IProviderErrorHandler CreateErrorHandler()
         => new OpenAICompatibleErrorHandler(DisplayName);

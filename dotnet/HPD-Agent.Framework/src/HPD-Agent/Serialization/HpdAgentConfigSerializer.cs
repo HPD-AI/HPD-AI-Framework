@@ -89,11 +89,15 @@ public static class HpdAgentConfigSerializer
 
     private static void EnsureProviderCompositionNotRequired(AgentConfig config)
     {
+        ValidatePortableClients("clients", config.Clients);
         EnsureProviderCompositionNotRequired("clients", config.Clients.GetFamilyConfig);
-        foreach (var profile in config.ProviderProfiles)
+        for (var index = 0; index < config.ProviderProfiles.Count; index++)
+        {
+            ValidatePortableClients($"providerProfiles[{index}].clients", config.ProviderProfiles[index].Clients);
             EnsureProviderCompositionNotRequired(
-                $"providerProfiles.{profile.Key}",
-                profile.Value.GetFamilyConfig);
+                $"providerProfiles[{index}].clients",
+                config.ProviderProfiles[index].Clients.GetFamilyConfig);
+        }
     }
 
     private static void EnsureProviderCompositionNotRequired(
@@ -142,15 +146,16 @@ public static class HpdAgentConfigSerializer
 
         foreach (var payload in payloads)
         {
-            var target = payload.ProfileName is null
+            var target = payload.ProfileIndex is null
                 ? config.Clients.GetFamilyConfig(payload.Family)
-                : config.ProviderProfiles.TryGetValue(payload.ProfileName, out var profile)
-                    ? profile.GetFamilyConfig(payload.Family)
+                : payload.ProfileIndex.Value >= 0 && payload.ProfileIndex.Value < config.ProviderProfiles.Count
+                    ? config.ProviderProfiles[payload.ProfileIndex.Value].Clients.GetFamilyConfig(payload.Family)
                     : null;
             if (target is null)
                 continue;
 
-            var providerKey = ResolvePayloadProviderKey(providerComposition, payload, target.ProviderKey);
+            var providerKey = ResolvePayloadProviderKey(
+                providerComposition, payload, target.Provider?.Key);
             if (payload.Configuration is not null)
             {
                 target.ProviderConfig = (IProviderConfig)BindPayload(
@@ -198,7 +203,7 @@ public static class HpdAgentConfigSerializer
 
         var payloads = new List<ExtractedPayload>();
         if (GetObject(root, "clients") is { } clients)
-            ExtractFamilies(clients, null, "clients", payloads);
+            ExtractFamilies(clients, null, null, "clients", payloads);
 
         var config = JsonSerializer.Deserialize(root.ToJsonString(), HPDJsonContext.Default.AgentRunConfig);
         if (config is null)
@@ -216,24 +221,27 @@ public static class HpdAgentConfigSerializer
     {
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(providerComposition);
+        ValidatePortableClients("clients", config.Clients);
+        for (var index = 0; index < config.ProviderProfiles.Count; index++)
+            ValidatePortableClients($"providerProfiles[{index}].clients", config.ProviderProfiles[index].Clients);
         var root = JsonSerializer.SerializeToNode(config, HPDJsonContext.Default.AgentConfig) as JsonObject
             ?? throw new JsonException("Agent configuration did not serialize to a JSON object.");
 
         NormalizeProviderProfiles(root, providerComposition);
         if (GetObject(root, "clients") is { } clients)
             InjectFamilies(clients, config.Clients, providerComposition, "clients");
-        if (GetObject(root, "providerProfiles") is { } profiles)
+        if (GetArray(root, "providerProfiles") is { } profiles)
         {
-            foreach (var pair in config.ProviderProfiles)
+            for (var index = 0; index < config.ProviderProfiles.Count; index++)
             {
-                var canonicalProfileKey = providerComposition.Descriptors.Canonicalize(pair.Key);
-                if (GetObject(profiles, canonicalProfileKey) is { } profileNode)
+                var profile = config.ProviderProfiles[index];
+                if (profiles[index] is JsonObject profileNode && GetObject(profileNode, "clients") is { } clientsNode)
                     InjectProfile(
-                        profileNode,
-                        canonicalProfileKey,
-                        pair.Value,
+                        clientsNode,
+                        profile.ProviderKey,
+                        profile,
                         providerComposition,
-                        $"providerProfiles.{canonicalProfileKey}");
+                        $"providerProfiles[{index}].clients");
             }
         }
 
@@ -260,6 +268,7 @@ public static class HpdAgentConfigSerializer
     {
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(providerComposition);
+        ValidatePortableClients("clients", config.Clients);
         var root = JsonSerializer.SerializeToNode(config, HPDJsonContext.Default.AgentRunConfig) as JsonObject
             ?? throw new JsonException("Agent run configuration did not serialize to a JSON object.");
 
@@ -274,6 +283,40 @@ public static class HpdAgentConfigSerializer
         HpdConfigFormat.Yaml => HpdConfigSerializer.ParseYamlToJsonNode(text) as JsonObject,
         _ => throw new ArgumentOutOfRangeException(nameof(format), format, null)
     };
+
+    private static void ValidatePortableClients(string path, AgentClientsConfig clients)
+    {
+        ArgumentNullException.ThrowIfNull(clients);
+        foreach (var (_, family) in FamilyNames)
+        {
+            var config = clients.GetFamilyConfig(family);
+            if (config is null)
+                continue;
+            if (config.Provider?.Authentication is ExplicitApiKeyProviderAuthentication)
+                ThrowRuntimeOnly($"{path}.{family}.provider.authentication", "explicit literal credential registration");
+            var hasOverride = config switch
+            {
+                ChatClientConfig value => value.Override is not null,
+                RealtimeClientConfig value => value.Override is not null,
+                ImageGenerationClientConfig value => value.Override is not null,
+                EmbeddingsClientConfig value => value.Override is not null,
+                TextToSpeechClientConfig value => value.Override is not null,
+                SpeechToTextClientConfig value => value.Override is not null,
+                HostedFilesClientConfig value => value.Override is not null,
+                _ => false
+            };
+            if (hasOverride)
+                ThrowRuntimeOnly($"{path}.{family}.override", "client override");
+            if (config is ChatClientConfig { RuntimeResponseFormat: not null })
+                ThrowRuntimeOnly($"{path}.{family}.responseFormat", "runtime response format");
+        }
+    }
+
+    private static void ThrowRuntimeOnly(string path, string kind) =>
+        throw new AgentRunConfigurationException(
+            "RuntimeOnlyProviderConfiguration",
+            path,
+            $"The {kind} at '{path}' is process-local and cannot be serialized.");
 
     private static string WriteObject(JsonObject root, HpdConfigFormat format) => format switch
     {
@@ -292,7 +335,7 @@ public static class HpdAgentConfigSerializer
             var target = clients.GetFamilyConfig(payload.Family);
             if (target is null)
                 continue;
-            var providerKey = payload.ProviderKey ?? target.ProviderKey;
+            var providerKey = payload.ProviderKey ?? target.Provider?.Key;
             if (payload.Configuration is not null)
                 target.ProviderConfig = (IProviderConfig)BindPayload(
                     composition, providerKey, payload.Family, ProviderPayloadKind.Configuration,
@@ -307,12 +350,12 @@ public static class HpdAgentConfigSerializer
     private static void InjectProfile(
         JsonObject owner,
         string profileName,
-        AgentProviderProfile profile,
+        AgentProviderBackendProfile profile,
         ProviderComposition composition,
         string path)
     {
         foreach (var (name, family) in FamilyNames)
-            InjectFamily(owner, name, family, profile.GetFamilyConfig(family), composition, path, profileName);
+            InjectFamily(owner, name, family, profile.Clients.GetFamilyConfig(family), composition, path, profileName);
     }
 
     private static void InjectFamilies(
@@ -339,10 +382,8 @@ public static class HpdAgentConfigSerializer
         var providerKey = ResolveProfileProviderKey(
             composition,
             profileName,
-            config.ProviderKey,
+            config.Provider?.Key,
             $"{path}.{name}.providerKey");
-        if (profileName is not null)
-            Remove(familyNode, "providerKey");
         if (config.ProviderConfig is not null)
             familyNode["providerConfig"] = SerializePayload(
                 composition,
@@ -368,7 +409,7 @@ public static class HpdAgentConfigSerializer
         string? targetProviderKey)
         => ResolveProfileProviderKey(
             composition,
-            payload.ProfileName,
+            payload.ProfileProviderKey,
             payload.ProviderKey ?? targetProviderKey,
             payload.Path + ".providerKey");
 
@@ -493,12 +534,19 @@ public static class HpdAgentConfigSerializer
     {
         var result = new List<ExtractedPayload>();
         if (GetObject(root, "clients") is { } clients)
-            ExtractFamilies(clients, null, "clients", result);
-        if (GetObject(root, "providerProfiles") is { } profiles)
+            ExtractFamilies(clients, null, null, "clients", result);
+        if (GetArray(root, "providerProfiles") is { } profiles)
         {
-            foreach (var pair in profiles)
-                if (pair.Value is JsonObject profile)
-                    ExtractFamilies(profile, pair.Key, $"providerProfiles.{pair.Key}", result);
+            for (var index = 0; index < profiles.Count; index++)
+                if (profiles[index] is JsonObject profile && GetObject(profile, "clients") is { } profileClients)
+                    ExtractFamilies(
+                        profileClients,
+                        index,
+                        GetString(profile, "providerKey") ?? throw new AgentRunConfigurationException(
+                            "ProviderKeyRequired", $"providerProfiles[{index}].providerKey",
+                            "Every provider profile requires an explicit providerKey."),
+                        $"providerProfiles[{index}].clients",
+                        result);
         }
         return result;
     }
@@ -507,30 +555,37 @@ public static class HpdAgentConfigSerializer
         JsonObject root,
         ProviderComposition composition)
     {
-        if (Remove(root, "providerProfiles") is not JsonObject profiles)
+        if (GetArray(root, "providerProfiles") is not { } profiles)
             return;
 
-        var normalized = new JsonObject();
-        foreach (var pair in profiles.ToArray())
+        var identities = new HashSet<(string Provider, string Backend)>();
+        for (var index = 0; index < profiles.Count; index++)
         {
-            var canonical = composition.Descriptors.Canonicalize(pair.Key);
-            if (normalized.ContainsKey(canonical))
+            if (profiles[index] is not JsonObject profile)
+                continue;
+            var providerKey = GetString(profile, "providerKey")
+                ?? throw new AgentRunConfigurationException(
+                    "ProviderKeyRequired", $"providerProfiles[{index}].providerKey",
+                    "Every provider profile requires an explicit providerKey.");
+            var backendKey = GetString(profile, "backendKey")
+                ?? throw new AgentRunConfigurationException(
+                    "BackendKeyRequired", $"providerProfiles[{index}].backendKey",
+                    "Every provider profile requires an explicit backendKey.");
+            var canonical = composition.Descriptors.Canonicalize(providerKey);
+            if (!identities.Add((canonical, backendKey)))
                 throw new AgentRunConfigurationException(
                     "DuplicateProviderProfile",
-                    $"providerProfiles.{pair.Key}",
-                    $"Provider profile '{pair.Key}' resolves to canonical provider '{canonical}', which is already configured.",
+                    $"providerProfiles[{index}]",
+                    $"Provider/backend profile '{canonical}/{backendKey}' is already configured.",
                     canonical);
-
-            profiles.Remove(pair.Key);
-            normalized[canonical] = pair.Value;
+            profile["providerKey"] = canonical;
         }
-
-        root["providerProfiles"] = normalized;
     }
 
     private static void ExtractFamilies(
         JsonObject owner,
-        string? profileName,
+        int? profileIndex,
+        string? profileProviderKey,
         string path,
         List<ExtractedPayload> result)
     {
@@ -543,9 +598,12 @@ public static class HpdAgentConfigSerializer
             if (config is null && options is null)
                 continue;
             result.Add(new ExtractedPayload(
-                profileName,
+                profileIndex,
+                profileProviderKey,
                 family,
-                GetString(familyObject, "providerKey"),
+                GetObject(familyObject, "provider") is { } provider
+                    ? GetString(provider, "key")
+                    : null,
                 config,
                 options,
                 $"{path}.{name}"));
@@ -554,6 +612,9 @@ public static class HpdAgentConfigSerializer
 
     private static JsonObject? GetObject(JsonObject owner, string name)
         => owner.FirstOrDefault(pair => pair.Key.Equals(name, StringComparison.OrdinalIgnoreCase)).Value as JsonObject;
+
+    private static JsonArray? GetArray(JsonObject owner, string name)
+        => owner.FirstOrDefault(pair => pair.Key.Equals(name, StringComparison.OrdinalIgnoreCase)).Value as JsonArray;
 
     private static string? GetString(JsonObject owner, string name)
     {
@@ -581,11 +642,13 @@ public static class HpdAgentConfigSerializer
         ("textToSpeech", ProviderClientFamily.TextToSpeech),
         ("speechToText", ProviderClientFamily.SpeechToText),
         ("hostedFiles", ProviderClientFamily.HostedFiles),
-        ("voiceActivity", ProviderClientFamily.VoiceActivityDetection)
+        ("voiceActivity", ProviderClientFamily.VoiceActivityDetection),
+        ("endOfTurn", ProviderClientFamily.EndOfTurnDetection)
     ];
 
     private sealed record ExtractedPayload(
-        string? ProfileName,
+        int? ProfileIndex,
+        string? ProfileProviderKey,
         ProviderClientFamily Family,
         string? ProviderKey,
         JsonNode? Configuration,

@@ -30,7 +30,8 @@ public sealed class RunEvalsTests
         {
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig
             {
-                ProviderKey = "openai",
+                Provider = TestProviderSelections.Anonymous("openai"),
+                Override = ClientOverride<IChatClient>.Borrow(agent.Client),
                 ModelName = "gpt-test"
             } },
             Context = new AgentContextRunConfig
@@ -48,7 +49,7 @@ public sealed class RunEvalsTests
 
         agent.Configs.Should().ContainSingle();
         agent.Configs[0].Should().NotBeSameAs(baseConfig);
-        agent.Configs[0].Clients.Chat!.ProviderKey.Should().Be("openai");
+        agent.Configs[0].Clients.Chat!.Provider!.Key.Should().Be("openai");
         agent.Configs[0].Clients.Chat.ModelName.Should().Be("gpt-test");
         agent.Configs[0].Evaluations.Should().BeOfType<EvaluationRunConfig>();
         agent.Configs[0].Context!.Properties.Should().ContainKey("tenant");
@@ -136,7 +137,8 @@ public sealed class RunEvalsTests
                 {
                     Clients = new AgentClientsConfig { Chat = new ChatClientConfig
                     {
-                        ProviderKey = "openai",
+                        Provider = TestProviderSelections.Anonymous("openai"),
+                        Override = ClientOverride<IChatClient>.Borrow(agent.Client),
                         ModelName = "gpt-test"
                     } }
                 },
@@ -289,7 +291,8 @@ public sealed class RunEvalsTests
                 {
                     Clients = new AgentClientsConfig { Chat = new ChatClientConfig
                     {
-                        ProviderKey = "openai",
+                        Provider = TestProviderSelections.Anonymous("openai"),
+                        Override = ClientOverride<IChatClient>.Borrow(agent.Client),
                         ModelName = "gpt-test"
                     } }
                 },
@@ -498,7 +501,7 @@ public sealed class RunEvalsTests
             [new AspectCriticEvaluator("passes")],
             new RunEvalsOptions<string>
             {
-                JudgeConfig = new EvaluationJudgeRunConfig { Chat = new ChatClientConfig { Override = new ClientOverride<IChatClient> { Client = overrideJudge } } },
+                JudgeConfig = new EvaluationJudgeRunConfig { Chat = new ChatClientConfig { Override = ClientOverride<IChatClient>.Borrow(overrideJudge) } },
             },
             experimentName: "override-chat-client");
 
@@ -524,7 +527,7 @@ public sealed class RunEvalsTests
             {
                 PersistResults = true,
                 ScoreStore = store,
-                JudgeConfig = new EvaluationJudgeRunConfig { Chat = new ChatClientConfig { Override = new ClientOverride<IChatClient> { Client = judge } } },
+                JudgeConfig = new EvaluationJudgeRunConfig { Chat = new ChatClientConfig { Override = ClientOverride<IChatClient>.Borrow(judge) } },
             },
             experimentName: "judge-trace");
 
@@ -565,7 +568,7 @@ public sealed class RunEvalsTests
             {
                 PersistResults = true,
                 ScoreStore = store,
-                JudgeConfig = new EvaluationJudgeRunConfig { Chat = new ChatClientConfig { Override = new ClientOverride<IChatClient> { Client = judge } } },
+                JudgeConfig = new EvaluationJudgeRunConfig { Chat = new ChatClientConfig { Override = ClientOverride<IChatClient>.Borrow(judge) } },
             },
             experimentName: "judge-trace-failure");
 
@@ -709,6 +712,7 @@ public sealed class RunEvalsTests
         public const string ResponseModelId = "provider-reported-gpt-test";
 
         public List<AgentRunConfig> Configs { get; } = [];
+        public IChatClient Client => _chatClient;
         public int Attempts => _chatClient.Attempts;
         public int FailuresBeforeSuccess { get; init; }
         public Func<Exception>? FailureFactory { get; init; }
@@ -734,7 +738,7 @@ public sealed class RunEvalsTests
                 {
                     Name = nameof(CapturingAgent),
                     Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
-                        ProviderKey = "openai",
+                        Provider = TestProviderSelections.Anonymous("openai"),
                         ModelName = "gpt-test",
                     } },
                 },
@@ -822,7 +826,7 @@ public sealed class RunEvalsTests
                 new CapturingChatClientProvider(providerKey, client);
 
             public TProvider? GetProvider<TProvider>(string providerKey)
-                where TProvider : class, IProvider
+                where TProvider : class
                 => GetProvider(providerKey) as TProvider;
 
             public IReadOnlyCollection<string> GetRegisteredProviders() => ["openai", "test"];
@@ -831,11 +835,13 @@ public sealed class RunEvalsTests
             public void Clear() { }
         }
 
-        private sealed class CapturingChatClientProvider(string providerKey, IChatClient client) : IChatClientProvider
+        private sealed class CapturingChatClientProvider(string providerKey, IChatClient client) : IProvider, IProviderClientFactory<IChatClient>
         {
             public string ProviderKey => providerKey;
             public string DisplayName => providerKey;
-            public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default) => client;
+            public ProviderClientCredentialBinding ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor) => ProviderClientCredentialBinding.RequestTime;
+            public ValueTask<ProviderClientConstruction<IChatClient>> CreateAsync(ProviderClientConstructionContext context, CancellationToken cancellationToken = default) =>
+                ValueTask.FromResult(new ProviderClientConstruction<IChatClient> { Client = client, Owner = ProviderClientConstructionUtilities.Own() });
             public HPD.Agent.ErrorHandling.IProviderErrorHandler CreateErrorHandler() => new StubErrorHandler();
             public ProviderMetadata GetMetadata() => new()
             {
@@ -854,7 +860,7 @@ public sealed class RunEvalsTests
                     }
                 },
             };
-            public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
+            public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
                 => ProviderValidationResult.Success();
         }
     }

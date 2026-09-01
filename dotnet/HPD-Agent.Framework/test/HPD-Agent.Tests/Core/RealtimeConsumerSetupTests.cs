@@ -23,7 +23,7 @@ public sealed class RealtimeConsumerSetupTests
                     ResponseId = "resp-consumer"
                 }
             ]);
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var agent = await AgentBuilder
             .Create()
             .WithSessionStore(store)
@@ -54,10 +54,8 @@ public sealed class RealtimeConsumerSetupTests
                             Transport = AgentModelTransportMode.Realtime,
                             Realtime = new RealtimeClientConfig
                             {
-                                Override = new ClientOverride<IRealtimeClient>
-                                {
-                                    Client = new ConsumerRealtimeClient(realtimeSession)
-                                }
+                                Override = ClientOverride<IRealtimeClient>.Borrow(
+                                    new ConsumerRealtimeClient(realtimeSession))
                             }
                         }
                     }
@@ -65,7 +63,7 @@ public sealed class RealtimeConsumerSetupTests
         }
         finally
         {
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         Assert.NotNull(realtimeSession.Options?.InputAudioFormat);

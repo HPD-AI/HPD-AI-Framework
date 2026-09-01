@@ -100,6 +100,85 @@ public sealed record BaseSubjectTombstoneRequest<TSubject>
     public required BaseMutationRequestIdentity Identity { get; init; }
 }
 
+/// <summary>Returns exact durable evidence for one exported-subject tombstone transition.</summary>
+public sealed record BaseSubjectTombstoneResult<TSubject>
+{
+    /// <summary>Gets the exact sanitized lifecycle transition fact.</summary>
+    public required BaseSubjectLifecycleFact<TSubject> Fact { get; init; }
+    /// <summary>Gets the private record revision committed by the tombstone patch.</summary>
+    public required RevisionToken PrivateRevision { get; init; }
+    /// <summary>Gets the exact accepted canonical UTC tombstone instant.</summary>
+    public required DateTimeOffset TombstonedAt { get; init; }
+    /// <summary>Gets whether the result came from the original durable receipt.</summary>
+    public required bool Duplicate { get; init; }
+}
+
+/// <summary>Proves one provider's exact lowering of installed tombstone metadata authority.</summary>
+public sealed record BaseSubjectTombstoneMetadataLoweringReceipt
+{
+    /// <summary>Gets the exported contract ID.</summary>
+    public required string ContractId { get; init; }
+    /// <summary>Gets the exported contract version.</summary>
+    public required int ContractVersion { get; init; }
+    /// <summary>Gets the installed contract checksum.</summary>
+    public required string ContractChecksum { get; init; }
+    /// <summary>Gets the installed instant binding kind.</summary>
+    public required BaseSubjectTombstoneMetadataBindingKind InstantKind { get; init; }
+    /// <summary>Gets the installed instant field ID.</summary>
+    public string? InstantFieldId { get; init; }
+    /// <summary>Gets the installed sequence binding kind.</summary>
+    public required BaseSubjectTombstoneMetadataBindingKind SequenceKind { get; init; }
+    /// <summary>Gets the installed sequence field ID.</summary>
+    public string? SequenceFieldId { get; init; }
+    /// <summary>Gets the applied schema generation.</summary>
+    public required long SchemaGeneration { get; init; }
+    /// <summary>Gets the canonical SHA-256 receipt checksum.</summary>
+    public required ImmutableArray<byte> ReceiptChecksum { get; init; }
+}
+
+internal static class BaseSubjectTombstoneMetadataLowering
+{
+    internal static BaseSubjectTombstoneMetadataLoweringReceipt Create(
+        BaseGeneratedSubjectRegistration registration,
+        long schemaGeneration) => Create(registration.Definition, registration.Checksum, schemaGeneration);
+
+    internal static BaseSubjectTombstoneMetadataLoweringReceipt Create(
+        BaseExportedSubjectDefinition definition,
+        string contractChecksum,
+        long schemaGeneration)
+    {
+        var receipt = new BaseSubjectTombstoneMetadataLoweringReceipt
+        {
+            ContractId = new string(definition.Id.AsSpan()), ContractVersion = definition.Version,
+            ContractChecksum = new string(contractChecksum.AsSpan()),
+            InstantKind = definition.TombstoneMetadata.Instant.Kind,
+            InstantFieldId = definition.TombstoneMetadata.Instant.FieldId is null ? null : new string(definition.TombstoneMetadata.Instant.FieldId.AsSpan()),
+            SequenceKind = definition.TombstoneMetadata.Sequence.Kind,
+            SequenceFieldId = definition.TombstoneMetadata.Sequence.FieldId is null ? null : new string(definition.TombstoneMetadata.Sequence.FieldId.AsSpan()),
+            SchemaGeneration = schemaGeneration, ReceiptChecksum = [],
+        };
+        return receipt with { ReceiptChecksum = Checksum(receipt) };
+    }
+
+    internal static ImmutableArray<byte> Checksum(BaseSubjectTombstoneMetadataLoweringReceipt value)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true);
+        Write(writer, "base.subject.tombstone-metadata-lowering.v1");
+        Write(writer, value.ContractId); writer.Write(value.ContractVersion); Write(writer, value.ContractChecksum);
+        writer.Write((int)value.InstantKind); Write(writer, value.InstantFieldId);
+        writer.Write((int)value.SequenceKind); Write(writer, value.SequenceFieldId);
+        writer.Write(value.SchemaGeneration); writer.Flush();
+        return System.Security.Cryptography.SHA256.HashData(stream.ToArray()).ToImmutableArray();
+    }
+
+    private static void Write(BinaryWriter writer, string? value)
+    {
+        if (value is null) { writer.Write(-1); return; }
+        byte[] bytes = System.Text.Encoding.UTF8.GetBytes(value); writer.Write(bytes.Length); writer.Write(bytes);
+    }
+}
+
 /// <summary>Requests constrained uncoordinated final retirement.</summary>
 public sealed record BaseSubjectFinalRetirementRequest<TSubject>
 {
@@ -111,6 +190,13 @@ public sealed record BaseSubjectFinalRetirementRequest<TSubject>
     public required RevisionToken ExpectedPrivateRevision { get; init; }
     /// <summary>Gets the identified mutation authority.</summary>
     public required BaseMutationRequestIdentity Identity { get; init; }
+}
+
+/// <summary>Supplies Runtime-owned execution authority for final subject retirement.</summary>
+public sealed record BaseSubjectFinalRetirementExecutionOptions
+{
+    /// <summary>Gets the same-store activation fence when created by an activation context.</summary>
+    internal BaseActivationGuard? ActivationGuard { get; init; }
 }
 
 /// <summary>Returns exact terminal retirement evidence.</summary>
@@ -254,6 +340,10 @@ public sealed record BaseSubjectLifecycleConsumerDefinition
 /// <summary>Defines the provider's certified lifecycle capabilities.</summary>
 public sealed record BaseSubjectLifecycleCapability
 {
+    /// <summary>Gets whether Runtime-authored tombstone metadata commits with the lifecycle transition.</summary>
+    public required bool AtomicTombstoneMetadataSupported { get; init; }
+    /// <summary>Gets whether a final retirement can validate an activation guard in the same transaction.</summary>
+    public required bool ActivationGuardedFinalRetirementSupported { get; init; }
     /// <summary>Gets whether lifecycle publication is transactional with source mutation.</summary>
     public required bool TransactionalPublicationSupported { get; init; }
     /// <summary>Gets whether each consumer owns an independent cursor.</summary>
@@ -278,6 +368,8 @@ public static class BaseSubjectLifecycleProviderCapabilities
     /// <summary>Gets the built-in InMemory and SQLite capability.</summary>
     public static BaseSubjectLifecycleCapability BuiltIn { get; } = new()
     {
+        AtomicTombstoneMetadataSupported = true,
+        ActivationGuardedFinalRetirementSupported = true,
         TransactionalPublicationSupported = true,
         IndependentCursorSupported = true,
         ReconciliationSupported = false,

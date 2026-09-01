@@ -9,18 +9,17 @@ using Microsoft.Extensions.DependencyInjection;
 namespace HPD.Auth.Authentication.Tests.Helpers;
 
 /// <summary>
-/// Builds a fully-configured DI service provider for testing TokenService
-/// and authentication extensions. Uses in-memory EF Core and the real
-/// ITokenService implementation registered by AddAuthentication().
+/// Builds a fully configured DI service provider for TokenService and
+/// authentication tests over the real HPD Base SQLite authority.
 /// </summary>
 internal static class ServiceProviderBuilder
 {
     /// <summary>
     /// Creates a root ServiceProvider with HPDAuth registered.
     /// Multiple scopes can be created from the same provider — they share the
-    /// same in-memory EF database, simulating multiple HTTP requests.
+    /// same isolated Base store, simulating multiple HTTP requests.
     /// </summary>
-    public static ServiceProvider CreateProvider(Action<HPDAuthOptions>? configure = null)
+    public static TestServiceProvider CreateProvider(Action<HPDAuthOptions>? configure = null)
     {
         var services = new ServiceCollection();
 
@@ -40,13 +39,13 @@ internal static class ServiceProviderBuilder
             opts.Jwt.RefreshTokenLifetime = TimeSpan.FromDays(14);
             configure?.Invoke(opts);
         })
-        .UseInMemorySqliteForTests()
+        .UseBaseTestHost()
         .AddAuthentication();
 
         var serviceProvider = services.BuildServiceProvider();
-        serviceProvider.InitializeHPDAuthDevelopmentDatabaseAsync().GetAwaiter().GetResult();
+        serviceProvider.InitializeHPDAuthBaseTestHostAsync().GetAwaiter().GetResult();
 
-        return serviceProvider;
+        return new TestServiceProvider(serviceProvider);
     }
 
     /// <summary>
@@ -56,8 +55,7 @@ internal static class ServiceProviderBuilder
     /// </summary>
     public static IServiceScope CreateScope(Action<HPDAuthOptions>? configure = null)
     {
-        var sp = CreateProvider(configure);
-        return sp.CreateScope();
+        return CreateProvider(configure).CreateOwnedScope();
     }
 
     /// <summary>
@@ -91,5 +89,71 @@ internal static class ServiceProviderBuilder
                 $"Failed to create test user: {string.Join(", ", result.Errors.Select(e => e.Description))}");
 
         return user;
+    }
+
+    /// <summary>Owns a test root while safely bridging its asynchronous Base disposal.</summary>
+    internal sealed class TestServiceProvider(ServiceProvider inner) : IServiceProvider, IDisposable, IAsyncDisposable
+    {
+        private int _disposed;
+
+        /// <inheritdoc />
+        public object? GetService(Type serviceType) => inner.GetService(serviceType);
+
+        /// <summary>Creates an asynchronously disposable scope with a safe synchronous test bridge.</summary>
+        public TestServiceScope CreateScope()
+        {
+            ObjectDisposedException.ThrowIf(_disposed != 0, this);
+            return new TestServiceScope(inner.CreateAsyncScope(), this, disposeRoot: false);
+        }
+
+        internal TestServiceScope CreateOwnedScope()
+        {
+            ObjectDisposedException.ThrowIf(_disposed != 0, this);
+            return new TestServiceScope(inner.CreateAsyncScope(), this, disposeRoot: true);
+        }
+
+        /// <inheritdoc />
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+                inner.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
+
+        /// <inheritdoc />
+        public async ValueTask DisposeAsync()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+                await inner.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Owns one test scope and its root Base authority.</summary>
+    internal sealed class TestServiceScope(
+        AsyncServiceScope inner,
+        TestServiceProvider root,
+        bool disposeRoot) : IServiceScope, IAsyncDisposable
+    {
+        private int _disposed;
+
+        /// <inheritdoc />
+        public IServiceProvider ServiceProvider => inner.ServiceProvider;
+
+        /// <inheritdoc />
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+                return;
+            try { inner.DisposeAsync().AsTask().GetAwaiter().GetResult(); }
+            finally { if (disposeRoot) root.Dispose(); }
+        }
+
+        /// <inheritdoc />
+        public async ValueTask DisposeAsync()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+                return;
+            try { await inner.DisposeAsync().ConfigureAwait(false); }
+            finally { if (disposeRoot) await root.DisposeAsync().ConfigureAwait(false); }
+        }
     }
 }

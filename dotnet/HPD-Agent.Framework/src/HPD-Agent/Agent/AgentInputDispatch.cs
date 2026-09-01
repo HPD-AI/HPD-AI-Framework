@@ -55,15 +55,16 @@ internal sealed class AgentInputHandlerAdapter<TInput> : IAgentInputHandler
     }
 }
 
-internal enum AgentInputDelivery
+internal enum AgentInputRoutingClass
 {
-    QueuedWork,
+    Work,
+    SessionControl,
     ActiveControl
 }
 
 internal sealed record AgentInputHandlerRegistration(
     Type InputType,
-    AgentInputDelivery Delivery,
+    AgentInputRoutingClass RoutingClass,
     IAgentInputHandler Handler);
 
 internal sealed class AgentInputHandlingContext
@@ -82,10 +83,7 @@ internal sealed class AgentInputHandlingContext
 
     public ActiveRuntimeInput? ActiveInput { get; init; }
     public required Func<UserMessagesInputEvent, ActiveRuntimeInput?, IEventCoordinator, CancellationToken, Task<AgentTurnResult>> RunMessagesAsync { get; init; }
-    public required Func<InterruptionRequestEvent, CancellationToken, Task<AgentInputResult>> InterruptAsync { get; init; }
-    public required Func<SteeringInputEvent, CancellationToken, Task<AgentInputResult>> SteerAsync { get; init; }
-    public required Func<ClientToolBackgroundOperationOutcomeEvent, bool> TryResolveClientToolBackgroundOperation { get; init; }
-    public Func<BackgroundTaskNotificationInputEvent, IEventCoordinator, CancellationToken, ValueTask>? PublishBackgroundTaskNotificationDelivered { get; init; }
+    public required Func<ClientToolOperationOutcomeEvent, bool> TryResolveClientToolOperation { get; init; }
 }
 
 internal sealed class AgentInputDispatcher
@@ -127,11 +125,9 @@ internal sealed class AgentInputDispatcher
 
         if (before.Cancelled)
         {
-            var cancelledResult = new AgentInputResult
-            {
-                Disposition = AgentInputDisposition.Completed,
-                ThreadExecutionId = input.ThreadExecutionId
-            };
+            var cancelledResult = new AgentInputResult.Completed(
+                AgentTurnResult.Empty,
+                input.ThreadExecutionId);
             await _middleware.ExecuteAfterInputAsync(
                     new AfterInputContext(
                         before.Input,
@@ -151,10 +147,10 @@ internal sealed class AgentInputDispatcher
         try
         {
             var effectiveRegistration = GetRegistration(effectiveInput.GetType());
-            if (effectiveRegistration.Delivery != admittedRegistration.Delivery)
+            if (effectiveRegistration.RoutingClass != admittedRegistration.RoutingClass)
                 throw new InvalidOperationException(
-                    $"Input middleware cannot replace '{input.GetType().Name}' ({admittedRegistration.Delivery}) " +
-                    $"with '{effectiveInput.GetType().Name}' ({effectiveRegistration.Delivery}).");
+                    $"Input middleware cannot replace '{input.GetType().Name}' ({admittedRegistration.RoutingClass}) " +
+                    $"with '{effectiveInput.GetType().Name}' ({effectiveRegistration.RoutingClass}).");
 
             result = await effectiveRegistration.Handler.HandleAsync(effectiveInput, context, cancellationToken).ConfigureAwait(false);
             return result;
@@ -170,7 +166,9 @@ internal sealed class AgentInputDispatcher
                     new AfterInputContext(
                         effectiveInput,
                         context,
-                        result?.TurnResult ?? AgentTurnResult.Empty,
+                        result is AgentInputResult.Completed completed
+                            ? completed.TurnResult
+                            : AgentTurnResult.Empty,
                         error,
                         cancelled: error is OperationCanceledException,
                         DateTimeOffset.UtcNow - startedAt),
@@ -181,21 +179,20 @@ internal sealed class AgentInputDispatcher
 
     private static IEnumerable<AgentInputHandlerRegistration> CreateBuiltInHandlers()
     {
-        yield return Register(AgentInputDelivery.QueuedWork, new UserMessagesInputHandler());
-        yield return Register(AgentInputDelivery.QueuedWork, new CompactThreadInputHandler());
-        yield return Register(AgentInputDelivery.QueuedWork, new BackgroundTaskNotificationInputHandler());
-        yield return Register(AgentInputDelivery.ActiveControl, new ClientToolBackgroundOperationOutcomeInputHandler());
-        yield return Register(AgentInputDelivery.ActiveControl, new InterruptionInputHandler());
-        yield return Register(AgentInputDelivery.ActiveControl, new SteeringInputHandler());
+        yield return Register(AgentInputRoutingClass.Work, new UserMessagesInputHandler());
+        yield return Register(AgentInputRoutingClass.Work, new CompactThreadInputHandler());
+        yield return Register(AgentInputRoutingClass.Work, new AgentOperationNotificationInputHandler());
+        yield return Register(AgentInputRoutingClass.SessionControl, new AudioSessionInputHandler());
+        yield return Register(AgentInputRoutingClass.ActiveControl, new ClientToolOperationOutcomeInputHandler());
     }
 
     private static AgentInputHandlerRegistration Register<TInput>(
-        AgentInputDelivery delivery,
+        AgentInputRoutingClass routingClass,
         IAgentInputHandler<TInput> handler)
         where TInput : AgentInputEvent
     {
         var adapter = new AgentInputHandlerAdapter<TInput>(handler);
-        return new AgentInputHandlerRegistration(typeof(TInput), delivery, adapter);
+        return new AgentInputHandlerRegistration(typeof(TInput), routingClass, adapter);
     }
 }
 
@@ -232,7 +229,7 @@ internal sealed class CompactThreadInputHandler : IAgentInputHandler<CompactThre
         }
 
         var publisher = context.Config.SessionStore is { } sessionStore
-            ? new ThreadEventPublisher(sessionStore, context.EventCoordinator)
+            ? new AgentEventPublisher(sessionStore, context.EventCoordinator)
             : null;
         await using var chatLease = input.Request.Compaction.Strategy is SummarizingCompaction summarizing
             ? await context.ChatClientResolver.ResolveAsync(
@@ -250,7 +247,11 @@ internal sealed class CompactThreadInputHandler : IAgentInputHandler<CompactThre
             thread.Messages,
             publisher,
             chatLease?.Client,
-            context.Services?.GetService<IThreadJournalRebaseSeedProvider>(),
+            context.Config.SessionStore is { } compactionStore
+                ? CompositeThreadJournalRebaseSeedProvider.Create(
+                    compactionStore,
+                    context.Services?.GetService<IThreadJournalRebaseSeedProvider>())
+                : context.Services?.GetService<IThreadJournalRebaseSeedProvider>(),
             CreateSummarizerOptions(chatLease?.Handle.ResolvedConfig as ChatClientConfig));
         await new ThreadCompactionEngine().ExecuteAsync(
                 engineContext,
@@ -286,81 +287,107 @@ internal sealed class UserMessagesInputHandler : IAgentInputHandler<UserMessages
     }
 }
 
-internal sealed class BackgroundTaskNotificationInputHandler : IAgentInputHandler<BackgroundTaskNotificationInputEvent>
+internal sealed class AgentOperationNotificationInputHandler : IAgentInputHandler<AgentOperationNotificationInputEvent>
 {
     public async ValueTask<AgentInputResult> HandleAsync(
-        BackgroundTaskNotificationInputEvent input,
+        AgentOperationNotificationInputEvent input,
         AgentInputHandlingContext context,
         CancellationToken cancellationToken)
     {
-        var userInput = BackgroundTaskNotificationDispatcher.ToUserMessagesInput(input) with
-        {
-            AgentId = input.AgentId,
-            SessionId = input.SessionId,
-            ThreadId = input.ThreadId,
-            ThreadExecutionId = input.ThreadExecutionId,
-            RunConfig = input.RunConfig
-        };
+        var userInput = AgentOperationNotificationDispatcher.ToNotificationTurnInput(input);
 
         var result = await context.RunMessagesAsync(userInput, context.ActiveInput, context.EventCoordinator, cancellationToken)
             .ConfigureAwait(false);
-        if (context.PublishBackgroundTaskNotificationDelivered is { } publishDelivered)
-        {
-            await publishDelivered(input, context.EventCoordinator, cancellationToken).ConfigureAwait(false);
-        }
         return Completed(input, result);
     }
 }
 
-internal sealed class ClientToolBackgroundOperationOutcomeInputHandler :
-    IAgentInputHandler<ClientToolBackgroundOperationOutcomeEvent>
+internal sealed class ClientToolOperationOutcomeInputHandler :
+    IAgentInputHandler<ClientToolOperationOutcomeEvent>
 {
     public ValueTask<AgentInputResult> HandleAsync(
-        ClientToolBackgroundOperationOutcomeEvent input,
+        ClientToolOperationOutcomeEvent input,
         AgentInputHandlingContext context,
         CancellationToken cancellationToken)
     {
-        if (!context.TryResolveClientToolBackgroundOperation(input))
+        if (!context.TryResolveClientToolOperation(input))
         {
             throw new InvalidOperationException(
                 $"No client tool background operation '{input.ClientOperationId}' is active.");
         }
 
-        return ValueTask.FromResult(new AgentInputResult
-        {
-            Disposition = AgentInputDisposition.Accepted,
-            ThreadExecutionId = input.ThreadExecutionId
-        });
+        return ValueTask.FromResult<AgentInputResult>(
+            new AgentInputResult.Control(AgentInputDisposition.Accepted, input.ThreadExecutionId));
     }
 }
 
-internal sealed class InterruptionInputHandler : IAgentInputHandler<InterruptionRequestEvent>
+internal sealed class AudioSessionInputHandler : IAgentInputHandler<AudioSessionInputEvent>
 {
     public async ValueTask<AgentInputResult> HandleAsync(
-        InterruptionRequestEvent input,
+        AudioSessionInputEvent input,
         AgentInputHandlingContext context,
         CancellationToken cancellationToken)
     {
-        return await context.InterruptAsync(input, cancellationToken).ConfigureAwait(false);
-    }
-}
+        if (input.ThreadExecutionId is not null)
+        {
+            return new AgentInputResult.AudioSession(new AudioSessionInputResult.Rejected(
+                AudioSessionInputDisposition.ScopeMismatch,
+                "thread-execution-id-forbidden"));
+        }
 
-internal sealed class SteeringInputHandler : IAgentInputHandler<SteeringInputEvent>
-{
-    public async ValueTask<AgentInputResult> HandleAsync(
-        SteeringInputEvent input,
-        AgentInputHandlingContext context,
-        CancellationToken cancellationToken)
-        => await context.SteerAsync(input, cancellationToken).ConfigureAwait(false);
+        if (!context.RuntimeCapabilities.TryGet<IAudioSessionInputRuntime>(out var runtime))
+        {
+            return new AgentInputResult.AudioSession(new AudioSessionInputResult.Rejected(
+                AudioSessionInputDisposition.CapabilityNotInstalled,
+                "audio-capability-not-installed"));
+        }
+
+        var result = await runtime.ExecuteAsync(input, context.ClientSet, cancellationToken).ConfigureAwait(false);
+        if (result is AudioSessionInputResult.InputTurnCommitted committed &&
+            committed.TryTakeAdmittedMessage() is { } message)
+        {
+            var accepted = await runtime.AcceptSemanticAsync(
+                committed.AudioSessionId, committed.CandidateId, cancellationToken).ConfigureAwait(false);
+            if (accepted is AudioSemanticAdmissionResult.Conflict conflict)
+            {
+                return new AgentInputResult.AudioSession(new AudioSessionInputResult.InputTurnDiscarded(
+                    committed.AudioSessionId, committed.CandidateId, committed.Revision, conflict.SafeCode));
+            }
+            if (accepted is AudioSemanticAdmissionResult.OutcomeUnknown unknown)
+            {
+                return new AgentInputResult.AudioSession(new AudioSessionInputResult.OutcomeUnknown(
+                    committed.DurableSemanticOperationId ?? unknown.SafeCode,
+                    committed.AudioSessionId,
+                    committed.Revision));
+            }
+
+            try
+            {
+                await context.RunMessagesAsync(new UserMessagesInputEvent
+                {
+                    AgentId = input.AgentId,
+                    SessionId = input.SessionId,
+                    ThreadId = input.ThreadId,
+                    ClientInputId = committed.DurableSemanticOperationId,
+                    Delivery = AgentInputDelivery.Queue,
+                    Messages = [message]
+                }, null, context.EventCoordinator, cancellationToken).ConfigureAwait(false);
+                await runtime.AcknowledgeSemanticAsync(
+                    committed.AudioSessionId, committed.CandidateId, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch
+            {
+                await runtime.WithdrawSemanticAsync(
+                    committed.AudioSessionId, committed.CandidateId, CancellationToken.None).ConfigureAwait(false);
+                throw;
+            }
+        }
+        return new AgentInputResult.AudioSession(result);
+    }
 }
 
 internal static class AgentInputResults
 {
     internal static AgentInputResult Completed(AgentInputEvent input, AgentTurnResult? turn = null)
-        => new()
-        {
-            Disposition = AgentInputDisposition.Completed,
-            TurnResult = turn ?? AgentTurnResult.Empty,
-            ThreadExecutionId = input.ThreadExecutionId
-        };
+        => new AgentInputResult.Completed(turn ?? AgentTurnResult.Empty, input.ThreadExecutionId);
 }

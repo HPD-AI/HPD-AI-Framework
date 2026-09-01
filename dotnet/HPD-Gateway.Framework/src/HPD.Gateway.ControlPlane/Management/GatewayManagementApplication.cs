@@ -96,7 +96,7 @@ internal sealed class GatewayManagementApplication(
         if (left is null || right is null)
             return new(GatewayApplicationReadState.NotFound, "management.revision.not-found");
         bool equivalent = CryptographicOperations.FixedTimeEquals(
-            left.Value.CanonicalConfigurationUtf8, right.Value.CanonicalConfigurationUtf8);
+            left.Value.CanonicalConfigurationUtf8.ToArray(), right.Value.CanonicalConfigurationUtf8.ToArray());
         ImmutableArray<GatewayRevisionDifference> differences = equivalent
             ? []
             : [new("$", "configuration.changed")];
@@ -110,7 +110,7 @@ internal sealed class GatewayManagementApplication(
         GatewayManagedRecord<GatewayAcceptedRevision>? revision = await reader.GetRevisionAsync(namespaceId, targetNodeId, revisionId, cancellationToken).ConfigureAwait(false);
         if (revision is null)
             return new(GatewayApplicationReadState.NotFound, "management.revision.not-found");
-        byte[] bytes = revision.Value.CanonicalConfigurationUtf8;
+        byte[] bytes = revision.Value.CanonicalConfigurationUtf8.ToArray();
         if (bytes.Length == 0)
             return new(GatewayApplicationReadState.Gone, "management.revision.content-gone");
         return new(GatewayApplicationReadState.Found, "management.export.completed", new(

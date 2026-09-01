@@ -62,13 +62,7 @@ public sealed record ClientToolDefinition
         if (OperationContract is null)
             return null;
 
-        if (!arguments.TryGetValue(OperationContract.Discriminator, out var rawAction) ||
-            !TryReadString(rawAction, out var action))
-        {
-            throw new ArgumentException(
-                $"Compound tool requires string discriminator '{OperationContract.Discriminator}'.",
-                nameof(arguments));
-        }
+        var action = AgentInvocationModes.ResolveDiscriminator(arguments, OperationContract.Discriminator);
 
         if (!OperationContract.Actions.TryGetValue(action, out var actionPolicy))
             throw new ArgumentException($"Unknown compound tool action '{action}'.", nameof(arguments));
@@ -79,24 +73,6 @@ public sealed record ClientToolDefinition
             ClientToolPolicy.Resolve(DefaultPolicy, actionPolicy));
     }
 
-    private static bool TryReadString(object? value, out string result)
-    {
-        if (value is string text && !string.IsNullOrWhiteSpace(text))
-        {
-            result = text;
-            return true;
-        }
-
-        if (value is JsonElement { ValueKind: JsonValueKind.String } element &&
-            !string.IsNullOrWhiteSpace(element.GetString()))
-        {
-            result = element.GetString()!;
-            return true;
-        }
-
-        result = string.Empty;
-        return false;
-    }
 }
 
 /// <summary>Defines a closed discriminated operation family.</summary>
@@ -109,23 +85,21 @@ public sealed record ClientToolOperationContract
 /// <summary>Defines security and invocation behavior for a client tool operation.</summary>
 public sealed record ClientToolPolicy
 {
-    public bool? RequiresPermission { get; init; }
-    public string? PermissionScope { get; init; }
+    /// <summary>Gets the complete normalized permission declaration for this transport operation.</summary>
+    public AIFunctionPermissionDeclaration? Permission { get; init; }
     public bool? MutatesState { get; init; }
     public bool? RequiresFreshContext { get; init; }
     public bool? Destructive { get; init; }
     public bool? Idempotent { get; init; }
     public AgentInvocationModePolicy? InvocationModePolicy { get; init; }
-    public BackgroundTaskNotificationRule? BackgroundNotification { get; init; }
+    public AgentOperationNotificationPolicy? OperationNotification { get; init; }
 
     public static ClientToolPolicy Resolve(
         ClientToolPolicy? basePolicy,
         ClientToolPolicy? operationPolicy = null) =>
         new()
         {
-            RequiresPermission = operationPolicy?.RequiresPermission ??
-                basePolicy?.RequiresPermission ?? false,
-            PermissionScope = operationPolicy?.PermissionScope ?? basePolicy?.PermissionScope,
+            Permission = operationPolicy?.Permission ?? basePolicy?.Permission,
             MutatesState = operationPolicy?.MutatesState ?? basePolicy?.MutatesState ?? false,
             RequiresFreshContext = operationPolicy?.RequiresFreshContext ??
                 basePolicy?.RequiresFreshContext ?? false,
@@ -133,9 +107,9 @@ public sealed record ClientToolPolicy
             Idempotent = operationPolicy?.Idempotent ?? basePolicy?.Idempotent ?? false,
             InvocationModePolicy = operationPolicy?.InvocationModePolicy ??
                 basePolicy?.InvocationModePolicy ?? AgentInvocationModePolicy.SynchronousOnly,
-            BackgroundNotification = operationPolicy?.BackgroundNotification ??
-                basePolicy?.BackgroundNotification ??
-                new BackgroundTaskNotificationRule.OnFinalStateRule(true, true)
+            OperationNotification = operationPolicy?.OperationNotification ??
+                basePolicy?.OperationNotification ??
+                new AgentOperationNotificationPolicy()
         };
 }
 
@@ -189,16 +163,16 @@ internal static class ClientToolContractValidator
 
         foreach (var (action, policy) in contract.Actions)
         {
-            if (policy.Destructive is true && policy.RequiresPermission is not true)
+            if (policy.Destructive is true && policy.Permission?.RequiresPermission is not true)
                 throw new ArgumentException($"Destructive action '{action}' must require permission.");
-            if (policy.RequiresPermission is true &&
-                string.IsNullOrWhiteSpace(policy.PermissionScope))
+            if (policy.Permission is { RequiresPermission: true } permission &&
+                string.IsNullOrWhiteSpace(permission.Authority))
             {
                 throw new ArgumentException(
-                    $"Permissioned action '{action}' requires a permission scope.");
+                    $"Permissioned action '{action}' requires a permission authority.");
             }
             if (policy.MutatesState is true &&
-                (policy.RequiresPermission is null || policy.RequiresFreshContext is null))
+                (policy.Permission is null || policy.RequiresFreshContext is null))
             {
                 throw new ArgumentException(
                     $"Mutating action '{action}' must explicitly declare permission and freshness.");

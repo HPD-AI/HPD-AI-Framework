@@ -10,6 +10,7 @@
     <RepositoryUrl>https://github.com/hpd/hpd-payments</RepositoryUrl>
     <RepoRoot>$(MSBuildThisFileDirectory)</RepoRoot>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RuntimeIdentifiers Condition="'$(MSBuildProjectName)' != 'HPD.Payments.Generators' and '$(MSBuildProjectName)' != 'HPD.Payments.Analyzers'">osx-arm64</RuntimeIdentifiers>
     <RestoreLockedMode Condition="'$(ContinuousIntegrationBuild)' == 'true'">true</RestoreLockedMode>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>

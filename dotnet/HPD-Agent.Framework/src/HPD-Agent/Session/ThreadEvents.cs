@@ -12,6 +12,8 @@ public static class ThreadEventTypes
     public const string ThreadHistoryCompactionCheckpoint = "THREAD_HISTORY_COMPACTION_CHECKPOINT";
 }
 
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("THREAD_CREATED")]
 public sealed record ThreadCreatedEvent(
     string DefaultAgentId,
     string? Name,
@@ -24,7 +26,6 @@ public sealed record ThreadCreatedEvent(
     string? ParentSessionId = null,
     string? ParentThreadId = null,
     string? SubAgentName = null,
-    string? SubAgentTaskName = null,
     string? InvocationId = null,
     string? SubAgentSourceKind = null,
     string? ParentToolCallId = null,
@@ -33,8 +34,14 @@ public sealed record ThreadCreatedEvent(
     string? ForkedAtMessageId = null,
     int? ForkedAtMessageIndex = null,
     List<string>? ChildThreads = null,
-    Dictionary<string, string>? Ancestors = null) : AgentEvent;
+    Dictionary<string, string>? Ancestors = null) : AgentEvent
+{
+    /// <summary>Gets typed fork preparation authority while this event belongs to a staged target.</summary>
+    public ThreadPreparationDescriptor? Preparation { get; init; }
+}
 
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("THREAD_UPDATED")]
 public sealed record ThreadUpdatedEvent(
     string DefaultAgentId,
     string? Name,
@@ -46,7 +53,6 @@ public sealed record ThreadUpdatedEvent(
     string? ParentSessionId = null,
     string? ParentThreadId = null,
     string? SubAgentName = null,
-    string? SubAgentTaskName = null,
     string? InvocationId = null,
     string? SubAgentSourceKind = null,
     string? ParentToolCallId = null,
@@ -57,6 +63,8 @@ public sealed record ThreadUpdatedEvent(
     List<string>? ChildThreads = null,
     Dictionary<string, string>? Ancestors = null) : AgentEvent;
 
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("CONTENT_ADDED")]
 public sealed record ContentAddedEvent(
     string MessageId,
     string Role,
@@ -69,6 +77,8 @@ public sealed record ContentAddedEvent(
     AgentMessagePersistence Persistence = AgentMessagePersistence.ThreadHistory,
     AdditionalPropertiesDictionary? AdditionalProperties = null) : AgentEvent;
 
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("THREAD_MIDDLEWARE_STATE_COMMITTED")]
 public sealed record ThreadMiddlewareStateCommittedEvent(
     IReadOnlyDictionary<string, string> State) : AgentEvent;
 
@@ -116,6 +126,8 @@ public sealed record CompactionStrategyDescriptor(
     };
 }
 
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("THREAD_HISTORY_COMPACTION_CHECKPOINT")]
 public sealed record ThreadHistoryCompactionCheckpointEvent(
     string CompactionId,
     CompactionPointDescriptor Point,
@@ -144,7 +156,6 @@ public static class ThreadEventFactory
             thread.ParentSessionId,
             thread.ParentThreadId,
             thread.SubAgentName,
-            thread.SubAgentTaskName,
             thread.InvocationId,
             thread.SubAgentSourceKind,
             thread.ParentToolCallId,
@@ -153,7 +164,10 @@ public static class ThreadEventFactory
             thread.ForkedAtMessageId,
             thread.ForkedAtMessageIndex,
             thread.ChildThreads.ToList(),
-            thread.Ancestors));
+            thread.Ancestors)
+        {
+            Preparation = thread.Preparation
+        });
 
     public static AgentEvent ThreadUpdated(Thread thread) =>
         Scope(thread.SessionId, thread.Id, new ThreadUpdatedEvent(
@@ -167,7 +181,6 @@ public static class ThreadEventFactory
             thread.ParentSessionId,
             thread.ParentThreadId,
             thread.SubAgentName,
-            thread.SubAgentTaskName,
             thread.InvocationId,
             thread.SubAgentSourceKind,
             thread.ParentToolCallId,
@@ -367,13 +380,15 @@ public static class ThreadEventFactory
         int iteration,
         string? terminationReason,
         TimeSpan duration,
-        int turnMessageCount) =>
+        int turnMessageCount,
+        MessageTurnUsageSummary usage) =>
         Scope(sessionId, threadId, new MessageTurnFinishedEvent(
             messageTurnId,
             conversationId,
             agentId,
             agentName,
-            duration)
+            duration,
+            usage)
         {
             Iteration = iteration,
             TerminationReason = terminationReason,
@@ -383,14 +398,14 @@ public static class ThreadEventFactory
     public static AgentEvent TurnFailed(
         string sessionId,
         string threadId,
-        string? messageTurnId,
+        string messageTurnId,
         string? conversationId,
         string agentId,
         string agentName,
-        Exception exception) =>
-        Scope(sessionId, threadId, new MessageTurnErrorEvent(exception.Message, exception)
+        Exception exception,
+        MessageTurnUsageSummary usage) =>
+        Scope(sessionId, threadId, new MessageTurnErrorEvent(messageTurnId, exception.Message, usage, exception)
         {
-            MessageTurnId = messageTurnId,
             ConversationId = conversationId,
             AgentId = agentId,
             AgentName = agentName,

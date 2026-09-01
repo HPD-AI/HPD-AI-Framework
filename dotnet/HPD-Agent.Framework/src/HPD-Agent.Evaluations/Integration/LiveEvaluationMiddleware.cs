@@ -11,6 +11,7 @@ using HPD.Agent.Evaluations.Evaluators.LlmJudge;
 using HPD.Agent.Evaluations.Storage;
 using HPD.Agent.Evaluations.Tracing;
 using HPD.Agent.Evaluations.Integration;
+using HPD.Agent.Providers;
 
 namespace HPD.Agent.Evaluations.Integration;
 
@@ -23,6 +24,55 @@ internal sealed record EvaluatorRegistration(
     EvalPolicy Policy,
     EvaluationJudgeRunConfig? JudgeConfig);
 
+internal interface IEvaluationJudgeClientFactory
+{
+    IEvaluationJudgeClientSession Create(EvaluationJudgeRunConfig config);
+}
+
+internal interface IEvaluationJudgeClientSession : IAsyncDisposable
+{
+    IChatClient Client { get; }
+}
+
+internal sealed class EvaluationJudgeClientFactory(
+    IProviderRegistry? providerRegistry,
+    IServiceProvider? services,
+    AgentConfig agentConfig,
+    AgentRunConfig runConfig) : IEvaluationJudgeClientFactory
+{
+    public IEvaluationJudgeClientSession Create(EvaluationJudgeRunConfig config)
+    {
+        var resolver = new AgentChatClientResolver(providerRegistry, services);
+        var inner = new AgentSpecializedChatClient(
+            resolver,
+            agentConfig,
+            runConfig,
+            resolvedPrimary: null,
+            config.Chat,
+            config.Inheritance);
+        return new EvaluationJudgeClientSession(inner, resolver);
+    }
+
+    private sealed class EvaluationJudgeClientSession(
+        IChatClient client,
+        AgentChatClientResolver owner) : IEvaluationJudgeClientSession
+    {
+        public IChatClient Client { get; } = client;
+        public async ValueTask DisposeAsync()
+        {
+            Client.Dispose();
+            await owner.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+}
+
+internal sealed record LiveEvaluationExecutionSnapshot(
+    AgentRunConfig RunConfig,
+    IEvaluationJudgeClientFactory JudgeClients,
+    Func<AgentEvent, CancellationToken, ValueTask<AgentEvent>> PublishAsync,
+    Func<AnnotationRequestedEvent, TimeSpan, Task<AnnotationResponseEvent>> RequestAnnotationAsync,
+    ConversationEvalStateData ConversationState);
+
 /// <summary>
 /// Core middleware that wires the HPD evaluation system into the agent lifecycle.
 /// Implements middleware hooks and subscribes to agent events for buffering timing and permission events.
@@ -30,7 +80,8 @@ internal sealed record EvaluatorRegistration(
 /// Flow:
 ///   BeforeMessageTurnAsync → activate EvalContext, reset TurnEventBuffer
 ///   HandleAsync           → populate buffer (timestamps, permission denials)
-///   AfterMessageTurnAsync → build TurnEvaluationContext, launch evaluators fire-and-forget
+///   AfterMessageTurnAsync → prepare an immutable turn capture without waiting
+///   MessageTurnFinished  → complete the capture and schedule evaluators
 /// </summary>
 public sealed class LiveEvaluationMiddleware : IAgentMiddleware
 {
@@ -69,36 +120,104 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
         return Task.CompletedTask;
     }
 
-    public async Task AfterMessageTurnAsync(AfterMessageTurnContext context, CancellationToken cancellationToken)
+    public Task AfterMessageTurnAsync(AfterMessageTurnContext context, CancellationToken cancellationToken)
     {
         if (context.RunConfig.IsEvaluationSuppressed())
-            return;
+            return Task.CompletedTask;
 
         var registrations = BuildRegistrations(context.RunConfig);
         if (registrations.Count == 0)
-            return;
+            return Task.CompletedTask;
 
-        var turnCtx = await _capture.CompleteAsync(context, cancellationToken).ConfigureAwait(false);
-        if (turnCtx is null)
-            return; // Don't crash the agent if context building fails
+        var events = context.Base.EventCoordinator;
+        var threadEvents = context.Base.ThreadEvents;
+        var sessionId = context.SessionId;
+        var threadId = context.ThreadId;
+        var traceId = context.TraceId;
+        var threadExecutionId = context.ThreadExecutionId;
+        async ValueTask<AgentEvent> PublishAsync(AgentEvent evt, CancellationToken ct)
+        {
+            if (traceId is not null && evt.TraceId is null)
+                evt = evt with { TraceId = traceId };
+            if (threadExecutionId is not null && evt.ThreadExecutionId is null)
+                evt = evt with { ThreadExecutionId = threadExecutionId };
+            if (threadEvents is not null && sessionId is not null && threadId is not null)
+                return await threadEvents.CommitAndPublishAsync(new ThreadKey(sessionId, threadId), evt, ct).ConfigureAwait(false);
+            await events.EmitAsync(evt, ct).ConfigureAwait(false);
+            return evt;
+        }
+        async Task<AnnotationResponseEvent> RequestAnnotationAsync(AnnotationRequestedEvent request, TimeSpan timeout)
+        {
+            var handle = events.RegisterRequest<AnnotationRequestedEvent, AnnotationResponseEvent>(
+                request,
+                new HPD.Events.RequestOptions { Timeout = timeout });
+            await PublishAsync(request, CancellationToken.None).ConfigureAwait(false);
+            return (AnnotationResponseEvent)await handle.Response.ConfigureAwait(false);
+        }
 
-        var conversationEvalState = context.GetMiddlewareState<ConversationEvalStateData>()
-            ?? new ConversationEvalStateData();
-        var conversationHistory = BuildConversationHistoryForEvaluation(turnCtx, conversationEvalState);
-
+        var resolver = context.Base.ChatClientResolver
+            ?? throw new InvalidOperationException("Evaluation judge resolution requires the invocation Chat resolver.");
+        var runConfigSnapshot = AgentRunConfigSnapshot.Capture(context.RunConfig, resolver.Composition)
+            ?? throw new InvalidOperationException("Evaluation run configuration snapshot failed.");
+        var agentConfigSnapshot = AgentConfigSnapshot.Create(
+            context.Config ?? throw new InvalidOperationException("Evaluation judge resolution requires the agent configuration."));
+        var runtime = new LiveEvaluationExecutionSnapshot(
+            runConfigSnapshot,
+            new EvaluationJudgeClientFactory(
+                resolver.ProviderRegistry,
+                context.Services,
+                agentConfigSnapshot,
+                runConfigSnapshot),
+            PublishAsync,
+            RequestAnnotationAsync,
+            context.GetMiddlewareState<ConversationEvalStateData>() ?? new ConversationEvalStateData());
         try
         {
-            context.UpdateMiddlewareState<ConversationEvalStateData>(state =>
-                AdvanceConversationEvalState(state, turnCtx));
+            _capture.Prepare(
+                context,
+                turnCtx => CompletePreparedTurn(runtime, registrations, turnCtx),
+                failed: _ => { },
+                prepared: turnCtx =>
+                {
+                    try
+                    {
+                        context.UpdateMiddlewareState<ConversationEvalStateData>(state =>
+                            AdvanceConversationEvalState(state, turnCtx));
+                    }
+                    catch { }
+                });
         }
         catch
         {
-            // Conversation state is for evaluator quality only; never fail the agent turn.
+            // Optional evaluation capture must not fail the owning agent turn.
         }
+        return Task.CompletedTask;
+    }
 
-        // Launch all evaluators as fire-and-forget background tasks
-        // so they don't block AfterMessageTurnAsync from returning
-        var samplingOverride = context.RunConfig.Get()?.SamplingRate;
+    public Task AfterInputAsync(AfterInputContext context, CancellationToken cancellationToken)
+    {
+        if (context.Result.Finished is null)
+        {
+            var traceId = context.Result.Started?.TraceId ?? context.Result.Events.FirstOrDefault()?.TraceId;
+            var messageTurnId = context.Result.Started?.MessageTurnId ??
+                context.Result.Events.OfType<MessageTurnStartedEvent>().FirstOrDefault()?.MessageTurnId;
+            _capture.Fail(traceId, messageTurnId, context.Error ?? new OperationCanceledException("Evaluation input did not complete."));
+        }
+        _capture.EndInputScope();
+        return Task.CompletedTask;
+    }
+
+    private void CompletePreparedTurn(
+        LiveEvaluationExecutionSnapshot runtime,
+        IReadOnlyList<EvaluatorRegistration> registrations,
+        TurnEvaluationContext turnCtx)
+    {
+
+        var conversationHistory = BuildConversationHistoryForEvaluation(turnCtx, runtime.ConversationState);
+
+        // The committed terminal event has now completed the capture. Evaluators run
+        // independently and must not inherit the closing turn's accounting context.
+        var samplingOverride = runtime.RunConfig.Get()?.SamplingRate;
         foreach (var registration in registrations)
         {
             // Sampling check
@@ -107,21 +226,39 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
                 continue;
 
             var reg = registration;
-            var ctx = context;
             var tCtx = turnCtx;
 
-            _ = Task.Run(async () =>
+            using (ExecutionContext.SuppressFlow())
             {
-                await RunEvaluatorAsync(reg, tCtx, conversationHistory, ctx, samplingRate, CancellationToken.None)
-                    .ConfigureAwait(false);
-            }, CancellationToken.None);
+                _ = Task.Run(async () =>
+                {
+                    await RunEvaluatorAsync(reg, tCtx, conversationHistory, runtime, samplingRate, CancellationToken.None)
+                        .ConfigureAwait(false);
+                }, CancellationToken.None);
+            }
         }
     }
 
     // ── Event subscription ────────────────────────────────────────────────────
 
-    public ValueTask HandleAsync(AgentEvent evt)
-        => _capture.HandleAsync(evt);
+    public async ValueTask HandleAsync(AgentEvent evt)
+    {
+        try
+        {
+            await _capture.HandleAsync(evt).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            var messageTurnId = evt switch
+            {
+                MessageTurnFinishedEvent finished => finished.MessageTurnId,
+                MessageTurnErrorEvent error => error.MessageTurnId,
+                _ => null
+            };
+            _capture.Fail(evt.TraceId, messageTurnId, ex);
+            // Evaluation is optional and must not fail event publication for the agent turn.
+        }
+    }
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
@@ -129,7 +266,7 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
         EvaluatorRegistration registration,
         TurnEvaluationContext turnCtx,
         IReadOnlyList<ChatMessage> conversationHistory,
-        AfterMessageTurnContext hookCtx,
+        LiveEvaluationExecutionSnapshot runtime,
         double effectiveSamplingRate,
         CancellationToken ct)
     {
@@ -148,27 +285,21 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
 
         // Resolve judge ChatConfiguration if needed
         ChatConfiguration? chatConfig = null;
+        IEvaluationJudgeClientSession? judgeSession = null;
         if (registration.Evaluator is not HpdDeterministicEvaluatorBase &&
             registration.Evaluator is not TaskOracleEvaluator)
         {
-            var judgeConfig = hookCtx.RunConfig.GetEvalJudgeConfigOverride() ??
+            var judgeConfig = runtime.RunConfig.GetEvalJudgeConfigOverride() ??
                 registration.JudgeConfig ??
                 GlobalJudgeConfig ??
                 new EvaluationJudgeRunConfig();
-            var judgeClient = new AgentSpecializedChatClient(
-                    hookCtx.Base.ChatClientResolver
-                        ?? throw new InvalidOperationException("Evaluation judge resolution requires the invocation Chat resolver."),
-                    hookCtx.Config
-                        ?? throw new InvalidOperationException("Evaluation judge resolution requires the agent configuration."),
-                    hookCtx.RunConfig,
-                    hookCtx.Base.EffectiveChatClient,
-                    judgeConfig.Chat,
-                    judgeConfig.Inheritance);
-            chatConfig = EvaluationExecutionHelpers.BuildChatConfiguration(judgeConfig, judgeClient);
+            judgeSession = runtime.JudgeClients.Create(judgeConfig);
+            chatConfig = EvaluationExecutionHelpers.BuildChatConfiguration(judgeConfig, judgeSession.Client);
         }
+        await using var ownedJudgeSession = judgeSession;
 
         // Build timeout CTS
-        var judgeConfig2 = hookCtx.RunConfig.GetEvalJudgeConfigOverride() ??
+        var judgeConfig2 = runtime.RunConfig.GetEvalJudgeConfigOverride() ??
             registration.JudgeConfig ??
             GlobalJudgeConfig;
         var timeout = judgeConfig2?.Timeout ?? TimeSpan.FromSeconds(30);
@@ -181,8 +312,8 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
         try
         {
             result = await registration.Evaluator.EvaluateAsync(
-                messages: hookCtx.TurnHistory,
-                modelResponse: hookCtx.FinalResponse,
+                messages: turnCtx.EvaluationMessages,
+                modelResponse: turnCtx.FinalResponse,
                 chatConfiguration: chatConfig,
                 additionalContext: additionalContext,
                 cancellationToken: cts.Token).ConfigureAwait(false);
@@ -191,7 +322,7 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
         {
             var errorMessage = $"Evaluator '{evaluatorName}' timed out after {timeout}.";
 
-            await hookCtx.PublishAsync(new EvalFailedEvent
+            await runtime.PublishAsync(new EvalFailedEvent
             {
                 EvaluatorName = evaluatorName,
                 SessionId = turnCtx.SessionId,
@@ -205,7 +336,7 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
         catch (Exception ex)
         {
             var errorMessage = ex.Message;
-            await hookCtx.PublishAsync(new EvalFailedEvent
+            await runtime.PublishAsync(new EvalFailedEvent
             {
                 EvaluatorName = evaluatorName,
                 SessionId = turnCtx.SessionId,
@@ -261,7 +392,7 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
         }
 
         // Emit EvalScoreEvent
-        await hookCtx.PublishAsync(new EvalScoreEvent
+        await runtime.PublishAsync(new EvalScoreEvent
         {
             EvaluatorName = evaluatorName,
             EvaluatorVersion = version,
@@ -300,7 +431,7 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
                             TriggerEvaluatorName = evaluatorName,
                             TriggerScore = primaryScore.Value,
                         },
-                        hookCtx,
+                        runtime,
                         CancellationToken.None);
                 }
             }
@@ -315,7 +446,7 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
 
                 if (failed)
                 {
-                    await hookCtx.PublishAsync(new EvalPolicyViolationEvent
+                    await runtime.PublishAsync(new EvalPolicyViolationEvent
                     {
                         EvaluatorName = evaluatorName,
                         MetricName = metricName,
@@ -367,7 +498,7 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
         string triggerEvaluatorVersion,
         TurnEvaluationContext turnCtx,
         AnnotationRequestedEvent request,
-        AfterMessageTurnContext hookCtx,
+        LiveEvaluationExecutionSnapshot runtime,
         CancellationToken ct)
     {
         if (AnnotationQueue is null)
@@ -376,9 +507,7 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
         AnnotationResponseEvent response;
         try
         {
-            response = await hookCtx.RequestAsync<AnnotationRequestedEvent, AnnotationResponseEvent>(
-                request,
-                AnnotationQueue.LockTimeout).ConfigureAwait(false);
+            response = await runtime.RequestAnnotationAsync(request, AnnotationQueue.LockTimeout).ConfigureAwait(false);
         }
         catch (TimeoutException)
         {

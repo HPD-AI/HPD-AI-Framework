@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace HPD.Base;
 /// <summary>Defines base Schema Compatibility.</summary>
 public enum BaseSchemaCompatibility
@@ -182,15 +184,25 @@ public sealed record BaseLogicalField
     public required string StoredName { get; init; }
     /// <summary>Gets or sets type.</summary>
     public required string Type { get; init; }
-    /// <summary>Gets or sets required.</summary>
-    public bool Required { get; init; }
-    /// <summary>Gets or sets nullable.</summary>
-    public bool Nullable { get; init; }
+    /// <summary>Gets the independent canonical field-presence contract.</summary>
+    public BaseFieldPresence Presence { get; init; }
+    /// <summary>Gets the independent canonical explicit-null contract.</summary>
+    public BaseFieldNullability Nullability { get; init; }
+    /// <summary>Gets the closed scalar kind.</summary>
+    public BaseScalarKind? ScalarKind { get; init; }
+    /// <summary>Gets the scalar codec checksum.</summary>
+    public BaseSchemaAuthorityChecksum? ScalarCodecChecksum { get; init; }
+    /// <summary>Gets the scalar constraint checksum.</summary>
+    public BaseScalarConstraintChecksum? ScalarConstraintChecksum { get; init; }
+    /// <summary>Gets the exact typed record-ID target collection.</summary>
+    public string? RecordTargetCollectionId { get; init; }
     /// <summary>Gets the normalized confidentiality class.</summary>
     public BaseFieldConfidentiality Confidentiality { get; init; }
     /// <summary>Gets the normalized complete disclosure policy.</summary>
     public required BaseFieldDisclosurePolicy Disclosure { get; init; }
-    /// <summary>Gets the decoded binary limit when this is a binary field.</summary>
+    /// <summary>Gets the decoded binary minimum when this is a binary field.</summary>
+    public int? MinimumBytes { get; init; }
+    /// <summary>Gets the decoded binary maximum when this is a binary field.</summary>
     public int? MaximumBytes { get; init; }
     /// <summary>Gets the exported-subject reference contract when this is a reference field.</summary>
     public BaseSubjectReferenceDefinition? SubjectReference { get; init; }
@@ -207,6 +219,16 @@ public sealed record BaseLogicalIndex
     public required string[] FieldIds { get; init; }
     /// <summary>Gets or sets unique.</summary>
     public bool Unique { get; init; }
+    /// <summary>Gets the positive logical-index contract version.</summary>
+    public long Version { get; init; }
+    /// <summary>Gets whether exact provider enforcement is required.</summary>
+    public bool StoreRequired { get; init; }
+    /// <summary>Gets the ordered exact index parts.</summary>
+    public BaseLogicalIndexPart[]? Parts { get; init; }
+    /// <summary>Gets the index-owned membership predicate checksum.</summary>
+    public BaseSchemaAuthorityChecksum? PredicateChecksum { get; init; }
+    /// <summary>Gets the complete logical-index checksum.</summary>
+    public BaseLogicalIndexChecksum? Checksum { get; init; }
 }
 
 /// <summary>Contains one canonical logical vector-index asset.</summary>
@@ -250,6 +272,10 @@ public sealed record BaseLogicalRead
 {
     /// <summary>Gets or sets id.</summary>
     public required string Id { get; init; }
+    /// <summary>Gets the installed registered-read topology.</summary>
+    public required BaseRelationalReadTopology Topology { get; init; }
+    /// <summary>Gets the installed compound-plan checksum when applicable.</summary>
+    public string? CompoundChecksum { get; init; }
     /// <summary>Gets or sets source Ids.</summary>
     public required string[] SourceIds { get; init; }
     /// <summary>Gets or sets projection Field Ids.</summary>
@@ -258,6 +284,14 @@ public sealed record BaseLogicalRead
     public required string ParameterSerializerContractChecksum { get; init; }
     /// <summary>Gets the row serializer checksum.</summary>
     public required string RowSerializerContractChecksum { get; init; }
+    /// <summary>Gets the maximum provider execution duration in milliseconds.</summary>
+    public required int MaximumExecutionMilliseconds { get; init; }
+    /// <summary>Gets the installed pagination mode.</summary>
+    public required BaseRegisteredReadPaginationMode PaginationMode { get; init; }
+    /// <summary>Gets the installed maximum offset; page-only reads require zero.</summary>
+    public required int MaximumOffset { get; init; }
+    /// <summary>Gets ordered internal canonical-JSON authority checksums bound by this read.</summary>
+    public required string[] CanonicalJsonAuthorityChecksums { get; init; }
 }
 
 /// <summary>Contains the public schema identity of one exported logical-subject contract.</summary>
@@ -532,6 +566,8 @@ public sealed record BaseSchemaApplyResult
     public required string Checksum { get; init; }
     /// <summary>Gets or sets state.</summary>
     public BaseSchemaMigrationState State { get; init; }
+    /// <summary>Gets exact provider lowering receipts for every installed exported subject.</summary>
+    public required ImmutableArray<BaseSubjectTombstoneMetadataLoweringReceipt> SubjectTombstoneMetadata { get; init; }
 }
 
 /// <summary>Contains authenticated plan facts passed to a provider after Runtime verification.</summary>
@@ -736,6 +772,22 @@ public interface IBaseSchemaManager
 /// <summary>Stable schema lifecycle error identifiers.</summary>
 public static class BaseSchemaErrorCodes
 {
+    /// <summary>Identifies an invalid L54 schema contract.</summary>
+    public const string ContractInvalid = "base.schema.contractInvalid";
+    /// <summary>Identifies an authoritative scalar constraint violation.</summary>
+    public const string ScalarConstraintViolated = "base.schema.scalarConstraintViolated";
+    /// <summary>Identifies an authoritative logical uniqueness violation.</summary>
+    public const string UniqueConstraintViolated = "base.schema.uniqueConstraintViolated";
+    /// <summary>Identifies unavailable exact schema capability.</summary>
+    public const string CapabilityUnavailable = "base.schema.capabilityUnavailable";
+    /// <summary>Identifies exhausted bounded schema work.</summary>
+    public const string BudgetExceeded = "base.schema.budgetExceeded";
+    /// <summary>Identifies a confirmed logical-index transaction conflict.</summary>
+    public const string TransactionConflict = "base.schema.transactionConflict";
+    /// <summary>Identifies a logical index that cannot serve authoritative work until rebuilt.</summary>
+    public const string RebuildRequired = "base.schema.rebuildRequired";
+    /// <summary>Identifies hostile or malformed provider schema evidence.</summary>
+    public const string ProviderEvidenceInvalid = "base.schema.providerEvidenceInvalid";
     /// <summary>Provides invalid.</summary>
     public const string Invalid = "base.schema.invalid";
     /// <summary>Provides baseline Missing.</summary>

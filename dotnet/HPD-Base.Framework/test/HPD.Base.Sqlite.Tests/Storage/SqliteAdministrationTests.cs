@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -24,11 +25,12 @@ public sealed class SqliteAdministrationTests
             string zeros = new('0', 64);
             ExecuteSql(path, $"""
                 INSERT INTO hpd_base_activations(
-                  activation_id,definition_id,definition_version,definition_checksum,canonical_input,input_checksum,
+                  activation_id,definition_id,definition_version,definition_checksum,
+                  receipt_format_version,receipt_duplicate_lifetime_ms,receipt_backup_coverage,canonical_input,input_checksum,
                   scope_kind,scope_value,scope_digest,payload_checksum,fingerprint,state,generation,requested_due_at,
                   effective_due_at,priority,overlap_policy,eligible,control_checksum,attempt_number,claim_epoch,
                   claim_fence,claim_worker,lease_revision,lease_expires_at)
-                VALUES('restore-claim','definition',1,X'{zeros}',X'',X'{zeros}',0,'',X'{zeros}',X'{zeros}',X'{zeros}',
+                VALUES('restore-claim','definition',1,X'{zeros}',1,86400000,1,X'',X'{zeros}',0,'',X'{zeros}',X'{zeros}',X'{zeros}',
                   {(int)BaseActivationState.Claimed},2,1,1,0,0,1,X'{zeros}',1,1,X'{zeros}','worker',1,9999999999999);
                 """);
             var destination = new MemoryStream();
@@ -90,6 +92,142 @@ public sealed class SqliteAdministrationTests
 
             (await validator.ValidateBackupAsync(new MemoryStream(artifact[..^1]), ValidationRequest()))
                 .Error!.Code.Should().Be(BaseAdministrationErrorCodes.ArtifactInvalid);
+        }
+        finally { Cleanup(path); }
+    }
+
+    [Fact]
+    public async Task BackupPublishesExactActivationReceiptChainCoverageCheckpoint()
+    {
+        string path = Path.Combine(AdministrationTempDirectory(), $"hpd-base-admin-coverage-{Guid.NewGuid():N}.db");
+        using BaseOpaqueTokenProtector protector = Protector(18, Enumerable.Repeat((byte)0x18, 32).ToArray());
+        try
+        {
+            await using SqliteRecordStore store = Store(path, protector);
+            var destination = new MemoryStream();
+            OperationResult<BaseBackupManifest> created = await store.CreateBackupAsync(destination, BackupRequest());
+            created.IsSuccess().Should().BeTrue(created.Error?.Code);
+            BaseBackupManifest manifest = created.Value!;
+            byte[] artifactSha256 = SHA256.HashData(destination.ToArray());
+
+            using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path};Pooling=False");
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT artifact_id,artifact_sha256,application_id,logical_store_id,store_instance_id,restore_epoch,receipt_sequence,receipt_ordered_checksum,checkpoint_generation,committed_at,checkpoint_checksum FROM hpd_base_activation_backup_coverage_checkpoints;";
+            using Microsoft.Data.Sqlite.SqliteDataReader reader = command.ExecuteReader();
+            reader.Read().Should().BeTrue();
+            var checkpoint = new BaseActivationBackupCoverageCheckpoint
+            {
+                FormatVersion = 1,
+                ArtifactId = reader.GetString(0),
+                ArtifactSha256 = ((byte[])reader[1]).ToImmutableArray(),
+                ApplicationId = reader.GetString(2),
+                LogicalStoreId = reader.GetString(3),
+                StoreInstanceId = reader.GetString(4),
+                RestoreEpoch = reader.GetInt64(5),
+                ReceiptSequence = reader.GetInt64(6),
+                ReceiptOrderedChecksum = ((byte[])reader[7]).ToImmutableArray(),
+                Generation = reader.GetInt64(8),
+                CommittedAt = reader.GetInt64(9),
+                Checksum = ((byte[])reader[10]).ToImmutableArray(),
+            };
+            reader.Read().Should().BeFalse();
+            checkpoint.ArtifactId.Should().Be(Convert.ToHexStringLower(artifactSha256));
+            checkpoint.ArtifactSha256.Should().Equal(artifactSha256);
+            checkpoint.ReceiptSequence.Should().Be(manifest.ActivationInstanceReceiptSequence);
+            checkpoint.ReceiptOrderedChecksum.Should().Equal(manifest.ActivationInstanceReceiptOrderedChecksum);
+            BaseActivationBackupCoverageCheckpointContract.IsValid(checkpoint).Should().BeTrue();
+        }
+        finally { Cleanup(path); }
+    }
+
+    [Fact]
+    public async Task RestoreRebindsRetainedActivationBackupCoverageCheckpointsToTargetEpoch()
+    {
+        string path = Path.Combine(AdministrationTempDirectory(), $"hpd-base-admin-coverage-restore-{Guid.NewGuid():N}.db");
+        using BaseOpaqueTokenProtector protector = Protector(21, Enumerable.Repeat((byte)0x21, 32).ToArray());
+        try
+        {
+            await using SqliteRecordStore store = Store(path, protector);
+            var firstArtifact = new MemoryStream();
+            (await store.CreateBackupAsync(firstArtifact, BackupRequest())).IsSuccess().Should().BeTrue();
+            var restoreArtifact = new MemoryStream();
+            BaseBackupManifest manifest = (await store.CreateBackupAsync(
+                restoreArtifact, BackupRequest())).Value!;
+            OperationResult<BaseRestoreResult> restored = await store.RestoreAsync(
+                new MemoryStream(restoreArtifact.ToArray()), RestoreRequest(manifest));
+            restored.IsSuccess().Should().BeTrue(restored.Error?.Code);
+
+            using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path};Pooling=False");
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT restore_epoch,checkpoint_checksum,artifact_id,artifact_sha256,application_id,logical_store_id,store_instance_id,receipt_sequence,receipt_ordered_checksum,checkpoint_generation,committed_at FROM hpd_base_activation_backup_coverage_checkpoints;";
+            using Microsoft.Data.Sqlite.SqliteDataReader reader = command.ExecuteReader();
+            reader.Read().Should().BeTrue();
+            var checkpoint = new BaseActivationBackupCoverageCheckpoint
+            {
+                FormatVersion = 1, RestoreEpoch = reader.GetInt64(0),
+                Checksum = ((byte[])reader[1]).ToImmutableArray(), ArtifactId = reader.GetString(2),
+                ArtifactSha256 = ((byte[])reader[3]).ToImmutableArray(), ApplicationId = reader.GetString(4),
+                LogicalStoreId = reader.GetString(5), StoreInstanceId = reader.GetString(6),
+                ReceiptSequence = reader.GetInt64(7), ReceiptOrderedChecksum = ((byte[])reader[8]).ToImmutableArray(),
+                Generation = reader.GetInt64(9), CommittedAt = reader.GetInt64(10),
+            };
+            reader.Read().Should().BeFalse("the second checkpoint is published after its own artifact snapshot");
+            checkpoint.RestoreEpoch.Should().Be(manifest.RestoreEpoch + 1);
+            BaseActivationBackupCoverageCheckpointContract.IsValid(checkpoint).Should().BeTrue();
+        }
+        finally { Cleanup(path); }
+    }
+
+    [Fact]
+    public async Task ProviderReadinessRejectsCorruptActivationBackupCoverageCheckpoint()
+    {
+        string path = Path.Combine(AdministrationTempDirectory(), $"hpd-base-admin-coverage-corrupt-{Guid.NewGuid():N}.db");
+        using BaseOpaqueTokenProtector protector = Protector(19, Enumerable.Repeat((byte)0x19, 32).ToArray());
+        try
+        {
+            await using (SqliteRecordStore store = Store(path, protector))
+            {
+                var destination = new MemoryStream();
+                (await store.CreateBackupAsync(destination, BackupRequest())).IsSuccess().Should().BeTrue();
+            }
+            ExecuteSql(path, "UPDATE hpd_base_activation_backup_coverage_checkpoints SET checkpoint_checksum=zeroblob(32);");
+
+            Action reopen = () => Store(path, protector).DisposeAsync().AsTask().GetAwaiter().GetResult();
+            reopen.Should().Throw<InvalidOperationException>()
+                .WithMessage("*activation-backup-coverage-checkpoint-invalid*");
+        }
+        finally { Cleanup(path); }
+    }
+
+    [Fact]
+    public async Task ProviderReadinessRejectsCorruptActivationControlReceiptAuthority()
+    {
+        string path = Path.Combine(AdministrationTempDirectory(), $"hpd-base-admin-control-receipt-corrupt-{Guid.NewGuid():N}.db");
+        using BaseOpaqueTokenProtector protector = Protector(20, Enumerable.Repeat((byte)0x20, 32).ToArray());
+        try
+        {
+            await using (SqliteRecordStore store = Store(path, protector)) { }
+            byte[] fingerprint = Enumerable.Repeat((byte)0x21, 32).ToArray();
+            byte[] result = "{}"u8.ToArray();
+            byte[] resultChecksum = SHA256.HashData(result);
+            string receiptKey = "control-receipt-readiness";
+            string kind = "activation-maintenance";
+            byte[] authority = BaseActivationControlReceiptContract.AuthorityChecksum(
+                receiptKey, kind, fingerprint, resultChecksum).ToArray();
+            ExecuteSql(path, $"""
+                INSERT INTO hpd_base_activation_control_receipts(
+                  receipt_key,operation_kind,fingerprint,result_json,result_checksum,authority_checksum)
+                VALUES('{receiptKey}','{kind}',X'{Convert.ToHexString(fingerprint)}',X'{Convert.ToHexString(result)}',
+                  X'{Convert.ToHexString(resultChecksum)}',X'{Convert.ToHexString(authority)}');
+                UPDATE hpd_base_activation_control_receipts SET authority_checksum=zeroblob(32)
+                WHERE receipt_key='{receiptKey}';
+                """);
+
+            Action reopen = () => Store(path, protector).DisposeAsync().AsTask().GetAwaiter().GetResult();
+            reopen.Should().Throw<InvalidOperationException>()
+                .WithMessage("*activation-control-receipt-invalid*");
         }
         finally { Cleanup(path); }
     }

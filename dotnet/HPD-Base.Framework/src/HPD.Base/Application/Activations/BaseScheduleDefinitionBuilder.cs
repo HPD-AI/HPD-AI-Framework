@@ -9,8 +9,41 @@ namespace HPD.Base;
 /// <summary>Builds and canonically seals graph-owned durable schedule definitions.</summary>
 public static class BaseScheduleDefinitionBuilder
 {
+    /// <summary>Creates a schedule whose canonical input is owned by one generated worker activation authority.</summary>
+    public static BaseGeneratedScheduleRegistration CreateGenerated<TInput, TResult>(
+        BaseScheduleDefinitionDraft draft,
+        BaseActivationHandlerRegistration<TInput, TResult> activation,
+        BaseGeneratedActivationDtoAuthority<TInput, TResult> authority,
+        TInput input)
+    {
+        ArgumentNullException.ThrowIfNull(draft); ArgumentNullException.ThrowIfNull(activation);
+        ArgumentNullException.ThrowIfNull(authority); ArgumentNullException.ThrowIfNull(input);
+        if (activation.Definition.OwningModuleId != authority.OwningModuleId
+            || !CryptographicOperations.FixedTimeEquals(activation.Definition.DtoAuthorityChecksum.AsSpan(), authority.DtoAuthorityChecksum.Span))
+            throw new InvalidOperationException("base.activation.scheduleInvalid");
+        byte[] bytes = authority.CanonicalInput(input);
+        if (bytes.LongLength > activation.Definition.Limits.MaximumInputBytes)
+            throw new InvalidOperationException("base.activation.scheduleInvalid");
+        BaseScheduleDefinition definition = Create(new BaseScheduleDefinition
+        {
+            Id = draft.Id, Version = draft.Version, OwningModuleId = draft.OwningModuleId,
+            ManageGrantId = draft.ManageGrantId, MaterializeGrantId = draft.MaterializeGrantId,
+            Activation = new BaseActivationDefinitionKey
+            {
+                Id = activation.Definition.Id, Version = activation.Definition.Version,
+                Checksum = activation.Definition.Checksum.ToArray().ToImmutableArray(),
+            },
+            CanonicalInput = bytes.ToImmutableArray(), InputChecksum = SHA256.HashData(bytes).ToImmutableArray(),
+            Expression = draft.Expression, GapPolicy = draft.GapPolicy, TimeOverlapPolicy = draft.TimeOverlapPolicy,
+            MisfirePolicy = draft.MisfirePolicy, ActivationOverlapPolicy = draft.ActivationOverlapPolicy,
+            OverlapKeyKind = draft.OverlapKeyKind, ConcurrencyKey = draft.ConcurrencyKey,
+            Priority = draft.Priority, MaximumSplayMilliseconds = draft.MaximumSplayMilliseconds, Checksum = [],
+        });
+        return new BaseGeneratedScheduleRegistration(definition);
+    }
+
     /// <summary>Validates, normalizes, and checksums one schedule definition.</summary>
-    public static BaseScheduleDefinition Create(BaseScheduleDefinition definition)
+    internal static BaseScheduleDefinition Create(BaseScheduleDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
         BaseApplicationId.Validate(definition.Id, nameof(definition.Id));
@@ -311,4 +344,31 @@ public static class BaseScheduleDefinitionBuilder
     }
 
     private static string Join(this int[] values) => string.Join(',', values);
+}
+
+/// <summary>Owns and verifies complete schedule definitions crossing a durable provider boundary.</summary>
+[System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+public static class BaseScheduleDefinitionContract
+{
+    /// <summary>Recursively owns one already-sealed schedule definition and rejects any checksum mismatch.</summary>
+    public static BaseScheduleDefinition OwnInstalled(BaseScheduleDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        ImmutableArray<byte> supplied = definition.Checksum;
+        BaseScheduleDefinition owned = BaseScheduleDefinitionBuilder.Create(definition);
+        if (supplied.Length != SHA256.HashSizeInBytes
+            || !CryptographicOperations.FixedTimeEquals(supplied.AsSpan(), owned.Checksum.AsSpan()))
+            throw new InvalidOperationException("base.activation.scheduleInvalid");
+        return owned;
+    }
+
+    internal static ImmutableArray<byte> AuthorityChecksum(
+        BaseScheduleDefinition definition,
+        long generation,
+        bool enabled,
+        long epoch,
+        long? last,
+        long? next) => SHA256.HashData(Encoding.UTF8.GetBytes(
+            $"base.activation.schedule.authority.v2\0{definition.Id}\n{definition.Version}\n{Convert.ToHexString(definition.Checksum.AsSpan())}\n{generation}\n{enabled}\n{epoch}\n{last?.ToString(CultureInfo.InvariantCulture) ?? "none"}\n{next?.ToString(CultureInfo.InvariantCulture) ?? "none"}"))
+            .ToImmutableArray();
 }

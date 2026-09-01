@@ -30,12 +30,16 @@ public interface ITokenService
     /// <see cref="Options.HPDAuthOptions.AdditionalClaimsFactory"/>.
     /// </summary>
     /// <param name="user">The authenticated user for whom tokens are being issued.</param>
+    /// <param name="identity">Stable logical-attempt identity used for response-loss recovery.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>
     /// A <see cref="TokenResponse"/> containing the access token, refresh token,
     /// expiration metadata, and an embedded <see cref="UserTokenDto"/>.
     /// </returns>
-    Task<TokenResponse> GenerateTokensAsync(ApplicationUser user, CancellationToken ct = default);
+    Task<TokenResponse> GenerateTokensAsync(
+        ApplicationUser user,
+        TokenIssuanceIdentity identity,
+        CancellationToken ct = default);
 
     /// <summary>
     /// Rotates a refresh token: validates the supplied token, marks it as used,

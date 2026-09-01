@@ -11,6 +11,8 @@ namespace HPDOS.ToolHarnesses.Middleware;
 [LanguageServerRootMarkers("deno.json", "deno.jsonc")]
 public sealed partial class DenoLanguageServer : ILanguageServerProvider
 {
+    public string ConfigurationIdentity => "deno-language-server:v1";
+
     public ValueTask<string?> ResolveRootAsync(
         LanguageServerRootContext context,
         CancellationToken cancellationToken = default)

@@ -13,8 +13,8 @@ public static class AgentBuilderExtensions
     /// </summary>
     public static AgentBuilder WithGoogleAI(
         this AgentBuilder builder,
-        string? apiKey = null,
         string model = "gemini-2.0-flash",
+        ProviderAuthentication? authentication = null,
         Action<GoogleAIProviderConfig>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -27,8 +27,11 @@ public static class AgentBuilderExtensions
 
         var chatConfig = new ChatClientConfig
         {
-            ProviderKey = "google-ai",
-            ApiKey = apiKey,
+            Provider = new ProviderReference
+            {
+                Key = "google-ai",
+                Authentication = authentication ?? new ApiKeyProviderAuthentication { SecretKey = "google-ai:ApiKey" }
+            },
             ModelName = model
         };
         chatConfig.ProviderConfig = providerConfig;
@@ -38,4 +41,8 @@ public static class AgentBuilderExtensions
 
         return builder;
     }
+
+    /// <summary>Configures Google AI with a literal runtime-only API key.</summary>
+    public static AgentBuilder WithGoogleAI(this AgentBuilder builder, string model, ReadOnlySpan<char> apiKey, Action<GoogleAIProviderConfig>? configure = null) =>
+        builder.WithGoogleAI(model, builder.RegisterExplicitApiKey(apiKey), configure);
 }

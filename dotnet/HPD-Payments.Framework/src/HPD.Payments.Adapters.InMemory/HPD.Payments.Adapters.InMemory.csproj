@@ -8,5 +8,6 @@
     <ProjectReference Include="../HPD.Payments.Contracts/HPD.Payments.Contracts.csproj" />
     <ProjectReference Include="../HPD.Payments.Supporting/HPD.Payments.Supporting.csproj" />
     <ProjectReference Include="../HPD.Payments.Persistence/HPD.Payments.Persistence.csproj" />
+    <ProjectReference Include="../HPD.Payments.Runtime/HPD.Payments.Runtime.csproj" />
   </ItemGroup>
 </Project>

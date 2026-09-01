@@ -27,7 +27,11 @@ public static class AgentBuilderExtensions
 
         var chatConfig = new ChatClientConfig
         {
-            ProviderKey = "ollama",
+            Provider = new ProviderReference
+            {
+                Key = "ollama",
+                Authentication = new AnonymousProviderAuthentication()
+            },
             Endpoint = ResolveEndpoint(endpoint),
             ModelName = model
         };

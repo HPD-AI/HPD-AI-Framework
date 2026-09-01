@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <HpdAgentApplication>true</HpdAgentApplication>
+    <HpdAgentEventPrecompileRequireAnalyzer>false</HpdAgentEventPrecompileRequireAnalyzer>
     <IsPackable>true</IsPackable>
     <PackageId>HPD-Agent.FFI</PackageId>
     <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
@@ -29,7 +31,7 @@
   <!-- Core HPD-Agent reference -->
   <ItemGroup>
     <ProjectReference Include="../HPD-Agent/HPD-Agent.csproj" />
-    <ProjectReference Include="../HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
+    <ProjectReference Include="../HPD-Agent.Audio/HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
     <ProjectReference Include="../HPD-Agent.MCP/HPD-Agent.MCP.csproj" />
     <ProjectReference Include="../HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj"
                       OutputItemType="Analyzer"

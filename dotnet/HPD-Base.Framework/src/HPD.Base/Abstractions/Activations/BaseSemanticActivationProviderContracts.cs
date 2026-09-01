@@ -51,6 +51,10 @@ public sealed record BaseSemanticActivationCapability
     public required int MaximumMaintenancePageSize { get; init; }
     /// <summary>Gets the maximum sanitized inspection items/read operations per page.</summary>
     public required int MaximumInspectionSlotReads { get; init; }
+    /// <summary>Gets the maximum retained semantic-maintenance checkpoints.</summary>
+    public required int MaximumMaintenanceCheckpoints { get; init; }
+    /// <summary>Gets the maximum retained terminal semantic-maintenance receipts.</summary>
+    public required int MaximumMaintenanceReceipts { get; init; }
     /// <summary>Gets the provider deadline envelope.</summary>
     public required BaseSemanticActivationDeadlineCapability Deadlines { get; init; }
     /// <summary>Gets supported whole-store backup modes.</summary>
@@ -76,6 +80,7 @@ public static class BaseSemanticActivationCapabilityContract
         MaximumSlotReads = 0, MaximumActivationReads = 0, MaximumReadIntervals = 0, MaximumIndexOperations = 0,
         MaximumActivationBytes = 0, MaximumScopeDirectoryBytes = 0, MaximumEvidenceBytes = 0,
         MaximumReceiptBytes = 0, MaximumTransientBytes = 0, MaximumQuarantinedOperations = 0, MaximumMaintenancePageSize = 0, MaximumInspectionSlotReads = 0,
+        MaximumMaintenanceCheckpoints = 0, MaximumMaintenanceReceipts = 0,
         Deadlines = new BaseSemanticActivationDeadlineCapability
         {
             AcquisitionTimeout = TimeSpan.Zero, TransactionTimeout = TimeSpan.Zero,
@@ -95,12 +100,12 @@ public static class BaseSemanticActivationCapabilityContract
     };
 
     /// <summary>Gets the platform maximum provider envelope.</summary>
-    public static BaseSemanticActivationCapability BuiltIn(bool durable)
+    public static BaseSemanticActivationCapability BuiltIn(bool durable, bool maintenanceSupported)
     {
         BaseSemanticActivationCapability value = new()
         {
         Supported = true, SameTransactionModuleMutationSupported = true,
-        MaintenanceSupported = durable,
+        MaintenanceSupported = maintenanceSupported,
         RestoreRecoveryFloorsSupported = durable, MaximumDefinitions = 4096,
         MaximumKeyBytes = 1024, MaximumLiveSlots = 1_000_000,
         MaximumRetiredSlots = 1_000_000, MaximumAbsenceMarkers = 1_000_000,
@@ -109,7 +114,10 @@ public static class BaseSemanticActivationCapabilityContract
         MaximumIndexOperations = 8192, MaximumActivationBytes = 1_048_576,
         MaximumScopeDirectoryBytes = 65_536, MaximumEvidenceBytes = 1_048_576,
         MaximumReceiptBytes = 1_048_576, MaximumTransientBytes = 8_388_608, MaximumQuarantinedOperations = 8,
-        MaximumMaintenancePageSize = durable ? 256 : 0, MaximumInspectionSlotReads = durable ? 256 : 0,
+        MaximumMaintenancePageSize = maintenanceSupported ? 256 : 0,
+        MaximumInspectionSlotReads = maintenanceSupported ? 256 : 0,
+        MaximumMaintenanceCheckpoints = maintenanceSupported ? 8 : 0,
+        MaximumMaintenanceReceipts = maintenanceSupported ? 4096 : 0,
         Deadlines = new BaseSemanticActivationDeadlineCapability
         {
             AcquisitionTimeout = TimeSpan.FromSeconds(5), TransactionTimeout = TimeSpan.FromSeconds(30),
@@ -134,6 +142,7 @@ public static class BaseSemanticActivationCapabilityContract
         Int(value.MaximumOperationsPerTransaction); Int(value.MaximumScopeDirectoryReads); Int(value.MaximumSlotReads); Int(value.MaximumActivationReads);
         Int(value.MaximumReadIntervals); Int(value.MaximumIndexOperations); Long(value.MaximumActivationBytes); Long(value.MaximumScopeDirectoryBytes);
         Long(value.MaximumEvidenceBytes); Long(value.MaximumReceiptBytes); Long(value.MaximumTransientBytes); Int(value.MaximumQuarantinedOperations); Int(value.MaximumMaintenancePageSize); Int(value.MaximumInspectionSlotReads);
+        Int(value.MaximumMaintenanceCheckpoints); Int(value.MaximumMaintenanceReceipts);
         Long(value.Deadlines.AcquisitionTimeout.Ticks); Long(value.Deadlines.TransactionTimeout.Ticks); Long(value.Deadlines.CommitObservationTimeout.Ticks);
         Long(value.Deadlines.ReceiptResolutionTimeout.Ticks); Long(value.Deadlines.MaintenanceTimeout.Ticks); Long(value.Deadlines.QuarantineRetentionTimeout.Ticks);
         Enums(value.BackupModes.Select(static item => (int)item)); Enums(value.RestoreModes.Select(static item => (int)item));
@@ -169,6 +178,9 @@ public static class BaseSemanticActivationCapabilityContract
             : value.MaximumMaintenancePageSize is >= 1 and <= 256)
         && (!value.MaintenanceSupported ? value.MaximumInspectionSlotReads == 0
             : value.MaximumInspectionSlotReads is >= 1 and <= 256)
+        && (!value.MaintenanceSupported
+            ? value.MaximumMaintenanceCheckpoints == 0 && value.MaximumMaintenanceReceipts == 0
+            : value.MaximumMaintenanceCheckpoints == 8 && value.MaximumMaintenanceReceipts == 4096)
         && ValidDeadlines(value.Deadlines)
         && value.BackupModes.Distinct().Count() == value.BackupModes.Length
         && value.BackupModes.All(Enum.IsDefined)
@@ -185,6 +197,7 @@ public static class BaseSemanticActivationCapabilityContract
         && value.MaximumIndexOperations == 0 && value.MaximumActivationBytes == 0 && value.MaximumScopeDirectoryBytes == 0
         && value.MaximumEvidenceBytes == 0 && value.MaximumReceiptBytes == 0 && value.MaximumTransientBytes == 0 && value.MaximumQuarantinedOperations == 0
         && value.MaximumMaintenancePageSize == 0 && value.MaximumInspectionSlotReads == 0
+        && value.MaximumMaintenanceCheckpoints == 0 && value.MaximumMaintenanceReceipts == 0
         && value.BackupModes.IsDefaultOrEmpty && value.RestoreModes.IsDefaultOrEmpty
         && value.Deadlines.AcquisitionTimeout == TimeSpan.Zero && value.Deadlines.TransactionTimeout == TimeSpan.Zero
         && value.Deadlines.CommitObservationTimeout == TimeSpan.Zero && value.Deadlines.ReceiptResolutionTimeout == TimeSpan.Zero

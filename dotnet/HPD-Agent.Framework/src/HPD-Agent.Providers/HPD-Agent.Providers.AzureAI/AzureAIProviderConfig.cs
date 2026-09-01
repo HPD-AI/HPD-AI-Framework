@@ -4,28 +4,6 @@ using System.Text.Json.Serialization;
 namespace HPD.Agent.Providers.AzureAI;
 
 /// <summary>
-/// Authentication strategy for Azure AI provider client construction.
-/// </summary>
-[JsonConverter(typeof(JsonStringEnumConverter<AzureAIAuthMode>))]
-public enum AzureAIAuthMode
-{
-    /// <summary>
-    /// Use API key authentication when an API key is configured; otherwise use DefaultAzureCredential.
-    /// </summary>
-    Auto = 0,
-
-    /// <summary>
-    /// Use API key authentication. Only supported for direct Azure OpenAI-compatible endpoints.
-    /// </summary>
-    ApiKey = 1,
-
-    /// <summary>
-    /// Use DefaultAzureCredential.
-    /// </summary>
-    DefaultAzureCredential = 2
-}
-
-/// <summary>
 /// Azure AI Projects service API version used by AIProjectClientOptions.
 /// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter<AzureAIProjectServiceVersion>))]
@@ -99,12 +77,6 @@ public enum AzureAIOpenAIServiceVersion
 /// </summary>
 public class AzureAIProviderConfig : global::HPD.Agent.IProviderConfig
 {
-    /// <summary>
-    /// Authentication strategy used by the provider.
-    /// </summary>
-    [JsonPropertyName("authMode")]
-    public AzureAIAuthMode AuthMode { get; set; } = AzureAIAuthMode.Auto;
-
     /// <summary>
     /// Azure AI Projects service API version used by AIProjectClientOptions.
     /// </summary>

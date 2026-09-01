@@ -5,6 +5,42 @@ namespace HPD.Base.Tests.InMemory.Mutations;
 public sealed class PatchReplaceRevisionTests
 {
     [Fact]
+    public async Task Patch_removes_an_optional_non_nullable_field_by_stable_ID()
+    {
+        var store = new InMemoryRecordStore();
+        CollectionDefinition collection = InMemoryTestData.Collection() with
+        {
+            Fields =
+            [
+                new FieldDefinition
+                {
+                    Id = "item.title", ApplicationName = "Title", WireName = "title", Type = BaseFieldTypes.String,
+                    Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable,
+                },
+                new FieldDefinition
+                {
+                    Id = "item.status", ApplicationName = "Status", WireName = "status", Type = BaseFieldTypes.String,
+                    Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable,
+                },
+            ],
+        };
+        OperationResult<RecordEnvelope> created = await InMemoryMutationTestDriver.CreateAsync(store, collection,
+            new RecordCreateRequest { Payload = InMemoryTestData.Payload(("title", "old"), ("status", "active")) },
+            InMemoryTestData.Operation(BaseOperationKind.Create));
+
+        OperationResult<RecordEnvelope> result = await InMemoryMutationTestDriver.PatchAsync(store, collection,
+            created.Value!.Id,
+            new RecordPatchRequest
+            {
+                Patch = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = [] },
+                RemovedFieldIds = ["item.status"],
+            }, InMemoryTestData.Operation(BaseOperationKind.Patch));
+
+        result.Status.Should().Be(OperationStatus.Updated);
+        result.Value!.Payload.Fields.Should().ContainKey("title").And.NotContainKey("status");
+    }
+
+    [Fact]
     public async Task PatchMergesTopLevelFieldsAndPreservesExistingFields()
     {
         var store = new InMemoryRecordStore();
@@ -17,7 +53,7 @@ public sealed class PatchReplaceRevisionTests
         var patch = await InMemoryMutationTestDriver.PatchAsync(store,
             collection,
             create.Value!.Id,
-            new RecordPatchRequest { Patch = InMemoryTestData.Patch("title", "new") },
+            new RecordPatchRequest { Patch = InMemoryTestData.Patch("title", "new"), RemovedFieldIds = [] },
             InMemoryTestData.Operation(BaseOperationKind.Patch));
 
         patch.Status.Should().Be(OperationStatus.Updated);
@@ -42,6 +78,7 @@ public sealed class PatchReplaceRevisionTests
             create.Value!.Id,
             new RecordPatchRequest
             {
+                RemovedFieldIds = [],
                 Patch = new RecordPayload
                 {
                     Kind = RecordPayloadKind.FieldMap,
@@ -95,6 +132,7 @@ public sealed class PatchReplaceRevisionTests
             create.Value!.Id,
             new RecordPatchRequest
             {
+                RemovedFieldIds = [],
                 Patch = InMemoryTestData.Patch("title", "new"),
                 ExpectedRevision = stale
             },
@@ -149,12 +187,12 @@ public sealed class PatchReplaceRevisionTests
 
         var patch = await InMemoryMutationTestDriver.PatchAsync(store,
             collection,
-            new RecordId("missing"),
-            new RecordPatchRequest { Patch = InMemoryTestData.Patch("title", "new") },
+            RecordId.Create("missing"),
+            new RecordPatchRequest { Patch = InMemoryTestData.Patch("title", "new"), RemovedFieldIds = [] },
             InMemoryTestData.Operation(BaseOperationKind.Patch));
         var replace = await InMemoryMutationTestDriver.ReplaceAsync(store,
             collection,
-            new RecordId("missing"),
+            RecordId.Create("missing"),
             new RecordReplaceRequest { Payload = InMemoryTestData.Payload(("title", "new")) },
             InMemoryTestData.Operation(BaseOperationKind.Replace));
 

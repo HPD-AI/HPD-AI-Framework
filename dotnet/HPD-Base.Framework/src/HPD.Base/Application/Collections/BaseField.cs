@@ -7,6 +7,7 @@ namespace HPD.Base;
 /// <typeparam name="TValue">The field value type.</typeparam>
 public sealed class BaseField<TRecord, TValue> : IBaseFieldContract
 {
+    private BaseModuleCapturedField<TRecord, TValue>? _moduleMutation;
     internal BaseField(
         string id,
         string applicationName,
@@ -47,7 +48,35 @@ public sealed class BaseField<TRecord, TValue> : IBaseFieldContract
     /// Gets the query operations valid for this field.
     /// </summary>
     public BaseFieldOperator Operators { get; }
+    /// <summary>Gets the graph-owned module-mutation handle for this exact persisted field.</summary>
+    public BaseModuleCapturedField<TRecord, TValue> ModuleMutation => _moduleMutation
+        ?? throw new InvalidOperationException("base.moduleMutation.invalid");
+    /// <summary>Gets authority for constants admitted by this exact persisted field.</summary>
+    public BaseModuleConstantAuthority<TValue> ConstantAuthority => ModuleMutation.ConstantAuthority;
+    /// <summary>
+    /// Creates the opaque removal authority for this generated optional field.
+    /// </summary>
+    /// <returns>An application-safe removal authority bound to this field and record type.</returns>
+    /// <exception cref="InvalidOperationException">The field is required or is not bound to the finalized graph.</exception>
+    public BaseFieldRemoval<TRecord> Removal()
+    {
+        if (ModuleMutation.Authority.Presence != BaseFieldPresence.Optional)
+            throw new InvalidOperationException("base.runtime.payload.requiredField");
+        return new BaseFieldRemoval<TRecord>(Id);
+    }
+    internal void BindModuleMutation(BaseModuleValueType authority) =>
+        _moduleMutation = new(this, authority);
     Type IBaseFieldContract.ValueType => typeof(TValue);
+}
+
+/// <summary>
+/// Carries graph-owned authority to remove one optional field from a typed record patch.
+/// </summary>
+/// <typeparam name="TRecord">The persisted record type that owns the field.</typeparam>
+public sealed class BaseFieldRemoval<TRecord>
+{
+    internal BaseFieldRemoval(string fieldId) => FieldId = fieldId;
+    internal string FieldId { get; }
 }
 
 internal interface IBaseFieldContract

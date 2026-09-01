@@ -9,7 +9,7 @@ public static class ScalewayAgentBuilderExtensions
     public static AgentBuilder WithScaleway(
         this AgentBuilder builder,
         string model = ScalewayProvider.DefaultChatModel,
-        string? apiKey = null,
+        ProviderAuthentication? authentication = null,
         string? endpoint = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -21,8 +21,11 @@ public static class ScalewayAgentBuilderExtensions
 
         var chatConfig = new ChatClientConfig
         {
-            ProviderKey = "scaleway",
-            ApiKey = apiKey,
+            Provider = new ProviderReference
+            {
+                Key = "scaleway",
+                Authentication = authentication ?? new ApiKeyProviderAuthentication { SecretKey = "scaleway:ApiKey" }
+            },
             Endpoint = endpoint,
             ModelName = model
         };
@@ -32,4 +35,6 @@ public static class ScalewayAgentBuilderExtensions
 
         return builder;
     }
+    /// <summary>Configures Scaleway with a literal runtime-only API key.</summary>
+    public static AgentBuilder WithScaleway(this AgentBuilder builder, string model, ReadOnlySpan<char> apiKey, string? endpoint = null) => builder.WithScaleway(model, builder.RegisterExplicitApiKey(apiKey), endpoint);
 }

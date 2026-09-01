@@ -1,4 +1,8 @@
-import type { BackgroundTaskNotificationRule } from './events.js';
+import type {
+  AgentOperationCapabilities,
+  AgentOperationKind,
+  AgentOperationNotificationPolicy,
+} from './operations.js';
 
 /**
  * Client Tools Protocol Types
@@ -47,36 +51,13 @@ export interface ClientToolPolicy {
   destructive?: boolean;
   idempotent?: boolean;
   invocationModePolicy?: AgentInvocationModePolicy;
-  backgroundNotification?: BackgroundTaskNotificationRule;
+  operationNotification?: AgentOperationNotificationPolicy;
 }
 
 export type AgentInvocationModePolicy =
   | 'SynchronousOnly'
   | 'BackgroundOnly'
   | 'ModelChoice'
-  | string;
-
-export type BackgroundHandleKind =
-  | 'Process'
-  | 'Workflow'
-  | 'Agent'
-  | 'McpOperation'
-  | 'ClientToolOperation'
-  | 'BrowserSession'
-  | 'FileWatcher'
-  | 'Export'
-  | 'IndexingJob'
-  | 'Runtime'
-  | 'Other';
-
-export type BackgroundHandleOperation =
-  | 'None'
-  | 'Status'
-  | 'Read'
-  | 'Stop'
-  | 'Cancel'
-  | 'Artifacts'
-  | 'Events'
   | string;
 
 // ============================================
@@ -377,11 +358,11 @@ export interface ClientToolInvokeOutcome {
   /** Client-owned operation id for accepted background work. */
   clientOperationId?: string;
 
-  /** Optional handle kind when the accepted background operation is controllable. */
-  handleKind?: BackgroundHandleKind;
+  /** Provider operation kind when accepted background work is controllable. */
+  operationKind?: AgentOperationKind;
 
-  /** Operations supported by the background handle. */
-  supportedOperations?: BackgroundHandleOperation[];
+  /** Controls supported by the provider operation. */
+  operationCapabilities?: AgentOperationCapabilities;
 
   /** State changes to apply before next iteration */
   augmentation?: ClientToolAugmentation;
@@ -539,8 +520,8 @@ export function acceptClientToolBackground(
   clientOperationId: string,
   options: {
     content?: ToolResultContent[] | string;
-    handleKind?: BackgroundHandleKind;
-    supportedOperations?: BackgroundHandleOperation[];
+    operationKind?: AgentOperationKind;
+    operationCapabilities?: AgentOperationCapabilities;
     augmentation?: ClientToolAugmentation;
   } = {},
 ): ClientToolInvokeOutcome {
@@ -549,8 +530,8 @@ export function acceptClientToolBackground(
     outcome: 'AcceptedBackground',
     clientOperationId,
     content: typeof options.content === 'string' ? createTextResult(options.content) : options.content,
-    handleKind: options.handleKind,
-    supportedOperations: options.supportedOperations,
+    operationKind: options.operationKind,
+    operationCapabilities: options.operationCapabilities,
     augmentation: options.augmentation,
   };
 }

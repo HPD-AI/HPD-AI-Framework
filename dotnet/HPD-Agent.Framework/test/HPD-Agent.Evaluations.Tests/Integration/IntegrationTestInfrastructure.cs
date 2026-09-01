@@ -24,7 +24,7 @@ internal sealed class StubProviderRegistry : IProviderRegistry
         providerKey == "test" ? new StubChatClientProvider(_client ?? new StubChatClient()) : null;
 
     public TProvider? GetProvider<TProvider>(string providerKey)
-        where TProvider : class, IProvider
+        where TProvider : class
         => GetProvider(providerKey) as TProvider;
 
     public IReadOnlyCollection<string> GetRegisteredProviders() => ["test"];
@@ -33,11 +33,13 @@ internal sealed class StubProviderRegistry : IProviderRegistry
     public void Clear() { }
 }
 
-internal sealed class StubChatClientProvider(IChatClient client) : IChatClientProvider
+internal sealed class StubChatClientProvider(IChatClient client) : IProvider, IProviderClientFactory<IChatClient>
 {
     public string ProviderKey => "test";
     public string DisplayName => "Test";
-    public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default) => client;
+    public ProviderClientCredentialBinding ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor) => ProviderClientCredentialBinding.RequestTime;
+    public ValueTask<ProviderClientConstruction<IChatClient>> CreateAsync(ProviderClientConstructionContext context, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(new ProviderClientConstruction<IChatClient> { Client = client, Owner = ProviderClientConstructionUtilities.Own() });
     public HPD.Agent.ErrorHandling.IProviderErrorHandler CreateErrorHandler() => new StubErrorHandler();
     public ProviderMetadata GetMetadata() => new()
     {
@@ -56,7 +58,7 @@ internal sealed class StubChatClientProvider(IChatClient client) : IChatClientPr
             }
         }
     };
-    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family) => ProviderValidationResult.Success();
+    public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config) => ProviderValidationResult.Success();
 }
 
 internal sealed class StubErrorHandler : HPD.Agent.ErrorHandling.IProviderErrorHandler

@@ -167,7 +167,7 @@ internal sealed class DefaultBaseRecordRuntime(
                 AcquisitionTimeout = _relationalOptions.SnapshotAcquisitionTimeout,
                 ExecutionTimeout = _relationalOptions.MaxExecutionDuration,
                 MaxResultRows = Math.Min(_relationalOptions.MaxIncludedRecords, includes.Includes.MaxRecords),
-                MaxResultBytes = _relationalOptions.MaxResultBytes,
+                MaxResultBytes = _relationalOptions.MaxIncludeResultBytes,
             }, cancellationToken).AsTask().WaitAsync(_relationalOptions.MaxExecutionDuration, cancellationToken).ConfigureAwait(false);
         }
         catch (TimeoutException)
@@ -205,7 +205,7 @@ internal sealed class DefaultBaseRecordRuntime(
             query.Include!,
             policies,
             Math.Min(_relationalOptions.MaxIncludedRecords, includes.Includes.MaxRecords),
-            _relationalOptions.MaxResultBytes);
+            _relationalOptions.MaxIncludeResultBytes);
         if (resultValidation != IncludeResultValidation.Valid)
             return OperationResults.StoreError<RecordPage>(new BaseError
             {
@@ -440,6 +440,14 @@ internal sealed class DefaultBaseRecordRuntime(
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (!id.IsValid)
+            return OperationResults.ValidationFailed<RecordEnvelope>(new BaseError
+            {
+                Code = "base.runtime.recordId.invalid",
+                Message = "Record id is invalid.",
+                Category = ErrorCategory.Validation,
+                Target = "id"
+            });
         var context = Normalize(operation, BaseOperationKind.Get, collectionId, id);
         using var activity = HPDBaseRuntimeTelemetry.StartRuntimeOperation(
             HPDBaseTelemetrySpans.RuntimeRecordsGet,
@@ -447,23 +455,6 @@ internal sealed class DefaultBaseRecordRuntime(
             collectionId,
             context);
         var startedAt = Stopwatch.GetTimestamp();
-        if (string.IsNullOrWhiteSpace(id.Value))
-        {
-            return Finish(
-                activity,
-                OperationResults.ValidationFailed<RecordEnvelope>(new BaseError
-                {
-                    Code = "base.runtime.recordId.invalid",
-                    Message = "Record id must be non-empty.",
-                    Category = ErrorCategory.Validation,
-                    Target = "id"
-                }),
-                BaseOperationKind.Get,
-                collectionId,
-                context,
-                startedAt);
-        }
-
         var prepared = await PrepareReadStoreAsync<RecordEnvelope>(
             collectionId,
             principal,

@@ -9,6 +9,7 @@ using System.Runtime.CompilerServices;
 
 // Make internals visible to the MCP layer (needed for AddParentToolMetadata in flat mode)
 [assembly: InternalsVisibleTo("HPD-Agent.MCP")]
+[assembly: InternalsVisibleTo("HPD-Agent.MCP.Tasks")]
 
 // Make internals visible to the OpenAPI layer (needed for IOpenApiLoader, OpenApiSourceRegistration, OpenApiLoadResult)
 [assembly: InternalsVisibleTo("HPD-Agent.OpenApi")]
@@ -23,6 +24,7 @@ using System.Runtime.CompilerServices;
 
 // Make internals visible to the main test project (needed for Skill internals, session construction, and state assertions)
 [assembly: InternalsVisibleTo("HPD-Agent.Tests")]
+[assembly: InternalsVisibleTo("HPD-Agent.EventComposition.AotSmoke")]
 
 // Make internals visible to the audio test project (needed for Session/Thread construction in audio middleware tests)
 [assembly: InternalsVisibleTo("HPD-Agent.Audio.Tests")]

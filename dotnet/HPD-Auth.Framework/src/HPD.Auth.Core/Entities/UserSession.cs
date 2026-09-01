@@ -26,7 +26,7 @@ public class UserSession
     public Guid UserId { get; set; }
 
     /// <summary>
-    /// v2.2: Authenticator Assurance Level ( pattern).
+    /// v2.2: Authenticator Assurance Level.
     /// Enables step-up authentication for sensitive operations.
     /// - aal1: Password or Social Login
     /// - aal2: Password + TOTP/SMS/Email OTP

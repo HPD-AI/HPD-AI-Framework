@@ -3,6 +3,8 @@ using FluentAssertions;
 using HPD.Agent;
 using HPD.Agent.Hosting.Data;
 using HPD.Agent.Hosting.Serialization;
+using HPD.Agent.Providers;
+using HPD.Agent.Permissions;
 using HPD.Agent.Serialization;
 using Microsoft.Extensions.AI;
 
@@ -14,6 +16,7 @@ namespace HPD.Agent.Hosting.Tests.Data;
 /// </summary>
 public class DtoSerializationTests
 {
+    private static readonly AgentInputCodec InputCodec = new(ProviderComposition.Create([]));
     private readonly JsonSerializerOptions _options;
 
     public DtoSerializationTests()
@@ -300,7 +303,11 @@ public class DtoSerializationTests
             {
                 Clients = new AgentClientsConfig { Chat = new ChatClientConfig
                 {
-                    ProviderKey = "anthropic",
+                    Provider = new ProviderReference
+                    {
+                        Key = "anthropic", Backend = "platform",
+                        Authentication = new ApiKeyProviderAuthentication { SecretKey = "anthropic:ApiKey" }
+                    },
                     ModelName = "claude-sonnet-4-5",
                     Temperature = 0.7,
                     MaxOutputTokens = 4000
@@ -312,15 +319,15 @@ public class DtoSerializationTests
                 },
                 Security = new AgentSecurityRunConfig
                 {
-                    PermissionOverrides = new Dictionary<string, bool> { ["file_write"] = true }
+                    PermissionOverrides = [new(new("file_write"), RequiresPermission: true)]
                 },
                 Streaming = new StreamingRunConfig { CoalesceDeltas = true }
             }
         };
 
         // Act
-        var json = AgentEventSerializer.ToJson(original);
-        var deserialized = AgentEventSerializer.FromJson(json) as UserMessagesInputEvent;
+        var json = InputCodec.Serialize(original);
+        var deserialized = InputCodec.Deserialize(json) as UserMessagesInputEvent;
 
         // Assert
         deserialized.Should().NotBeNull();
@@ -361,8 +368,8 @@ public class DtoSerializationTests
             }
         };
 
-        var json = AgentEventSerializer.ToJson(original);
-        var deserialized = AgentEventSerializer.FromJson(json) as CompactThreadInputEvent;
+        var json = InputCodec.Serialize(original);
+        var deserialized = InputCodec.Deserialize(json) as CompactThreadInputEvent;
 
         deserialized.Should().NotBeNull();
         deserialized!.SessionId.Should().Be("session-123");

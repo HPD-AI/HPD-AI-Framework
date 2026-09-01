@@ -103,7 +103,7 @@ internal sealed class AgentRuntimeFunctionExecutor : IRuntimeFunctionExecutor
         var batchId = Guid.NewGuid().ToString("N");
         for (var i = 0; i < calls.Count; i++)
         {
-            var call = calls[i];
+            var call = FunctionExecutionCore.NormalizeProviderFunctionCall(calls[i]);
             var invocation = new ToolInvocationInfo(
                 batchId,
                 call.CallId,

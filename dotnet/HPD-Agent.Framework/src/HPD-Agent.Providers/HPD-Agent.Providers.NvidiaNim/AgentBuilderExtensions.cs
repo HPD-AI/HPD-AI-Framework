@@ -9,7 +9,7 @@ public static class NvidiaNimAgentBuilderExtensions
     public static AgentBuilder WithNvidiaNim(
         this AgentBuilder builder,
         string model = NvidiaNimProvider.DefaultChatModel,
-        string? apiKey = null,
+        ProviderAuthentication? authentication = null,
         string? endpoint = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -21,8 +21,11 @@ public static class NvidiaNimAgentBuilderExtensions
 
         var chatConfig = new ChatClientConfig
         {
-            ProviderKey = "nvidia-nim",
-            ApiKey = apiKey,
+            Provider = new ProviderReference
+            {
+                Key = "nvidia-nim",
+                Authentication = authentication ?? new ApiKeyProviderAuthentication { SecretKey = "nvidia-nim:ApiKey" }
+            },
             Endpoint = endpoint,
             ModelName = model
         };
@@ -32,4 +35,6 @@ public static class NvidiaNimAgentBuilderExtensions
 
         return builder;
     }
+    /// <summary>Configures NVIDIA NIM with a literal runtime-only API key.</summary>
+    public static AgentBuilder WithNvidiaNim(this AgentBuilder builder, string model, ReadOnlySpan<char> apiKey, string? endpoint = null) => builder.WithNvidiaNim(model, builder.RegisterExplicitApiKey(apiKey), endpoint);
 }

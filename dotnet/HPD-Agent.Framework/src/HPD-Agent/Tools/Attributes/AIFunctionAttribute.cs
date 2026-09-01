@@ -1,6 +1,74 @@
 using System;
 using HPD.Agent;
 
+/// <summary>Declares how an action overrides its containing function's invocation-mode policy.</summary>
+public enum AIFunctionActionInvocationModePolicy
+{
+    /// <summary>Uses the policy declared by the containing function.</summary>
+    Inherit,
+    /// <summary>The action always completes before returning.</summary>
+    SynchronousOnly,
+    /// <summary>The action always runs as background work.</summary>
+    BackgroundOnly,
+    /// <summary>The model may choose synchronous or background execution for the action.</summary>
+    ModelChoice
+}
+
+/// <summary>Declares how an action overrides its containing function's invocation-mode handling.</summary>
+public enum AIFunctionActionInvocationModeHandling
+{
+    /// <summary>Uses the handling declared by the containing function.</summary>
+    Inherit,
+    /// <summary>The HPD runtime owns background registration.</summary>
+    Runtime,
+    /// <summary>The function body owns background registration.</summary>
+    ToolBody
+}
+
+/// <summary>Declares how an action overrides its containing function's permission requirement.</summary>
+public enum PermissionRequirement
+{
+    /// <summary>Uses the permission requirement declared by the containing function.</summary>
+    Inherit,
+    /// <summary>Requires permission for this action.</summary>
+    Required,
+    /// <summary>Does not require permission for this action unless configuration overrides it.</summary>
+    NotRequired
+}
+
+/// <summary>Associates one closed-union discriminator with invocation-mode overrides.</summary>
+[AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
+public sealed class AIFunctionActionAttribute : Attribute
+{
+    /// <summary>Initializes an action declaration.</summary>
+    /// <param name="action">The exact serializer discriminator for the action.</param>
+    public AIFunctionActionAttribute(string action) => Action = action;
+
+    /// <summary>Gets the exact serializer discriminator for the action.</summary>
+    public string Action { get; }
+
+    /// <summary>Gets or sets the action's policy override.</summary>
+    public AIFunctionActionInvocationModePolicy InvocationModePolicy { get; set; }
+        = AIFunctionActionInvocationModePolicy.Inherit;
+
+    /// <summary>Gets or sets the action's handling override.</summary>
+    public AIFunctionActionInvocationModeHandling InvocationModeHandling { get; set; }
+        = AIFunctionActionInvocationModeHandling.Inherit;
+
+    /// <summary>Gets or sets this action's permission-requirement override.</summary>
+    public PermissionRequirement Permission { get; set; }
+        = PermissionRequirement.Inherit;
+
+    /// <summary>Gets or sets the application-owned stable permission authority identifier for this action.</summary>
+    public string? PermissionAuthority { get; set; }
+
+    /// <summary>Gets or sets the permission policy implementation for this action.</summary>
+    public Type? PermissionPolicy { get; set; }
+
+    /// <summary>Gets or sets the permission interaction implementation for this action.</summary>
+    public Type? PermissionInteraction { get; set; }
+}
+
 /// <summary>
 /// Specifies the kind of tool a function represents.
 /// </summary>

@@ -44,8 +44,12 @@ internal static class BaseSemanticActivationBuiltInCertification
 
 
     private static bool Advertised(string id, BaseSemanticActivationCapability capability) => id is
-        "inspection" or "maintenance-authority" or "maintenance" or "fault-NonCooperativeMaintenance" or "fault-InterruptMaintenancePublication"
+        "inspection" or "maintenance-authority" or "maintenance"
             ? capability.MaintenanceSupported
+            : id.StartsWith("maintenance-", StringComparison.Ordinal) && id != "maintenance-authority"
+                ? capability.MaintenanceSupported
+            : id is "fault-NonCooperativeMaintenance" or "fault-InterruptMaintenancePublication"
+                ? capability.MaintenanceSupported && capability.RestoreRecoveryFloorsSupported
             : id is "backup-restore" or "recovery-floor" or "fault-NonCooperativeRestore" or "fault-CorruptRecoveryEntry"
                 or "fault-InterruptRestorePublication" or "fault-RetentionOvertake"
                 ? capability.RestoreRecoveryFloorsSupported && !capability.BackupModes.IsEmpty && !capability.RestoreModes.IsEmpty
@@ -56,6 +60,7 @@ internal static class BaseSemanticActivationBuiltInCertification
         BaseSemanticActivationCertificationSubject subject, string id, bool advertised, bool durable)
     {
         if (!advertised || id is "inspection" or "maintenance-authority" or "maintenance" or "backup-restore" or "recovery-floor"
+            || id.StartsWith("maintenance-", StringComparison.Ordinal) && id != "maintenance-authority"
             || id is "fault-NonCooperativeMaintenance" or "fault-NonCooperativeRestore"
             or "fault-CorruptRecoveryEntry" or "fault-InterruptMaintenancePublication"
             or "fault-InterruptRestorePublication" or "fault-RetentionOvertake")
@@ -91,6 +96,8 @@ internal static class BaseSemanticActivationBuiltInCertification
         bool retired = advertised && id is ("terminal-retirement" or "recovery-floor" or "fault-CorruptRetirement"
             or "fault-CorruptRecoveryEntry" or "fault-RetentionOvertake");
         bool absent = advertised && id == "fault-CorruptAbsence";
+        bool compactedPair = advertised && id is "maintenance-compact-multipage"
+            or "maintenance-progress-invisible" or "maintenance-resume";
         bool released = advertised && (id == "noncooperative-release" || id.Contains("NonCooperative", StringComparison.Ordinal));
         bool replay = advertised && id is ("existing-replay" or "receipt-resolution");
         bool before = replay || id is "fault-ResponseLossAfterCommit" or "fault-IndeterminateCommit" or "fault-NonCooperativeReceipt";
@@ -100,7 +107,11 @@ internal static class BaseSemanticActivationBuiltInCertification
             ? BaseSemanticActivationCertificationContract.CanonicalExecutedEvidence(id, "authority") : [];
         long receipts = !advertised ? 0 : id switch
         {
+            "maintenance-compact-multipage" or "maintenance-progress-invisible"
+                or "maintenance-resume" => 13,
+            "maintenance-migrate" => 3,
             "maintenance" => 1,
+            _ when id.StartsWith("maintenance-", StringComparison.Ordinal) && id != "maintenance-authority" => 1,
             "different-parent-race" or "terminal-retirement" or "recovery-floor" or "fault-CorruptRetirement"
                 or "fault-CorruptAbsence" or "fault-CorruptRecoveryEntry" or "fault-RetentionOvertake" => 2,
             "atomic-missing-ensure" or "existing-replay" or "receipt-resolution" or "fault-ResponseLossAfterCommit"
@@ -112,8 +123,10 @@ internal static class BaseSemanticActivationBuiltInCertification
         {
             Sequence = advertised ? checked(ordinal + 1L) : 1,
             Evidence = BaseSemanticActivationCertificationContract.CanonicalExecutedEvidence(id, "observation"),
-            LiveSlots = live ? 1 : 0, RetiredSlots = retired ? 1 : 0, AbsenceMarkers = absent ? 1 : 0,
-            Activations = live || retired || absent ? 1 : 0, Receipts = receipts,
+            LiveSlots = advertised && id == "maintenance-migrate" ? 2 : live ? 1 : 0,
+            RetiredSlots = retired ? 1 : 0, AbsenceMarkers = compactedPair ? 2 : absent ? 1 : 0,
+            Activations = advertised && id == "maintenance-migrate" ? 2 : live || retired || absent ? 1 : 0,
+            Receipts = receipts,
             ActiveWork = 0, QuarantinedWork = 0, ReleasedWork = released ? 1 : 0,
             RejectedLateCompletions = released ? 1 : 0, ExactLimitAccepted = id == "accounting-limits",
             MaxPlusOneRejected = id == "accounting-limits", RecoveryFloorVerified = advertised && id == "recovery-floor",

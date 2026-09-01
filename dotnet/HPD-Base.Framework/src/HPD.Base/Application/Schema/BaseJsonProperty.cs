@@ -43,9 +43,20 @@ public sealed class BaseJsonProperty<TRecord, TValue>
             .ToArray();
         if (matches.Length != 1 || matches[0].PropertyType != typeof(TValue) || matches[0].Get is null ||
             matches[0].Set is null || matches[0].IsExtensionData || matches[0].ShouldSerialize is not null ||
-            matches[0].Order != 0 || matches[0].CustomConverter is not null)
+            matches[0].Order != 0 || !ApprovedConverter(matches[0]))
             throw new InvalidOperationException("base.schema.serializer.metadataInvalid");
 
         return new BaseJsonProperty<TRecord, TValue>(metadata, matches[0]);
+    }
+
+    private static bool ApprovedConverter(JsonPropertyInfo property)
+    {
+        Type valueType = Nullable.GetUnderlyingType(typeof(TValue)) ?? typeof(TValue);
+        if (valueType == typeof(DateTimeOffset)) return property.CustomConverter?.GetType() == typeof(BaseUtcDateTimeJsonConverter);
+        if (property.CustomConverter is null) return true;
+        Type converterType = property.CustomConverter.GetType();
+        return valueType.IsEnum && converterType.IsGenericType &&
+            converterType.GetGenericTypeDefinition() == typeof(BaseClosedEnumJsonConverter<>) &&
+            converterType.GenericTypeArguments.Length == 1 && converterType.GenericTypeArguments[0] == valueType;
     }
 }

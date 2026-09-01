@@ -187,6 +187,11 @@ public sealed partial class SqliteRecordStore
     {
         if (rows != request.ExpectedRetiredCount || !CryptographicOperations.FixedTimeEquals(rolling, request.ExpectedRetiredChecksum.AsSpan()))
             throw new SemanticMaintenanceBlockedException(BaseSemanticActivationErrorCodes.CompactionBlocked, "Semantic activation compaction is not currently permitted.");
+        if (rows == 0)
+            return MaintenanceResult(request.ProviderIncarnation,
+                request.ExpectedSemanticAuthorityGeneration,
+                request.ExpectedSemanticAuthorityGeneration,
+                0, 0, 0, rolling);
         long[] counts = await StateCountsAsync(connection, transaction, request.Definition.Id, token).ConfigureAwait(false);
         BaseSemanticActivationKeyDefinition definition = _options.SemanticActivations.Single(value => value.Id == request.Definition.Id && value.Version == request.Definition.Version);
         if (checked(counts[2] + rows) > definition.Limits.MaximumAbsenceMarkers)
@@ -200,11 +205,11 @@ public sealed partial class SqliteRecordStore
             if (await floors.ExecuteNonQueryAsync(token).ConfigureAwait(false) != rows) throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
         }
         await ApplyStagedSlotsAsync(connection, transaction, maintenanceId, request.Definition.Id, rows, token).ConfigureAwait(false);
-        (long reboundRows, long reboundBytes) = await RebindAllSemanticAuthoritiesAsync(connection, transaction,
+        _ = await RebindAllSemanticAuthoritiesAsync(connection, transaction,
             request, null, rows, bytes, token).ConfigureAwait(false);
         await EnableCurrentDefinitionAsync(connection, transaction, request.Definition, token).ConfigureAwait(false);
-        return MaintenanceResult(request.ExpectedSemanticAuthorityGeneration, checked(request.ExpectedSemanticAuthorityGeneration + 1),
-            checked(rows + reboundRows), checked(rows + reboundRows), checked(bytes + reboundBytes), rolling);
+        return MaintenanceResult(request.ProviderIncarnation, request.ExpectedSemanticAuthorityGeneration, checked(request.ExpectedSemanticAuthorityGeneration + 1),
+            rows, rows, bytes, rolling);
     }
 
     private async ValueTask<BaseSemanticActivationMaintenanceResult> PublishStagedMigrationAsync(SqliteConnection connection,
@@ -232,11 +237,11 @@ public sealed partial class SqliteRecordStore
                 throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
         }
         await ApplyStagedSlotsAsync(connection, transaction, maintenanceId, request.Definition.Id, rows, token).ConfigureAwait(false);
-        (long reboundRows, long reboundBytes) = await RebindAllSemanticAuthoritiesAsync(connection, transaction,
+        _ = await RebindAllSemanticAuthoritiesAsync(connection, transaction,
             request, migration, rows, bytes, token).ConfigureAwait(false);
-        BaseSemanticActivationMaintenanceResult result = MaintenanceResult(request.ExpectedSemanticAuthorityGeneration,
-            checked(request.ExpectedSemanticAuthorityGeneration + 1), checked(rows + reboundRows),
-            checked(rows + reboundRows), checked(bytes + reboundBytes), rolling);
+        BaseSemanticActivationMaintenanceResult result = MaintenanceResult(request.ProviderIncarnation,
+            request.ExpectedSemanticAuthorityGeneration,
+            checked(request.ExpectedSemanticAuthorityGeneration + 1), rows, rows, bytes, rolling);
         var authority = new BaseSemanticActivationDefinitionMigrationAuthority
         {
             MigrationId = migration.Id, MigrationVersion = migration.Version, From = migration.From, To = migration.To,
@@ -286,8 +291,10 @@ public sealed partial class SqliteRecordStore
             pages = checked(pages + 1);
             long priorPages = priorRows == 0 ? 0 : checked((priorRows + request.Limits.PageSize - 1) / request.Limits.PageSize);
             if (checked(priorPages + pages) > request.Limits.MaximumPages)
+            {
                 throw new SemanticMaintenanceBlockedException(BaseSemanticActivationErrorCodes.BudgetExceeded,
                     "The semantic activation operation exceeded its installed limits.");
+            }
             foreach (var row in page)
             {
                 byte[] replacement = RebindSemanticAuthority(row.Definition, row.State, row.Authority,
@@ -295,8 +302,10 @@ public sealed partial class SqliteRecordStore
                 bytes = checked(bytes + row.Binding.LongLength + row.Key.LongLength + row.Authority.LongLength + replacement.LongLength);
                 rows = checked(rows + 1); after = row.Rotation;
                 if (checked(priorRows + rows) > request.Limits.MaximumRows || checked(priorBytes + bytes) > request.Limits.MaximumBytes)
+                {
                     throw new SemanticMaintenanceBlockedException(BaseSemanticActivationErrorCodes.BudgetExceeded,
                         "The semantic activation operation exceeded its installed limits.");
+                }
                 await using SqliteCommand update = connection.CreateCommand(); update.Transaction = transaction;
                 update.CommandText = $"UPDATE {_names.SemanticActivationSlots} SET authority_json=$next WHERE rotation_id=$rotation AND authority_json=$prior;";
                 update.Parameters.Add("$next", SqliteType.Blob).Value = replacement; update.Parameters.AddWithValue("$rotation", row.Rotation);
@@ -422,7 +431,11 @@ public sealed partial class SqliteRecordStore
     {
         var value = new BaseSemanticActivationMaintenanceCheckpoint
         {
-            MaintenanceId = maintenanceId, OperationKind = kind == 1 ? "compact" : "migrate", Definition = request.Definition,
+            MaintenanceId = maintenanceId, ProviderIncarnation = request.ProviderIncarnation,
+            CapturedStoreGeneration = request.ExpectedSemanticAuthorityGeneration,
+            CapturedDefinitionGeneration = request.ExpectedSemanticAuthorityGeneration,
+            FenceToken = SHA256.HashData(fingerprint).ToImmutableArray(),
+            OperationKind = kind == 1 ? "compact" : "migrate", Definition = request.Definition,
             ExpectedAuthorityGeneration = request.ExpectedSemanticAuthorityGeneration, After = after, CompletedPages = pages,
             CompletedRows = rows, CompletedBytes = bytes, RollingChecksum = rolling.ToImmutableArray(),
             RequestFingerprint = fingerprint.ToImmutableArray(), Checksum = [],
@@ -447,6 +460,7 @@ public sealed partial class SqliteRecordStore
     private static BaseSemanticActivationMaintenanceResult InProgressMaintenance(long generation,
         BaseSemanticActivationMaintenanceCheckpoint checkpoint) => new()
     {
+        ProviderIncarnation = checkpoint.ProviderIncarnation.ToArray().ToImmutableArray(),
         Disposition = BaseSemanticActivationMaintenanceDisposition.InProgress, PreviousAuthorityGeneration = generation,
         ResultingAuthorityGeneration = generation, ExaminedRows = checkpoint.CompletedRows, ChangedRows = 0,
         CanonicalBytes = checkpoint.CompletedBytes, AuthorityChecksum = checkpoint.RollingChecksum,

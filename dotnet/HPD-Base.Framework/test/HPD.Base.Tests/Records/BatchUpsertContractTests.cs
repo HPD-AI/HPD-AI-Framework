@@ -29,7 +29,7 @@ public sealed class BatchUpsertContractTests
     {
         var request = new RecordUpsertRequest
         {
-            Id = new RecordId("rec_1"),
+            Id = RecordId.Create("rec_1"),
             CreatePayload = Payload("created"),
             UpdatePayload = Payload("updated"),
             UpdateMode = RecordUpsertUpdateMode.Patch,
@@ -58,7 +58,7 @@ public sealed class BatchUpsertContractTests
                     Kind = BaseRecordMutationKind.Upsert,
                     Upsert = new RecordUpsertRequest
                     {
-                        Id = new RecordId("rec_1"),
+                        Id = RecordId.Create("rec_1"),
                         CreatePayload = Payload("created"),
                         UpdatePayload = Payload("updated"),
                         UpdateMode = RecordUpsertUpdateMode.Replace,

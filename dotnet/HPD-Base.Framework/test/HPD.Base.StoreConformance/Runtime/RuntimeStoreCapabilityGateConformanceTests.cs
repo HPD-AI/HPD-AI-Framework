@@ -19,11 +19,11 @@ public abstract class RuntimeStoreCapabilityGateConformanceTests<TFixture> : Run
             Collection.Id,
             new RecordCreateRequest
             {
-                RequestedId = new RecordId("client-id"),
+                RequestedId = RecordId.Create("client-id"),
                 Payload = RecordStoreConformanceData.Payload(("title", "client"))
             },
             Principal,
-            Operation(BaseOperationKind.Create, new RecordId("client-id")));
+            Operation(BaseOperationKind.Create, RecordId.Create("client-id")));
 
         RecordStoreConformanceAssertions.Failure(result, OperationStatus.Unsupported, OperationStatus.CapabilityUnavailable, OperationStatus.ValidationFailed);
     }

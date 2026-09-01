@@ -20,6 +20,8 @@ namespace HPD.Agent;
 /// </remarks>
 public class LocalFileContentStore : IContentStore
 {
+    /// <inheritdoc />
+    public ContentStorePersistenceCapability PersistenceCapability => ContentStorePersistenceCapability.RestartDurable;
     private readonly string _basePath;
     private static readonly ConcurrentDictionary<string, object> StoreLocks = new(StringComparer.Ordinal);
     // Name index file per scope: scope/.nameindex (JSON: name -> contentId)

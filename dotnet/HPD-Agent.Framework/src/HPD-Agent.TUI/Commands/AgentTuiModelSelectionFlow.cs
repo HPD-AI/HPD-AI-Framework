@@ -1,14 +1,22 @@
 using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Models;
+using HPD.Agent.Providers;
 using HPD.TUI.Components;
 
 namespace HPD.Agent.TUI.Commands;
 
+/// <summary>Provides the shared provider and model selection workflow used by agent TUI hosts.</summary>
 public static class AgentTuiModelSelectionFlow
 {
     private const int InitialModelChoiceLimit = 28;
     private const int BrowseModelChoiceLimit = 200;
 
+    /// <summary>Selects a connected provider, returning <see langword="null"/> when the interaction is canceled.</summary>
+    /// <param name="catalog">The provider and model catalog.</param>
+    /// <param name="catalogContext">The current catalog context.</param>
+    /// <param name="context">The active command context.</param>
+    /// <param name="cancellationToken">A token that cancels the interaction.</param>
+    /// <returns>The selected provider, or <see langword="null"/>.</returns>
     public static async ValueTask<AgentTuiProviderChoice?> SelectProviderAsync(
         IAgentTuiModelCatalog catalog,
         AgentTuiModelCatalogContext catalogContext,
@@ -32,6 +40,11 @@ public static class AgentTuiModelSelectionFlow
             : null;
     }
 
+    /// <summary>Determines whether exactly one non-expired connected provider is available.</summary>
+    /// <param name="catalog">The provider and model catalog.</param>
+    /// <param name="catalogContext">The current catalog context.</param>
+    /// <param name="cancellationToken">A token that cancels the lookup.</param>
+    /// <returns><see langword="true"/> when exactly one connected provider is available.</returns>
     public static async ValueTask<bool> HasSingleConnectedProviderAsync(
         IAgentTuiModelCatalog catalog,
         AgentTuiModelCatalogContext catalogContext,
@@ -48,6 +61,13 @@ public static class AgentTuiModelSelectionFlow
             !provider.IsExpired) == 1;
     }
 
+    /// <summary>Selects a connected provider while preserving submitted, back, and canceled dialog outcomes.</summary>
+    /// <param name="catalog">The provider and model catalog.</param>
+    /// <param name="catalogContext">The current catalog context.</param>
+    /// <param name="context">The active command context.</param>
+    /// <param name="dialogs">The resumable dialog flow.</param>
+    /// <param name="cancellationToken">A token that cancels the interaction.</param>
+    /// <returns>The provider-selection dialog result.</returns>
     public static async ValueTask<AgentTuiDialogStepResult<AgentTuiProviderChoice>> SelectProviderAsync(
         IAgentTuiModelCatalog catalog,
         AgentTuiModelCatalogContext catalogContext,
@@ -86,6 +106,7 @@ public static class AgentTuiModelSelectionFlow
                 "Select provider",
                 connected,
                 static candidate => candidate.DisplayName,
+                new AgentTuiSelectOptions { AllowFilter = true },
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -96,6 +117,16 @@ public static class AgentTuiModelSelectionFlow
                 : AgentTuiDialogStepResult<AgentTuiProviderChoice>.Canceled();
     }
 
+    /// <summary>Selects a model for an exact provider connection.</summary>
+    /// <param name="catalog">The provider and model catalog.</param>
+    /// <param name="catalogContext">The current catalog context.</param>
+    /// <param name="context">The active command context.</param>
+    /// <param name="selection">The persistent model-selection state.</param>
+    /// <param name="options">The selection policy and callbacks.</param>
+    /// <param name="provider">The exact provider connection.</param>
+    /// <param name="title">An optional dialog title.</param>
+    /// <param name="cancellationToken">A token that cancels the interaction.</param>
+    /// <returns>The selected model, or <see langword="null"/>.</returns>
     public static async ValueTask<AgentTuiSelectedModel?> SelectModelAsync(
         IAgentTuiModelCatalog catalog,
         AgentTuiModelCatalogContext catalogContext,
@@ -130,6 +161,17 @@ public static class AgentTuiModelSelectionFlow
             : null;
     }
 
+    /// <summary>Selects a model while preserving submitted, back, and canceled dialog outcomes.</summary>
+    /// <param name="catalog">The provider and model catalog.</param>
+    /// <param name="catalogContext">The current catalog context.</param>
+    /// <param name="context">The active command context.</param>
+    /// <param name="dialogs">The resumable dialog flow.</param>
+    /// <param name="selection">The persistent model-selection state.</param>
+    /// <param name="options">The selection policy and callbacks.</param>
+    /// <param name="provider">The exact provider connection.</param>
+    /// <param name="title">An optional dialog title.</param>
+    /// <param name="cancellationToken">A token that cancels the interaction.</param>
+    /// <returns>The model-selection dialog result.</returns>
     public static async ValueTask<AgentTuiDialogStepResult<AgentTuiSelectedModel>> SelectModelAsync(
         IAgentTuiModelCatalog catalog,
         AgentTuiModelCatalogContext catalogContext,
@@ -153,7 +195,7 @@ public static class AgentTuiModelSelectionFlow
         {
             var models = await catalog.GetModelsAsync(
                     catalogContext,
-                    provider.ProviderKey,
+                    provider,
                     new AgentTuiModelQuery(),
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -163,7 +205,7 @@ public static class AgentTuiModelSelectionFlow
             var choices = BuildModelChoices(provider, initialModels, selection, options, selectableModels.Length > initialModels.Count);
             if (choices.Count == 0)
             {
-                return await ReadManualModelAsync(context, dialogs, provider.ProviderKey, cancellationToken)
+                return await ReadManualModelAsync(context, dialogs, provider, cancellationToken)
                     .ConfigureAwait(false);
             }
 
@@ -193,10 +235,10 @@ public static class AgentTuiModelSelectionFlow
             {
                 ModelChoiceKind.Model => selected.Value.Model is null
                     ? AgentTuiDialogStepResult<AgentTuiSelectedModel>.Canceled()
-                    : AgentTuiDialogStepResult<AgentTuiSelectedModel>.Submitted(CreateSelectedModel(selected.Value.Model)),
+                    : AgentTuiDialogStepResult<AgentTuiSelectedModel>.Submitted(CreateSelectedModel(provider, selected.Value.Model)),
                 ModelChoiceKind.Recent => await SelectRecentModelAsync(context, dialogs, selection, options, provider, cancellationToken)
                     .ConfigureAwait(false),
-                ModelChoiceKind.Manual => await ReadManualModelAsync(context, dialogs, provider.ProviderKey, cancellationToken)
+                ModelChoiceKind.Manual => await ReadManualModelAsync(context, dialogs, provider, cancellationToken)
                     .ConfigureAwait(false),
                 ModelChoiceKind.SearchAll => await SearchModelsAsync(context, dialogs, catalog, catalogContext, provider, options, freeOnly: false, cancellationToken)
                     .ConfigureAwait(false),
@@ -214,6 +256,13 @@ public static class AgentTuiModelSelectionFlow
         }
     }
 
+    /// <summary>Commits a selected model and invokes configured selection callbacks.</summary>
+    /// <param name="selection">The persistent model-selection state.</param>
+    /// <param name="context">The active command context.</param>
+    /// <param name="model">The selected model.</param>
+    /// <param name="options">The selection policy and callbacks.</param>
+    /// <param name="configureSelection">Whether to invoke the configuration callback.</param>
+    /// <returns>The committed model, or <see langword="null"/> when configuration declines it.</returns>
     public static async ValueTask<AgentTuiSelectedModel?> CommitSelectionAsync(
         AgentTuiModelSelectionState selection,
         AgentTuiCommandContext context,
@@ -238,7 +287,7 @@ public static class AgentTuiModelSelectionFlow
         AppendNotice(
             context,
             "Model selected",
-            $"{committed.ProviderKey} / {committed.ModelId}",
+            $"{committed.Provider.Key} / {committed.ModelId}",
             TranscriptSeverity.Info);
         if (options.SelectionCommitted is not null)
         {
@@ -248,10 +297,17 @@ public static class AgentTuiModelSelectionFlow
         return committed;
     }
 
+    /// <summary>Creates and commits a selected model for an exact provider connection.</summary>
+    /// <param name="selection">The persistent model-selection state.</param>
+    /// <param name="context">The active command context.</param>
+    /// <param name="provider">The exact provider connection.</param>
+    /// <param name="modelId">The provider model identifier.</param>
+    /// <param name="options">The selection policy and callbacks.</param>
+    /// <returns>The committed model, or <see langword="null"/> when configuration declines it.</returns>
     public static async ValueTask<AgentTuiSelectedModel?> CommitSelectionAsync(
         AgentTuiModelSelectionState selection,
         AgentTuiCommandContext context,
-        string providerKey,
+        AgentTuiProviderChoice provider,
         string modelId,
         AgentTuiModelSelectionOptions options)
     {
@@ -262,13 +318,22 @@ public static class AgentTuiModelSelectionFlow
                 selection,
                 context,
                 new AgentTuiSelectedModel(
-                    providerKey,
+                    provider.SelectionId,
+                    provider.TargetId,
+                    provider.ConnectionId,
+                    ProviderClientConfigSnapshot.CloneProviderReference(provider.Provider),
                     modelId,
-                    Capabilities: AgentTuiModelCapabilities.None),
+                    Capabilities: AgentTuiModelCapabilities.None,
+                    Chat: provider.Chat is null ? null : (ChatClientConfig)ProviderClientConfigSnapshot.Clone(provider.Chat)),
                 options)
             .ConfigureAwait(false);
     }
 
+    /// <summary>Appends a model-workflow notice to the command transcript.</summary>
+    /// <param name="context">The active command context.</param>
+    /// <param name="title">The notice title.</param>
+    /// <param name="body">The notice body.</param>
+    /// <param name="severity">The notice severity.</param>
     public static void AppendNotice(
         AgentTuiCommandContext context,
         string title,
@@ -296,7 +361,7 @@ public static class AgentTuiModelSelectionFlow
         CancellationToken cancellationToken)
     {
         var recent = selection.Recent
-            .Where(model => string.Equals(model.ProviderKey, provider.ProviderKey, StringComparison.OrdinalIgnoreCase))
+            .Where(model => string.Equals(model.ConnectionId, provider.ConnectionId, StringComparison.Ordinal))
             .Where(model => !options.RequireToolSupport || model.Capabilities?.SupportsTools == true)
             .ToArray();
         if (recent.Length == 0)
@@ -328,7 +393,7 @@ public static class AgentTuiModelSelectionFlow
     {
         var models = await catalog.GetModelsAsync(
                 catalogContext,
-                provider.ProviderKey,
+                provider,
                 new AgentTuiModelQuery(
                     Live: true,
                     FreeOnly: freeOnly),
@@ -352,7 +417,7 @@ public static class AgentTuiModelSelectionFlow
                     : "Enter a model ID manually if you already know it.",
                 TranscriptSeverity.Warning);
 
-            return await ReadManualModelAsync(context, dialogs, provider.ProviderKey, cancellationToken)
+            return await ReadManualModelAsync(context, dialogs, provider, cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -366,7 +431,7 @@ public static class AgentTuiModelSelectionFlow
 
         if (selected.IsSubmitted && selected.Value is not null)
         {
-            return AgentTuiDialogStepResult<AgentTuiSelectedModel>.Submitted(CreateSelectedModel(selected.Value!));
+            return AgentTuiDialogStepResult<AgentTuiSelectedModel>.Submitted(CreateSelectedModel(provider, selected.Value!));
         }
 
         return selected.IsBack
@@ -377,7 +442,7 @@ public static class AgentTuiModelSelectionFlow
     private static async ValueTask<AgentTuiDialogStepResult<AgentTuiSelectedModel>> ReadManualModelAsync(
         AgentTuiCommandContext context,
         AgentTuiDialogFlowContext dialogs,
-        string providerKey,
+        AgentTuiProviderChoice provider,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);
@@ -398,9 +463,13 @@ public static class AgentTuiModelSelectionFlow
         }
 
         return AgentTuiDialogStepResult<AgentTuiSelectedModel>.Submitted(new AgentTuiSelectedModel(
-            providerKey,
+            provider.SelectionId,
+            provider.TargetId,
+            provider.ConnectionId,
+            ProviderClientConfigSnapshot.CloneProviderReference(provider.Provider),
             modelId.Value.Trim(),
-            Capabilities: AgentTuiModelCapabilities.None));
+            Capabilities: AgentTuiModelCapabilities.None,
+            Chat: provider.Chat is null ? null : (ChatClientConfig)ProviderClientConfigSnapshot.Clone(provider.Chat)));
     }
 
     private static List<ModelDialogChoice> BuildModelChoices(
@@ -415,7 +484,7 @@ public static class AgentTuiModelSelectionFlow
             .ToList();
 
         if (selection.Recent.Any(model =>
-                string.Equals(model.ProviderKey, provider.ProviderKey, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(model.ConnectionId, provider.ConnectionId, StringComparison.Ordinal) &&
                 (!options.RequireToolSupport || model.Capabilities?.SupportsTools == true)))
         {
             choices.Add(new ModelDialogChoice(ModelChoiceKind.Recent, "Recent models", null));
@@ -482,12 +551,18 @@ public static class AgentTuiModelSelectionFlow
         return label;
     }
 
-    private static AgentTuiSelectedModel CreateSelectedModel(AgentTuiModelChoice model)
+    private static AgentTuiSelectedModel CreateSelectedModel(
+        AgentTuiProviderChoice provider,
+        AgentTuiModelChoice model)
         => new(
-            model.ProviderKey,
+            provider.SelectionId,
+            provider.TargetId,
+            provider.ConnectionId,
+            ProviderClientConfigSnapshot.CloneProviderReference(provider.Provider),
             model.ModelId,
             model.DisplayName,
-            model.Capabilities ?? AgentTuiModelCapabilities.None);
+            model.Capabilities ?? AgentTuiModelCapabilities.None,
+            provider.Chat is null ? null : (ChatClientConfig)ProviderClientConfigSnapshot.Clone(provider.Chat));
 
     private static string FormatModel(AgentTuiSelectedModel model)
     {

@@ -21,7 +21,7 @@ public static class ExternalToolCollapsingWrapper
     /// <param name="SystemPrompt">Persistent instructions injected into system prompt after expansion</param>
     /// <param name="customDescription">Optional custom description from JSON config. If provided, replaces auto-generated description.</param>
     /// <returns>Container function and Collapsed tools with metadata</returns>
-    public static (AIFunction container, List<AIFunction> CollapsedTools) WrapMCPServerTools(
+    public static (AIFunction container, List<AIFunction> CollapsedTools) WrapMcpServerTools(
         string serverName,
         List<AIFunction> tools,
         int maxFunctionNamesInDescription = 10,
@@ -79,14 +79,14 @@ public static class ExternalToolCollapsingWrapper
             {
                 Name = containerName,
                 Description = description,
-                RequiresPermission = false, // Container expansion doesn't need permission
+                FunctionPermission = null, // Container expansion doesn't need permission
                 Validator = (_, _) => new List<ValidationError>(), // No validation needed
                 SchemaProvider = () => CreateEmptyContainerSchema(),
                 AdditionalProperties = new Dictionary<string, object?>
                 {
                     ["IsContainer"] = true,
                     ["ToolHarnessName"] = containerName,
-                    ["ParentContainer"] = parentContainer, // null for standalone WithMCP(), toolharness name for [MCPServer]
+                    ["ParentContainer"] = parentContainer, // null for standalone WithMcp(), toolharness name for [McpServer]
                     ["ReferencedFunctions"] = allFunctionNames.ToArray(),
                     ["FunctionCount"] = allFunctionNames.Count,
                     ["SourceType"] = "MCP",
@@ -151,7 +151,7 @@ public static class ExternalToolCollapsingWrapper
             {
                 Name = containerName,
                 Description = description,
-                RequiresPermission = false, // Container expansion doesn't need permission
+                FunctionPermission = null, // Container expansion doesn't need permission
                 Validator = (_, _) => new List<ValidationError>(),
                 SchemaProvider = () => CreateEmptyContainerSchema(),
                 AdditionalProperties = new Dictionary<string, object?>
@@ -233,7 +233,7 @@ public static class ExternalToolCollapsingWrapper
             {
                 Name = containerName,
                 Description = fullDescription,
-                RequiresPermission = false, // Container expansion doesn't need permission
+                FunctionPermission = null, // Container expansion doesn't need permission
                 Validator = (_, _) => new List<ValidationError>(), // No validation needed
                 SchemaProvider = () => CreateEmptyContainerSchema(),
                 AdditionalProperties = new Dictionary<string, object?>
@@ -303,7 +303,7 @@ public static class ExternalToolCollapsingWrapper
             {
                 Name = containerName,
                 Description = description,
-                RequiresPermission = false,
+                FunctionPermission = null,
                 Validator = (_, _) => new List<ValidationError>(),
                 SchemaProvider = () => CreateEmptyContainerSchema(),
                 AdditionalProperties = new Dictionary<string, object?>
@@ -361,9 +361,14 @@ public static class ExternalToolCollapsingWrapper
                 Name = tool.Name,
                 Description = tool.Description,
                 SchemaProvider = () => tool.JsonSchema,
-                RequiresPermission = tool is HPDAIFunctionFactory.HPDAIFunction hpdFunction
-                    ? hpdFunction.HPDOptions.RequiresPermission
-                    : true,
+                FunctionPermission = tool is HPDAIFunctionFactory.HPDAIFunction hpdFunction
+                    ? hpdFunction.HPDOptions.FunctionPermission
+                    : new AIFunctionPermissionDeclaration
+                    {
+                        RequiresPermission = true,
+                        Authority = $"function/{Uri.EscapeDataString(tool.Name)}",
+                        Source = PermissionDeclarationSource.FrameworkDefault
+                    },
                 Validator = (_, _) => new List<ValidationError>(), // Original tool handles validation
                 AdditionalProperties = additionalProperties
             });

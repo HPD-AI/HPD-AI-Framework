@@ -1,4 +1,5 @@
 using HPD.Agent.Providers;
+using HPD.Agent.Serialization;
 
 namespace HPD.Agent.TUI.Runtime;
 
@@ -21,5 +22,8 @@ public sealed class HostedAgentTuiRuntimeOptions
     /// Gets the generated provider composition used to serialize typed provider configuration
     /// in agent create and update requests.
     /// </summary>
-    public ProviderComposition? ProviderComposition { get; init; }
+    public required ProviderComposition ProviderComposition { get; init; }
+
+    /// <summary>Gets the immutable output-event composition exposed by the target application.</summary>
+    public required AgentEventComposition EventComposition { get; init; }
 }

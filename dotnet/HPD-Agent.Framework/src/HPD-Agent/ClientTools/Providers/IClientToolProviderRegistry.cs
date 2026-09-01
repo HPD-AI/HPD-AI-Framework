@@ -132,8 +132,8 @@ public interface IClientToolProviderRegistry
     /// </summary>
     /// <param name="descriptor">Accepted provider background operation descriptor.</param>
     /// <returns>A registration that completes when the provider sends a terminal outcome.</returns>
-    ClientToolProviderBackgroundOperationRegistration RegisterBackgroundOperation(
-        ClientToolProviderBackgroundOperationDescriptor descriptor);
+    ClientToolProviderOperationRegistration RegisterOperation(
+        ClientToolProviderOperationDescriptor descriptor);
 
     /// <summary>
     /// Resolves provider-owned background work with the terminal outcome sent by the provider.
@@ -142,10 +142,10 @@ public interface IClientToolProviderRegistry
     /// <param name="connectionId">The active connection id.</param>
     /// <param name="outcome">The provider background operation outcome.</param>
     /// <returns>True when a pending provider background operation was resolved.</returns>
-    bool TryResolveBackgroundOperationOutcome(
+    bool TryResolveOperationOutcome(
         string clientRuntimeId,
         string connectionId,
-        ClientToolProviderBackgroundOperationOutcomeMessage outcome);
+        ClientToolProviderOperationOutcomeMessage outcome);
 
     /// <summary>
     /// Attempts to get one provider snapshot.

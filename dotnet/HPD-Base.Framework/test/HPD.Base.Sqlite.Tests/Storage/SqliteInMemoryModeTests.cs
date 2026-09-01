@@ -10,10 +10,10 @@ public sealed class SqliteInMemoryModeTests
     public async Task DefaultInMemoryModePersistsAcrossStoreOperations()
     {
         await using var store = SqliteTestFactory.Create();
-        var create = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("one"), Payload = Payload() }, Operation(BaseOperationKind.Create));
+        var create = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = RecordId.Create("one"), Payload = Payload() }, Operation(BaseOperationKind.Create));
         create.Status.Should().Be(OperationStatus.Created);
 
-        var get = await store.GetAsync(Collection(), new RecordId("one"), Operation(BaseOperationKind.Get));
+        var get = await store.GetAsync(Collection(), RecordId.Create("one"), Operation(BaseOperationKind.Get));
         get.Status.Should().Be(OperationStatus.Ok);
         get.Value!.Payload.Fields!["title"].GetString().Should().Be("memory");
     }

@@ -110,6 +110,7 @@ public static class PasswordEndpoints
         var result = await VerifyAsync(
             request,
             services.GetRequiredService<UserManager<ApplicationUser>>(),
+            services.GetRequiredService<IAuthPasswordResetCommand>(),
             services.GetRequiredService<ITokenService>(),
             services.GetRequiredService<IEventCoordinator>(),
             httpContext,
@@ -204,6 +205,7 @@ public static class PasswordEndpoints
     private static async Task<IResult> VerifyAsync(
         VerifyRequest request,
         UserManager<ApplicationUser> userManager,
+        IAuthPasswordResetCommand passwordReset,
         ITokenService tokenService,
         IEventCoordinator eventCoordinator,
         HttpContext httpContext,
@@ -220,7 +222,7 @@ public static class PasswordEndpoints
         return request.Type.ToLowerInvariant() switch
         {
             "recovery"     => await HandleRecoveryVerifyAsync(
-                                  request, userManager, tokenService, eventCoordinator,
+                                  request, userManager, passwordReset, tokenService, eventCoordinator,
                                   ipAddress, ct),
             "signup"       => await HandleSignupVerifyAsync(
                                   request, userManager, eventCoordinator, ipAddress, ct),
@@ -235,6 +237,7 @@ public static class PasswordEndpoints
     private static async Task<IResult> HandleRecoveryVerifyAsync(
         VerifyRequest request,
         UserManager<ApplicationUser> userManager,
+        IAuthPasswordResetCommand passwordReset,
         ITokenService tokenService,
         IEventCoordinator eventCoordinator,
         string? ipAddress,
@@ -250,7 +253,8 @@ public static class PasswordEndpoints
         if (user is null)
             return AuthEndpointJson.BadRequest(new AuthError("invalid_grant", "Invalid or expired reset token."));
 
-        var result = await userManager.ResetPasswordAsync(user, request.Token, request.NewPassword);
+        var result = await passwordReset.ResetWithTokenAsync(
+            user, request.Token, request.NewPassword, ct);
         if (!result.Succeeded)
         {
             return AuthEndpointJson.BadRequest(new AuthError(
@@ -258,7 +262,6 @@ public static class PasswordEndpoints
                 string.Join("; ", result.Errors.Select(e => e.Description))));
         }
 
-        await userManager.UpdateSecurityStampAsync(user);
         await tokenService.RevokeAllForUserAsync(user.Id, ct);
 
         await eventCoordinator.EmitAsync(new PasswordChangedEvent

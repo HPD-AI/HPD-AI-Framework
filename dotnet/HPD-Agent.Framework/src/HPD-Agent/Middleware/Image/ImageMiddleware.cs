@@ -80,10 +80,10 @@ public class ImageMiddleware : IAgentMiddleware
     /// </summary>
     private IEnumerable<ImageContent> ExtractImageContents(BeforeMessageTurnContext context)
     {
-        if (context.UserMessage == null)
+        if (context.UserInputMessages.Count == 0)
             return Enumerable.Empty<ImageContent>();
 
-        return context.UserMessage.Contents
+        return context.UserInputMessages[0].Contents
             .OfType<ImageContent>();
     }
 }

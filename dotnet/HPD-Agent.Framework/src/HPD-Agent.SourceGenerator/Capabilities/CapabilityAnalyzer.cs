@@ -3,6 +3,8 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
+using HPD.Agent.SourceGenerator.Contracts;
 
 namespace HPD.Agent.SourceGenerator.Capabilities;
 
@@ -183,11 +185,11 @@ internal static class CapabilityAnalyzer
             return AnalyzeMultiAgentCapability(method, attrs, semanticModel, className, namespaceName, diagnostics);
         }
 
-        // 4. Check for [MCPServer] attribute
-        if (HasAttribute(attrs, "MCPServer"))
+        // 4. Check for [McpServer] attribute
+        if (HasAttribute(attrs, "McpServer"))
         {
             // Check for conflicting attributes (HPDAG0302)
-            var conflictingAttr = GetConflictingCapabilityAttribute(attrs, "MCPServer");
+            var conflictingAttr = GetConflictingCapabilityAttribute(attrs, "McpServer");
             if (conflictingAttr != null)
             {
                 diagnostics.Add(Diagnostic.Create(
@@ -411,7 +413,8 @@ internal static class CapabilityAnalyzer
         // Extract conditional and context metadata (same as Functions)
         var conditionalExpression = GetConditionalExpression(attrs);
         var contextTypeName = GetMetadataTypeName(method, semanticModel);
-        var requiresPermission = HasAttribute(attrs, "RequiresPermission");
+        var requiresPermission = HasFrameworkPermission(method, semanticModel);
+        DiagnoseUnsupportedPermissionCustomization(method, semanticModel, diagnostics);
 
         System.Diagnostics.Debug.WriteLine($"[AnalyzeSkillCapability] Skill={name}, Description={description}");
         System.Diagnostics.Debug.WriteLine($"[AnalyzeSkillCapability] ContextTypeName={contextTypeName ?? "NULL"}");
@@ -453,6 +456,7 @@ internal static class CapabilityAnalyzer
         string namespaceName,
         List<Diagnostic> diagnostics)
     {
+        DiagnoseUnsupportedPermissionCustomization(method, semanticModel, diagnostics);
         // Validate return type is SubAgent
         var returnType = semanticModel.GetTypeInfo(method.ReturnType).Type;
         if (returnType == null || returnType.Name != "SubAgent")
@@ -574,6 +578,7 @@ internal static class CapabilityAnalyzer
         string namespaceName,
         List<Diagnostic> diagnostics)
     {
+        DiagnoseUnsupportedPermissionCustomization(method, semanticModel, diagnostics);
         // Validate return type is AgentWorkflowInstance or Task<AgentWorkflowInstance>
         var returnType = semanticModel.GetTypeInfo(method.ReturnType).Type;
         if (returnType == null)
@@ -727,8 +732,8 @@ internal static class CapabilityAnalyzer
     // ========== MCPServer Analysis ==========
 
     /// <summary>
-    /// Analyzes a method with [MCPServer] attribute and creates an MCPServerCapability.
-    /// The method must return MCPServerConfig or MCPServerConfig?.
+    /// Analyzes a method with [McpServer] attribute and creates an MCPServerCapability.
+    /// The method must return McpServerConfig or McpServerConfig?.
     /// </summary>
     private static MCPServerCapability? AnalyzeMCPServerCapability(
         MethodDeclarationSyntax method,
@@ -738,12 +743,12 @@ internal static class CapabilityAnalyzer
         string namespaceName,
         List<Diagnostic> diagnostics)
     {
-        // Validate return type is MCPServerConfig or MCPServerConfig? (nullable)
+        // Validate return type is McpServerConfig or McpServerConfig? (nullable)
         var returnType = semanticModel.GetTypeInfo(method.ReturnType).Type;
         if (returnType == null)
             return null;
 
-        // Handle nullable: MCPServerConfig? unwraps to MCPServerConfig
+        // Handle nullable: McpServerConfig? unwraps to McpServerConfig
         var actualType = returnType;
         if (returnType is INamedTypeSymbol namedType &&
             namedType.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T &&
@@ -751,13 +756,13 @@ internal static class CapabilityAnalyzer
         {
             actualType = namedType.TypeArguments[0];
         }
-        // Also handle nullable reference type annotation (MCPServerConfig?)
+        // Also handle nullable reference type annotation (McpServerConfig?)
         if (returnType.NullableAnnotation == NullableAnnotation.Annotated && returnType is INamedTypeSymbol annotatedType)
         {
             actualType = annotatedType;
         }
 
-        if (actualType.Name != "MCPServerConfig")
+        if (actualType.Name != "McpServerConfig")
         {
             // Report HPDAG0301: Invalid return type
             diagnostics.Add(Diagnostic.Create(
@@ -772,7 +777,7 @@ internal static class CapabilityAnalyzer
         var isStatic = method.Modifiers.Any(SyntaxKind.StaticKeyword);
 
         // Extract attribute properties
-        var mcpAttr = attrs.FirstOrDefault(a => a.Name.ToString().Contains("MCPServer"));
+        var mcpAttr = attrs.FirstOrDefault(a => a.Name.ToString().Contains("McpServer"));
         string? serverName = null;
         string? customName = null;
         string? description = null;
@@ -815,7 +820,7 @@ internal static class CapabilityAnalyzer
             }
         }
 
-        // Fall back to [AIDescription] attribute if no description in [MCPServer]
+        // Fall back to [AIDescription] attribute if no description in [McpServer]
         if (string.IsNullOrWhiteSpace(description))
         {
             description = GetDescription(attrs);
@@ -829,7 +834,8 @@ internal static class CapabilityAnalyzer
         var contextTypeName = GetMetadataTypeName(method, semanticModel);
 
         // Use standalone [RequiresPermission] attribute (same pattern as AIFunction/Skill)
-        var requiresPermission = HasAttribute(attrs, "RequiresPermission");
+        var requiresPermission = HasFrameworkPermission(method, semanticModel);
+        DiagnoseUnsupportedPermissionCustomization(method, semanticModel, diagnostics);
 
         System.Diagnostics.Debug.WriteLine($"[CapabilityAnalyzer] Analyzed MCPServer: {methodName}, Name={effectiveName}, FromManifest={fromManifest}, CollapseWithinToolHarness={collapseWithinToolHarness}");
 
@@ -910,7 +916,8 @@ internal static class CapabilityAnalyzer
         }
 
         // Use standalone [RequiresPermission] attribute (same pattern as AIFunction/Skill/MCPServer)
-        var requiresPermission = HasAttribute(attrs, "RequiresPermission");
+        var requiresPermission = HasFrameworkPermission(method, semanticModel);
+        DiagnoseUnsupportedPermissionCustomization(method, semanticModel, diagnostics);
 
         System.Diagnostics.Debug.WriteLine($"[CapabilityAnalyzer] Analyzed OpenApi: {methodName}, Prefix={prefix}, RequiresPermission={requiresPermission}");
 
@@ -960,14 +967,29 @@ internal static class CapabilityAnalyzer
         var returnType = method.ReturnType.ToString();
         var isAsync = returnType.Contains("Task");
 
-        // Check for permissions
-        var requiresPermission = HasAttribute(attrs, "RequiresPermission");
+        // Resolve the canonical attribute by semantic identity; same-named attributes are not permission authority.
+        var permissionType = semanticModel.Compilation.GetTypeByMetadataName("HPD.Agent.RequiresPermissionAttribute");
+        var permissionAttribute = symbol.GetAttributes().FirstOrDefault(attribute =>
+            permissionType is not null && SymbolEqualityComparer.Default.Equals(attribute.AttributeClass, permissionType));
+        var requiresPermission = permissionAttribute is not null;
+        var permissionAuthority = GetNamedString(permissionAttribute, "PermissionAuthority");
+        var permissionPolicyDescriptorId = GetNamedTypeId(permissionAttribute, "PermissionPolicy");
+        var permissionInteractionDescriptorId = GetNamedTypeId(permissionAttribute, "PermissionInteraction");
+        if (!ValidatePermissionAttribute(
+                permissionAttribute,
+                semanticModel.Compilation,
+                diagnostics,
+                method.GetLocation()))
+            return null;
         var requiredPermissions = GetRequiredPermissions(attrs);
 
         // Extract Kind from [AIFunction(Kind = ...)]
         var kind = GetToolKind(attrs);
         var invocationModePolicy = GetInvocationModePolicy(attrs);
         var invocationModeHandling = GetInvocationModeHandling(attrs);
+
+        if (!ValidateActionContract(parameters, kind, diagnostics, method.GetLocation(), semanticModel))
+            return null;
 
         var functionCapability = new FunctionCapability
         {
@@ -986,6 +1008,13 @@ internal static class CapabilityAnalyzer
             ReturnType = returnType,
             IsAsync = isAsync,
             RequiresPermission = requiresPermission,
+            PermissionAuthority = permissionAuthority,
+            PermissionPolicyDescriptorId = permissionPolicyDescriptorId,
+            PermissionPolicyType = permissionAttribute?.NamedArguments
+                .FirstOrDefault(pair => pair.Key == "PermissionPolicy").Value.Value as ITypeSymbol,
+            PermissionInteractionDescriptorId = permissionInteractionDescriptorId,
+            PermissionInteractionType = permissionAttribute?.NamedArguments
+                .FirstOrDefault(pair => pair.Key == "PermissionInteraction").Value.Value as ITypeSymbol,
             RequiredPermissions = requiredPermissions.ToList(),
             Kind = kind,
             InvocationModePolicy = invocationModePolicy,
@@ -998,6 +1027,253 @@ internal static class CapabilityAnalyzer
         return functionCapability;
     }
 
+    private static string? GetNamedString(AttributeData? attribute, string name) =>
+        attribute?.NamedArguments.FirstOrDefault(pair => pair.Key == name).Value.Value as string;
+
+    private static string? GetNamedTypeId(AttributeData? attribute, string name) =>
+        (attribute?.NamedArguments.FirstOrDefault(pair => pair.Key == name).Value.Value as ITypeSymbol)?
+            .ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+
+    private static bool ValidatePermissionAttribute(
+        AttributeData? attribute,
+        Compilation compilation,
+        List<Diagnostic> diagnostics,
+        Location location)
+    {
+        if (attribute is null) return true;
+        var valid = true;
+        var authority = GetNamedString(attribute, "PermissionAuthority");
+        if (authority is not null && (authority.Length == 0 || authority != authority.Trim() ||
+            authority.Any(char.IsControl) || Encoding.UTF8.GetByteCount(authority) > 512))
+        {
+            diagnostics.Add(Diagnostic.Create(PermissionDiagnostics.InvalidDeclaration, location,
+                "permission authority must be canonical, non-empty, control-free, and at most 512 UTF-8 bytes"));
+            valid = false;
+        }
+        valid &= ValidateServiceType(attribute, "PermissionPolicy", "HPD.Agent.Permissions.IPermissionPolicy");
+        valid &= ValidateServiceType(attribute, "PermissionInteraction", "HPD.Agent.Permissions.IPermissionInteraction");
+        return valid;
+
+        bool ValidateServiceType(AttributeData source, string property, string contractName)
+        {
+            var type = source.NamedArguments.FirstOrDefault(pair => pair.Key == property).Value.Value as ITypeSymbol;
+            if (type is null) return true;
+            var contract = compilation.GetTypeByMetadataName(contractName);
+            if (contract is not null && type.AllInterfaces.Any(candidate =>
+                    SymbolEqualityComparer.Default.Equals(candidate, contract)))
+            {
+                if (property == "PermissionPolicy" && type is INamedTypeSymbol policyType)
+                {
+                    for (var current = policyType; current is not null; current = current.BaseType)
+                    {
+                        if (!current.IsGenericType || current.Name != "PermissionPolicy" ||
+                            current.TypeArguments.Length != 1) continue;
+                        var presentation = current.TypeArguments[0];
+                        var presentationAttribute = presentation.GetAttributes().FirstOrDefault(data =>
+                            data.AttributeClass?.Name == "PermissionPresentationAttribute");
+                        var presentationId = presentationAttribute?.ConstructorArguments.FirstOrDefault().Value as string;
+                        if (string.IsNullOrWhiteSpace(presentationId))
+                        {
+                            diagnostics.Add(Diagnostic.Create(PermissionDiagnostics.InvalidDeclaration, location,
+                                $"presentation type '{presentation.ToDisplayString()}' must declare a non-empty PermissionPresentationAttribute"));
+                            return false;
+                        }
+                        var serializerContextType = presentationAttribute!.ConstructorArguments.Length < 2
+                            ? null
+                            : presentationAttribute.ConstructorArguments[1].Value as INamedTypeSymbol;
+                        var jsonSerializerContext = compilation.GetTypeByMetadataName(
+                            "System.Text.Json.Serialization.JsonSerializerContext");
+                        if (serializerContextType is null || jsonSerializerContext is null ||
+                            !InheritsFrom(serializerContextType, jsonSerializerContext))
+                        {
+                            diagnostics.Add(Diagnostic.Create(PermissionDiagnostics.InvalidDeclaration, location,
+                                $"presentation type '{presentation.ToDisplayString()}' must declare a source-generated JsonSerializerContext"));
+                            return false;
+                        }
+                        break;
+                    }
+                }
+                if (property == "PermissionInteraction" &&
+                    !type.AllInterfaces.Any(static candidate => candidate.IsGenericType &&
+                        candidate.Name == "IPermissionInteractionEventContract" &&
+                        candidate.TypeArguments.Length == 2))
+                {
+                    diagnostics.Add(Diagnostic.Create(PermissionDiagnostics.InvalidDeclaration, location,
+                        $"interaction type '{type.ToDisplayString()}' must implement IPermissionInteractionEventContract<TRequest,TResponse> so durable event composition can be verified"));
+                    return false;
+                }
+                return true;
+            }
+            diagnostics.Add(Diagnostic.Create(PermissionDiagnostics.InvalidDeclaration, location,
+                $"{property} type '{type.ToDisplayString()}' must implement {contractName}"));
+            return false;
+        }
+
+        static bool InheritsFrom(INamedTypeSymbol type, INamedTypeSymbol expectedBase)
+        {
+            for (var current = type.BaseType; current is not null; current = current.BaseType)
+                if (SymbolEqualityComparer.Default.Equals(current, expectedBase)) return true;
+            return false;
+        }
+    }
+
+    private static bool ValidateActionContract(
+        IReadOnlyList<ParameterInfo> parameters,
+        string toolKind,
+        List<Diagnostic> diagnostics,
+        Location location,
+        SemanticModel semanticModel)
+    {
+        var misplaced = parameters.Where(parameter =>
+            parameter.Symbol?.Type.GetAttributes().Any(attribute =>
+                attribute.AttributeClass?.Name == "AIFunctionActionAttribute") == true).ToArray();
+        if (misplaced.Length != 0)
+        {
+            diagnostics.Add(Diagnostic.Create(ActionFunctionDiagnostics.InvalidContract, location,
+                "AIFunctionActionAttribute is valid only on cases of the function's direct closed union parameter"));
+            return false;
+        }
+        var candidates = parameters.Where(parameter => parameter.Contract is UnionContractNode union &&
+            union.Cases.Any(unionCase => unionCase.ConcreteType.GetAttributes().Any(attribute =>
+                attribute.AttributeClass?.Name == "AIFunctionActionAttribute"))).ToArray();
+        foreach (var parameter in parameters.Where(static parameter =>
+                     parameter.Kind == FunctionParameterKind.ModelFacing && parameter.Symbol?.Type is INamedTypeSymbol))
+        {
+            var baseType = (INamedTypeSymbol)parameter.Symbol!.Type;
+            var declaredCases = parameter.Contract is UnionContractNode declaredUnion
+                ? new HashSet<INamedTypeSymbol>(
+                    declaredUnion.Cases.Select(static unionCase => unionCase.ConcreteType),
+                    SymbolEqualityComparer.Default)
+                : new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+            foreach (var syntaxTree in semanticModel.Compilation.SyntaxTrees)
+            {
+                var treeModel = semanticModel.Compilation.GetSemanticModel(syntaxTree);
+                foreach (var declaration in syntaxTree.GetRoot().DescendantNodes().OfType<TypeDeclarationSyntax>())
+                {
+                    if (treeModel.GetDeclaredSymbol(declaration) is not INamedTypeSymbol type ||
+                        !type.GetAttributes().Any(attribute => attribute.AttributeClass?.Name == "AIFunctionActionAttribute") ||
+                        !DerivesFrom(type, baseType) || declaredCases.Contains(type))
+                        continue;
+                    diagnostics.Add(Diagnostic.Create(ActionFunctionDiagnostics.InvalidContract,
+                        declaration.GetLocation(),
+                        $"action type '{type.Name}' is outside the function's declared closed union"));
+                    return false;
+                }
+            }
+        }
+        if (candidates.Length == 0) return true;
+        if (candidates.Length != 1)
+        {
+            diagnostics.Add(Diagnostic.Create(ActionFunctionDiagnostics.InvalidContract, location,
+                "exactly one direct closed-union action parameter is required"));
+            return false;
+        }
+        if (string.Equals(toolKind, "Output", StringComparison.Ordinal))
+        {
+            diagnostics.Add(Diagnostic.Create(ActionFunctionDiagnostics.InvalidContract, location,
+                "output tools cannot declare action invocation metadata"));
+            return false;
+        }
+        var valid = true;
+        var union = (UnionContractNode)candidates[0].Contract!;
+        var actions = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var unionCase in union.Cases)
+        {
+            var attributes = unionCase.ConcreteType.GetAttributes().Where(attribute =>
+                attribute.AttributeClass?.Name == "AIFunctionActionAttribute").ToArray();
+            if (attributes.Length != 1)
+            {
+                diagnostics.Add(Diagnostic.Create(ActionFunctionDiagnostics.InvalidContract, location,
+                    $"action type '{unionCase.ConcreteType.Name}' must declare exactly one AIFunctionActionAttribute"));
+                valid = false;
+                continue;
+            }
+            var declared = attributes[0].ConstructorArguments.FirstOrDefault().Value as string;
+            foreach (var named in attributes[0].NamedArguments.Where(static named =>
+                         named.Key is "InvocationModePolicy" or "InvocationModeHandling" or "Permission"))
+            {
+                var numeric = named.Value.Value is null
+                    ? 0
+                    : Convert.ToInt32(named.Value.Value, System.Globalization.CultureInfo.InvariantCulture);
+                var maximum = named.Key == "InvocationModePolicy" ? 3 : 2;
+                if (numeric < 0 || numeric > maximum)
+                {
+                    diagnostics.Add(Diagnostic.Create(ActionFunctionDiagnostics.InvalidContract, location,
+                        $"action '{unionCase.Discriminator}' declares unsupported {named.Key} value '{numeric}'"));
+                    valid = false;
+                }
+            }
+            var actionAttribute = attributes[0];
+            var requirement = actionAttribute.NamedArguments.FirstOrDefault(static pair => pair.Key == "Permission");
+            var requirementValue = requirement.Key is null || requirement.Value.Value is null
+                ? 0
+                : Convert.ToInt32(requirement.Value.Value, System.Globalization.CultureInfo.InvariantCulture);
+            var hasPermissionDetails = actionAttribute.NamedArguments.Any(static pair =>
+                pair.Key is "PermissionAuthority" or "PermissionPolicy" or "PermissionInteraction");
+            if (requirementValue == 2 && hasPermissionDetails)
+            {
+                diagnostics.Add(Diagnostic.Create(ActionFunctionDiagnostics.InvalidContract, location,
+                    $"action '{unionCase.Discriminator}' cannot combine NotRequired with permission details"));
+                valid = false;
+            }
+            if (!ValidatePermissionAttribute(actionAttribute, semanticModel.Compilation, diagnostics, location))
+                valid = false;
+            if (string.IsNullOrWhiteSpace(declared) ||
+                !string.Equals(declared, unionCase.Discriminator, StringComparison.Ordinal))
+            {
+                diagnostics.Add(Diagnostic.Create(ActionFunctionDiagnostics.InvalidContract, location,
+                    $"action '{declared}' does not match serializer discriminator '{unionCase.Discriminator}'"));
+                valid = false;
+            }
+            if (!actions.Add(unionCase.Discriminator))
+            {
+                diagnostics.Add(Diagnostic.Create(ActionFunctionDiagnostics.InvalidContract, location,
+                    $"duplicate action discriminator '{unionCase.Discriminator}'"));
+                valid = false;
+            }
+            if (unionCase.Contract.Properties.Any(property =>
+                    string.Equals(property.JsonName, "invocationMode", StringComparison.Ordinal)))
+            {
+                diagnostics.Add(Diagnostic.Create(ActionFunctionDiagnostics.InvalidContract, location,
+                    $"action '{unionCase.Discriminator}' declares reserved property 'invocationMode'"));
+                valid = false;
+            }
+        }
+        return valid;
+    }
+
+    private static bool DerivesFrom(INamedTypeSymbol type, INamedTypeSymbol baseType)
+    {
+        for (var current = type.BaseType; current is not null; current = current.BaseType)
+        {
+            if (SymbolEqualityComparer.Default.Equals(current, baseType))
+                return true;
+        }
+        return false;
+    }
+
+    private static class ActionFunctionDiagnostics
+    {
+        internal static readonly DiagnosticDescriptor InvalidContract = new(
+            "HPD070",
+            "Invalid action-scoped function contract",
+            "Invalid action-scoped function contract: {0}",
+            "HPD.Agent.SourceGeneration",
+            DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
+    }
+
+    private static class PermissionDiagnostics
+    {
+        internal static readonly DiagnosticDescriptor InvalidDeclaration = new(
+            "HPD071",
+            "Invalid function permission declaration",
+            "Invalid function permission declaration: {0}",
+            "HPD.Agent.SourceGeneration",
+            DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
+    }
+
     // ========== Helper Methods ==========
 
     /// <summary>
@@ -1005,7 +1281,40 @@ internal static class CapabilityAnalyzer
     /// </summary>
     private static bool HasAttribute(List<AttributeSyntax> attrs, string name)
     {
-        return attrs.Any(attr => attr.Name.ToString().Contains(name));
+        return attrs.Any(attr =>
+        {
+            var actual = attr.Name switch
+            {
+                IdentifierNameSyntax identifier => identifier.Identifier.ValueText,
+                QualifiedNameSyntax qualified => qualified.Right.Identifier.ValueText,
+                AliasQualifiedNameSyntax alias => alias.Name.Identifier.ValueText,
+                _ => attr.Name.ToString().Split('.').Last()
+            };
+            return string.Equals(actual, name, System.StringComparison.Ordinal) ||
+                string.Equals(actual, name + "Attribute", System.StringComparison.Ordinal);
+        });
+    }
+
+    private static bool HasFrameworkPermission(MethodDeclarationSyntax method, SemanticModel semanticModel)
+    {
+        var permissionType = semanticModel.Compilation.GetTypeByMetadataName("HPD.Agent.RequiresPermissionAttribute");
+        return permissionType is not null && semanticModel.GetDeclaredSymbol(method)?.GetAttributes().Any(attribute =>
+            SymbolEqualityComparer.Default.Equals(attribute.AttributeClass, permissionType)) == true;
+    }
+
+    private static void DiagnoseUnsupportedPermissionCustomization(
+        MethodDeclarationSyntax method,
+        SemanticModel semanticModel,
+        List<Diagnostic> diagnostics)
+    {
+        var permissionType = semanticModel.Compilation.GetTypeByMetadataName("HPD.Agent.RequiresPermissionAttribute");
+        var attribute = semanticModel.GetDeclaredSymbol(method)?.GetAttributes().FirstOrDefault(candidate =>
+            permissionType is not null && SymbolEqualityComparer.Default.Equals(candidate.AttributeClass, permissionType));
+        if (attribute?.NamedArguments.Any(pair =>
+                pair.Key is "PermissionAuthority" or "PermissionPolicy" or "PermissionInteraction") == true)
+            diagnostics.Add(Diagnostic.Create(PermissionDiagnostics.InvalidDeclaration,
+                attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation() ?? method.GetLocation(),
+                "custom permission authority, policy, and interaction properties are supported only on AIFunction capabilities"));
     }
 
     private static AttributeArgumentSyntax? GetNamedArgument(AttributeSyntax attr, string name) =>
@@ -1075,7 +1384,7 @@ internal static class CapabilityAnalyzer
     /// </summary>
     private static string? GetConflictingCapabilityAttribute(List<AttributeSyntax> attrs, string currentAttr)
     {
-        var capabilityAttributes = new[] { "AIFunction", "Skill", "SubAgent", "MultiAgent", "MCPServer", "OpenApi" };
+        var capabilityAttributes = new[] { "AIFunction", "Skill", "SubAgent", "MultiAgent", "McpServer", "OpenApi" };
 
         foreach (var attr in attrs)
         {

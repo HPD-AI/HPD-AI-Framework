@@ -14,7 +14,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.23.0" />
-    <ProjectReference Include="../../HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
+    <ProjectReference Include="../../HPD-Agent.Audio/HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
     <ProjectReference Include="../../HPD-Agent/HPD-Agent.csproj" />
     <InternalsVisibleTo Include="HPD.Agent.Audio.V2.Tests" />
   </ItemGroup>

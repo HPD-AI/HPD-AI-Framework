@@ -138,9 +138,44 @@ internal sealed class DefaultBaseSubjectRetirementRuntime(
         BaseGeneratedSubjectRegistration? contract = contracts.Find(request.ContractId, request.ContractVersion); BaseSubjectRetirementRegistry? registry = session.Services.GetService(typeof(BaseSubjectRetirementRegistry)) as BaseSubjectRetirementRegistry; BaseInstalledSubjectRetirementPolicy? installed = registry?.FindPolicy(request.ContractId, request.ContractVersion); if (contract is null || installed is null) return Failure<BaseSubjectRetirementOverrideResult>(OperationStatus.PolicyDenied, BaseSubjectRetirementErrorCodes.Unauthorized, ErrorCategory.Authorization); OperationContext operation = session.Operation(BaseOperationKind.SubjectRetirementOverride, "base.subjectRetirement.override"); if (!await AuthorizedAsync(session, contract, "base.subjectRetirement.override", operation, true, cancellationToken).ConfigureAwait(false)) return Failure<BaseSubjectRetirementOverrideResult>(OperationStatus.PolicyDenied, BaseSubjectRetirementErrorCodes.Unauthorized, ErrorCategory.Authorization); BaseOwnedSubjectScopeEvidence scope = Scope(session, contract, operation);if(!ValidScope(scope))return Failure<BaseSubjectRetirementOverrideResult>(OperationStatus.PolicyDenied,BaseSubjectRetirementErrorCodes.ScopeAuthorityInvalid,ErrorCategory.Authorization);if (stores.GetStoreForCollection(contract.Definition.ValidationPlan.PrivateCollectionId) is not IBaseSubjectRetirementStore store) return Failure<BaseSubjectRetirementOverrideResult>(OperationStatus.CapabilityUnavailable, BaseSubjectRetirementErrorCodes.ProviderContractInvalid, ErrorCategory.Capability); var processor = new BaseSubjectRetirementOverrideProcessor(new() { Request = request, Scope = scope, RetirementPolicyChecksum = installed.Definition.PolicyChecksum, ObservedAtUtc = timeProvider.GetUtcNow() }); RecordMutationExecutionResult execution = await ExecuteAsync(store, processor, request.Identity, Canonical(request), cancellationToken).ConfigureAwait(false); return Execution(execution, processor.Result);
     }
 
-    public async ValueTask<BaseResult<BaseSubjectFinalPurgeResult>> PurgeAsync(BaseSession session, BaseSubjectFinalPurgeRequest request, CancellationToken cancellationToken)
+    public async ValueTask<BaseResult<BaseSubjectFinalPurgeResult>> PurgeAsync(BaseSession session, BaseSubjectFinalPurgeRequest request, BaseSubjectFinalPurgeExecutionOptions? options, CancellationToken cancellationToken)
     {
-        BaseGeneratedSubjectRegistration? contract = contracts.Find(request.ContractId, request.ContractVersion); BaseSubjectRetirementRegistry? registry = session.Services.GetService(typeof(BaseSubjectRetirementRegistry)) as BaseSubjectRetirementRegistry; BaseInstalledSubjectRetirementPolicy? installed = registry?.FindPolicy(request.ContractId, request.ContractVersion); if (contract is null || installed is null) return Failure<BaseSubjectFinalPurgeResult>(OperationStatus.PolicyDenied, BaseSubjectRetirementErrorCodes.Unauthorized, ErrorCategory.Authorization); OperationContext operation = session.Operation(BaseOperationKind.SubjectRetirementPurge, "base.subjectRetirement.purge"); if (!await AuthorizedAsync(session, contract, "base.subjectRetirement.purge", operation, true, cancellationToken).ConfigureAwait(false)) return Failure<BaseSubjectFinalPurgeResult>(OperationStatus.PolicyDenied, BaseSubjectRetirementErrorCodes.Unauthorized, ErrorCategory.Authorization); if (!await AuthorizedSourceAsync(session, contract, operation, cancellationToken).ConfigureAwait(false)) return Failure<BaseSubjectFinalPurgeResult>(OperationStatus.PolicyDenied, BaseSubjectRetirementErrorCodes.Unauthorized, ErrorCategory.Authorization); BaseOwnedSubjectScopeEvidence scope = Scope(session, contract, operation);if(!ValidScope(scope))return Failure<BaseSubjectFinalPurgeResult>(OperationStatus.PolicyDenied,BaseSubjectRetirementErrorCodes.ScopeAuthorityInvalid,ErrorCategory.Authorization);if (stores.GetStoreForCollection(contract.Definition.ValidationPlan.PrivateCollectionId) is not IBaseSubjectRetirementStore store) return Failure<BaseSubjectFinalPurgeResult>(OperationStatus.CapabilityUnavailable, BaseSubjectRetirementErrorCodes.ProviderContractInvalid, ErrorCategory.Capability); var processor = new BaseSubjectRetirementPurgeProcessor(new() { Request = request, Scope = scope, ContractChecksum = contract.Checksum, RetirementPolicyChecksum = installed.Definition.PolicyChecksum, MinimumTombstoneAge = installed.Definition.PurgeRetention.MinimumTombstoneAge, ObservedAtUtc = timeProvider.GetUtcNow(), Operation = operation }); RecordMutationExecutionResult execution = await ExecuteAsync(store, processor, request.Identity, Canonical(request), cancellationToken).ConfigureAwait(false); return Execution(execution, processor.Result);
+        BaseGeneratedSubjectRegistration? contract = contracts.Find(request.ContractId, request.ContractVersion);
+        BaseSubjectRetirementRegistry? registry = session.Services.GetService(typeof(BaseSubjectRetirementRegistry)) as BaseSubjectRetirementRegistry;
+        BaseInstalledSubjectRetirementPolicy? installed = registry?.FindPolicy(request.ContractId, request.ContractVersion);
+        if (contract is null || installed is null)
+            return Failure<BaseSubjectFinalPurgeResult>(OperationStatus.PolicyDenied, BaseSubjectRetirementErrorCodes.Unauthorized, ErrorCategory.Authorization);
+        BaseActivationGuard? guard = options?.ActivationGuard;
+        if (!ValidFinalExecutionAuthority(session, installed.Definition.FinalPurgeExecutionMode, guard))
+            return Failure<BaseSubjectFinalPurgeResult>(OperationStatus.Conflict,
+                guard is null ? "base.activation.guardRequired" : "base.activation.guardInvalid", ErrorCategory.Conflict);
+        string sourceGrant = $"{contract.Definition.Id}.retirement.purge.source";
+        if (!session.ActivationDeclaresSourceGrants("base.subjectRetirement.purge", sourceGrant))
+            return Failure<BaseSubjectFinalPurgeResult>(OperationStatus.PolicyDenied,
+                BaseSubjectRetirementErrorCodes.Unauthorized, ErrorCategory.Authorization);
+        OperationContext operation = session.Operation(BaseOperationKind.SubjectRetirementPurge, "base.subjectRetirement.purge");
+        if (!await AuthorizedAsync(session, contract, "base.subjectRetirement.purge", operation, true, cancellationToken).ConfigureAwait(false)
+            || !await AuthorizedSourceAsync(session, contract, operation, cancellationToken).ConfigureAwait(false))
+            return Failure<BaseSubjectFinalPurgeResult>(OperationStatus.PolicyDenied, BaseSubjectRetirementErrorCodes.Unauthorized, ErrorCategory.Authorization);
+        BaseOwnedSubjectScopeEvidence scope = Scope(session, contract, operation);
+        if (!ValidScope(scope))
+            return Failure<BaseSubjectFinalPurgeResult>(OperationStatus.PolicyDenied, BaseSubjectRetirementErrorCodes.ScopeAuthorityInvalid, ErrorCategory.Authorization);
+        IRecordStore? rawStore = stores.GetStoreForCollection(contract.Definition.ValidationPlan.PrivateCollectionId);
+        if (rawStore is not IBaseSubjectRetirementStore store)
+            return Failure<BaseSubjectFinalPurgeResult>(OperationStatus.CapabilityUnavailable, BaseSubjectRetirementErrorCodes.ProviderContractInvalid, ErrorCategory.Capability);
+        var processor = new BaseSubjectRetirementPurgeProcessor(new()
+        {
+            Request = request,
+            Scope = scope,
+            ContractChecksum = contract.Checksum,
+            RetirementPolicyChecksum = installed.Definition.PolicyChecksum,
+            MinimumTombstoneAge = installed.Definition.PurgeRetention.MinimumTombstoneAge,
+            ObservedAtUtc = timeProvider.GetUtcNow(),
+            Operation = operation,
+            ActivationGuard = guard,
+        });
+        RecordMutationExecutionResult execution = await ExecuteAsync(store, processor, request.Identity, Canonical(request), cancellationToken).ConfigureAwait(false);
+        return Execution(execution, processor.Result);
     }
 
     public async ValueTask<BaseResult<BaseSubjectRetirementConsumerRemovalResult>> RemoveConsumerAsync(BaseSession session, BaseSubjectRetirementConsumerRemovalRequest request, CancellationToken cancellationToken)
@@ -160,11 +195,66 @@ internal sealed class DefaultBaseSubjectRetirementRuntime(
 
     private async ValueTask<bool> AuthorizedAsync(BaseSession session, BaseGeneratedSubjectRegistration contract, string grantId, OperationContext operation, bool write, CancellationToken token)
     {
-        if (session.Principal.SubjectKind is not (AccessSubjectKind.Admin or AccessSubjectKind.System)) return false; var resource = new CollectionDefinition { Id = grantId, Name = grantId, Kind = BaseCollectionKinds.Custom, SchemaMode = SchemaMode.Strict, UnknownFields = UnknownFieldPolicy.Reject, System = true, SystemOwnerModuleId = contract.Definition.OwningModuleId }; OperationResult<BasePolicyEvaluation> result = write ? await policy.EvaluateWriteAsync(new() { Principal = session.Principal, Operation = operation, Collection = resource, ResourceKind = PolicyResourceKind.SubjectLifecycle }, token).ConfigureAwait(false) : await policy.EvaluateReadAsync(new() { Principal = session.Principal, Operation = operation, Collection = resource, ResourceKind = PolicyResourceKind.SubjectLifecycle }, token).ConfigureAwait(false); return BaseSystemCollectionGate.HasExactSubjectLifecycleGrant(result, grantId, contract.Definition.OwningModuleId, grantId, contract.Definition.Id, contract.Definition.Version, session.Principal, operation);
+        if (session.Principal.SubjectKind is not (AccessSubjectKind.Admin or AccessSubjectKind.System))
+            return false;
+
+        // Grant sources need the exact exported contract to issue contract-scoped
+        // retirement authority. The synthetic policy resource remains the operation
+        // grant; it must not replace the contract identity in the operation context.
+        BasePolicyRequest request = RetirementAuthorizationRequest(
+            session.Principal, contract, grantId, operation);
+        OperationContext contractOperation = request.Operation;
+        OperationResult<BasePolicyEvaluation> result = write
+            ? await policy.EvaluateWriteAsync(request, token).ConfigureAwait(false)
+            : await policy.EvaluateReadAsync(request, token).ConfigureAwait(false);
+        return BaseSystemCollectionGate.HasExactSubjectLifecycleGrant(
+            result,
+            grantId,
+            contract.Definition.OwningModuleId,
+            grantId,
+            contract.Definition.Id,
+            contract.Definition.Version,
+            session.Principal,
+            contractOperation);
+    }
+
+    internal static BasePolicyRequest RetirementAuthorizationRequest(
+        PrincipalContext principal,
+        BaseGeneratedSubjectRegistration contract,
+        string grantId,
+        OperationContext operation)
+    {
+        ArgumentNullException.ThrowIfNull(principal);
+        ArgumentNullException.ThrowIfNull(contract);
+        ArgumentException.ThrowIfNullOrWhiteSpace(grantId);
+        ArgumentNullException.ThrowIfNull(operation);
+        return new BasePolicyRequest
+        {
+            Principal = principal,
+            Operation = operation with { CollectionId = contract.Definition.Id },
+            Collection = new CollectionDefinition
+            {
+                Id = grantId,
+                Name = grantId,
+                Kind = BaseCollectionKinds.Custom,
+                SchemaMode = SchemaMode.Strict,
+                UnknownFields = UnknownFieldPolicy.Reject,
+                System = true,
+                SystemOwnerModuleId = contract.Definition.OwningModuleId,
+            },
+            ResourceKind = PolicyResourceKind.SubjectLifecycle,
+        };
     }
     private async ValueTask<bool> AuthorizedSourceAsync(BaseSession session, BaseGeneratedSubjectRegistration contract, OperationContext operation, CancellationToken token)
     {
         string sourceGrant = $"{contract.Definition.Id}.retirement.purge.source"; var resource = new CollectionDefinition { Id = contract.Definition.ValidationPlan.PrivateCollectionId, Name = contract.Definition.ValidationPlan.PrivateCollectionId, Kind = BaseCollectionKinds.Custom, SchemaMode = SchemaMode.Strict, UnknownFields = UnknownFieldPolicy.Reject, System = true, SystemOwnerModuleId = contract.Definition.OwningModuleId }; OperationResult<BasePolicyEvaluation> result = await policy.EvaluateWriteAsync(new() { Principal = session.Principal, Operation = operation with { CollectionId = contract.Definition.ValidationPlan.PrivateCollectionId }, Collection = resource, ResourceKind = PolicyResourceKind.Record }, token).ConfigureAwait(false); return BaseSystemCollectionGate.HasExactModuleSourceGrant(result, sourceGrant, contract.Definition.OwningModuleId, session.Principal, operation with { CollectionId = contract.Definition.ValidationPlan.PrivateCollectionId }, contract.Definition.ValidationPlan.PrivateCollectionId);
+    }
+    private static bool ValidFinalExecutionAuthority(BaseSession session, BaseSubjectFinalExecutionMode mode, BaseActivationGuard? guard)
+    {
+        BaseActivationSessionProvenance? provenance = session.ActivationProvenance;
+        if (provenance is null)
+            return guard is null && mode == BaseSubjectFinalExecutionMode.OrdinaryOrActivationGuarded;
+        return guard is not null && provenance.Matches(guard.Claim);
     }
     private static BaseOwnedSubjectScopeEvidence Scope(BaseSession session, BaseGeneratedSubjectRegistration contract, OperationContext operation) => new() { Kind = contract.Definition.Scope, Value = contract.Definition.Scope switch { BaseSubjectScopeKind.Global => null, BaseSubjectScopeKind.Tenant => operation.TenantId ?? session.Principal.CurrentTenantId, BaseSubjectScopeKind.Project => operation.ProjectId, _ => null } };
     private async ValueTask<RecordMutationExecutionResult> ExecuteAsync(IBaseSubjectRetirementStore store, IAtomicMutationProcessor processor, BaseMutationRequestIdentity identity, byte[] bytes, CancellationToken token) { try { RecordMutationExecutionResult result = await InvokeProviderAsync(inner => store.ExecuteAsync(processor, new() { AcquisitionTimeout = TimeSpan.FromSeconds(5), TransactionTimeout = TimeSpan.FromSeconds(30), CommitCompletionTimeout = TimeSpan.FromSeconds(30), AtomicRequest = new() { Identity = identity, StructuralDigest = SHA256.HashData(bytes), ExpiresAt = timeProvider.GetUtcNow().AddDays(30), MaxReceiptBytes = 1_048_576 } }, inner), TimeSpan.FromSeconds(65), token).ConfigureAwait(false); if (result.Outcome == RecordMutationExecutionOutcome.Committed) await TryDispatchControlsAsync().ConfigureAwait(false); return result; } catch (TimeoutException) { return new(RecordMutationExecutionOutcome.Indeterminate, null, new BaseError { Code = BaseSubjectRetirementErrorCodes.CommitIndeterminate, Message = Message(BaseSubjectRetirementErrorCodes.CommitIndeterminate), Category = ErrorCategory.Store }); } }
@@ -235,5 +325,5 @@ internal sealed class DefaultBaseSubjectRetirementRuntime(
     private static bool CanonicalInputs(ImmutableArray<string> values) { if (values.IsDefault) return false; string? previous = null; foreach (string value in values) { if (string.IsNullOrEmpty(value) || previous is not null && string.CompareOrdinal(previous, value) >= 0) return false; previous = value; } return true; }
     private static long RetirementBarrierBytes(BaseSubjectRetirementBarrier barrier) => Encoding.UTF8.GetByteCount($"{barrier.ContractId}\0{barrier.ContractVersion}\0{barrier.SubjectId.Value}\0{barrier.AuthorityEpoch.ToBase64Url()}\0{barrier.Incarnation.ToBase64Url()}\0{barrier.TombstoneSequence}\0{barrier.RequiredConsumerSetChecksum}\0{barrier.CreatedAtUtc.UtcTicks}\0{barrier.DeadlineUtc.UtcTicks}\0{(int)barrier.State}\0{barrier.Generation}\0{barrier.BarrierChecksum}");
     private static BaseFailure<T> Failure<T>(OperationStatus status, string code, ErrorCategory category) => new(status, new BaseError { Code = code, Message = Message(code), Category = category }, null, null);
-    private static string Message(string code) => code switch { BaseSubjectRetirementErrorCodes.ContractInvalid => "The subject retirement contract is invalid.", BaseSubjectRetirementErrorCodes.RegistrationConflict => "The subject retirement registration conflicts with the installed graph.", BaseSubjectRetirementErrorCodes.Unauthorized => "The subject retirement operation is not authorized.", BaseSubjectRetirementErrorCodes.ScopeAuthorityInvalid => "The subject retirement scope authority is invalid.", BaseSubjectRetirementErrorCodes.AcknowledgementConflict => "The subject retirement acknowledgement conflicts with current state.", BaseSubjectRetirementErrorCodes.SequenceInvalid => "The subject retirement sequence is invalid.", BaseSubjectRetirementErrorCodes.BarrierPending => "The subject retirement barrier is pending.", BaseSubjectRetirementErrorCodes.BarrierSatisfied => "The subject retirement barrier is already satisfied.", BaseSubjectRetirementErrorCodes.BarrierTimedOut => "The subject retirement barrier has timed out.", BaseSubjectRetirementErrorCodes.BarrierQuarantined => "The subject retirement barrier is quarantined.", BaseSubjectRetirementErrorCodes.OverrideConflict => "The subject retirement override conflicts with current state.", BaseSubjectRetirementErrorCodes.PurgeConflict => "The subject cannot be purged from its current retirement state.", BaseSubjectRetirementErrorCodes.RetentionPending => "The minimum subject retention period has not elapsed.", BaseSubjectRetirementErrorCodes.ConsumerRemovalPending => "Subject retirement consumer removal is still pending.", BaseSubjectRetirementErrorCodes.ProviderContractInvalid => "The provider cannot satisfy the subject retirement contract.", BaseSubjectRetirementErrorCodes.CapacityExceeded => "Subject retirement capacity is unavailable.", BaseSubjectRetirementErrorCodes.Timeout => "The subject retirement operation timed out.", BaseSubjectRetirementErrorCodes.CommitIndeterminate => "The subject retirement commit outcome is indeterminate.", BaseSubjectRetirementErrorCodes.MaintenanceRequired => "Subject retirement maintenance must complete before this operation.", _ => "The subject retirement operation failed." };
+    private static string Message(string code) => code switch { BaseSubjectRetirementErrorCodes.ContractInvalid => "The subject retirement contract is invalid.", BaseSubjectRetirementErrorCodes.RegistrationConflict => "The subject retirement registration conflicts with the installed graph.", BaseSubjectRetirementErrorCodes.Unauthorized => "The subject retirement operation is not authorized.", BaseSubjectRetirementErrorCodes.ScopeAuthorityInvalid => "The subject retirement scope authority is invalid.", BaseSubjectRetirementErrorCodes.AcknowledgementConflict => "The subject retirement acknowledgement conflicts with current state.", BaseSubjectRetirementErrorCodes.SequenceInvalid => "The subject retirement sequence is invalid.", BaseSubjectRetirementErrorCodes.BarrierPending => "The subject retirement barrier is pending.", BaseSubjectRetirementErrorCodes.BarrierSatisfied => "The subject retirement barrier is already satisfied.", BaseSubjectRetirementErrorCodes.BarrierTimedOut => "The subject retirement barrier has timed out.", BaseSubjectRetirementErrorCodes.BarrierQuarantined => "The subject retirement barrier is quarantined.", BaseSubjectRetirementErrorCodes.OverrideConflict => "The subject retirement override conflicts with current state.", BaseSubjectRetirementErrorCodes.PurgeConflict => "The subject cannot be purged from its current retirement state.", BaseSubjectRetirementErrorCodes.RetentionPending => "The minimum subject retention period has not elapsed.", BaseSubjectRetirementErrorCodes.ConsumerRemovalPending => "Subject retirement consumer removal is still pending.", BaseSubjectRetirementErrorCodes.ProviderContractInvalid => "The provider cannot satisfy the subject retirement contract.", BaseSubjectRetirementErrorCodes.CapacityExceeded => "Subject retirement capacity is unavailable.", BaseSubjectRetirementErrorCodes.Timeout => "The subject retirement operation timed out.", BaseSubjectRetirementErrorCodes.CommitIndeterminate => "The subject retirement commit outcome is indeterminate.", BaseSubjectRetirementErrorCodes.MaintenanceRequired => "Subject retirement maintenance must complete before this operation.", "base.activation.guardRequired" => "An activation guard is required for this subject retirement operation.", "base.activation.guardInvalid" => "The activation guard is not valid for this subject retirement operation.", _ => "The subject retirement operation failed." };
 }

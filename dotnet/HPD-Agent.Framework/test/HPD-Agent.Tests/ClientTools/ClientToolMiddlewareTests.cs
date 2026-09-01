@@ -792,7 +792,7 @@ public class ClientToolMiddlewareTests
 
         var userMessage = new ChatMessage(ChatRole.User, "test");
         return agentContext.AsBeforeMessageTurn(
-            userMessage,
+            [userMessage],
             new List<ChatMessage>(),
             new AgentRunConfig());
     }
@@ -901,7 +901,7 @@ public class ClientToolMiddlewareTests
         var userMessage = new ChatMessage(ChatRole.User, "Test message");
         var conversationHistory = new List<ChatMessage>();
         var runConfig = new AgentRunConfig();
-        return agentContext.AsBeforeMessageTurn(userMessage, conversationHistory, runConfig);
+        return agentContext.AsBeforeMessageTurn([userMessage], conversationHistory, runConfig);
     }
 
 }

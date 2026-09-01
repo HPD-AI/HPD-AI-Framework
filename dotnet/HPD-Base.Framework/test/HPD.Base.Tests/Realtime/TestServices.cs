@@ -128,13 +128,13 @@ internal static class TestServices
             {
                 Kind = EventResourceKind.Record,
                 CollectionId = collectionId,
-                RecordId = new RecordId(recordId)
+                RecordId = RecordId.Create(recordId)
             },
             Operation = operation,
             After = new RecordSnapshot
             {
                 CollectionId = collectionId,
-                Id = new RecordId(recordId),
+                Id = RecordId.Create(recordId),
                 Payload = Payload(("title", "hello")),
                 Metadata = new RecordMetadata(),
                 IncludedFields = ["title"],
@@ -160,11 +160,11 @@ internal static class TestServices
                 Operation = BaseOperationKind.Create,
                 Visibility = VisibilityLevel.Public,
                 CollectionId = "items",
-                RecordId = new RecordId(recordId),
+                RecordId = RecordId.Create(recordId),
                 After = new RecordSnapshot
                 {
                     CollectionId = "items",
-                    Id = new RecordId(recordId),
+                    Id = RecordId.Create(recordId),
                     Payload = Payload(("title", title), ("secret", "hidden")),
                     Metadata = new RecordMetadata()
                 }

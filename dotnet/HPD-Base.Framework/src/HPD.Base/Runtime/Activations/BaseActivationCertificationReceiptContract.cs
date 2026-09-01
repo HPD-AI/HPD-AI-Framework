@@ -23,6 +23,7 @@ public static class BaseActivationCertificationReceiptContract
         stream.Write("HPDB-ACTIVATION-CAPABILITY-1\0"u8);
         Bool(stream, value.AtomicCreationSupported); Bool(stream, value.SelectionTargetSupported);
         Bool(stream, value.ModuleTargetSupported); Bool(stream, value.GuardedChildrenSupported);
+        Bool(stream, value.DurableYieldSupported);
         Bool(stream, value.RestoreFencingSupported); I64(stream, (long)value.DueInvalidation);
         Sequence(stream, value.ScheduleKinds.Select(static item => (long)item));
         Sequence(stream, value.ExecutionClasses.Select(static item => (long)item));
@@ -34,8 +35,9 @@ public static class BaseActivationCertificationReceiptContract
             value.MaximumReadIntervals, value.MaximumIndexOperations, value.MaximumInputBytes,
             value.MaximumResultBytes, value.MaximumEvidenceBytes, value.MaximumTransientBytes,
             value.MaximumReceiptBytes, value.MaximumPendingRows, value.MaximumClaimedRows,
-            value.MaximumTerminalRows, value.MaximumAttempts, value.MaximumRenewalsPerAttempt,
-            value.MaximumChildrenPerAttempt, value.MaximumLineageDepth, value.MaximumOccurrencePage,
+            value.MaximumTerminalRows, value.MaximumAttempts, value.MaximumYieldsPerActivation,
+            value.MaximumReservedYieldReceiptSlots, value.MaximumRenewalsPerSlice,
+            value.MaximumChildrenPerSlice, value.MaximumLineageDepth, value.MaximumOccurrencePage,
             value.MaximumPriorityAgingBoost, value.PriorityAgingInterval.Ticks,
             value.ObservationTokenLifetime.Ticks, value.MaximumTimeZoneBytes, value.MaximumHandlerDependencies,
             value.AcquisitionDeadline.Ticks, value.TransactionDeadline.Ticks,

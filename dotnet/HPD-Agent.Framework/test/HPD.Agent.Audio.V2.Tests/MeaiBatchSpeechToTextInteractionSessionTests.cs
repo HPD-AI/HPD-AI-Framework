@@ -26,7 +26,10 @@ public sealed class MeaiBatchSpeechToTextInteractionSessionTests
         await session.OpenAsync(CreatePlan());
         await session.SendAsync(new InteractionInputMedia(CreateEnvelope(content)));
 
-        var update = Assert.Single(await ReadUpdatesAsync(session));
+        var updates = await ReadUpdatesAsync(session);
+        var attempt = Assert.Single(updates.OfType<ProviderAttemptTerminalUpdate>());
+        Assert.Equal(ProviderOperationOutcome.Succeeded, attempt.Outcome);
+        var update = Assert.Single(updates.OfType<TranscriptUpdate>());
         var transcript = Assert.IsType<TranscriptUpdate>(update);
         Assert.Equal(TranscriptProjectionStageV1.Final, transcript.Stage);
         Assert.Equal("hello from meai", transcript.Text);
@@ -133,7 +136,10 @@ public sealed class MeaiBatchSpeechToTextInteractionSessionTests
         await session.OpenAsync(CreatePlan());
         await session.SendAsync(new InteractionInputMedia(CreateEnvelope(content)));
 
-        var update = Assert.Single(await ReadUpdatesAsync(session));
+        var updates = await ReadUpdatesAsync(session);
+        var attempt = Assert.Single(updates.OfType<ProviderAttemptTerminalUpdate>());
+        Assert.Equal(ProviderOperationOutcome.Failed, attempt.Outcome);
+        var update = Assert.Single(updates.OfType<ProviderErrorUpdate>());
         var error = Assert.IsType<ProviderErrorUpdate>(update);
         Assert.Equal("meai-stt.transcription-exception", error.Error.Code);
         Assert.Contains("provider failed", error.Error.Message);
@@ -150,7 +156,10 @@ public sealed class MeaiBatchSpeechToTextInteractionSessionTests
         await session.OpenAsync(CreatePlan());
         await session.SendAsync(new InteractionInputMedia(CreateEnvelope(content)));
 
-        var update = Assert.Single(await ReadUpdatesAsync(session));
+        var updates = await ReadUpdatesAsync(session);
+        var attempt = Assert.Single(updates.OfType<ProviderAttemptTerminalUpdate>());
+        Assert.Equal(ProviderOperationOutcome.Succeeded, attempt.Outcome);
+        var update = Assert.Single(updates.OfType<ProviderErrorUpdate>());
         var error = Assert.IsType<ProviderErrorUpdate>(update);
         Assert.Equal("meai-stt.empty-transcript", error.Error.Code);
     }

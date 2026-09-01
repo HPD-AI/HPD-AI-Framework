@@ -5,9 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
-using HPD.Agent.Secrets;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Agent.Providers.Mistral;
 
@@ -15,11 +13,12 @@ namespace HPD.Agent.Providers.Mistral;
 /// Mistral provider implementation using the generated Mistral SDK and Microsoft.Extensions.AI.
 /// </summary>
 [HpdProvider("mistral", "Mistral")]
+[HpdProviderBackend("platform", ProviderAuthenticationKind.ApiKey, IsDefaultBackend = true, IsDefaultAuthentication = true, DefaultSecretKey = "mistral:ApiKey")]
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(MistralProviderConfig), typeof(MistralJsonContext))]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.OperationOptions, typeof(MistralChatRequestOptions), typeof(MistralJsonContext))]
 [HpdProviderSecretAlias("mistral:ApiKey", "MISTRAL_API_KEY")]
-internal class MistralProvider : IChatClientProvider, IProviderSecretAliasProvider
+internal class MistralProvider : IProvider, IProviderClientFactory<IChatClient>, IProviderSecretAliasProvider
 {
     public string ProviderKey => "mistral";
     public string DisplayName => "Mistral";
@@ -35,17 +34,20 @@ internal class MistralProvider : IChatClientProvider, IProviderSecretAliasProvid
         };
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider registers AOT-compatible deserializer in provider module")]
-    public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
+    public ProviderClientCredentialBinding ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor)
     {
-        var secrets = services?.GetService<ISecretResolver>();
-        if (secrets == null)
-        {
-            throw new InvalidOperationException(
-                "ISecretResolver is required for provider initialization. " +
-                "Ensure the agent builder is properly configured with secret resolution.");
-        }
+        ArgumentNullException.ThrowIfNull(descriptor);
+        return ProviderClientCredentialBinding.ConstructionTime;
+    }
 
-        string apiKey = await secrets.RequireAsync("mistral:ApiKey", "Mistral", config.ApiKey, cancellationToken).ConfigureAwait(false);
+    public ValueTask<ProviderClientConstruction<IChatClient>> CreateAsync(
+        ProviderClientConstructionContext context,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
+        var config = context.EffectiveConfig;
+        var apiKey = ProviderClientConstructionUtilities.GetRequiredApiKey(context.CredentialBinding);
 
         string? modelName = config.ModelName;
         if (string.IsNullOrWhiteSpace(modelName))
@@ -63,7 +65,12 @@ internal class MistralProvider : IChatClientProvider, IProviderSecretAliasProvid
             }
         ]);
 
-        return new MistralConfiguredChatClient(client, modelName);
+        IChatClient configured = new MistralConfiguredChatClient(client, modelName);
+        return ValueTask.FromResult(new ProviderClientConstruction<IChatClient>
+        {
+            Client = configured,
+            Owner = ProviderClientConstructionUtilities.Own(configured)
+        });
     }
 
     public IProviderErrorHandler CreateErrorHandler()
@@ -96,9 +103,12 @@ internal class MistralProvider : IChatClientProvider, IProviderSecretAliasProvid
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider registers AOT-compatible deserializer in provider module")]
-    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
+    public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
     {
         var errors = new List<string>();
+
+        if (config.Family != ProviderClientFamily.Chat)
+            errors.Add("Mistral supports only chat.");
 
         if (string.IsNullOrWhiteSpace(config.ModelName))
             errors.Add("Model name is required for Mistral");
@@ -114,7 +124,7 @@ internal class MistralProvider : IChatClientProvider, IProviderSecretAliasProvid
         private readonly string _modelName;
         private ChatClientMetadata? _metadata;
 
-        public MistralConfiguredChatClient(global::Mistral.MistralClient innerClient, string modelName)
+        public MistralConfiguredChatClient(IChatClient innerClient, string modelName)
         {
             _innerClient = innerClient ?? throw new ArgumentNullException(nameof(innerClient));
             _modelName = modelName ?? throw new ArgumentNullException(nameof(modelName));

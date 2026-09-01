@@ -29,6 +29,10 @@ internal static class BaseAtomicStructureDigest
                 }
                 WritePayload(writer, "create", command.CreatePayload?.Payload);
                 WritePayload(writer, "update", command.UpdatePayload?.Payload);
+                writer.WriteStartArray("removedFieldIds");
+                foreach (string field in (command.Patch?.RemovedFieldIds ?? []).Order(StringComparer.Ordinal))
+                    writer.WriteStringValue(field.Normalize());
+                writer.WriteEndArray();
                 writer.WriteStartArray("changedFields");
                 foreach (string field in (command.CreatePayload?.ChangedFields ?? command.UpdatePayload?.ChangedFields ?? []).Order(StringComparer.Ordinal))
                     writer.WriteStringValue(field.Normalize());

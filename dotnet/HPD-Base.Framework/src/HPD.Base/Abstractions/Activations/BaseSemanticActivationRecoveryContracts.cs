@@ -377,14 +377,35 @@ public static class BaseSemanticRecoveryAuthorityContract
             writer.Bytes(value.CreationFingerprint.AsSpan()); writer.I32(value.Priority);
             writer.Bool(value.OverlapKey is not null); if (value.OverlapKey is { } overlap) writer.Bytes(overlap.AsSpan());
             writer.I32((int)value.OverlapPolicy); writer.Bool(value.Eligible); writer.I32((int)value.State);
-            writer.I64(value.Generation); writer.Bytes(value.ControlChecksum.AsSpan()); writer.I32(value.AttemptNumber);
+            writer.I64(value.Generation); writer.Bytes(value.ControlChecksum.AsSpan()); writer.I64(value.EffectiveDueAt);
+            writer.I64(value.YieldCount); writer.I64(value.MaximumYields); writer.I64(value.ExecutionSliceOrdinal);
+            writer.Bool(value.AttemptStartedAt is not null); if (value.AttemptStartedAt is { } attemptStartedAt) writer.I64(attemptStartedAt);
+            writer.Bool(value.SliceStartedAt is not null); if (value.SliceStartedAt is { } sliceStartedAt) writer.I64(sliceStartedAt);
+            writer.Bool(value.TerminalYieldDisposition is not null); if (value.TerminalYieldDisposition is { } disposition) writer.I32((int)disposition);
+            writer.Bool(value.TerminalYieldFailureCode is not null); if (value.TerminalYieldFailureCode is { } failureCode) writer.Text(failureCode);
+            writer.I32(value.AttemptNumber);
             writer.I64(value.ClaimEpoch); writer.Bool(value.CanonicalResult is not null);
             if (value.CanonicalResult is { } result) writer.Bytes(result.AsSpan());
             writer.Bool(value.CanonicalResultChecksum is not null);
             if (value.CanonicalResultChecksum is { } resultChecksum) writer.Bytes(resultChecksum.AsSpan());
+            writer.I32((int)value.TerminalReceipt.Kind);
             writer.Text(value.TerminalReceipt.ReceiptKey); writer.Text(value.TerminalReceipt.OperationKind);
             writer.Bytes(value.TerminalReceipt.Fingerprint.AsSpan()); writer.Bytes(value.TerminalReceipt.ResultBytes.AsSpan());
             writer.Bytes(value.TerminalReceipt.ResultChecksum.AsSpan()); writer.Bytes(value.TerminalReceipt.AuthorityChecksum.AsSpan());
+            writer.Bool(value.TerminalReceipt.Instance is not null);
+            if (value.TerminalReceipt.Instance is { } instance)
+            {
+                writer.Text(instance.ActivationId); writer.Text(instance.Definition.Id); writer.I32(instance.Definition.Version);
+                writer.Bytes(instance.Definition.Checksum.AsSpan()); writer.I32(instance.ReceiptRetention.FormatVersion);
+                writer.I64(instance.ReceiptRetention.DuplicateResolutionLifetime.Ticks / TimeSpan.TicksPerMillisecond);
+                writer.I32((int)instance.ReceiptRetention.ProtectedBackupCoverage); writer.I64(instance.CommittedAt);
+                writer.I64(instance.DuplicateResolveUntil); writer.I64(instance.ReceiptSequence);
+                writer.Bytes(instance.PriorOrderedChecksum.AsSpan()); writer.Bytes(instance.OrderedChecksum.AsSpan());
+            }
+            writer.Bool(value.TerminalReceipt.Migration is not null);
+            if (value.TerminalReceipt.Migration is { } migration)
+                writer.Bytes(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
+                    migration.Result, HPDBaseJsonSerializerContext.Default.BaseActivationMigrationResult));
         });
 
     /// <summary>Validates the closed terminal activation snapshot shape and its internal checksums.</summary>
@@ -404,8 +425,11 @@ public static class BaseSemanticRecoveryAuthorityContract
                 && value.ControlChecksum.Length == 32 && value.TerminalReceipt.AuthorityChecksum.Length == 32
                 && CryptographicOperations.FixedTimeEquals(SHA256.HashData(payload.CanonicalInput.AsSpan()), payload.InputChecksum.AsSpan())
                 && CryptographicOperations.FixedTimeEquals(SHA256.HashData(payload.CanonicalInput.AsSpan()), payload.Checksum.AsSpan())
-                && CryptographicOperations.FixedTimeEquals(SHA256.HashData(Encoding.UTF8.GetBytes(
-                    $"base.activation.control.v2\0{payload.ActivationId}\n{value.Generation}\n{(int)value.State}")), value.ControlChecksum.AsSpan())
+                && value.EffectiveDueAt == payload.EffectiveDueAt
+                && BaseActivationControlChecksumContract.Matches(value.ControlChecksum.AsSpan(), payload.ActivationId,
+                    value.Generation, value.State, value.EffectiveDueAt, value.YieldCount, value.MaximumYields,
+                    value.ExecutionSliceOrdinal, value.AttemptStartedAt, value.SliceStartedAt,
+                    value.TerminalYieldDisposition, value.TerminalYieldFailureCode)
                 && value.TerminalReceipt.ResultChecksum.Length == 32
                 && CryptographicOperations.FixedTimeEquals(SHA256.HashData(value.TerminalReceipt.ResultBytes.AsSpan()),
                     value.TerminalReceipt.ResultChecksum.AsSpan())
@@ -422,22 +446,61 @@ public static class BaseSemanticRecoveryAuthorityContract
     {
         BaseSemanticRecoveryTerminalReceiptEvidence receipt = value.TerminalReceipt;
         if (string.IsNullOrWhiteSpace(receipt.ReceiptKey) || string.IsNullOrWhiteSpace(receipt.OperationKind)
-            || receipt.Fingerprint.Length != 32 || receipt.AuthorityChecksum.Length != 32) return false;
-        byte[] authority = SHA256.HashData(Encoding.UTF8.GetBytes(receipt.OperationKind)
-            .Concat(receipt.Fingerprint).Concat(receipt.ResultBytes).ToArray());
-        if (!Fixed(receipt.AuthorityChecksum, authority.ToImmutableArray())) return false;
-        BaseActivationTransitionResult? result = System.Text.Json.JsonSerializer.Deserialize(
-            receipt.ResultBytes.AsSpan(), HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult);
-        if (result is null || result.State != value.State || result.Generation != value.Generation
-            || !Fixed(result.ControlChecksum, value.ControlChecksum)) return false;
+            || receipt.Fingerprint.Length != 32 || receipt.ResultChecksum.Length != 32
+            || receipt.AuthorityChecksum.Length != 32) return false;
+        if (receipt.Kind == BaseSemanticRecoveryTerminalReceiptKind.Migration)
+        {
+            if (receipt.Instance is not null || receipt.Migration?.Result is not { } migration
+                || receipt.OperationKind != "activation-migrated"
+                || migration.SourceActivationId != value.Payload.ActivationId
+                || migration.SourceDefinition.Id != value.Payload.Definition.Id
+                || migration.SourceDefinition.Version != value.Payload.Definition.Version
+                || !Fixed(migration.SourceDefinition.Checksum, value.Payload.Definition.Checksum)
+                || migration.SourceGeneration != value.Generation
+                || !Fixed(migration.SourceControlChecksum, value.ControlChecksum)
+                || migration.ReplacementDefinition.Version <= 0 || migration.ReplacementDefinition.Checksum.Length != 32
+                || migration.MigrationVersion <= 0 || migration.MigrationChecksum.Length != 32) return false;
+            ImmutableArray<byte> controlAuthority = BaseActivationControlReceiptContract.AuthorityChecksum(
+                receipt.ReceiptKey, receipt.OperationKind, receipt.Fingerprint.AsSpan(), receipt.ResultChecksum.AsSpan());
+            return Fixed(receipt.AuthorityChecksum, controlAuthority) && value.State == BaseActivationState.Migrated;
+        }
+        if (receipt.Kind != BaseSemanticRecoveryTerminalReceiptKind.Instance || receipt.Migration is not null
+            || receipt.Instance is not { } instance || instance.ActivationId != value.Payload.ActivationId
+            || instance.Definition.Id != value.Payload.Definition.Id
+            || instance.Definition.Version != value.Payload.Definition.Version
+            || !Fixed(instance.Definition.Checksum, value.Payload.Definition.Checksum)
+            || instance.ReceiptRetention != value.Payload.ReceiptRetention
+            || instance.PriorOrderedChecksum.Length != 32 || instance.OrderedChecksum.Length != 32) return false;
+        ImmutableArray<byte> authority = BaseActivationInstanceReceiptChainContract.ReceiptAuthorityChecksum(
+            receipt.ReceiptKey, receipt.OperationKind, instance.ActivationId, instance.Definition,
+            instance.ReceiptRetention, receipt.Fingerprint.AsSpan(), receipt.ResultChecksum.AsSpan(),
+            instance.CommittedAt, instance.DuplicateResolveUntil, instance.ReceiptSequence,
+            instance.PriorOrderedChecksum.AsSpan());
+        if (!Fixed(receipt.AuthorityChecksum, authority)) return false;
+        ImmutableArray<byte> ordered = BaseActivationInstanceReceiptChainContract.Append(
+            instance.ReceiptSequence, instance.PriorOrderedChecksum.AsSpan(), receipt.AuthorityChecksum.AsSpan(), receipt.ReceiptKey);
+        if (!Fixed(instance.OrderedChecksum, ordered)) return false;
+        BaseActivationTransitionResult? result = receipt.OperationKind == "activation-yielded-v1" ? null
+            : System.Text.Json.JsonSerializer.Deserialize(
+                receipt.ResultBytes.AsSpan(), HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult);
+        BaseActivationYieldReceipt? yielded = receipt.OperationKind == "activation-yielded-v1"
+            ? System.Text.Json.JsonSerializer.Deserialize(
+                receipt.ResultBytes.AsSpan(), HPDBaseJsonSerializerContext.Default.BaseActivationYieldReceipt) : null;
+        if (result is not null)
+        {
+            if (result.State != value.State || result.Generation != value.Generation
+                || !Fixed(result.ControlChecksum, value.ControlChecksum)) return false;
+        }
+        else if (yielded is null || yielded.ResultingState != value.State || yielded.ResultingGeneration != value.Generation
+            || !Fixed(yielded.ControlChecksum, value.ControlChecksum)) return false;
         return receipt.OperationKind switch
         {
             "activation-completed" or "effect-completed" => value.State == BaseActivationState.Succeeded,
             "activation-failed-terminal" => value.State == BaseActivationState.Exhausted,
             "activation-cancelled" => value.State == BaseActivationState.Cancelled,
-            "activation-migrated" => value.State == BaseActivationState.Migrated,
             "activation-disposed" => value.State == BaseActivationState.Disposed,
             "effect-reconciled" => value.State is BaseActivationState.Succeeded or BaseActivationState.Exhausted,
+            "activation-yielded-v1" => value.State == BaseActivationState.Exhausted,
             _ => false,
         };
     }
@@ -1066,9 +1129,48 @@ public sealed record BaseSemanticRecoveryPreflightEvidence
     public required ImmutableArray<byte> Checksum { get; init; }
 }
 
-/// <summary>Contains the exact private terminal receipt tuple hydrated during preflight.</summary>
+/// <summary>Identifies the closed terminal-receipt authority subsystem.</summary>
+public enum BaseSemanticRecoveryTerminalReceiptKind
+{
+    /// <summary>The ordered activation-instance receipt chain.</summary>
+    Instance = 1,
+    /// <summary>The cross-definition activation-migration control receipt store.</summary>
+    Migration = 2,
+}
+
+/// <summary>Contains the ordered instance-receipt authority unique to ordinary terminals.</summary>
+public sealed record BaseSemanticRecoveryInstanceReceiptAuthority
+{
+    /// <summary>Gets the activation identity owning the receipt.</summary>
+    public required string ActivationId { get; init; }
+    /// <summary>Gets the exact retained activation-definition identity.</summary>
+    public required BaseActivationDefinitionKey Definition { get; init; }
+    /// <summary>Gets the immutable retained receipt policy.</summary>
+    public required BaseActivationReceiptRetentionPolicy ReceiptRetention { get; init; }
+    /// <summary>Gets the provider-accepted commit time in UTC Unix milliseconds.</summary>
+    public required long CommittedAt { get; init; }
+    /// <summary>Gets the exclusive duplicate-resolution expiry in UTC Unix milliseconds.</summary>
+    public required long DuplicateResolveUntil { get; init; }
+    /// <summary>Gets the positive gap-free store receipt sequence.</summary>
+    public required long ReceiptSequence { get; init; }
+    /// <summary>Gets the ordered chain checksum immediately before this receipt.</summary>
+    public required ImmutableArray<byte> PriorOrderedChecksum { get; init; }
+    /// <summary>Gets the ordered chain checksum through this receipt.</summary>
+    public required ImmutableArray<byte> OrderedChecksum { get; init; }
+}
+
+/// <summary>Contains the cross-definition authority unique to a migrated terminal.</summary>
+public sealed record BaseSemanticRecoveryMigrationReceiptAuthority
+{
+    /// <summary>Gets the deeply owned, exact migration result encoded by the control receipt.</summary>
+    public required BaseActivationMigrationResult Result { get; init; }
+}
+
+/// <summary>Contains the closed private terminal receipt union hydrated during preflight.</summary>
 public sealed record BaseSemanticRecoveryTerminalReceiptEvidence
 {
+    /// <summary>Gets the closed receipt-authority subsystem.</summary>
+    public required BaseSemanticRecoveryTerminalReceiptKind Kind { get; init; }
     /// <summary>Gets the durable receipt key.</summary>
     public required string ReceiptKey { get; init; }
     /// <summary>Gets the closed L51 terminal operation kind.</summary>
@@ -1081,6 +1183,10 @@ public sealed record BaseSemanticRecoveryTerminalReceiptEvidence
     public required ImmutableArray<byte> ResultChecksum { get; init; }
     /// <summary>Gets the purpose-bound receipt authority checksum.</summary>
     public required ImmutableArray<byte> AuthorityChecksum { get; init; }
+    /// <summary>Gets ordered instance authority only when <see cref="Kind"/> is <see cref="BaseSemanticRecoveryTerminalReceiptKind.Instance"/>.</summary>
+    public BaseSemanticRecoveryInstanceReceiptAuthority? Instance { get; init; }
+    /// <summary>Gets migration-control authority only when <see cref="Kind"/> is <see cref="BaseSemanticRecoveryTerminalReceiptKind.Migration"/>.</summary>
+    public BaseSemanticRecoveryMigrationReceiptAuthority? Migration { get; init; }
 }
 
 /// <summary>Captures the exact terminal L51 activation row required by disaster recovery.</summary>
@@ -1104,6 +1210,22 @@ public sealed record BaseSemanticRecoveryTerminalActivationAuthority
     public required long Generation { get; init; }
     /// <summary>Gets the terminal control checksum.</summary>
     public required ImmutableArray<byte> ControlChecksum { get; init; }
+    /// <summary>Gets the terminal effective due instant.</summary>
+    public required long EffectiveDueAt { get; init; }
+    /// <summary>Gets the terminal durable-yield count.</summary>
+    public required long YieldCount { get; init; }
+    /// <summary>Gets the immutable yield maximum.</summary>
+    public required long MaximumYields { get; init; }
+    /// <summary>Gets the terminal execution-slice ordinal.</summary>
+    public required long ExecutionSliceOrdinal { get; init; }
+    /// <summary>Gets the logical-attempt start when present.</summary>
+    public long? AttemptStartedAt { get; init; }
+    /// <summary>Gets the current-slice start when present.</summary>
+    public long? SliceStartedAt { get; init; }
+    /// <summary>Gets the terminal yield disposition when yield exhaustion caused termination.</summary>
+    public BaseActivationYieldDisposition? TerminalYieldDisposition { get; init; }
+    /// <summary>Gets the fixed terminal yield failure code when yield exhaustion caused termination.</summary>
+    public string? TerminalYieldFailureCode { get; init; }
     /// <summary>Gets the retained attempt number.</summary>
     public required int AttemptNumber { get; init; }
     /// <summary>Gets the retained claim epoch after claim authority has been cleared.</summary>

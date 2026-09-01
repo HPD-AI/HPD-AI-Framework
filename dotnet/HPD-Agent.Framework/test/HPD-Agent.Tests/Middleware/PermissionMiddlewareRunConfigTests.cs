@@ -42,7 +42,8 @@ public class PermissionMiddlewareRunConfigTests
             function,
             new AgentRunConfig
             {
-                Security = new AgentSecurityRunConfig { PermissionOverrides = new Dictionary<string, bool> { ["SensitiveTool"] = false } }
+                Security = new AgentSecurityRunConfig { PermissionOverrides =
+                    [new(new("SensitiveTool"), RequiresPermission: false)] }
             });
 
         await middleware.BeforeFunctionAsync(context, CancellationToken.None);
@@ -62,7 +63,8 @@ public class PermissionMiddlewareRunConfigTests
             function,
             new AgentRunConfig
             {
-                Security = new AgentSecurityRunConfig { PermissionOverrides = new Dictionary<string, bool> { ["NormallyRequiredByBuilder"] = false } }
+                Security = new AgentSecurityRunConfig { PermissionOverrides =
+                    [new(new("NormallyRequiredByBuilder"), RequiresPermission: false)] }
             });
 
         await middleware.BeforeFunctionAsync(context, CancellationToken.None);
@@ -80,7 +82,8 @@ public class PermissionMiddlewareRunConfigTests
             function,
             new AgentRunConfig
             {
-                Security = new AgentSecurityRunConfig { PermissionOverrides = new Dictionary<string, bool> { ["MissingTool"] = true } }
+                Security = new AgentSecurityRunConfig { PermissionOverrides =
+                    [new(new("MissingTool"), RequiresPermission: true)] }
             });
 
         await middleware.BeforeFunctionAsync(context, CancellationToken.None);
@@ -95,19 +98,22 @@ public class PermissionMiddlewareRunConfigTests
         var middleware = new PermissionMiddleware();
         var function = CreateFunction("SensitiveTool", requiresPermission: true);
         var coordinator = new EventCoordinator();
-        var interruptions = new List<InterruptionRequestEvent>();
+        var interruptions = new List<InterruptionHandledEvent>();
+        using var interruptionSubscription = coordinator.Subscribe<InterruptionHandledEvent>(handled =>
+        {
+            interruptions.Add(handled);
+            return ValueTask.CompletedTask;
+        });
         using var subscription = coordinator.Subscribe<PermissionRequestEvent>(request =>
         {
             coordinator.Respond(new PermissionResponseEvent(
                 request.PermissionId,
                 request.SourceName,
-                Approved: false,
-                Reason: "Use the read-only status tool instead.",
-                Choice: PermissionChoice.Ask,
-                DeniedBehavior: PermissionDeniedBehavior.ReturnToModel));
+                ChoiceId: "deny_once",
+                Feedback: "Use the read-only status tool instead."));
             return ValueTask.CompletedTask;
         });
-        var agentContext = CreateAgentContext(coordinator, interruptions);
+        var agentContext = CreateAgentContext(coordinator);
         var context = agentContext.AsBeforeFunction(
             function,
             "call-1",
@@ -149,7 +155,7 @@ public class PermissionMiddlewareRunConfigTests
                 Discriminator = "action",
                 Actions = new Dictionary<string, ClientToolPolicy>
                 {
-                    ["inspect"] = new() { RequiresPermission = false }
+                    ["inspect"] = new()
                 }
             }
         };
@@ -186,7 +192,9 @@ public class PermissionMiddlewareRunConfigTests
             {
                 Name = name,
                 Description = $"{name} test function",
-                RequiresPermission = requiresPermission
+                FunctionPermission = requiresPermission
+                    ? AIFunctionPermissionDeclaration.Required(name)
+                    : null
             });
 
     private static BeforeFunctionContext CreateBeforeFunctionContext(
@@ -201,9 +209,7 @@ public class PermissionMiddlewareRunConfigTests
             runConfig);
     }
 
-    private static AgentContext CreateAgentContext(
-        EventCoordinator coordinator,
-        List<InterruptionRequestEvent> interruptions)
+    private static AgentContext CreateAgentContext(EventCoordinator coordinator)
     {
         var state = AgentLoopState.InitialSafe(
             new List<ChatMessage>(),
@@ -218,12 +224,6 @@ public class PermissionMiddlewareRunConfigTests
             coordinator,
             new HPD.Agent.Session("test-session"),
             new HPD.Agent.Thread("test-session", "test-agent") { Id = "test-thread" },
-            CancellationToken.None,
-            inputHandler: (interruption, _) =>
-            {
-                if (interruption is InterruptionRequestEvent request)
-                    interruptions.Add(request);
-                return ValueTask.CompletedTask;
-            });
+            CancellationToken.None);
     }
 }

@@ -7,7 +7,7 @@ public abstract class RecordStoreCrudUnsupportedConformanceTests<TFixture> : Rec
     public async Task CrudMethodsAdvertisedUnsupportedFailClosed()
     {
         var store = await CreateStoreAsync();
-        var id = new RecordId("unsupported-crud");
+        var id = RecordId.Create("unsupported-crud");
 
         if (!Capabilities.Read.List)
         {
@@ -35,7 +35,7 @@ public abstract class RecordStoreCrudUnsupportedConformanceTests<TFixture> : Rec
             var result = await store.PatchAsync(
                 Collection,
                 id,
-                new RecordPatchRequest { Patch = RecordStoreConformanceData.Patch(("title", RecordStoreConformanceData.StringElement("two"))) },
+                new RecordPatchRequest { Patch = RecordStoreConformanceData.Patch(("title", RecordStoreConformanceData.StringElement("two"))), RemovedFieldIds = [] },
                 Operation(BaseOperationKind.Patch, id));
             RecordStoreConformanceAssertions.Failure(result, OperationStatus.Unsupported, OperationStatus.CapabilityUnavailable, OperationStatus.ValidationFailed);
         }

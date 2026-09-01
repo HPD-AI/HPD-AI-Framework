@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <HpdAgentEventPrecompileRequireAnalyzer>false</HpdAgentEventPrecompileRequireAnalyzer>
     <TargetFrameworks>net10.0;net9.0;net8.0</TargetFrameworks>
     <RootNamespace>HPD.Agent.Sandbox.Local</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -24,5 +25,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="HPD-Agent.Sandbox.Local.Tests" />
+    <ProjectReference Include="../../HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
+  <PropertyGroup><WarningsAsErrors>$(WarningsAsErrors)</WarningsAsErrors></PropertyGroup>
 </Project>

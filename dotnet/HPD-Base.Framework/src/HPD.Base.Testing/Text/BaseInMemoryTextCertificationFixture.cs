@@ -138,7 +138,7 @@ internal sealed class BaseInMemoryTextCertificationHost(ServiceProvider services
     public async ValueTask<BaseTextCertificationShutdownResult> ShutdownAsync(BaseTextCertificationShutdownRequest value, CancellationToken cancellationToken) { cancellationToken.ThrowIfCancellationRequested(); DateTimeOffset started = request.TimeProvider.GetUtcNow(); DateTimeOffset deadline = checked(started + value.MaximumWait); while (_faults.RetainedCount != 0 && request.TimeProvider.GetUtcNow() < deadline) await Task.Delay(TimeSpan.FromMilliseconds(10), cancellationToken).ConfigureAwait(false); bool completed = _faults.RetainedCount == 0; AddObservation(BaseTextCertificationOperationKind.Shutdown, State(services), completed ? OperationStatus.Ok : OperationStatus.StoreError); return new BaseTextCertificationShutdownResult { Completed = completed, RetainedOperationCount = _faults.RetainedCount, Elapsed = request.TimeProvider.GetUtcNow() - started }; }
     public async ValueTask<BaseTextCertificationSeedResult> SeedAsync(BaseTextCertificationSeedRequest value, CancellationToken cancellationToken)
     {
-        foreach (BaseTextCertificationRecord record in value.Records) (await Collection.CreateAsync(new(record.Id), FromContract(record), cancellationToken).ConfigureAwait(false)).RequireValue();
+        foreach (BaseTextCertificationRecord record in value.Records) (await Collection.CreateAsync(RecordId.Create(record.Id), FromContract(record), cancellationToken).ConfigureAwait(false)).RequireValue();
         BaseTextCertificationProviderState state = await InspectAsync(cancellationToken).ConfigureAwait(false); byte[] checksum = SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', value.Records.OrderBy(static item => item.Id, StringComparer.Ordinal).Select(static item => $"{item.Id}|{item.Tenant}|{item.Active}|{item.Priority}|{item.Optional}|{item.Title}|{item.Body}"))));
         return new() { Head = state.AppliedThrough, RecordCount = value.Records.Length, StateChecksum = ImmutableArray.Create(checksum) };
     }
@@ -151,9 +151,9 @@ internal sealed class BaseInMemoryTextCertificationHost(ServiceProvider services
         {
             switch (mutation)
             {
-                case BaseTextCertificationMutation.Create create: { BaseRecord<BaseTextCertificationSchemaRecord> record = (await Collection.CreateAsync(new(create.Record.Id), FromContract(create.Record), cancellationToken).ConfigureAwait(false)).RequireValue(); revisions.Add(record.Revision!.Value); status = OperationStatus.Created; break; }
-                case BaseTextCertificationMutation.Replace replace: { BaseRecord<BaseTextCertificationSchemaRecord> record = (await Collection.ReplaceAsync(new(replace.Record.Id), FromContract(replace.Record), replace.ExpectedRevision, cancellationToken).ConfigureAwait(false)).RequireValue(); revisions.Add(record.Revision!.Value); break; }
-                case BaseTextCertificationMutation.Delete delete: { DeleteResult deleted = (await Collection.DeleteAsync(new(delete.RecordId), delete.ExpectedRevision, true, cancellationToken).ConfigureAwait(false)).RequireValue(); revisions.Add(deleted.Previous!.Metadata.Revision!.Value); break; }
+                case BaseTextCertificationMutation.Create create: { BaseRecord<BaseTextCertificationSchemaRecord> record = (await Collection.CreateAsync(RecordId.Create(create.Record.Id), FromContract(create.Record), cancellationToken).ConfigureAwait(false)).RequireValue(); revisions.Add(record.Revision!.Value); status = OperationStatus.Created; break; }
+                case BaseTextCertificationMutation.Replace replace: { BaseRecord<BaseTextCertificationSchemaRecord> record = (await Collection.ReplaceAsync(RecordId.Create(replace.Record.Id), FromContract(replace.Record), replace.ExpectedRevision, cancellationToken).ConfigureAwait(false)).RequireValue(); revisions.Add(record.Revision!.Value); break; }
+                case BaseTextCertificationMutation.Delete delete: { DeleteResult deleted = (await Collection.DeleteAsync(RecordId.Create(delete.RecordId), delete.ExpectedRevision, true, cancellationToken).ConfigureAwait(false)).RequireValue(); revisions.Add(deleted.Previous!.Metadata.Revision!.Value); break; }
             }
         }
         return new() { Status = status, Head = (await InspectAsync(cancellationToken).ConfigureAwait(false)).AppliedThrough, Revisions = revisions.ToImmutable() };
@@ -161,7 +161,7 @@ internal sealed class BaseInMemoryTextCertificationHost(ServiceProvider services
     public async ValueTask<BaseMutationJournalPosition> CaptureHeadAsync(CancellationToken cancellationToken) => (await InspectAsync(cancellationToken).ConfigureAwait(false)).AppliedThrough;
     public async ValueTask<BaseTextCertificationRevisionResult> InspectRevisionAsync(BaseTextCertificationRevisionRequest value, CancellationToken cancellationToken)
     {
-        BaseResult<BaseRecord<BaseTextCertificationSchemaRecord>> result = await Collection.GetAsync(new(value.RecordId), cancellationToken).ConfigureAwait(false);
+        BaseResult<BaseRecord<BaseTextCertificationSchemaRecord>> result = await Collection.GetAsync(RecordId.Create(value.RecordId), cancellationToken).ConfigureAwait(false);
         return result is BaseSuccess<BaseRecord<BaseTextCertificationSchemaRecord>> success && success.Value.Revision == value.Revision ? new() { Found = true, Record = ToContract(value.RecordId, success.Value.Value) } : new() { Found = false };
     }
     public ValueTask PruneHistoryAsync(BaseMutationJournalPosition through, CancellationToken cancellationToken) { cancellationToken.ThrowIfCancellationRequested(); return ValueTask.CompletedTask; }

@@ -3,6 +3,8 @@
     <AssemblyName>HPD.Payments.Tools.Conformance</AssemblyName>
     <RootNamespace>HPD.Payments.Tools_Conformance</RootNamespace>
     <OutputType>Exe</OutputType>
+    <PublishAot>true</PublishAot>
+    <PublishTrimmed>true</PublishTrimmed>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../HPD.Payments.Primitives/HPD.Payments.Primitives.csproj" />

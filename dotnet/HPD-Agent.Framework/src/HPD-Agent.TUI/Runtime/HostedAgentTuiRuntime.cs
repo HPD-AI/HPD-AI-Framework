@@ -15,7 +15,8 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
     private readonly HttpClient _http;
     private readonly bool _ownsHttpClient;
     private readonly AgentTuiRuntimeScope _defaultScope;
-    private readonly HPD.Agent.Providers.ProviderComposition? _providerComposition;
+    private readonly AgentInputCodec _inputCodec;
+    private readonly AgentEventCodec _eventCodec;
 
     public HostedAgentTuiRuntime(HostedAgentTuiRuntimeOptions options)
         : this(CreateHttpClient(options), options, ownsHttpClient: true)
@@ -39,7 +40,8 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
 
         _http = httpClient;
         _ownsHttpClient = ownsHttpClient;
-        _providerComposition = options.ProviderComposition;
+        _inputCodec = new AgentInputCodec(options.ProviderComposition);
+        _eventCodec = options.EventComposition.Codec;
         _defaultScope = options.DefaultScope ?? new AgentTuiRuntimeScope(
             "default",
             "local-session",
@@ -256,9 +258,9 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
     }
 
     private JsonNode? SerializeAgentConfig(AgentConfig config)
-        => _providerComposition is null
-            ? JsonSerializer.SerializeToNode(config, HPDJsonContext.Default.AgentConfig)
-            : JsonNode.Parse(HpdAgentConfigSerializer.Serialize(config, _providerComposition));
+        => JsonNode.Parse(HpdAgentConfigSerializer.Serialize(
+            config,
+            _inputCodec.ProviderComposition));
 
     public async Task<IReadOnlyList<AgentTuiSessionInfo>> ListSessionsAsync(
         CancellationToken cancellationToken = default)
@@ -481,7 +483,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             .ConfigureAwait(false);
     }
 
-    public async Task<AgentTuiThreadInfo> ForkThreadAsync(
+    public async Task<AgentTuiThreadForkInfo> ForkThreadAsync(
         string agentId,
         string sessionId,
         string sourceThreadId,
@@ -496,7 +498,11 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             ("name", JsonValue.Create(request.Name)),
             ("description", JsonValue.Create(request.Description)),
             ("tags", ToJsonArray(request.Tags)),
-            ("metadata", ToJsonObject(request.Metadata))));
+            ("metadata", ToJsonObject(request.Metadata)),
+            ("operationId", JsonValue.Create(request.OperationId)),
+            ("subAgents", request.SubAgents is null
+                ? null
+                : JsonSerializer.SerializeToNode(request.SubAgents, JsonOptions))));
         using var response = await PostJsonEnvelopeAsync(
                 $"agents/{Escape(agentId)}/sessions/{Escape(sessionId)}/threads/{Escape(sourceThreadId)}/fork",
                 json,
@@ -508,7 +514,11 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
                 .ConfigureAwait(false);
         }
 
-        return await ReadObjectAsync(response, ParseThreadInfo, cancellationToken)
+        return await ReadObjectAsync(
+                response,
+                static element => element.Deserialize<AgentTuiThreadForkInfo>(JsonOptions)
+                    ?? throw new InvalidDataException("Fork response was empty."),
+                cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -564,6 +574,21 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             .ConfigureAwait(false);
     }
 
+    public async Task<IReadOnlyList<AgentTuiSubAgentInfo>> ListSubAgentsAsync(
+        string sessionId,
+        string threadId,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await _http.GetAsync(
+            $"sessions/{Escape(sessionId)}/threads/{Escape(threadId)}/subagents", cancellationToken).ConfigureAwait(false);
+        if (response.StatusCode == HttpStatusCode.NotFound) return [];
+        if (!response.IsSuccessStatusCode)
+            await ThrowForUnexpectedResponseAsync(response, "list subagents", cancellationToken).ConfigureAwait(false);
+        return await ReadObjectAsync(response,
+            static element => element.Deserialize<IReadOnlyList<AgentTuiSubAgentInfo>>(JsonOptions) ?? [],
+            cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task DeleteThreadAsync(
         string sessionId,
         string threadId,
@@ -593,6 +618,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(scope);
+        await ValidateBackendEventCatalogAsync(cancellationToken).ConfigureAwait(false);
         var cursor = after;
         var catchUpMode = after.SequenceNumber == 0
             ? AgentTuiEventDeliveryMode.Historical
@@ -658,7 +684,16 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
                         new ThreadJournalCursor(previous, cursor.SequenceNumber),
                         ThreadJournalCursor.Start(current));
                 }
-                if (json.Length == 0 || AgentEventSerializer.FromJson(json) is not AgentEvent evt)
+                if (json.Length == 0)
+                {
+                    continue;
+                }
+                AgentEvent evt;
+                try
+                {
+                    evt = _eventCodec.DeserializeEvent(json);
+                }
+                catch (JsonException)
                 {
                     continue;
                 }
@@ -726,6 +761,26 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         }
     }
 
+    /// <summary>Ensures the backend and this client use the same authoritative output-event catalog.</summary>
+    public async Task ValidateBackendEventCatalogAsync(CancellationToken cancellationToken = default)
+    {
+        using var response = await _http.GetAsync("event-catalog", cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            await ThrowForUnexpectedResponseAsync(response, "load event catalog", cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        var catalog = JsonSerializer.Deserialize(json, AgentEventJsonContext.Default.AgentEventCatalog)
+            ?? throw new JsonException("The backend event catalog response was empty.");
+        if (!StringComparer.Ordinal.Equals(catalog.Digest, _eventCodec.Digest))
+        {
+            throw new InvalidOperationException(
+                $"Backend event catalog '{catalog.Digest}' differs from the TUI event catalog '{_eventCodec.Digest}'.");
+        }
+    }
+
     private static AgentTuiEventBatch CreateDeliveryBatch(
         IReadOnlyList<AgentEvent> events,
         AgentTuiEventDeliveryMode deliveryMode,
@@ -758,9 +813,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         ArgumentNullException.ThrowIfNull(scope);
         ArgumentNullException.ThrowIfNull(input);
 
-        var json = _providerComposition is null
-            ? AgentEventSerializer.ToJson(input)
-            : AgentEventSerializer.ToJson(input, _providerComposition);
+        var json = _inputCodec.Serialize(input);
         using var response = await PostJsonEnvelopeAsync(
                 $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/threads/{Escape(scope.ThreadId)}/inputs",
                 json,
@@ -802,6 +855,36 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         return new AgentTuiSubmitResult(disposition, threadExecutionId, activeExecution);
     }
 
+    public async Task<AgentTuiSubmitResult> CancelExecutionAsync(
+        AgentTuiRuntimeScope scope,
+        string threadExecutionId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadExecutionId);
+        using var response = await PostJsonEnvelopeAsync(
+                $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/threads/{Escape(scope.ThreadId)}/executions/{Escape(threadExecutionId)}/cancel",
+                "{}",
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            await ThrowForUnexpectedResponseAsync(response, "cancel execution", cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        using var document = await JsonDocument.ParseAsync(
+                await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false),
+                cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        var applied = document.RootElement.TryGetProperty("cancellationApplied", out var appliedElement) &&
+            appliedElement.ValueKind == JsonValueKind.True;
+        return new AgentTuiSubmitResult(
+            applied ? AgentInputDisposition.Accepted : AgentInputDisposition.NoActiveExecution,
+            threadExecutionId,
+            ActiveExecution: null);
+    }
+
     private static AgentInputDisposition ParseInputDisposition(string value) => value switch
     {
         "completed" => AgentInputDisposition.Completed,
@@ -821,7 +904,9 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
     {
         ArgumentNullException.ThrowIfNull(scope);
 
-        var json = JsonSerializer.Serialize(new AgentTuiContextUsageRequest(runConfig), JsonOptions);
+        var json = JsonSerializer.Serialize(
+            new AgentTuiContextUsageRequest(runConfig),
+            AgentTuiJsonContext.Default.AgentTuiContextUsageRequest);
         using var response = await PostJsonEnvelopeAsync(
                 $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/threads/{Escape(scope.ThreadId)}/context-usage",
                 json,
@@ -836,9 +921,9 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
 
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken)
             .ConfigureAwait(false);
-        return await JsonSerializer.DeserializeAsync<ThreadContextUsage>(
+        return await JsonSerializer.DeserializeAsync(
                 stream,
-                JsonOptions,
+                AgentTuiJsonContext.Default.ThreadContextUsage,
                 cancellationToken)
             .ConfigureAwait(false)
             ?? new ThreadContextUsage
@@ -863,7 +948,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
                 $"Response event '{response.GetType().Name}' is not a request response event.");
         }
 
-        var json = AgentEventSerializer.ToJson(response);
+        var json = _eventCodec.Serialize(response);
         using var httpResponse = await PostJsonEnvelopeAsync(
                 $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/threads/{Escape(scope.ThreadId)}/responses",
                 json,
@@ -878,9 +963,9 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
 
         await using var stream = await httpResponse.Content.ReadAsStreamAsync(cancellationToken)
             .ConfigureAwait(false);
-        return await JsonSerializer.DeserializeAsync<AgentRespondResult>(
+        return await JsonSerializer.DeserializeAsync(
                 stream,
-                JsonOptions,
+                AgentTuiJsonContext.Default.AgentRespondResult,
                 cancellationToken)
             .ConfigureAwait(false)
             ?? throw new InvalidOperationException("Hosted response endpoint returned an empty Agent response result.");
@@ -936,10 +1021,16 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         {
             foreach (var pending in pendingElement.EnumerateArray())
             {
-                if (pending.TryGetProperty("request", out var requestElement) &&
-                    AgentEventSerializer.FromJson(requestElement.GetRawText()) is AgentEvent request)
+                if (pending.TryGetProperty("request", out var requestElement))
                 {
-                    pendingRequests.Add(request);
+                    try
+                    {
+                        pendingRequests.Add(_eventCodec.DeserializeEvent(requestElement.GetRawText()));
+                    }
+                    catch (JsonException)
+                    {
+                        // Ignore malformed pending-request projections from a remote host.
+                    }
                 }
             }
         }
@@ -971,6 +1062,11 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             errorType = GetOptionalString(error, "type");
             errorMessage = GetOptionalString(error, "message");
         }
+        var operations = root.TryGetProperty("operations", out var operationsElement) &&
+            operationsElement.ValueKind == JsonValueKind.Array
+            ? operationsElement.EnumerateArray().Select(ParseOperation).Where(static operation => operation is not null)
+                .Cast<AgentTuiOperation>().ToArray()
+            : [];
 
         return string.IsNullOrWhiteSpace(threadExecutionId)
             ? null
@@ -983,7 +1079,41 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
                 startedAt,
                 finishedAt,
                 errorType,
-                errorMessage);
+                errorMessage,
+                operations);
+    }
+
+    private static AgentTuiOperation? ParseOperation(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object)
+            return null;
+        return new AgentTuiOperation(
+            GetRequiredString(root, "operationId"),
+            GetOptionalString(root, "providerOperationId"),
+            GetRequiredString(root, "name"),
+            GetRequiredString(root, "sourceKind"),
+            GetRequiredString(root, "providerStatus"),
+            GetRequiredString(root, "observationStatus"),
+            GetRequiredString(root, "controlKind"),
+            GetRequiredString(root, "controlCapabilities"),
+            GetOptionalString(root, "controlHandleId"),
+            root.GetProperty("version").GetInt64(),
+            GetRequiredDateTimeOffset(root, "registeredAt"),
+            GetOptionalDateTimeOffset(root, "startedAt"),
+            GetRequiredDateTimeOffset(root, "updatedAt"),
+            GetOptionalDateTimeOffset(root, "finishedAt"),
+            GetOptionalString(root, "completionSummary"),
+            root.TryGetProperty("artifactReferences", out var artifacts) && artifacts.ValueKind == JsonValueKind.Array
+                ? artifacts.EnumerateArray().Select(static item => item.GetString() ?? string.Empty).ToArray()
+                : null,
+            GetOptionalString(root, "failureCode"),
+            GetOptionalString(root, "failureMessage"),
+            root.TryGetProperty("metadata", out var metadata) && metadata.ValueKind == JsonValueKind.Object
+                ? metadata.EnumerateObject().ToDictionary(
+                    static property => property.Name,
+                    static property => property.Value.GetString() ?? string.Empty,
+                    StringComparer.Ordinal)
+                : null);
     }
 
     public ValueTask DisposeAsync()
@@ -996,7 +1126,6 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         return ValueTask.CompletedTask;
     }
 
-    private sealed record AgentTuiContextUsageRequest(AgentRunConfig? RunConfig);
 
     private static HttpClient CreateHttpClient(HostedAgentTuiRuntimeOptions options)
     {
@@ -1175,9 +1304,9 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         var metadata = ReadObjectMap(element, "metadata");
         var config = element.TryGetProperty("config", out var configElement) &&
                      configElement.ValueKind == JsonValueKind.Object
-            ? _providerComposition is null
-                ? configElement.Deserialize(HPDJsonContext.Default.AgentConfig)
-                : HpdAgentConfigSerializer.Deserialize(configElement.GetRawText(), _providerComposition)
+            ? HpdAgentConfigSerializer.Deserialize(
+                configElement.GetRawText(),
+                _inputCodec.ProviderComposition)
             : null;
         return new AgentTuiAgentInfo(
             GetRequiredString(element, "id"),
@@ -1209,7 +1338,6 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             GetOptionalString(element, "parentSessionId"),
             GetOptionalString(element, "parentThreadId"),
             GetOptionalString(element, "subAgentName"),
-            GetOptionalString(element, "subAgentTaskName"),
             GetOptionalString(element, "invocationId"),
             GetOptionalString(element, "subAgentSourceKind"),
             GetOptionalString(element, "parentToolCallId"),
@@ -1254,7 +1382,6 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             GetOptionalEnum(element, "kind", ThreadKind.MainAgent),
             GetOptionalEnum(element, "visibility", ThreadVisibility.Visible),
             GetOptionalString(element, "subAgentName"),
-            GetOptionalString(element, "subAgentTaskName"),
             GetOptionalString(element, "invocationId"),
             GetOptionalString(element, "subAgentSourceKind"),
             GetOptionalString(element, "parentToolCallId"),

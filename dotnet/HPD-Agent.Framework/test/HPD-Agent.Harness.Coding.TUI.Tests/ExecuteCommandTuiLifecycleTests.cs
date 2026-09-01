@@ -55,7 +55,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
     }
 
     [Fact]
-    public void AddCodingHarnessTui_AppliesConfiguredPermissionScopeOnlyToInteractions()
+    public void AddCodingHarnessTui_AppliesConfiguredPermissionAuthorityOnlyToInteractions()
     {
         var registry = new HpdAgentTuiBuilder()
             .AddCodingHarnessTui(
@@ -76,7 +76,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
         {
             ShowResult = new ExecuteCommandPermissionResponseEvent(
                 "permission-1",
-                "ExecuteCommandPermissionMiddleware",
+                "ExecuteCommandPermissionInteraction",
                 "allow_exact")
         };
         var handler = new ExecuteCommandPermissionRequestTuiHandler(CodingHarnessTuiTheme.Default);
@@ -87,7 +87,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
         result.Response.Should().BeOfType<ExecuteCommandPermissionResponseEvent>()
             .Which.Should().Match<ExecuteCommandPermissionResponseEvent>(evt =>
                 evt.PermissionId == "permission-1" &&
-                evt.SourceName == "ExecuteCommandPermissionMiddleware" &&
+                evt.SourceName == "ExecuteCommandPermissionInteraction" &&
                 evt.ChoiceId == "allow_exact" &&
                 evt.FeedbackText == null);
         dialogs.LastShowKey.Should().Be("execute-command-permission:permission-1");
@@ -508,7 +508,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
         await state.ApplyEventAsync(ExecuteCommandResult(
             """
             <execute_command_background count="1">
-              <command background_handle_id="bg-1" command="npm run dev" cwd="/repo" status="running" />
+              <command operation_id="bg-1" command="npm run dev" cwd="/repo" status="running" />
             </execute_command_background>
             """));
 
@@ -527,7 +527,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
         await state.ApplyEventAsync(Output("ready on 5173\n", command: "npm run dev"));
         await state.ApplyEventAsync(ExecuteCommandResult(
             """
-            <execute_command_stop background_handle_id="cmd-1" command="npm run dev" cwd="/repo" status="stopped" exit_code="137" completion_kind="stopped" />
+            <execute_command_stop operation_id="cmd-1" command="npm run dev" cwd="/repo" status="stopped" exit_code="137" completion_kind="stopped" />
             """,
             callId: "call-stop"));
 
@@ -547,7 +547,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
 
         await state.ApplyEventAsync(ExecuteCommandResult(
             """
-            <execute_command_stop background_handle_id="bg-1" command="npm run dev" cwd="/repo" status="stopped" exit_code="137" completion_kind="stopped" />
+            <execute_command_stop operation_id="bg-1" command="npm run dev" cwd="/repo" status="stopped" exit_code="137" completion_kind="stopped" />
             """));
 
         var rendered = RenderTranscript(state);
@@ -860,7 +860,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
 
         return new ExecuteCommandPermissionRequestEvent(
             "permission-1",
-            "ExecuteCommandPermissionMiddleware",
+            "ExecuteCommandPermissionInteraction",
             "call-1",
             plan,
             [],
@@ -988,7 +988,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
             BaseCommand = "npm",
             Category = ExecuteCommandCategory.Server,
             WorkingDirectory = "/repo",
-            BackgroundHandleId = "bg-1",
+            OperationId = "bg-1",
             BackgroundedAt = DateTimeOffset.Parse("2026-06-06T12:00:02Z"),
             ElapsedMilliseconds = 2_000
         };
@@ -1019,15 +1019,9 @@ public sealed class ExecuteCommandTuiLifecycleTests
             OutputTruncated = false,
             OutputDrainTimedOut = false,
             OutputEventsSuppressed = false,
-            StdoutArtifactPath = null,
-            StderrArtifactPath = null,
-            CombinedOutputArtifactPath = null,
-            StdoutContentId = null,
-            StderrContentId = null,
-            CombinedOutputContentId = null,
-            StdoutLocalPath = null,
-            StderrLocalPath = null,
-            CombinedOutputLocalPath = null
+            OutputContentState = ExecuteCommandOutputContentState.Unavailable,
+            MaxPersistedOutputBytes = 0,
+            CombinedOutputFormat = "hpd.execute-command.interleaved.v1"
         };
 
     private static ToolCallResultEvent ExecuteCommandResult(
@@ -1219,6 +1213,10 @@ public sealed class ExecuteCommandTuiLifecycleTests
             => Task.FromResult(new AgentRespondResult(
                 AgentRespondStatus.Accepted,
                 response.EventId));
+
+        public Task<AgentTuiSubmitResult> CancelExecutionAsync(
+            AgentTuiRuntimeScope scope, string threadExecutionId, CancellationToken cancellationToken = default)
+            => Task.FromResult(new AgentTuiSubmitResult(AgentInputDisposition.Accepted, threadExecutionId, null));
 
         public Task<AgentTuiThreadState> GetThreadStateAsync(
             AgentTuiRuntimeScope scope,

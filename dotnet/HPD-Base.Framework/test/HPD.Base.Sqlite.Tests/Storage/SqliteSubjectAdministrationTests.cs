@@ -366,14 +366,14 @@ SELECT 'consumer.remove',1,$checksum,'example.subject',1,1,0,0,$digest,X'',value
 
             OperationResult<BaseSubjectEpochRotationResult> interrupted = await store.RotateEpochAsync(Rotation(1));
             interrupted.IsSuccess().Should().BeFalse();
-            (await store.GetAsync(collection, new RecordId("consumer-0000"), Operation(BaseOperationKind.Get, collection.Id)))
+            (await store.GetAsync(collection, RecordId.Create("consumer-0000"), Operation(BaseOperationKind.Get, collection.Id)))
                 .IsSuccess().Should().BeFalse();
 
             OperationResult<BaseSubjectEpochRotationResult> resumed = await store.RotateEpochAsync(Rotation(1));
             resumed.IsSuccess().Should().BeTrue(resumed.Error?.Code);
             resumed.Value!.ExaminedRecords.Should().Be(300);
             resumed.Value.RewrittenReferences.Should().Be(300);
-            (await store.GetAsync(collection, new RecordId("consumer-0299"), Operation(BaseOperationKind.Get, collection.Id)))
+            (await store.GetAsync(collection, RecordId.Create("consumer-0299"), Operation(BaseOperationKind.Get, collection.Id)))
                 .IsSuccess().Should().BeTrue();
         }
         finally
@@ -420,7 +420,7 @@ SELECT 'consumer.remove',1,$checksum,'example.subject',1,1,0,0,$digest,X'',value
             OperationResult<BaseSubjectEpochRotationResult> resumed = await store.RotateEpochAsync(Rotation(1));
             resumed.IsSuccess().Should().BeFalse();
             resumed.Error!.Code.Should().Be(BaseSubjectErrorCodes.ProviderContractInvalid);
-            (await store.GetAsync(collection, new RecordId("consumer-0000"), Operation(BaseOperationKind.Get, collection.Id)))
+            (await store.GetAsync(collection, RecordId.Create("consumer-0000"), Operation(BaseOperationKind.Get, collection.Id)))
                 .IsSuccess().Should().BeFalse();
         }
         finally
@@ -487,7 +487,7 @@ SELECT 'consumer.remove',1,$checksum,'example.subject',1,1,0,0,$digest,X'',value
                 Operation(BaseOperationKind.Create, collection.Id))).IsSuccess().Should().BeTrue();
 
             (await store.RotateEpochAsync(Rotation(1))).IsSuccess().Should().BeFalse();
-            (await store.GetAsync(collection, new RecordId("consumer-one"), Operation(BaseOperationKind.Get, collection.Id)))
+            (await store.GetAsync(collection, RecordId.Create("consumer-one"), Operation(BaseOperationKind.Get, collection.Id)))
                 .IsSuccess().Should().BeFalse();
 
             OperationResult<BaseSubjectEpochRotationResult> resumed = await store.RotateEpochAsync(Rotation(1));
@@ -651,7 +651,7 @@ SELECT 'consumer.remove',1,$checksum,'example.subject',1,1,0,0,$digest,X'',value
             kind.Should().Be((int)BaseSubjectAuthorityPublicationKind.RestoreTransformation);
             RecordEnvelope current = (await store.GetAsync(
                 collection,
-                new RecordId("consumer-one"),
+                RecordId.Create("consumer-one"),
                 Operation(BaseOperationKind.Get, collection.Id))).Value!;
             current.Payload.Fields!["owner"].GetProperty("authorityEpoch").GetString().Should().Be(Encode(restoredEpoch));
             current.Payload.Fields!["owner"].GetProperty("incarnation").GetString().Should().Be(Encode(Incarnation(9)));
@@ -829,7 +829,7 @@ SELECT 'consumer.remove',1,$checksum,'example.subject',1,1,0,0,$digest,X'',value
                 collection,
                 new RecordCreateRequest
                 {
-                    RequestedId = new RecordId("consumer-one"),
+                    RequestedId = RecordId.Create("consumer-one"),
                     Payload = new RecordPayload
                     {
                         Kind = RecordPayloadKind.FieldMap,
@@ -855,7 +855,7 @@ SELECT 'consumer.remove',1,$checksum,'example.subject',1,1,0,0,$digest,X'',value
             rotated.Value.RewrittenReferences.Should().Be(1);
             RecordEnvelope current = (await store.GetAsync(
                 collection,
-                new RecordId("consumer-one"),
+                RecordId.Create("consumer-one"),
                 new OperationContext { Operation = BaseOperationKind.Get, CollectionId = collection.Id })).Value!;
             current.Metadata.Revision!.Value.Value.Should().Be("sqlite:2");
             JsonElement rewritten = current.Payload.Fields!["owner"];
@@ -977,7 +977,7 @@ VALUES ('subject-restore','subject-restore-instance','baseline-1','checksum-1',1
     }
 
     private static JsonElement Reference(byte[] epoch, byte incarnation) => JsonSerializer.Deserialize<JsonElement>($$"""
-{"subjectId":"subject-one","authorityEpoch":"{{Encode(epoch)}}","incarnation":"{{Encode(Incarnation(incarnation))}}"}
+{"authorityEpoch":"{{Encode(epoch)}}","incarnation":"{{Encode(Incarnation(incarnation))}}","subjectId":"subject-one"}
 """);
 
     private static byte[] Incarnation(byte nonce)
@@ -990,7 +990,7 @@ VALUES ('subject-restore','subject-restore-instance','baseline-1','checksum-1',1
 
     private static RecordCreateRequest Create(string id, JsonElement reference) => new()
     {
-        RequestedId = new RecordId(id),
+        RequestedId = RecordId.Create(id),
         Payload = new RecordPayload
         {
             Kind = RecordPayloadKind.FieldMap,
@@ -1043,13 +1043,15 @@ VALUES ('subject-restore','subject-restore-instance','baseline-1','checksum-1',1
                 ApplicationName = "owner",
                 WireName = "owner",
                 Type = BaseFieldTypes.Object,
-                Required = true,
-                Nullable = false,
+                Presence = BaseFieldPresence.Required,
+                Nullability = BaseFieldNullability.NonNullable,
                 SubjectReference = new BaseSubjectReferenceDefinition
                 {
                     ContractId = "example.subject",
                     ContractVersion = 1,
                     ContractChecksum = checksum,
+                    SubjectIdKind = BaseSubjectIdKind.OrdinalString,
+                    MaximumSubjectIdUtf8Bytes = 256,
                     Requirement = BaseSubjectReferenceRequirement.Exists,
                     Guarantee = BaseSubjectValidationGuarantee.TransactionSnapshot,
                 },
@@ -1069,6 +1071,8 @@ VALUES ('subject-restore','subject-restore-instance','baseline-1','checksum-1',1
         ValidationGrantId = "example.subject.validate",
         AdministrationGrantId = "example.subject.admin",
         TombstoneFieldId = "subject.tombstoned",
+        TombstoneMetadata = new() { Instant = new() { Kind = BaseSubjectTombstoneMetadataBindingKind.NotStored }, Sequence = new() { Kind = BaseSubjectTombstoneMetadataBindingKind.NotStored } },
+        FinalRetirementExecutionMode = BaseSubjectFinalExecutionMode.OrdinaryOrActivationGuarded,
         SupportsCoordinatedRetirement = false,
         Audiences = [HPDBaseEndpointAudience.Application],
         ValidationPlan = new BaseSubjectValidationPlanDefinition

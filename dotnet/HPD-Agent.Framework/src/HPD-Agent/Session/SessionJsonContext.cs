@@ -33,12 +33,9 @@ namespace HPD.Agent;
 [JsonSerializable(typeof(ThreadJournalReplaceResult))]
 [JsonSerializable(typeof(ThreadKind))]
 [JsonSerializable(typeof(ThreadVisibility))]
-[JsonSerializable(typeof(ThreadHistoryCompactionCheckpointEvent))]
 [JsonSerializable(typeof(CompactionPointDescriptor))]
 [JsonSerializable(typeof(CompactionPreservationDescriptor))]
 [JsonSerializable(typeof(CompactionStrategyDescriptor))]
-[JsonSerializable(typeof(AgentEvent))]
-[JsonSerializable(typeof(List<AgentEvent>))]
 [JsonSerializable(typeof(ToolResultPayload))]
 
 // HPD-specific types
@@ -68,7 +65,6 @@ namespace HPD.Agent;
 [JsonSerializable(typeof(IReadOnlySet<string>))]
 
 // Common middleware state types that may be serialized in AgentLoopState.
-[JsonSerializable(typeof(BatchPermissionStateData))]
 [JsonSerializable(typeof(CircuitBreakerStateData))]
 [JsonSerializable(typeof(ContinuationPermissionStateData))]
 [JsonSerializable(typeof(ErrorTrackingStateData))]
@@ -99,7 +95,13 @@ namespace HPD.Agent;
 [JsonSerializable(typeof(InheritThreadForkCompaction))]
 [JsonSerializable(typeof(DisableThreadForkCompaction))]
 [JsonSerializable(typeof(ApplyThreadForkCompaction))]
-[JsonSerializable(typeof(PermissionPersistentStateData))]
+[JsonSerializable(typeof(SubAgentForkOptions))]
+[JsonSerializable(typeof(ThreadForkResult))]
+[JsonSerializable(typeof(SubAgentForkChildOutcome))]
+[JsonSerializable(typeof(SubAgentOperationResult))]
+[JsonSerializable(typeof(SubAgentActionResult))]
+[JsonSerializable(typeof(SubAgentListResult))]
+[JsonSerializable(typeof(SubAgentWaitResult))]
 [JsonSerializable(typeof(TotalErrorThresholdStateData))]
 [JsonSerializable(typeof(PlanModePersistentStateData))]
 [JsonSerializable(typeof(AgentPlanData))]
@@ -158,8 +160,6 @@ public partial class SessionJsonContext : JsonSerializerContext
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         };
-
-        options.Converters.Add(new AgentEventJsonConverter());
 
         // Start with our SessionJsonContext for HPD-specific types
         options.TypeInfoResolverChain.Add(new SessionJsonContext());

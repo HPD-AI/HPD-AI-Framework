@@ -10,7 +10,7 @@ using ModelContextProtocol.Protocol;
 namespace HPD.Agent.MCP;
 
 internal sealed class McpProcessClientTransport(
-    MCPServerConfig serverConfig,
+    McpServerConfig serverConfig,
     IProcessProvider processProvider,
     IReadOnlyDictionary<string, string?> environment)
     : IClientTransport
@@ -42,7 +42,7 @@ internal sealed class McpProcessClientTransport(
                 Stop = new StopPolicy
                 {
                     Kind = StopKind.GracefulThenKill,
-                    GracePeriod = TimeSpan.FromMilliseconds(serverConfig.ShutdownTimeoutMs),
+                    GracePeriod = TimeSpan.FromSeconds(5),
                 },
             },
             Isolation = serverConfig.ProcessIsolation?.ToPolicy() ?? ProcessIsolationPolicy.Default,
@@ -53,7 +53,10 @@ internal sealed class McpProcessClientTransport(
             .StartAsync(spec, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
-        var transport = new McpProcessSessionTransport(serverConfig.Name, handle);
+        var transport = new McpProcessSessionTransport(
+            serverConfig.Name,
+            handle,
+            serverConfig.ProcessIsolation?.MaximumMessageBytes ?? 4 * 1024 * 1024);
         transport.Start(cancellationToken);
         return transport;
     }
@@ -73,6 +76,9 @@ internal sealed class McpProcessClientTransport(
             TargetHandleAuthority.Observe | TargetHandleAuthority.Control | TargetHandleAuthority.Read | TargetHandleAuthority.Write);
 }
 
+internal sealed class McpProcessTransportException(string message, Exception? innerException = null)
+    : Exception(message, innerException);
+
 internal sealed class McpProcessSessionTransport : ITransport
 {
     private readonly string _name;
@@ -80,12 +86,19 @@ internal sealed class McpProcessSessionTransport : ITransport
     private readonly Channel<JsonRpcMessage> _messages = Channel.CreateUnbounded<JsonRpcMessage>();
     private readonly CancellationTokenSource _disposeCts = new();
     private readonly SemaphoreSlim _sendLock = new(1, 1);
+    private readonly int _maximumMessageBytes;
     private Task? _readTask;
 
-    public McpProcessSessionTransport(string name, IProcessInvocationHandle handle)
+    public McpProcessSessionTransport(
+        string name,
+        IProcessInvocationHandle handle,
+        int maximumMessageBytes = 4 * 1024 * 1024)
     {
         _name = name;
         _handle = handle;
+        _maximumMessageBytes = maximumMessageBytes > 0
+            ? maximumMessageBytes
+            : throw new ArgumentOutOfRangeException(nameof(maximumMessageBytes));
     }
 
     public string? SessionId { get; set; }
@@ -102,7 +115,9 @@ internal sealed class McpProcessSessionTransport : ITransport
     {
         ObjectDisposedException.ThrowIf(_disposeCts.IsCancellationRequested, this);
 
-        string json = JsonSerializer.Serialize(message, McpJsonUtilities.DefaultOptions);
+        string json = JsonSerializer.Serialize(
+            message,
+            McpJsonUtilities.DefaultOptions.GetTypeInfo(typeof(JsonRpcMessage)));
         byte[] bytes = Encoding.UTF8.GetBytes(json + "\n");
 
         await _sendLock.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -157,9 +172,7 @@ internal sealed class McpProcessSessionTransport : ITransport
 
     private async Task ReadMessagesAsync(CancellationToken cancellationToken)
     {
-        var decoder = Encoding.UTF8.GetDecoder();
-        var line = new StringBuilder();
-        char[] chars = ArrayPool<char>.Shared.Rent(8192);
+        var line = new ArrayBufferWriter<byte>();
 
         try
         {
@@ -168,23 +181,25 @@ internal sealed class McpProcessSessionTransport : ITransport
                 if (chunk.Stream is not ProcessOutputStream.Stdout)
                     continue;
 
-                ReadOnlyMemory<byte> bytes = chunk.Bytes;
-                while (!bytes.IsEmpty)
+                foreach (var value in chunk.Bytes.Span)
                 {
-                    decoder.Convert(
-                        bytes.Span,
-                        chars,
-                        flush: false,
-                        out int bytesUsed,
-                        out int charsUsed,
-                        out _);
-
-                    AppendChars(line, chars.AsSpan(0, charsUsed));
-                    bytes = bytes[bytesUsed..];
+                    if (value == (byte)'\n')
+                    {
+                        FlushPendingLine(line);
+                        line.Clear();
+                        continue;
+                    }
+                    if (line.WrittenCount >= _maximumMessageBytes)
+                        throw new McpProcessTransportException(
+                            $"MCP process '{_name}' emitted a message larger than {_maximumMessageBytes} bytes.");
+                    line.GetSpan(1)[0] = value;
+                    line.Advance(1);
                 }
             }
 
-            FlushPendingLine(line);
+            if (line.WrittenCount != 0)
+                throw new McpProcessTransportException(
+                    $"MCP process '{_name}' closed stdout in the middle of a JSON-RPC message.");
             _messages.Writer.TryComplete();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -193,39 +208,25 @@ internal sealed class McpProcessSessionTransport : ITransport
         }
         catch (Exception ex)
         {
-            _messages.Writer.TryComplete(ex);
-        }
-        finally
-        {
-            ArrayPool<char>.Shared.Return(chars);
-        }
-    }
-
-    private void AppendChars(StringBuilder line, ReadOnlySpan<char> chars)
-    {
-        foreach (char ch in chars)
-        {
-            if (ch == '\n')
-            {
-                FlushPendingLine(line);
-                continue;
-            }
-
-            if (ch != '\r')
-                line.Append(ch);
+            _messages.Writer.TryComplete(ex is McpProcessTransportException
+                ? ex
+                : new McpProcessTransportException(
+                    $"MCP process '{_name}' emitted malformed protocol output.", ex));
         }
     }
 
-    private void FlushPendingLine(StringBuilder line)
+    private void FlushPendingLine(ArrayBufferWriter<byte> line)
     {
-        if (line.Length == 0)
+        var bytes = line.WrittenSpan;
+        if (bytes.Length > 0 && bytes[^1] == (byte)'\r')
+            bytes = bytes[..^1];
+        if (bytes.IsEmpty)
             return;
-
-        string json = line.ToString();
-        line.Clear();
-
-        JsonRpcMessage? message = JsonSerializer.Deserialize<JsonRpcMessage>(json, McpJsonUtilities.DefaultOptions);
-        if (message is not null)
-            _messages.Writer.TryWrite(message);
+        JsonRpcMessage? message = (JsonRpcMessage?)JsonSerializer.Deserialize(
+            bytes,
+            McpJsonUtilities.DefaultOptions.GetTypeInfo(typeof(JsonRpcMessage)));
+        if (message is null)
+            throw new JsonException("JSON-RPC payload resolved to null.");
+        _messages.Writer.TryWrite(message);
     }
 }

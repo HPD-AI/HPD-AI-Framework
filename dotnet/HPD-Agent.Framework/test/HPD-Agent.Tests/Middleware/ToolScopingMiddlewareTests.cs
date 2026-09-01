@@ -276,6 +276,144 @@ public class ContainerMiddlewareTests
     }
 
     [Fact]
+    public async Task BeforeToolExecution_ErrorRecoveryDisabled_DoesNotExpandHiddenMember()
+    {
+        var (container, members) = CreateCollapsedToolHarness("MathToolHarness", "Math tools", "Add");
+        var middleware = new ContainerMiddleware(
+            new List<AITool> { container, members[0] },
+            ImmutableHashSet<string>.Empty,
+            config: new CollapsingConfig { EnableErrorRecovery = true });
+        var runConfig = new AgentRunConfig
+        {
+            Collapsing = new CollapsingRunPolicy { EnableErrorRecovery = false }
+        };
+        var context = CreateBeforeToolExecutionContext(
+            toolCalls: [CreateToolCall("Add")],
+            runConfig: runConfig);
+
+        await middleware.BeforeToolExecutionAsync(context, CancellationToken.None);
+
+        var state = context.State.MiddlewareState.GetState<ContainerMiddlewareState>(
+            "HPD.Agent.ContainerMiddlewareState");
+        Assert.True(state is null || state.ExpandedContainers.IsEmpty);
+        Assert.True(state is null || state.RecoveredFunctionCalls.IsEmpty);
+    }
+
+    [Fact]
+    public async Task BeforeToolExecution_ErrorRecoveryDisabled_DoesNotExpandContainerCalledWithArguments()
+    {
+        var (container, _) = CreateCollapsedToolHarness("MathToolHarness", "Math tools", "Add");
+        var middleware = new ContainerMiddleware(
+            new List<AITool> { container },
+            ImmutableHashSet<string>.Empty,
+            config: new CollapsingConfig { EnableErrorRecovery = false });
+        var call = new FunctionCallContent(
+            "call-with-args",
+            "MathToolHarness",
+            new Dictionary<string, object?> { ["value"] = 1 });
+        var context = CreateBeforeToolExecutionContext(toolCalls: [call]);
+
+        await middleware.BeforeToolExecutionAsync(context, CancellationToken.None);
+
+        var state = context.State.MiddlewareState.GetState<ContainerMiddlewareState>(
+            "HPD.Agent.ContainerMiddlewareState");
+        Assert.True(state is null || state.ExpandedContainers.IsEmpty);
+        Assert.True(state is null || state.RecoveredFunctionCalls.IsEmpty);
+    }
+
+    [Fact]
+    public async Task ErrorRecoveryDisabled_QualifiedCallIsNotRecoveredOrSuppressed()
+    {
+        var (container, memberFunctions) = CreateCollapsedToolHarness(
+            "MathToolHarness", "Math tools", "Add");
+        var middleware = new ContainerMiddleware(
+            new List<AITool> { container, memberFunctions[0] },
+            ImmutableHashSet<string>.Empty,
+            config: new CollapsingConfig { EnableErrorRecovery = false });
+        var toolContext = CreateBeforeToolExecutionContext(
+            toolCalls: [new FunctionCallContent("qualified", "MathToolHarness.Add")]);
+
+        await middleware.BeforeToolExecutionAsync(toolContext, CancellationToken.None);
+
+        var state = toolContext.State.MiddlewareState.GetState<ContainerMiddlewareState>(
+            "HPD.Agent.ContainerMiddlewareState");
+        Assert.True(state is null || state.ExpandedContainers.IsEmpty);
+        Assert.True(state is null || state.RecoveredFunctionCalls.IsEmpty);
+
+        var functionContext = CreateAgentContext(toolContext.State).AsBeforeFunction(
+            function: null,
+            callId: "qualified",
+            arguments: new Dictionary<string, object?>(),
+            runConfig: new AgentRunConfig());
+        await middleware.BeforeFunctionAsync(functionContext, CancellationToken.None);
+
+        Assert.Null(functionContext.OverrideResult);
+    }
+
+    [Fact]
+    public async Task BeforeToolExecution_ValidActivationStillExpandsWhenRecoveryDisabled()
+    {
+        var (container, _) = CreateCollapsedToolHarness("MathToolHarness", "Math tools", "Add");
+        var middleware = new ContainerMiddleware(
+            new List<AITool> { container },
+            ImmutableHashSet<string>.Empty,
+            config: new CollapsingConfig { EnableErrorRecovery = false });
+        var context = CreateBeforeToolExecutionContext(
+            toolCalls: [CreateToolCall("MathToolHarness")]);
+
+        await middleware.BeforeToolExecutionAsync(context, CancellationToken.None);
+
+        var state = context.State.MiddlewareState.GetState<ContainerMiddlewareState>(
+            "HPD.Agent.ContainerMiddlewareState");
+        Assert.NotNull(state);
+        Assert.Contains("MathToolHarness", state!.ExpandedContainers);
+        Assert.Empty(state.RecoveredFunctionCalls);
+    }
+
+    [Fact]
+    public async Task BeforeIteration_HidingDisabled_PreservesToolHarnessInteractionMessages()
+    {
+        var (container, memberFunctions) = CreateCollapsedToolHarness(
+            "MathToolHarness", "Math tools", "Add");
+        var tools = new List<AITool> { container, memberFunctions[0] };
+        var middleware = new ContainerMiddleware(
+            tools,
+            ImmutableHashSet<string>.Empty,
+            config: new CollapsingConfig { HideToolHarnessInteractionsWithinTurn = true });
+        var messages = new List<ChatMessage>
+        {
+            new(ChatRole.Assistant, [new FunctionCallContent("activate", "MathToolHarness")]),
+            new(ChatRole.Tool, [new FunctionResultContent("activate", "expanded")])
+        };
+        var loopState = CreateEmptyState();
+        var containerState = new ContainerMiddlewareState().WithExpandedContainer("MathToolHarness");
+        loopState = loopState with
+        {
+            MiddlewareState = loopState.MiddlewareState.SetState(
+                "HPD.Agent.ContainerMiddlewareState", containerState)
+        };
+        var context = CreateContext(
+            loopState,
+            new ChatOptions { Tools = tools },
+            messages,
+            new AgentRunConfig
+            {
+                Collapsing = new CollapsingRunPolicy
+                {
+                    HideToolHarnessInteractionsWithinTurn = false
+                }
+            });
+
+        await middleware.BeforeIterationAsync(context, CancellationToken.None);
+
+        Assert.Equal(2, messages.Count);
+        Assert.Contains(messages[0].Contents, content =>
+            content is FunctionCallContent call && call.CallId == "activate");
+        Assert.Contains(messages[1].Contents, content =>
+            content is FunctionResultContent result && result.CallId == "activate");
+    }
+
+    [Fact]
     public async Task BeforeToolExecution_SkillWithSystemPrompt_StoresInstructions()
     {
         // Arrange
@@ -403,6 +541,208 @@ public class ContainerMiddlewareTests
         var visibleIter2 = beforeIter2.Options.Tools.OfType<AIFunction>().Select(f => f.Name).ToList();
         Assert.Contains("Add", visibleIter2);
         Assert.Contains("Subtract", visibleIter2);
+    }
+
+    [Fact]
+    public async Task BeforeParallelBatch_DispatchesOncePerRepresentedHarness()
+    {
+        var calls = 0;
+        var (container, members) = CreateCollapsedToolHarness("BatchHarness", "Batch", "First", "Second");
+        var factory = CreateRuntimeHarness("BatchHarness", members, typeof(BatchProbe),
+            _ => ToolHarnessMiddlewareActivation.ExecutionOwned(new BatchProbe(() => calls++)));
+        var scope = ToolHarnessExecutionScope.Create(null);
+        var tools = new List<AITool> { container };
+        tools.AddRange(members);
+        var middleware = new ContainerMiddleware(
+            tools,
+            ImmutableHashSet<string>.Empty,
+            new Dictionary<string, ToolHarnessFactory> { [factory.Name] = factory });
+        var context = CreateBeforeParallelBatchContext(scope,
+        [
+            new ParallelFunctionInfo(members[0], "call-1", new Dictionary<string, object?>()),
+            new ParallelFunctionInfo(members[1], "call-2", new Dictionary<string, object?>())
+        ]);
+
+        await middleware.BeforeParallelBatchAsync(context, CancellationToken.None);
+
+        Assert.Equal(1, calls);
+        await scope.ReleaseForegroundAsync(ToolHarnessDeactivationReason.Completed);
+        await scope.Completion;
+    }
+
+    [Fact]
+    public async Task GlobalMiddleware_WrapsHarnessScopedMiddleware()
+    {
+        var calls = new List<string>();
+        var (container, members) = CreateCollapsedToolHarness("WrappedHarness", "Wrapped", "Run");
+        var factory = CreateRuntimeHarness("WrappedHarness", members, typeof(WrappingProbe),
+            _ => ToolHarnessMiddlewareActivation.ExecutionOwned(new WrappingProbe("scoped", calls)));
+        var scope = ToolHarnessExecutionScope.Create(null);
+        var tools = new List<AITool> { container };
+        tools.AddRange(members);
+        var containerMiddleware = new ContainerMiddleware(
+            tools,
+            ImmutableHashSet<string>.Empty,
+            new Dictionary<string, ToolHarnessFactory> { [factory.Name] = factory });
+        var pipeline = new AgentMiddlewarePipeline(
+            [new WrappingProbe("global", calls), containerMiddleware]);
+        var state = CreateEmptyState();
+
+        await pipeline.ExecuteBeforeFunctionAsync(
+            CreateBeforeFunctionContext(members[0], state, scope), CancellationToken.None);
+        await pipeline.ExecuteAfterFunctionAsync(
+            CreateAfterFunctionContext(members[0], state, scope), CancellationToken.None);
+
+        Assert.Equal(["before:global", "before:scoped", "after:scoped", "after:global"], calls);
+        await scope.ReleaseForegroundAsync(ToolHarnessDeactivationReason.Completed);
+        await scope.Completion;
+    }
+
+    [Fact]
+    public async Task MidTurnActivation_DoesNotReplayElapsedHooks()
+    {
+        var probe = new ElapsedHookProbe();
+        var (container, members) = CreateCollapsedToolHarness("MidTurnHarness", "Mid-turn", "Run");
+        var factory = CreateRuntimeHarness("MidTurnHarness", members, typeof(ElapsedHookProbe),
+            _ => ToolHarnessMiddlewareActivation.ExecutionOwned(probe));
+        var scope = ToolHarnessExecutionScope.Create(null);
+        var tools = new List<AITool> { container };
+        tools.AddRange(members);
+        var middleware = new ContainerMiddleware(
+            tools,
+            ImmutableHashSet<string>.Empty,
+            new Dictionary<string, ToolHarnessFactory> { [factory.Name] = factory });
+
+        await middleware.BeforeMessageTurnAsync(
+            CreateBeforeMessageTurnContext(scope), CancellationToken.None);
+        await middleware.BeforeIterationAsync(
+            CreateIterationContext(scope: scope, options: new ChatOptions { Tools = tools }), CancellationToken.None);
+        await middleware.BeforeToolExecutionAsync(
+            CreateBeforeToolExecutionContext(
+                toolCalls: [CreateToolCall("MidTurnHarness")], scope: scope), CancellationToken.None);
+
+        Assert.Equal(0, probe.BeforeMessageTurnCalls);
+        Assert.Equal(0, probe.BeforeIterationCalls);
+        Assert.Equal(1, probe.BeforeToolExecutionCalls);
+        await scope.ReleaseForegroundAsync(ToolHarnessDeactivationReason.Completed);
+        await scope.Completion;
+    }
+
+    [Fact]
+    public async Task ActivationFailure_PublishesNeitherExpansionNorVisibleMembers()
+    {
+        var (container, members) = CreateCollapsedToolHarness("FailingHarness", "Fails", "Hidden");
+        var factory = CreateRuntimeHarness("FailingHarness", members, typeof(BatchProbe),
+            _ => throw new InvalidOperationException("activation failed"));
+        var scope = ToolHarnessExecutionScope.Create(null);
+        var tools = new List<AITool> { container };
+        tools.AddRange(members);
+        var middleware = new ContainerMiddleware(
+            tools,
+            ImmutableHashSet<string>.Empty,
+            new Dictionary<string, ToolHarnessFactory> { [factory.Name] = factory });
+        var expansion = CreateBeforeToolExecutionContext(
+            toolCalls: [CreateToolCall("FailingHarness")], scope: scope);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            middleware.BeforeToolExecutionAsync(expansion, CancellationToken.None));
+
+        Assert.Equal("activation failed", error.Message);
+        var state = expansion.State.MiddlewareState.GetState<ContainerMiddlewareState>(
+            "HPD.Agent.ContainerMiddlewareState");
+        Assert.DoesNotContain("FailingHarness", state?.ExpandedContainers ?? []);
+        Assert.Empty(scope.Registry.GetDiagnosticsSnapshot().Entries);
+
+        var nextIteration = CreateIterationContext(
+            expansion.State, new ChatOptions { Tools = tools }, scope);
+        await middleware.BeforeIterationAsync(nextIteration, CancellationToken.None);
+        Assert.DoesNotContain("Hidden", nextIteration.Options.Tools.OfType<AIFunction>().Select(tool => tool.Name));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => middleware.BeforeFunctionAsync(
+            CreateBeforeFunctionContext(members[0], expansion.State, scope), CancellationToken.None));
+        await scope.ReleaseForegroundAsync(ToolHarnessDeactivationReason.Failed);
+    }
+
+    [Fact]
+    public async Task RealExpansion_ActivatesBeforeAndOutsideContainerStateCommit()
+    {
+        var (container, members) = CreateCollapsedToolHarness(
+            "SequencedHarness", "Sequenced", "Run");
+        BeforeToolExecutionContext? expansion = null;
+        var activationObservedUncommittedState = false;
+        var factory = CreateRuntimeHarness(
+            "SequencedHarness",
+            members,
+            typeof(BatchProbe),
+            _ =>
+            {
+                var stateDuringActivation = expansion!.State.MiddlewareState
+                    .GetState<ContainerMiddlewareState>("HPD.Agent.ContainerMiddlewareState");
+                activationObservedUncommittedState =
+                    stateDuringActivation is null ||
+                    !stateDuringActivation.ExpandedContainers.Contains("SequencedHarness");
+                return ToolHarnessMiddlewareActivation.ExecutionOwned(new BatchProbe(static () => { }));
+            });
+        var scope = ToolHarnessExecutionScope.Create(null);
+        var tools = new List<AITool> { container };
+        tools.AddRange(members);
+        var middleware = new ContainerMiddleware(
+            tools,
+            ImmutableHashSet<string>.Empty,
+            new Dictionary<string, ToolHarnessFactory> { [factory.Name] = factory });
+        expansion = CreateBeforeToolExecutionContext(
+            toolCalls: [CreateToolCall("SequencedHarness")], scope: scope);
+
+        await middleware.BeforeToolExecutionAsync(expansion, CancellationToken.None);
+
+        var committed = expansion.State.MiddlewareState.GetState<ContainerMiddlewareState>(
+            "HPD.Agent.ContainerMiddlewareState");
+        Assert.True(activationObservedUncommittedState);
+        Assert.Contains("SequencedHarness", committed!.ExpandedContainers);
+        await scope.ReleaseForegroundAsync(ToolHarnessDeactivationReason.Completed);
+        await scope.Completion;
+    }
+
+    [Fact]
+    public async Task UnleasedBackgroundDispatch_CannotAcquireOrInvokeHarnessMiddleware()
+    {
+        var invoked = 0;
+        var middlewareInvoked = 0;
+        var (container, members) = CreateCollapsedToolHarness(
+            "BackgroundHarness", "Background", "Run");
+        var factory = CreateRuntimeHarness(
+            "BackgroundHarness",
+            members,
+            typeof(FunctionInvocationProbe),
+            _ => ToolHarnessMiddlewareActivation.ExecutionOwned(
+                new FunctionInvocationProbe(() => Interlocked.Increment(ref middlewareInvoked))));
+        var tools = new List<AITool> { container };
+        tools.AddRange(members);
+        var middleware = new ContainerMiddleware(
+            tools,
+            ImmutableHashSet<string>.Empty,
+            new Dictionary<string, ToolHarnessFactory> { [factory.Name] = factory });
+        var request = new FunctionRequest
+        {
+            Function = members[0],
+            CallId = "background-call",
+            Arguments = new Dictionary<string, object?>(),
+            State = AgentLoopState.InitialSafe([], "run", "conversation", "agent"),
+            ToolHarnessName = "BackgroundHarness"
+        };
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            middleware.WrapFunctionCallAsync(
+                request,
+                _ =>
+                {
+                    Interlocked.Increment(ref invoked);
+                    return Task.FromResult<object?>("should-not-run");
+                },
+                CancellationToken.None));
+
+        Assert.Contains("no accepted-input execution authority", error.Message);
+        Assert.Equal(0, invoked);
+        Assert.Equal(0, middlewareInvoked);
     }
 
     //
@@ -581,6 +921,53 @@ public class ContainerMiddlewareTests
         Assert.Contains(toolMsg.Contents, c => c is FunctionResultContent frc && frc.CallId == "call1");
         Assert.Contains(toolMsg.Contents, c => c is FunctionResultContent frc && frc.CallId == "call2");
         Assert.Contains(toolMsg.Contents, c => c is FunctionResultContent frc && frc.CallId == "call3");
+    }
+
+    [Fact]
+    public async Task AfterMessageTurn_RecoveryHistoryPreserve_LeavesRecoveredInteractionUnchanged()
+    {
+        var (container, memberFunctions) = CreateCollapsedToolHarness(
+            "MathToolHarness", "Math tools", "Add");
+        var middleware = new ContainerMiddleware(
+            new List<AITool> { container, memberFunctions[0] },
+            ImmutableHashSet<string>.Empty,
+            config: new CollapsingConfig
+            {
+                RecoveryHistoryMode = ContainerRecoveryHistoryMode.Rewrite
+            });
+        var turnHistory = new List<ChatMessage>
+        {
+            new(ChatRole.Assistant, [new FunctionCallContent("recovered", "Add")]),
+            new(ChatRole.Tool, [new FunctionResultContent("recovered", string.Empty)])
+        };
+        var loopState = CreateEmptyState();
+        var containerState = new ContainerMiddlewareState()
+            .WithExpandedContainer("MathToolHarness")
+            .WithRecoveredFunction(
+                "recovered",
+                new RecoveryInfo(RecoveryType.HiddenItem, "MathToolHarness", "Add"));
+        loopState = loopState with
+        {
+            MiddlewareState = loopState.MiddlewareState.SetState(
+                "HPD.Agent.ContainerMiddlewareState", containerState)
+        };
+        var context = CreateAfterMessageTurnContext(
+            loopState,
+            turnHistory,
+            new AgentRunConfig
+            {
+                Collapsing = new CollapsingRunPolicy
+                {
+                    RecoveryHistoryMode = ContainerRecoveryHistoryMode.Preserve
+                }
+            });
+
+        await middleware.AfterMessageTurnAsync(context, CancellationToken.None);
+
+        var call = Assert.IsType<FunctionCallContent>(Assert.Single(turnHistory[0].Contents));
+        Assert.Equal("Add", call.Name);
+        var result = Assert.IsType<FunctionResultContent>(Assert.Single(turnHistory[1].Contents));
+        Assert.Equal(string.Empty, result.Result);
     }
 
     [Fact]
@@ -895,7 +1282,9 @@ public class ContainerMiddlewareTests
             agentName: "TestAgent");
     }
 
-    private static AgentContext CreateAgentContext(AgentLoopState? state = null)
+    private static AgentContext CreateAgentContext(
+        AgentLoopState? state = null,
+        ToolHarnessExecutionScope? scope = null)
     {
         var agentState = state ?? CreateEmptyState();
 
@@ -906,22 +1295,30 @@ public class ContainerMiddlewareTests
             new HPD.Events.Core.EventCoordinator(),
             new global::HPD.Agent.Session("test-session"),
             new global::HPD.Agent.Thread("test-session", "test-agent"),
-            CancellationToken.None);
+            CancellationToken.None,
+            toolHarnessExecutionScope: scope);
     }
 
-    private static BeforeIterationContext CreateContext(AgentLoopState? state = null, ChatOptions? options = null)
+    private static BeforeIterationContext CreateContext(
+        AgentLoopState? state = null,
+        ChatOptions? options = null,
+        List<ChatMessage>? messages = null,
+        AgentRunConfig? runConfig = null)
     {
         var agentContext = CreateAgentContext(state);
         return agentContext.AsBeforeIteration(
             iteration: 0,
-            messages: new List<ChatMessage>(),
+            messages: messages ?? new List<ChatMessage>(),
             options: options ?? new ChatOptions { Tools = new List<AITool>() },
-            runConfig: new AgentRunConfig());
+            runConfig: runConfig ?? new AgentRunConfig());
     }
 
-    private static BeforeIterationContext CreateIterationContext(AgentLoopState? state = null, ChatOptions? options = null)
+    private static BeforeIterationContext CreateIterationContext(
+        AgentLoopState? state = null,
+        ChatOptions? options = null,
+        ToolHarnessExecutionScope? scope = null)
     {
-        var agentContext = CreateAgentContext(state);
+        var agentContext = CreateAgentContext(state, scope);
         return agentContext.AsBeforeIteration(
             iteration: 0,
             messages: new List<ChatMessage>(),
@@ -932,24 +1329,135 @@ public class ContainerMiddlewareTests
     private static BeforeToolExecutionContext CreateBeforeToolExecutionContext(
         ChatMessage? response = null,
         List<FunctionCallContent>? toolCalls = null,
-        AgentLoopState? state = null)
+        AgentLoopState? state = null,
+        AgentRunConfig? runConfig = null,
+        ToolHarnessExecutionScope? scope = null)
     {
-        var agentContext = CreateAgentContext(state);
+        var agentContext = CreateAgentContext(state, scope);
         response ??= new ChatMessage(ChatRole.Assistant, []);
         toolCalls ??= new List<FunctionCallContent>();
 
-        return agentContext.AsBeforeToolExecution(response, toolCalls, new AgentRunConfig());
+        return agentContext.AsBeforeToolExecution(response, toolCalls, runConfig ?? new AgentRunConfig());
+    }
+
+    private static BeforeMessageTurnContext CreateBeforeMessageTurnContext(ToolHarnessExecutionScope scope) =>
+        CreateAgentContext(scope: scope).AsBeforeMessageTurn(
+            [new ChatMessage(ChatRole.User, "test")], [], new AgentRunConfig());
+
+    private static BeforeParallelBatchContext CreateBeforeParallelBatchContext(
+        ToolHarnessExecutionScope scope,
+        IReadOnlyList<ParallelFunctionInfo> functions) =>
+        CreateAgentContext(scope: scope).AsBeforeParallelBatch(functions, new AgentRunConfig());
+
+    private static BeforeFunctionContext CreateBeforeFunctionContext(
+        AIFunction function,
+        AgentLoopState state,
+        ToolHarnessExecutionScope scope) =>
+        CreateAgentContext(state, scope).AsBeforeFunction(
+            function, "call", new Dictionary<string, object?>(), new AgentRunConfig(),
+            function.AdditionalProperties?["ToolHarnessName"] as string);
+
+    private static AfterFunctionContext CreateAfterFunctionContext(
+        AIFunction function,
+        AgentLoopState state,
+        ToolHarnessExecutionScope scope) =>
+        CreateAgentContext(state, scope).AsAfterFunction(
+            function, "call", "result", null, new AgentRunConfig());
+
+    private static ToolHarnessFactory CreateRuntimeHarness(
+        string name,
+        AIFunction[] members,
+        Type middlewareType,
+        ToolHarnessMiddlewareFactory middleware) => new(
+            name,
+            typeof(object),
+            static () => new object(),
+            (_, _, _) => members.ToList(),
+            () => members.Select(member => member.Name).ToArray(),
+            static () => [],
+            StableIdentity: $"tests:{name}",
+            Middleware:
+            [
+                new ToolHarnessMiddlewareDescriptor
+                {
+                    MiddlewareType = middlewareType,
+                    Factory = middleware
+                }
+            ]);
+
+    private sealed class BatchProbe(Action onBatch) : IToolHarnessMiddleware
+    {
+        public Task BeforeParallelBatchAsync(
+            BeforeParallelBatchContext context,
+            CancellationToken cancellationToken)
+        {
+            onBatch();
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FunctionInvocationProbe(Action onInvoke) : IToolHarnessMiddleware
+    {
+        public Task<object?> WrapFunctionCallAsync(
+            FunctionRequest request,
+            Func<FunctionRequest, Task<object?>> handler,
+            CancellationToken cancellationToken)
+        {
+            onInvoke();
+            return handler(request);
+        }
+    }
+
+    private sealed class ElapsedHookProbe : IToolHarnessMiddleware
+    {
+        internal int BeforeMessageTurnCalls { get; private set; }
+        internal int BeforeIterationCalls { get; private set; }
+        internal int BeforeToolExecutionCalls { get; private set; }
+
+        public Task BeforeMessageTurnAsync(BeforeMessageTurnContext context, CancellationToken cancellationToken)
+        {
+            BeforeMessageTurnCalls++;
+            return Task.CompletedTask;
+        }
+
+        public Task BeforeIterationAsync(BeforeIterationContext context, CancellationToken cancellationToken)
+        {
+            BeforeIterationCalls++;
+            return Task.CompletedTask;
+        }
+
+        public Task BeforeToolExecutionAsync(BeforeToolExecutionContext context, CancellationToken cancellationToken)
+        {
+            BeforeToolExecutionCalls++;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class WrappingProbe(string name, List<string> calls) : IToolHarnessMiddleware
+    {
+        public Task BeforeFunctionAsync(BeforeFunctionContext context, CancellationToken cancellationToken)
+        {
+            calls.Add($"before:{name}");
+            return Task.CompletedTask;
+        }
+
+        public Task AfterFunctionAsync(AfterFunctionContext context, CancellationToken cancellationToken)
+        {
+            calls.Add($"after:{name}");
+            return Task.CompletedTask;
+        }
     }
 
     private static AfterMessageTurnContext CreateAfterMessageTurnContext(
         AgentLoopState? state = null,
-        List<ChatMessage>? turnHistory = null)
+        List<ChatMessage>? turnHistory = null,
+        AgentRunConfig? runConfig = null)
     {
         var agentContext = CreateAgentContext(state);
         var finalResponse = new ChatResponse(new ChatMessage(ChatRole.Assistant, "Test response"));
         turnHistory ??= new List<ChatMessage>();
 
-        return agentContext.AsAfterMessageTurn(finalResponse, turnHistory, new AgentRunConfig());
+        return agentContext.AsAfterMessageTurn(finalResponse, turnHistory, runConfig ?? new AgentRunConfig());
     }
 
     private static (AIFunction Container, AIFunction[] Members) CreateCollapsedToolHarness(

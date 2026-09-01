@@ -16,7 +16,8 @@ public sealed record InputSubmissionDto(
     string Disposition,
     string? ThreadExecutionId = null,
     DateTimeOffset? StartedAt = null,
-    ThreadExecutionDto? ActiveExecution = null);
+    ThreadExecutionDto? ActiveExecution = null,
+    AgentInputResult? Result = null);
 
 public sealed record ThreadRuntimeStateDto(
     ThreadJournalCursor ObservedCursor,

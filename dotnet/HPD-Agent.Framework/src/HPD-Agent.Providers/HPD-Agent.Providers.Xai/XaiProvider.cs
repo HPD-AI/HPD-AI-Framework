@@ -3,18 +3,17 @@ using System.Net.Http;
 using System.Threading;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers.OpenAICompatible;
-using HPD.Agent.Secrets;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Agent.Providers.Xai;
 
 [HpdProvider("xai", "xAI")]
+[HpdProviderBackend("platform", ProviderAuthenticationKind.ApiKey, IsDefaultBackend = true, IsDefaultAuthentication = true, DefaultSecretKey = "xai:ApiKey")]
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(XaiProviderConfig), typeof(XaiJsonContext))]
 [HpdProviderSecretAlias("xai:ApiKey", "XAI_API_KEY")]
 [HpdProviderSecretAlias("xai:Endpoint", "XAI_ENDPOINT", "XAI_BASE_URL")]
-internal sealed class XaiProvider : IChatClientProvider, IProviderSecretAliasProvider
+internal sealed class XaiProvider : IProvider, IProviderClientFactory<IChatClient>, IProviderSecretAliasProvider
 {
     internal static readonly Uri DefaultEndpoint = new("https://api.x.ai/v1/");
     internal const string DefaultChatModel = "grok-4.3";
@@ -51,35 +50,31 @@ internal sealed class XaiProvider : IChatClientProvider, IProviderSecretAliasPro
         };
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
-    public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
+    public ProviderClientCredentialBinding ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor)
     {
-        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(descriptor);
+        return ProviderClientCredentialBinding.ConstructionTime;
+    }
 
-        var secrets = services?.GetService<ISecretResolver>();
-        if (secrets is null)
-        {
-            throw new InvalidOperationException(
-                "ISecretResolver is required for provider initialization. " +
-                "Ensure the agent builder is properly configured with secret resolution.");
-        }
-
-        var apiKey = await secrets.RequireAsync("xai:ApiKey", DisplayName, config.ApiKey, cancellationToken).ConfigureAwait(false);
-        var endpointValue = await secrets.ResolveOrDefaultAsync("xai:Endpoint", config.Endpoint, cancellationToken).ConfigureAwait(false);
-        var endpoint = string.IsNullOrWhiteSpace(endpointValue)
-            ? DefaultEndpoint
-            : EnsureTrailingSlash(new Uri(endpointValue, UriKind.Absolute));
+    public ValueTask<ProviderClientConstruction<IChatClient>> CreateAsync(
+        ProviderClientConstructionContext context,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
+        var config = context.EffectiveConfig;
+        var apiKey = ProviderClientConstructionUtilities.GetRequiredApiKey(context.CredentialBinding);
+        var endpoint = config.Endpoint is null ? DefaultEndpoint : EnsureTrailingSlash(config.Endpoint);
 
         var modelName = string.IsNullOrWhiteSpace(config.ModelName)
             ? DefaultChatModel
             : config.ModelName;
 
-        var httpClient = new HttpClient
-        {
-            BaseAddress = endpoint
-        };
+        var httpClient = context.Services.HttpClientFactory.CreateClient("hpd-provider-xai");
+        httpClient.BaseAddress = endpoint;
         httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
 
-        return new XaiChatClient(
+        IChatClient client = new XaiChatClient(
             httpClient,
             new OpenAICompatibleChatClientOptions
             {
@@ -89,6 +84,11 @@ internal sealed class XaiProvider : IChatClientProvider, IProviderSecretAliasPro
                 DefaultModelId = modelName,
                 RequestProfile = ChatRequestProfile
             });
+        return ValueTask.FromResult(new ProviderClientConstruction<IChatClient>
+        {
+            Client = client,
+            Owner = ProviderClientConstructionUtilities.Own(client, httpClient)
+        });
     }
 
     public IProviderErrorHandler CreateErrorHandler() => new XaiErrorHandler();
@@ -120,21 +120,15 @@ internal sealed class XaiProvider : IChatClientProvider, IProviderSecretAliasPro
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
-    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
+    public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
 
         var errors = new List<string>();
 
-        if (family != ProviderClientFamily.Chat)
+        if (config.Family != ProviderClientFamily.Chat)
         {
             errors.Add("xAI currently supports only the chat provider family");
-        }
-
-        if (!string.IsNullOrWhiteSpace(config.Endpoint) &&
-            !Uri.IsWellFormedUriString(config.Endpoint, UriKind.Absolute))
-        {
-            errors.Add("Endpoint must be a valid, absolute URI");
         }
 
 

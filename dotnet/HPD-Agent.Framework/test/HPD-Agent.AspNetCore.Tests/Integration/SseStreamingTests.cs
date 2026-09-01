@@ -6,6 +6,7 @@ using FluentAssertions;
 using HPD.Agent;
 using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
 using HPD.Agent.Hosting.Data;
+using HPD.Agent.Providers;
 using HPD.Agent.Serialization;
 using Microsoft.Extensions.AI;
 
@@ -16,6 +17,7 @@ namespace HPD.Agent.AspNetCore.Tests.Integration;
 /// </summary>
 public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
 {
+    private static readonly AgentInputCodec InputCodec = new(ProviderComposition.Create([]));
     private readonly HttpClient _client;
     private readonly TestWebApplicationFactory _factory;
 
@@ -33,7 +35,7 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
     }
 
     private static string CreateInputJson(string text, AgentRunConfig? runConfig = null, string? clientInputId = null) =>
-        AgentEventSerializer.ToJson(new UserMessagesInputEvent { Messages = [
+        InputCodec.Serialize(new UserMessagesInputEvent { Messages = [
             new ChatMessage(ChatRole.User, text)
         ],
             RunConfig = runConfig,
@@ -128,30 +130,6 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
             sessionId,
             events => events.Any(e => e is TextDeltaEvent));
         threadEvents.Should().Contain(e => e is TextDeltaEvent);
-    }
-
-    [Fact]
-    public async Task InterruptionInput_ReturnsStructuredNoActiveExecution()
-    {
-        var sessionId = await CreateTestSession();
-
-        var interruption = new InterruptionRequestEvent(null, "stop from test", InterruptionSource.User)
-        {
-            AgentId = "test-agent",
-            SessionId = sessionId,
-            ThreadId = "main"
-        };
-        using var content = new StringContent(
-            AgentEventSerializer.ToJson(interruption),
-            System.Text.Encoding.UTF8,
-            "application/json");
-        var response = await _client.PostAsync(
-            $"/agents/test-agent/sessions/{sessionId}/threads/main/inputs",
-            content);
-
-        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
-        var result = await response.Content.ReadFromJsonAsync<InputSubmissionDto>();
-        result.Should().BeEquivalentTo(new InputSubmissionDto("no_active_execution"));
     }
 
     [Fact]
@@ -266,7 +244,7 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
             if (!line.StartsWith("data: ", StringComparison.Ordinal))
                 continue;
 
-            observed.Add(AgentEventSerializer.DeserializeEventJson(line[6..]));
+            observed.Add(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec.DeserializeEvent(line[6..]));
         }
 
         return observed;

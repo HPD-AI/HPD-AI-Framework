@@ -33,13 +33,9 @@ public static class SubAgentTuiExtensions
             return;
         }
 
-        var graph = await runtime.GetThreadGraphAsync(context.Scope.SessionId, CancellationToken.None)
-            .ConfigureAwait(false);
-        var children = graph.RuntimeChildren
-            .Where(child => string.Equals(child.ParentSessionId, context.Scope.SessionId, StringComparison.Ordinal))
-            .Where(child => child.Kind == ThreadKind.SubAgent || !string.IsNullOrWhiteSpace(child.SubAgentName))
-            .OrderByDescending(child => child.LastActivity)
-            .ToArray();
+        var children = (await runtime.ListSubAgentsAsync(
+                context.Scope.SessionId, context.Scope.ThreadId, CancellationToken.None)
+            .ConfigureAwait(false)).ToArray();
 
         if (children.Length == 0)
         {
@@ -58,18 +54,24 @@ public static class SubAgentTuiExtensions
                 return null;
 
             var child = selected.Value;
+            if (child.Availability != SubAgentChildAvailability.Available ||
+                child.AgentId is null || child.SessionId is null || child.ThreadId is null)
+            {
+                AddNotice(context, child.Reason ?? "This subagent is unavailable.", TranscriptSeverity.Warning);
+                return null;
+            }
             await context.SwitchScopeAsync(
-                new AgentTuiRuntimeScope(child.DefaultAgentId, child.SessionId, child.ThreadId),
+                new AgentTuiRuntimeScope(child.AgentId, child.SessionId, child.ThreadId),
                 cancellationToken).ConfigureAwait(false);
             return null;
         }, CancellationToken.None).ConfigureAwait(false);
     }
 
-    private static string FormatChoice(AgentTuiThreadRuntimeChild child)
+    private static string FormatChoice(AgentTuiSubAgentInfo child)
     {
-        var task = child.SubAgentTaskName ?? child.SubAgentName ?? child.ThreadId;
+        var task = $"{child.LocalId} · {child.Role}";
         var messages = child.MessageCount == 1 ? "1 message" : $"{child.MessageCount} messages";
-        return $"{task}  {child.Status ?? "unknown"}  {messages}";
+        return $"{task}  {child.Availability}  {child.Status ?? "idle"}  {messages}";
     }
 
     private static void AddNotice(

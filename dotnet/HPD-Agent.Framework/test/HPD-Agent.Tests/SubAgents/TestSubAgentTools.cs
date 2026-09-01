@@ -20,7 +20,7 @@ public class TestSubAgentTools
                 SystemInstructions = "Test instructions",
                 MaxAgenticIterations = 10,
                 Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
-                    ProviderKey = "openrouter",
+                    Provider = new HPD.Agent.Providers.ProviderReference { Key = "openrouter" },
                     ModelName = "google/gemini-2.0-flash-exp:free"
                 } }
             });
@@ -37,7 +37,7 @@ public class TestSubAgentTools
             {
                 Name = "Categorized",
                 SystemInstructions = "Test",
-                Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "openrouter", ModelName = "test" } }
+                Clients = new AgentClientsConfig { Chat = new ChatClientConfig { Provider = new HPD.Agent.Providers.ProviderReference { Key = "openrouter" }, ModelName = "test" } }
             });
     }
 
@@ -52,7 +52,7 @@ public class TestSubAgentTools
             {
                 Name = "Prioritized",
                 SystemInstructions = "Test",
-                Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "openrouter", ModelName = "test" } }
+                Clients = new AgentClientsConfig { Chat = new ChatClientConfig { Provider = new HPD.Agent.Providers.ProviderReference { Key = "openrouter" }, ModelName = "test" } }
             });
     }
 
@@ -67,7 +67,7 @@ public class TestSubAgentTools
             {
                 Name = "DefaultThreadNative",
                 SystemInstructions = "Test",
-                Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "openrouter", ModelName = "test" } }
+                Clients = new AgentClientsConfig { Chat = new ChatClientConfig { Provider = new HPD.Agent.Providers.ProviderReference { Key = "openrouter" }, ModelName = "test" } }
             });
     }
 
@@ -82,7 +82,7 @@ public class TestSubAgentTools
             {
                 Name = "ParentThread",
                 SystemInstructions = "Test",
-                Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "openrouter", ModelName = "test" } }
+                Clients = new AgentClientsConfig { Chat = new ChatClientConfig { Provider = new HPD.Agent.Providers.ProviderReference { Key = "openrouter" }, ModelName = "test" } }
             },
             SubAgentContextPolicy.Fresh);
     }
@@ -99,7 +99,7 @@ public class TestSubAgentTools
                 Name = "With Provider",
                 SystemInstructions = "Test",
                 Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
-                    ProviderKey = "openrouter",
+                    Provider = new HPD.Agent.Providers.ProviderReference { Key = "openrouter" },
                     ModelName = "google/gemini-2.0-flash-exp:free"
                 } }
             });
@@ -116,7 +116,7 @@ public class TestSubAgentTools
             {
                 Name = "With Instructions",
                 SystemInstructions = "You are a test agent. Follow these rules:\n1. Be helpful\n2. Be concise",
-                Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "openrouter", ModelName = "test" } }
+                Clients = new AgentClientsConfig { Chat = new ChatClientConfig { Provider = new HPD.Agent.Providers.ProviderReference { Key = "openrouter" }, ModelName = "test" } }
             });
     }
 
@@ -132,7 +132,7 @@ public class TestSubAgentTools
                 Name = "With Iterations",
                 SystemInstructions = "Test",
                 MaxAgenticIterations = 15,
-                Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "openrouter", ModelName = "test" } }
+                Clients = new AgentClientsConfig { Chat = new ChatClientConfig { Provider = new HPD.Agent.Providers.ProviderReference { Key = "openrouter" }, ModelName = "test" } }
             });
     }
 
@@ -149,7 +149,7 @@ public class TestSubAgentTools
                 SystemInstructions = "You are a complex test agent with multiple configurations.",
                 MaxAgenticIterations = 20,
                 Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
-                    ProviderKey = "openrouter",
+                    Provider = new HPD.Agent.Providers.ProviderReference { Key = "openrouter" },
                     ModelName = "google/gemini-2.0-flash-exp:free"
                 } }
             });
@@ -166,7 +166,7 @@ public class TestSubAgentTools
             {
                 Name = "With ToolHarnesses",
                 SystemInstructions = "Test agent with ToolHarness access",
-                Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "openrouter", ModelName = "test" } }
+                Clients = new AgentClientsConfig { Chat = new ChatClientConfig { Provider = new HPD.Agent.Providers.ProviderReference { Key = "openrouter" }, ModelName = "test" } }
             },
             contextPolicy: SubAgentContextPolicy.Fork,
             toolharnessTypes: [typeof(HPD.Agent.ToolHarness.FileSystem.FileSystemTools)]);

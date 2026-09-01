@@ -9,7 +9,7 @@ public static class SambaNovaAgentBuilderExtensions
     public static AgentBuilder WithSambaNova(
         this AgentBuilder builder,
         string model = SambaNovaProvider.DefaultChatModel,
-        string? apiKey = null,
+        ProviderAuthentication? authentication = null,
         string? endpoint = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -21,8 +21,11 @@ public static class SambaNovaAgentBuilderExtensions
 
         var chatConfig = new ChatClientConfig
         {
-            ProviderKey = "sambanova",
-            ApiKey = apiKey,
+            Provider = new ProviderReference
+            {
+                Key = "sambanova",
+                Authentication = authentication ?? new ApiKeyProviderAuthentication { SecretKey = "sambanova:ApiKey" }
+            },
             Endpoint = endpoint,
             ModelName = model
         };
@@ -32,4 +35,6 @@ public static class SambaNovaAgentBuilderExtensions
 
         return builder;
     }
+    /// <summary>Configures SambaNova with a literal runtime-only API key.</summary>
+    public static AgentBuilder WithSambaNova(this AgentBuilder builder, string model, ReadOnlySpan<char> apiKey, string? endpoint = null) => builder.WithSambaNova(model, builder.RegisterExplicitApiKey(apiKey), endpoint);
 }

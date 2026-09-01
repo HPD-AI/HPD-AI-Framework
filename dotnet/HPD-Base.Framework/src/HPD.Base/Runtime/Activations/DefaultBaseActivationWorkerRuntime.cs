@@ -69,7 +69,7 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
             return CopyFailure<BaseActivationDispatchResult, BaseTransactionalActivationCandidate>(read);
         BaseTransactionalActivationCandidate candidate = read.Value;
         if (!CandidateMatches(candidate, definition, now.CapturedUtc))
-            return Failure<BaseActivationDispatchResult>(OperationStatus.StoreError, "base.activation.providerContractInvalid", ErrorCategory.Store);
+            return ProviderContractInvalid<BaseActivationDispatchResult>();
         string targetKind;
         string targetId;
         int targetVersion;
@@ -392,7 +392,7 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
         if (!result.IsSuccess() || result.Value is null) return result;
         return ClaimsEqual(result.Value.Claim, claim) && result.Value.Lease.LeaseRevision == checked(lease.LeaseRevision + 1)
             ? result
-            : Failure<BaseActivationRenewResult>(OperationStatus.StoreError, "base.activation.providerContractInvalid", ErrorCategory.Store);
+            : ProviderContractInvalid<BaseActivationRenewResult>();
     }
 
     public ValueTask<OperationResult<BaseActivationTransitionResult>> CompleteAsync(
@@ -574,7 +574,63 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
             && value.Accounting.TransientBytes <= definition.Limits.Provider.MaximumTransientBytes;
         return valid
             ? resolved
-            : Failure<BaseActivationReceiptResolution>(OperationStatus.StoreError, "base.activation.providerContractInvalid", ErrorCategory.Store);
+            : ProviderContractInvalid<BaseActivationReceiptResolution>();
+    }
+
+    public ValueTask<OperationResult<BaseActivationTransitionResult>> YieldAsync(
+        BaseSession session,
+        BaseActivationDefinition definition,
+        BaseActivationClaimAuthority claim,
+        BaseActivationYield yield,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(yield);
+        ArgumentNullException.ThrowIfNull(yield.ProgressFingerprint);
+        if (definition.ExecutionClass != BaseActivationExecutionClass.AtLeastOnceWorker
+            || definition.Limits.MaximumYields <= 0
+            || claim.MaximumYields != definition.Limits.MaximumYields
+            || claim.YieldCount < 0 || claim.YieldCount > claim.MaximumYields
+            || claim.ExecutionSliceOrdinal <= 0)
+            return ValueTask.FromResult(Failure<BaseActivationTransitionResult>(
+                OperationStatus.Unsupported, "base.activation.yieldUnsupported", ErrorCategory.Unsupported));
+
+        DateTimeOffset? requested = yield.ResumeAt;
+        if (requested is { } present && (present.Offset != TimeSpan.Zero
+                || present.Ticks % TimeSpan.TicksPerMillisecond != 0))
+            return ValueTask.FromResult(Failure<BaseActivationTransitionResult>(
+                OperationStatus.ValidationFailed, "base.activation.yieldInvalid", ErrorCategory.Validation));
+
+        BaseAcceptedTimeReceipt now = acceptedTime.Capture(session.ApplicationId);
+        long? requestedMilliseconds;
+        try { requestedMilliseconds = requested?.ToUnixTimeMilliseconds(); }
+        catch
+        {
+            return ValueTask.FromResult(Failure<BaseActivationTransitionResult>(
+                OperationStatus.ValidationFailed, "base.activation.yieldInvalid", ErrorCategory.Validation));
+        }
+        long effectiveDueAt = requestedMilliseconds.HasValue
+            ? Math.Max(requestedMilliseconds.Value, now.CapturedUtc)
+            : now.CapturedUtc;
+        ImmutableArray<byte> progress = yield.ProgressFingerprint.ToImmutableArray();
+        byte[] fingerprint = YieldFingerprint(session.ApplicationId, definition, claim, requestedMilliseconds, progress.AsSpan());
+        BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create(
+            $"activation:{claim.ActivationId}",
+            "yield",
+            $"{claim.ClaimEpoch.ToString(System.Globalization.CultureInfo.InvariantCulture)}:{claim.ExecutionSliceOrdinal.ToString(System.Globalization.CultureInfo.InvariantCulture)}",
+            BaseMutationRequestFingerprint.Create(fingerprint));
+        return TransitionAsync(session, definition, new BaseActivationYieldRequest
+        {
+            ActivationId = claim.ActivationId,
+            Claim = claim,
+            RequestedResumeAt = requested,
+            EffectiveDueAt = effectiveDueAt,
+            ProgressFingerprint = progress,
+            ExpectedYieldCount = claim.YieldCount,
+            MaximumYields = claim.MaximumYields,
+            Identity = identity,
+            AcceptedTime = now,
+            Limits = definition.Limits.Provider,
+        }, definition.Grants.Yield, cancellationToken);
     }
 
     private async ValueTask<bool> IsReplayAuthorizedAsync(
@@ -639,6 +695,48 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
         }, definition.Grants.Fail, cancellationToken);
     }
 
+    private static byte[] YieldFingerprint(
+        string applicationId,
+        BaseActivationDefinition definition,
+        BaseActivationClaimAuthority claim,
+        long? requestedResumeAt,
+        ReadOnlySpan<byte> progress)
+    {
+        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        AppendYield(hash, "base.activation.yield.v1");
+        AppendYield(hash, applicationId);
+        AppendYield(hash, definition.Id);
+        Span<byte> i32 = stackalloc byte[4];
+        BinaryPrimitives.WriteInt32BigEndian(i32, definition.Version); hash.AppendData(i32);
+        AppendYield(hash, definition.Checksum.AsSpan());
+        AppendYield(hash, claim.ActivationId);
+        AppendYield(hash, claim.AttemptNumber);
+        AppendYield(hash, claim.ClaimEpoch);
+        AppendYield(hash, claim.ExecutionSliceOrdinal);
+        AppendYield(hash, claim.FencingToken.AsSpan());
+        AppendYield(hash, claim.YieldCount);
+        AppendYield(hash, claim.MaximumYields);
+        hash.AppendData(requestedResumeAt.HasValue ? [1] : [0]);
+        if (requestedResumeAt.HasValue) AppendYield(hash, requestedResumeAt.Value);
+        AppendYield(hash, progress);
+        return hash.GetHashAndReset();
+    }
+
+    private static void AppendYield(IncrementalHash hash, string value) =>
+        AppendYield(hash, Encoding.UTF8.GetBytes(value.Normalize(NormalizationForm.FormC)));
+
+    private static void AppendYield(IncrementalHash hash, ReadOnlySpan<byte> value)
+    {
+        Span<byte> length = stackalloc byte[4];
+        BinaryPrimitives.WriteUInt32BigEndian(length, checked((uint)value.Length));
+        hash.AppendData(length); hash.AppendData(value);
+    }
+
+    private static void AppendYield(IncrementalHash hash, long value)
+    {
+        Span<byte> bytes = stackalloc byte[8]; BinaryPrimitives.WriteInt64BigEndian(bytes, value); hash.AppendData(bytes);
+    }
+
     private async ValueTask<OperationResult<BaseActivationTransitionResult>> TransitionAsync(
         BaseSession session,
         BaseActivationDefinition definition,
@@ -650,9 +748,54 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
             BaseOperationKind.ActivationTransition, cancellationToken).ConfigureAwait(false))
             return Failure<BaseActivationTransitionResult>(OperationStatus.PolicyDenied, "base.activation.unauthorized", ErrorCategory.Authorization);
         IBaseActivationProvider? provider = ResolveProvider();
-        return provider is null
-            ? Failure<BaseActivationTransitionResult>(OperationStatus.Unsupported, "base.activation.capabilityUnavailable", ErrorCategory.Unsupported)
-            : await CallAsync(token => provider.TransitionAsync(request, token), definition.Limits.Provider, cancellationToken).ConfigureAwait(false);
+        if (provider is null)
+            return Failure<BaseActivationTransitionResult>(OperationStatus.Unsupported,
+                "base.activation.capabilityUnavailable", ErrorCategory.Unsupported);
+        OperationResult<BaseActivationTransitionResult> result = await CallAsync(
+            token => provider.TransitionAsync(request, token), definition.Limits.Provider,
+            cancellationToken).ConfigureAwait(false);
+        if (request is BaseActivationYieldRequest yielded && !YieldTransitionResultValid(result, yielded, definition))
+            return ProviderContractInvalid<BaseActivationTransitionResult>();
+        return result;
+    }
+
+    private static bool YieldTransitionResultValid(
+        OperationResult<BaseActivationTransitionResult> result,
+        BaseActivationYieldRequest request,
+        BaseActivationDefinition definition)
+    {
+        if (!result.IsSuccess() || result.Value is null) return true;
+        BaseActivationTransitionResult value = result.Value;
+        bool exhausted = request.ExpectedYieldCount == request.MaximumYields;
+        BaseActivationState expectedState = exhausted ? BaseActivationState.Exhausted : BaseActivationState.YieldPending;
+        long expectedCount = exhausted ? request.ExpectedYieldCount : checked(request.ExpectedYieldCount + 1);
+        BaseActivationYieldDisposition expectedDisposition = exhausted
+            ? BaseActivationYieldDisposition.LimitExceeded : BaseActivationYieldDisposition.Yielded;
+        string? expectedFailure = exhausted ? "base.activation.yieldLimitExceeded" : null;
+        return request.MaximumYields == definition.Limits.MaximumYields
+            && value.State == expectedState
+            && value.Generation == checked(request.Claim.ActivationGeneration + 1)
+            && value.YieldCount == expectedCount
+            && value.ExecutionSliceOrdinal == request.Claim.ExecutionSliceOrdinal
+            && value.EffectiveDueAt == request.EffectiveDueAt
+            && value.YieldDisposition == expectedDisposition
+            && value.YieldTerminalFailureCode == expectedFailure
+            && value.Disposition is BaseMutationRequestDisposition.Committed or BaseMutationRequestDisposition.Duplicate
+            && value.CanonicalResult.IsDefaultOrEmpty
+            && value.Effect is null
+            && value.Accounting.Candidates == 1
+            && value.Accounting.Comparisons >= 1
+            && value.Accounting.IndexOperations >= 1
+            && value.Accounting.ReadIntervals >= 0
+            && value.Accounting.EvidenceBytes >= 0
+            && value.Accounting.TransientBytes >= value.Accounting.EvidenceBytes
+            && value.Accounting.EvidenceBytes <= definition.Limits.Provider.MaximumEvidenceBytes
+            && value.Accounting.TransientBytes <= definition.Limits.Provider.MaximumTransientBytes
+            && BaseActivationControlChecksumContract.Matches(value.ControlChecksum.AsSpan(),
+                request.ActivationId, value.Generation, expectedState, request.EffectiveDueAt,
+                expectedCount, request.MaximumYields, request.Claim.ExecutionSliceOrdinal,
+                request.Claim.AttemptStartedAt, request.Claim.SliceStartedAt,
+                exhausted ? BaseActivationYieldDisposition.LimitExceeded : null, expectedFailure);
     }
 
     private async ValueTask<OperationResult<T>> CallAsync<T>(
@@ -727,7 +870,7 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
         return values.Length == 1 ? values[0] : null;
     }
 
-    private static OperationResult<BaseActivationDueObservation> ValidateObservation(
+    private OperationResult<BaseActivationDueObservation> ValidateObservation(
         OperationResult<BaseActivationDueObservation> result,
         BaseActivationExecutionLimits limits)
     {
@@ -736,10 +879,10 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
         bool valid = value.Token.Value is { Length: > 0 } && value.Intervals.Length is > 0 &&
             value.Intervals.Length <= limits.MaximumReadIntervals && value.Accounting.Candidates <= limits.MaximumCandidates &&
             value.Accounting.EvidenceBytes <= limits.MaximumEvidenceBytes && value.Accounting.TransientBytes <= limits.MaximumTransientBytes;
-        return valid ? result : Failure<BaseActivationDueObservation>(OperationStatus.StoreError, "base.activation.providerContractInvalid", ErrorCategory.Store);
+        return valid ? result : ProviderContractInvalid<BaseActivationDueObservation>();
     }
 
-    private static OperationResult<BaseActivationClaimResult> ValidateClaim(
+    private OperationResult<BaseActivationClaimResult> ValidateClaim(
         OperationResult<BaseActivationClaimResult> result,
         BaseActivationDefinition definition,
         BaseActivationWorkerAuthority worker)
@@ -750,10 +893,16 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
             CryptographicOperations.FixedTimeEquals(claimed.Payload.Definition.Checksum.AsSpan(), definition.Checksum.AsSpan()) &&
             claimed.Payload.CanonicalInput.Length <= definition.Limits.MaximumInputBytes &&
             claimed.Claim.ActivationId == claimed.Payload.ActivationId && claimed.Claim.AttemptNumber == claimed.Attempt.AttemptNumber &&
+            claimed.Claim.ActivationGeneration > 0 &&
+            claimed.Claim.ExecutionSliceOrdinal > 0 &&
+            claimed.Claim.AttemptStartedAt <= claimed.Claim.SliceStartedAt &&
+            claimed.Claim.SliceStartedAt == claimed.Attempt.StartedAt &&
+            claimed.Claim.YieldCount >= 0 && claimed.Claim.YieldCount <= claimed.Claim.MaximumYields &&
+            claimed.Claim.MaximumYields == definition.Limits.MaximumYields &&
             claimed.Claim.FencingToken.Length == 32 && claimed.Lease.LeaseRevision > 0 && claimed.Lease.LeaseExpiresAt > claimed.Attempt.StartedAt &&
             claimed.Intervals.Length > 0 && claimed.Accounting.EvidenceBytes <= definition.Limits.Provider.MaximumEvidenceBytes &&
             worker.Definitions.Length == 1;
-        return valid ? result : Failure<BaseActivationClaimResult>(OperationStatus.StoreError, "base.activation.providerContractInvalid", ErrorCategory.Store);
+        return valid ? result : ProviderContractInvalid<BaseActivationClaimResult>();
     }
 
     private static bool CandidateMatches(
@@ -790,9 +939,15 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
 
     private static bool ClaimsEqual(BaseActivationClaimAuthority left, BaseActivationClaimAuthority right) =>
         left.ActivationId == right.ActivationId &&
-        left.AttemptNumber == right.AttemptNumber && left.ClaimEpoch == right.ClaimEpoch &&
+        left.AttemptNumber == right.AttemptNumber && left.ActivationGeneration == right.ActivationGeneration &&
+        left.ExecutionSliceOrdinal == right.ExecutionSliceOrdinal &&
+        left.AttemptStartedAt == right.AttemptStartedAt && left.SliceStartedAt == right.SliceStartedAt &&
+        left.YieldCount == right.YieldCount && left.MaximumYields == right.MaximumYields &&
+        left.ClaimEpoch == right.ClaimEpoch && left.WorkerIdentity == right.WorkerIdentity &&
         left.CancellationGeneration == right.CancellationGeneration && left.StoreInstanceId == right.StoreInstanceId &&
-        left.RestoreEpoch == right.RestoreEpoch && CryptographicOperations.FixedTimeEquals(left.FencingToken.AsSpan(), right.FencingToken.AsSpan());
+        left.RestoreEpoch == right.RestoreEpoch &&
+        CryptographicOperations.FixedTimeEquals(left.DefinitionChecksum.AsSpan(), right.DefinitionChecksum.AsSpan()) &&
+        CryptographicOperations.FixedTimeEquals(left.FencingToken.AsSpan(), right.FencingToken.AsSpan());
 
     private static byte[] Hash(string value) => SHA256.HashData(Encoding.UTF8.GetBytes(value));
 
@@ -811,6 +966,12 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
         ulong sample = System.Buffers.Binary.BinaryPrimitives.ReadUInt64BigEndian(digest);
         return checked(Math.Min(profile.MaximumDelayMilliseconds, delay + (long)(sample % checked((ulong)maximumJitter + 1))));
     }
+    private OperationResult<T> ProviderContractInvalid<T>()
+    {
+        providerGate.QuarantineContractViolation();
+        return BaseActivationFailureContract.ProviderContractInvalid<T>();
+    }
+
     private static OperationResult<T> Failure<T>(OperationStatus status, string code, ErrorCategory category) => new()
     { Status = status, Error = new BaseError { Code = code, Message = "The activation operation could not be completed.", Category = category } };
     private static OperationResult<T> CopyFailure<T, TSource>(OperationResult<TSource> source) => new()

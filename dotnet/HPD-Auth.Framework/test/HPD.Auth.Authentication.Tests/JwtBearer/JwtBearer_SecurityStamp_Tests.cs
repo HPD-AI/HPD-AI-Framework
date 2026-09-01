@@ -53,13 +53,13 @@ public class JwtBearer_SecurityStamp_Tests
             opts.Jwt.AccessTokenLifetime  = TimeSpan.FromMinutes(15);
             opts.Jwt.RefreshTokenLifetime = TimeSpan.FromDays(14);
         })
-        .UseInMemorySqliteForTests()
+        .UseBaseTestHost()
         .AddAuthentication();
 
         builder.Services.AddAuthorization();
 
         var app = builder.Build();
-        app.Services.InitializeHPDAuthDevelopmentDatabaseAsync().GetAwaiter().GetResult();
+        app.Services.InitializeHPDAuthBaseTestHostAsync().GetAwaiter().GetResult();
 
         app.UseRouting();
         app.UseAuthentication();
@@ -229,13 +229,12 @@ public class JwtBearer_SecurityStamp_Tests
 
         var (user, token) = await CreateUserAndIssueMintedJwtAsync(rootServices);
 
-        // Soft-delete the user.
+        // Delete the subject through the authoritative lifecycle API.
         using (var scope = rootServices.CreateScope())
         {
             var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
             var refreshed   = await userManager.FindByIdAsync(user.Id.ToString());
-            refreshed!.IsDeleted = true;
-            await userManager.UpdateAsync(refreshed);
+            (await userManager.DeleteAsync(refreshed!)).Succeeded.Should().BeTrue();
         }
 
         var client = server.CreateClient();

@@ -32,6 +32,7 @@ public static class SqliteStore
                 BaseStoreProviderCapabilities.CoLocatedVectors |
                 BaseStoreProviderCapabilities.CoLocatedTextSearch,
             RegistrationIds = ["sqlite.records", "sqlite.vector"],
+            RelationalReads = SqliteRecordStore.CreateRelationalCapability(),
             SubjectReferences = BaseSubjectProviderCapabilities.BuiltIn,
             SubjectLifecycle = BaseSubjectLifecycleProviderCapabilities.BuiltIn,
             SubjectRetirement = BaseSubjectRetirementProviderCapabilities.BuiltIn,
@@ -39,12 +40,21 @@ public static class SqliteStore
             {
                 Supported = true, SerializableExecution = true, DurableReceipts = true,
                 GenerationCells = true, AtomicRecordAndGenerationCommit = true,
+                MaximumRemovedFieldsPerMutation = 256,
                 MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
             },
             TextSearch = BaseTextPlatform.ProviderCapability(BaseTextProviderClass.CoLocatedTransactional),
             Activations = activation,
-            SemanticActivations = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true),
+            SemanticActivations = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true, maintenanceSupported: true),
             SemanticActivationCertification = SemanticCertificationProfile(activation),
+            LogicalIndexes = BaseLogicalIndexProviderContract.SealSupportedProfile(
+                BaseLogicalIndexBuiltInCertification.LoadFrozenExecutedReport("sqlite"),
+                BaseLogicalIndexProviderContract.BuiltInCapability(),
+                [
+                    $"microsoft.data.sqlite:{typeof(SqliteConnection).Assembly.GetName().Version}",
+                    $"runtime:{RuntimeInformation.FrameworkDescription}",
+                ]),
+            SelectionMutationIndexShapes = BaseLogicalIndexProviderContract.BuiltInCapability().AccessShapes,
         }, new Installer(owned));
     }
 
@@ -53,7 +63,7 @@ public static class SqliteStore
 
     private static BaseSemanticActivationCertificationProfile SealSemanticCertification(BaseActivationProviderCapability activation)
     {
-        BaseSemanticActivationCapability semantic = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true);
+        BaseSemanticActivationCapability semantic = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true, maintenanceSupported: true);
         BaseModuleMutationCapability module = ModuleCapability();
         BaseSemanticActivationCertificationSubject subject = CreateSemanticCertificationSubject(semantic, module, activation);
         return BaseSemanticActivationCertificationContract.SealSuccessfulReport(
@@ -74,6 +84,7 @@ public static class SqliteStore
     {
         Supported = true, SerializableExecution = true, DurableReceipts = true, GenerationCells = true,
         AtomicRecordAndGenerationCommit = true, MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
+        MaximumRemovedFieldsPerMutation = 256,
     };
 
     private sealed class Installer(HPDBaseSqliteOptions configured) : IHPDBaseStoreInstaller

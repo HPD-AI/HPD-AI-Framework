@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <HpdAgentEventPrecompileRequireAnalyzer>false</HpdAgentEventPrecompileRequireAnalyzer>
     <RootNamespace>HPD.Agent.TUI</RootNamespace>
     <AssemblyName>HPD-Agent.TUI</AssemblyName>
     <IsPackable>true</IsPackable>
@@ -12,8 +13,10 @@
 
   <ItemGroup>
     <ProjectReference Include="../HPD-Agent/HPD-Agent.csproj" />
+    <ProjectReference Include="../HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../../HPD-TUI.Framework/src/HPD-TUI.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
     <PackageReference Include="HPD-TUI" Version="$(HPDTuiVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
   </ItemGroup>
 
+  <PropertyGroup><WarningsAsErrors>$(WarningsAsErrors)</WarningsAsErrors></PropertyGroup>
 </Project>

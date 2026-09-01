@@ -3,6 +3,8 @@
     <AssemblyName>HPD.Payments.Extensions.OutOfProcess.Host</AssemblyName>
     <RootNamespace>HPD.Payments.Extensions_OutOfProcess_Host</RootNamespace>
     <OutputType>Exe</OutputType>
+    <PublishAot>true</PublishAot>
+    <PublishTrimmed>true</PublishTrimmed>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../HPD.Payments.Extensions.OutOfProcess/HPD.Payments.Extensions.OutOfProcess.csproj" />

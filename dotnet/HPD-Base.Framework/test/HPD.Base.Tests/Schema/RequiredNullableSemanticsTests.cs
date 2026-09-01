@@ -5,18 +5,18 @@ namespace HPD.Base.Tests.Abstractions.Schema;
 public sealed class RequiredNullableSemanticsTests
 {
     [Fact]
-    public void RequiredFalseNullableFalseIsRepresentable()
+    public void OptionalNonNullableIsRepresentable()
     {
         var field = new FieldDefinition
         {
             Id = "slug",
             ApplicationName = "slug", WireName = "slug",
             Type = BaseFieldTypes.String,
-            Required = false,
-            Nullable = false
+            Presence = BaseFieldPresence.Optional,
+            Nullability = BaseFieldNullability.NonNullable
         };
 
-        Assert.False(field.Required);
-        Assert.False(field.Nullable);
+        Assert.Equal(BaseFieldPresence.Optional, field.Presence);
+        Assert.Equal(BaseFieldNullability.NonNullable, field.Nullability);
     }
 }

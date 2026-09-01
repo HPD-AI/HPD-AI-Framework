@@ -22,6 +22,7 @@ public sealed class RuntimeIntegrationTests
             create.Value!.Id,
             new RecordPatchRequest
             {
+                RemovedFieldIds = [],
                 Patch = InMemoryTestData.Patch("title", "patched"),
                 ExpectedRevision = create.Value.Metadata.Revision
             },
@@ -66,13 +67,13 @@ public sealed class RuntimeIntegrationTests
         var runtime = provider.GetRequiredService<IBaseRecordRuntime>();
         var first = await runtime.CreateAsync("history", new RecordCreateRequest
         {
-            RequestedId = new RecordId("first"),
+            RequestedId = RecordId.Create("first"),
             Payload = InMemoryTestData.Payload(("title", "first")),
         }, InMemoryTestData.Principal, InMemoryTestData.Operation(BaseOperationKind.Create) with { CollectionId = "history" });
         first.IsSuccess().Should().BeTrue();
 
         OperationResult<BasePurgeResult> purge = await provider.GetRequiredService<IBaseMutationCoordinator>().ExecutePurgeAsync(
-            PurgeRequest([new RecordId("first"), new RecordId("missing")]),
+            PurgeRequest([RecordId.Create("first"), RecordId.Create("missing")]),
             CancellationToken.None);
 
         purge.Status.Should().Be(OperationStatus.Ok);
@@ -83,7 +84,7 @@ public sealed class RuntimeIntegrationTests
             PurgedCount = 1,
             PurgeGeneration = 1L,
         });
-        (await runtime.GetAsync("history", new RecordId("first"), InMemoryTestData.Principal,
+        (await runtime.GetAsync("history", RecordId.Create("first"), InMemoryTestData.Principal,
             InMemoryTestData.Operation(BaseOperationKind.Get) with { CollectionId = "history", RecordId = "first" }))
             .Status.Should().Be(OperationStatus.NotFound);
     }
@@ -93,11 +94,11 @@ public sealed class RuntimeIntegrationTests
     {
         using var provider = BuildRuntime(PurgeCollection());
         IBaseMutationCoordinator coordinator = provider.GetRequiredService<IBaseMutationCoordinator>();
-        (await coordinator.ExecutePurgeAsync(PurgeRequest([new RecordId("missing")]), CancellationToken.None))
+        (await coordinator.ExecutePurgeAsync(PurgeRequest([RecordId.Create("missing")]), CancellationToken.None))
             .Value!.PurgeGeneration.Should().Be(1);
 
         OperationResult<BasePurgeResult> conflict = await coordinator.ExecutePurgeAsync(
-            PurgeRequest([new RecordId("still-missing")]) with { ExpectedPurgeGeneration = 0 },
+            PurgeRequest([RecordId.Create("still-missing")]) with { ExpectedPurgeGeneration = 0 },
             CancellationToken.None);
         conflict.Status.Should().Be(OperationStatus.Conflict);
         conflict.Error!.Code.Should().Be(BaseCollectionErrorCodes.PurgeGenerationConflict);

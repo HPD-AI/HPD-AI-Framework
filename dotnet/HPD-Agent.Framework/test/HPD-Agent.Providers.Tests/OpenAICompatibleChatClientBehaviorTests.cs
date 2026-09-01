@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using FluentAssertions;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
@@ -243,9 +244,11 @@ public sealed class OpenAICompatibleChatClientBehaviorTests
         response.Usage.TotalTokenCount.Should().Be(2306);
         response.Usage.CachedInputTokenCount.Should().Be(1920);
         response.Usage.ReasoningTokenCount.Should().Be(128);
-        response.Usage.AdditionalCounts.Should().Contain(new KeyValuePair<string, long>("completion_tokens_details.accepted_prediction_tokens", 9));
-        response.Usage.AdditionalCounts.Should().Contain(new KeyValuePair<string, long>("completion_tokens_details.rejected_prediction_tokens", 4));
-        response.Usage.AdditionalCounts.Should().Contain(new KeyValuePair<string, long>("completion_tokens_details.audio_tokens", 3));
+        response.Usage.AdditionalCounts.Should().Contain(new KeyValuePair<string, long>(AgentUsageCountKeys.AcceptedPredictionTokens, 9));
+        response.Usage.AdditionalCounts.Should().Contain(new KeyValuePair<string, long>(AgentUsageCountKeys.RejectedPredictionTokens, 4));
+#pragma warning disable MEAI001
+        response.Usage.OutputAudioTokenCount.Should().Be(3);
+#pragma warning restore MEAI001
     }
 
     [Fact]
@@ -466,6 +469,8 @@ public sealed class OpenAICompatibleChatClientBehaviorTests
         updates.Select(update => update.MessageId).Should().OnlyContain(id => id == "chatcmpl-2");
         updates.SelectMany(update => update.Contents).OfType<TextReasoningContent>().Single().Text.Should().Be("thinking");
         var usage = updates.SelectMany(update => update.Contents).OfType<UsageContent>().Single().Details;
+        ProviderStreamingUsageSemanticsCatalog.Resolve("deepseek", ProviderClientFamily.Chat)
+            .Should().Be(UsageUpdateSemantics.FinalOnly);
         usage.TotalTokenCount.Should().Be(3);
         usage.CachedInputTokenCount.Should().Be(1);
         usage.ReasoningTokenCount.Should().Be(2);
@@ -487,49 +492,6 @@ public sealed class OpenAICompatibleChatClientBehaviorTests
         var ex = await action.Should().ThrowAsync<HttpRequestException>();
         ex.Which.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         ex.Which.Message.Should().Contain("bad key");
-    }
-
-    [Fact]
-    public async Task ProviderBase_CreateChatClient_ConfiguresEndpointAndAuth()
-    {
-        var handler = new CapturingHandler("""
-            {"id":"chatcmpl-1","model":"default-model","created":10,"choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}
-            """);
-        var provider = new TestProvider(handler);
-
-        using var client = await provider.CreateChatClientAsync(
-            new ProviderClientConfig
-            {
-                ProviderKey = "test-openai-compatible",
-                ModelName = "default-model",
-                ApiKey = "test-key",
-                Endpoint = "https://override.test/v1"
-            });
-
-        await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")]);
-
-        provider.CapturedBaseAddress.Should().Be(new Uri("https://override.test/v1/"));
-        provider.CapturedAuthorization.Should().Be(new AuthenticationHeaderValue("Bearer", "test-key"));
-    }
-
-    [Fact]
-    public void ProviderBase_ValidateConfiguration_AppliesCommonConstructionRules()
-    {
-        var provider = new TestProvider(new CapturingHandler("{}"));
-
-        var result = provider.ValidateConfiguration(
-            new ProviderClientConfig
-            {
-                ProviderKey = "test-openai-compatible",
-                Endpoint = "not-a-uri"
-            },
-            ProviderClientFamily.Embeddings);
-
-        result.IsValid.Should().BeFalse();
-        result.Errors.Should().Contain(error => error.Contains("chat provider family", StringComparison.OrdinalIgnoreCase));
-        result.Errors.Should().Contain(error => error.Contains("Model name", StringComparison.OrdinalIgnoreCase));
-        result.Errors.Should().NotContain(error => error.Contains("API key", StringComparison.OrdinalIgnoreCase));
-        result.Errors.Should().Contain(error => error.Contains("Endpoint", StringComparison.OrdinalIgnoreCase));
     }
 
     private static TestChatClient CreateInspectableClient(string defaultModelId = "test-model")
@@ -596,6 +558,8 @@ public sealed class OpenAICompatibleChatClientBehaviorTests
         };
 
         protected override OpenAICompatibleProviderDefinition Definition => TestDefinition;
+        protected override System.Text.Json.Serialization.Metadata.JsonTypeInfo<OpenAICompatibleProviderConfig> ConfigurationTypeInfo =>
+            OpenAICompatibleTestJsonContext.Default.OpenAICompatibleProviderConfig;
 
         public Uri? CapturedBaseAddress { get; private set; }
 
@@ -605,7 +569,7 @@ public sealed class OpenAICompatibleChatClientBehaviorTests
 
         protected override IChatClient CreateOpenAICompatibleChatClient(
             HttpClient httpClient,
-            ProviderClientConfig config,
+            EffectiveProviderClientConfig config,
             Uri endpoint)
         {
             CapturedBaseAddress = httpClient.BaseAddress;
@@ -640,3 +604,6 @@ public sealed class OpenAICompatibleChatClientBehaviorTests
         }
     }
 }
+
+[JsonSerializable(typeof(OpenAICompatibleProviderConfig))]
+internal partial class OpenAICompatibleTestJsonContext : JsonSerializerContext;

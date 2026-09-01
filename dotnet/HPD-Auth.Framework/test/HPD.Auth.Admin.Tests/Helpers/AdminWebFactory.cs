@@ -5,7 +5,7 @@ using HPD.Auth.Core.Audit;
 using HPD.Auth.Core.Entities;
 using HPD.Auth.Core.Interfaces;
 using HPD.Auth.Extensions;
-using HPD.Auth.Infrastructure.Data;
+using HPD.Auth.Testing;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
@@ -15,7 +15,6 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.AspNetCore.Http.Metadata;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -27,7 +26,7 @@ namespace HPD.Auth.Admin.Tests.Helpers;
 
 /// <summary>
 /// In-process test host for the Admin API.
-/// Each instance gets a unique in-memory DB name so tests are fully isolated.
+/// Each instance gets a unique Base-backed SQLite store name so tests are fully isolated.
 /// </summary>
 public class AdminWebFactory : IAsyncDisposable
 {
@@ -63,7 +62,7 @@ public class AdminWebFactory : IAsyncDisposable
                 o.Password.RequireNonAlphanumeric = false;
                 o.Password.RequiredLength = 6;
             })
-            .UseInMemorySqliteForTests();
+            .UseBaseTestHost(dbName);
 
         // Replace JWT Bearer with a test scheme that accepts any claim principal
         // constructed by the test using TestAuthHandler.
@@ -109,7 +108,7 @@ public class AdminWebFactory : IAsyncDisposable
         });
 
         var app = builder.Build();
-        app.Services.InitializeHPDAuthDevelopmentDatabaseAsync().GetAwaiter().GetResult();
+        app.Services.InitializeHPDAuthBaseTestHostAsync(dbName).GetAwaiter().GetResult();
 
         app.UseHPDControlPlaneCorrelation();
         app.UseAuthentication();
@@ -155,7 +154,7 @@ public class AdminWebFactory : IAsyncDisposable
     }
 
     /// <summary>
-    /// Resolve a scoped service for direct DB / UserManager access in assertions.
+    /// Resolve a scoped service for direct store or UserManager access in assertions.
     /// </summary>
     public T GetService<T>() where T : notnull
     {
@@ -185,7 +184,7 @@ public class AdminWebFactory : IAsyncDisposable
     }
 
     /// <summary>
-    /// Seed an ApplicationUser into the in-memory database.
+    /// Seed an <see cref="ApplicationUser"/> into the isolated Base-backed store.
     /// Returns the created user.
     /// </summary>
     public async Task<ApplicationUser> SeedUserAsync(
@@ -204,7 +203,7 @@ public class AdminWebFactory : IAsyncDisposable
             UserName = email,
             Email = email,
             EmailConfirmed = emailConfirmed,
-            IsActive = isActive,
+            IsActive = true,
         };
         configure?.Invoke(user);
 
@@ -215,6 +214,15 @@ public class AdminWebFactory : IAsyncDisposable
         if (!result.Succeeded)
             throw new InvalidOperationException(
                 $"Failed to seed user: {string.Join(", ", result.Errors.Select(e => e.Description))}");
+
+        if (!isActive)
+        {
+            user.IsActive = false;
+            IdentityResult deactivate = await userManager.UpdateAsync(user);
+            if (!deactivate.Succeeded)
+                throw new InvalidOperationException(
+                    $"Failed to deactivate seeded user: {string.Join(", ", deactivate.Errors.Select(e => e.Description))}");
+        }
 
         if (emailConfirmed)
         {
@@ -249,7 +257,7 @@ public class AdminWebFactory : IAsyncDisposable
     }
 
     /// <summary>
-    /// Get the audit log entries for a user from the DB.
+    /// Get the audit log entries for a user from the Auth audit store.
     /// </summary>
     public async Task<IReadOnlyList<AuthAuditRecord>> GetAuditLogsAsync(Guid? userId = null, string? action = null)
     {

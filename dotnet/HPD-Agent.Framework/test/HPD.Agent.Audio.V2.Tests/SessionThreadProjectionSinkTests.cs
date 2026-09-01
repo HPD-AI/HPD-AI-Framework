@@ -12,7 +12,7 @@ public sealed class SessionThreadProjectionSinkTests
     [Fact]
     public async Task ProjectAsync_AppendsCommittedInputMediaTranscript_ToRealSessionThread()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
         var sink = new SessionThreadProjectionSink(store);
         var content = TestInputContent.Audio("thread-real.wav", "audio/wav", sizeBytes: 8192);
         var thread = new ThreadRef("audio-test-agent", "session-real", "main");
@@ -46,7 +46,7 @@ public sealed class SessionThreadProjectionSinkTests
     [Fact]
     public async Task ThreadProjection_IdempotentForSameProjectionEpoch()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
         var sink = new SessionThreadProjectionSink(store);
         var content = TestInputContent.Audio("thread-idempotent.wav", "audio/wav", sizeBytes: 8192);
         var thread = new ThreadRef("audio-test-agent", "session-idempotent", "main");
@@ -78,7 +78,7 @@ public sealed class SessionThreadProjectionSinkTests
     [Fact]
     public async Task ProjectAsync_AppendsAssistantOutput_WithAssistantRole()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
         var sink = new SessionThreadProjectionSink(store);
         var thread = new ThreadRef("audio-test-agent", "session-assistant-output", "main");
 

@@ -55,7 +55,7 @@ public class ContentUploadMiddleware : IAgentMiddleware
         if (session == null)
             return;
 
-        var message = context.UserMessage;
+        var message = context.UserInputMessages.FirstOrDefault();
         if (message == null)
             return;
 
@@ -69,7 +69,7 @@ public class ContentUploadMiddleware : IAgentMiddleware
         // Zero-cost exit when no upload path is configured for this agent/run.
         if (_contentStore == null
             && context.RunConfig.Clients.HostedFiles?.Override?.Client == null
-            && context.ClientSet?.HostedFiles == null)
+            && context.ClientSet == null)
         {
             return;
         }
@@ -106,7 +106,7 @@ public class ContentUploadMiddleware : IAgentMiddleware
             RawRepresentation = message.RawRepresentation
         };
 
-        context.UserMessage = updatedMessage;
+        context.UserInputMessages[0] = updatedMessage;
     }
 
     private async Task<AIContent> RouteUploadAsync(
@@ -118,7 +118,7 @@ public class ContentUploadMiddleware : IAgentMiddleware
         var mediaType = data.MediaType ?? "application/octet-stream";
 
         // Determine if the current agent/run has a hosted file client available.
-        var hostedFileClient = GetHostedFileClient(context);
+        var hostedFileClient = await GetHostedFileClientAsync(context, cancellationToken).ConfigureAwait(false);
         var canUseHosted = hostedFileClient != null;
         var canUseLocal = _contentStore != null;
 
@@ -268,15 +268,15 @@ public class ContentUploadMiddleware : IAgentMiddleware
         }
     }
 
-    private IHostedFileClient? GetHostedFileClient(BeforeMessageTurnContext context)
+    private static async ValueTask<IHostedFileClient?> GetHostedFileClientAsync(
+        BeforeMessageTurnContext context,
+        CancellationToken cancellationToken)
     {
         if (context.RunConfig.Clients.HostedFiles?.Override?.Client is { } runClient)
             return runClient;
 
-        if (context.ClientSet?.HostedFiles is { } buildClient)
-            return buildClient;
-
-        return null;
+        return context.ClientSet is null ? null :
+            await context.ClientSet.GetHostedFilesAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static string? ExtractFileName(AIContent content)

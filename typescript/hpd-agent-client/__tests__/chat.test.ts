@@ -75,8 +75,7 @@ describe('ChatSession', () => {
         threadId: 'main',
         status: 'active',
         startedAt: '2026-05-28T00:00:00Z',
-        backgroundTasks: [],
-        backgroundHandles: [],
+        operations: [],
       },
     };
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
@@ -110,8 +109,7 @@ describe('ChatSession', () => {
             threadId: 'main',
             status: 'active',
             startedAt: '2026-05-28T00:00:00Z',
-            backgroundTasks: [],
-            backgroundHandles: [],
+            operations: [],
           },
         }),
       } as Response)

@@ -126,7 +126,7 @@ public class TeamsBotMessageTests
     [Fact]
     public async Task ProcessMessageAsync_WithInputFiles_PassesAttachmentsToAgentMessage()
     {
-        var sessionStore = new InMemorySessionStore();
+        var sessionStore = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
         var sessionManager = new TestSessionManager(sessionStore);
         var chatClient = new CapturingChatClient("done");
         var agent = new HpdAgent(CreateAgentConfig(sessionStore), chatClient, mergedOptions: null);
@@ -162,7 +162,7 @@ public class TeamsBotMessageTests
 
     private static (HPD.Agent.Bots.Teams.TeamsBot Bot, SessionManager SessionManager) CreateBot()
     {
-        var sessionManager = new TestSessionManager(new InMemorySessionStore());
+        var sessionManager = new TestSessionManager(new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec));
         var agentManager = new TestAgentManager(new InMemoryAgentStore());
         return CreateBot(sessionManager, agentManager);
     }

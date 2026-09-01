@@ -446,8 +446,7 @@ internal sealed class DefaultBaseDescriptorValidator : IBaseDescriptorValidator
         CollectionDefinition collection,
         List<BaseRuntimeValidationIssue> issues)
     {
-        AddDuplicateIndexIssue(collection, collection.Indexes?.Select(index => index.Id), "index id", "id", issues);
-        AddDuplicateIndexIssue(collection, collection.Indexes?.Select(index => index.Name), "index name", "name", issues);
+        AddDuplicateIndexIssue(collection, collection.Indexes?.Select(index => index.Id.ToString()), "index id", "id", issues);
     }
 
     private static void AddDuplicateIndexIssue(
@@ -488,10 +487,7 @@ internal sealed class DefaultBaseDescriptorValidator : IBaseDescriptorValidator
             return;
         }
 
-        var fieldRefs = (collection.Fields ?? [])
-            .SelectMany(field => new[] { field.Id, field.WireName })
-            .Where(value => !string.IsNullOrWhiteSpace(value))
-            .ToHashSet(StringComparer.Ordinal);
+        int fieldCount = collection.Fields?.Length ?? 0;
 
         foreach (var index in collection.Indexes)
         {
@@ -502,21 +498,15 @@ internal sealed class DefaultBaseDescriptorValidator : IBaseDescriptorValidator
                     Severity = BaseRuntimeValidationSeverity.Fatal,
                     Kind = BaseRuntimeValidationFailureKind.UnresolvedReference,
                     Code = "base.runtime.descriptor.unresolvedIndexCollection",
-                    Message = $"Index '{index.Name}' on collection '{collection.Id}' references collection '{index.CollectionId}'.",
+                    Message = $"Index '{index.Id}' on collection '{collection.Id}' references collection '{index.CollectionId}'.",
                     TargetRef = index.CollectionId,
-                    TargetPath = $"collections.{collection.Id}.indexes.{index.Name}.collectionId"
+                    TargetPath = $"collections.{collection.Id}.indexes.{index.Id}.collectionId"
                 });
             }
 
-            foreach (var part in index.Parts ?? [])
+            foreach (BaseLogicalIndexPart part in index.Parts)
             {
-                if (part.Kind != IndexPartKind.Field)
-                {
-                    continue;
-                }
-
-                var fieldRef = part.FieldId;
-                if (!string.IsNullOrWhiteSpace(fieldRef) && fieldRefs.Contains(fieldRef))
+                if (part.FieldOrdinal >= 0 && part.FieldOrdinal < fieldCount)
                 {
                     continue;
                 }
@@ -526,9 +516,9 @@ internal sealed class DefaultBaseDescriptorValidator : IBaseDescriptorValidator
                     Severity = BaseRuntimeValidationSeverity.Fatal,
                     Kind = BaseRuntimeValidationFailureKind.UnresolvedReference,
                     Code = "base.runtime.descriptor.unresolvedIndexField",
-                    Message = $"Index '{index.Name}' on collection '{collection.Id}' references missing field '{part.FieldId}'.",
-                    TargetRef = part.FieldId,
-                    TargetPath = $"collections.{collection.Id}.indexes.{index.Name}.parts.fieldPath"
+                    Message = $"Index '{index.Id}' on collection '{collection.Id}' references missing field ordinal '{part.FieldOrdinal}'.",
+                    TargetRef = part.FieldOrdinal.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    TargetPath = $"collections.{collection.Id}.indexes.{index.Id}.parts.fieldOrdinal"
                 });
             }
         }

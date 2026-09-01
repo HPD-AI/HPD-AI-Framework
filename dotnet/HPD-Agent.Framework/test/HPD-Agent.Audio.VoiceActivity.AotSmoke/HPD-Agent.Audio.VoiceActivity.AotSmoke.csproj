@@ -10,7 +10,7 @@
     <NoWarn>$(NoWarn);IL2026;IL3050;CS8887;SYSLIB1031;CS8765;CA2014</NoWarn>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../../src/HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Audio/HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.Silero/HPD-Agent.Providers.Audio.Silero.csproj" />
   </ItemGroup>
 </Project>

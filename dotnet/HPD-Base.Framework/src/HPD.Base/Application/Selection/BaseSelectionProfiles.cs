@@ -15,7 +15,7 @@ public sealed class BaseGeneratedModuleRegistration
 }
 
 /// <summary>Describes one generator-owned selection profile identity.</summary>
-public sealed record BaseGeneratedSelectionProfileDescriptor
+internal sealed record BaseGeneratedSelectionProfileDescriptor
 {
     /// <summary>Gets the owning application identifier.</summary>
     public required string ApplicationId { get; init; }
@@ -103,9 +103,32 @@ public sealed class BaseGeneratedSelectionProfileIdentity
 /// <summary>Provides infrastructure-only registration for source-generated profile identities.</summary>
 public static class BaseGeneratedSelectionProfiles
 {
-    /// <summary>Registers an opaque generated profile identity during generated module installation.</summary>
+    /// <summary>
+    /// Creates an opaque generated profile identity while deriving its checksum from the complete profile.
+    /// </summary>
+    /// <param name="module">The generated module authority for the profile collection.</param>
+    /// <param name="profile">The complete immutable profile installed by the host.</param>
+    /// <returns>An opaque profile identity bound to the exact profile checksum.</returns>
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     public static BaseGeneratedSelectionProfileIdentity RegisterSelectionProfile(
+        BaseGeneratedModuleRegistration module,
+        BaseSelectionOperationProfile profile)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        return RegisterSelectionProfile(module, new BaseGeneratedSelectionProfileDescriptor
+        {
+            ApplicationId = profile.ApplicationId,
+            CollectionId = profile.CollectionId,
+            ProfileId = profile.Id,
+            Version = profile.Version,
+            Kind = profile.MutationKind,
+            Checksum = BaseSelectionProfileChecksum.Compute(profile),
+        });
+    }
+
+    /// <summary>Registers an opaque generated profile identity during generated module installation.</summary>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    internal static BaseGeneratedSelectionProfileIdentity RegisterSelectionProfile(
         BaseGeneratedModuleRegistration module,
         BaseGeneratedSelectionProfileDescriptor descriptor)
     {

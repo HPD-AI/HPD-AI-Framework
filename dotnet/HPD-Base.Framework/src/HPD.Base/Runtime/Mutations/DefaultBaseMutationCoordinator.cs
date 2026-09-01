@@ -122,7 +122,7 @@ internal sealed class DefaultBaseMutationCoordinator(
             return Failure<BaseRecordBatchResult, BaseMutationCommand[]>(prepared);
 
         return request.Mode == BaseRecordBatchExecutionMode.Atomic
-            ? await ExecuteAtomicBatchAsync(prepared.Value, request.RequestIdentity, request.ActivationGuard, principal, cancellationToken).ConfigureAwait(false)
+            ? await ExecuteAtomicBatchAsync(prepared.Value, request.RequestIdentity, request.ActivationGuard, request.ReceiptProjection, principal, cancellationToken).ConfigureAwait(false)
             : await ExecuteOrderedBatchAsync(prepared.Value, principal, request.Mode, cancellationToken).ConfigureAwait(false);
     }
 
@@ -275,6 +275,7 @@ internal sealed class DefaultBaseMutationCoordinator(
         BaseMutationCommand[] commands,
         BaseMutationRequestIdentity? requestIdentity,
         BaseActivationGuard? activationGuard,
+        BaseAtomicReceiptProjection? receiptProjection,
         PrincipalContext principal,
         CancellationToken cancellationToken)
     {
@@ -328,7 +329,7 @@ internal sealed class DefaultBaseMutationCoordinator(
             MaxReceiptBytes = _limits.MaxReceiptBytes,
         };
 
-        var execution = await ExecuteBoundaryAsync(first, commands, principal, atomicGroup: true, cancellationToken, atomicRequest, activationGuard)
+        var execution = await ExecuteBoundaryAsync(first, commands, principal, atomicGroup: true, cancellationToken, atomicRequest, activationGuard, receiptProjection)
             .ConfigureAwait(false);
         if (!execution.IsSuccess() || execution.Value is null)
             return Failure<BaseRecordBatchResult, BoundaryResult>(execution);
@@ -452,7 +453,8 @@ internal sealed class DefaultBaseMutationCoordinator(
         bool atomicGroup,
         CancellationToken cancellationToken,
         BaseAtomicMutationExecutionRequest? atomicRequest = null,
-        BaseActivationGuard? activationGuard = null)
+        BaseActivationGuard? activationGuard = null,
+        BaseAtomicReceiptProjection? receiptProjection = null)
     {
         for (var index = 0; index < commands.Length; index++)
         {
@@ -464,7 +466,7 @@ internal sealed class DefaultBaseMutationCoordinator(
                 continue;
             }
 
-            var runtimeId = new RecordId("base:" + Guid.NewGuid().ToString("N"));
+            var runtimeId = RecordId.Create("base:" + Guid.NewGuid().ToString("N"));
             RecordCreateRequest create = command.Create!;
             commands[index] = command with
             {
@@ -525,7 +527,8 @@ internal sealed class DefaultBaseMutationCoordinator(
             subjects,
             lifecycleConsumers,
             retirement,
-            activationGuard);
+            activationGuard,
+            receiptProjection);
         var request = new RecordMutationExecutionRequest
         {
             AcquisitionTimeout = _limits.StoreAcquisitionTimeout,
@@ -902,12 +905,22 @@ internal sealed class DefaultBaseMutationCoordinator(
         PrincipalContext principal,
         CancellationToken cancellationToken)
     {
+        OperationResult<BaseRecordBatchItem> lifecycleInput = ApplySubjectLifecycleInputAuthority(item, collection);
+        if (!lifecycleInput.IsSuccess() || lifecycleInput.Value is null)
+            return new OperationResult<BaseMutationCommand> { Status = lifecycleInput.Status, Error = lifecycleInput.Error };
+        item = lifecycleInput.Value;
         var mutation = store.Store.Capabilities.Mutation;
         if (item.Create is { } create)
         {
-            if (create.RequestedId is { } requestedId
-                && (string.IsNullOrWhiteSpace(requestedId.Value)
-                    || mutation.IdAuthority is not (IdAuthority.Client or IdAuthority.Hybrid)))
+            if (create.RequestedId is { } invalidId && !invalidId.IsValid)
+            {
+                return OperationResults.ValidationFailed<BaseMutationCommand>(Error(
+                    "base.runtime.recordId.invalid",
+                    "Record id is invalid.",
+                    ErrorCategory.Validation));
+            }
+            if (create.RequestedId is not null
+                && mutation.IdAuthority is not (IdAuthority.Client or IdAuthority.Hybrid))
             {
                 return OperationResults.Unsupported<BaseMutationCommand>(Error(
                     "base.runtime.create.requestedIdUnsupported",
@@ -963,7 +976,8 @@ internal sealed class DefaultBaseMutationCoordinator(
                 Collection = collection,
                 Principal = principal,
                 Operation = context,
-                Patch = patchRequest.Patch
+                Patch = patchRequest.Patch,
+                RemovedFieldIds = patchRequest.RemovedFieldIds
             }, cancellationToken).ConfigureAwait(false);
             if (!validation.IsSuccess() || validation.Value is null)
                 return Failure<BaseMutationCommand, BaseValidatedPayload>(validation);
@@ -1001,7 +1015,8 @@ internal sealed class DefaultBaseMutationCoordinator(
                     Collection = collection,
                     Principal = principal,
                     Operation = context,
-                    Patch = upsertRequest.UpdatePayload
+                    Patch = upsertRequest.UpdatePayload,
+                    RemovedFieldIds = []
                 }, cancellationToken).ConfigureAwait(false)
                 : await schemaValidator.ValidateReplaceAsync(new BasePayloadValidationRequest
                 {
@@ -1038,6 +1053,7 @@ internal sealed class DefaultBaseMutationCoordinator(
                 ? new RecordPatchRequest
                 {
                     Patch = preparedUpsert.UpdatePayload,
+                    RemovedFieldIds = [],
                     ExpectedRevision = preparedUpsert.ExpectedRevision
                 }
                 : item.Patch,
@@ -1054,6 +1070,83 @@ internal sealed class DefaultBaseMutationCoordinator(
             UpdatePayload = updatePayload
             ,SubjectLifecycleTransition = item.SubjectLifecycleTransition
         });
+    }
+
+    private OperationResult<BaseRecordBatchItem> ApplySubjectLifecycleInputAuthority(
+        BaseRecordBatchItem item,
+        CollectionDefinition collection)
+    {
+        BaseGeneratedSubjectRegistration? subject = subjects.All.SingleOrDefault(value =>
+            string.Equals(value.Definition.ValidationPlan.PrivateCollectionId, collection.Id, StringComparison.Ordinal));
+        if (subject is null)
+            return OperationResults.Ok(item);
+        string? instantFieldId = subject.Definition.TombstoneMetadata.Instant.FieldId;
+        string? sequenceFieldId = subject.Definition.TombstoneMetadata.Sequence.FieldId;
+        string? instantWire = FieldWireName(collection, instantFieldId);
+        string? sequenceWire = FieldWireName(collection, sequenceFieldId);
+        IEnumerable<RecordPayload?> inputs =
+        [
+            item.Create?.Payload, item.Patch?.Patch, item.Replace?.Payload,
+            item.Upsert?.CreatePayload, item.Upsert?.UpdatePayload,
+        ];
+        if (inputs.Any(payload => ContainsWire(payload, instantWire) || ContainsWire(payload, sequenceWire))
+            || item.Patch is { } patch && (instantFieldId is not null && patch.RemovedFieldIds.Contains(instantFieldId, StringComparer.Ordinal)
+                || sequenceFieldId is not null && patch.RemovedFieldIds.Contains(sequenceFieldId, StringComparer.Ordinal)))
+            return OperationResults.ValidationFailed<BaseRecordBatchItem>(Error(
+                "base.subjectLifecycle.tombstoneMetadataInvalid",
+                "Subject lifecycle metadata is Runtime-owned.", ErrorCategory.Validation));
+        if (sequenceWire is null)
+            return OperationResults.Ok(item);
+
+        RecordPayload AddInitialSequence(RecordPayload payload) => AddRuntimeField(payload, sequenceWire, CanonicalJson("0"));
+        return OperationResults.Ok(item with
+        {
+            Create = item.Create is null ? null : item.Create with { Payload = AddInitialSequence(item.Create.Payload) },
+            Replace = item.Replace is null ? null : item.Replace with { Payload = AddInitialSequence(item.Replace.Payload) },
+            Upsert = item.Upsert is null ? null : item.Upsert with
+            {
+                CreatePayload = AddInitialSequence(item.Upsert.CreatePayload),
+                UpdatePayload = item.Upsert.UpdateMode == RecordUpsertUpdateMode.Replace
+                    ? AddInitialSequence(item.Upsert.UpdatePayload) : item.Upsert.UpdatePayload,
+            },
+        });
+    }
+
+    private static string? FieldWireName(CollectionDefinition collection, string? fieldId) => fieldId is null
+        ? null
+        : collection.Fields?.SingleOrDefault(field => string.Equals(field.Id, fieldId, StringComparison.Ordinal))?.WireName;
+
+    private static bool ContainsWire(RecordPayload? payload, string? wireName)
+    {
+        if (payload is null || wireName is null) return false;
+        if (payload.Kind == RecordPayloadKind.FieldMap)
+            return payload.Fields?.ContainsKey(wireName) == true;
+        return payload.Json.ValueKind == JsonValueKind.Object && payload.Json.TryGetProperty(wireName, out _);
+    }
+
+    private static RecordPayload AddRuntimeField(RecordPayload payload, string wireName, JsonElement value)
+    {
+        var fields = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        if (payload.Kind == RecordPayloadKind.FieldMap)
+        {
+            foreach ((string key, JsonElement field) in payload.Fields ?? []) fields[key] = field.Clone();
+        }
+        else if (payload.Json.ValueKind == JsonValueKind.Object)
+        {
+            foreach (JsonProperty field in payload.Json.EnumerateObject()) fields[field.Name] = field.Value.Clone();
+        }
+        else
+        {
+            return payload;
+        }
+        fields[wireName] = value.Clone();
+        return new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = fields };
+    }
+
+    private static JsonElement CanonicalJson(string utf8Json)
+    {
+        using JsonDocument document = JsonDocument.Parse(utf8Json);
+        return document.RootElement.Clone();
     }
 
     private static bool ValidUnion(BaseRecordBatchItem item)

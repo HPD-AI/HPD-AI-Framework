@@ -21,8 +21,9 @@ public class PermissionTests : AgentTestBase
     {
         var config = DefaultConfig();
         config.EnsureChatClientConfig();
-        config.EnsureChatClientConfig().ProviderKey = "test";
+        config.EnsureChatClientConfig().Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" };
         config.EnsureChatClientConfig().ModelName = "test-model";
+        config.EnsureChatClientConfig().Override = ClientOverride<IChatClient>.Borrow(client, "test", "local");
         config.ServerConfiguredTools ??= new List<AITool>();
         foreach (var tool in tools)
             config.ServerConfiguredTools.Add(tool);
@@ -56,7 +57,7 @@ public class PermissionTests : AgentTestBase
         {
             Name = "SensitiveTool",
             Description = "A sensitive tool requiring permission",
-            RequiresPermission = true
+            FunctionPermission = AIFunctionPermissionDeclaration.Required("SensitiveTool")
         };
 
         var sensitiveToolWithPermission = HPDAIFunctionFactory.Create(
@@ -125,7 +126,7 @@ public class PermissionTests : AgentTestBase
         {
             Name = "SensitiveTool",
             Description = "A sensitive tool requiring permission",
-            RequiresPermission = true
+            FunctionPermission = AIFunctionPermissionDeclaration.Required("SensitiveTool")
         };
 
         var sensitiveToolWithPermission = HPDAIFunctionFactory.Create(
@@ -185,7 +186,7 @@ public class PermissionTests : AgentTestBase
             {
                 Name = "Tool1",
                 Description = "First sensitive tool",
-                RequiresPermission = true
+                FunctionPermission = AIFunctionPermissionDeclaration.Required("Tool1")
             });
 
         var tool2 = HPDAIFunctionFactory.Create(
@@ -194,7 +195,7 @@ public class PermissionTests : AgentTestBase
             {
                 Name = "Tool2",
                 Description = "Second sensitive tool",
-                RequiresPermission = true
+                FunctionPermission = AIFunctionPermissionDeclaration.Required("Tool2")
             });
 
         var agent = CreateAgentWithPermissions(fakeLLM, tool1, tool2);
@@ -247,7 +248,7 @@ public class PermissionTests : AgentTestBase
             {
                 Name = "ParallelTool1",
                 Description = "First parallel tool",
-                RequiresPermission = true
+                FunctionPermission = AIFunctionPermissionDeclaration.Required("ParallelTool1")
             });
 
         var tool2 = HPDAIFunctionFactory.Create(
@@ -256,7 +257,7 @@ public class PermissionTests : AgentTestBase
             {
                 Name = "ParallelTool2",
                 Description = "Second parallel tool",
-                RequiresPermission = true
+                FunctionPermission = AIFunctionPermissionDeclaration.Required("ParallelTool2")
             });
 
         var tool3 = HPDAIFunctionFactory.Create(
@@ -265,7 +266,7 @@ public class PermissionTests : AgentTestBase
             {
                 Name = "ParallelTool3",
                 Description = "Third parallel tool",
-                RequiresPermission = true
+                FunctionPermission = AIFunctionPermissionDeclaration.Required("ParallelTool3")
             });
 
         var agent = CreateAgentWithPermissions(fakeLLM, tool1, tool2, tool3);
@@ -322,7 +323,7 @@ public class PermissionTests : AgentTestBase
             {
                 Name = "ParallelTool1",
                 Description = "First parallel tool",
-                RequiresPermission = true
+                FunctionPermission = AIFunctionPermissionDeclaration.Required("ParallelTool1")
             });
 
         var tool2 = HPDAIFunctionFactory.Create(
@@ -331,7 +332,7 @@ public class PermissionTests : AgentTestBase
             {
                 Name = "ParallelTool2",
                 Description = "Second parallel tool",
-                RequiresPermission = true
+                FunctionPermission = AIFunctionPermissionDeclaration.Required("ParallelTool2")
             });
 
         var tool3 = HPDAIFunctionFactory.Create(
@@ -340,7 +341,7 @@ public class PermissionTests : AgentTestBase
             {
                 Name = "ParallelTool3",
                 Description = "Third parallel tool",
-                RequiresPermission = true
+                FunctionPermission = AIFunctionPermissionDeclaration.Required("ParallelTool3")
             });
 
         var agent = CreateAgentWithPermissions(fakeLLM, tool1, tool2, tool3);

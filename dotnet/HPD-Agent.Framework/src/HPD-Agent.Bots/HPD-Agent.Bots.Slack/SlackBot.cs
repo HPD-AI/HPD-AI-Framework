@@ -312,7 +312,7 @@ public partial class SlackBot(
                     await agent.AnswerRequestAsync(new PermissionResponseEvent(
                         PermissionId: action.ActionId,
                         SourceName:   "slack",
-                        Approved:     approved));
+                        ChoiceId:     approved ? "allow_once" : "deny_once"));
                 }
                 continue;
             }
@@ -559,8 +559,8 @@ public partial class SlackBot(
                     $"*{req.SourceName}* wants to call `{req.FunctionName}`"))
         };
 
-        if (!string.IsNullOrWhiteSpace(req.Description))
-            blocks.Add(new SlackSectionBlock(Text: new SlackMrkdwn(req.Description)));
+        if (!string.IsNullOrWhiteSpace(req.Evaluation.Summary))
+            blocks.Add(new SlackSectionBlock(Text: new SlackMrkdwn(req.Evaluation.Summary)));
 
         blocks.Add(new SlackActionsBlock(
             Elements: new[]
@@ -702,7 +702,7 @@ public partial class SlackBot(
                                 await agent.AnswerRequestAsync(new PermissionResponseEvent(
                                     PermissionId: action.ActionId,
                                     SourceName:   "slack",
-                                    Approved:     approved));
+                                    ChoiceId:     approved ? "allow_once" : "deny_once"));
                             }
                         }
                         else

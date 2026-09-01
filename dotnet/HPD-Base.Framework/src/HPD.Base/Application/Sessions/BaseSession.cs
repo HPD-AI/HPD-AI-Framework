@@ -1,5 +1,52 @@
+using System.Collections.Immutable;
 
 namespace HPD.Base;
+
+/// <summary>Owns immutable activation provenance for a handler-scoped session.</summary>
+internal sealed record BaseActivationSessionProvenance
+{
+    internal required string ActivationId { get; init; }
+    internal required int AttemptNumber { get; init; }
+    internal required long ClaimEpoch { get; init; }
+    internal required System.Collections.Immutable.ImmutableArray<byte> FencingToken { get; init; }
+    internal required string WorkerIdentity { get; init; }
+    internal required long CancellationGeneration { get; init; }
+    internal required string StoreInstanceId { get; init; }
+    internal required long RestoreEpoch { get; init; }
+    internal required System.Collections.Immutable.ImmutableArray<byte> DefinitionChecksum { get; init; }
+
+    internal static BaseActivationSessionProvenance From(BaseActivationClaimAuthority claim)
+    {
+        ArgumentNullException.ThrowIfNull(claim);
+        if (string.IsNullOrWhiteSpace(claim.ActivationId) || claim.AttemptNumber <= 0 || claim.ClaimEpoch <= 0
+            || claim.FencingToken.Length != 32 || string.IsNullOrWhiteSpace(claim.WorkerIdentity)
+            || claim.CancellationGeneration < 0 || string.IsNullOrWhiteSpace(claim.StoreInstanceId)
+            || claim.RestoreEpoch < 0 || claim.DefinitionChecksum.Length != 32)
+            throw new InvalidOperationException("base.activation.sessionProvenanceInvalid");
+        return new BaseActivationSessionProvenance
+        {
+            ActivationId = new string(claim.ActivationId.AsSpan()),
+            AttemptNumber = claim.AttemptNumber,
+            ClaimEpoch = claim.ClaimEpoch,
+            FencingToken = claim.FencingToken.ToArray().ToImmutableArray(),
+            WorkerIdentity = new string(claim.WorkerIdentity.AsSpan()),
+            CancellationGeneration = claim.CancellationGeneration,
+            StoreInstanceId = new string(claim.StoreInstanceId.AsSpan()),
+            RestoreEpoch = claim.RestoreEpoch,
+            DefinitionChecksum = claim.DefinitionChecksum.ToArray().ToImmutableArray(),
+        };
+    }
+
+    internal bool Matches(BaseActivationClaimAuthority claim) =>
+        string.Equals(ActivationId, claim.ActivationId, StringComparison.Ordinal)
+        && AttemptNumber == claim.AttemptNumber && ClaimEpoch == claim.ClaimEpoch
+        && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(FencingToken.AsSpan(), claim.FencingToken.AsSpan())
+        && string.Equals(WorkerIdentity, claim.WorkerIdentity, StringComparison.Ordinal)
+        && CancellationGeneration == claim.CancellationGeneration
+        && string.Equals(StoreInstanceId, claim.StoreInstanceId, StringComparison.Ordinal)
+        && RestoreEpoch == claim.RestoreEpoch
+        && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(DefinitionChecksum.AsSpan(), claim.DefinitionChecksum.AsSpan());
+}
 
 /// <summary>
 /// Binds application operations to one trusted principal and stable scope.
@@ -17,6 +64,7 @@ public sealed class BaseSession
     private readonly IBaseRegisteredReadRuntime? _reads;
     private readonly IServiceProvider _services;
     private readonly string _applicationId;
+    private readonly BaseActivationSessionProvenance? _activationProvenance;
 
     internal BaseSession(
         IBaseRecordRuntime runtime,
@@ -30,7 +78,8 @@ public sealed class BaseSession
         IBaseRegisteredReadRuntime? reads = null,
         int maxQueryPageSize = 500,
         IServiceProvider? services = null,
-        string applicationId = "hpd.base.application")
+        string applicationId = "hpd.base.application",
+        BaseActivationSessionProvenance? activationProvenance = null)
     {
         _runtime = runtime;
         _timeProvider = timeProvider;
@@ -43,6 +92,7 @@ public sealed class BaseSession
         _reads = reads;
         _services = services ?? EmptyServiceProvider.Instance;
         _applicationId = new string(applicationId.AsSpan());
+        _activationProvenance = activationProvenance;
         MaxQueryPageSize = maxQueryPageSize;
     }
 
@@ -134,6 +184,28 @@ public sealed class BaseSession
             : collection.JsonTypeInfo;
     internal string ApplicationId => _applicationId;
     internal HPDBaseEndpointAudience Audience => _options.Audience;
+    internal BaseActivationSessionProvenance? ActivationProvenance => _activationProvenance;
+
+    internal bool ActivationDeclaresSourceGrants(params string[] requiredGrantIds)
+    {
+        if (_activationProvenance is null)
+            return true;
+        if (requiredGrantIds.Length == 0 || requiredGrantIds.Any(string.IsNullOrWhiteSpace))
+            return false;
+        BaseActivationRegistry? registry = _services.GetService(typeof(BaseActivationRegistry)) as BaseActivationRegistry;
+        if (registry is null)
+            return false;
+        BaseActivationDefinition[] matches = registry.Definitions
+            .Where(definition => definition.Checksum.Length == 32
+                && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                    definition.Checksum.AsSpan(), _activationProvenance.DefinitionChecksum.AsSpan()))
+            .ToArray();
+        return matches is [BaseActivationDefinition definition]
+            && requiredGrantIds.All(required => definition.SourceGrantIds.Contains(required, StringComparer.Ordinal));
+    }
+    internal BaseSession WithActivationProvenance(BaseActivationClaimAuthority claim) => new(
+        _runtime, _timeProvider, _principal, _options, _files, _dependencies, _realtime, _liveQueries, _reads,
+        MaxQueryPageSize, _services, _applicationId, BaseActivationSessionProvenance.From(claim));
     internal BaseOwnedSubjectScopeEvidence ActivationScope => _options.ProjectId is not null
         ? new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Project, Value = new string(_options.ProjectId.AsSpan()) }
         : _options.TenantId is not null

@@ -42,7 +42,7 @@ public sealed class SqliteConformanceFixture : IConfigurableRuntimeStoreConforma
             new FieldDefinition { Id = "enabled", ApplicationName = "enabled", WireName = "enabled", Type = BaseFieldTypes.Boolean },
             new FieldDefinition { Id = "tags", ApplicationName = "tags", WireName = "tags", Type = BaseFieldTypes.Array },
             new FieldDefinition { Id = "profile", ApplicationName = "profile", WireName = "profile", Type = BaseFieldTypes.Object },
-            new FieldDefinition { Id = "nullable", ApplicationName = "nullable", WireName = "nullable", Type = BaseFieldTypes.String, Nullable = true }
+            new FieldDefinition { Id = "nullable", ApplicationName = "nullable", WireName = "nullable", Type = BaseFieldTypes.String, Nullability = BaseFieldNullability.Nullable }
         ],
         MutationMode = BaseCollectionMutationMode.Mutable
     };
@@ -127,10 +127,10 @@ public sealed class SqliteConformanceFixture : IConfigurableRuntimeStoreConforma
             collection,
             new RecordCreateRequest
             {
-                RequestedId = new RecordId(id),
+                RequestedId = RecordId.Create(id),
                 Payload = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = fields.ToDictionary(field => field.Field, field => field.Value.Clone(), StringComparer.Ordinal) }
             },
-            Operation(BaseOperationKind.Create, new RecordId(id)));
+            Operation(BaseOperationKind.Create, RecordId.Create(id)));
 
         result.Status.Should().Be(OperationStatus.Created);
         return result.Value!;

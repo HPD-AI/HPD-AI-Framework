@@ -37,6 +37,8 @@ export interface SendMessageOptions {
   runConfig?: RunConfig;
   signal?: AbortSignal;
   optimisticUserMessage?: boolean;
+  delivery?: 'Queue' | 'Steer';
+  threadExecutionId?: string;
 }
 
 export interface CancelActiveTurnOptions {
@@ -140,12 +142,18 @@ export class ChatSession {
     if (contents.length === 0) {
       throw new Error('submitMessage() requires at least one content item.');
     }
+    const delivery = options.delivery ?? 'Queue';
+    if (delivery === 'Steer' && !options.threadExecutionId) {
+      throw new Error('submitMessage() requires threadExecutionId when delivery is Steer.');
+    }
 
     const result = await this.client.submitInput({
       type: EventTypes.USER_MESSAGES_INPUT,
       agentId: this.agentId,
       sessionId: this.sessionId,
       threadId: this.threadId,
+      delivery,
+      threadExecutionId: options.threadExecutionId,
       messages: [{
         role: 'user',
         contents,
@@ -153,7 +161,8 @@ export class ChatSession {
       }],
       runConfig: options.runConfig,
     }, { signal: options.signal });
-    if (!('disposition' in result) || result.disposition !== 'queued') {
+    if (!('disposition' in result) ||
+        (delivery === 'Queue' && result.disposition !== 'queued')) {
       throw new Error('Backend returned a non-submission result for a user message.');
     }
 
@@ -186,11 +195,12 @@ export class ChatSession {
       return { disposition: 'no_active_execution', activeExecution: null };
     }
     const result = await this.client.submitInput({
-      type: EventTypes.STEERING_INPUT,
+      type: EventTypes.USER_MESSAGES_INPUT,
       agentId: this.agentId,
       sessionId: this.sessionId,
       threadId: this.threadId,
       threadExecutionId: activeExecution.threadExecutionId,
+      delivery: 'Steer',
       messages: [{ role: 'user', contents: [createTextContent(text)] }],
     }, { signal: options.signal });
     if (!('disposition' in result)) throw new Error('Backend returned a non-input result for steering.');
@@ -204,20 +214,22 @@ export class ChatSession {
       return { disposition: 'no_active_execution', activeExecution: null };
     }
 
-    const result = await this.client.submitInput({
-      type: EventTypes.INTERRUPTION_REQUEST,
-      agentId: this.agentId,
-      sessionId: this.sessionId,
-      threadId: this.threadId,
-      threadExecutionId: activeExecution.threadExecutionId,
-      eventFlowId: options.eventFlowId ?? undefined,
-      reason: options.reason ?? 'Interrupted by client.',
-      source: 'User',
-    }, { signal: options.signal });
-    if (!('disposition' in result)) {
-      throw new Error('Backend returned a non-interruption result for cancellation.');
-    }
-    return result;
+    const result = await this.client.cancelThreadExecution(
+      this.agentId,
+      this.sessionId,
+      this.threadId,
+      activeExecution.threadExecutionId,
+      { signal: options.signal },
+    );
+    return {
+      disposition: result.cancellationApplied ? 'accepted' : 'no_active_execution',
+      threadExecutionId: result.threadExecutionId,
+      activeExecution: null,
+    };
+  }
+
+  async startQueuedWork(): Promise<ThreadExecution> {
+    return this.client.startQueuedWork(this.agentId, this.sessionId, this.threadId);
   }
 
   async refreshSession(): Promise<Session | null> {

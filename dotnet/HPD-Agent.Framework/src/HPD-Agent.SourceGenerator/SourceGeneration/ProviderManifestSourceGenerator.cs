@@ -14,6 +14,7 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
 {
     private const string ProviderAttributeName = "HPD.Agent.Providers.HpdProviderAttribute";
     private const string FamilyAttributeName = "HPD.Agent.Providers.HpdProviderFamilyAttribute";
+    private const string BackendAttributeName = "HPD.Agent.Providers.HpdProviderBackendAttribute";
     private const string AliasAttributeName = "HPD.Agent.Providers.HpdProviderAliasAttribute";
     private const string PayloadAttributeName = "HPD.Agent.Providers.HpdProviderPayloadAttribute";
     private const string SecretAliasAttributeName = "HPD.Agent.Providers.HpdProviderSecretAliasAttribute";
@@ -76,6 +77,7 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
         var documentationUrl = GetNamedString(providerAttribute, "DocumentationUrl");
 
         var families = ImmutableArray.CreateBuilder<FamilyInfo>();
+        var backends = ImmutableArray.CreateBuilder<BackendInfo>();
         var aliases = ImmutableArray.CreateBuilder<string>();
         var payloads = ImmutableArray.CreateBuilder<PayloadInfo>();
         var secretAliases = ImmutableArray.CreateBuilder<SecretAliasInfo>();
@@ -95,6 +97,28 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
                     lifetime,
                     GetNamedString(attribute, "DefaultModelName"),
                     GetNamedBool(attribute, "BindsModelToClient", defaultValue: true)));
+            }
+            else if (metadataName == BackendAttributeName && attribute.ConstructorArguments.Length == 2 &&
+                     attribute.ConstructorArguments[0].Value is string backendKey &&
+                     attribute.ConstructorArguments[1].Value is { } authenticationKind)
+            {
+                var familiesArgument = attribute.NamedArguments
+                    .FirstOrDefault(pair => pair.Key == "Families");
+                var declaredFamilies = familiesArgument.Key is null
+                    ? ImmutableArray<int>.Empty
+                    : familiesArgument.Value.Values
+                        .Select(static value => Convert.ToInt32(
+                            value.Value, System.Globalization.CultureInfo.InvariantCulture))
+                        .ToImmutableArray();
+                backends.Add(new BackendInfo(
+                    backendKey,
+                    Convert.ToInt32(authenticationKind, System.Globalization.CultureInfo.InvariantCulture),
+                    GetNamedBool(attribute, "IsDefaultBackend", defaultValue: false),
+                    GetNamedBool(attribute, "IsDefaultAuthentication", defaultValue: false),
+                    GetNamedBool(attribute, "IsInteractive", defaultValue: false),
+                    GetNamedBool(attribute, "SupportsRefresh", defaultValue: false),
+                    GetNamedString(attribute, "DefaultSecretKey"),
+                    declaredFamilies));
             }
             else if (metadataName == AliasAttributeName && attribute.ConstructorArguments.Length == 1 &&
                      attribute.ConstructorArguments[0].Value is string alias)
@@ -132,6 +156,7 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
             displayName,
             documentationUrl,
             families.ToImmutable(),
+            backends.ToImmutable(),
             aliases.ToImmutable(),
             payloads.ToImmutable(),
             secretAliases.ToImmutable(),
@@ -177,7 +202,9 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
         var aliasAssignment = info.Aliases.IsDefaultOrEmpty
             ? string.Empty
             : $", Aliases = new string[] {{ {string.Join(", ", info.Aliases.Select(Literal))} }}";
-        source.AppendLine($"[assembly: global::HPD.Agent.Providers.HpdProviderManifestAttribute(typeof(global::HPD.Agent.Providers.Generated.{manifestName}), {Literal(info.ProviderKey)}, new global::HPD.Agent.Providers.ProviderClientFamily[] {{ {familyArguments} }}{aliasAssignment})]");
+        var markerBackends = string.Join(", ", info.Backends.Select(static backend => backend.BackendKey)
+            .Distinct(StringComparer.Ordinal).OrderBy(static backend => backend, StringComparer.Ordinal).Select(Literal));
+        source.AppendLine($"[assembly: global::HPD.Agent.Providers.HpdProviderManifestAttribute(typeof(global::HPD.Agent.Providers.Generated.{manifestName}), {Literal(info.ProviderKey)}, new global::HPD.Agent.Providers.ProviderClientFamily[] {{ {familyArguments} }}{aliasAssignment}, BackendKeys = new string[] {{ {markerBackends} }})]");
         source.AppendLine("namespace HPD.Agent.Providers.Generated;");
         source.AppendLine();
         source.AppendLine($"internal sealed class {descriptorName} : global::HPD.Agent.Providers.IProviderDescriptor");
@@ -203,6 +230,50 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
             source.AppendLine("            },");
         }
         source.AppendLine("        });");
+        source.AppendLine("    public global::System.Collections.Generic.IReadOnlyDictionary<string, global::HPD.Agent.Providers.ProviderBackendDescriptor> Backends { get; } =");
+        source.AppendLine("        new global::System.Collections.ObjectModel.ReadOnlyDictionary<string, global::HPD.Agent.Providers.ProviderBackendDescriptor>(");
+        source.AppendLine("        new global::System.Collections.Generic.Dictionary<string, global::HPD.Agent.Providers.ProviderBackendDescriptor>(global::System.StringComparer.Ordinal)");
+        source.AppendLine("        {");
+        foreach (var backendGroup in info.Backends.GroupBy(static backend => backend.BackendKey).OrderBy(static group => group.Key, StringComparer.Ordinal))
+        {
+            source.AppendLine($"            [{Literal(backendGroup.Key)}] = new global::HPD.Agent.Providers.ProviderBackendDescriptor");
+            source.AppendLine("            {");
+            source.AppendLine($"                BackendKey = {Literal(backendGroup.Key)},");
+            source.AppendLine($"                IsDefault = {(backendGroup.Any(static item => item.IsDefaultBackend) ? "true" : "false")},");
+            source.AppendLine("                Families = new global::System.Collections.ObjectModel.ReadOnlyDictionary<global::HPD.Agent.Providers.ProviderClientFamily, global::HPD.Agent.Providers.ProviderFamilyDescriptor>(new global::System.Collections.Generic.Dictionary<global::HPD.Agent.Providers.ProviderClientFamily, global::HPD.Agent.Providers.ProviderFamilyDescriptor>");
+            source.AppendLine("                {");
+            foreach (var family in info.Families.OrderBy(static item => item.Family))
+            {
+                source.AppendLine($"                    [(global::HPD.Agent.Providers.ProviderClientFamily){family.Family}] = new global::HPD.Agent.Providers.ProviderFamilyDescriptor");
+                source.AppendLine("                    {");
+                source.AppendLine($"                        Family = (global::HPD.Agent.Providers.ProviderClientFamily){family.Family},");
+                source.AppendLine($"                        Lifetime = (global::HPD.Agent.Providers.ProviderFamilyLifetime){family.Lifetime},");
+                source.AppendLine($"                        BindsModelToClient = {(family.BindsModelToClient ? "true" : "false")},");
+                if (family.DefaultModelName is not null)
+                    source.AppendLine($"                        DefaultModelId = {Literal(family.DefaultModelName)},");
+                source.AppendLine("                    },");
+            }
+            source.AppendLine("                }),");
+            source.AppendLine("                Authentication = new global::HPD.Agent.Providers.ProviderAuthenticationDescriptor[]");
+            source.AppendLine("                {");
+            foreach (var backend in backendGroup)
+            {
+                var supported = backend.Families.IsDefaultOrEmpty ? info.Families.Select(static item => item.Family) : backend.Families;
+                source.AppendLine("                    new global::HPD.Agent.Providers.ProviderAuthenticationDescriptor");
+                source.AppendLine("                    {");
+                source.AppendLine($"                        Kind = (global::HPD.Agent.Providers.ProviderAuthenticationKind){backend.AuthenticationKind},");
+                source.AppendLine($"                        IsDefault = {(backend.IsDefaultAuthentication ? "true" : "false")},");
+                source.AppendLine($"                        IsInteractive = {(backend.IsInteractive ? "true" : "false")},");
+                source.AppendLine($"                        SupportsRefresh = {(backend.SupportsRefresh ? "true" : "false")},");
+                if (backend.DefaultSecretKey is not null)
+                    source.AppendLine($"                        DefaultSecretKey = {Literal(backend.DefaultSecretKey)},");
+                source.AppendLine($"                        SupportedFamilies = new global::System.Collections.Generic.HashSet<global::HPD.Agent.Providers.ProviderClientFamily> {{ {string.Join(", ", supported.Select(static family => $"(global::HPD.Agent.Providers.ProviderClientFamily){family}"))} }},");
+                source.AppendLine("                    },");
+            }
+            source.AppendLine("                },");
+            source.AppendLine("            },");
+        }
+        source.AppendLine("        });");
         source.AppendLine("    public global::System.Collections.Generic.IReadOnlyList<string> Aliases { get; } =");
         source.AppendLine(info.Aliases.IsDefaultOrEmpty
             ? "        global::System.Array.Empty<string>();"
@@ -217,7 +288,9 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
         source.AppendLine($"        new global::HPD.Agent.Providers.IProviderDescriptor[] {{ new {descriptorName}() }},");
         source.AppendLine("        new global::HPD.Agent.Providers.ProviderRuntimeFactoryRegistration[]");
         source.AppendLine("        {");
-        source.AppendLine($"            new({Literal(info.ProviderKey)}, new global::HPD.Agent.Providers.ProviderClientFamily[] {{ {familyArguments} }}, static () => new {info.ProviderTypeName}()),");
+        var backendArguments = string.Join(", ", info.Backends.Select(static backend => backend.BackendKey)
+            .Distinct(StringComparer.Ordinal).OrderBy(static backend => backend, StringComparer.Ordinal).Select(Literal));
+        source.AppendLine($"            new({Literal(info.ProviderKey)}, new string[] {{ {backendArguments} }}, new global::HPD.Agent.Providers.ProviderClientFamily[] {{ {familyArguments} }}, static () => new {info.ProviderTypeName}()),");
         source.AppendLine("        },");
         source.AppendLine("        new global::HPD.Agent.Providers.ProviderPayloadJsonContract[]");
         source.AppendLine("        {");
@@ -290,6 +363,7 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
             string displayName,
             string? documentationUrl,
             ImmutableArray<FamilyInfo> families,
+            ImmutableArray<BackendInfo> backends,
             ImmutableArray<string> aliases,
             ImmutableArray<PayloadInfo> payloads,
             ImmutableArray<SecretAliasInfo> secretAliases,
@@ -303,6 +377,7 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
             DisplayName = displayName;
             DocumentationUrl = documentationUrl;
             Families = families;
+            Backends = backends;
             Aliases = aliases;
             Payloads = payloads;
             SecretAliases = secretAliases;
@@ -317,6 +392,7 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
         public string DisplayName { get; }
         public string? DocumentationUrl { get; }
         public ImmutableArray<FamilyInfo> Families { get; }
+        public ImmutableArray<BackendInfo> Backends { get; }
         public ImmutableArray<string> Aliases { get; }
         public ImmutableArray<PayloadInfo> Payloads { get; }
         public ImmutableArray<SecretAliasInfo> SecretAliases { get; }
@@ -341,6 +417,16 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
     }
 
     private sealed record SecretAliasInfo(string SecretKey, ImmutableArray<string> EnvironmentVariables);
+
+    private sealed record BackendInfo(
+        string BackendKey,
+        int AuthenticationKind,
+        bool IsDefaultBackend,
+        bool IsDefaultAuthentication,
+        bool IsInteractive,
+        bool SupportsRefresh,
+        string? DefaultSecretKey,
+        ImmutableArray<int> Families);
 
     private sealed class FamilyInfo
     {

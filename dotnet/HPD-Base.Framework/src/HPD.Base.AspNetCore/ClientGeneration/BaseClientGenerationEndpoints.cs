@@ -263,6 +263,10 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
                 ParameterTypeId = read.ClientContract.ParameterTypeId,
                 RowTypeId = read.ClientContract.RowTypeId,
                 MaxPageSize = 500,
+                FixedCompleteResult = read.Plan.Topology == BaseRelationalReadTopology.CompoundCount,
+                FixedDiscriminators = read.Plan.Topology == BaseRelationalReadTopology.CompoundCount
+                    ? read.Plan.CompoundCountBranches.Select(static branch => branch.Discriminator).ToArray()
+                    : [],
                 Watchable = installedFeatures.LiveQueries && installedFeatures.Dependencies && endpoints.Any(endpoint => endpoint.Operation == "RealtimeSubscribe")
             }).ToArray(),
             DependencyTemplates = templates.Select(template => new BaseClientDependencyTemplateDescriptor
@@ -561,14 +565,23 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
             {
                 string valueId = owner + "." + property.Id;
                 string scalarId = property.Array ? valueId + ".item" : valueId;
-                BaseRelationalOperand? operand = output ? read.Plan.Projection.Single(projection => projection.FieldId == property.Id).Operand : null;
-                BaseClientTypeNode node = operand?.Kind == BaseRelationalOperandKind.SubjectReference
-                    ? SubjectNode(new BaseSubjectReferenceDefinition
-                    {
-                        ContractId = operand.SubjectContractId!, ContractVersion = operand.SubjectContractVersion!.Value,
-                        ContractChecksum = string.Empty, Requirement = BaseSubjectReferenceRequirement.Exists,
-                        Guarantee = BaseSubjectValidationGuarantee.TransactionSnapshot,
-                    }, subjects)
+                BaseRelationalReadProjection? projection = output
+                    ? read.Plan.Projection.SingleOrDefault(projection => projection.FieldId == property.Id)
+                    : null;
+                BaseRelationalOperand? operand = projection?.Operand;
+                BaseReadCanonicalJsonAuthority? jsonAuthority = output
+                    ? projection?.CanonicalJsonAuthority
+                    : read.Plan.Parameters.Single(parameter => parameter.Id == property.Id).CanonicalJsonAuthority;
+                bool compoundDiscriminator = output && read.Plan.Topology == BaseRelationalReadTopology.CompoundCount
+                    && read.Plan.CompoundCountBranches.All(branch => string.Equals(branch.DiscriminatorOutputFieldId, property.Id, StringComparison.Ordinal));
+                BaseClientTypeNode node = compoundDiscriminator
+                    ? new() { Kind = "enum", Values = read.Plan.CompoundCountBranches.Select(static branch => branch.Discriminator).ToArray() }
+                    : property.MaximumBinaryBytes is { } maximumBinaryBytes
+                    ? new() { Kind = "bytes", Wire = "base64", MinBytes = property.MinimumBinaryBytes, MaxBytes = maximumBinaryBytes }
+                    : jsonAuthority is not null
+                    ? CanonicalJsonNode(jsonAuthority)
+                    : operand?.Kind == BaseRelationalOperandKind.SubjectReference
+                    ? SubjectNode(operand.SubjectContractId!, operand.SubjectContractVersion!.Value, subjects)
                     : ReadScalar(property.Kind);
                 yield return new BaseClientNamedTypeDescriptor { Id = scalarId, Node = node };
                 if (property.Array) yield return new BaseClientNamedTypeDescriptor { Id = valueId, Node = new BaseClientTypeNode { Kind = "array", ElementTypeId = scalarId, MinItems = 0, MaxItems = 256 } };
@@ -600,6 +613,48 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
         QueryValueKind.DateTime => new() { Kind = "string", Format = "utc-instant", MinLength = 1, MaxLength = 64 },
         _ => new() { Kind = "string", Format = "plain", MinLength = 0, MaxLength = 4096 }
     };
+
+    private static BaseClientTypeNode CanonicalJsonNode(BaseReadCanonicalJsonAuthority authority) =>
+        CanonicalJsonNode(authority.JsonShape, authority.MaximumCanonicalJsonBytes, authority.MaximumJsonDepth,
+            authority.MaximumJsonArrayItems, authority.MaximumJsonObjectProperties, authority.MaximumJsonTotalNodes,
+            authority.MaximumJsonTotalStringUtf8Bytes, authority.MaximumJsonTotalNameUtf8Bytes);
+
+    private static BaseClientTypeNode CanonicalJsonNode(FieldDefinition field)
+    {
+        BaseScalarConstraintSet constraints = field.ScalarConstraints ?? throw new InvalidOperationException("base.clientGeneration.schemaInvalid");
+        return CanonicalJsonNode(constraints.JsonShape!.Value, constraints.MaximumCanonicalJsonBytes!.Value,
+            constraints.MaximumJsonDepth!.Value, constraints.MaximumJsonArrayItems!.Value,
+            constraints.MaximumJsonObjectProperties!.Value, constraints.MaximumJsonTotalNodes!.Value,
+            constraints.MaximumJsonTotalStringUtf8Bytes!.Value, constraints.MaximumJsonTotalNameUtf8Bytes!.Value);
+    }
+
+    private static BaseClientTypeNode CanonicalJsonNode(BaseJsonShape shape, int bytes, int depth, int arrayItems,
+        int objectProperties, int nodes, int stringBytes, int nameBytes)
+    {
+        string checksum = CanonicalJsonShapeChecksum(shape, bytes, depth, arrayItems, objectProperties, nodes, stringBytes, nameBytes);
+        return new BaseClientTypeNode
+        {
+            Kind = "canonicalJson",
+            CanonicalJsonShape = new BaseClientCanonicalJsonShape
+            {
+                JsonShape = shape, MaximumCanonicalJsonBytes = bytes, MaximumJsonDepth = depth,
+                MaximumJsonArrayItems = arrayItems, MaximumJsonObjectProperties = objectProperties,
+                MaximumJsonTotalNodes = nodes, MaximumJsonTotalStringUtf8Bytes = stringBytes,
+                MaximumJsonTotalNameUtf8Bytes = nameBytes, Checksum = checksum,
+            },
+        };
+    }
+
+    private static string CanonicalJsonShapeChecksum(BaseJsonShape shape, params int[] limits)
+    {
+        var writer = new System.Buffers.ArrayBufferWriter<byte>();
+        ReadOnlySpan<byte> purpose = "hpd.base.client.canonical-json-shape.v1\0"u8;
+        purpose.CopyTo(writer.GetSpan(purpose.Length)); writer.Advance(purpose.Length);
+        Span<byte> destination = writer.GetSpan(4); System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(destination, (int)shape); writer.Advance(4);
+        foreach (int limit in limits)
+        { destination = writer.GetSpan(4); System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(destination, limit); writer.Advance(4); }
+        return Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(writer.WrittenSpan));
+    }
 
     private static IEnumerable<BaseClientNamedTypeDescriptor> CollectionTypes(CollectionDefinition collection, BaseLogicalExportedSubject[] subjects)
     {
@@ -633,7 +688,7 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
                     Name = field.ApplicationName, WireName = field.WireName,
                     TypeId = $"field.{collection.Id}.{field.Id}",
                     Required = output || requiredMutable,
-                    Nullable = field.Nullable,
+                    Nullable = field.Nullability == BaseFieldNullability.Nullable,
                     DisclosureShape = output
                         ? DisclosureShape(field.Disclosure?.RecordRead ?? BaseFieldDisclosurePolicies.For(field.Confidentiality).RecordRead, field.Visibility is not null)
                         : "none"
@@ -645,19 +700,26 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
     private static BaseClientTypeNode FieldNode(FieldDefinition field, BaseLogicalExportedSubject[] subjects) => field.Type switch
     {
         _ when field.SubjectReference is { } reference => SubjectNode(reference, subjects),
+        _ when field.ScalarKind == BaseScalarKind.CanonicalJson => CanonicalJsonNode(field),
         "bool" or "boolean" => new() { Kind = "boolean" },
         "int" or "integer" => new() { Kind = "integer", Minimum = "-2147483648", Maximum = "2147483647", Wire = "number" },
         "long" => new() { Kind = "integer", Minimum = "-9223372036854775808", Maximum = "9223372036854775807", Wire = "decimal-string" },
         "decimal" => new() { Kind = "decimal", Wire = "decimal-string" },
         "id" => new() { Kind = "string", Format = "record-id", MinLength = 1, MaxLength = 256 },
         "datetime" or "instant" => new() { Kind = "string", Format = "utc-instant", MinLength = 1, MaxLength = 64 },
-        _ when string.Equals(field.Format, "base64", StringComparison.Ordinal) => new() { Kind = "bytes", Wire = "base64", MaxBytes = field.MaximumBytes },
+        _ when string.Equals(field.Format, "base64", StringComparison.Ordinal) => new()
+        {
+            Kind = "bytes", Wire = "base64", MinBytes = field.MinimumBytes ?? 0, MaxBytes = field.MaximumBytes,
+        },
         _ => new() { Kind = "string", Format = "plain", MinLength = 0, MaxLength = 65536 }
     };
 
     private static BaseClientTypeNode SubjectNode(BaseSubjectReferenceDefinition reference, BaseLogicalExportedSubject[] subjects)
+        => SubjectNode(reference.ContractId, reference.ContractVersion, subjects);
+
+    private static BaseClientTypeNode SubjectNode(string contractId, int contractVersion, BaseLogicalExportedSubject[] subjects)
     {
-        BaseLogicalExportedSubject contract = subjects.Single(value => value.Id == reference.ContractId && value.Version == reference.ContractVersion);
+        BaseLogicalExportedSubject contract = subjects.Single(value => value.Id == contractId && value.Version == contractVersion);
         return new BaseClientTypeNode
         {
             Kind = "subjectReference",

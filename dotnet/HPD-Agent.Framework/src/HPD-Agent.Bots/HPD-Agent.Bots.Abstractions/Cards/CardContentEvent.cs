@@ -1,5 +1,6 @@
 using HPD.Agent;
 using HPD.Agent.Bots.Cards;
+using HPD.Agent.Serialization;
 
 namespace HPD.Agent.Bots;
 
@@ -9,4 +10,6 @@ namespace HPD.Agent.Bots;
 /// The fallback plain-text representation is produced by <see cref="CardFallbackText.From"/>
 /// and used for mobile notifications, screen readers, and platforms that can't render blocks.
 /// </summary>
+[DurableEvent]
+[EventType("CARD_CONTENT")]
 public record CardContentEvent(CardElement Card) : AgentEvent;

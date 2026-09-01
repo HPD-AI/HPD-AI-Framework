@@ -14,7 +14,7 @@ internal sealed class ExecuteCommandStartedTuiHandler : ExecuteCommandTuiHandler
         state.Shell = evt.Shell;
         state.StartedAt = evt.StartedAt;
         state.IsBackground = evt.Background;
-        state.BackgroundHandleId = evt.Background ? evt.CommandId : state.BackgroundHandleId;
+        state.OperationId = evt.Background ? evt.CommandId : state.OperationId;
         state.BackgroundedAt = evt.Background ? evt.StartedAt : state.BackgroundedAt;
         state.AutoBackgroundEligible = evt.AutoBackgroundEligible;
         state.ProcessId = evt.ProcessId;
@@ -22,7 +22,7 @@ internal sealed class ExecuteCommandStartedTuiHandler : ExecuteCommandTuiHandler
         state.DisplayState = evt.Background
             ? CodingCommandDisplayState.Backgrounded
             : CodingCommandDisplayState.Running;
-        store.IndexBackgroundHandle(state);
+        store.IndexOperation(state);
 
         UpdateTranscript(context, state, evt);
         return ValueTask.CompletedTask;

@@ -68,6 +68,20 @@ public sealed record BaseActivationAdministrationItem
     public string? OccurrenceId { get; init; }
     /// <summary>Gets the current attempt number.</summary>
     public required int AttemptNumber { get; init; }
+    /// <summary>Gets the current execution-slice ordinal.</summary>
+    public required long ExecutionSliceOrdinal { get; init; }
+    /// <summary>Gets the accepted logical-attempt start when the activation has been claimed.</summary>
+    public long? AttemptStartedAt { get; init; }
+    /// <summary>Gets the accepted current-slice start when the activation has been claimed.</summary>
+    public long? SliceStartedAt { get; init; }
+    /// <summary>Gets the number of durable yields already committed.</summary>
+    public required long YieldCount { get; init; }
+    /// <summary>Gets the immutable maximum number of permitted durable yields.</summary>
+    public required long MaximumYields { get; init; }
+    /// <summary>Gets the terminal yield disposition when yield exhaustion ended the activation.</summary>
+    public BaseActivationYieldDisposition? TerminalYieldDisposition { get; init; }
+    /// <summary>Gets the fixed safe terminal yield failure code when one is retained.</summary>
+    public string? TerminalYieldFailureCode { get; init; }
     /// <summary>Gets whether a terminal result remains retained.</summary>
     public required bool ResultRetained { get; init; }
     /// <summary>Gets whether external-effect authority remains retained.</summary>

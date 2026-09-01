@@ -25,7 +25,7 @@ public class ErrorHandlingConvenienceMethodTest
         {
             Name = "Test Agent",
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
-                ProviderKey = "openai",
+                Provider = new HPD.Agent.Providers.ProviderReference { Key = "openai" },
                 ModelName = "gpt-4"
             } }
         };

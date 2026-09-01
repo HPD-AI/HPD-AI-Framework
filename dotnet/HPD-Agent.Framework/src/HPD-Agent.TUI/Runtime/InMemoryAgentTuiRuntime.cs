@@ -343,7 +343,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         return ToThreadInfo(thread, sessionId);
     }
 
-    public async Task<AgentTuiThreadInfo> ForkThreadAsync(
+    public async Task<AgentTuiThreadForkInfo> ForkThreadAsync(
         string agentId,
         string sessionId,
         string sourceThreadId,
@@ -355,19 +355,23 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         var id = string.IsNullOrWhiteSpace(request.NewThreadId)
             ? Guid.NewGuid().ToString("N")[..12]
             : request.NewThreadId;
-        var metadata = ToObjectDictionary(request.Metadata);
-        var newThreadId = await _agent.ForkThreadAsync(
+        var result = await _agent.ForkThreadAsync(
                 sessionId,
                 sourceThreadId,
                 id,
                 request.FromMessageId,
-                metadata,
+                new ThreadForkOptions
+                {
+                    Metadata = ToObjectDictionary(request.Metadata),
+                    SubAgents = request.SubAgents,
+                    OperationId = request.OperationId
+                },
                 cancellationToken)
             .ConfigureAwait(false);
         var store = _agent.Config?.SessionStore
             ?? throw new InvalidOperationException("No session store configured.");
-        var thread = await store.ProjectThreadAsync(sessionId, newThreadId, ThreadProjectionPurpose.ThreadHistory, cancellationToken).ConfigureAwait(false)
-            ?? throw new InvalidOperationException($"Thread '{newThreadId}' was not found after fork.");
+        var thread = await store.ProjectThreadAsync(sessionId, result.Target.ThreadId, ThreadProjectionPurpose.ThreadHistory, cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException($"Thread '{result.Target.ThreadId}' was not found after fork.");
 
         ApplyThreadUpdate(thread, new AgentTuiThreadUpdate(
             request.Name,
@@ -375,7 +379,14 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             request.Tags,
             request.Metadata));
         await store.AppendThreadUpdatedAsync(thread, cancellationToken).ConfigureAwait(false);
-        return ToThreadInfo(thread, sessionId);
+        return new AgentTuiThreadForkInfo(
+            result.OperationId,
+            ToThreadInfo(thread, sessionId),
+            result.SourceBoundary.Generation,
+            result.SourceBoundary.SequenceNumber,
+            result.SubAgentPolicy,
+            result.Status,
+            result.Children);
     }
 
     public async Task<AgentTuiThreadInfo> UpdateThreadAsync(
@@ -430,6 +441,32 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
                 .ToArray(),
             BuildForkGroups(threads),
             BuildRuntimeChildren(threads));
+    }
+
+    public async Task<IReadOnlyList<AgentTuiSubAgentInfo>> ListSubAgentsAsync(
+        string sessionId,
+        string threadId,
+        CancellationToken cancellationToken = default)
+    {
+        var store = _agent.Config?.SessionStore
+            ?? throw new InvalidOperationException("No session store configured.");
+        var registry = await new SubAgentChildRegistry(store)
+            .ProjectAsync(new ThreadKey(sessionId, threadId), cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        var results = new List<AgentTuiSubAgentInfo>();
+        foreach (var entry in registry.Entries.Values.OrderBy(static value => value.LocalId.Value, StringComparer.Ordinal))
+        {
+            var child = (entry as SubAgentAvailableChild)?.Child;
+            var descriptor = child?.ChildThread is { } route
+                ? await store.GetThreadAsync(route, cancellationToken).ConfigureAwait(false)
+                : null;
+            results.Add(new AgentTuiSubAgentInfo(
+                entry.LocalId.Value, entry.RoleName, entry.Availability, child?.ChildAgentId,
+                child?.ChildThread.SessionId, child?.ChildThread.ThreadId,
+                descriptor?.RuntimeChild?.Status, descriptor?.MessageCount ?? 0,
+                (entry as SubAgentChildTombstone)?.Reason));
+        }
+        return results;
     }
 
     public async Task DeleteThreadAsync(
@@ -493,7 +530,6 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             thread.ParentSessionId,
             thread.ParentThreadId,
             thread.SubAgentName,
-            thread.SubAgentTaskName,
             thread.InvocationId,
             thread.SubAgentSourceKind,
             thread.ParentToolCallId,
@@ -541,7 +577,6 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             thread.Kind,
             thread.Visibility,
             thread.SubAgentName,
-            thread.SubAgentTaskName,
             thread.InvocationId,
             thread.SubAgentSourceKind,
             thread.ParentToolCallId,
@@ -767,7 +802,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         ArgumentNullException.ThrowIfNull(input);
 
         var registration = AgentInputDispatcher.GetBuiltInRegistration(input.GetType());
-        if (registration.Delivery == AgentInputDelivery.ActiveControl)
+        if (registration.RoutingClass == AgentInputRoutingClass.ActiveControl)
         {
             var scopedControl = input with
             {
@@ -776,10 +811,17 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
                 ThreadId = scope.ThreadId
             };
             var result = await _agent.RunAsync(scopedControl, cancellationToken).ConfigureAwait(false);
+            var (disposition, controlExecutionId) = result switch
+            {
+                AgentInputResult.Control control => (control.Disposition, control.ThreadExecutionId),
+                AgentInputResult.Steered steered => (AgentInputDisposition.Accepted, steered.ThreadExecutionId),
+                AgentInputResult.Completed completed => (AgentInputDisposition.Completed, completed.ThreadExecutionId),
+                _ => throw new InvalidOperationException($"Unsupported input result '{result.GetType().Name}'.")
+            };
             AgentTuiThreadExecution? current;
             lock (_gate)
                 current = _activeExecution;
-            return new AgentTuiSubmitResult(result.Disposition, result.ThreadExecutionId, current);
+            return new AgentTuiSubmitResult(disposition, controlExecutionId, current);
         }
 
         var executionId = input.ThreadExecutionId ?? Guid.NewGuid().ToString("N");
@@ -819,7 +861,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             if (!ActivateReservedExecution(activeExecution))
                 throw new InvalidOperationException($"Thread execution '{executionId}' lost its reserved ownership before activation.");
 
-            var submission = await _agent.EnqueueAsync(scopedInput, CancellationToken.None).ConfigureAwait(false);
+            var submission = await _agent.SubmitRuntimeInputAsync(scopedInput, CancellationToken.None).ConfigureAwait(false);
             _ = CompleteSubmittedInputAsync(scope, submission, executionId);
             return new AgentTuiSubmitResult(AgentInputDisposition.Queued, executionId, activeExecution);
         }
@@ -848,9 +890,25 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         }
     }
 
+    public Task<AgentTuiSubmitResult> CancelExecutionAsync(
+        AgentTuiRuntimeScope scope,
+        string threadExecutionId,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var control = _agent.CancelRuntimeExecution(threadExecutionId);
+        AgentTuiThreadExecution? active;
+        lock (_gate)
+            active = _activeExecution;
+        return Task.FromResult(new AgentTuiSubmitResult(
+            control.Disposition,
+            control.ThreadExecutionId,
+            active));
+    }
+
     private async Task CompleteSubmittedInputAsync(
         AgentTuiRuntimeScope scope,
-        AgentRuntimeInputSubmission submission,
+        RuntimeInputReceipt submission,
         string executionId)
     {
         try
@@ -875,9 +933,11 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             }, CancellationToken.None).ConfigureAwait(false);
 
             ReleaseExecution(executionId);
+            submission.Dispose();
         }
         catch
         {
+            submission.Dispose();
             // A missing terminal commit must leave ownership visible instead of presenting
             // an unjournaled completion as authoritative state.
         }
@@ -974,9 +1034,40 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
     {
         lock (_gate)
         {
-            return _activeExecution;
+            if (_activeExecution is not { } active)
+                return null;
+            var operations = _agent.ListOperations()
+                .Where(operation =>
+                    operation.Address.SessionId == active.SessionId &&
+                    operation.Address.ThreadId == active.ThreadId &&
+                    (operation.OriginatingThreadExecutionId is null ||
+                     operation.OriginatingThreadExecutionId == active.ThreadExecutionId))
+                .Select(ToTuiOperation)
+                .ToArray();
+            return active with { Operations = operations };
         }
     }
+
+    private static AgentTuiOperation ToTuiOperation(AgentOperationSnapshot operation) => new(
+        operation.OperationId,
+        operation.ProviderOperationId,
+        operation.Name,
+        operation.SourceKind.ToString().ToLowerInvariant(),
+        operation.ProviderStatus.ToString().ToLowerInvariant(),
+        operation.ObservationStatus.ToString().ToLowerInvariant(),
+        operation.Control.Kind.ToString().ToLowerInvariant(),
+        operation.Control.Capabilities.ToString().ToLowerInvariant(),
+        operation.Control.HandleId,
+        operation.Version,
+        operation.RegisteredAt,
+        operation.StartedAt,
+        operation.UpdatedAt,
+        operation.FinishedAt,
+        operation.Completion?.Summary,
+        operation.Completion?.ArtifactReferences,
+        operation.Failure?.Code,
+        operation.Failure?.Message,
+        operation.Metadata);
 
     private bool TryReserveExecution(string executionId)
     {
@@ -1027,7 +1118,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             return evt;
         }
 
-        return await new ThreadEventPublisher(store, _agent.EventCoordinator).CommitAndPublishAsync(
+        return await new AgentEventPublisher(store, _agent.EventCoordinator).CommitAndPublishAsync(
             new ThreadKey(evt.SessionId, evt.ThreadId),
             evt,
             cancellationToken).ConfigureAwait(false);

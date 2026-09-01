@@ -14,7 +14,7 @@ public static class AgentBuilderExtensions
     public static AgentBuilder WithXai(
         this AgentBuilder builder,
         string model = XaiProvider.DefaultChatModel,
-        string? apiKey = null,
+        ProviderAuthentication? authentication = null,
         string? endpoint = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -24,8 +24,11 @@ public static class AgentBuilderExtensions
 
         var chatConfig = new ChatClientConfig
         {
-            ProviderKey = "xai",
-            ApiKey = apiKey,
+            Provider = new ProviderReference
+            {
+                Key = "xai",
+                Authentication = authentication ?? new ApiKeyProviderAuthentication { SecretKey = "xai:ApiKey" }
+            },
             Endpoint = endpoint,
             ModelName = model
         };
@@ -35,4 +38,6 @@ public static class AgentBuilderExtensions
 
         return builder;
     }
+    /// <summary>Configures xAI with a literal runtime-only API key.</summary>
+    public static AgentBuilder WithXai(this AgentBuilder builder, string model, ReadOnlySpan<char> apiKey, string? endpoint = null) => builder.WithXai(model, builder.RegisterExplicitApiKey(apiKey), endpoint);
 }

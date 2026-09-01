@@ -22,7 +22,7 @@ import type {
   ForkThreadRequest,
   UpdateThreadRequest,
 } from './types/session.js';
-import type { ThreadExecution, ThreadRuntimeState } from './types/thread-execution.js';
+import type { ThreadExecution, ThreadExecutionCancellation, ThreadRuntimeState } from './types/thread-execution.js';
 import type {
   ContextUsageRequest,
   ThreadContextUsage,
@@ -226,8 +226,8 @@ export class AgentClient {
         content: toolResponse.content,
         errorMessage: toolResponse.errorMessage,
         clientOperationId: toolResponse.clientOperationId,
-        handleKind: toolResponse.handleKind,
-        supportedOperations: toolResponse.supportedOperations,
+        operationKind: toolResponse.operationKind,
+        operationCapabilities: toolResponse.operationCapabilities,
         augmentation: toolResponse.augmentation,
       });
     }
@@ -354,6 +354,14 @@ export class AgentClient {
 
   getThreadExecution(agentId: string, sessionId: string, threadId: string, threadExecutionId: string): Promise<ThreadExecution | null> {
     return this.api.getThreadExecution(agentId, sessionId, threadId, threadExecutionId);
+  }
+
+  cancelThreadExecution(agentId: string, sessionId: string, threadId: string, threadExecutionId: string, options: { signal?: AbortSignal } = {}): Promise<ThreadExecutionCancellation> {
+    return this.api.cancelThreadExecution(agentId, sessionId, threadId, threadExecutionId, options);
+  }
+
+  startQueuedWork(agentId: string, sessionId: string, threadId: string): Promise<ThreadExecution> {
+    return this.api.startQueuedWork(agentId, sessionId, threadId);
   }
 
   getThreadGraph(sessionId: string): Promise<ThreadGraph> {

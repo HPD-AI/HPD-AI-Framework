@@ -17,6 +17,9 @@ public static class AgentBuilderSessionExtensions
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(store);
 
+        if (builder._sessionStoreFactory is not null)
+            throw new InvalidOperationException("An explicit session store cannot be combined with a session-store factory.");
+
         builder.Config.SessionStore = store;
         builder.Config.SessionStoreOptions = new SessionStoreOptions { PersistAfterTurn = true };
         return builder;
@@ -33,6 +36,9 @@ public static class AgentBuilderSessionExtensions
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(store);
+
+        if (builder._sessionStoreFactory is not null)
+            throw new InvalidOperationException("An explicit session store cannot be combined with a session-store factory.");
 
         builder.Config.SessionStore = store;
         builder.Config.SessionStoreOptions = new SessionStoreOptions { PersistAfterTurn = persistAfterTurn };
@@ -51,6 +57,9 @@ public static class AgentBuilderSessionExtensions
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(configure);
 
+        if (builder._sessionStoreFactory is not null)
+            throw new InvalidOperationException("An explicit session store cannot be combined with a session-store factory.");
+
         var options = new SessionStoreOptions();
         configure(options);
 
@@ -59,18 +68,37 @@ public static class AgentBuilderSessionExtensions
         return builder;
     }
 
-    /// <summary>
-    /// Convenience overload with file-based storage.
-    /// </summary>
-    public static AgentBuilder WithSessionStore(
-        this AgentBuilder builder,
-        string storagePath,
-        bool persistAfterTurn = true)
+    /// <summary>Creates an in-memory session store from the resolved application event codec.</summary>
+    public static AgentBuilder WithInMemorySessionStore(this AgentBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
-        ArgumentException.ThrowIfNullOrWhiteSpace(storagePath);
-
-        var store = new FileSessionStore(storagePath);
-        return builder.WithSessionStore(store, persistAfterTurn);
+        EnsureFactoryCanBeSelected(builder);
+        builder._sessionStoreFactory = composition => new InMemorySessionStore(composition.Codec);
+        builder.Config.SessionStoreOptions = new SessionStoreOptions { PersistAfterTurn = true };
+        return builder;
     }
+
+    /// <summary>
+    /// Creates a file session store from the resolved application event codec and selects a
+    /// restart-durable sibling content store unless an explicit content store is supplied.
+    /// </summary>
+    public static AgentBuilder WithFileSessionStore(this AgentBuilder builder, string path)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        EnsureFactoryCanBeSelected(builder);
+        builder._sessionStoreFactory = composition => new FileSessionStore(path, composition.Codec);
+        builder._implicitContentStoreFactory = () => new LocalFileContentStore(Path.Combine(path, "content"));
+        builder.Config.SessionStoreOptions = new SessionStoreOptions { PersistAfterTurn = true };
+        return builder;
+    }
+
+    private static void EnsureFactoryCanBeSelected(AgentBuilder builder)
+    {
+        if (builder.Config.SessionStore is not null)
+            throw new InvalidOperationException("A session-store factory cannot be combined with an explicit session store.");
+        if (builder._sessionStoreFactory is not null)
+            throw new InvalidOperationException("Only one session-store factory may be configured.");
+    }
+
 }

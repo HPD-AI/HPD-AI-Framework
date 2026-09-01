@@ -12,6 +12,7 @@ import {
   type AgentEvent,
   type AgentRequestEvent,
   type KnownAgentEvent,
+  type MessageTurnUsageSummary,
   type ThreadExecution,
 } from '@hpd-research/hpd-agent-client';
 import type {
@@ -143,6 +144,9 @@ class ThreadProjectionImpl implements ThreadProjection {
       case EventTypes.TEXT_MESSAGE_END:
         this.onTextMessageEnd(known.messageId);
         break;
+      case EventTypes.THREAD_MESSAGE_REPLACED:
+        this.onThreadMessageReplaced(known.messageId, known.replacement);
+        break;
       case EventTypes.REASONING_MESSAGE_START:
         this.onReasoningMessageStart(known, known.messageId);
         break;
@@ -232,8 +236,17 @@ class ThreadProjectionImpl implements ThreadProjection {
           sequenceNumber: known.threadSequenceNumber,
         }, known.agentName, known.timestamp);
         break;
+      case EventTypes.AGENT_TURN_FINISHED:
+        this.recordAgentTurnUsage(known.usage, known.timestamp);
+        break;
       case EventTypes.MESSAGE_TURN_FINISHED:
-        this.finishWorkGroup(known.messageTurnId, 'worked', known.timestamp, undefined, known.usage);
+        this.finishWorkGroup(
+          known.messageTurnId,
+          'worked',
+          known.timestamp,
+          undefined,
+          aggregateMessageTurnUsage(known.usage),
+        );
         this.snapshot = refreshSnapshot({
           ...this.snapshot,
           currentTurnId: null,
@@ -247,6 +260,7 @@ class ThreadProjectionImpl implements ThreadProjection {
           'failed',
           event.timestamp,
           known.errorMessage,
+          aggregateMessageTurnUsage(known.usage),
         );
         this.snapshot = refreshSnapshot({
           ...this.snapshot,
@@ -430,6 +444,36 @@ class ThreadProjectionImpl implements ThreadProjection {
     });
   }
 
+  private recordAgentTurnUsage(
+    usage?: ThreadContextUsage['usage'] | null,
+    updatedAt?: string,
+  ): void {
+    if (!usage) return;
+
+    const work = findCurrentWorkGroup(this.snapshot, this.snapshot.currentTurnId);
+    if (!work) return;
+
+    const accumulated = addUsageDetails(work.usage, usage);
+    const updatedWork: ThreadWorkGroup = {
+      ...work,
+      usage: accumulated,
+    };
+
+    this.snapshot = refreshSnapshot({
+      ...this.snapshot,
+      workGroups: upsertWorkGroup(this.snapshot.workGroups, updatedWork),
+      timeline: upsertTimelineItem(this.snapshot.timeline, createWorkTimelineItem(updatedWork)),
+      contextUsage: {
+        usage: accumulated,
+        turnId: work.turnId,
+        conversationId: work.conversationId,
+        executionId: work.executionId,
+        updatedAt,
+      },
+    });
+    this.emit();
+  }
+
   private onTextMessageStart(event: AgentEvent, messageId: string, role: string): void {
     const context = this.createContext(event);
     const policy = readMessagePolicy(event);
@@ -545,6 +589,34 @@ class ThreadProjectionImpl implements ThreadProjection {
       ...message,
       content: appendUniqueText(message.content, text),
       contents: [...message.contents, { $type: 'text', text }],
+    })));
+    this.emit();
+  }
+
+  private onThreadMessageReplaced(
+    messageId: string,
+    replacement: { messageId: string; role: string; contents: AIContent[]; authorName?: string | null; createdAt?: string | null; additionalProperties?: Record<string, unknown> | null },
+  ): void {
+    if (!replacement || replacement.messageId !== messageId || !messageExists(this.snapshot, messageId)) return;
+    const content = replacement.contents
+      .filter((item) => item.$type === 'text')
+      .map((item) => readStringProperty(item, 'text') ?? '')
+      .join('');
+    const reasoning = replacement.contents
+      .filter((item) => item.$type === 'reasoning')
+      .map((item) => readStringProperty(item, 'text') ?? '')
+      .join('');
+    this.snapshot = refreshSnapshot(updateMessageEverywhere(this.snapshot, messageId, (message) => ({
+      ...message,
+      role: replacement.role as MessageRole,
+      content,
+      reasoning: reasoning || undefined,
+      contents: [...replacement.contents],
+      additionalProperties: replacement.additionalProperties ?? undefined,
+      authorName: replacement.authorName ?? undefined,
+      timestamp: replacement.createdAt ? new Date(replacement.createdAt) : message.timestamp,
+      streaming: false,
+      thinking: false,
     })));
     this.emit();
   }
@@ -1053,6 +1125,48 @@ function cloneUsageDetails<T extends ThreadContextUsage['usage']>(usage: T): T {
       ? { ...usage.additionalCounts }
       : usage.additionalCounts,
   };
+}
+
+function addUsageDetails(
+  current: ThreadContextUsage['usage'] | null | undefined,
+  next: ThreadContextUsage['usage'],
+): ThreadContextUsage['usage'] {
+  const add = (left: number | null | undefined, right: number | null | undefined) =>
+    left === null || left === undefined
+      ? right
+      : right === null || right === undefined
+        ? left
+        : left + right;
+
+  const additionalCounts = { ...(current?.additionalCounts ?? {}) };
+  for (const [key, value] of Object.entries(next.additionalCounts ?? {})) {
+    additionalCounts[key] = (additionalCounts[key] ?? 0) + value;
+  }
+
+  return {
+    inputTokenCount: add(current?.inputTokenCount, next.inputTokenCount),
+    outputTokenCount: add(current?.outputTokenCount, next.outputTokenCount),
+    totalTokenCount: add(current?.totalTokenCount, next.totalTokenCount),
+    cachedInputTokenCount: add(current?.cachedInputTokenCount, next.cachedInputTokenCount),
+    reasoningTokenCount: add(current?.reasoningTokenCount, next.reasoningTokenCount),
+    inputAudioTokenCount: add(current?.inputAudioTokenCount, next.inputAudioTokenCount),
+    inputTextTokenCount: add(current?.inputTextTokenCount, next.inputTextTokenCount),
+    outputAudioTokenCount: add(current?.outputAudioTokenCount, next.outputAudioTokenCount),
+    outputTextTokenCount: add(current?.outputTextTokenCount, next.outputTextTokenCount),
+    additionalCounts: Object.keys(additionalCounts).length > 0 ? additionalCounts : undefined,
+  };
+}
+
+function aggregateMessageTurnUsage(
+  summary: MessageTurnUsageSummary,
+): ThreadContextUsage['usage'] | undefined {
+  return summary.operations
+    .map(operation => operation.usage)
+    .filter((usage): usage is NonNullable<typeof usage> => usage != null)
+    .reduce<ThreadContextUsage['usage'] | undefined>(
+      (current, usage) => addUsageDetails(current, usage),
+      undefined,
+    );
 }
 
 function cloneWorkPart(part: ThreadWorkPart): ThreadWorkPart {

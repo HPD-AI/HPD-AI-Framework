@@ -30,6 +30,9 @@ internal class ToolHarnessInfo
     /// </summary>
     public string Namespace { get; set; } = string.Empty;
 
+    /// <summary>Assembly component of the globally stable activation identity.</summary>
+    public string AssemblyName { get; set; } = string.Empty;
+
     // ========== UNIFIED DATA STRUCTURE (Phase 5: Complete) ==========
 
     /// <summary>
@@ -198,27 +201,8 @@ internal class ToolHarnessInfo
     /// </summary>
     public bool SystemPromptIsStatic { get; set; } = true;
 
-    // ========== HARNESS-SCOPED MIDDLEWARE (015) ==========
-
-    /// <summary>
-    /// Fully-qualified type names of middleware declared in <c>[Collapse(Middlewares = [...])]</c>
-    /// that have a public parameterless constructor.
-    /// Example: ["MyApp.DbAuditMiddleware"]
-    /// Null/empty when toolharness has no parameterless-constructor scoped middlewares.
-    /// Source generator emits these as direct <c>static () =&gt; new T()</c> delegates in CollapseMiddlewareFactories.
-    /// </summary>
-    public List<string>? CollapseMiddlewareTypeNames { get; set; }
-
-    /// <summary>
-    /// Config-constructor middleware types declared in <c>[Collapse(Middlewares = [...])]</c>
-    /// that have a single config-parameter constructor (§5A).
-    /// Each entry carries the simple class name, the fully-qualified middleware type name,
-    /// and the fully-qualified config parameter type name.
-    /// Null/empty when toolharness has no config-constructor scoped middlewares.
-    /// Source generator emits these as <c>static json =&gt; new T(json.Deserialize&lt;TConfig&gt;()!)</c>
-    /// delegates in CollapseMiddlewareConfigFactories.
-    /// </summary>
-    public List<CollapseMiddlewareConfigEntry>? CollapseMiddlewareConfigTypeNames { get; set; }
+    /// <summary>Ordered middleware descriptors declared by the ToolHarness.</summary>
+    public List<CollapseMiddlewareEntry>? CollapseMiddlewareEntries { get; set; }
 
 }
 
@@ -227,12 +211,14 @@ internal class ToolHarnessInfo
 /// <summary>
 /// Metadata for a config-constructor scoped middleware type discovered by the source generator.
 /// </summary>
-internal sealed record CollapseMiddlewareConfigEntry(
-    /// <summary>Simple class name, e.g. "DbRateLimitMiddleware". Used as the MiddlewareTypeName in the generated CollapseMiddlewareConfigFactory.</summary>
+internal sealed record CollapseMiddlewareEntry(
     string SimpleName,
-    /// <summary>Fully-qualified middleware type name for the constructor call in generated code.</summary>
     string FullyQualifiedTypeName,
-    /// <summary>Fully-qualified config parameter type name for the Deserialize call in generated code.</summary>
-    string ConfigTypeFqn
-);
+    string? ConfigTypeFqn,
+    string? JsonContextTypeFqn,
+    bool ServicesOwned,
+    string? AgentResourceTypeFqn = null,
+    string? AgentResourceImplementationTypeFqn = null,
+    bool RequiresCanonicalWorkspaceIdentity = false,
+    bool ConfigHasGeneratedDefault = false);
 

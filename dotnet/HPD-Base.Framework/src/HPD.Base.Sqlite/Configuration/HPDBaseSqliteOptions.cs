@@ -118,4 +118,5 @@ public sealed class HPDBaseSqliteOptions
     internal BaseSubjectRetirementConsumerDefinition[] SubjectRetirementConsumers { get; set; } = [];
     internal BaseSubjectRetirementPolicy[] SubjectRetirementPolicies { get; set; } = [];
     internal BaseSubjectLifecycleInspectionAuthority[] SubjectLifecycleInspectionAuthorities { get; set; } = [];
+    internal BaseLogicalIndexProviderCapability? LogicalIndexCertificationCapability { get; set; }
 }

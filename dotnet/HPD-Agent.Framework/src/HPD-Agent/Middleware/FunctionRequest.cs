@@ -46,6 +46,12 @@ namespace HPD.Agent.Middleware;
 /// </remarks>
 public sealed record FunctionRequest
 {
+    /// <summary>Gets the permission grant issued for this exact invocation.</summary>
+    public HPD.Agent.Permissions.FunctionPermissionGrant? PermissionGrant { get; init; }
+    /// <summary>Gets whether permission was effectively required after all typed overrides.</summary>
+    public bool PermissionRequired { get; init; }
+    internal AgentContext? ExecutionContext { get; init; }
+    internal FunctionOperationCommitGate? OperationCommitGate { get; init; }
     /// <summary>
     /// The function being invoked.
     ///   Always available (never NULL)
@@ -82,6 +88,9 @@ public sealed record FunctionRequest
     /// Runtime-assigned invocation metadata, if this request belongs to a model tool-call batch.
     /// </summary>
     public ToolInvocationInfo? Invocation { get; init; }
+
+    /// <summary>Gets the immutable action and invocation-mode facts resolved before admission.</summary>
+    public ResolvedFunctionInvocation? InvocationMode { get; init; }
 
     /// <summary>
     /// Per-call structured metadata recorded during function execution.
@@ -141,17 +150,6 @@ public sealed record FunctionRequest
     /// </summary>
     public IStructEventHub? StructEvents { get; init; }
 
-    /// <summary>
-    /// Runtime-owned background task registry available to function bodies.
-    /// May be null for direct/test execution paths that are not running inside an agent runtime.
-    /// </summary>
-    public IAgentBackgroundTaskRegistry? BackgroundTasks { get; init; }
-
-    /// <summary>
-    /// Runtime-owned background handle registry available to function bodies.
-    /// May be null for direct/test execution paths that are not running inside an agent runtime.
-    /// </summary>
-    public IAgentBackgroundHandleRegistry? BackgroundHandles { get; init; }
 
     /// <summary>
     /// Creates a modified copy of this request.

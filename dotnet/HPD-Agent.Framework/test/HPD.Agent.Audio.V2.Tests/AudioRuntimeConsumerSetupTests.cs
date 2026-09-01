@@ -83,7 +83,8 @@ public sealed class AudioRuntimeConsumerSetupTests
             ThreadId = "main"
         });
 
-        Assert.Equal("assistant saw transcript", result.TurnResult.Text);
+        var completed = Assert.IsType<AgentInputResult.Completed>(result);
+        Assert.Equal("assistant saw transcript", completed.TurnResult.Text);
         Assert.Equal([9, 8, 7, 6], speechToTextClient.LastAudioBytes);
         Assert.Contains(chatClient.LastMessages, message =>
             message.Role == ChatRole.User &&

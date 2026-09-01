@@ -19,7 +19,7 @@ public class TeamsBotRegistrationTests
     {
         var services = new ServiceCollection();
         services.AddSingleton<SessionManager>(
-            new TestSessionManager(new InMemorySessionStore()));
+            new TestSessionManager(new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec)));
         services.AddSingleton<AgentManager>(
             new TestAgentManager(new InMemoryAgentStore()));
 
@@ -131,7 +131,7 @@ public class TeamsBotRegistrationTests
     {
         var services = new ServiceCollection();
         services.AddSingleton<SessionManager>(
-            new TestSessionManager(new InMemorySessionStore()));
+            new TestSessionManager(new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec)));
         services.AddSingleton<AgentManager>(
             new TestAgentManager(new InMemoryAgentStore()));
 

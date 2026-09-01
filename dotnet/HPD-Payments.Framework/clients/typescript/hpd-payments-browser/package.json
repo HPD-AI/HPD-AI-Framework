@@ -2,5 +2,15 @@
   "name": "@hpd/payments-browser",
   "version": "0.0.0",
   "private": true,
-  "description": "Reserved generated transport-only browser SDK boundary; no authority logic."
+  "description": "Transport-only browser SDK for the closed HPD.Payments API surface.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.js"
+    }
+  },
+  "scripts": {
+    "test": "node --test test/browser.test.mjs"
+  }
 }

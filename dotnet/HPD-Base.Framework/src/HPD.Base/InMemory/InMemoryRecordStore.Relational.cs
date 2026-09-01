@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
@@ -7,7 +8,9 @@ namespace HPD.Base;
 internal sealed partial class InMemoryRecordStore
 {
     /// <summary>Gets the relational reads.</summary>
-    public RelationalReadCapability RelationalReads { get; } = new()
+    public RelationalReadCapability RelationalReads { get; } = CreateRelationalCapability();
+
+    internal static RelationalReadCapability CreateRelationalCapability() => new()
     {
         Supported = true,
         JoinKinds = [BaseJoinKind.Inner, BaseJoinKind.Left, BaseJoinKind.Semi, BaseJoinKind.Anti],
@@ -16,17 +19,23 @@ internal sealed partial class InMemoryRecordStore
         [
             FilterOperator.Equal, FilterOperator.NotEqual, FilterOperator.LessThan,
             FilterOperator.LessThanOrEqual, FilterOperator.GreaterThan, FilterOperator.GreaterThanOrEqual,
+            FilterOperator.Contains, FilterOperator.StartsWith, FilterOperator.EndsWith,
         ],
         ValueKinds = Enum.GetValues<QueryValueKind>(),
-        MaxSources = 8,
+        CanonicalJsonValues = true,
+        IndependentAggregateBranches = true,
+        SingleSnapshotCompoundReads = true,
+        MaxCompoundBranches = 32,
+        MaxCompoundOperations = 256,
+        MaxSources = 32,
         MaxJoins = 8,
         MaxPredicateNodes = 256,
         MaxGroupKeys = 8,
-        MaxAggregates = 16,
+        MaxAggregates = 32,
         MaxProjectionFields = 64,
         MaxSortFields = 8,
         MaxResultRows = 1_000,
-        MaxResultBytes = 1_048_576,
+        MaxResultBytes = 16_777_216,
         SnapshotConsistency = true,
         CompleteDependencyEvidence = true,
     };
@@ -45,6 +54,15 @@ internal sealed partial class InMemoryRecordStore
             return ValueTask.FromResult(OperationResults.Ok(ExecuteRead(request, cancellationToken)));
         }
         catch (OperationCanceledException) { throw; }
+        catch (InMemoryRelationalLimitException)
+        {
+            return ValueTask.FromResult(OperationResults.StoreError<BaseRelationalReadExecutionResult>(new BaseError
+            {
+                Code = "base.relational.read.limitExceeded",
+                Message = "The InMemory relational result limits were exceeded.",
+                Category = ErrorCategory.Store,
+            }));
+        }
         catch
         {
             return ValueTask.FromResult(OperationResults.StoreError<BaseRelationalReadExecutionResult>(new BaseError
@@ -72,6 +90,8 @@ internal sealed partial class InMemoryRecordStore
                 }))
             .ToDictionary(static item => item.Key, static item => item.Kind, StringComparer.Ordinal);
         BaseRelationalReadPlan plan = LowerPlan(request.Plan, collections);
+        if (plan.Topology == BaseRelationalReadTopology.CompoundCount)
+            return ExecuteCompoundRead(request, plan, snapshot, parameters, policies, collections, fieldKinds, cancellationToken);
         var rows = new List<RelationalContext> { new(fieldKinds, snapshot, _options.ExportedSubjects) };
 
         BaseRelationalReadSource root = plan.Sources[0];
@@ -107,41 +127,170 @@ internal sealed partial class InMemoryRecordStore
         if (plan.GroupKeys.Length != 0 || plan.Aggregates.Length != 0)
         {
             if (plan.GroupKeys.Length == 0 && rows.Count == 0)
-                output = [BuildOutput(plan, new RelationalContext(fieldKinds, snapshot, _options.ExportedSubjects), [], parameters)];
+                output = [BuildOutputAuthority(plan, new RelationalContext(fieldKinds, snapshot, _options.ExportedSubjects), [], parameters)];
             else
                 output = rows.GroupBy(row => Key(plan.GroupKeys.Select(operand => Value(operand, row, parameters))))
-                    .Select(group => BuildOutput(plan, group.First(), group.ToArray(), parameters)).ToList();
+                    .Select(group => BuildOutputAuthority(plan, group.First(), group.ToArray(), parameters)).ToList();
         }
-        else output = rows.Select(row => BuildOutput(plan, row, [row], parameters)).ToList();
+        else output = rows.Select(row => BuildOutputAuthority(plan, row, [row], parameters)).ToList();
 
         if (plan.Having is not null)
             output = output.Where(item => Predicate(plan.Having, item.Context, parameters, item.Aggregates)).ToList();
         if (plan.Distinct)
-            output = output.DistinctBy(static item => Key(item.Row.Fields.OrderBy(static field => field.FieldId, StringComparer.Ordinal).Select(static field => field.Value))).ToList();
+            output = DistinctOutputs(plan, output, parameters);
         output.Sort((left, right) => plan.Sort.Length == 0
-            ? CompareProjected(left.Row, right.Row)
-            : CompareSort(plan.Sort, left, right, parameters));
+            ? CompareProjected(plan, left, right, parameters)
+            : CompareSort(plan, left, right, parameters));
 
         int total = output.Count;
-        int page = plan.Page?.Page ?? 1;
-        int perPage = plan.Page?.PerPage ?? request.MaxResultRows;
-        int offset = checked((page - 1) * perPage);
-        BaseRelationalRow[] resultRows = output.Skip(offset).Take(perPage).Select(static item => item.Row).ToArray();
-        int bytes = resultRows.Sum(EstimateBytes);
-        if (resultRows.Length > request.MaxResultRows || bytes > request.MaxResultBytes)
-            throw new InvalidOperationException("Result limit exceeded.");
+        int perPage = plan.Window?.Kind == BaseRegisteredReadWindowKind.Offset
+            ? plan.Window.Limit!.Value
+            : plan.Window?.PerPage ?? request.MaxResultRows;
+        int offset = plan.Window?.Kind == BaseRegisteredReadWindowKind.Offset
+            ? plan.Window.Offset!.Value
+            : checked(((plan.Window?.Page ?? 1) - 1) * perPage);
+        if (!TryMaterializeBoundedPage(
+                output.Skip(offset).Take(perPage),
+                request.MaxResultRows,
+                request.MaxResultBytes,
+                item => ProjectRow(plan, item, parameters),
+                EstimateBytes,
+                out BaseRelationalRow[] resultRows))
+            throw new InMemoryRelationalLimitException();
         return new BaseRelationalReadExecutionResult
         {
             Result = new BaseRelationalReadResult
             {
                 Rows = resultRows,
-                Page = new PageInfo { Limit = perPage, HasMore = offset + resultRows.Length < total },
+                Page = plan.Window?.Kind == BaseRegisteredReadWindowKind.Offset
+                    ? new PageInfo { Offset = offset, Limit = perPage, HasMore = total > offset && total - offset > resultRows.Length }
+                    : new PageInfo { Page = plan.Window?.Page ?? 1, PerPage = perPage, HasMore = total > offset && total - offset > resultRows.Length },
                 Count = total,
-                SchemaGeneration = plan.SchemaGeneration,
             },
             DependencyEvidence = DependencyEvidence(plan, snapshot),
+            SnapshotAuthority = SnapshotAuthority(request, snapshot),
         };
     }
+
+    private BaseRelationalReadExecutionResult ExecuteCompoundRead(
+        BaseRelationalReadExecutionRequest request, BaseRelationalReadPlan plan, InMemoryStoreState snapshot,
+        IReadOnlyDictionary<string, QueryValue> parameters, IReadOnlyDictionary<string, BaseRelationalReadSourcePolicy> policies,
+        IReadOnlyDictionary<string, CollectionDefinition> collections, IReadOnlyDictionary<string, QueryValueKind> fieldKinds,
+        CancellationToken cancellationToken)
+    {
+        var rows = new List<BaseRelationalRow>(plan.CompoundCountBranches.Length); long bytes = 0;
+        foreach (BaseRelationalCompoundCountBranch branch in plan.CompoundCountBranches)
+        {
+            long count = 0;
+            foreach (StoredRecord record in SourceRecords(snapshot, branch.Source, policies[branch.Source.Id], collections[branch.Source.CollectionId], cancellationToken))
+            {
+                var context = new RelationalContext(fieldKinds, snapshot, _options.ExportedSubjects);
+                context.Records[branch.Source.Id] = record;
+                if (branch.Predicate is null || Predicate(branch.Predicate, context, parameters, null)) count++;
+            }
+            var row = new BaseRelationalRow
+            {
+                Fields =
+                [
+                    new() { FieldId = branch.DiscriminatorOutputFieldId, Value = new QueryValue { Kind = QueryValueKind.String, String = branch.Discriminator } },
+                    new() { FieldId = branch.CountOutputFieldId, Value = new QueryValue { Kind = QueryValueKind.Integer, Integer = count } },
+                ],
+            };
+            if (!TryAccumulateRelationalResultBytes(bytes, EstimateBytes(row), out bytes) || bytes > request.MaxResultBytes)
+                throw new InMemoryRelationalLimitException();
+            rows.Add(row);
+        }
+        BaseReadDependencyEvidence[] dependencies = plan.Sources.Select(static source => source.CollectionId).Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal).Select(static id => new BaseReadDependencyEvidence { CollectionId = id }).ToArray();
+        BaseRelationalCompoundBranchEvidence[] evidence = plan.CompoundCountBranches.Select((branch, ordinal) => new BaseRelationalCompoundBranchEvidence
+        {
+            BranchId = branch.Id, BranchChecksum = branch.BranchChecksum, RowOrdinal = ordinal, SchemaGeneration = plan.SchemaGeneration,
+        }).ToArray();
+        if (!BaseRelationalReadEvidenceAccounting.TryMeasure(dependencies, evidence, out long evidenceBytes)
+            || !TryAccumulateRelationalResultBytes(bytes, evidenceBytes, out bytes) || bytes > request.MaxResultBytes)
+            throw new InMemoryRelationalLimitException();
+        return new BaseRelationalReadExecutionResult
+        {
+            Result = new BaseRelationalReadResult
+            {
+                Rows = rows.ToArray(), Page = new PageInfo { Page = 1, PerPage = rows.Count, Limit = rows.Count, HasMore = false }, Count = rows.Count,
+            },
+            DependencyEvidence = dependencies,
+            CompoundBranches = evidence,
+            SnapshotAuthority = SnapshotAuthority(request, snapshot),
+        };
+    }
+
+    private BaseRelationalReadSnapshotAuthority SnapshotAuthority(
+        BaseRelationalReadExecutionRequest request,
+        InMemoryStoreState snapshot)
+    {
+        BaseSchemaAuthorityChecksum schemaChecksum = BaseSchemaAuthorityChecksum.Create(
+            request.LogicalSchemaChecksum.ToArray());
+        BaseRelationalCollectionSnapshotAuthority[] collections = request.Plan.Sources
+            .Select(static source => source.CollectionId)
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .Select(id => new BaseRelationalCollectionSnapshotAuthority
+            {
+                CollectionId = id,
+                CollectionGeneration = snapshot.Collections.GetValueOrDefault(id)?.PurgeGeneration ?? 0,
+            }).ToArray();
+        return BaseRelationalReadSnapshotAuthorityContract.Create(
+            request.ApplicationId,
+            _options.StoreId,
+            _options.StoreId,
+            restoreEpoch: 0,
+            schemaGeneration: request.Plan.SchemaGeneration,
+            schemaChecksum,
+            collections);
+    }
+
+    internal static bool TryAccumulateRelationalResultBytes(long current, long additional, out long total)
+    {
+        try
+        {
+            total = checked(current + additional);
+            return current >= 0 && additional >= 0;
+        }
+        catch (OverflowException)
+        {
+            total = 0;
+            return false;
+        }
+    }
+
+    internal static bool TryMaterializeBoundedPage<TSource, TResult>(
+        IEnumerable<TSource> source,
+        int maximumRows,
+        long maximumBytes,
+        Func<TSource, TResult> project,
+        Func<TResult, long> estimateBytes,
+        out TResult[] result)
+    {
+        var admitted = new List<TResult>(maximumRows);
+        long bytes = 0;
+        foreach (TSource item in source)
+        {
+            if (admitted.Count >= maximumRows)
+            {
+                result = [];
+                return false;
+            }
+            TResult current = project(item);
+            long currentBytes = estimateBytes(current);
+            if (!TryAccumulateRelationalResultBytes(bytes, currentBytes, out bytes) || bytes > maximumBytes)
+            {
+                result = [];
+                return false;
+            }
+            admitted.Add(current);
+        }
+        result = admitted.ToArray();
+        return true;
+    }
+
+    private sealed class InMemoryRelationalLimitException : Exception;
 
     private static BaseReadDependencyEvidence[] DependencyEvidence(BaseRelationalReadPlan plan, InMemoryStoreState snapshot)
     {
@@ -190,7 +339,7 @@ internal sealed partial class InMemoryRecordStore
         var sourceCollections = plan.Sources.ToDictionary(static source => source.Id, source => collections[source.CollectionId], StringComparer.Ordinal);
         BaseRelationalOperand Lower(BaseRelationalOperand operand)
         {
-            if (operand.Kind != BaseRelationalOperandKind.SourceField) return operand;
+            if (operand.Kind is not (BaseRelationalOperandKind.SourceField or BaseRelationalOperandKind.StoredSubjectReference)) return operand;
             string storedName = (sourceCollections[operand.SourceId!].Fields ?? [])
                 .Single(field => string.Equals(field.Id, operand.FieldId, StringComparison.Ordinal)).WireName;
             return operand with { FieldId = storedName };
@@ -210,22 +359,53 @@ internal sealed partial class InMemoryRecordStore
             Having = Predicate(plan.Having),
             Projection = plan.Projection.Select(projection => projection with { Operand = Lower(projection.Operand) }).ToArray(),
             Sort = plan.Sort.Select(sort => sort with { Operand = Lower(sort.Operand) }).ToArray(),
+            CompoundCountBranches = plan.CompoundCountBranches.Select(branch => branch with { Predicate = Predicate(branch.Predicate) }).ToArray(),
         };
     }
 
-    private static RelationalOutput BuildOutput(
+    private static RelationalOutput BuildOutputAuthority(
         BaseRelationalReadPlan plan, RelationalContext context, RelationalContext[] group,
         IReadOnlyDictionary<string, QueryValue> parameters)
     {
         var aggregates = new Dictionary<string, QueryValue>(StringComparer.Ordinal);
         foreach (BaseRelationalReadAggregate aggregate in plan.Aggregates)
             aggregates[aggregate.Id] = Aggregate(aggregate, context, group, parameters);
-        var fields = plan.Projection.Select(projection => new BaseRelationalFieldValue
+        return new RelationalOutput(context, aggregates);
+    }
+
+    private static BaseRelationalRow ProjectRow(
+        BaseRelationalReadPlan plan,
+        RelationalOutput output,
+        IReadOnlyDictionary<string, QueryValue> parameters) => new()
         {
-            FieldId = projection.FieldId,
-            Value = Value(projection.Operand, context, parameters, aggregates),
-        }).ToArray();
-        return new RelationalOutput(context, aggregates, new BaseRelationalRow { Fields = fields });
+            Fields = plan.Projection.Select(projection => new BaseRelationalFieldValue
+            {
+                FieldId = projection.FieldId,
+                Value = Value(projection.Operand, output.Context, parameters, output.Aggregates),
+            }).ToArray(),
+        };
+
+    private static List<RelationalOutput> DistinctOutputs(
+        BaseRelationalReadPlan plan,
+        List<RelationalOutput> candidates,
+        IReadOnlyDictionary<string, QueryValue> parameters)
+    {
+        var admitted = new List<RelationalOutput>(candidates.Count);
+        var buckets = new Dictionary<string, List<RelationalOutput>>(StringComparer.Ordinal);
+        foreach (RelationalOutput candidate in candidates)
+        {
+            BaseRelationalRow row = ProjectRow(plan, candidate, parameters);
+            string key = Key(row.Fields.OrderBy(static field => field.FieldId, StringComparer.Ordinal)
+                .Select(static field => field.Value));
+            string digest = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(key)));
+            if (!buckets.TryGetValue(digest, out List<RelationalOutput>? bucket))
+                buckets[digest] = bucket = [];
+            if (bucket.Any(existing => CompareProjected(plan, existing, candidate, parameters) == 0))
+                continue;
+            bucket.Add(candidate);
+            admitted.Add(candidate);
+        }
+        return admitted;
     }
 
     private static QueryValue Aggregate(
@@ -253,6 +433,7 @@ internal sealed partial class InMemoryRecordStore
         IReadOnlyDictionary<string, QueryValue> parameters) => operand.Kind switch
     {
         BaseRelationalOperandKind.RecordId => QueryValueKind.Id,
+        BaseRelationalOperandKind.RecordRevision => QueryValueKind.String,
         BaseRelationalOperandKind.SourceField => context.FieldKinds[operand.SourceId! + "\0" + operand.FieldId!],
         BaseRelationalOperandKind.Parameter => parameters[operand.ParameterId!].Kind,
         BaseRelationalOperandKind.Literal => operand.Literal!.Kind,
@@ -299,9 +480,9 @@ internal sealed partial class InMemoryRecordStore
 
     private static bool Present(BaseRelationalOperand operand, RelationalContext context)
     {
-        if (operand.Kind is not (BaseRelationalOperandKind.SourceField or BaseRelationalOperandKind.RecordId)) return true;
+        if (operand.Kind is not (BaseRelationalOperandKind.SourceField or BaseRelationalOperandKind.RecordId or BaseRelationalOperandKind.RecordRevision)) return true;
         StoredRecord? record = context.Records.GetValueOrDefault(operand.SourceId!);
-        return record is not null && (operand.Kind == BaseRelationalOperandKind.RecordId || TryReadField(record.Payload, operand.FieldId!, out _));
+        return record is not null && (operand.Kind is BaseRelationalOperandKind.RecordId or BaseRelationalOperandKind.RecordRevision || TryReadField(record.Payload, operand.FieldId!, out _));
     }
 
     private static bool Compare(QueryValue left, QueryValue right, FilterOperator operation)
@@ -315,6 +496,12 @@ internal sealed partial class InMemoryRecordStore
             FilterOperator.LessThanOrEqual => comparison <= 0,
             FilterOperator.GreaterThan => comparison > 0,
             FilterOperator.GreaterThanOrEqual => comparison >= 0,
+            FilterOperator.Contains => left.Kind == QueryValueKind.String && right.Kind == QueryValueKind.String
+                && (left.String ?? string.Empty).Contains(right.String ?? string.Empty, StringComparison.Ordinal),
+            FilterOperator.StartsWith => left.Kind == QueryValueKind.String && right.Kind == QueryValueKind.String
+                && (left.String ?? string.Empty).StartsWith(right.String ?? string.Empty, StringComparison.Ordinal),
+            FilterOperator.EndsWith => left.Kind == QueryValueKind.String && right.Kind == QueryValueKind.String
+                && (left.String ?? string.Empty).EndsWith(right.String ?? string.Empty, StringComparison.Ordinal),
             _ => throw new InvalidOperationException(),
         };
     }
@@ -330,9 +517,37 @@ internal sealed partial class InMemoryRecordStore
         StoredRecord? record = context.Records.GetValueOrDefault(operand.SourceId!);
         if (record is null) return Null();
         if (operand.Kind == BaseRelationalOperandKind.RecordId) return new QueryValue { Kind = QueryValueKind.Id, Id = record.Id.Value };
+        if (operand.Kind == BaseRelationalOperandKind.RecordRevision) return new QueryValue { Kind = QueryValueKind.String, String = record.Metadata.Revision?.Value ?? throw new InvalidOperationException() };
         if (operand.Kind == BaseRelationalOperandKind.SubjectReference)
             return SubjectReferenceValue(operand, record, context.State, context.Subjects);
+        if (operand.Kind == BaseRelationalOperandKind.StoredSubjectReference)
+            return StoredSubjectReferenceValue(operand, record, context.Subjects);
         return FieldValue(record, operand.FieldId!, context.FieldKinds[operand.SourceId! + "\0" + operand.FieldId!]);
+    }
+
+    private static QueryValue StoredSubjectReferenceValue(
+        BaseRelationalOperand operand,
+        StoredRecord record,
+        IReadOnlyList<BaseExportedSubjectDefinition> subjects)
+    {
+        if (!TryReadField(record.Payload, operand.FieldId!, out JsonElement element)
+            || element.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+            return Null();
+        BaseExportedSubjectDefinition definition = subjects.Single(subject =>
+            string.Equals(subject.Id, operand.SubjectContractId, StringComparison.Ordinal)
+            && subject.Version == operand.SubjectContractVersion);
+        (BaseSubjectId subjectId, BaseSubjectAuthorityEpoch epoch, BaseSubjectIncarnation incarnation) =
+            BaseSubjectReferenceEncoding.DecodeElement(
+                element, definition.SubjectIdKind, definition.MaximumSubjectIdUtf8Bytes);
+        return new QueryValue
+        {
+            Kind = QueryValueKind.SubjectReference,
+            SubjectId = new string(subjectId.Value.AsSpan()),
+            SubjectIdKind = definition.SubjectIdKind,
+            SubjectIdMaximumUtf8Bytes = definition.MaximumSubjectIdUtf8Bytes,
+            SubjectAuthorityEpoch = epoch.ToBase64Url(),
+            SubjectIncarnation = incarnation.ToBase64Url(),
+        };
     }
 
     private static QueryValue SubjectReferenceValue(BaseRelationalOperand operand, StoredRecord record, InMemoryStoreState state, IReadOnlyList<BaseExportedSubjectDefinition> subjects)
@@ -373,11 +588,22 @@ internal sealed partial class InMemoryRecordStore
             QueryValueKind.Number => Real(element.GetDouble()),
             QueryValueKind.Decimal => new QueryValue { Kind = kind, Decimal = element.GetDecimal().ToString(CultureInfo.InvariantCulture) },
             QueryValueKind.DateTime => new QueryValue { Kind = kind, DateTime = element.GetDateTimeOffset() },
+            QueryValueKind.CanonicalJson => new QueryValue
+            {
+                Kind = kind,
+                CanonicalJsonUtf8 = ImmutableArray.Create(BaseStrictUtf8.Encode(element.GetRawText())),
+            },
             _ => new QueryValue { Kind = QueryValueKind.String, String = element.ValueKind == JsonValueKind.String ? element.GetString() : element.GetRawText() },
         };
     }
 
-    private static QueryValueKind InMemoryFieldKind(FieldDefinition field) => field.Format == "date-time"
+    private static QueryValueKind InMemoryFieldKind(FieldDefinition field) => field.ScalarKind is BaseScalarKind.Guid or BaseScalarKind.RecordId
+        ? QueryValueKind.Id
+        : field.ScalarKind == BaseScalarKind.CanonicalJson
+        ? QueryValueKind.CanonicalJson
+        : field.ScalarKind == BaseScalarKind.ModuleGeneration
+        ? QueryValueKind.String
+        : field.Format == "date-time"
         ? QueryValueKind.DateTime
         : field.Type switch
     {
@@ -390,9 +616,9 @@ internal sealed partial class InMemoryRecordStore
         _ => QueryValueKind.String,
     };
 
-    private static int CompareSort(BaseRelationalReadSort[] sort, RelationalOutput left, RelationalOutput right, IReadOnlyDictionary<string, QueryValue> parameters)
+    private static int CompareSort(BaseRelationalReadPlan plan, RelationalOutput left, RelationalOutput right, IReadOnlyDictionary<string, QueryValue> parameters)
     {
-        foreach (BaseRelationalReadSort item in sort)
+        foreach (BaseRelationalReadSort item in plan.Sort)
         {
             QueryValue leftValue = Value(item.Operand, left.Context, parameters, left.Aggregates);
             QueryValue rightValue = Value(item.Operand, right.Context, parameters, right.Aggregates);
@@ -403,18 +629,23 @@ internal sealed partial class InMemoryRecordStore
             int comparison = CompareValues(leftValue, rightValue);
             if (comparison != 0) return item.Direction == QuerySortDirection.Desc ? -comparison : comparison;
         }
-        return CompareProjected(left.Row, right.Row);
+        return CompareProjected(plan, left, right, parameters);
     }
 
-    private static int CompareProjected(BaseRelationalRow left, BaseRelationalRow right)
+    private static int CompareProjected(
+        BaseRelationalReadPlan plan,
+        RelationalOutput left,
+        RelationalOutput right,
+        IReadOnlyDictionary<string, QueryValue> parameters)
     {
-        int length = Math.Min(left.Fields.Length, right.Fields.Length);
-        for (int index = 0; index < length; index++)
+        foreach (BaseRelationalReadProjection projection in plan.Projection)
         {
-            int comparison = CompareValues(left.Fields[index].Value, right.Fields[index].Value);
+            int comparison = CompareValues(
+                Value(projection.Operand, left.Context, parameters, left.Aggregates),
+                Value(projection.Operand, right.Context, parameters, right.Aggregates));
             if (comparison != 0) return comparison;
         }
-        return left.Fields.Length.CompareTo(right.Fields.Length);
+        return 0;
     }
 
     private static int CompareValues(QueryValue left, QueryValue right)
@@ -444,10 +675,19 @@ internal sealed partial class InMemoryRecordStore
         string text = value.String ?? value.Boolean?.ToString() ?? value.Integer?.ToString(CultureInfo.InvariantCulture) ??
             value.Number?.ToString("R", CultureInfo.InvariantCulture) ?? value.Decimal ??
             value.DateTime?.ToString("O", CultureInfo.InvariantCulture) ?? value.Id ??
-            (value.Array is null ? "" : Key(value.Array));
+            (value.Array is null ? (value.CanonicalJsonUtf8.IsDefault ? "" : Convert.ToBase64String(value.CanonicalJsonUtf8.AsSpan())) : Key(value.Array));
         return ((int)value.Kind).ToString(CultureInfo.InvariantCulture) + ":" + text.Length.ToString(CultureInfo.InvariantCulture) + ":" + text;
     }
-    private static int EstimateBytes(BaseRelationalRow row) => row.Fields.Sum(static field => Encoding.UTF8.GetByteCount(field.FieldId) + Encoding.UTF8.GetByteCount(Key(field.Value)));
+    private static long EstimateBytes(BaseRelationalRow row)
+    {
+        long bytes = 0;
+        foreach (BaseRelationalFieldValue field in row.Fields)
+            bytes = checked(bytes + Encoding.UTF8.GetByteCount(field.FieldId) +
+                (field.Value.Kind == QueryValueKind.CanonicalJson
+                    ? field.Value.CanonicalJsonUtf8.Length
+                    : Encoding.UTF8.GetByteCount(Key(field.Value))));
+        return bytes;
+    }
 
     private sealed class RelationalContext(IReadOnlyDictionary<string, QueryValueKind> fieldKinds, InMemoryStoreState state, IReadOnlyList<BaseExportedSubjectDefinition> subjects)
     {
@@ -457,5 +697,5 @@ internal sealed partial class InMemoryRecordStore
         internal Dictionary<string, StoredRecord?> Records { get; } = new(StringComparer.Ordinal);
         internal RelationalContext Clone() { var clone = new RelationalContext(FieldKinds, State, Subjects); foreach (var pair in Records) clone.Records[pair.Key] = pair.Value; return clone; }
     }
-    private sealed record RelationalOutput(RelationalContext Context, IReadOnlyDictionary<string, QueryValue> Aggregates, BaseRelationalRow Row);
+    private sealed record RelationalOutput(RelationalContext Context, IReadOnlyDictionary<string, QueryValue> Aggregates);
 }

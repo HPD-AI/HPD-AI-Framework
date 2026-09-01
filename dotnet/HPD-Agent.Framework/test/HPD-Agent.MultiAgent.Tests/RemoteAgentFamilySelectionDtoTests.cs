@@ -9,7 +9,9 @@ namespace HPD.MultiAgent.Tests;
 
 public sealed class RemoteAgentFamilySelectionDtoTests
 {
-    private static readonly ProviderComposition EmptyComposition = ProviderComposition.Create([]);
+    private static readonly ProviderComposition Composition = ProviderComposition.Create([
+        new ProviderManifestFragment([new TestDescriptor()], [], [], [])
+    ]);
 
     [Fact]
     public void CreateAndBind_RoundTripsSafeSelectionAndAbsoluteDeadline()
@@ -22,38 +24,53 @@ public sealed class RemoteAgentFamilySelectionDtoTests
             ProviderClientFamily.Chat,
             new ChatClientConfig
             {
-                ProviderKey = "openai",
+                Provider = new ProviderReference
+                {
+                    Key = "openai",
+                    Backend = "platform",
+                    Authentication = new ApiKeyProviderAuthentication { SecretKey = "openai:ApiKey" }
+                },
                 ModelName = "gpt-test",
-                AuthenticationKey = "tenant-a",
                 Temperature = 0.25f
             },
-            EmptyComposition,
+            Composition,
             deadline);
 
         var json = JsonSerializer.Serialize(
             transport, MultiAgentGraphConfigJsonContext.Default.RemoteAgentFamilySelectionDto);
         var restored = JsonSerializer.Deserialize(
             json, MultiAgentGraphConfigJsonContext.Default.RemoteAgentFamilySelectionDto)!;
-        var bound = restored.Bind(EmptyComposition).Should().BeOfType<ChatClientConfig>().Subject;
+        var bound = restored.Bind(Composition).Should().BeOfType<ChatClientConfig>().Subject;
 
-        bound.ProviderKey.Should().Be("openai");
+        bound.Provider!.Key.Should().Be("openai");
+        bound.Provider.Backend.Should().Be("platform");
         bound.ModelName.Should().Be("gpt-test");
-        bound.AuthenticationKey.Should().Be("tenant-a");
+        bound.Provider.Authentication.Should().BeOfType<ApiKeyProviderAuthentication>()
+            .Which.SecretKey.Should().Be("openai:ApiKey");
         bound.Temperature.Should().Be(0.25f);
         restored.Deadline.Should().Be(deadline);
         Assert.DoesNotContain("apiKey", json, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public void Create_RejectsRawApiKey()
+    public void Create_RejectsProcessLocalLiteralSecretRegistration()
     {
         var action = () => RemoteAgentFamilySelectionDto.Create(
             ProviderClientFamily.Chat,
-            new ChatClientConfig { ApiKey = "secret" },
-            EmptyComposition);
+            new ChatClientConfig
+            {
+                Provider = new ProviderReference
+                {
+                    Key = "openai",
+                    Backend = "platform",
+                    Authentication = new ExplicitApiKeyProviderAuthentication
+                        { RuntimeRegistrationName = "runtime-secret" }
+                }
+            },
+            Composition);
 
         action.Should().Throw<InvalidOperationException>()
-            .WithMessage("Raw API keys cannot cross*");
+            .WithMessage("Process-local literal provider secrets cannot cross*");
     }
 
     [Fact]
@@ -63,12 +80,9 @@ public sealed class RemoteAgentFamilySelectionDtoTests
             ProviderClientFamily.Chat,
             new ChatClientConfig
             {
-                Override = new ClientOverride<IChatClient>
-                {
-                    Client = new Mock<IChatClient>().Object
-                }
+                Override = ClientOverride<IChatClient>.Borrow(new Mock<IChatClient>().Object)
             },
-            EmptyComposition);
+            Composition);
 
         action.Should().Throw<InvalidOperationException>()
             .WithMessage("Runtime client overrides cannot cross*");
@@ -84,9 +98,45 @@ public sealed class RemoteAgentFamilySelectionDtoTests
             Selection = []
         };
 
-        var action = () => transport.Bind(EmptyComposition);
+        var action = () => transport.Bind(Composition);
 
         action.Should().Throw<InvalidOperationException>()
             .WithMessage("Unsupported remote agent family selection schema version*");
+    }
+
+    private sealed class TestDescriptor : IProviderDescriptor
+    {
+        public string ProviderKey => "openai";
+        public string DisplayName => "OpenAI";
+        public Uri? DocumentationUri => null;
+        public IReadOnlyDictionary<ProviderClientFamily, ProviderFamilyDescriptor> Families { get; } =
+            new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
+            {
+                [ProviderClientFamily.Chat] = new() { Family = ProviderClientFamily.Chat }
+            };
+        public IReadOnlyDictionary<string, ProviderBackendDescriptor> Backends { get; } =
+            new Dictionary<string, ProviderBackendDescriptor>
+            {
+                ["platform"] = new()
+                {
+                    BackendKey = "platform",
+                    IsDefault = true,
+                    Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
+                    {
+                        [ProviderClientFamily.Chat] = new() { Family = ProviderClientFamily.Chat }
+                    },
+                    Authentication =
+                    [
+                        new ProviderAuthenticationDescriptor
+                        {
+                            Kind = ProviderAuthenticationKind.ApiKey,
+                            IsDefault = true,
+                            DefaultSecretKey = "openai:ApiKey",
+                            SupportedFamilies = new HashSet<ProviderClientFamily> { ProviderClientFamily.Chat }
+                        }
+                    ]
+                }
+            };
+        public IReadOnlyList<string> Aliases => [];
     }
 }

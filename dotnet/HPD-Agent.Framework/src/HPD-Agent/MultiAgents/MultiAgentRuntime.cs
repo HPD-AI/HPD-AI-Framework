@@ -87,15 +87,15 @@ public static class MultiAgentRuntime
         }
         catch (InvalidOperationException ex)
         {
-            return AgentInvocationModes.CreateReceiptResult(
+            return AgentInvocationModes.CreateFailureResult(
                 request.Name,
-                BackgroundTaskSourceKind.MultiAgent,
+                AgentOperationSourceKind.MultiAgent,
                 ex.Message,
                 "invalid_invocation_mode");
         }
 
         if (mode == AgentInvocationMode.Background)
-            return RegisterBackgroundInvocation(request);
+            return await RegisterBackgroundInvocationAsync(request).ConfigureAwait(false);
 
         var result = await InvokeSynchronousCoreAsync(request, cancellationToken).ConfigureAwait(false);
         return new AgentInvocationResult
@@ -105,64 +105,46 @@ public static class MultiAgentRuntime
         };
     }
 
-    private static AgentInvocationResult RegisterBackgroundInvocation(MultiAgentInvocationRequest request)
+    private static async Task<AgentInvocationResult> RegisterBackgroundInvocationAsync(MultiAgentInvocationRequest request)
     {
         var parentContext = request.ParentContext;
-        if (parentContext is null || !parentContext.CanRegisterBackgroundTasks)
+        if (parentContext?.OperationRegistry is not { } operations ||
+            parentContext.SessionId is null || parentContext.ThreadId is null)
         {
-            return AgentInvocationModes.CreateReceiptResult(
+            return AgentInvocationModes.CreateFailureResult(
                 request.Name,
-                BackgroundTaskSourceKind.MultiAgent,
+                AgentOperationSourceKind.MultiAgent,
                 "Background invocation requires an active agent runtime.");
         }
 
-        var registration = parentContext.RegisterBackgroundTask(
-            new BackgroundTaskDescriptor
-            {
-                Name = request.Name,
-                SourceKind = BackgroundTaskSourceKind.MultiAgent,
-                SourceId = parentContext.FunctionCallId,
-                SessionId = parentContext.SessionId,
-                ThreadId = parentContext.ThreadId,
-                Invocation = parentContext.InvocationSnapshot,
-                Notification = new BackgroundTaskNotificationRule.OnFinalStateRule(
-                    Completed: true,
-                    Faulted: true),
-                Metadata = new Dictionary<string, string>(StringComparer.Ordinal)
+        var receipt = await AgentLocalOperationScheduler.StartAsync(
+            operations,
+            AgentOperationSourceKind.MultiAgent,
+            request.Name,
+            new AgentExecutionAddress(parentContext.AgentName, parentContext.SessionId, parentContext.ThreadId),
+            parentContext.ThreadExecutionId,
+            parentContext.InvocationSnapshot,
+            new Dictionary<string, string>(StringComparer.Ordinal)
                 {
                     ["invocation.kind"] = "multi-agent",
                     ["invocation.mode"] = "background",
                     ["workflow.name"] = request.Name,
                     ["workflow.streamEvents"] = request.StreamEvents.ToString().ToLowerInvariant()
-                }
-            },
-            async (backgroundContext, runtimeToken) =>
+                },
+            new AgentOperationNotificationPolicy(),
+            async (_, runtimeToken) =>
             {
                 var result = await InvokeSynchronousCoreAsync(
                     request with { RequestedMode = AgentInvocationMode.Synchronous },
                     runtimeToken).ConfigureAwait(false);
 
-                backgroundContext.SetCompletion(
-                    summary: result.Text,
-                    metadata: new Dictionary<string, string>(StringComparer.Ordinal)
-                    {
-                        ["workflow.name"] = request.Name
-                    });
-            });
+                return new AgentOperationCompletion(result.Text);
+            }).ConfigureAwait(false);
 
         return new AgentInvocationResult
         {
             Mode = AgentInvocationMode.Background,
-            Background = new AgentBackgroundInvocationReceipt
-            {
-                Status = "background_started",
-                TaskId = registration.TaskId,
-                Name = registration.Name,
-                SourceKind = registration.SourceKind,
-                SessionId = parentContext.SessionId,
-                ThreadId = parentContext.ThreadId,
-                Message = $"Started {request.Name} in the background."
-            }
+            Operation = receipt
         };
     }
 

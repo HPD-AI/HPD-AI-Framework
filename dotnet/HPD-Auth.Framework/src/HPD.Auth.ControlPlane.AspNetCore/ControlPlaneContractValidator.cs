@@ -47,7 +47,7 @@ internal static class ControlPlaneContractValidator
         var previousPeriod = false;
         foreach (var character in value)
         {
-            var valid = IsEdge(character) || character is '.' or '-';
+            var valid = IsEdge(character) || character is >= 'A' and <= 'Z' || character is '.' or '-';
             if (!valid || (character == '.' && previousPeriod))
                 throw new InvalidOperationException($"The control-plane {kind} name is invalid.");
             previousPeriod = character == '.';

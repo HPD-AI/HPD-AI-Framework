@@ -78,7 +78,7 @@ public sealed class MutationRequestContractTests
     [Fact]
     public void AdministrationCollectionsAreDefensivelyCopied()
     {
-        RecordId[] ids = [new("record_1")];
+        RecordId[] ids = [RecordId.Create("record_1")];
         var request = new BasePurgeRequest
         {
             CollectionId = "history",
@@ -88,10 +88,10 @@ public sealed class MutationRequestContractTests
             AuditReference = "audit_1",
             EvaluatedAt = DateTimeOffset.UnixEpoch,
         };
-        ids[0] = new RecordId("changed");
+        ids[0] = RecordId.Create("changed");
         RecordId[] exposed = request.RecordIds;
-        exposed[0] = new RecordId("changed_again");
+        exposed[0] = RecordId.Create("changed_again");
 
-        request.RecordIds.Should().Equal(new RecordId("record_1"));
+        request.RecordIds.Should().Equal(RecordId.Create("record_1"));
     }
 }

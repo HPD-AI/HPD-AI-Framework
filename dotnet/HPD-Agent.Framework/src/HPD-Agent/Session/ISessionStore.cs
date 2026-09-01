@@ -6,6 +6,8 @@ using System.Threading.Tasks;
 
 namespace HPD.Agent;
 
+using HPD.Agent.Serialization;
+
 /// <summary>
 /// Interface for persisting and loading session and thread state.
 /// Thread events are the durable execution and transcript source of truth.
@@ -20,6 +22,9 @@ namespace HPD.Agent;
 /// </remarks>
 public interface ISessionStore
 {
+    /// <summary>Gets the immutable codec authority used for every journal operation.</summary>
+    AgentEventCodec EventCodec { get; }
+
     // ═══════════════════════════════════════════════════════════════════
     // SESSION PERSISTENCE ( Metadata only, no messages)
     // ═══════════════════════════════════════════════════════════════════
@@ -45,6 +50,11 @@ public interface ISessionStore
     /// <para>Messages are persisted as thread events and projected into Thread objects on load.</para>
     /// </remarks>
     Task SaveSessionAsync(
+        Session session,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Conditionally creates an invisible prepared session without overwriting a colliding route.</summary>
+    ValueTask<SessionPreparationResult> TryPrepareSessionAsync(
         Session session,
         CancellationToken cancellationToken = default);
 

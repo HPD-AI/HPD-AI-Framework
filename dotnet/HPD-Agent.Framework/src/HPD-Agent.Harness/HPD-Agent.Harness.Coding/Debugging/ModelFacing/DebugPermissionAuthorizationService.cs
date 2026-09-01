@@ -1,7 +1,23 @@
 using HPD.Agent.Middleware;
-using HPDOS.ToolHarnesses.Middleware;
-
 namespace HPD.Agent.ToolHarness.Coding.Debugging;
+
+public enum DebugPermissionClass
+{
+    Inspection,
+    ExecutionControl,
+    BreakpointMutation,
+    Lifecycle,
+    Launch,
+    Attach,
+    Evaluation,
+    StateMutation,
+    MemoryWrite
+}
+
+public sealed record DebugPermissionDecision(
+    string FunctionCallId,
+    string Action,
+    DebugPermissionClass PermissionClass);
 
 internal sealed class DebugPermissionAuthorizationService
 {
@@ -9,17 +25,27 @@ internal sealed class DebugPermissionAuthorizationService
         FunctionExecutionContext context,
         string action)
     {
+        var grant = context.Permission.DemandApproved();
         var callId = context.InvocationSnapshot.FunctionCallId;
-        var state = context.Analyze(snapshot =>
-            snapshot.MiddlewareState.GetState<DebugPermissionStateData>(
-                typeof(DebugPermissionStateData).FullName!));
-        if (state is null ||
-            !state.DecisionsByCallId.TryGetValue(callId, out var decision) ||
-            !string.Equals(decision.FunctionCallId, callId, StringComparison.Ordinal) ||
-            !string.Equals(decision.Action, action, StringComparison.Ordinal))
+        if (!string.Equals(grant.FunctionCallId, callId, StringComparison.Ordinal) ||
+            !string.Equals(grant.FunctionName, "Debug", StringComparison.Ordinal) ||
+            !string.Equals(grant.Action, action, StringComparison.Ordinal))
             throw new UnauthorizedAccessException(
-                "The debugger invocation has no matching middleware permission decision.");
-        return decision;
+                "The debugger invocation has no matching invocation-bound permission grant.");
+        var permissionClass = grant.Key.Authority switch
+        {
+            "debug/inspection" => DebugPermissionClass.Inspection,
+            "debug/execution-control" => DebugPermissionClass.ExecutionControl,
+            "debug/breakpoint-mutation" => DebugPermissionClass.BreakpointMutation,
+            "debug/lifecycle" => DebugPermissionClass.Lifecycle,
+            "debug/launch" => DebugPermissionClass.Launch,
+            "debug/attach" => DebugPermissionClass.Attach,
+            "debug/evaluation" => DebugPermissionClass.Evaluation,
+            "debug/state-mutation" => DebugPermissionClass.StateMutation,
+            "debug/memory-write" => DebugPermissionClass.MemoryWrite,
+            _ => throw new UnauthorizedAccessException("The debugger grant has an unknown generated permission authority.")
+        };
+        return new DebugPermissionDecision(callId, action, permissionClass);
     }
 
     public DebugPrivilegedOperationAuthorization CreatePrivileged(

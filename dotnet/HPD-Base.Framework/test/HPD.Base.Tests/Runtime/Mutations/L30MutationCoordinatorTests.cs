@@ -20,10 +20,12 @@ public sealed class L30MutationCoordinatorTests
         {
             Claim = new BaseActivationClaimAuthority
             {
-                ActivationId = "activation", AttemptNumber = 1, ClaimEpoch = 1,
+                ActivationId = "activation", AttemptNumber = 1, ActivationGeneration = 1, ClaimEpoch = 1,
                 FencingToken = new byte[32].ToImmutableArray(), WorkerIdentity = "worker",
                 CancellationGeneration = 0, StoreInstanceId = "primary", RestoreEpoch = 1,
                 DefinitionChecksum = new byte[32].ToImmutableArray(),
+                ExecutionSliceOrdinal = 1, AttemptStartedAt = 1, SliceStartedAt = 1,
+                YieldCount = 0, MaximumYields = 0,
             },
             StepId = "record-child", ChildOrdinal = 1,
             ChildRequestFingerprint = fingerprint.ToImmutableArray(),
@@ -464,19 +466,19 @@ public sealed class L30MutationCoordinatorTests
         ItemId = itemId,
         CollectionId = "items",
         Kind = BaseRecordMutationKind.Patch,
-        RecordId = new RecordId(recordId),
-        Patch = new RecordPatchRequest { Patch = Payload(("title", title)) }
+        RecordId = RecordId.Create(recordId),
+        Patch = new RecordPatchRequest { Patch = Payload(("title", title)), RemovedFieldIds = [] }
     };
 
     private static RecordCreateRequest Create(string requestedId) => new()
     {
-        RequestedId = new RecordId(requestedId),
+        RequestedId = RecordId.Create(requestedId),
         Payload = Payload(("title", requestedId))
     };
 
     private static RecordUpsertRequest Upsert(string id) => new()
     {
-        Id = new RecordId(id),
+        Id = RecordId.Create(id),
         CreatePayload = Payload(("title", "created")),
         UpdatePayload = Payload(("title", "updated")),
         UpdateMode = RecordUpsertUpdateMode.Patch,
@@ -486,7 +488,7 @@ public sealed class L30MutationCoordinatorTests
     private static RecordEnvelope Record(string id, string title) => new()
     {
         CollectionId = "items",
-        Id = new RecordId(id),
+        Id = RecordId.Create(id),
         Payload = Payload(("title", title)),
         Metadata = new RecordMetadata { Revision = new RevisionToken("rev_1") }
     };

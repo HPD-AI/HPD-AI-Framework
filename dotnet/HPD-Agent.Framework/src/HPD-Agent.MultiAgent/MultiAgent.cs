@@ -1,4 +1,5 @@
 using HPD.Agent;
+using HPD.Agent.Serialization;
 using HPD.MultiAgent.Config;
 using HPD.MultiAgent.Internal;
 using HPD.MultiAgent.Routing;
@@ -90,16 +91,22 @@ public class MultiAgent
     /// <summary>
     /// Use an in-memory session store for multi-agent conversation policies.
     /// </summary>
-    public MultiAgent WithInMemorySessionStore()
-        => WithSessionStore(new InMemorySessionStore());
+    public MultiAgent WithInMemorySessionStore(AgentEventComposition eventComposition)
+    {
+        ArgumentNullException.ThrowIfNull(eventComposition);
+        return WithSessionStore(new InMemorySessionStore(eventComposition.Codec));
+    }
 
     /// <summary>
     /// Use the segmented local-file session store for multi-agent conversation policies.
     /// </summary>
-    public MultiAgent WithFileSessionStore(string rootDirectory)
+    public MultiAgent WithFileSessionStore(
+        string rootDirectory,
+        AgentEventComposition eventComposition)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(rootDirectory);
-        return WithSessionStore(new FileSessionStore(rootDirectory));
+        ArgumentNullException.ThrowIfNull(eventComposition);
+        return WithSessionStore(new FileSessionStore(rootDirectory, eventComposition.Codec));
     }
 
     /// <summary>

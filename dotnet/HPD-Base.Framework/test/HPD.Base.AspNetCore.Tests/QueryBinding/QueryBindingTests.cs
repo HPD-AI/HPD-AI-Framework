@@ -49,7 +49,8 @@ public sealed class QueryBindingTests
         {
             Content = JsonContent.Create(new RecordPatchRequest
             {
-                Patch = TestBaseApp.Patch("title", "from-header")
+                Patch = TestBaseApp.Patch("title", "from-header"),
+                RemovedFieldIds = []
             }, HPDBaseJsonSerializerContext.Default.RecordPatchRequest)
         };
         patch.Headers.TryAddWithoutValidation("If-Match", created.Metadata.ETag);

@@ -27,11 +27,10 @@ export function createAgentApi(config: AgentStudioApiConfig) {
           `/threads/${encodeURIComponent(threadId)}/inputs`,
         { text }
       ),
-    interrupt: async (
+    cancelExecution: async (
       agentId: string,
       sessionId: string,
-      threadId: string,
-      reason = 'Interrupted from HPD AI Platform.'
+      threadId: string
     ) => {
       const threadPath = `/agents/${encodeURIComponent(agentId)}` +
         `/sessions/${encodeURIComponent(sessionId)}` +
@@ -44,12 +43,10 @@ export function createAgentApi(config: AgentStudioApiConfig) {
         return { disposition: 'no_active_execution', activeExecution: null };
       }
 
-      return api.post(`${threadPath}/inputs`, {
-        type: 'INTERRUPTION_REQUEST',
-        threadExecutionId,
-        reason,
-        source: 'User'
-      });
+      return api.post(
+        `${threadPath}/executions/${encodeURIComponent(threadExecutionId)}/cancel`,
+        {}
+      );
     },
     listMultiAgentWorkflows: () => api.get('/multi-agent/workflows'),
     getMultiAgentWorkflow: (workflowId: string) =>

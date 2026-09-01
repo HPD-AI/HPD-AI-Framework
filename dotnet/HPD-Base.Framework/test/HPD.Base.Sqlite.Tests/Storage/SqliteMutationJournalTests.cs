@@ -13,11 +13,49 @@ namespace HPD.Base.Sqlite.Tests.Storage;
 public sealed class SqliteMutationJournalTests
 {
     [Fact]
+    public async Task Patch_removes_an_optional_non_nullable_field_by_stable_ID_and_journals_the_result()
+    {
+        await using var store = CreateStore();
+        CollectionDefinition collection = Collection() with
+        {
+            Fields =
+            [
+                new FieldDefinition
+                {
+                    Id = "item.title", ApplicationName = "Title", WireName = "title", Type = BaseFieldTypes.String,
+                    Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable,
+                },
+                new FieldDefinition
+                {
+                    Id = "item.status", ApplicationName = "Status", WireName = "status", Type = BaseFieldTypes.String,
+                    Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable,
+                },
+            ],
+        };
+        RecordId id = RecordId.Create("remove-one");
+        (await store.CreateAsync(collection,
+            new RecordCreateRequest { RequestedId = id, Payload = PayloadWithFields(("title", "old"), ("status", "active")) },
+            Operation(BaseOperationKind.Create, 1))).Status.Should().Be(OperationStatus.Created);
+
+        OperationResult<RecordEnvelope> result = await store.PatchAsync(collection, id,
+            new RecordPatchRequest
+            {
+                Patch = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = [] },
+                RemovedFieldIds = ["item.status"],
+            }, Operation(BaseOperationKind.Patch, 2));
+
+        result.Status.Should().Be(OperationStatus.Updated);
+        result.Value!.Payload.Fields.Should().ContainKey("title").And.NotContainKey("status");
+        BaseMutationJournalPage page = await store.ReadMutationJournalAsync(new BaseMutationJournalReadRequest { Limit = 10 });
+        page.Entries[^1].RecordMutation!.After!.Payload!.Fields!.Should().NotContainKey("status");
+    }
+
+    [Fact]
     public async Task MutationsAppendOrderedTransactionalJournalEntries()
     {
         await using var store = CreateStore();
         var collection = Collection();
-        var id = new RecordId("one");
+        var id = RecordId.Create("one");
 
         var create = await store.CreateAsync(
             collection,
@@ -26,7 +64,7 @@ public sealed class SqliteMutationJournalTests
         var patch = await store.PatchAsync(
             collection,
             id,
-            new RecordPatchRequest { Patch = Payload("patched") },
+            new RecordPatchRequest { Patch = Payload("patched"), RemovedFieldIds = [] },
             Operation(BaseOperationKind.Patch, 2));
         var replace = await store.ReplaceAsync(
             collection,
@@ -72,7 +110,7 @@ public sealed class SqliteMutationJournalTests
     {
         await using var store = CreateStore();
         var collection = Collection();
-        var id = new RecordId("one");
+        var id = RecordId.Create("one");
         await store.CreateAsync(
             collection,
             new RecordCreateRequest { RequestedId = id, Payload = Payload("created") },
@@ -99,7 +137,7 @@ public sealed class SqliteMutationJournalTests
                 collection,
                 new RecordCreateRequest
                 {
-                    RequestedId = new RecordId($"record-{index}"),
+                    RequestedId = RecordId.Create($"record-{index}"),
                     Payload = Payload($"value-{index}")
                 },
                 Operation(BaseOperationKind.Create, index));
@@ -131,7 +169,7 @@ public sealed class SqliteMutationJournalTests
                 collection,
                 new RecordCreateRequest
                 {
-                    RequestedId = new RecordId($"record-{index}"),
+                    RequestedId = RecordId.Create($"record-{index}"),
                     Payload = Payload($"value-{index}")
                 },
                 Operation(BaseOperationKind.Create, index));
@@ -164,7 +202,7 @@ public sealed class SqliteMutationJournalTests
                 Collection(),
                 new RecordCreateRequest
                 {
-                    RequestedId = new RecordId("old"),
+                    RequestedId = RecordId.Create("old"),
                     Payload = Payload("old")
                 },
                 Operation(BaseOperationKind.Create, 1));
@@ -215,7 +253,7 @@ public sealed class SqliteMutationJournalTests
     {
         await using var store = CreateStore();
         var collection = Collection();
-        var id = new RecordId("one");
+        var id = RecordId.Create("one");
         await store.CreateAsync(
             collection,
             new RecordCreateRequest { RequestedId = id, Payload = Payload("created") },
@@ -226,6 +264,7 @@ public sealed class SqliteMutationJournalTests
             id,
             new RecordPatchRequest
             {
+                RemovedFieldIds = [],
                 Patch = Payload("conflict"),
                 ExpectedRevision = new RevisionToken("99")
             },
@@ -246,7 +285,7 @@ public sealed class SqliteMutationJournalTests
             Collection(),
             new RecordCreateRequest
             {
-                RequestedId = new RecordId("cancelled"),
+                RequestedId = RecordId.Create("cancelled"),
                 Payload = Payload("cancelled")
             },
             Operation(BaseOperationKind.Create, 1),
@@ -267,7 +306,7 @@ public sealed class SqliteMutationJournalTests
                 collection,
                 new RecordCreateRequest
                 {
-                    RequestedId = new RecordId($"concurrent-{index}"),
+                    RequestedId = RecordId.Create($"concurrent-{index}"),
                     Payload = Payload($"value-{index}")
                 },
                 Operation(BaseOperationKind.Create, index)).AsTask()));
@@ -374,6 +413,13 @@ public sealed class SqliteMutationJournalTests
         Kind = BaseCollectionKinds.Document,
         SchemaMode = SchemaMode.Loose,
         UnknownFields = UnknownFieldPolicy.Preserve
+    };
+
+    private static RecordPayload PayloadWithFields(params (string Name, string Value)[] fields) => new()
+    {
+        Kind = RecordPayloadKind.FieldMap,
+        Fields = fields.ToDictionary(static value => value.Name,
+            static value => JsonSerializer.SerializeToElement(value.Value), StringComparer.Ordinal),
     };
 
     private static SqliteRecordStore CreateStore(

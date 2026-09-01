@@ -44,6 +44,8 @@ public static class TestAgentFactory
         // Use defaults if not provided
         config ??= CreateDefaultConfig();
         chatClient ??= new FakeChatClient();
+        config.Clients.Chat ??= new ChatClientConfig();
+        config.Clients.Chat.Override = ClientOverride<IChatClient>.Borrow(chatClient, "test", "local");
 
         // Add tools before constructing the builder. AgentBuilder owns a configuration
         // snapshot, so mutations made afterward intentionally do not affect the agent.
@@ -90,7 +92,12 @@ public static class TestAgentFactory
             {
                 Chat = new ChatClientConfig
                 {
-                    ProviderKey = "test",  // Required by validation
+                    Provider = new ProviderReference
+                    {
+                        Key = "test",
+                        Backend = "local",
+                        Authentication = new AnonymousProviderAuthentication()
+                    },
                     ModelName = "test-model"
                 }
             },
@@ -134,7 +141,7 @@ internal class TestProviderRegistry : IProviderRegistry
     }
 
     public TProvider? GetProvider<TProvider>(string providerKey)
-        where TProvider : class, IProvider
+        where TProvider : class
     {
         return GetProvider(providerKey) as TProvider;
     }
@@ -156,9 +163,9 @@ internal class TestProviderRegistry : IProviderRegistry
 }
 
 /// <summary>
-/// Test implementation of IChatClientProvider that returns the provided chat client.
+/// Test implementation of the uniform Chat factory that returns the provided chat client.
 /// </summary>
-internal class TestChatClientProvider : IChatClientProvider
+internal class TestChatClientProvider : IProvider, IProviderClientFactory<IChatClient>
 {
     private readonly IChatClient _chatClient;
 
@@ -170,10 +177,17 @@ internal class TestChatClientProvider : IChatClientProvider
     public string ProviderKey => "test";
     public string DisplayName => "Test Provider";
 
-    public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
-    {
-        return _chatClient;
-    }
+    public ProviderClientCredentialBinding ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor) =>
+        ProviderClientCredentialBinding.ConstructionTime;
+
+    public ValueTask<ProviderClientConstruction<IChatClient>> CreateAsync(
+        ProviderClientConstructionContext context,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(new ProviderClientConstruction<IChatClient>
+        {
+            Client = _chatClient,
+            Owner = ProviderClientConstructionUtilities.Own()
+        });
 
     public HPD.Agent.ErrorHandling.IProviderErrorHandler CreateErrorHandler()
     {
@@ -201,10 +215,8 @@ internal class TestChatClientProvider : IChatClientProvider
         };
     }
 
-    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
-    {
-        return ProviderValidationResult.Success();
-    }
+    public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config) =>
+        ProviderValidationResult.Success();
 }
 
 /// <summary>

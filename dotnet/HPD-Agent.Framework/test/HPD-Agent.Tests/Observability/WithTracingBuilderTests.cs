@@ -103,6 +103,7 @@ public class WithTracingBuilderTests : AgentTestBase, IDisposable
         fakeLLM.EnqueueStreamingResponse("Custom source test.");
 
         var config = DefaultConfig();
+        config.Clients.Chat!.Override = HPD.Agent.Providers.ClientOverride<IChatClient>.Borrow(fakeLLM, "test", "local");
         var builder = new AgentBuilder(config, new TestProviderRegistry(fakeLLM));
         builder.WithTracing(sourceName: customSource);
         var agent = builder.BuildAsync(CancellationToken.None).GetAwaiter().GetResult();
@@ -124,6 +125,7 @@ public class WithTracingBuilderTests : AgentTestBase, IDisposable
         fakeLLM.EnqueueStreamingResponse("Both observers active.");
 
         var config = DefaultConfig();
+        config.Clients.Chat!.Override = HPD.Agent.Providers.ClientOverride<IChatClient>.Borrow(fakeLLM, "test", "local");
         var builder = new AgentBuilder(config, new TestProviderRegistry(fakeLLM));
         builder.WithTracing(sourceName: _testSourceName);
         // WithTelemetry also uses ActivitySource so we use our listener to verify it doesn't interfere.
@@ -153,13 +155,14 @@ public class WithTracingBuilderTests : AgentTestBase, IDisposable
         var bigTool = AIFunctionFactory.Create(() => bigResult, "big_tool");
 
         var config = DefaultConfig();
+        config.Clients.Chat!.Override = HPD.Agent.Providers.ClientOverride<IChatClient>.Borrow(fakeLLM, "test", "local");
         var builder = new AgentBuilder(config, new TestProviderRegistry(fakeLLM));
         builder.WithTracing(
             sourceName: _testSourceName,
             sanitizerOptions: new SpanSanitizerOptions { MaxStringLength = 50 });
         var tools = new[] { bigTool };
         config.EnsureChatClientConfig();
-        config.EnsureChatClientConfig().ProviderKey = "test";
+        config.EnsureChatClientConfig().Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" };
         config.EnsureChatClientConfig().ModelName = "test-model";
         config.ServerConfiguredTools ??= new List<AITool>();
         foreach (var tool in tools)
@@ -198,6 +201,7 @@ public class WithTracingBuilderTests : AgentTestBase, IDisposable
         fakeLLM.EnqueueStreamingResponse("No listener registered.");
 
         var config = DefaultConfig();
+        config.Clients.Chat!.Override = HPD.Agent.Providers.ClientOverride<IChatClient>.Borrow(fakeLLM, "test", "local");
         var builder = new AgentBuilder(config, new TestProviderRegistry(fakeLLM));
         builder.WithTracing(sourceName: unlistenedSource);
         var agent = builder.BuildAsync(CancellationToken.None).GetAwaiter().GetResult();
@@ -212,10 +216,11 @@ public class WithTracingBuilderTests : AgentTestBase, IDisposable
     private Agent BuildTracingAgent(FakeChatClient fakeLLM, params AIFunction[] tools)
     {
         var config = DefaultConfig();
+        config.Clients.Chat!.Override = HPD.Agent.Providers.ClientOverride<IChatClient>.Borrow(fakeLLM, "test", "local");
         if (tools.Length > 0)
         {
             config.EnsureChatClientConfig();
-        config.EnsureChatClientConfig().ProviderKey = "test";
+        config.EnsureChatClientConfig().Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" };
         config.EnsureChatClientConfig().ModelName = "test-model";
             config.ServerConfiguredTools ??= new List<AITool>();
             foreach (var tool in tools)

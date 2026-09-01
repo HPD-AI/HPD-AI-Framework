@@ -108,7 +108,7 @@ public class ToolHarnessReference
     /// Per-middleware config overrides for toolharness-scoped middleware with config-constructor factories
     /// . Keys are middleware simple type names (e.g. <c>"DbRateLimitMiddleware"</c>);
     /// values are raw JSON objects passed to the generated config-constructor factory delegate.
-    /// Ignored when the toolharness has no matching <c>CollapseMiddlewareConfigFactories</c> entry.
+    /// Ignored when the ToolHarness has no matching generated middleware configuration descriptor.
     /// </summary>
     /// <remarks>
     /// <b>Example:</b>

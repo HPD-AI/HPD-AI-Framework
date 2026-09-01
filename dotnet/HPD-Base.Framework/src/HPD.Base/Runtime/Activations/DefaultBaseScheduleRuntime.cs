@@ -25,8 +25,9 @@ internal sealed class DefaultBaseScheduleRuntime(
             session, definition, definition.ManageGrantId, BaseOperationKind.ScheduleMutation, cancellationToken).ConfigureAwait(false);
         if (!provider.IsSuccess() || provider.Value is null)
             return CopyFailure<BaseScheduleAuthority, IBaseActivationProvider>(provider);
-        return await CallAsync(token => provider.Value.ReadScheduleAsync(
+        OperationResult<BaseScheduleAuthority> read = await CallAsync(token => provider.Value.ReadScheduleAsync(
             definition.Id, definition.Version, token), Target(definition).Limits.Provider, cancellationToken).ConfigureAwait(false);
+        return ValidateProviderAuthority(read, definition);
     }
 
     public async ValueTask<OperationResult<BaseScheduleMutationResult>> MutateAsync(
@@ -39,18 +40,30 @@ internal sealed class DefaultBaseScheduleRuntime(
         if (!provider.IsSuccess() || provider.Value is null)
             return CopyFailure<BaseScheduleMutationResult, IBaseActivationProvider>(provider);
         BaseActivationDefinition target = Target(definition);
-        return await CallAsync(token => provider.Value.MutateScheduleAsync(new BaseScheduleMutationRequest
+        BaseAcceptedTimeReceipt time = acceptedTime.Capture(session.ApplicationId);
+        OperationResult<BaseScheduleMutationResult> mutated = await CallAsync(token => provider.Value.MutateScheduleAsync(new BaseScheduleMutationRequest
         {
             Kind = kind,
             Definition = BaseScheduleDefinitionBuilder.Create(definition),
             ExpectedDefinitionGeneration = expectedGeneration,
             InitialNextNominal = kind is BaseScheduleMutationKind.Create or BaseScheduleMutationKind.Update
-                ? Next(definition, null)
+                ? Next(definition, time.CapturedUtc)
                 : null,
-            AcceptedTime = acceptedTime.Capture(session.ApplicationId),
+            AcceptedTime = time,
             Identity = identity,
             Limits = target.Limits.Provider,
         }, token), target.Limits.Provider, cancellationToken).ConfigureAwait(false);
+        if (!mutated.IsSuccess() || mutated.Value is null) return mutated;
+        if (kind == BaseScheduleMutationKind.Remove)
+        {
+            if (mutated.Value.Authority is not null) return ProviderContractInvalid<BaseScheduleMutationResult>();
+            return mutated;
+        }
+        OperationResult<BaseScheduleAuthority> authority = ValidateProviderAuthority(
+            OperationResults.Ok(mutated.Value.Authority!), definition);
+        return authority.IsSuccess()
+            ? mutated with { Value = mutated.Value with { Authority = authority.Value } }
+            : CopyFailure<BaseScheduleMutationResult, BaseScheduleAuthority>(authority);
     }
 
     public async ValueTask<OperationResult<BaseScheduleMaintenancePage>> AdvanceAsync(
@@ -65,6 +78,7 @@ internal sealed class DefaultBaseScheduleRuntime(
         BaseActivationDefinition target = Target(definition);
         OperationResult<BaseScheduleAuthority> current = await CallAsync(token => provider.Value
             .ReadScheduleAsync(definition.Id, definition.Version, token), target.Limits.Provider, cancellationToken).ConfigureAwait(false);
+        current = ValidateProviderAuthority(current, definition);
         if (!current.IsSuccess() || current.Value is null)
             return CopyFailure<BaseScheduleMaintenancePage, BaseScheduleAuthority>(current);
         if (!CryptographicOperations.FixedTimeEquals(current.Value.Definition.Checksum.AsSpan(), definition.Checksum.AsSpan()))
@@ -85,7 +99,7 @@ internal sealed class DefaultBaseScheduleRuntime(
         long? cursor = current.Value.LastConsideredNominal;
         while (nominal.Count < maximum)
         {
-            long? next = Next(definition, cursor);
+            long? next = nominal.Count == 0 ? current.Value.NextNominal : Next(definition, cursor);
             if (next is null || next > time.CapturedUtc) break;
             nominal.Add(next.Value);
             cursor = next;
@@ -122,6 +136,11 @@ internal sealed class DefaultBaseScheduleRuntime(
             Limits = target.Limits.Provider,
         }, token), target.Limits.Provider, cancellationToken).ConfigureAwait(false);
         if (!advanced.IsSuccess() || advanced.Value is null) return advanced;
+        OperationResult<BaseScheduleAuthority> advancedAuthority = ValidateProviderAuthority(
+            OperationResults.Ok(advanced.Value.Authority), definition);
+        if (!advancedAuthority.IsSuccess())
+            return CopyFailure<BaseScheduleMaintenancePage, BaseScheduleAuthority>(advancedAuthority);
+        advanced = advanced with { Value = advanced.Value with { Authority = advancedAuthority.Value! } };
         foreach (BaseScheduleCancellationAuthority cancellation in advanced.Value.Cancellations)
         {
             BaseScheduleCancellationBoundary? after = null;
@@ -146,10 +165,54 @@ internal sealed class DefaultBaseScheduleRuntime(
                 if (!result.IsSuccess() || result.Value is null)
                     return CopyFailure<BaseScheduleMaintenancePage, BaseScheduleCancellationMaintenancePage>(result);
                 if (result.Value.Completed) break;
-                after = result.Value.Next ?? throw new InvalidOperationException("base.activation.providerContractInvalid");
+                if (result.Value.Next is null)
+                {
+                    providerGate.QuarantineContractViolation();
+                    return BaseActivationFailureContract.ProviderContractInvalid<BaseScheduleMaintenancePage>();
+                }
+                after = result.Value.Next;
             }
         }
         return advanced;
+    }
+
+    private OperationResult<BaseScheduleAuthority> ValidateProviderAuthority(
+        OperationResult<BaseScheduleAuthority> result,
+        BaseScheduleDefinition installed)
+    {
+        if (!result.IsSuccess() || result.Value is null) return result;
+        try
+        {
+            BaseScheduleAuthority value = result.Value;
+            BaseScheduleDefinition definition = BaseScheduleDefinitionContract.OwnInstalled(value.Definition);
+            ImmutableArray<byte> checksum = BaseScheduleDefinitionContract.AuthorityChecksum(
+                definition, value.DefinitionGeneration, value.Enabled, value.ScheduleEpoch,
+                value.LastConsideredNominal, value.NextNominal);
+            if (value.DefinitionGeneration <= 0 || value.ScheduleEpoch <= 0
+                || definition.Id != installed.Id || definition.Version != installed.Version
+                || !CryptographicOperations.FixedTimeEquals(definition.Checksum.AsSpan(), installed.Checksum.AsSpan())
+                || value.Checksum.Length != SHA256.HashSizeInBytes
+                || !CryptographicOperations.FixedTimeEquals(value.Checksum.AsSpan(), checksum.AsSpan()))
+                return ProviderContractInvalid<BaseScheduleAuthority>();
+            return result with
+            {
+                Value = value with
+                {
+                    Definition = definition,
+                    Checksum = value.Checksum.ToArray().ToImmutableArray(),
+                },
+            };
+        }
+        catch
+        {
+            return ProviderContractInvalid<BaseScheduleAuthority>();
+        }
+    }
+
+    private OperationResult<T> ProviderContractInvalid<T>()
+    {
+        providerGate.QuarantineContractViolation();
+        return BaseActivationFailureContract.ProviderContractInvalid<T>();
     }
 
     private async ValueTask<OperationResult<T>> CallAsync<T>(
@@ -215,6 +278,8 @@ internal sealed class DefaultBaseScheduleRuntime(
             {
                 Ordinal = 0,
                 Definition = schedule.Activation with { Checksum = schedule.Activation.Checksum.ToArray().ToImmutableArray() },
+                MaximumYields = target.Limits.MaximumYields,
+                ReceiptRetention = target.ReceiptRetention with { },
                 CanonicalInput = schedule.CanonicalInput.ToArray().ToImmutableArray(),
                 InputChecksum = schedule.InputChecksum.ToArray().ToImmutableArray(),
                 Scope = session.ActivationScope,

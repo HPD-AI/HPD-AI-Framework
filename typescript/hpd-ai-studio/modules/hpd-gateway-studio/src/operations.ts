@@ -84,7 +84,10 @@ export interface GatewayOperationsControllerOptions {
 export function createGatewayOperationsController(options: GatewayOperationsControllerOptions): GatewayOperationsController {
   const now = options.now ?? (() => new Date());
   const monotonicNow = options.monotonicNow ?? (() => performance.now());
-  const randomValues = options.randomValues ?? ((bytes: Uint8Array) => crypto.getRandomValues(bytes));
+  const randomValues = options.randomValues ?? ((bytes: Uint8Array) => {
+    crypto.getRandomValues(bytes as Uint8Array<ArrayBuffer>);
+    return bytes;
+  });
   const schedule = options.schedule ?? ((callback, milliseconds) => setTimeout(callback, milliseconds));
   const cancelSchedule = options.cancelSchedule ?? ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>));
   const listeners = new Set<(snapshot: GatewayOperationsSnapshot) => void>();

@@ -27,7 +27,7 @@ internal static class TurnEvaluationContextBuilder
         string? reasoningText = AggregateReasoningText(context.TurnHistory);
 
         // Determine user input from TurnHistory (last user message before assistant)
-        string userInput = ExtractUserInput(context.TurnHistory);
+        string userInput = context.UserInputMessages.LastOrDefault()?.Text ?? string.Empty;
 
         // Conversation history = all messages before the current turn's user message
         var conversationHistory = ExtractConversationHistory(context.TurnHistory);
@@ -48,7 +48,13 @@ internal static class TurnEvaluationContextBuilder
             ConversationId = context.ConversationId ?? string.Empty,
             TurnIndex = CountPriorUserMessages(context.Thread),
             UserInput = userInput,
+            UserInputMessages = context.UserInputMessages.ToArray(),
+            RuntimeContextMessages = context.RuntimeContextMessages.ToArray(),
+            TriggerSource = context.TriggerSource,
             ConversationHistory = conversationHistory,
+            EvaluationMessages = context.TurnHistory
+                .Where(static message => message.GetSource() != AgentMessageSource.BackgroundNotification)
+                .ToArray(),
             OutputText = context.FinalResponse.Text ?? string.Empty,
             FinalResponse = context.FinalResponse,
             ReasoningText = reasoningText,
@@ -60,7 +66,7 @@ internal static class TurnEvaluationContextBuilder
             Duration = buffer.TurnDuration,
             ModelId = context.RunConfig.Clients.Chat?.ModelName ?? context.FinalResponse.ModelId,
             ResponseModelId = context.FinalResponse.ModelId,
-            ProviderKey = context.RunConfig.Clients.Chat?.ProviderKey,
+            ProviderKey = context.RunConfig.Clients.Chat?.Provider?.Key,
             Attributes = attributes,
             Metrics = new Dictionary<string, double>(evalData.Metrics),
             StopKind = stopKind,
@@ -216,6 +222,8 @@ internal static class TurnEvaluationContextBuilder
             AgentName = context.AgentName,
             StartedAt = buffer.TurnStartedAt,
             Duration = buffer.TurnDuration,
+            CapabilityIdentity = buffer.CapabilityIdentity,
+            Operations = buffer.GetOperationTraces(),
             Iterations = iterations,
         };
     }

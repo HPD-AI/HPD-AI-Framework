@@ -1,6 +1,7 @@
 using HPD.Events;
 using Microsoft.Extensions.Options;
 using System.Buffers;
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Security.Cryptography;
@@ -12,13 +13,41 @@ namespace HPD.Base;
 /// <summary>
 /// Process-local, thread-safe, non-durable HPD.BASE record store implementation.
 /// </summary>
-internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreamingRecordStore, IRelationalReadStore, IConsistentRecordIncludeStore, IInMemoryProjectionAuthority, ITransactionalMutationJournalStore, IBaseSubjectAdministration, IBaseSubjectPublicationStore, IBaseSubjectValidationPlanReceiptStore, IBaseSubjectLifecycleStore, IBaseSubjectRetirementStore, IBaseSubjectAuthorityMaintenanceStore, IBaseActivationProvider, IBaseSemanticActivationCapabilityProvider
+internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreamingRecordStore, IRelationalReadStore, IConsistentRecordIncludeStore, IInMemoryProjectionAuthority, ITransactionalMutationJournalStore, IBaseSubjectAdministration, IBaseSubjectPublicationStore, IBaseSubjectValidationPlanReceiptStore, IBaseSubjectLifecycleStore, IBaseSubjectRetirementStore, IBaseSubjectAuthorityMaintenanceStore, IBaseActivationProvider, IBaseSemanticActivationAdministration, IBaseStudioDynamicStoreAuthoritySource, IBaseStudioControlInspectionStore, IBaseLogicalIndexCertificationInspection
 {
-    public BaseSemanticActivationCapability SemanticActivationCapability => BaseSemanticActivationCapabilityContract.BuiltIn(durable: false);
+    private readonly ImmutableArray<byte> _semanticProviderIncarnation;
+    private readonly BaseSemanticActivationCapability _semanticActivationCapability;
+    private readonly BaseLogicalIndexProviderCapability _logicalIndexCapability;
+
+    /// <inheritdoc />
+    public ImmutableArray<byte> ProviderIncarnation => _semanticProviderIncarnation.ToArray().ToImmutableArray();
+    /// <inheritdoc />
+    public ValueTask<OperationResult<BaseStudioDynamicStoreAuthority>> CaptureStudioDynamicStoreAuthorityAsync(
+        BaseStudioDynamicStoreAuthorityRequest request, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ArgumentNullException.ThrowIfNull(request);
+        if (!BaseStudioDynamicStoreAuthorityContract.IsValid(request))
+            throw new ArgumentException("Studio authority bounds are invalid.", nameof(request));
+        BaseStudioDynamicStoreAuthority value = BaseStudioDynamicStoreAuthorityContract.Create(
+            request.ApplicationId, _options.StoreId, 0, 1);
+        return ValueTask.FromResult(value.Accounting.EvidenceBytes <= request.MaximumEvidenceBytes
+            && value.Accounting.TransientBytes <= request.MaximumTransientBytes
+            ? OperationResults.Ok(value)
+            : OperationResults.ValidationFailed<BaseStudioDynamicStoreAuthority>(new BaseError
+            {
+                Code = "base.studio.storeAuthorityLimitExceeded",
+                Message = "The store authority exceeded its bound.",
+                Category = ErrorCategory.Validation,
+            }));
+    }
+
+    public BaseSemanticActivationCapability SemanticActivationCapability =>
+        BaseSemanticActivationCapabilityContract.Clone(_semanticActivationCapability);
     public BaseSemanticActivationOperationalStatus SemanticActivationOperationalStatus => new()
     {
-        Ready = Volatile.Read(ref _atomicLateWorkQuarantined) == 0,
-        Quarantined = Volatile.Read(ref _atomicLateWorkQuarantined) != 0,
+        Ready = !SemanticStoreIsQuarantined,
+        Quarantined = SemanticStoreIsQuarantined,
         ActiveOperations = Volatile.Read(ref _atomicAdmittedOperations),
         RetainedOperations = Volatile.Read(ref _atomicLateWorkActive),
         MaximumRetainedOperations = SemanticActivationCapability.MaximumQuarantinedOperations,
@@ -34,7 +63,10 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             return (state.SemanticActivationSlots.LongCount(static item => item.Value.Live is not null),
                 state.SemanticActivationSlots.LongCount(static item => item.Value.Retired is not null),
                 state.SemanticActivationSlots.LongCount(static item => item.Value.Absent is not null),
-                state.Activations.Count, state.Receipts.Count);
+                state.Activations.Count,
+                state.Receipts.Count + state.SemanticMaintenance.LongCount(static item =>
+                    item.Value.Result.Disposition != BaseSemanticActivationMaintenanceDisposition.InProgress)
+                    + state.RemovedSemanticMaintenanceReceipts.Count);
         }
         finally { _stateGate.Release(); }
     }
@@ -430,6 +462,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             StoreInstanceId = new string(_options.StoreId.AsSpan()),
             RestoreEpoch = 0,
             SchemaGeneration = 1,
+            LogicalSchemaChecksum = BaseSchemaAuthorityChecksum.Create(SHA256.HashData(Encoding.UTF8.GetBytes(
+                HPDBaseStoreInstallationContext.ComputeSchemaDigest(_options.Collections ?? [])))),
             Collections = [.. generations],
             SemanticActivation = _publishedState.SemanticActivationAuthority is { } semantic ? semantic with
             {
@@ -529,6 +563,77 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
 
     internal InMemoryStoreState CaptureVectorRoot() => Volatile.Read(ref _publishedState);
 
+    internal async ValueTask CorruptLogicalIndexMemberSetForTestingAsync(
+        string collectionId,
+        BaseLogicalIndexChecksum indexChecksum,
+        CancellationToken cancellationToken = default)
+    {
+        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            string key = $"{collectionId}\n{indexChecksum}";
+            InMemoryStoreState working = Volatile.Read(ref _publishedState).Clone();
+            InMemoryLogicalIndexAuthority authority = working.LogicalIndexes[key];
+            byte[] memberSet = authority.Directory!.MemberSetChecksum.ToArray();
+            memberSet[0] ^= 0x01;
+            working.LogicalIndexes[key] = authority with
+            {
+                Directory = authority.Directory with
+                {
+                    MemberSetChecksum = memberSet.ToImmutableArray(),
+                },
+            };
+            Volatile.Write(ref _publishedState, working);
+            _generation = checked(_generation + 1);
+        }
+        finally
+        {
+            _stateGate.Release();
+        }
+    }
+
+    BaseLogicalIndexProviderCapability IBaseLogicalIndexCertificationInspection
+        .LogicalIndexCertificationCapability =>
+        BaseLogicalIndexProviderContract.CloneCapability(_logicalIndexCapability);
+
+    ValueTask<BaseLogicalIndexCertificationSnapshot> IBaseLogicalIndexCertificationInspection
+        .InspectLogicalIndexForCertificationAsync(
+            string collectionId,
+            BaseLogicalIndexChecksum indexChecksum,
+            CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        InMemoryLogicalIndexAuthority value = Volatile.Read(ref _publishedState).LogicalIndexes
+            .GetValueOrDefault($"{collectionId}\n{indexChecksum}")
+            ?? throw new InvalidOperationException(BaseSchemaErrorCodes.ProviderEvidenceInvalid);
+        if (value.Directory is null || value.DirectoryAuthority is null)
+            throw new InvalidOperationException(BaseSchemaErrorCodes.ProviderEvidenceInvalid);
+        return ValueTask.FromResult(new BaseLogicalIndexCertificationSnapshot
+        {
+            Authority = value.DirectoryAuthority.DeepClone(),
+            Directory = value.Directory.DeepClone(),
+        });
+    }
+
+    ValueTask IBaseLogicalIndexCertificationInspection.CorruptLogicalIndexMemberSetForCertificationAsync(
+        string collectionId,
+        BaseLogicalIndexChecksum indexChecksum,
+        CancellationToken cancellationToken) => new(
+            CorruptLogicalIndexMemberSetForTestingAsync(
+                collectionId, indexChecksum, cancellationToken).AsTask());
+
+    internal BaseLogicalIndexDirectory? ReadLogicalIndexDirectoryForTesting(
+        string collectionId,
+        BaseLogicalIndexChecksum indexChecksum) =>
+        Volatile.Read(ref _publishedState).LogicalIndexes
+            .GetValueOrDefault($"{collectionId}\n{indexChecksum}")?.Directory?.DeepClone();
+
+    internal InMemoryLogicalIndexAuthority? ReadLogicalIndexAuthorityForTesting(
+        string collectionId,
+        BaseLogicalIndexChecksum indexChecksum) =>
+        Volatile.Read(ref _publishedState).LogicalIndexes
+            .GetValueOrDefault($"{collectionId}\n{indexChecksum}")?.DeepClone();
+
     private readonly HPDBaseInMemoryStoreOptions _options;
     private readonly BaseQueryCursorCodec _queryCursors;
     private readonly BaseSubjectScopeProtector _subjectScopes;
@@ -544,14 +649,26 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
     private int _atomicAdmittedOperations;
     private int _atomicLateWorkActive;
     private int _atomicLateWorkQuarantined;
+    private int _semanticMaintenanceQuarantined;
+    private int _logicalIndexQuarantined;
     private int _atomicLateWorkReleased;
     private int _atomicRejectedLateCompletions;
     private readonly Lock _vectorLeaseGate = new();
     private readonly Dictionary<InMemoryStoreState, int> _retainedVectorRoots = new(ReferenceEqualityComparer.Instance);
     private InMemoryStoreState _publishedState = new();
+    internal Action? BeforeSemanticMaintenanceStateClone { get; set; }
+    internal InMemorySemanticMaintenanceAccounting? LastSemanticMaintenanceAccounting { get; set; }
     private long _generation;
     private readonly string? _vectorIdentityDigest;
     internal string VectorIdentityDigest => _vectorIdentityDigest ?? throw new InvalidOperationException("base.vector.providerUnavailable");
+    private bool SemanticStoreIsQuarantined =>
+        Volatile.Read(ref _atomicLateWorkQuarantined) != 0
+        || Volatile.Read(ref _semanticMaintenanceQuarantined) != 0;
+    internal bool LogicalIndexStoreIsQuarantined => Volatile.Read(ref _logicalIndexQuarantined) != 0;
+    bool IBaseLogicalIndexOperationalStore.LogicalIndexesReady => !LogicalIndexStoreIsQuarantined;
+    internal bool LogicalIndexQuarantinedForTesting => LogicalIndexStoreIsQuarantined;
+
+    private void QuarantineLogicalIndexes() => Interlocked.Exchange(ref _logicalIndexQuarantined, 1);
 
     internal InMemoryVectorRootLease RetainVectorRoot()
     {
@@ -598,9 +715,58 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
     internal InMemoryRecordStore(
         HPDBaseInMemoryStoreOptions? options,
         BaseOpaqueTokenProtector tokenProtector,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        ImmutableArray<byte>? providerIncarnation = null,
+        BaseSemanticActivationCapability? semanticActivationCapability = null,
+        BaseLogicalIndexProviderCapability? logicalIndexCapability = null)
     {
-        _options = options ?? new HPDBaseInMemoryStoreOptions();
+        if (providerIncarnation is { } suppliedIncarnation && suppliedIncarnation.Length != 32)
+            throw new ArgumentException("The provider incarnation must contain exactly 32 bytes.", nameof(providerIncarnation));
+        _semanticProviderIncarnation = providerIncarnation is { } fixedIncarnation
+            ? fixedIncarnation.ToArray().ToImmutableArray()
+            : RandomNumberGenerator.GetBytes(32).ToImmutableArray();
+        _semanticActivationCapability = semanticActivationCapability is null
+            ? BaseSemanticActivationCapabilityContract.BuiltIn(durable: false, maintenanceSupported: true)
+            : BaseSemanticActivationCapabilityContract.Clone(semanticActivationCapability);
+        _logicalIndexCapability = logicalIndexCapability is null
+            ? BaseLogicalIndexProviderContract.BuiltInCapability()
+            : BaseLogicalIndexProviderContract.CloneCapability(logicalIndexCapability);
+        if (!_logicalIndexCapability.Supported
+            || !BaseLogicalIndexProviderContract.ValidateCapability(_logicalIndexCapability))
+            throw new ArgumentException("base.logicalIndex.providerCapabilityInvalid", nameof(logicalIndexCapability));
+        _options = HPDBaseInMemoryServiceCollectionExtensions.Clone(
+            options ?? new HPDBaseInMemoryStoreOptions());
+        _options.SemanticActivations = _options.SemanticActivations
+            .Select(BaseSemanticActivationDefinitionContract.Seal).ToArray();
+        _options.SemanticActivationMigrations = _options.SemanticActivationMigrations
+            .Select(BaseSemanticActivationMigrationContract.Seal).ToArray();
+        _options.SemanticActivationRemovals = _options.SemanticActivationRemovals
+            .Select(BaseSemanticActivationRemovalAuthorityContract.Seal).ToArray();
+        BaseSchemaAuthorityChecksum logicalSchema = BaseSchemaAuthorityChecksum.Create(SHA256.HashData(Encoding.UTF8.GetBytes(
+            HPDBaseStoreInstallationContext.ComputeSchemaDigest(_options.Collections ?? []))));
+        foreach (CollectionDefinition collection in _options.Collections ?? [])
+            foreach (BaseLogicalIndexDefinition index in collection.Indexes ?? [])
+            {
+                BaseSchemaAuthorityChecksum publication = BaseAtomicSchemaContract.InitialPublication(
+                    logicalSchema, collection.Id, index.Checksum, 0);
+                BaseLogicalIndexDirectory? directory = null;
+                BaseLogicalIndexDirectoryAuthority? directoryAuthority = null;
+                if (index.StoreRequired)
+                {
+                    if (!BaseLogicalIndexDirectoryContract.TryCreate(
+                        collection, index, [], BaseLogicalIndexDirectoryContract.Limits(_logicalIndexCapability), out directory))
+                        throw new InvalidOperationException(BaseSchemaErrorCodes.CapabilityUnavailable);
+                    directoryAuthority = BaseLogicalIndexDirectoryContract.CreateInitialAuthority(index, publication, directory!);
+                }
+                _publishedState.LogicalIndexes.Add($"{collection.Id}\n{index.Checksum}", new InMemoryLogicalIndexAuthority
+                {
+                    Generation = 1,
+                    State = BaseLogicalIndexGenerationState.Ready,
+                    PublicationChecksum = publication,
+                    DirectoryAuthority = directoryAuthority,
+                    Directory = directory,
+                });
+            }
         Descriptor = CreateActivationDescriptor(_options);
         _timeProvider = timeProvider;
         _queryCursors = new BaseQueryCursorCodec(tokenProtector, timeProvider);
@@ -854,7 +1020,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             return ValueTask.FromResult(collectionError);
         }
 
-        if (InMemoryValidation.ValidateRecordId<RecordEnvelope>(id.Value) is { } idError)
+        if (InMemoryValidation.ValidateRecordId<RecordEnvelope>(id) is { } idError)
         {
             return ValueTask.FromResult(idError);
         }
@@ -892,7 +1058,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         ArgumentNullException.ThrowIfNull(processor);
         ArgumentNullException.ThrowIfNull(identity);
         if (resolutionTimeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(resolutionTimeout));
-        if (Volatile.Read(ref _atomicLateWorkQuarantined) != 0)
+        if (SemanticStoreIsQuarantined)
             return Rollback(BaseSemanticActivationErrorCodes.Quarantined,
                 "Semantic activation authority is quarantined pending late-work recovery.");
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -902,7 +1068,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             return Rollback(BaseSemanticActivationErrorCodes.ReceiptResolutionTimeout,
                 "Receipt resolution could not acquire its bounded provider slot.");
         await using AtomicExecutionLease execution = acquired;
-        if (Volatile.Read(ref _atomicLateWorkQuarantined) != 0)
+        if (SemanticStoreIsQuarantined)
             return Rollback(BaseSemanticActivationErrorCodes.Quarantined,
                 "Semantic activation authority is quarantined pending late-work recovery.");
         InMemoryMutationReceipt? receipt;
@@ -948,7 +1114,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         ArgumentNullException.ThrowIfNull(request);
         ValidateExecutionRequest(request);
 
-        if (Volatile.Read(ref _atomicLateWorkQuarantined) != 0)
+        if (SemanticStoreIsQuarantined)
             return Rollback(BaseSemanticActivationErrorCodes.Quarantined,
                 "Semantic activation authority is quarantined pending late-work recovery.");
         using var executionLifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -960,7 +1126,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 : Rollback(BaseMutationErrorCodes.TransactionTimeout,
                     "The mutation provider slot could not be acquired in time.");
         await using AtomicExecutionLease execution = acquired;
-        if (Volatile.Read(ref _atomicLateWorkQuarantined) != 0)
+        if (SemanticStoreIsQuarantined)
             return Rollback(BaseSemanticActivationErrorCodes.Quarantined,
                 "Semantic activation authority is quarantined pending late-work recovery.");
 
@@ -1008,6 +1174,10 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         {
             if (receipt.ExpiresAt <= _timeProvider.GetUtcNow())
             {
+                if (receipt.Result.ModuleMutation?.SemanticActivation is
+                    { Operation: BaseSemanticActivationOperationKind.Retire } semanticRetirement)
+                    working.ExpiredSemanticRetirementReceiptFloors.Add(
+                        SemanticRetirementReceiptFloorKey(semanticRetirement));
                 working.Receipts.Remove(receiptKey);
             }
             else
@@ -1411,7 +1581,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             }
         }
 
-        var id = request.RequestedId ?? new RecordId(NextRecordId(working));
+        var id = request.RequestedId ?? RecordId.Create(NextRecordId(working));
         if (request.RequestedId is not null && !runtimeAssignedId && !_options.AllowClientRequestedIds)
         {
             return ValueTask.FromResult(InMemoryResultFactory.Unsupported<RecordEnvelope>(
@@ -1420,7 +1590,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 id.Value));
         }
 
-        if (InMemoryValidation.ValidateRecordId<RecordEnvelope>(id.Value) is { } idError)
+        if (InMemoryValidation.ValidateRecordId<RecordEnvelope>(id) is { } idError)
             return ValueTask.FromResult(idError);
 
         var state = GetOrCreateCollection(working, collection.Id);
@@ -1461,7 +1631,10 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (MutationModeFailure<DeleteResult>(collection, context.Operation) is { } modeError)
+        BaseOperationKind mutationModeOperation = context.Operation == BaseOperationKind.SelectionMutation
+            ? BaseOperationKind.Delete
+            : context.Operation;
+        if (MutationModeFailure<DeleteResult>(collection, mutationModeOperation) is { } modeError)
             return ValueTask.FromResult(modeError);
 
         if (InMemoryValidation.ValidateCollectionId<DeleteResult>(collection.Id) is { } collectionError)
@@ -1469,7 +1642,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             return ValueTask.FromResult(collectionError);
         }
 
-        if (InMemoryValidation.ValidateRecordId<DeleteResult>(id.Value) is { } idError)
+        if (InMemoryValidation.ValidateRecordId<DeleteResult>(id) is { } idError)
         {
             return ValueTask.FromResult(idError);
         }
@@ -1612,7 +1785,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             return ValueTask.FromResult(collectionError);
         }
 
-        if (InMemoryValidation.ValidateRecordId<RecordEnvelope>(id.Value) is { } idError)
+        if (InMemoryValidation.ValidateRecordId<RecordEnvelope>(id) is { } idError)
         {
             return ValueTask.FromResult(idError);
         }
@@ -1625,7 +1798,15 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 id.Value));
         }
 
-        if (request.Patch.Fields is null || request.Patch.Fields.Count == 0)
+        if (request.RemovedFieldIds.IsDefault
+            || !request.RemovedFieldIds.SequenceEqual(request.RemovedFieldIds.Order(StringComparer.Ordinal), StringComparer.Ordinal)
+            || request.RemovedFieldIds.Distinct(StringComparer.Ordinal).Count() != request.RemovedFieldIds.Length)
+        {
+            return ValueTask.FromResult(InMemoryResultFactory.Validation<RecordEnvelope>(
+                InMemoryErrorCodes.InvalidField,
+                "Patch removal identifiers are invalid.", id.Value));
+        }
+        if ((request.Patch.Fields is null || request.Patch.Fields.Count == 0) && request.RemovedFieldIds.IsEmpty)
         {
             return ValueTask.FromResult(InMemoryResultFactory.Validation<RecordEnvelope>(
                 InMemoryErrorCodes.EmptyPatch,
@@ -1633,7 +1814,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 id.Value));
         }
 
-        foreach (var field in request.Patch.Fields)
+        foreach (var field in request.Patch.Fields ?? [])
         {
             if (InMemoryValidation.ValidateFieldName<RecordEnvelope>(field.Key) is { } fieldError)
             {
@@ -1654,8 +1835,19 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         if (existingFields.Value is not { } fields)
             return ValueTask.FromResult(existingFields.Result!);
 
-        foreach (var field in request.Patch.Fields)
+        foreach (var field in request.Patch.Fields ?? [])
             fields[field.Key] = field.Value.Clone();
+        foreach (string fieldId in request.RemovedFieldIds)
+        {
+            FieldDefinition? field = collection.Fields?.SingleOrDefault(candidate =>
+                string.Equals(candidate.Id, fieldId, StringComparison.Ordinal));
+            if (field is null || field.Presence != BaseFieldPresence.Optional
+                || field.Nullability != BaseFieldNullability.NonNullable || field.ReadOnly
+                || (request.Patch.Fields?.ContainsKey(field.WireName) ?? false))
+                return ValueTask.FromResult(InMemoryResultFactory.Validation<RecordEnvelope>(
+                    InMemoryErrorCodes.InvalidField, "Patch removal identifiers are invalid.", id.Value));
+            fields.Remove(field.WireName);
+        }
 
         var updatedPayload = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = fields };
         var updated = MutateRecord(working, current, updatedPayload, context);
@@ -1684,7 +1876,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             return ValueTask.FromResult(collectionError);
         }
 
-        if (InMemoryValidation.ValidateRecordId<RecordEnvelope>(id.Value) is { } idError)
+        if (InMemoryValidation.ValidateRecordId<RecordEnvelope>(id) is { } idError)
         {
             return ValueTask.FromResult(idError);
         }
@@ -1849,7 +2041,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
 
     private static QueryResult<List<StoredRecord>, T> ApplySort<T>(
         List<StoredRecord> records,
-        QuerySort[]? sort)
+        QuerySort[]? sort,
+        Action? comparisonObserved = null)
     {
         if (sort is null || sort.Length == 0)
         {
@@ -1873,6 +2066,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
 
         records.Sort((left, right) =>
         {
+            comparisonObserved?.Invoke();
             foreach (var sortField in sort)
             {
                 var leftPresent = TryReadField(left.Payload, sortField.Field, out var leftValue);
@@ -2733,6 +2927,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         {
             Supported = true, SerializableExecution = true, DurableReceipts = true,
             GenerationCells = true, AtomicRecordAndGenerationCommit = true,
+            MaximumRemovedFieldsPerMutation = 256,
             MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
         },
         Administration = new BaseAdministrationCapability
@@ -2770,7 +2965,11 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         Isolation = isolation, ReceiptEnvelopeFormatVersions = [2], CanonicalCodecVersions = [1],
         SupportedFilterOperators = Enum.GetValues<FilterOperator>().ToImmutableArray(),
         SupportedFilterNodeKinds = Enum.GetValues<FilterNodeKind>().ToImmutableArray(),
-        SupportedIndexShapes = [BaseIndexAccessShape.CollectionGenerationScan],
+        SupportedIndexShapes =
+        [
+            BaseIndexAccessShape.LogicalIndexPoint,
+            BaseIndexAccessShape.CollectionGenerationScan,
+        ],
         ConstraintAttribution = BaseConstraintAttributionClass.RecordIdentity,
         SupportsReceiptOnlyCommit = true, SuppliesReadIntervalEvidence = true,
         SupportsRelationParticipation = true, SupportsReadYourWrites = true,
@@ -2953,6 +3152,35 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                         Current = target,
                     });
                 }
+                BaseCapturedSubjectLifecycleTransitionAuthority? lifecycleAuthority = null;
+                if (item.SubjectLifecycleTransition is { } transition)
+                {
+                    InMemorySubjectLifetimeState? lifetime = _working.SubjectLifetimes.Values.SingleOrDefault(value =>
+                        string.Equals(value.PrivateCollectionId, item.Collection.Id, StringComparison.Ordinal)
+                        && value.PrivateRecordId == item.RecordId
+                        && value.SubjectId.Equals(transition.Subject.SubjectId)
+                        && value.Incarnation.Equals(transition.Subject.Incarnation));
+                    InMemorySubjectContractState? contract = lifetime is null ? null : _working.SubjectContracts.GetValueOrDefault(
+                        SubjectContractKey(lifetime.ContractId, lifetime.ContractVersion));
+                    if (lifetime is null || contract is null || !contract.AuthorityEpoch.Equals(transition.Subject.AuthorityEpoch))
+                        return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
+                    lifecycleAuthority = new BaseCapturedSubjectLifecycleTransitionAuthority
+                    {
+                        ContractId = new string(lifetime.ContractId.AsSpan()), ContractVersion = lifetime.ContractVersion,
+                        ContractChecksum = new string(contract.ContractChecksum.AsSpan()), SubjectId = lifetime.SubjectId,
+                        AuthorityEpoch = contract.AuthorityEpoch, Incarnation = lifetime.Incarnation,
+                        CurrentState = lifetime.LifecycleState, CurrentSubjectSequence = lifetime.SubjectSequence,
+                    };
+                    byte[] lifecycleKey = System.Text.Encoding.UTF8.GetBytes(
+                        $"{lifetime.ContractId}\0{lifetime.ContractVersion}\0{item.RecordId.Value}\0{lifetime.SubjectSequence}");
+                    digest.AppendData(lifecycleKey);
+                    intervals.Add(new BaseAtomicReadIntervalEvidence
+                    {
+                        LogicalAccessPathId = $"subjectLifecycle:{lifetime.ContractId}:lifetime",
+                        CanonicalLowerBound = lifecycleKey.ToImmutableArray(), LowerInclusive = true,
+                        CanonicalUpperBound = lifecycleKey.ToImmutableArray(), UpperInclusive = true,
+                    });
+                }
                 items.Add(new BaseCapturedMutationItem
                 {
                     Ordinal = index,
@@ -2962,6 +3190,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     Disposition = disposition,
                     Current = current,
                     RelationTargets = relationTargets.MoveToImmutable(),
+                    SubjectLifecycleTransition = lifecycleAuthority,
                 });
                 intervals.Add(new BaseAtomicReadIntervalEvidence
                 {
@@ -2994,6 +3223,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 {
                     ApplicationId = intent.Authority.ApplicationId, StoreInstanceId = _owner._options.StoreId,
                     RestoreEpoch = 0, SchemaGeneration = 1,
+                    LogicalSchemaChecksum = intent.Authority.LogicalSchemaChecksum,
                     Collections = intent.Authority.Collections.Select(static value => value with { }).ToImmutableArray(),
                     Isolation = BaseAtomicSelectionIsolationClass.OptimisticRangeValidatedSerializable,
                     TransactionEvidenceToken = BitConverter.GetBytes(_working.GlobalMutationPosition).ToImmutableArray(),
@@ -3013,6 +3243,17 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     RetirementBarrierReads=0,RetirementAcknowledgementReads=0,RetirementProjections=request.SubjectRetirement?.Projections.Length??0,RetirementPublications=0,RetirementEvidenceBytes=0,RetirementPublicationBytes=0,
                 },
             };
+            if ((request.Schema is null) != (request.Limits.Schema is null))
+                return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicExecution>(BaseSchemaErrorCodes.ProviderEvidenceInvalid));
+            if (request.Schema is not null)
+            {
+                try { _capturedMutation = _capturedMutation with { Schema = BaseAtomicSchemaContract.Capture(request.Schema, _capturedMutation.Authority, _owner._options.Collections ?? [], ownedItems, ResolveLogicalIndex) }; }
+                catch (InvalidOperationException exception)
+                {
+                    string code = exception.Message == BaseSchemaErrorCodes.BudgetExceeded ? BaseSchemaErrorCodes.BudgetExceeded : BaseSchemaErrorCodes.ProviderEvidenceInvalid;
+                    return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicExecution>(code));
+                }
+            }
             return ValueTask.FromResult(OperationResults.Ok(_capturedMutation));
         });
         private OperationResult<BaseCapturedActivationGuardEvidence> CaptureActivationGuard(BaseActivationGuard guard)
@@ -3129,6 +3370,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     StoreInstanceId = _owner._options.StoreId,
                     RestoreEpoch = 0,
                     SchemaGeneration = 1,
+                    LogicalSchemaChecksum = intent.Authority.LogicalSchemaChecksum,
                     Collections = [],
                     Isolation = BaseAtomicSelectionIsolationClass.OptimisticRangeValidatedSerializable,
                     TransactionEvidenceToken = BitConverter.GetBytes(_working.GlobalMutationPosition).ToImmutableArray(),
@@ -3290,14 +3532,16 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 BaseModuleGenerationCaptureRequest capture = module.Generations[index];
                 if (capture.Ordinal != index || !ValidGenerationScope(capture))
                     return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
-                string storageKey = ModuleGenerationStorageKey(capture);
+                byte[] canonicalKey = BaseModuleGenerationStorageKey.Encode(
+                    capture.Cell, capture.Scope, capture.KeyUtf8.AsSpan());
+                string storageKey = System.Text.Encoding.UTF8.GetString(canonicalKey);
                 generationKeys.Add(index, storageKey);
                 bool exists = _working.ModuleGenerations.TryGetValue(storageKey, out long value);
                 if ((capture.Absence == BaseModuleGenerationAbsenceBehavior.RequireExisting && !exists)
                     || (capture.Absence == BaseModuleGenerationAbsenceBehavior.RequireMissing && exists))
                     return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
-                string keyDigest = Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(storageKey)));
-                byte[] key = System.Text.Encoding.UTF8.GetBytes(storageKey);
+                string keyDigest = Convert.ToHexStringLower(SHA256.HashData(canonicalKey));
+                byte[] key = canonicalKey;
                 intervals.Add(ExactInterval("module-generation", key));
                 generationBytes = checked(generationBytes + key.LongLength + 1 + (exists ? 8 : 0));
                 digest.AppendData(key);
@@ -3361,12 +3605,18 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicExecution>(semanticResult.Error?.Code ?? BaseSubjectErrorCodes.ProviderContractInvalid));
             BaseCapturedSemanticActivationEvidence? capturedSemantic = semanticResult.Value;
 
+            OperationResult<ImmutableArray<BaseCapturedSubjectLifecycleConsumerProjection>> lifecycleProjectionResult =
+                CaptureLifecycleConsumerProjections(request.LifecycleConsumerProjections, digest, intervals);
+            if (!lifecycleProjectionResult.IsSuccess() || lifecycleProjectionResult.Value.IsDefault)
+                return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
+
             OperationResult<ImmutableArray<BaseCapturedSubjectRetirementProjection>> retirementResult =
                 CaptureRetirement(request.SubjectRetirement, intent, module, digest, intervals);
             if (!retirementResult.IsSuccess() || retirementResult.Value.IsDefault)
                 return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid));
             long evidenceBytes = BaseSubjectCanonicalRetainedWork.MeasureIntervals(intervals);
-            long transient = checked(selectedBytes + relationBytes + generationBytes + evidenceBytes);
+            long transient = checked(selectedBytes + relationBytes + generationBytes + evidenceBytes
+                + BaseSubjectCanonicalRetainedWork.MeasureLifecycleConsumerProjections(lifecycleProjectionResult.Value));
             if (selectedBytes > limits.MaximumSelectedBytes || generationBytes > limits.MaximumGenerationBytes
                 || evidenceBytes > limits.MaximumEvidenceBytes || transient > limits.MaximumTransientBytes
                 || intervals.Count > limits.MaximumReadIntervals)
@@ -3380,6 +3630,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 {
                     ApplicationId = intent.Authority.ApplicationId, StoreInstanceId = _owner._options.StoreId,
                     RestoreEpoch = 0, SchemaGeneration = 1,
+                    LogicalSchemaChecksum = intent.Authority.LogicalSchemaChecksum,
                     Collections = intent.Authority.Collections.Select(static value => value with { }).ToImmutableArray(),
                     Isolation = BaseAtomicSelectionIsolationClass.OptimisticRangeValidatedSerializable,
                     TransactionEvidenceToken = BitConverter.GetBytes(_working.GlobalMutationPosition).ToImmutableArray(),
@@ -3388,8 +3639,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 Generations = generations.MoveToImmutable(), ActivationGuard = _capturedActivationGuard,
                 Activations = capturedActivations,
                 SemanticActivation = capturedSemantic,
+                LifecycleConsumerProjections = lifecycleProjectionResult.Value,
                 SubjectRetirement = retirementResult.Value,
-                ReadIntervals = intervals.MoveToImmutable(),
+                ReadIntervals = intervals.ToImmutable(),
                 Accounting = new BaseAtomicCaptureAccounting
                 {
                     Records = module.Records.Length, RelationTargetReads = module.RelationTargets.Length,
@@ -3401,6 +3653,16 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     RetirementPublications = 0, RetirementEvidenceBytes = 0, RetirementPublicationBytes = 0,
                 },
             };
+            if ((request.Schema is null) != (request.Limits.Schema is null))
+                return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicExecution>(BaseSchemaErrorCodes.ProviderEvidenceInvalid));
+            if (request.Schema is not null)
+            {
+                try { _capturedMutation = _capturedMutation with { Schema = BaseAtomicSchemaContract.Capture(request.Schema, _capturedMutation.Authority, _owner._options.Collections ?? [], BaseAtomicSchemaContract.ModuleItems(_capturedMutation.ModuleRecords), ResolveLogicalIndex) }; }
+                catch (InvalidOperationException exception)
+                {
+                    return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicExecution>(exception.Message == BaseSchemaErrorCodes.BudgetExceeded ? BaseSchemaErrorCodes.BudgetExceeded : BaseSchemaErrorCodes.ProviderEvidenceInvalid));
+                }
+            }
             _capturedModuleGenerationKeys = generationKeys;
             return ValueTask.FromResult(OperationResults.Ok(_capturedMutation));
         }
@@ -3463,6 +3725,21 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             if (_working.SemanticActivationAuthority is not { } installed
                 || !SemanticAuthorityEquals(installed, capture.StoreAuthority))
                 return SubjectFailure<BaseCapturedSemanticActivationEvidence?>(BaseSubjectErrorCodes.ProviderContractInvalid);
+            var requestedDefinition = new BaseSemanticActivationDefinitionKey
+            {
+                Id = definition.Id,
+                Version = definition.Version,
+                Checksum = definition.Checksum,
+            };
+            if (_working.RemovedSemanticDefinitions.Contains(DefinitionKey(requestedDefinition))
+                || _working.SemanticMigrationAuthorities.ContainsKey(DefinitionKey(requestedDefinition)))
+                return SubjectFailure<BaseCapturedSemanticActivationEvidence?>(
+                    BaseSemanticActivationErrorCodes.NotInstalled,
+                    OperationStatus.ValidationFailed,
+                    ErrorCategory.Validation);
+            if (SemanticMaintenanceFencesDefinition(_working, definition))
+                return SubjectFailure<BaseCapturedSemanticActivationEvidence?>(
+                    BaseSemanticActivationErrorCodes.GraphChanged, OperationStatus.Conflict, ErrorCategory.Conflict);
             BaseProtectedSubjectScope protectedScope = _owner._subjectScopes.Protect(scope, _owner._subjectScopeProtectionKey);
             string scopeKey = $"{(int)scope.Kind}\n{Convert.ToHexString(protectedScope.IndexDigest)}";
             byte[] proposed = capture.ProposedScopeBindingId.ToArray();
@@ -3510,6 +3787,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             BaseActivationState? capturedActivationState = null;
             ImmutableArray<byte> capturedActivationChecksum = [];
             ImmutableArray<byte> capturedTerminalReceiptChecksum = [];
+            InMemoryActivationRow? capturedActivationRow = null;
             if (slot?.Live is not null)
             {
                 state = BaseSemanticActivationCapturedState.Live; live = slot.Live with { KeyDigest = keyDigest };
@@ -3519,6 +3797,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 capturedActivationState = mapped.State;
                 capturedActivationChecksum = mapped.ControlChecksum.ToArray().ToImmutableArray();
                 capturedTerminalReceiptChecksum = mapped.TerminalReceiptChecksum?.ToArray().ToImmutableArray() ?? [];
+                capturedActivationRow = mapped;
             }
             else if (slot?.Retired is not null) { state = BaseSemanticActivationCapturedState.Retired; retired = slot.Retired with { KeyDigest = keyDigest }; }
             else if (slot?.Absent is not null) { state = BaseSemanticActivationCapturedState.CompactedAbsent; absent = slot.Absent with { Key = keyDigest }; }
@@ -3532,6 +3811,29 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                         Encoding.UTF8.GetBytes(slotKey)),
                 };
             }
+            ImmutableArray<BaseSemanticActivationDefinitionMigrationAuthority> migrationChain =
+                state is BaseSemanticActivationCapturedState.Retired or BaseSemanticActivationCapturedState.CompactedAbsent
+                    ? PublishedMigrationChain(
+                        retired?.Definition ?? new BaseSemanticActivationDefinitionKey
+                        {
+                            Id = absent!.Definition.Id,
+                            Version = absent.Definition.Version,
+                            Checksum = absent.Definition.Checksum,
+                        }, requestedDefinition)
+                    : [];
+            if (state is BaseSemanticActivationCapturedState.Retired or BaseSemanticActivationCapturedState.CompactedAbsent
+                && !DefinitionEqual(
+                    retired?.Definition ?? new BaseSemanticActivationDefinitionKey
+                    {
+                        Id = absent!.Definition.Id,
+                        Version = absent.Definition.Version,
+                        Checksum = absent.Definition.Checksum,
+                    }, requestedDefinition)
+                && migrationChain.IsDefaultOrEmpty)
+                return SubjectFailure<BaseCapturedSemanticActivationEvidence?>(
+                    BaseSemanticActivationErrorCodes.NotInstalled,
+                    OperationStatus.ValidationFailed,
+                    ErrorCategory.Validation);
             _capturedSemanticExtension = extension;
             _capturedSemanticScopeKey = scopeKey;
             _capturedSemanticSlotKey = slotKey;
@@ -3540,7 +3842,16 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 State = state, ScopeDirectory = scopeCapture, Missing = missing, Live = live, Retired = retired, Absent = absent,
                 ActivationGeneration = capturedActivationGeneration, ActivationChecksum = capturedActivationChecksum,
                 ActivationState = capturedActivationState,
+                ActivationEffectiveDueAt = capturedActivationRow?.EffectiveDueAt,
+                ActivationYieldCount = capturedActivationRow?.YieldCount,
+                ActivationMaximumYields = capturedActivationRow?.MaximumYields,
+                ActivationExecutionSliceOrdinal = capturedActivationRow?.ExecutionSliceOrdinal,
+                ActivationAttemptStartedAt = capturedActivationRow?.AttemptStartedAt,
+                ActivationSliceStartedAt = capturedActivationRow?.SliceStartedAt,
+                ActivationTerminalYieldDisposition = capturedActivationRow?.YieldTerminalDisposition,
+                ActivationTerminalYieldFailureCode = capturedActivationRow?.YieldTerminalFailureCode,
                 ActivationTerminalReceiptChecksum = capturedTerminalReceiptChecksum,
+                DefinitionMigrationChain = migrationChain,
                 ReadIntervals = semanticIntervals, Accounting = accounting, AcceptedTime = capture.AcceptedTime, Checksum = [],
             };
             capturedResult = capturedResult with { Checksum = BaseSemanticActivationEvidenceContract.CapturedChecksum(extension, capturedResult) };
@@ -3581,6 +3892,46 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             && installed.SemanticAuthorityGeneration == requested.SemanticAuthorityGeneration
             && CryptographicOperations.FixedTimeEquals(installed.DefinitionSetChecksum.AsSpan(), requested.DefinitionSetChecksum.AsSpan());
 
+        private ImmutableArray<BaseSemanticActivationDefinitionMigrationAuthority> PublishedMigrationChain(
+            BaseSemanticActivationDefinitionKey from, BaseSemanticActivationDefinitionKey to)
+        {
+            if (DefinitionEqual(from, to)) return [];
+            var chain = ImmutableArray.CreateBuilder<BaseSemanticActivationDefinitionMigrationAuthority>();
+            BaseSemanticActivationDefinitionKey current = from;
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            while (!DefinitionEqual(current, to))
+            {
+                string key = DefinitionKey(current);
+                if (!visited.Add(key)
+                    || !_working.SemanticMigrationAuthorities.TryGetValue(
+                        key, out BaseSemanticActivationDefinitionMigrationAuthority? authority)
+                    || !DefinitionEqual(authority.From, current)
+                    || authority.Checksum.Length != 32
+                    || !CryptographicOperations.FixedTimeEquals(
+                        BaseSemanticActivationMigrationAuthorityContract.Checksum(
+                            authority with { Checksum = [] }).AsSpan(), authority.Checksum.AsSpan()))
+                    return [];
+                chain.Add(authority with
+                {
+                    From = authority.From with
+                    {
+                        Id = new string(authority.From.Id.AsSpan()),
+                        Checksum = authority.From.Checksum.ToArray().ToImmutableArray(),
+                    },
+                    To = authority.To with
+                    {
+                        Id = new string(authority.To.Id.AsSpan()),
+                        Checksum = authority.To.Checksum.ToArray().ToImmutableArray(),
+                    },
+                    OrderedNegativeAuthorityChecksum = authority.OrderedNegativeAuthorityChecksum.ToArray().ToImmutableArray(),
+                    ReceiptChecksum = authority.ReceiptChecksum.ToArray().ToImmutableArray(),
+                    Checksum = authority.Checksum.ToArray().ToImmutableArray(),
+                });
+                current = authority.To;
+            }
+            return chain.MoveToImmutable();
+        }
+
         private static byte[] SemanticKeyDigest(string definitionId, ReadOnlySpan<byte> bindingId, ReadOnlySpan<byte> canonicalKey)
         {
             using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
@@ -3614,6 +3965,56 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             && value.ReceiptBytes <= limits.MaximumReceiptBytes
             && value.TransientBytes <= limits.MaximumTransientBytes;
 
+        private bool TouchesRequiredLogicalIndex(BaseFinalizedAtomicExecutionPlan plan) =>
+            plan.Items.Any(static item => (item.Collection.Indexes ?? []).Any(static index => index.StoreRequired))
+            || plan.Kind == BaseAtomicMutationExecutionKind.SelectionMutation
+                && plan.Schema?.Authority.Indexes.Any(index =>
+                    (_owner._options.Collections ?? []).Any(collection =>
+                        (collection.Indexes ?? []).Any(definition => definition.StoreRequired
+                            && definition.Checksum == index.Index))) == true;
+
+        private bool SelectionDirectoryAuthorityMatches(BaseCapturedAtomicExecution captured)
+        {
+            BaseLogicalIndexSelectionEvidence? evidence = captured.Selection?.LogicalIndexEvidence;
+            if (evidence is null) return true;
+            if (_owner.LogicalIndexStoreIsQuarantined || captured.Authority.Collections.Length != 1)
+                return false;
+            string collectionId = captured.Authority.Collections[0].CollectionId;
+            string key = $"{collectionId}\n{evidence.IndexChecksum}";
+            CollectionDefinition? collection = (_owner._options.Collections ?? []).SingleOrDefault(
+                value => string.Equals(value.Id, collectionId, StringComparison.Ordinal));
+            BaseLogicalIndexDefinition? definition = (collection?.Indexes ?? []).SingleOrDefault(
+                value => value.StoreRequired && value.Id == evidence.IndexId
+                    && value.Version == evidence.IndexVersion && value.Checksum == evidence.IndexChecksum);
+            return definition is not null
+                && _working.LogicalIndexes.TryGetValue(key, out InMemoryLogicalIndexAuthority? authority)
+                && authority.State == BaseLogicalIndexGenerationState.Ready
+                && authority.Directory is not null
+                && authority.DirectoryAuthority is not null
+                && authority.Generation == evidence.DirectoryGeneration
+                && authority.DirectoryAuthority.Generation == evidence.DirectoryGeneration
+                && CryptographicOperations.FixedTimeEquals(
+                    authority.DirectoryAuthority.DirectoryPublicationChecksum.AsSpan(),
+                    evidence.DirectoryPublicationChecksum.AsSpan())
+                && CryptographicOperations.FixedTimeEquals(
+                    authority.Directory.MemberSetChecksum.AsSpan(), evidence.MemberSetChecksum.AsSpan())
+                && BaseLogicalIndexDirectoryContract.Validate(collection!, definition, authority.Directory);
+        }
+
+        private BaseLogicalIndexCurrentAuthority ResolveLogicalIndex(string collectionId, BaseLogicalIndexChecksum index)
+        {
+            if (_owner.LogicalIndexStoreIsQuarantined)
+                throw new InvalidOperationException(BaseSchemaErrorCodes.ProviderEvidenceInvalid);
+            if (!_working.LogicalIndexes.TryGetValue($"{collectionId}\n{index}", out InMemoryLogicalIndexAuthority? value)
+                || value.State != BaseLogicalIndexGenerationState.Ready || value.Generation <= 0)
+                throw new InvalidOperationException(BaseSchemaErrorCodes.RebuildRequired);
+            return new BaseLogicalIndexCurrentAuthority
+            {
+                Index = index, State = value.State, Generation = value.Generation,
+                PublicationChecksum = BaseSchemaAuthorityChecksum.Create(value.PublicationChecksum.ToArray()),
+            };
+        }
+
         public ValueTask<OperationResult<BasePreparedAtomicExecution>> PrepareAtomicExecutionAsync(
             BaseCapturedAtomicExecution captured,
             BaseFinalizedAtomicExecutionPlan plan,
@@ -3632,6 +4033,13 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     && (captured.Activations is null || _capturedActivationExtension is null
                         || plan.Kind == BaseAtomicMutationExecutionKind.ActivationCreation && !plan.Items.IsDefaultOrEmpty)))
                 return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
+            if ((_owner.LogicalIndexStoreIsQuarantined && TouchesRequiredLogicalIndex(plan))
+                || !SelectionDirectoryAuthorityMatches(captured))
+            {
+                _owner.QuarantineLogicalIndexes();
+                return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>(
+                    BaseSchemaErrorCodes.ProviderEvidenceInvalid));
+            }
             if (!ActivationGuardMatches(plan.ActivationGuard, captured.ActivationGuard))
                 return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>("base.activation.claimLost", OperationStatus.Conflict, ErrorCategory.Conflict));
             var preparedGenerations = ImmutableArray.CreateBuilder<BasePreparedModuleGenerationEvidence>(captured.Generations.Length);
@@ -3647,8 +4055,10 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     BaseCapturedActivationItem capturedItem = captured.Activations.Items[ordinal];
                     BaseActivationCreateIntent intentItem = plan.Activations!.Items[ordinal];
                     byte[] payloadChecksum = SHA256.HashData(intentItem.CanonicalInput.AsSpan());
-                    byte[] controlChecksum = SHA256.HashData(Encoding.UTF8.GetBytes(
-                        $"{capturedItem.ActivationId}\n1\n{intentItem.EffectiveDueAt ?? intentItem.RequestedDueAt}"));
+                    byte[] controlChecksum = BaseActivationControlChecksumContract.Create(
+                        capturedItem.ActivationId, 1, BaseActivationState.Pending,
+                        intentItem.EffectiveDueAt ?? intentItem.RequestedDueAt, 0,
+                        intentItem.MaximumYields, 0, null, null, null, null).ToArray();
                     activationDigest.AppendData(payloadChecksum);
                     activationDigest.AppendData(controlChecksum);
                     activationItems.Add(new BasePreparedActivationItem
@@ -3718,20 +4128,35 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 }
             }
             var lifetimes = new Dictionary<string, InMemorySubjectLifetimeState?>(StringComparer.Ordinal);
+            var contracts = new Dictionary<string, InMemorySubjectContractState?>(StringComparer.Ordinal);
+            var privateRecords = new Dictionary<string, RecordEnvelope?>(StringComparer.Ordinal);
             var overlays = new Dictionary<string, BasePreparedSubjectOverlayEvidence>(StringComparer.Ordinal);
             var lifecycleIncarnations = new Dictionary<int, BaseSubjectIncarnation>();
             var subjectAuthorities = new Dictionary<string, BaseSubjectTransactionAuthorityEvidence>(StringComparer.Ordinal);
             var intervals = captured.ReadIntervals.ToBuilder();
-            int authorityReads = captured.Accounting.Records;
+            var intervalKeys = captured.ReadIntervals.Select(static interval => string.Concat(
+                interval.LogicalAccessPathId, "\0", Convert.ToHexString(interval.CanonicalLowerBound.AsSpan()), "\0",
+                Convert.ToHexString(interval.CanonicalUpperBound.AsSpan()))).ToHashSet(StringComparer.Ordinal);
+            void AddInterval(string path, byte[] key)
+            {
+                string intervalKey = string.Concat(path, "\0", Convert.ToHexString(key), "\0", Convert.ToHexString(key));
+                if (intervalKeys.Add(intervalKey)) intervals.Add(ExactInterval(path, key));
+            }
+            int authorityReads = 0;
             long retainedBytes = checked(captured.Accounting.TransientBytes + CanonicalPlanRetainedBytes(plan));
             foreach (BaseAtomicMutationPlanItem item in plan.Items)
             {
                 if (item.SubjectLifecycle is not { } lifecycle) continue;
                 string contractKey = SubjectContractKey(lifecycle.ContractId, lifecycle.ContractVersion);
-                if (!_working.SubjectContracts.TryGetValue(contractKey, out InMemorySubjectContractState? contract)
+                if (!contracts.TryGetValue(contractKey, out InMemorySubjectContractState? contract))
+                {
+                    _working.SubjectContracts.TryGetValue(contractKey, out contract);
+                    contracts.Add(contractKey, contract);
+                    authorityReads = checked(authorityReads + 1);
+                }
+                if (contract is null
                     || !string.Equals(contract.ContractChecksum, lifecycle.ContractChecksum, StringComparison.Ordinal))
                     return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.SchemaGenerationChanged, OperationStatus.Conflict, ErrorCategory.Conflict));
-                authorityReads = checked(authorityReads + 1);
                 subjectAuthorities[contractKey] = SubjectAuthority(contract);
                 BaseExportedSubjectDefinition? definition = _owner._options.ExportedSubjects.FirstOrDefault(subject =>
                     string.Equals(subject.Id, lifecycle.ContractId, StringComparison.Ordinal) && subject.Version == lifecycle.ContractVersion);
@@ -3739,9 +4164,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
                 BaseOwnedSubjectScopeEvidence ownedScope = ScopeFor(item, lifecycle.ContractId, lifecycle.ContractVersion);
                 string subjectKey = _owner.SubjectKey(ownedScope, lifecycle.ContractId, lifecycle.ContractVersion, lifecycle.SubjectId);
-                intervals.Add(ExactInterval($"subject:{lifecycle.ContractId}:contract", System.Text.Encoding.UTF8.GetBytes(contractKey)));
-                intervals.Add(ExactInterval($"subject:{lifecycle.ContractId}:lifetime", System.Text.Encoding.UTF8.GetBytes(subjectKey)));
-                intervals.Add(ExactInterval($"subject:{lifecycle.ContractId}:record", System.Text.Encoding.UTF8.GetBytes(lifecycle.SubjectId.Value)));
+                AddInterval($"subject:{lifecycle.ContractId}:contract", System.Text.Encoding.UTF8.GetBytes(contractKey));
+                AddInterval($"subject:{lifecycle.ContractId}:lifetime", System.Text.Encoding.UTF8.GetBytes(subjectKey));
+                AddInterval($"subject:{lifecycle.ContractId}:record", System.Text.Encoding.UTF8.GetBytes(lifecycle.SubjectId.Value));
                 if (!lifetimes.TryGetValue(subjectKey, out InMemorySubjectLifetimeState? existingLifetime))
                 {
                     _working.SubjectLifetimes.TryGetValue(subjectKey, out existingLifetime);
@@ -3857,7 +4282,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                         string.Equals(validation.Scope.Value, originalScope.Value, StringComparison.Ordinal)))
                     {
                         lifetimes[originalKey] = null;
-                        intervals.Add(ExactInterval($"subject:{lifecycle.ContractId}:lifetime", System.Text.Encoding.UTF8.GetBytes(originalKey)));
+                        AddInterval($"subject:{lifecycle.ContractId}:lifetime", System.Text.Encoding.UTF8.GetBytes(originalKey));
                         overlays[originalKey] = new BasePreparedSubjectOverlayEvidence
                         {
                             ContractId = lifecycle.ContractId, ContractVersion = lifecycle.ContractVersion,
@@ -3883,9 +4308,14 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 RecordEnvelope? privateRecord = null;
                 if (valid)
                 {
-                    bool authorityPresent = _working.SubjectContracts.TryGetValue(
-                        SubjectContractKey(definition!.Id, definition.Version), out contract);
-                    authorityReads = checked(authorityReads + 1);
+                    string contractAuthorityKey = SubjectContractKey(definition!.Id, definition.Version);
+                    if (!contracts.TryGetValue(contractAuthorityKey, out contract))
+                    {
+                        _working.SubjectContracts.TryGetValue(contractAuthorityKey, out contract);
+                        contracts.Add(contractAuthorityKey, contract);
+                        authorityReads = checked(authorityReads + 1);
+                    }
+                    bool authorityPresent = contract is not null;
                     bool lifetimeKnown = lifetimes.TryGetValue(subjectKey, out lifetime);
                     if (!lifetimeKnown)
                     {
@@ -3897,11 +4327,18 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     if (contract is not null)
                         subjectAuthorities[SubjectContractKey(definition.Id, definition.Version)] = SubjectAuthority(contract);
                     if (lifetime is not null)
-                        privateRecord = ResolveFinalRecord(
-                            plan.Items,
-                            definition.ValidationPlan.PrivateCollectionId,
-                            lifetime.PrivateRecordId);
-                    authorityReads = checked(authorityReads + 1);
+                    {
+                        string privateRecordKey = $"{definition.ValidationPlan.PrivateCollectionId}\n{lifetime.PrivateRecordId.Value}";
+                        if (!privateRecords.TryGetValue(privateRecordKey, out privateRecord))
+                        {
+                            privateRecord = ResolveFinalRecord(
+                                plan.Items,
+                                definition.ValidationPlan.PrivateCollectionId,
+                                lifetime.PrivateRecordId);
+                            privateRecords.Add(privateRecordKey, privateRecord);
+                            authorityReads = checked(authorityReads + 1);
+                        }
+                    }
                     valid = authorityPresent
                         && lifetimePresent
                         && privateRecord is not null
@@ -3943,9 +4380,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     byte[] contractBytes = System.Text.Encoding.UTF8.GetBytes(SubjectContractKey(definition.Id, definition.Version));
                     byte[] subjectBytes = System.Text.Encoding.UTF8.GetBytes(subjectKey);
                     byte[] recordBytes = System.Text.Encoding.UTF8.GetBytes(validation.Reference.SubjectId.Value);
-                    intervals.Add(ExactInterval($"subject:{definition.Id}:contract", contractBytes));
-                    intervals.Add(ExactInterval($"subject:{definition.Id}:lifetime", subjectBytes));
-                    intervals.Add(ExactInterval($"subject:{definition.Id}:record", recordBytes));
+                    AddInterval($"subject:{definition.Id}:contract", contractBytes);
+                    AddInterval($"subject:{definition.Id}:lifetime", subjectBytes);
+                    AddInterval($"subject:{definition.Id}:record", recordBytes);
                     overlays[subjectKey] = new BasePreparedSubjectOverlayEvidence
                     {
                         ContractId = definition.Id,
@@ -4000,6 +4437,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             BasePreparedTextMutationEvidence? preparedText = BaseTextAtomicMutationContract.Prepare(plan.Text, preparedTextIndexes);
             long textEvidenceBytes = preparedText?.EvidenceBytes ?? 0;
             evidenceBytes = checked(evidenceBytes + textEvidenceBytes); transient = checked(transient + textEvidenceBytes);
+            BaseAtomicSchemaPreparedExtension? preparedSchema;
+            try { preparedSchema = BaseAtomicSchemaContract.Prepare(this, captured.Schema, plan.Schema, plan.Items); }
+            catch (InvalidOperationException ex) { return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>(ex.Message)); }
             int retirementReads=preparedRetirement?.Items.Length??0;
             if(retirementReads>plan.Limits.MaximumRetirementBarrierReads||retirementReads>plan.Limits.MaximumRetirementProjections
                 ||retirementEvidenceBytes>plan.Limits.MaximumRetirementEvidenceBytes||evidenceBytes>plan.Limits.MaximumEvidenceBytes||transient>plan.Limits.MaximumTransientBytes)
@@ -4029,6 +4469,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 ReadIntervals = intervals.ToImmutable(),
                 SubjectRetirement=preparedRetirement,
                 Text = preparedText,
+                Schema = preparedSchema,
                 Accounting = new BasePreparedAtomicMutationAccounting
                 {
                     AuthorityReads = authorityReads,
@@ -4139,7 +4580,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 case (BaseSemanticActivationOperationKind.Retire, BaseSemanticActivationCapturedState.Live):
                     activationId = captured.Live!.ActivationId;
                     if (!_working.Activations.TryGetValue(activationId, out InMemoryActivationRow? row)
-                        || row.State is BaseActivationState.Pending or BaseActivationState.RetryPending or BaseActivationState.Claimed
+                        || row.State is BaseActivationState.Pending or BaseActivationState.RetryPending or BaseActivationState.YieldPending or BaseActivationState.Claimed
                             or BaseActivationState.EffectStarted or BaseActivationState.OutcomeUnknown
                         || row.TerminalReceiptChecksum is not { Length: 32 })
                         throw new InvalidOperationException("base.semanticActivation.activationNotTerminal");
@@ -4246,6 +4687,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             hash.AppendData(Encoding.UTF8.GetBytes(item.Definition.Id));
             hash.AppendData(BitConverter.GetBytes(item.Definition.Version).Reverse().ToArray());
             hash.AppendData(item.Definition.Checksum.AsSpan());
+            hash.AppendData(BitConverter.GetBytes(item.MaximumYields).Reverse().ToArray());
             hash.AppendData(item.InputChecksum.AsSpan());
             hash.AppendData(BitConverter.GetBytes(item.RequestedDueAt).Reverse().ToArray());
             hash.AppendData(BitConverter.GetBytes(item.EffectiveDueAt ?? item.RequestedDueAt).Reverse().ToArray());
@@ -4385,14 +4827,6 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             && JsonSerializer.SerializeToUtf8Bytes(left, HPDBaseJsonSerializerContext.Default.RecordEnvelope).AsSpan()
                 .SequenceEqual(JsonSerializer.SerializeToUtf8Bytes(right, HPDBaseJsonSerializerContext.Default.RecordEnvelope));
 
-        private static string ModuleGenerationStorageKey(BaseModuleGenerationCaptureRequest capture) => string.Join('\n',
-            capture.Cell.Id,
-            capture.Cell.Version.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            ((int)capture.Scope.Kind).ToString(System.Globalization.CultureInfo.InvariantCulture),
-            capture.Scope.Tenant ?? string.Empty,
-            capture.Scope.Project ?? string.Empty,
-            Convert.ToHexStringLower(capture.KeyUtf8.AsSpan()));
-
         private static RecordEnvelope? SimulateIntentRecord(
             BaseAtomicMutationIntentItem item,
             RecordEnvelope? current)
@@ -4456,6 +4890,32 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             return wireName is not null && record.Payload.Fields?.TryGetValue(wireName, out value) == true;
         }
 
+        private static bool ValidTombstoneMetadata(
+            BaseAtomicMutationPlanItem item,
+            RecordEnvelope? record,
+            BaseExportedSubjectDefinition definition,
+            long sequence)
+        {
+            if (record?.Payload.Fields is not { } fields) return false;
+            if (definition.TombstoneMetadata.Sequence is { Kind: BaseSubjectTombstoneMetadataBindingKind.RequiredField, FieldId: { } sequenceId })
+            {
+                string? wire = item.Collection.Fields?.SingleOrDefault(field => field.Id == sequenceId)?.WireName;
+                if (wire is null || !fields.TryGetValue(wire, out JsonElement value)
+                    || value.ValueKind != JsonValueKind.Number || !value.TryGetInt64(out long stored) || stored != sequence)
+                    return false;
+            }
+            if (definition.TombstoneMetadata.Instant is { Kind: BaseSubjectTombstoneMetadataBindingKind.RequiredField, FieldId: { } instantId })
+            {
+                string? wire = item.Collection.Fields?.SingleOrDefault(field => field.Id == instantId)?.WireName;
+                string expected = item.Operation.Now.ToUniversalTime().ToString(
+                    "yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", System.Globalization.CultureInfo.InvariantCulture);
+                if (wire is null || !fields.TryGetValue(wire, out JsonElement value)
+                    || value.ValueKind != JsonValueKind.String || value.GetString() != expected)
+                    return false;
+            }
+            return true;
+        }
+
         public ValueTask<OperationResult<BaseProvisionalAtomicExecution>> ApplyPreparedAtomicExecutionAsync(
             BasePreparedAtomicExecution prepared,
             CancellationToken cancellationToken = default) => ExecuteAsync(cancellationToken, async token =>
@@ -4465,6 +4925,24 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
 
             BaseFinalizedAtomicExecutionPlan plan = _preparedPlan;
+            BaseAtomicSchemaProvisionalExtension? provisionalSchema;
+            try { provisionalSchema = BaseAtomicSchemaContract.Apply(this, prepared.Schema, plan.Schema); }
+            catch (InvalidOperationException ex) { return SubjectFailure<BaseProvisionalAtomicExecution>(ex.Message); }
+            var logicalIndexTransitions = new Dictionary<string, (InMemoryLogicalIndexAuthority Current, long ResultingGeneration)>(StringComparer.Ordinal);
+            if (plan.Schema is not null && provisionalSchema is not null)
+                foreach (IGrouping<BaseLogicalIndexChecksum, BaseSchemaAppliedIndexTransition> group in provisionalSchema.AppliedIndexes.GroupBy(static value => value.Index))
+                {
+                    BaseLogicalIndexCurrentAuthority capturedIndex = plan.Schema.Authority.Indexes.Single(value => value.Index == group.Key);
+                    long resulting = group.First().ResultingGeneration;
+                    if (group.Any(value => value.ResultingGeneration != resulting)) return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSchemaErrorCodes.ProviderEvidenceInvalid);
+                    string collectionId = plan.Schema.Authority.Collections.Single(value => value.Indexes.Contains(group.Key)).CollectionId;
+                    string key = $"{collectionId}\n{group.Key}";
+                    if (!_working.LogicalIndexes.TryGetValue(key, out InMemoryLogicalIndexAuthority? current)
+                        || current.Generation != capturedIndex.Generation || current.PublicationChecksum != capturedIndex.PublicationChecksum)
+                        return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSchemaErrorCodes.TransactionConflict, OperationStatus.Conflict, ErrorCategory.Conflict);
+                    if (!logicalIndexTransitions.TryAdd(key, (current, resulting)))
+                        return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSchemaErrorCodes.ProviderEvidenceInvalid);
+                }
             _preparedMutation = null;
             Dictionary<int, BaseSubjectIncarnation> lifecycleIncarnations = _preparedLifecycleIncarnations
                 ?? new Dictionary<int, BaseSubjectIncarnation>();
@@ -4475,6 +4953,12 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             foreach (BaseAtomicMutationPlanItem item in plan.Items)
             {
                 token.ThrowIfCancellationRequested();
+                if (item.SubjectLifecycle is { } fencedLifecycle
+                    && _owner.SemanticMaintenanceFencesSubjectContract(
+                        _working, fencedLifecycle.ContractId, fencedLifecycle.ContractVersion))
+                    return SubjectFailure<BaseProvisionalAtomicExecution>(
+                        BaseSubjectErrorCodes.MaintenanceRequired,
+                        OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
                 RecordMutationSessionContext context = new()
                 {
                     ItemId = item.ItemId,
@@ -4500,7 +4984,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                         RecordEnvelope? before = SnapshotRecord(item.Collection, item.RecordId);
                         OperationResult<RecordEnvelope> result = await _owner.PatchCoreAsync(
                             _working, item.Collection, item.RecordId,
-                            new RecordPatchRequest { Patch = PatchDelta(item), ExpectedRevision = before?.Metadata.Revision },
+                            new RecordPatchRequest { Patch = PatchDelta(item), RemovedFieldIds = item.RemovedFieldIds, ExpectedRevision = before?.Metadata.Revision },
                             item.Operation, token).ConfigureAwait(false);
                         mutation = ProjectMutation(result, item.Collection, context, item.Kind, before, result.Value, null, item.ChangedFields.ToArray());
                         break;
@@ -4556,6 +5040,12 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                             ? checked((previousLifetime?.SubjectSequence ?? 0) + 1)
                             : previousLifetime?.SubjectSequence ?? 0;
                     if (incarnation.Equals(default(BaseSubjectIncarnation)) || sequence <= 0)
+                        return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                    BaseExportedSubjectDefinition? definition = (_owner._options.ExportedSubjects ?? []).SingleOrDefault(value =>
+                        value.Id == plannedLifecycle.ContractId && value.Version == plannedLifecycle.ContractVersion);
+                    if (definition is null || plannedLifecycle.ResultingState == BaseSubjectLifecycleState.Tombstoned
+                        && plannedLifecycle.PreviousState != BaseSubjectLifecycleState.Tombstoned
+                        && !ValidTombstoneMetadata(item, mutation.Value.Record, definition, sequence))
                         return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
                     committedLifecycle = new BaseSubjectLifecycleCommitEvidence
                     {
@@ -4756,6 +5246,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                         _working.ModuleGenerations.Remove(key);
                     else
                         _working.ModuleGenerations[key] = generation.Resulting.Value;
+                    if (generation.Disposition is BaseModuleGenerationPreparationDisposition.Created
+                        or BaseModuleGenerationPreparationDisposition.Incremented)
+                        writtenBytes = checked(writtenBytes + sizeof(long));
                 }
                 _capturedModuleGenerationKeys = null;
             }
@@ -4780,10 +5273,13 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     }
                     else
                     {
+                        if (!TryReserveYieldReceiptSlots(_working, intentItem.MaximumYields))
+                            return SubjectFailure<BaseProvisionalAtomicExecution>("base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
                         var payload = new BaseActivationPayload
                         {
                             ActivationId = preparedItem.ActivationId,
                             Definition = intentItem.Definition with { Checksum = intentItem.Definition.Checksum.ToArray().ToImmutableArray() },
+                            ReceiptRetention = intentItem.ReceiptRetention with { },
                             CanonicalInput = intentItem.CanonicalInput.ToArray().ToImmutableArray(),
                             InputChecksum = intentItem.InputChecksum.ToArray().ToImmutableArray(),
                             Scope = intentItem.Scope with { },
@@ -4804,9 +5300,11 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                             intentItem.Priority,
                             intentItem.OverlapKey.IsDefaultOrEmpty ? null : intentItem.OverlapKey.ToArray(),
                             intentItem.OverlapPolicy,
-                            intentItem.InitiallyEligible));
+                            intentItem.InitiallyEligible,
+                            MaximumYields: intentItem.MaximumYields));
                         IndexActivation(_working, payload);
                         _working.ActivationIndexGeneration = checked(_working.ActivationIndexGeneration + 1);
+                        writtenBytes = checked(writtenBytes + intentItem.CanonicalInput.Length + 192L);
                     }
                     byte[] itemChecksum = SHA256.HashData(Encoding.UTF8.GetBytes(
                         $"{preparedItem.ActivationId}\n{preparedItem.ResultingGeneration}"));
@@ -4831,6 +5329,17 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             catch { return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid); }
 
             BaseRecordMutationFact[] materialized = facts.Select(static fact => fact.MaterializeOwned()).ToArray();
+            OperationResult? uniqueValidation = ValidateUniqueIndexes(plan);
+            if (uniqueValidation is not null)
+                return new OperationResult<BaseProvisionalAtomicExecution> { Status = uniqueValidation.Status, Error = uniqueValidation.Error };
+            OperationResult? logicalIndexPublication = ApplyLogicalIndexDirectories(
+                provisionalSchema, logicalIndexTransitions);
+            if (logicalIndexPublication is not null)
+                return new OperationResult<BaseProvisionalAtomicExecution>
+                {
+                    Status = logicalIndexPublication.Status,
+                    Error = logicalIndexPublication.Error,
+                };
             if (_owner._mutationProjection is { } projection)
             {
                 OperationResult projected;
@@ -4851,6 +5360,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             }
             long journalBytes = materialized.Sum(static fact =>
                 (long)JsonSerializer.SerializeToUtf8Bytes(fact, HPDBaseJsonSerializerContext.Default.BaseRecordMutationFact).LongLength);
+            _relationChecks = _capturedMutation?.Items.Sum(static item => item.RelationTargets.Length) ?? 0;
             long transient = checked(prepared.Accounting.TransientBytes + writtenBytes + factBytes + journalBytes);
             ImmutableArray<BaseModuleCommittedGeneration> generations = CommittedGenerations(prepared);
             var applied = new BaseProvisionalAtomicExecution
@@ -4865,6 +5375,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 ActivationGuard = prepared.ActivationGuard,
                 SubjectRetirement = appliedRetirement,
                 Text = BaseTextAtomicMutationContract.Apply(plan.Text, materialized, prepared.Text?.Indexes ?? []),
+                Schema = provisionalSchema,
                 Accounting = new BaseProvisionalAtomicMutationAccounting
                 {
                     WrittenBytes = writtenBytes,
@@ -4893,6 +5404,172 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             return OperationResults.Ok(applied);
         });
 
+        private OperationResult? ValidateUniqueIndexes(BaseFinalizedAtomicExecutionPlan plan)
+        {
+            _uniqueChecks = checked(_uniqueChecks + plan.Items
+                .Where(static item => item.Kind != BaseCommittedRecordMutationKind.Delete)
+                .Sum(static item => item.Collection.Indexes?.Count(static index => index.Unique) ?? 0));
+            if (_uniqueChecks > plan.Limits.MaximumUniqueConstraintChecks)
+                return new OperationResult { Status = OperationStatus.ValidationFailed, Error = new BaseError { Code = BaseSchemaErrorCodes.BudgetExceeded, Message = "Schema work limit was exceeded.", Category = ErrorCategory.Validation } };
+            foreach (CollectionDefinition collection in plan.Items.Select(static item => item.Collection).DistinctBy(static item => item.Id))
+            {
+                if (!_working.Collections.TryGetValue(collection.Id, out InMemoryCollectionState? state)) continue;
+                foreach (BaseLogicalIndexDefinition index in (collection.Indexes ?? []).Where(static index => index.Unique))
+                {
+                    var keys = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (StoredRecord record in state.RecordsById.Values.OrderBy(static record => record.Id.Value, StringComparer.Ordinal))
+                    {
+                        if (!BaseLogicalIndexEvaluator.Includes(collection, index, record.Payload)) continue;
+                        if (!keys.Add(Convert.ToHexString(BaseLogicalIndexEvaluator.Key(collection, index, record.Payload))))
+                            return new OperationResult { Status = OperationStatus.Conflict, Error = new BaseError { Code = BaseSchemaErrorCodes.UniqueConstraintViolated, Message = "A unique constraint was violated.", Category = ErrorCategory.Conflict } };
+                    }
+                }
+            }
+            return null;
+        }
+
+        private OperationResult? ApplyLogicalIndexDirectories(
+            BaseAtomicSchemaProvisionalExtension? provisionalSchema,
+            IReadOnlyDictionary<string, (InMemoryLogicalIndexAuthority Current, long ResultingGeneration)> transitions)
+        {
+            if (_owner.LogicalIndexStoreIsQuarantined && transitions.Count != 0)
+                return QuarantineFailure(BaseSchemaErrorCodes.ProviderEvidenceInvalid);
+            if (provisionalSchema is null) return transitions.Count == 0
+                ? null
+                : QuarantineFailure(BaseSchemaErrorCodes.ProviderEvidenceInvalid);
+
+            foreach ((string key, (InMemoryLogicalIndexAuthority current, long resultingGeneration)) in transitions)
+            {
+                int separator = key.IndexOf('\n');
+                if (separator <= 0) return QuarantineFailure(BaseSchemaErrorCodes.ProviderEvidenceInvalid);
+                string collectionId = key[..separator];
+                CollectionDefinition? collection = (_owner._options.Collections ?? []).SingleOrDefault(
+                    value => string.Equals(value.Id, collectionId, StringComparison.Ordinal));
+                if (collection is null) return QuarantineFailure(BaseSchemaErrorCodes.ProviderEvidenceInvalid);
+                BaseLogicalIndexDefinition? definition = (collection.Indexes ?? []).SingleOrDefault(
+                    value => key.EndsWith($"\n{value.Checksum}", StringComparison.Ordinal));
+                if (definition is null) return QuarantineFailure(BaseSchemaErrorCodes.ProviderEvidenceInvalid);
+                if (resultingGeneration == current.Generation) continue;
+                if (resultingGeneration != checked(current.Generation + 1))
+                    return QuarantineFailure(BaseSchemaErrorCodes.ProviderEvidenceInvalid);
+
+                BaseSchemaAuthorityChecksum logicalPublication = BaseAtomicSchemaContract.NextPublication(
+                    current.PublicationChecksum, definition.Checksum, resultingGeneration,
+                    provisionalSchema.ProvisionalChecksum);
+                if (!definition.StoreRequired)
+                {
+                    if (current.Directory is not null || current.DirectoryAuthority is not null)
+                        return QuarantineFailure(BaseSchemaErrorCodes.ProviderEvidenceInvalid);
+                    _working.LogicalIndexes[key] = current with
+                    {
+                        Generation = resultingGeneration,
+                        PublicationChecksum = logicalPublication,
+                    };
+                    continue;
+                }
+
+                if (current.Directory is null || current.DirectoryAuthority is null
+                    || current.DirectoryAuthority.Generation != current.Generation
+                    || current.DirectoryAuthority.LogicalPublicationChecksum != current.PublicationChecksum
+                    || !current.DirectoryAuthority.MemberSetChecksum.AsSpan().SequenceEqual(current.Directory.MemberSetChecksum.AsSpan()))
+                    return QuarantineFailure(BaseSchemaErrorCodes.ProviderEvidenceInvalid);
+
+                IEnumerable<(RecordId Id, RecordPayload Payload)> records = _working.Collections.TryGetValue(
+                    collectionId, out InMemoryCollectionState? state)
+                    ? state.RecordsById.Values.Select(static value => (value.Id, value.Payload))
+                    : [];
+                var prospective = new BaseLogicalIndexDirectoryProspectiveWork
+                {
+                    CapturedOldDirectoryBytes = current.Directory.Accounting.RetainedDirectoryBytes,
+                    StagedTransitionBytes = provisionalSchema.ProvisionalChecksum.ToArray().LongLength,
+                    EvidenceBytes = 0,
+                };
+                if (!BaseLogicalIndexDirectoryContract.TryCreate(
+                    collection, definition, records, BaseLogicalIndexDirectoryContract.Limits(_owner._logicalIndexCapability),
+                    prospective, out BaseLogicalIndexDirectory? directory))
+                    return new OperationResult
+                    {
+                        Status = OperationStatus.CapabilityUnavailable,
+                        Error = new BaseError
+                        {
+                            Code = BaseSchemaErrorCodes.CapabilityUnavailable,
+                            Message = "The required logical-index operation exceeded provider capability.",
+                            Category = ErrorCategory.Capability,
+                        },
+                    };
+
+                BaseLogicalIndexDirectoryAuthority directoryAuthority;
+                try
+                {
+                    directoryAuthority = BaseLogicalIndexDirectoryContract.NextAuthority(
+                        current.DirectoryAuthority, logicalPublication, provisionalSchema.ProvisionalChecksum,
+                        directory!);
+                }
+                catch (InvalidOperationException)
+                {
+                    return QuarantineFailure(BaseSchemaErrorCodes.ProviderEvidenceInvalid);
+                }
+                if (directoryAuthority.Generation != resultingGeneration)
+                    return QuarantineFailure(BaseSchemaErrorCodes.ProviderEvidenceInvalid);
+                _working.LogicalIndexes[key] = new InMemoryLogicalIndexAuthority
+                {
+                    Generation = resultingGeneration,
+                    State = BaseLogicalIndexGenerationState.Ready,
+                    PublicationChecksum = logicalPublication,
+                    DirectoryAuthority = directoryAuthority,
+                    Directory = directory!.DeepClone(),
+                };
+            }
+            BaseLogicalIndexProviderCapability capability =
+                _owner._logicalIndexCapability;
+            long storePostings = 0;
+            long storeDirectoryBytes = 0;
+            try
+            {
+                foreach (InMemoryLogicalIndexAuthority authority in _working.LogicalIndexes.Values)
+                {
+                    if (authority.Directory is null) continue;
+                    storePostings = checked(storePostings + authority.Directory.Accounting.Postings);
+                    storeDirectoryBytes = checked(storeDirectoryBytes
+                        + authority.Directory.Accounting.RetainedDirectoryBytes);
+                }
+            }
+            catch (OverflowException)
+            {
+                return CapabilityFailure();
+            }
+            if (storePostings > capability.MaximumPostingsPerStore
+                || storeDirectoryBytes > capability.MaximumDirectoryBytesPerStore)
+                return CapabilityFailure();
+            return null;
+
+            static OperationResult CapabilityFailure() => new()
+            {
+                Status = OperationStatus.CapabilityUnavailable,
+                Error = new BaseError
+                {
+                    Code = BaseSchemaErrorCodes.CapabilityUnavailable,
+                    Message = "The required logical-index operation exceeded provider capability.",
+                    Category = ErrorCategory.Capability,
+                },
+            };
+
+            OperationResult QuarantineFailure(string code)
+            {
+                _owner.QuarantineLogicalIndexes();
+                return new OperationResult
+                {
+                    Status = OperationStatus.StoreError,
+                    Error = new BaseError
+                    {
+                        Code = code,
+                        Message = "Logical-index provider evidence was invalid.",
+                        Category = ErrorCategory.Store,
+                    },
+                };
+            }
+        }
+
         private BaseProvisionalSemanticActivation? ApplySemantic(BasePreparedSemanticActivation? prepared)
         {
             if (prepared is null) return null;
@@ -4920,13 +5597,18 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 string activationId = semantic.ActivationId!;
                 byte[] fingerprint = SHA256.HashData(ensure.Activation.CanonicalInput.Concat(ensure.Activation.InputChecksum).ToArray());
                 byte[] payloadChecksum = SHA256.HashData(ensure.Activation.CanonicalInput.AsSpan());
-                byte[] controlChecksum = ControlChecksum(activationId, 1, BaseActivationState.Pending);
+                byte[] controlChecksum = ControlChecksum(activationId, 1, BaseActivationState.Pending,
+                    ensure.Due.CanonicalUnixMilliseconds, 0, ensure.Activation.Limits.MaximumYields,
+                    0, null, null, null, null);
                 if (_working.Activations.ContainsKey(activationId) || _working.SemanticActivationSlots.ContainsKey(semantic.SlotKey))
                     throw new InvalidOperationException("base.semanticActivation.conflict");
+                if (!TryReserveYieldReceiptSlots(_working, ensure.Activation.Limits.MaximumYields))
+                    throw new InvalidOperationException("base.activation.capacityUnavailable");
                 var payload = new BaseActivationPayload
                 {
                     ActivationId = activationId,
                     Definition = ensure.Activation.Definition with { Checksum = ensure.Activation.Definition.Checksum.ToArray().ToImmutableArray() },
+                    ReceiptRetention = ensure.Activation.ReceiptRetention with { },
                     CanonicalInput = ensure.Activation.CanonicalInput.ToArray().ToImmutableArray(), InputChecksum = ensure.Activation.InputChecksum.ToArray().ToImmutableArray(),
                     Scope = ensure.Scope with { Value = ensure.Scope.Value is null ? null : new string(ensure.Scope.Value.AsSpan()) },
                     RequestedDueAt = ensure.Due.CanonicalUnixMilliseconds, EffectiveDueAt = ensure.Due.CanonicalUnixMilliseconds,
@@ -4934,7 +5616,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 };
                 _working.Activations.Add(activationId, new InMemoryActivationRow(payload, BaseActivationState.Pending, 1,
                     ensure.Due.CanonicalUnixMilliseconds, ensure.Due.CanonicalUnixMilliseconds, fingerprint, controlChecksum,
-                    Priority: ensure.Activation.Priority, Eligible: ensure.Activation.InitiallyEligible));
+                    Priority: ensure.Activation.Priority, Eligible: ensure.Activation.InitiallyEligible,
+                    MaximumYields: ensure.Activation.Limits.MaximumYields));
                 IndexActivation(_working, payload);
                 _working.ActivationIndexGeneration = checked(_working.ActivationIndexGeneration + 1);
                 BaseSemanticActivationStoreAuthority store = _capturedMutation!.SemanticActivation!.Missing!.StoreAuthority;
@@ -4973,6 +5656,11 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     KeyDigest = retire.Key, ScopeBindingId = prior.ScopeBinding.BindingId,
                     SubjectLifetime = retire.SubjectLifetime, ActivationId = row.Payload.ActivationId,
                     TerminalState = row.State, TerminalActivationGeneration = row.Generation, TerminalActivationChecksum = row.ControlChecksum.ToImmutableArray(),
+                    TerminalEffectiveDueAt = row.EffectiveDueAt, TerminalYieldCount = row.YieldCount,
+                    TerminalMaximumYields = row.MaximumYields, TerminalExecutionSliceOrdinal = row.ExecutionSliceOrdinal,
+                    TerminalAttemptStartedAt = row.AttemptStartedAt, TerminalSliceStartedAt = row.SliceStartedAt,
+                    TerminalYieldDisposition = row.YieldTerminalDisposition,
+                    TerminalYieldFailureCode = row.YieldTerminalFailureCode,
                     CompletionOperationChecksum = Convert.FromHexString(retire.CompletionOperation.OperationChecksum).ToImmutableArray(),
                     CompletionReceiptChecksum = receiptChecksum.ToImmutableArray(), RetirementPosition = position,
                     SlotGeneration = semantic.ResultingGeneration, StoreAuthority = prior.StoreAuthority, Checksum = [],
@@ -5022,7 +5710,10 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     "base.activation.claimUnavailable", OperationStatus.Conflict, ErrorCategory.Conflict));
 
             long generation = checked(row.Generation + 1);
-            byte[] controlChecksum = ControlChecksum(row.Payload.ActivationId, generation, BaseActivationState.Succeeded);
+            byte[] controlChecksum = ControlChecksum(row.Payload.ActivationId, generation,
+                BaseActivationState.Succeeded, row.EffectiveDueAt, row.YieldCount,
+                row.MaximumYields, row.ExecutionSliceOrdinal, row.AttemptStartedAt,
+                row.SliceStartedAt, null, null);
             long evidenceBytes = checked(System.Text.Encoding.UTF8.GetByteCount(row.Payload.ActivationId) + sizeof(long) + sizeof(int) + controlChecksum.Length);
             long transientBytes = evidenceBytes;
             if (candidate.Limits.MaximumIndexOperations < 2
@@ -5097,6 +5788,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             if (finalization is null || applied is null || storedResult.IsDefault
                 || !ReferenceEquals(finalization.Receipt, processing.Receipt)
                 || !string.Equals(finalization.PlanDigest, applied.PlanDigest, StringComparison.Ordinal)
+                || !BaseAtomicSchemaContract.CommittedMatches(applied.Schema, finalization.Schema)
                 || !finalization.CanonicalResultBytes.AsSpan().SequenceEqual(storedResult.AsSpan())
                 || !applied.Facts.Select(static value => value.CopyCanonicalBytes()).SequenceEqual(
                     processing.Receipt.Mutations.Select(static value => value.CopyCanonicalBytes()), ByteArrayComparer.Instance))
@@ -5251,15 +5943,65 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
 
             cancellationToken.ThrowIfCancellationRequested();
             InMemoryCollectionState? collection = GetCollectionOrNull(_working, request.Collection.Id);
-            IEnumerable<StoredRecord> source = collection is null
-                ? Enumerable.Empty<StoredRecord>()
-                : collection.RecordsById.Values;
+            BaseLogicalIndexDefinition? pointDefinition = null;
+            InMemoryLogicalIndexAuthority? pointAuthority = null;
+            BaseLogicalIndexDirectoryPosting? pointPosting = null;
+            IEnumerable<StoredRecord> source;
+            if (request.LogicalIndexPoint is { } point)
+            {
+                if (_owner.LogicalIndexStoreIsQuarantined)
+                    return SelectionFailure<BaseCapturedAtomicExecution>(OperationStatus.StoreError,
+                        BaseSchemaErrorCodes.ProviderEvidenceInvalid, ErrorCategory.Store);
+                pointDefinition = (request.Collection.Indexes ?? []).SingleOrDefault(index =>
+                    index.StoreRequired && index.Id == point.IndexId
+                    && index.Version == point.IndexVersion && index.Checksum == point.IndexChecksum);
+                string key = $"{request.Collection.Id}\n{point.IndexChecksum}";
+                if (pointDefinition is null
+                    || !_working.LogicalIndexes.TryGetValue(key, out pointAuthority)
+                    || pointAuthority.State != BaseLogicalIndexGenerationState.Ready
+                    || pointAuthority.Directory is null || pointAuthority.DirectoryAuthority is null
+                    || pointAuthority.Generation != pointAuthority.DirectoryAuthority.Generation
+                    || pointAuthority.PublicationChecksum != pointAuthority.DirectoryAuthority.LogicalPublicationChecksum
+                    || pointAuthority.DirectoryAuthority.IndexId != point.IndexId
+                    || pointAuthority.DirectoryAuthority.IndexVersion != point.IndexVersion
+                    || pointAuthority.DirectoryAuthority.IndexChecksum != point.IndexChecksum
+                    || pointAuthority.DirectoryAuthority.DirectoryPublicationChecksum.Length != 32
+                    || !pointAuthority.DirectoryAuthority.MemberSetChecksum.AsSpan().SequenceEqual(
+                        pointAuthority.Directory.MemberSetChecksum.AsSpan())
+                    || !BaseLogicalIndexDirectoryContract.Validate(
+                        request.Collection, pointDefinition, pointAuthority.Directory))
+                {
+                    _owner.QuarantineLogicalIndexes();
+                    return SelectionFailure<BaseCapturedAtomicExecution>(OperationStatus.StoreError,
+                        BaseSchemaErrorCodes.ProviderEvidenceInvalid, ErrorCategory.Store);
+                }
+                BaseLogicalIndexDirectoryContract.TryFindPosting(
+                    pointAuthority.Directory, point.EqualityKey.AsSpan(), out pointPosting);
+                if (pointPosting is not null && (collection is null || pointPosting.RecordIds.Any(
+                    id => !collection.RecordsById.ContainsKey(id))))
+                {
+                    _owner.QuarantineLogicalIndexes();
+                    return SelectionFailure<BaseCapturedAtomicExecution>(OperationStatus.StoreError,
+                        BaseSchemaErrorCodes.ProviderEvidenceInvalid, ErrorCategory.Store);
+                }
+                source = pointPosting is null
+                    ? Enumerable.Empty<StoredRecord>()
+                    : pointPosting.RecordIds.Select(id => collection!.RecordsById[id]);
+            }
+            else
+            {
+                source = collection is null
+                    ? Enumerable.Empty<StoredRecord>()
+                    : collection.RecordsById.Values;
+            }
             var records = source
                 .Where(record => BaseRecordFilterMatcher.Matches(
                     RecordCloneHelpers.CloneEnvelope(record), request.Query.Filter))
                 .ToList();
+            int comparisons = 0;
             QueryResult<List<StoredRecord>, BaseCapturedAtomicExecution> sorted =
-                ApplySort<BaseCapturedAtomicExecution>(records, request.Query.Sort);
+                ApplySort<BaseCapturedAtomicExecution>(records, request.Query.Sort,
+                    () => comparisons = checked(comparisons + 1));
             if (sorted.Result is { } sortFailure)
             {
                 return SelectionFailure<BaseCapturedAtomicExecution>(
@@ -5297,23 +6039,71 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             }
 
             byte[] boundary = owned.Count == 0 ? [] : BaseSelectionOrderTuple.Encode(owned[^1].MaterializeOwned(), request.Query.Sort!);
-            _selectionRetainedBytes = checked(selectedBytes + boundary.LongLength);
+            var interval = new BaseAtomicReadIntervalEvidence
+            {
+                LogicalAccessPathId = request.LogicalIndexPoint is null
+                    ? $"collection:{request.Collection.Id}"
+                    : $"logical-index:{request.LogicalIndexPoint.IndexId}",
+                CanonicalLowerBound = request.LogicalIndexPoint?.EqualityKey.ToArray().ToImmutableArray()
+                    ?? ImmutableArray<byte>.Empty,
+                LowerInclusive = true,
+                CanonicalUpperBound = request.LogicalIndexPoint?.EqualityKey.ToArray().ToImmutableArray()
+                    ?? boundary.ToImmutableArray(),
+                UpperInclusive = true,
+            };
+            BaseLogicalIndexSelectionEvidence? logicalIndexEvidence = null;
+            if (request.LogicalIndexPoint is { } selectedPoint)
+            {
+                BaseLogicalIndexSelectionEvidence draft = new()
+                {
+                    IndexId = BaseLogicalIndexId.Create(selectedPoint.IndexId.ToString()),
+                    IndexVersion = selectedPoint.IndexVersion,
+                    IndexChecksum = BaseLogicalIndexChecksum.Create(selectedPoint.IndexChecksum.ToArray()),
+                    AccessShape = BaseIndexAccessShape.LogicalIndexPoint,
+                    DirectoryGeneration = pointAuthority!.DirectoryAuthority!.Generation,
+                    DirectoryPublicationChecksum = pointAuthority.DirectoryAuthority.DirectoryPublicationChecksum.ToArray().ToImmutableArray(),
+                    MemberSetChecksum = pointAuthority.Directory!.MemberSetChecksum.ToArray().ToImmutableArray(),
+                    EqualityKeyChecksum = System.Security.Cryptography.SHA256.HashData(selectedPoint.EqualityKey.AsSpan()).ToImmutableArray(),
+                    MatchedPredicateChecksum = selectedPoint.PredicateConjunctChecksum.ToArray().ToImmutableArray(),
+                    ReadInterval = interval,
+                    ExaminedPostings = pointPosting?.RecordIds.Length ?? 0,
+                    Candidates = records.Count,
+                    Comparisons = comparisons,
+                    EvidenceBytes = 0,
+                    Checksum = [],
+                };
+                draft = draft with
+                {
+                    EvidenceBytes = BaseLogicalIndexSelectionEvidenceContract.Encode(draft).LongLength,
+                };
+                try { logicalIndexEvidence = BaseLogicalIndexSelectionEvidenceContract.Seal(draft); }
+                catch (InvalidOperationException)
+                {
+                    return SelectionFailure<BaseCapturedAtomicExecution>(OperationStatus.StoreError,
+                        BaseSchemaErrorCodes.ProviderEvidenceInvalid, ErrorCategory.Store);
+                }
+            }
+            long evidenceBytes = logicalIndexEvidence?.EvidenceBytes ?? boundary.LongLength;
+            _selectionRetainedBytes = checked(selectedBytes + boundary.LongLength + evidenceBytes);
             if (_selectionRetainedBytes > limits.MaximumTransientBytes)
                 return SelectionFailure<BaseCapturedAtomicExecution>(OperationStatus.ValidationFailed,
                     "base.provider.selection.limitExceeded", ErrorCategory.Validation);
-            var interval = new BaseAtomicReadIntervalEvidence
-            {
-                LogicalAccessPathId = $"collection:{request.Collection.Id}",
-                CanonicalLowerBound = ImmutableArray<byte>.Empty,
-                LowerInclusive = true,
-                CanonicalUpperBound = boundary.ToImmutableArray(),
-                UpperInclusive = true,
-            };
             int selectedCount = owned.Count;
             ImmutableArray<BaseOwnedSelectedRecord> selectedRecords = owned.MoveToImmutable();
             ImmutableArray<byte> transactionEvidence = BitConverter.GetBytes(_working.GlobalMutationPosition).ToImmutableArray();
-            string selectionCaptureDigest = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
-                selectedRecords.SelectMany(static record => record.CopyCanonicalBytes()).Concat(boundary).ToArray()));
+            using var captureHash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            foreach (BaseOwnedSelectedRecord record in selectedRecords)
+                captureHash.AppendData(record.CopyCanonicalBytes());
+            captureHash.AppendData(boundary);
+            Span<byte> selectionAccounting = stackalloc byte[sizeof(int) + sizeof(long) + sizeof(int) + sizeof(long)];
+            BinaryPrimitives.WriteInt32BigEndian(selectionAccounting, selectedCount);
+            BinaryPrimitives.WriteInt64BigEndian(selectionAccounting[sizeof(int)..], selectedBytes);
+            BinaryPrimitives.WriteInt32BigEndian(selectionAccounting[(sizeof(int) + sizeof(long))..], 1);
+            BinaryPrimitives.WriteInt64BigEndian(selectionAccounting[(sizeof(int) * 2 + sizeof(long))..], evidenceBytes);
+            captureHash.AppendData(selectionAccounting);
+            captureHash.AppendData(logicalIndexEvidence is null ? [0] : [1]);
+            if (logicalIndexEvidence is not null) captureHash.AppendData(logicalIndexEvidence.Checksum.AsSpan());
+            string selectionCaptureDigest = Convert.ToHexStringLower(captureHash.GetHashAndReset());
             _capturedMutation = new BaseCapturedAtomicExecution
             {
                 Kind = BaseAtomicMutationExecutionKind.SelectionMutation,
@@ -5325,6 +6115,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     StoreInstanceId = intent.Authority.StoreInstanceId,
                     RestoreEpoch = 0,
                     SchemaGeneration = 1,
+                    LogicalSchemaChecksum = intent.Authority.LogicalSchemaChecksum,
                     Collections = [new BaseCollectionGenerationRequirement
                     {
                         CollectionId = request.Collection.Id,
@@ -5337,17 +6128,19 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 {
                     Records = selectedRecords,
                     CanonicalOrderBoundary = boundary.ToImmutableArray(),
+                    LogicalIndexEvidence = logicalIndexEvidence is null
+                        ? null : BaseLogicalIndexSelectionEvidenceContract.Clone(logicalIndexEvidence),
                     Accounting = new BaseAtomicSelectionAccounting
                     {
                         SelectedRecords = selectedCount, SelectedBytes = selectedBytes,
-                        ReadIntervals = 1, EvidenceBytes = boundary.LongLength,
+                        ReadIntervals = 1, EvidenceBytes = evidenceBytes,
                     },
                 },
                 Items = selectedRecords.Select((record, index) => new BaseCapturedMutationItem
                 {
                     Ordinal = index,
                     CollectionId = request.Collection.Id,
-                    RecordId = new RecordId(record.RecordId),
+                    RecordId = RecordId.Create(record.RecordId),
                     Disposition = BaseCapturedMutationDisposition.Update,
                     Current = record.MaterializeOwned(),
                     RelationTargets = [],
@@ -5362,12 +6155,20 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     SelectedBytes = selectedBytes,
                     RelationTargetBytes = 0, GenerationBytes = 0,
                     ReadIntervals = 1,
-                    EvidenceBytes = boundary.LongLength,
+                    EvidenceBytes = evidenceBytes,
                     TransientBytes = _selectionRetainedBytes,
                     RetirementBarrierReads = 0, RetirementAcknowledgementReads = 0, RetirementProjections = 0,
                     RetirementPublications = 0, RetirementEvidenceBytes = 0, RetirementPublicationBytes = 0,
                 },
             };
+            bool schemaApplies = BaseAtomicSchemaContract.Applies(request.Collection);
+            if ((capture.Schema is null) != !schemaApplies || (capture.Limits.Schema is null) != !schemaApplies)
+                return SubjectFailure<BaseCapturedAtomicExecution>(BaseSchemaErrorCodes.ProviderEvidenceInvalid);
+            if (capture.Schema is not null)
+            {
+                try { _capturedMutation = _capturedMutation with { Schema = BaseAtomicSchemaContract.Capture(capture.Schema, _capturedMutation.Authority, _owner._options.Collections ?? [], _capturedMutation.Items, ResolveLogicalIndex) }; }
+                catch (InvalidOperationException exception) { return SubjectFailure<BaseCapturedAtomicExecution>(exception.Message == BaseSchemaErrorCodes.BudgetExceeded ? BaseSchemaErrorCodes.BudgetExceeded : BaseSchemaErrorCodes.ProviderEvidenceInvalid); }
+            }
             return OperationResults.Ok(_capturedMutation);
         }
 
@@ -5758,6 +6559,12 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                         Category = ErrorCategory.Validation,
                     }));
 
+                if (_owner.SemanticMaintenanceFencesSubjectContract(
+                        _working, request.ContractId, request.ContractVersion))
+                    return ValueTask.FromResult(SubjectFailure<BaseSubjectLifecycleCheckpointResult>(
+                        BaseSubjectErrorCodes.MaintenanceRequired,
+                        OperationStatus.CapabilityUnavailable, ErrorCategory.Capability));
+
                 string consumerKey = $"{request.ConsumerId}\n{request.ConsumerVersion}";
                 if (!_working.SubjectLifecycleConsumers.TryGetValue(consumerKey, out InMemorySubjectLifecycleConsumerProjection? projection)
                     || projection.ConsumerChecksum != request.ConsumerChecksum
@@ -5820,6 +6627,11 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             {
                 ArgumentNullException.ThrowIfNull(request);
                 BaseSubjectLifecycleAcknowledgement acknowledgement = request.Acknowledgement;
+                if (_owner.SemanticMaintenanceFencesSubjectContract(
+                        _working, acknowledgement.ContractId, acknowledgement.ContractVersion))
+                    return ValueTask.FromResult(RetirementFailure(
+                        BaseSubjectRetirementErrorCodes.MaintenanceRequired,
+                        OperationStatus.CapabilityUnavailable, ErrorCategory.Capability));
                 BaseSubjectRetirementConsumerDefinition? consumer = _owner._options.SubjectRetirementConsumers.SingleOrDefault(value =>
                     value.ConsumerId == acknowledgement.ConsumerId && value.ConsumerVersion == acknowledgement.ConsumerVersion);
                 if (consumer is null || BaseSubjectRetirementRegistry.ConsumerChecksum(consumer) != request.RetirementConsumerChecksum
@@ -5912,6 +6724,11 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         {
             ArgumentNullException.ThrowIfNull(request);
             BaseSubjectRetirementTimeoutRequest command = request.Request;
+            if (_owner.SemanticMaintenanceFencesSubjectContract(
+                    _working, command.ContractId, command.ContractVersion))
+                return ValueTask.FromResult(RetirementFailure<BaseSubjectRetirementTimeoutResult>(
+                    BaseSubjectRetirementErrorCodes.MaintenanceRequired,
+                    OperationStatus.CapabilityUnavailable, ErrorCategory.Capability));
             if (!RetirementPolicyMatches(command.ContractId, command.ContractVersion, request.RetirementPolicyChecksum)
                 || request.ObservedAtUtc.Offset != TimeSpan.Zero)
                 return ValueTask.FromResult(RetirementFailure<BaseSubjectRetirementTimeoutResult>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid, OperationStatus.CapabilityUnavailable, ErrorCategory.Capability));
@@ -5941,6 +6758,11 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         {
             ArgumentNullException.ThrowIfNull(request);
             BaseSubjectRetirementOverrideRequest command = request.Request;
+            if (_owner.SemanticMaintenanceFencesSubjectContract(
+                    _working, command.ContractId, command.ContractVersion))
+                return ValueTask.FromResult(RetirementFailure<BaseSubjectRetirementOverrideResult>(
+                    BaseSubjectRetirementErrorCodes.MaintenanceRequired,
+                    OperationStatus.CapabilityUnavailable, ErrorCategory.Capability));
             if (command.Intent != "override-subject-retirement-barrier" || command.ChangeReference.Length is < 1 or > 256
                 || !RetirementPolicyMatches(command.ContractId, command.ContractVersion, request.RetirementPolicyChecksum))
                 return ValueTask.FromResult(RetirementFailure<BaseSubjectRetirementOverrideResult>(BaseSubjectRetirementErrorCodes.ContractInvalid, OperationStatus.ValidationFailed, ErrorCategory.Validation));
@@ -5966,6 +6788,11 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         {
             ArgumentNullException.ThrowIfNull(request);
             BaseSubjectFinalPurgeRequest command = request.Request;
+            if (_owner.SemanticMaintenanceFencesSubjectContract(
+                    _working, command.ContractId, command.ContractVersion))
+                return RetirementFailure<BaseSubjectRetirementPurgeApplied>(
+                    BaseSubjectRetirementErrorCodes.MaintenanceRequired,
+                    OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
             BaseSubjectRetirementPolicy? policy = _owner._options.SubjectRetirementPolicies.SingleOrDefault(value => value.ContractId == command.ContractId && value.ContractVersion == command.ContractVersion);
             InMemorySubjectContractState? contract = _working.SubjectContracts.GetValueOrDefault(SubjectContractKey(command.ContractId, command.ContractVersion));
             if (policy is null || policy.PolicyChecksum != request.RetirementPolicyChecksum || contract is null

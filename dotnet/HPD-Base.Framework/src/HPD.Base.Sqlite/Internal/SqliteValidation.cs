@@ -12,6 +12,10 @@ internal static class SqliteValidation
     public static OperationResult<T>? ValidateRecordId<T>(string? recordId) =>
         IsValidIdText(recordId) ? null : Validation<T>(SqliteErrorCodes.InvalidRecordId, "Record id must be non-empty and contain no control characters.", "id");
 
+    /// <summary>Validates one closed record identifier without dereferencing an invalid default value.</summary>
+    public static OperationResult<T>? ValidateRecordId<T>(RecordId recordId) =>
+        recordId.IsValid ? null : ValidateRecordId<T>((string?)null);
+
     /// <summary>Executes the validate field name operation.</summary>
     public static OperationResult<T>? ValidateFieldName<T>(string? fieldName) =>
         IsValidFieldName(fieldName) ? null : Validation<T>(SqliteErrorCodes.InvalidField, "Field names must be non-empty, top-level names and contain no control characters.", fieldName);

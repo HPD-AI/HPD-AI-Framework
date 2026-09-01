@@ -5,7 +5,7 @@ namespace HPD.Auth.Admin.Models;
 /// </summary>
 public record AdminUserListResponse(
     IReadOnlyList<AdminUserResponse> Users,
-    int Total,
+    long Total,
     int Page,
     int PerPage,
     int TotalPages

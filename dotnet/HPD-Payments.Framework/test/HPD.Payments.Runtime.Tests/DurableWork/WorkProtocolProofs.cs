@@ -23,6 +23,13 @@ internal static class WorkProtocolProofs
         var claim1 = initial.TryClaim("worker-a", Expiry(10));
         Check(claim1.Accepted && claim1.State.ClaimEpoch.Value == 1, "first claim epoch was not one");
         Check(!claim1.State.TryClaim("worker-b", Expiry(10)).Accepted, "active claim was stolen");
+        Check(!claim1.State.ExpireClaim(NamedTime.Create(TimeKind.Observed, DateTimeOffset.UnixEpoch.AddSeconds(9))).Accepted,
+            "claim expired before its expiry coordinate");
+
+        var expired = WorkProtocolState.Create(requirement).TryClaim("worker-a", Expiry(10)).State
+            .ExpireClaim(NamedTime.Create(TimeKind.Observed, DateTimeOffset.UnixEpoch.AddSeconds(10)));
+        Check(expired.Accepted && expired.State.RequiresReconciliation && !expired.State.TryClaim("worker-b", Expiry(20)).Accepted,
+            "expired claim was blindly reassigned without reconciliation");
 
         var returned = claim1.State.Observe(claim1.State.ClaimEpoch, WorkAttemptObservation.HandlerReturned);
         Check(returned.Accepted && returned.State.RequiresReconciliation && returned.State.Disposition == WorkDisposition.RetryRequired,

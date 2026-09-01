@@ -11,6 +11,7 @@ export type BaseTypeNode =
   | { readonly kind: "decimal"; readonly wire: "decimal-string" }
   | { readonly kind: "floating"; readonly precision: "binary32" | "binary64"; readonly finiteOnly: true }
   | { readonly kind: "bytes"; readonly wire: "base64"; readonly maxBytes: number }
+  | { readonly kind: "canonicalJson"; readonly canonicalJsonShape: BaseCanonicalJsonShape }
   | { readonly kind: "redacted" }
   | { readonly kind: "subjectReference"; readonly contractId: string; readonly contractVersion: number; readonly subjectIdKind: "ordinalString" | "guid" | "uint64"; readonly maximumSubjectIdUtf8Bytes: number; readonly authorityEpochBytes: 16; readonly incarnationBytes: 24 }
   | { readonly kind: "literal"; readonly value: string | boolean | null }
@@ -19,8 +20,78 @@ export type BaseTypeNode =
   | { readonly kind: "object"; readonly properties: readonly { readonly name: string; readonly wireName: string; readonly typeId: string; readonly required: boolean; readonly nullable: boolean; readonly disclosureShape: "none" | "omission" | "fixed-marker" }[]; readonly additionalProperties: false }
   | { readonly kind: "union"; readonly discriminator: string; readonly variants: readonly { readonly tag: string; readonly typeId: string }[] };
 
+/** Public bounded canonical-JSON authority carried by one generated type node. */
+export interface BaseCanonicalJsonShape {
+  readonly jsonShape: "object" | "array" | "objectOrArray" | 0 | 1 | 2;
+  readonly maximumCanonicalJsonBytes: number;
+  readonly maximumJsonDepth: number;
+  readonly maximumJsonArrayItems: number;
+  readonly maximumJsonObjectProperties: number;
+  readonly maximumJsonTotalNodes: number;
+  readonly maximumJsonTotalStringUtf8Bytes: number;
+  readonly maximumJsonTotalNameUtf8Bytes: number;
+  readonly checksum: string;
+}
+
 /** Maps stable DTO type IDs to closed graph nodes. */
 export type BaseTypeGraph = Readonly<Record<string, BaseTypeNode>>;
+
+/** Constructs one deeply owned closed dynamic L41 graph for Studio/runtime interpretation. */
+export function createBaseTypeGraph(types: readonly Readonly<{ readonly id: string; readonly node: BaseTypeNode }>[],
+  maximumNodes = 2_048, maximumDepth = 32): BaseTypeGraph {
+  if (!Array.isArray(types) || types.length < 1 || types.length > maximumNodes) invalid();
+  const result: Record<string, BaseTypeNode> = {}; let previous = "";
+  for (const entry of types) {
+    exactTypeNode(entry, ["id", "node"]); if (!dynamicTypeId(entry.id) || entry.id <= previous) invalid(); previous = entry.id;
+    result[entry.id] = ownTypeNode(entry.node);
+  }
+  const graph = Object.freeze(result); const visiting = new Set<string>(); const complete = new Set<string>();
+  const visit = (id: string, depth: number): void => {
+    if (depth > maximumDepth || graph[id] === undefined) invalid(); if (complete.has(id)) return; if (visiting.has(id)) invalid(); visiting.add(id);
+    const node = graph[id]!; for (const child of referencedTypes(node)) visit(child, depth + 1); visiting.delete(id); complete.add(id);
+  };
+  for (const id of Object.keys(graph)) visit(id, 1); return graph;
+}
+
+function ownTypeNode(node: BaseTypeNode): BaseTypeNode {
+  if (!object(node) || typeof node.kind !== "string") invalid();
+  const own = <T extends object>(keys: readonly string[], value: T = node as T): T => { exactTypeNode(value, keys); return Object.freeze(value); };
+  switch (node.kind) {
+    case "selection-query": if (![node.maximumNodes, node.maximumDepth, node.maximumLiterals, node.maximumTake].every(positiveInt)) invalid(); return own(["kind", "maximumNodes", "maximumDepth", "maximumLiterals", "maximumTake"], { ...node });
+    case "selection-previous-state": if (!positiveInt(node.maximumFields)) invalid(); return own(["kind", "maximumFields"], { ...node });
+    case "selection-identity": case "module-generation": case "boolean": case "decimal": case "redacted": return own(["kind"], { ...node });
+    case "selection-patch": if (!dynamicTypeId(node.patchTypeId)) invalid(); return own(["kind", "patchTypeId"], { ...node });
+    case "string": if (!nonnegativeInt(node.minLength) || !nonnegativeInt(node.maxLength) || node.minLength > node.maxLength || !boundedText(node.format, 128)) invalid(); return own(["kind", "minLength", "maxLength", "format"], { ...node });
+    case "integer": if (!integerText(node.minimum) || !integerText(node.maximum) || BigInt(node.minimum) > BigInt(node.maximum) || !["number", "decimal-string"].includes(node.wire)) invalid(); return own(["kind", "minimum", "maximum", "wire"], { ...node });
+    case "floating": if (!["binary32", "binary64"].includes(node.precision) || node.finiteOnly !== true) invalid(); return own(["kind", "precision", "finiteOnly"], { ...node });
+    case "bytes": if (node.wire !== "base64" || !positiveInt(node.maxBytes)) invalid(); return own(["kind", "wire", "maxBytes"], { ...node });
+    case "canonicalJson": return own(["kind", "canonicalJsonShape"], { ...node, canonicalJsonShape: ownCanonicalJsonShape(node.canonicalJsonShape) });
+    case "subjectReference": if (!dynamicTypeId(node.contractId) || !positiveInt(node.contractVersion) || !["ordinalString", "guid", "uint64"].includes(node.subjectIdKind) || !positiveInt(node.maximumSubjectIdUtf8Bytes) || node.authorityEpochBytes !== 16 || node.incarnationBytes !== 24) invalid(); return own(["kind", "contractId", "contractVersion", "subjectIdKind", "maximumSubjectIdUtf8Bytes", "authorityEpochBytes", "incarnationBytes"], { ...node });
+    case "literal": if (node.value !== null && typeof node.value !== "string" && typeof node.value !== "boolean") invalid(); return own(["kind", "value"], { ...node });
+    case "enum": if (!Array.isArray(node.values) || node.values.length < 1 || node.values.length > 256 || node.values.some(value => !boundedText(value, 256)) || !canonicalStrings(node.values)) invalid(); return own(["kind", "values"], { ...node, values: Object.freeze([...node.values]) });
+    case "array": if (!dynamicTypeId(node.elementTypeId) || !nonnegativeInt(node.minItems) || !nonnegativeInt(node.maxItems) || node.minItems > node.maxItems) invalid(); return own(["kind", "elementTypeId", "minItems", "maxItems"], { ...node });
+    case "object": {
+      if (node.additionalProperties !== false || !Array.isArray(node.properties) || node.properties.length > 256) invalid();
+      const properties = node.properties.map(property => { if (!boundedText(property.name, 128) || !boundedText(property.wireName, 128) || !dynamicTypeId(property.typeId) || typeof property.required !== "boolean" || typeof property.nullable !== "boolean" || !["none", "omission", "fixed-marker"].includes(property.disclosureShape)) invalid(); return own(["name", "wireName", "typeId", "required", "nullable", "disclosureShape"], { ...property }); });
+      if (!canonicalStrings(properties.map(property => property.name)) || new Set(properties.map(property => property.wireName)).size !== properties.length) invalid();
+      return own(["kind", "properties", "additionalProperties"], { ...node, properties: Object.freeze(properties) });
+    }
+    case "union": {
+      if (!boundedText(node.discriminator, 128) || !Array.isArray(node.variants) || node.variants.length < 1 || node.variants.length > 64) invalid();
+      const variants = node.variants.map(variant => { if (!boundedText(variant.tag, 128) || !dynamicTypeId(variant.typeId)) invalid(); return own(["tag", "typeId"], { ...variant }); });
+      if (!canonicalStrings(variants.map(variant => variant.tag))) invalid(); return own(["kind", "discriminator", "variants"], { ...node, variants: Object.freeze(variants) });
+    }
+    default: return invalid();
+  }
+}
+
+function positiveInt(value: unknown): value is number { return Number.isInteger(value) && (value as number) > 0 && (value as number) <= 2_147_483_647; }
+function nonnegativeInt(value: unknown): value is number { return Number.isInteger(value) && (value as number) >= 0 && (value as number) <= 2_147_483_647; }
+function integerText(value: unknown): value is string { return typeof value === "string" && /^-?(?:0|[1-9][0-9]*)$/u.test(value) && value !== "-0"; }
+function dynamicTypeId(value: unknown): value is string { return typeof value === "string" && new TextEncoder().encode(value).length <= 128 && /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/u.test(value); }
+function canonicalStrings(values: readonly string[]): boolean { return new Set(values).size === values.length && values.every((value, index) => index === 0 || values[index - 1]! < value); }
+function referencedTypes(node: BaseTypeNode): readonly string[] { switch (node.kind) { case "selection-patch": return [node.patchTypeId]; case "array": return [node.elementTypeId]; case "object": return node.properties.map(property => property.typeId); case "union": return node.variants.map(variant => variant.typeId); default: return []; } }
+function exactTypeNode(value: unknown, keys: readonly string[]): void { if (!object(value)) invalid(); const actual = Object.keys(value).sort(); const expected = [...keys].sort(); if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) invalid(); }
 
 /** The sole structural value emitted for fixed-marker disclosure. */
 export interface BaseRedacted { readonly $base: "redacted"; }
@@ -42,6 +113,28 @@ export function isBaseRedacted(value: unknown): value is BaseRedacted {
 interface RawNumber { readonly rawNumber: true; readonly token: string; }
 const rawNumber = (token: string): RawNumber => Object.freeze({ rawNumber: true, token });
 const isRawNumber = (value: unknown): value is RawNumber => typeof value === "object" && value !== null && !Array.isArray(value) && (value as Partial<RawNumber>).rawNumber === true && typeof (value as Partial<RawNumber>).token === "string";
+
+declare const canonicalJsonNumberBrand: unique symbol;
+/** An exact BASE canonical-JSON number that is not losslessly representable as a JavaScript number. */
+export type BaseCanonicalJsonNumber = Readonly<{
+  readonly canonical: string;
+  readonly [canonicalJsonNumberBrand]: true;
+}>;
+const canonicalJsonNumberMarker = Symbol("BaseCanonicalJsonNumber");
+/** Creates an exact canonical-JSON number from one canonical L44 number token. */
+export function baseCanonicalJsonNumber(canonical: string): BaseCanonicalJsonNumber {
+  if (!canonicalBaseJsonNumber(canonical)) invalid();
+  return Object.freeze({ canonical, [canonicalJsonNumberMarker]: true }) as unknown as BaseCanonicalJsonNumber;
+}
+/** Returns whether a value is an exact BASE canonical-JSON number. */
+export function isBaseCanonicalJsonNumber(value: unknown): value is BaseCanonicalJsonNumber {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    && (value as Record<PropertyKey, unknown>)[canonicalJsonNumberMarker] === true
+    && typeof (value as { readonly canonical?: unknown }).canonical === "string"
+    && Object.getOwnPropertySymbols(value).length === 1
+    && Object.keys(value).length === 1
+    && canonicalBaseJsonNumber((value as { readonly canonical: string }).canonical);
+}
 
 /** Parses strict BASE JSON and materializes only lossless general-purpose JSON numbers. */
 export function parseBaseJson(json: string): unknown { return materialize(parseBaseJsonDocument(json)); }
@@ -90,6 +183,7 @@ function decodeNode(value: unknown, typeId: string, graph: BaseTypeGraph, shape:
     case "decimal": if (typeof value !== "string" || !/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/u.test(value) || value === "-0") invalid(); return value;
     case "floating": return floating(value, node.precision);
     case "bytes": return decodeBytes(value, node.maxBytes, shape);
+    case "canonicalJson": return canonicalJsonValue(value, node.canonicalJsonShape, shape);
     case "redacted": if (!isBaseRedacted(value)) invalid(); return baseRedacted;
     case "subjectReference": return subjectReference(value, node);
     case "literal": if (value !== node.value) invalid(); return value;
@@ -117,6 +211,7 @@ function encodeNode(value: unknown, typeId: string, graph: BaseTypeGraph, path: 
       case "module-generation": return JSON.stringify(decodeNode(value, typeId, graph, "application"));
       case "boolean": case "string": case "decimal": case "literal": case "enum": return JSON.stringify(decodeNode(value, typeId, graph, "application"));
       case "bytes": return JSON.stringify(encodeBytes(value, node.maxBytes));
+      case "canonicalJson": return canonicalJsonText(value, node.canonicalJsonShape, "application");
       case "redacted": invalid();
       case "subjectReference": { const reference = subjectReference(value, node); return `{"subjectId":${JSON.stringify(reference.subjectId)},"authorityEpoch":${JSON.stringify(reference.authorityEpoch)},"incarnation":${JSON.stringify(reference.incarnation)}}`; }
       case "integer": { const decoded = integer(value, node); return node.wire === "number" ? String(decoded) : JSON.stringify(decoded); }
@@ -127,6 +222,74 @@ function encodeNode(value: unknown, typeId: string, graph: BaseTypeGraph, path: 
     }
   } finally { if (object(value) || Array.isArray(value)) path.delete(value as object); }
   return invalid();
+}
+
+function ownCanonicalJsonShape(value: BaseCanonicalJsonShape): BaseCanonicalJsonShape {
+  if (!object(value)) invalid(); exactTypeNode(value, ["jsonShape", "maximumCanonicalJsonBytes", "maximumJsonDepth",
+    "maximumJsonArrayItems", "maximumJsonObjectProperties", "maximumJsonTotalNodes",
+    "maximumJsonTotalStringUtf8Bytes", "maximumJsonTotalNameUtf8Bytes", "checksum"]);
+  if (![0, 1, 2, "object", "array", "objectOrArray"].includes(value.jsonShape)
+    || ![value.maximumCanonicalJsonBytes, value.maximumJsonDepth, value.maximumJsonArrayItems,
+      value.maximumJsonObjectProperties, value.maximumJsonTotalNodes, value.maximumJsonTotalStringUtf8Bytes,
+      value.maximumJsonTotalNameUtf8Bytes].every(positiveInt)
+    || typeof value.checksum !== "string" || !/^[0-9a-f]{64}$/u.test(value.checksum)) invalid();
+  return Object.freeze({ ...value });
+}
+
+function canonicalJsonValue(value: unknown, limits: BaseCanonicalJsonShape, shape: "application" | "wire"): unknown {
+  canonicalJsonText(value, limits, shape);
+  return deepOwnJson(materializeCanonicalJson(value));
+}
+
+function canonicalJsonText(value: unknown, limits: BaseCanonicalJsonShape, shape: "application" | "wire"): string {
+  let nodes = 0; let strings = 0; let names = 0; const encoder = new TextEncoder();
+  const visit = (item: unknown, depth: number): string => {
+    if (++nodes > limits.maximumJsonTotalNodes || depth > limits.maximumJsonDepth) invalid();
+    if (item === null) return "null";
+    if (typeof item === "boolean") return item ? "true" : "false";
+    if (typeof item === "string") { validUnicode(item); strings += encoder.encode(item).length; if (strings > limits.maximumJsonTotalStringUtf8Bytes) invalid(); return JSON.stringify(item); }
+    if (isRawNumber(item)) { if (shape !== "wire" || !canonicalBaseJsonNumber(item.token)) invalid(); return item.token; }
+    if (isBaseCanonicalJsonNumber(item)) { if (shape !== "application") invalid(); return item.canonical; }
+    if (typeof item === "number") { const token = Object.is(item, -0) ? "0" : item.toString(); if (shape !== "application" || !canonicalBaseJsonNumber(token)) invalid(); return token; }
+    if (Array.isArray(item)) { if (item.length > limits.maximumJsonArrayItems) invalid(); return `[${item.map(child => visit(child, depth + 1)).join(",")}]`; }
+    if (!object(item)) invalid(); const keys = Object.keys(item); if (keys.length > limits.maximumJsonObjectProperties) invalid();
+    const sorted = [...keys].sort(); return `{${sorted.map(key => { validUnicode(key); nodes++; names += encoder.encode(key).length; if (nodes > limits.maximumJsonTotalNodes || names > limits.maximumJsonTotalNameUtf8Bytes) invalid(); return `${JSON.stringify(key)}:${visit(item[key], depth + 1)}`; }).join(",")}}`;
+  };
+  const objectShape = object(value); const arrayShape = Array.isArray(value); const admitted = limits.jsonShape === 0 || limits.jsonShape === "object" ? objectShape
+    : limits.jsonShape === 1 || limits.jsonShape === "array" ? arrayShape : objectShape || arrayShape;
+  if (!admitted) invalid(); const text = visit(value, 1); if (encoder.encode(text).length > limits.maximumCanonicalJsonBytes) invalid(); return text;
+}
+
+function canonicalBaseJsonNumber(value: string): boolean {
+  if (!/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]{1,28})?$/u.test(value) || value === "-0" || value.endsWith("0") && value.includes(".")) return false;
+  const digits = value.replace(/[-.]/gu, "").replace(/^0+/u, "") || "0";
+  try {
+    const coefficient = BigInt(digits);
+    return value.startsWith("-")
+      ? coefficient <= 170141183460469231731687303715884105728n
+      : coefficient <= 170141183460469231731687303715884105727n;
+  } catch { return false; }
+}
+
+function deepOwnJson(value: unknown): unknown {
+  if (isBaseCanonicalJsonNumber(value)) return value;
+  if (Array.isArray(value)) return Object.freeze(value.map(deepOwnJson));
+  if (object(value)) return Object.freeze(Object.fromEntries(Object.entries(value).map(([key, item]) => [key, deepOwnJson(item)])));
+  return value;
+}
+
+function materializeCanonicalJson(value: unknown): unknown {
+  if (isRawNumber(value)) {
+    if (!canonicalBaseJsonNumber(value.token)) invalid();
+    const numeric = Number(value.token);
+    if (Number.isFinite(numeric) && !Object.is(numeric, -0)
+      && numeric.toString() === value.token
+      && (value.token.includes(".") || Number.isSafeInteger(numeric))) return numeric;
+    return baseCanonicalJsonNumber(value.token);
+  }
+  if (Array.isArray(value)) return value.map(materializeCanonicalJson);
+  if (object(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, materializeCanonicalJson(item)]));
+  return value;
 }
 
 function subjectReference(value: unknown, node: Extract<BaseTypeNode, { kind: "subjectReference" }>): BaseSubjectReference {
@@ -207,7 +370,19 @@ function floating(value: unknown, precision: "binary32" | "binary64"): number { 
 function canonicalFloat(value: number, precision: "binary32" | "binary64"): string { if (!Number.isFinite(value)) invalid(); if (Object.is(value, -0) || value === 0) return "0"; if (precision === "binary64") return value.toString(); const target = Math.fround(value); for (let digits = 1; digits <= 9; digits++) { const candidate = target.toPrecision(digits); if (Math.fround(Number(candidate)) === target) return Number(candidate).toString(); } invalid(); }
 function validateGeneralNumber(token: string): void { if (!numberGrammar(token)) invalid(); const numeric = Number(token); if (!Number.isFinite(numeric) || Object.is(numeric, -0)) invalid(); if (!token.includes(".") && !/[eE]/u.test(token) && !Number.isSafeInteger(numeric)) invalid(); if (numeric === 0 && /[1-9]/u.test(token.split(/[eE]/u)[0]!)) invalid(); }
 function numberGrammar(value: string): boolean { return /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/u.test(value); }
-function format(value: string, kind: string): boolean { if (/^(?:record-id|collection-id|field-id|revision|cursor|consistency-token|mutation-id|dependency-reference)$/u.test(kind)) return value.length > 0 && !/[\u0000-\u001f\u007f]/u.test(value); if (kind === "utc-instant") return !Number.isNaN(Date.parse(value)) && /(?:Z|[+-]\d\d:\d\d)$/u.test(value); return kind === "plain"; }
+function format(value: string, kind: string): boolean {
+  if (/^(?:record-id|collection-id|field-id|revision|cursor|consistency-token|mutation-id|dependency-reference)$/u.test(kind))
+    return value.length > 0 && !/[\u0000-\u001f\u007f]/u.test(value);
+  if (kind === "utc-instant") return !Number.isNaN(Date.parse(value)) && /(?:Z|[+-]\d\d:\d\d)$/u.test(value);
+  if (kind === "sha256") return /^[0-9a-f]{64}$/u.test(value);
+  if (kind === "optional-sha256") return value.length === 0 || /^[0-9a-f]{64}$/u.test(value);
+  if (kind === "nfc-text" || kind === "nfc-search" || kind === "studio-resource-summary")
+    return unicodeScalarText(value) && value.normalize("NFC") === value && !/[\p{Cc}]/u.test(value);
+  if (kind === "safe-error-code") return /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/u.test(value);
+  if (kind === "opaque-search-cursor" || kind === "studio-resource-token") return /^[A-Za-z0-9_-]*$/u.test(value);
+  if (kind === "forward-reference") return false;
+  return kind === "plain";
+}
 function base64(value: string): boolean { return value.length % 4 === 0 && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(value); }
 function decodeBytes(value: unknown, maximum: number, shape: "application" | "wire"): Uint8Array {
   if (shape === "application") {
@@ -229,5 +404,5 @@ function encodeBytes(value: unknown, maximum: number): string {
 }
 function scalarLength(value: string): number { return [...value].length; }
 function validUnicode(value: string): void { for (let index = 0; index < value.length; index++) { const unit = value.charCodeAt(index); if (unit >= 0xd800 && unit <= 0xdbff) { const next = value.charCodeAt(++index); if (!(next >= 0xdc00 && next <= 0xdfff)) invalid(); } else if (unit >= 0xdc00 && unit <= 0xdfff) invalid(); } }
-function object(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value) && !isRawNumber(value); }
+function object(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value) && !isRawNumber(value) && !isBaseCanonicalJsonNumber(value); }
 function invalid(): never { throw new TypeError("base.client.responseInvalid"); }

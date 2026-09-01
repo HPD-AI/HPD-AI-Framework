@@ -6,7 +6,7 @@ namespace HPD.Agent.Serialization;
 /// Organized hierarchically by category for better discoverability.
 /// </summary>
 /// <remarks>
-/// These constants are used by AgentEventSerializer for type discrimination.
+/// These constants define stable wire discriminators used by generated event and input codecs.
 /// </remarks>
 public static partial class EventTypes
 {
@@ -18,8 +18,9 @@ public static partial class EventTypes
     public static class Input
     {
         public const string USER_MESSAGES_INPUT = "USER_MESSAGES_INPUT";
+        public const string AUDIO_SESSION_INPUT = "AUDIO_SESSION_INPUT";
         public const string COMPACT_THREAD_INPUT = "COMPACT_THREAD_INPUT";
-        public const string BACKGROUND_TASK_NOTIFICATION_INPUT = "BACKGROUND_TASK_NOTIFICATION_INPUT";
+        public const string AGENT_OPERATION_NOTIFICATION_INPUT = "AGENT_OPERATION_NOTIFICATION_INPUT";
     }
 
     #endregion
@@ -47,6 +48,8 @@ public static partial class EventTypes
     {
         public const string AGENT_TURN_STARTED = "AGENT_TURN_STARTED";
         public const string AGENT_TURN_FINISHED = "AGENT_TURN_FINISHED";
+        public const string PROVIDER_OPERATION_USAGE = "PROVIDER_OPERATION_USAGE";
+        public const string PROVIDER_VALUATION_OBSERVATION = "PROVIDER_VALUATION_OBSERVATION";
         public const string STATE_SNAPSHOT = "STATE_SNAPSHOT";
         public const string THREAD_EXECUTION_STARTED = "THREAD_EXECUTION_STARTED";
         public const string THREAD_EXECUTION_FINISHED = "THREAD_EXECUTION_FINISHED";
@@ -68,6 +71,7 @@ public static partial class EventTypes
         public const string TEXT_MESSAGE_START = "TEXT_MESSAGE_START";
         public const string TEXT_DELTA = "TEXT_DELTA";
         public const string TEXT_MESSAGE_END = "TEXT_MESSAGE_END";
+        public const string THREAD_MESSAGE_REPLACED = "THREAD_MESSAGE_REPLACED";
         public const string USER_MESSAGE = "USER_MESSAGE";
         public const string USER_AUDIO_TRANSCRIPT_DELTA = "USER_AUDIO_TRANSCRIPT_DELTA";
         public const string USER_AUDIO_TRANSCRIPT_COMPLETED = "USER_AUDIO_TRANSCRIPT_COMPLETED";
@@ -105,22 +109,33 @@ public static partial class EventTypes
 
     #endregion
 
-    #region Background Task Events
+    #region Operation Events
 
-    /// <summary>
-    /// Runtime-owned background work lifecycle and notification events.
-    /// </summary>
-    public static class BackgroundTask
+    /// <summary>Unified operation registration and transition events.</summary>
+    public static class Operation
     {
-        public const string BACKGROUND_TASK_STARTED = "BACKGROUND_TASK_STARTED";
-        public const string BACKGROUND_TASK_COMPLETED = "BACKGROUND_TASK_COMPLETED";
-        public const string BACKGROUND_TASK_CANCELLED = "BACKGROUND_TASK_CANCELLED";
-        public const string BACKGROUND_TASK_FAULTED = "BACKGROUND_TASK_FAULTED";
-        public const string BACKGROUND_HANDLE_REGISTERED = "BACKGROUND_HANDLE_REGISTERED";
-        public const string BACKGROUND_HANDLE_STATUS_CHANGED = "BACKGROUND_HANDLE_STATUS_CHANGED";
-        public const string BACKGROUND_TASK_NOTIFICATION_QUEUED = "BACKGROUND_TASK_NOTIFICATION_QUEUED";
-        public const string BACKGROUND_TASK_NOTIFICATION_DELIVERED = "BACKGROUND_TASK_NOTIFICATION_DELIVERED";
-        public const string BACKGROUND_TASK_NOTIFICATION_SUPPRESSED = "BACKGROUND_TASK_NOTIFICATION_SUPPRESSED";
+        /// <summary>The canonical operation-registration discriminator.</summary>
+        public const string AGENT_OPERATION_REGISTERED = "AGENT_OPERATION_REGISTERED";
+        /// <summary>The canonical operation-transition discriminator.</summary>
+        public const string AGENT_OPERATION_TRANSITIONED = "AGENT_OPERATION_TRANSITIONED";
+        public const string AGENT_OPERATION_NOTIFICATION_QUEUED = "AGENT_OPERATION_NOTIFICATION_QUEUED";
+        public const string AGENT_OPERATION_NOTIFICATION_DELIVERED = "AGENT_OPERATION_NOTIFICATION_DELIVERED";
+        public const string AGENT_OPERATION_NOTIFICATION_SUPPRESSED = "AGENT_OPERATION_NOTIFICATION_SUPPRESSED";
+        public const string AGENT_OPERATION_TOMBSTONED = "AGENT_OPERATION_TOMBSTONED";
+        public const string AGENT_OPERATION_TOMBSTONE_EVICTED = "AGENT_OPERATION_TOMBSTONE_EVICTED";
+    }
+
+    /// <summary>Complete capability-catalog refresh events.</summary>
+    public static class Capability
+    {
+        /// <summary>The refresh-start discriminator.</summary>
+        public const string AGENT_CAPABILITY_REFRESH_STARTED = "AGENT_CAPABILITY_REFRESH_STARTED";
+        /// <summary>The successful-publication discriminator.</summary>
+        public const string AGENT_CAPABILITY_REFRESH_PUBLISHED = "AGENT_CAPABILITY_REFRESH_PUBLISHED";
+        /// <summary>The rejected-candidate discriminator.</summary>
+        public const string AGENT_CAPABILITY_REFRESH_REJECTED = "AGENT_CAPABILITY_REFRESH_REJECTED";
+        /// <summary>An immutable effective turn capability surface was pinned.</summary>
+        public const string AGENT_TURN_CAPABILITIES_PINNED = "AGENT_TURN_CAPABILITIES_PINNED";
     }
 
     #endregion
@@ -234,7 +249,6 @@ public static partial class EventTypes
     /// </summary>
     public static class Streaming
     {
-        public const string INTERRUPTION_REQUEST = "INTERRUPTION_REQUEST";
         public const string INTERRUPTION_HANDLED = "INTERRUPTION_HANDLED";
     }
 

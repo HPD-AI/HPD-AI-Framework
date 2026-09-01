@@ -31,6 +31,7 @@ public sealed partial class SqliteModuleMutationTests
             BaseSemanticActivationMaintenanceAuthorityRequest request = new()
             {
                 ApplicationId = authority.ApplicationId, LogicalStoreId = authority.LogicalStoreId,
+                ProviderIncarnation = store.ProviderIncarnation,
                 RestoreEpoch = authority.RestoreEpoch,
                 Definition = new() { Id = definition.Id, Version = definition.Version, Checksum = definition.Checksum },
                 SemanticAuthorityGeneration = authority.SemanticAuthorityGeneration,
@@ -565,10 +566,12 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
         try
         {
             BaseRegisteredModuleMutationDefinition module = Definition();
-            var serializer = new Json(BaseSerializerGeneratedContract.CreateOptions(null));
             var moduleIdentity = new BaseGeneratedModuleMutationIdentity<Request, Result>(
-                module.Id, module.Version, module.Checksum.ToArray(), serializer.Request, serializer.Result, [],
-                [BaseModuleDtoPropertyBinding.Create<Result, string>("result.generation", nameof(Result.Generation))]);
+                module.Id, module.Version, module.Checksum.ToArray(),
+                SqliteActivationDtos.HPDBaseActivationDtoAuthority.InputTypeInfo,
+                SqliteActivationDtos.HPDBaseActivationDtoAuthority.ResultTypeInfo,
+                SqliteActivationDtos.HPDBaseActivationDtoAuthority.InputBindings.Values.ToArray(),
+                SqliteActivationDtos.HPDBaseActivationDtoAuthority.ResultBindings.Values.ToArray());
             BaseTransactionalActivationRegistration<Request, Result> activation = RuntimeActivation(module);
             BaseSemanticActivationKeyExpression expression = new BaseSemanticActivationKeyConstantExpression
             {
@@ -920,13 +923,14 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
         finally { foreach (string suffix in new[] { "", "-wal", "-shm" }) if (File.Exists(path + suffix)) File.Delete(path + suffix); }
     }
 
-    private static async Task CompleteSemanticActivationAsync(SqliteRecordStore store, string identity)
+    private static async Task CompleteSemanticActivationAsync(
+        SqliteRecordStore store, string identity, long observeAt = 10)
     {
         BaseActivationExecutionLimits limits = ActivationLimits();
         BaseActivationDueObservation observed = (await store.ObserveDueAsync(new()
         {
             ApplicationId = "activation-test", WorkerModuleId = "test", Definitions = [ActivationDefinition()], Scope = ActivationScope(),
-            AcceptedTime = AcceptedTime(10), MaximumCandidates = 8, Limits = limits,
+            AcceptedTime = AcceptedTime(observeAt), MaximumCandidates = 8, Limits = limits,
         })).Value!;
         var worker = new BaseActivationWorkerAuthority
         {
@@ -935,7 +939,7 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
         };
         var claimed = (BaseActivationClaimedResult)(await store.TryClaimNextAsync(new()
         {
-            Observation = observed.Token, Worker = worker, AcceptedTime = AcceptedTime(10), LeaseMilliseconds = 1_000,
+            Observation = observed.Token, Worker = worker, AcceptedTime = AcceptedTime(observeAt), LeaseMilliseconds = 1_000,
             Identity = ActivationIdentity(identity + "-claim"), Limits = limits,
         })).Value!;
         byte[] result = "done"u8.ToArray();
@@ -945,6 +949,36 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
             CanonicalResult = result.ToImmutableArray(), ResultChecksum = SHA256.HashData(result).ToImmutableArray(),
             AcceptedTime = AcceptedTime(20), Identity = ActivationIdentity(identity + "-complete"), Limits = limits,
         })).Value!.State.Should().Be(BaseActivationState.Succeeded);
+    }
+
+    private static async Task YieldSemanticActivationAsync(SqliteRecordStore store, string identity)
+    {
+        BaseActivationExecutionLimits limits = ActivationLimits();
+        BaseActivationDefinitionKey definition = ActivationDefinition();
+        BaseActivationDueObservation observed = (await store.ObserveDueAsync(new()
+        {
+            ApplicationId = "activation-test", WorkerModuleId = "test", Definitions = [definition],
+            Scope = ActivationScope(), AcceptedTime = AcceptedTime(10), MaximumCandidates = 8, Limits = limits,
+        })).Value!;
+        var worker = new BaseActivationWorkerAuthority
+        {
+            ApplicationId = "activation-test", ModuleId = "test", WorkerIdentity = "yield-worker",
+            Definitions = [definition], Scope = ActivationScope(), Checksum = new byte[32].ToImmutableArray(),
+        };
+        var claimed = (BaseActivationClaimedResult)(await store.TryClaimNextAsync(new()
+        {
+            Observation = observed.Token, Worker = worker, AcceptedTime = AcceptedTime(10),
+            LeaseMilliseconds = 1_000, Identity = ActivationIdentity(identity + "-claim"), Limits = limits,
+        })).Value!;
+        OperationResult<BaseActivationTransitionResult> yielded = await store.TransitionAsync(new BaseActivationYieldRequest
+        {
+            ActivationId = claimed.Claim.ActivationId, Claim = claimed.Claim,
+            RequestedResumeAt = DateTimeOffset.FromUnixTimeMilliseconds(12), EffectiveDueAt = 12,
+            ProgressFingerprint = SHA256.HashData("restore-progress"u8).ToImmutableArray(),
+            ExpectedYieldCount = 0, MaximumYields = 2, AcceptedTime = AcceptedTime(11),
+            Identity = ActivationIdentity(identity), Limits = limits,
+        });
+        yielded.IsSuccess().Should().BeTrue(yielded.Error?.Code);
     }
 
     private static void RejectsSubstitutedResultingSlotChecksum(SqliteSemanticEnsureProbe probe)
@@ -957,13 +991,14 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
             probe.FinalizedExtension!, probe.CapturedEvidence!, hostile).Should().BeFalse();
     }
 
-    private static async Task DisposeSemanticActivationAsync(SqliteRecordStore store, string identity)
+    private static async Task DisposeSemanticActivationAsync(
+        SqliteRecordStore store, string identity, long observeAt = 10)
     {
         BaseActivationExecutionLimits limits = ActivationLimits();
         BaseActivationDueObservation observed = (await store.ObserveDueAsync(new()
         {
             ApplicationId = "activation-test", WorkerModuleId = "test", Definitions = [ActivationDefinition()], Scope = ActivationScope(),
-            AcceptedTime = AcceptedTime(10), MaximumCandidates = 8, Limits = limits,
+            AcceptedTime = AcceptedTime(observeAt), MaximumCandidates = 8, Limits = limits,
         })).Value!;
         var worker = new BaseActivationWorkerAuthority
         {
@@ -972,7 +1007,7 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
         };
         var claimed = (BaseActivationClaimedResult)(await store.TryClaimNextAsync(new()
         {
-            Observation = observed.Token, Worker = worker, AcceptedTime = AcceptedTime(10), LeaseMilliseconds = 1_000,
+            Observation = observed.Token, Worker = worker, AcceptedTime = AcceptedTime(observeAt), LeaseMilliseconds = 1_000,
             Identity = ActivationIdentity(identity + "-claim"), Limits = limits,
         })).Value!;
         byte[] result = "done"u8.ToArray();
@@ -1130,7 +1165,7 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
             await using (var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
             {
                 await connection.OpenAsync(); await using var command = connection.CreateCommand();
-                command.CommandText = "UPDATE hpd_base_activations SET terminal_receipt_checksum=$checksum; UPDATE hpd_base_activation_receipts SET authority_checksum=$checksum WHERE activation_id IS NOT NULL;";
+                command.CommandText = "UPDATE hpd_base_activations SET terminal_receipt_checksum=$checksum;";
                 command.Parameters.Add("$checksum", Microsoft.Data.Sqlite.SqliteType.Blob).Value = Enumerable.Repeat((byte)0xA5, 32).ToArray();
                 await command.ExecuteNonQueryAsync();
             }
@@ -1192,6 +1227,8 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
             BaseSemanticActivationMigrateRequest request = new()
             {
                 Identity = identity, Definition = migration.From, ExpectedSemanticAuthorityGeneration = 1,
+                ProviderIncarnation = SHA256.HashData(Encoding.UTF8.GetBytes(
+                    "hpd.base.sqlite.semantic.incarnation.v1\0module-store")).ToImmutableArray(),
                 Migration = migration, Limits = new() { PageSize = 1, MaximumPages = 20, MaximumRows = 100,
                     MaximumBytes = 8_000_000, Deadline = TimeSpan.FromSeconds(5) },
             };
@@ -1208,7 +1245,7 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
                 BaseResult<BaseSemanticActivationMaintenanceResult> completed = await resumed.ExecuteAsync(request, default);
                 completed.RequireValue().Disposition.Should().Be(BaseSemanticActivationMaintenanceDisposition.Completed);
                 completed.RequireValue().ResultingAuthorityGeneration.Should().Be(2);
-                completed.RequireValue().ChangedRows.Should().Be(6);
+                completed.RequireValue().ChangedRows.Should().Be(2);
                 (await resumed.ExecuteAsync(request, default)).RequireValue().Disposition
                     .Should().Be(BaseSemanticActivationMaintenanceDisposition.Duplicate);
                 BaseAtomicMutationAuthorityRequirement authority = (await resumed.CaptureAtomicMutationAuthorityRequirementAsync("activation-test", [], limits)).Value!;
@@ -1313,6 +1350,7 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
             {
                 Identity = BaseMutationRequestIdentity.Create("semantic-maintenance", "remove", "remove-1",
                     BaseMutationRequestFingerprint.Create(SHA256.HashData("semantic-remove-request"u8))),
+                ProviderIncarnation = replacement.ProviderIncarnation,
                 Definition = new() { Id = removed.Id, Version = removed.Version, Checksum = removed.Checksum },
                 RemovalAuthority = removal, ExpectedSemanticAuthorityGeneration = 1,
                 ExpectedLiveCount = 0, ExpectedRetiredCount = 0, ExpectedAbsenceCount = 1,
@@ -1358,16 +1396,10 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
         byte[] contractChecksum = SHA256.HashData("subject-contract"u8);
         BaseSemanticActivationKeyDefinition definition = SemanticDefinition() with
         {
-            Compaction = new BaseSemanticActivationSubjectRetirementCompaction
-            {
-                SubjectContract = new()
-                {
-                    ContractId = "test.subject", ContractVersion = 1,
-                    ContractChecksum = contractChecksum.ToImmutableArray(),
-                },
-                SubjectReferenceRequestPropertyId = "request.subject",
-                LifecycleRetirementGrantId = "subject.retire",
-            },
+            Compaction = new BaseSemanticActivationSubjectRetirementCompaction(
+                new BaseSemanticActivationSubjectContractIdentity(
+                    "test.subject", 1, contractChecksum.ToImmutableArray()),
+                "request.subject", "subject.retire"),
             Checksum = SHA256.HashData("semantic-definition-compaction"u8).ToImmutableArray(),
         };
         var lifetime = new BaseSemanticActivationSubjectLifetimeBinding
@@ -1387,7 +1419,7 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
                 var ensure = new SqliteSemanticEnsureProbe(authority, limits, "compact-ensure",
                     semanticDefinition: definition, subjectLifetime: lifetime);
                 (await store.ExecuteAtomicAsync(ensure, ExecutionRequest())).Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
-                await DisposeSemanticActivationAsync(store, "compact-terminal");
+                await CompleteSemanticActivationAsync(store, "compact-terminal");
                 authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync("activation-test", [], limits)).Value!;
                 var retire = new SqliteSemanticEnsureProbe(authority, limits, "compact-retire", retire: true,
                     semanticDefinition: definition, subjectLifetime: lifetime);
@@ -1396,22 +1428,42 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
                     $"{retire.RejectedCode}; captured={retire.CapturedState}; lifetime={retire.CapturedEvidence?.Live?.SubjectLifetime is not null}; " +
                     $"lifetimeValid={retire.CapturedEvidence?.Live?.SubjectLifetime is { } capturedLifetime && BaseSemanticActivationEvidenceContract.SubjectLifetimeChecksum(capturedLifetime).AsSpan().SequenceEqual(capturedLifetime.Checksum.AsSpan())}");
                 await InsertRetiredRecoveryFloorAsync(path, retire.RecoveryReceiptJson!);
+                BaseSemanticActivationRetirementAuthority retired =
+                    (await ReadRetiredRotationAuthorityAsync(path)).Slot;
+                OperationResult<BaseActivationTransitionResult> disposeResult = await store.TransitionAsync(
+                    new BaseActivationDisposeRequest
+                    {
+                        ActivationId = retired.ActivationId,
+                        ExpectedGeneration = retired.TerminalActivationGeneration,
+                        AcceptedTime = AcceptedTime(30),
+                        Identity = ActivationIdentity("compact-dispose-after-retirement"),
+                        Limits = ActivationLimits(),
+                    });
+                disposeResult.IsSuccess().Should().BeTrue(disposeResult.Error?.Code);
+                BaseActivationTransitionResult disposed = disposeResult.Value!;
+                disposed.State.Should().Be(BaseActivationState.Disposed);
+                disposed.Generation.Should().BeGreaterThan(retired.TerminalActivationGeneration);
                 OperationResult<BaseActivationPrunePage> pruned = await store.PruneAsync(new BaseActivationPruneRequest
                 {
                     ApplicationId = "activation-test", Scope = ActivationScope(), Definition = ActivationDefinition(), Take = 1,
-                    AcceptedTime = AcceptedTime(30), Identity = ActivationIdentity("compact-prune"), Limits = ActivationLimits(),
+                    AcceptedTime = AcceptedTime(86_400_030), Identity = ActivationIdentity("compact-prune"), Limits = ActivationLimits(),
                 });
                 pruned.IsSuccess().Should().BeTrue(pruned.Error?.Code);
 
-                BaseSemanticActivationRetirementAuthority retired = (await ReadRetiredRotationAuthorityAsync(path)).Slot;
+                BaseActivationPruneEvidence exactPrune = await ReadPruneEvidenceAsync(
+                    path, retired.ActivationId);
+                exactPrune.TerminalGeneration.Should().Be(
+                    retired.TerminalActivationGeneration + 1);
+
                 await using (var dependency = new SqliteConnection($"Data Source={path};Pooling=False"))
                 {
                     await dependency.OpenAsync(); await using SqliteCommand verify = dependency.CreateCommand();
                     verify.CommandText = "SELECT terminal_generation,terminal_control_checksum,terminal_receipt_checksum FROM hpd_base_activation_prune_floors WHERE activation_id=$id;";
                     verify.Parameters.AddWithValue("$id", retired.ActivationId); await using SqliteDataReader evidence = await verify.ExecuteReaderAsync();
-                    (await evidence.ReadAsync()).Should().BeTrue(); evidence.GetInt64(0).Should().Be(retired.TerminalActivationGeneration);
-                    ((byte[])evidence[1]).Should().Equal(retired.TerminalActivationChecksum);
-                    ((byte[])evidence[2]).Should().Equal(retired.CompletionReceiptChecksum);
+                    (await evidence.ReadAsync()).Should().BeTrue();
+                    evidence.GetInt64(0).Should().BeGreaterThan(retired.TerminalActivationGeneration);
+                    ((byte[])evidence[1]).Should().NotEqual(retired.TerminalActivationChecksum);
+                    ((byte[])evidence[2]).Should().NotEqual(retired.CompletionReceiptChecksum);
                 }
                 await InsertTerminalSubjectLifetimeAsync(path, retired);
                 byte[] ordered = OrderedSemanticAuthoritiesChecksum([JsonSerializer.SerializeToUtf8Bytes(retired,
@@ -1420,12 +1472,35 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
                 {
                     Identity = BaseMutationRequestIdentity.Create("semantic-maintenance", "compact", "compact-1",
                         BaseMutationRequestFingerprint.Create(SHA256.HashData("compact-request"u8))),
+                    ProviderIncarnation = store.ProviderIncarnation,
                     Definition = new() { Id = definition.Id, Version = definition.Version, Checksum = definition.Checksum },
                     ExpectedSemanticAuthorityGeneration = 1, ExpectedRetiredCount = 1,
                     ExpectedRetiredChecksum = ordered.ToImmutableArray(),
                     Limits = new() { PageSize = 1, MaximumPages = 2, MaximumRows = 2,
                         MaximumBytes = 1_000_000, Deadline = TimeSpan.FromSeconds(5) },
                 };
+                BaseActivationPruneEvidence hostilePrune = exactPrune with
+                {
+                    TerminalGeneration = retired.TerminalActivationGeneration + 2,
+                    Checksum = [],
+                };
+                hostilePrune = hostilePrune with
+                {
+                    Checksum = BaseActivationPruneEvidenceContract.Checksum(hostilePrune),
+                };
+                BaseActivationPruneEvidenceContract.IsValid(hostilePrune).Should().BeTrue();
+                await WritePruneEvidenceAsync(path, hostilePrune);
+                BaseSemanticActivationCompactRequest hostileRequest = request with
+                {
+                    Identity = BaseMutationRequestIdentity.Create(
+                        "semantic-maintenance", "compact", "compact-hostile-plus-two",
+                        BaseMutationRequestFingerprint.Create(SHA256.HashData("compact-hostile-plus-two"u8))),
+                };
+                BaseFailure<BaseSemanticActivationMaintenanceResult> hostileResult =
+                    (BaseFailure<BaseSemanticActivationMaintenanceResult>)await store.ExecuteAsync(
+                        hostileRequest, default);
+                hostileResult.Error.Code.Should().Be(BaseSemanticActivationErrorCodes.CompactionBlocked);
+                await WritePruneEvidenceAsync(path, exactPrune);
                 BaseResult<BaseSemanticActivationMaintenanceResult> compactResult = await store.ExecuteAsync(request, default);
                 compactResult.Should().BeOfType<BaseSuccess<BaseSemanticActivationMaintenanceResult>>(
                     compactResult is BaseFailure<BaseSemanticActivationMaintenanceResult> failed ? $"{failed.Error.Code}:{failed.Error.Message}" : string.Empty);
@@ -1438,7 +1513,7 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
                 BaseAtomicMutationAuthorityRequirement authority = (await reopened.CaptureAtomicMutationAuthorityRequirementAsync(
                     "activation-test", [], ExecutionLimits())).Value!;
                 var duplicate = new SqliteSemanticEnsureProbe(authority, ExecutionLimits(), "compact-duplicate", retire: true,
-                    semanticDefinition: definition, subjectLifetime: lifetime);
+                    semanticDefinition: definition, subjectLifetime: lifetime, acceptedTimeSeconds: 86_400_031);
                 RecordMutationExecutionResult duplicateResult = await reopened.ExecuteAtomicAsync(duplicate, ExecutionRequest());
                 duplicateResult.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed,
                     $"{duplicate.RejectedCode}:{duplicateResult.Error?.Code}:{duplicateResult.Error?.Message}");
@@ -1451,6 +1526,66 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
             reader.GetInt32(0).Should().Be(3); reader.GetInt32(1).Should().Be(3); reader.IsDBNull(2).Should().BeTrue();
         }
         finally { SqliteConnection.ClearAllPools(); foreach (string suffix in new[] { "", "-wal", "-shm" }) if (File.Exists(path + suffix)) File.Delete(path + suffix); }
+    }
+
+    private static async Task<BaseActivationPruneEvidence> ReadPruneEvidenceAsync(
+        string path,
+        string activationId)
+    {
+        await using var connection = new SqliteConnection($"Data Source={path};Pooling=False");
+        await connection.OpenAsync();
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT definition_id,definition_version,definition_checksum,terminal_generation,
+                   terminal_control_checksum,terminal_receipt_checksum,occurrence_checksum,
+                   result_checksum,prune_authority_generation,application_id,logical_store_id,
+                   store_instance_id,restore_epoch,publication_authority_checksum,authority_checksum
+            FROM hpd_base_activation_prune_floors
+            WHERE activation_id=$id;
+            """;
+        command.Parameters.AddWithValue("$id", activationId);
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync();
+        (await reader.ReadAsync()).Should().BeTrue();
+        return new BaseActivationPruneEvidence
+        {
+            ActivationId = activationId,
+            Definition = new BaseActivationDefinitionKey
+            {
+                Id = reader.GetString(0),
+                Version = reader.GetInt32(1),
+                Checksum = ((byte[])reader[2]).ToImmutableArray(),
+            },
+            TerminalGeneration = reader.GetInt64(3),
+            TerminalControlChecksum = ((byte[])reader[4]).ToImmutableArray(),
+            TerminalReceiptChecksum = ((byte[])reader[5]).ToImmutableArray(),
+            OccurrenceChecksum = reader.IsDBNull(6) ? null : ((byte[])reader[6]).ToImmutableArray(),
+            ResultChecksum = reader.IsDBNull(7) ? null : ((byte[])reader[7]).ToImmutableArray(),
+            PruneAuthorityGeneration = reader.GetInt64(8),
+            ApplicationId = reader.GetString(9),
+            LogicalStoreId = reader.GetString(10),
+            StoreInstanceId = reader.GetString(11),
+            RestoreEpoch = reader.GetInt64(12),
+            PublicationAuthorityChecksum = ((byte[])reader[13]).ToImmutableArray(),
+            Checksum = ((byte[])reader[14]).ToImmutableArray(),
+        };
+    }
+
+    private static async Task WritePruneEvidenceAsync(
+        string path,
+        BaseActivationPruneEvidence evidence)
+    {
+        await using var connection = new SqliteConnection($"Data Source={path};Pooling=False");
+        await connection.OpenAsync();
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE hpd_base_activation_prune_floors
+            SET terminal_generation=$generation, authority_checksum=$checksum
+            WHERE activation_id=$id;
+            """;
+        command.Parameters.AddWithValue("$generation", evidence.TerminalGeneration);
+        command.Parameters.Add("$checksum", SqliteType.Blob).Value = evidence.Checksum.ToArray();
+        command.Parameters.AddWithValue("$id", evidence.ActivationId);
+        (await command.ExecuteNonQueryAsync()).Should().Be(1);
     }
 
     private static async Task InsertTerminalSubjectLifetimeAsync(string path, BaseSemanticActivationRetirementAuthority retired)
@@ -1473,7 +1608,9 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
         insert.Parameters.Add("$epoch", SqliteType.Blob).Value = lifetime.AuthorityEpoch.ToArray();
         insert.Parameters.Add("$incarnation", SqliteType.Blob).Value = lifetime.Incarnation.ToArray();
         insert.Parameters.AddWithValue("$lifetime", lifetime.Incarnation.LifetimeGeneration);
-        insert.Parameters.AddWithValue("$position", retired.RetirementPosition);
+        // Final subject retirement is published after semantic retirement in the
+        // supported public lifecycle ordering.
+        insert.Parameters.AddWithValue("$position", checked(retired.RetirementPosition + 1));
         insert.Parameters.AddWithValue("$receipt", Convert.ToHexStringLower(SHA256.HashData("subject-terminal"u8)));
         (await insert.ExecuteNonQueryAsync()).Should().Be(1);
     }
@@ -1514,11 +1651,12 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
     }
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    [InlineData(true, true)]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(true, true, false)]
+    [InlineData(true, false, true)]
     public async Task In_place_restore_unions_post_artifact_retirement_without_rematerialization(
-        bool artifactContainsLive, bool pruneAfterRetirement)
+        bool artifactContainsLive, bool pruneAfterRetirement, bool corruptArtifactControl)
     {
         string path = Path.Combine(Path.GetTempPath(), $"hpd-base-l53-restore-floor-{Guid.NewGuid():N}.db");
         try
@@ -1535,19 +1673,40 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
             }
 
             BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync("activation-test", [], limits)).Value!;
-            var ensure = new SqliteSemanticEnsureProbe(authority, limits, "restore-live");
+            var ensure = new SqliteSemanticEnsureProbe(
+                authority, limits, "restore-live", maximumYields: artifactContainsLive ? 2 : 0);
             (await store.ExecuteAtomicAsync(ensure, ExecutionRequest())).Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
             if (artifactContainsLive)
             {
+                byte[]? originalControl = null;
+                if (corruptArtifactControl)
+                {
+                    await using var corrupt = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path};Pooling=False");
+                    await corrupt.OpenAsync(); await using var mutate = corrupt.CreateCommand();
+                    mutate.CommandText = "SELECT control_checksum FROM hpd_base_activations LIMIT 1;";
+                    originalControl = (byte[])(await mutate.ExecuteScalarAsync())!;
+                    mutate.CommandText = "UPDATE hpd_base_activations SET control_checksum=$checksum;";
+                    mutate.Parameters.Add("$checksum", Microsoft.Data.Sqlite.SqliteType.Blob).Value = new byte[32];
+                    (await mutate.ExecuteNonQueryAsync()).Should().Be(1);
+                }
                 backup = await store.CreateBackupAsync(artifact, new BaseBackupRequest
                 { StoreId = "module-store", Principal = AdministrationPrincipal() });
                 backup.IsSuccess().Should().BeTrue(backup.Error?.Code);
+                if (originalControl is not null)
+                {
+                    await using var repair = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path};Pooling=False");
+                    await repair.OpenAsync(); await using var mutate = repair.CreateCommand();
+                    mutate.CommandText = "UPDATE hpd_base_activations SET control_checksum=$checksum;";
+                    mutate.Parameters.Add("$checksum", Microsoft.Data.Sqlite.SqliteType.Blob).Value = originalControl;
+                    (await mutate.ExecuteNonQueryAsync()).Should().Be(1);
+                }
+                await YieldSemanticActivationAsync(store, "restore-yield");
             }
 
             if (pruneAfterRetirement)
-                await DisposeSemanticActivationAsync(store, "restore-terminal");
+                await DisposeSemanticActivationAsync(store, "restore-terminal", artifactContainsLive ? 12 : 10);
             else
-                await CompleteSemanticActivationAsync(store, "restore-terminal");
+                await CompleteSemanticActivationAsync(store, "restore-terminal", artifactContainsLive ? 12 : 10);
             authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync("activation-test", [], limits)).Value!;
             var retire = new SqliteSemanticEnsureProbe(authority, limits, "restore-retire", retire: true);
             RecordMutationExecutionResult retirement = await store.ExecuteAtomicAsync(retire, ExecutionRequest());
@@ -1570,7 +1729,7 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
                 OperationResult<BaseActivationPrunePage> pruned = await store.PruneAsync(new BaseActivationPruneRequest
                 {
                     ApplicationId = "activation-test", Scope = ActivationScope(), Definition = ActivationDefinition(),
-                    Take = 1, AcceptedTime = AcceptedTime(40), Identity = ActivationIdentity("restore-prune"),
+                    Take = 1, AcceptedTime = AcceptedTime(86_400_040), Identity = ActivationIdentity("restore-prune"),
                     Limits = ActivationLimits(),
                 });
                 pruned.IsSuccess().Should().BeTrue(pruned.Error?.Code);
@@ -1590,7 +1749,20 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
                 ConfirmDestructiveReplacement = true,
                 ScheduleRestoreDomain = BaseScheduleRestoreDomain.InPlaceRecovery,
             });
+            if (corruptArtifactControl)
+            {
+                restored.IsSuccess().Should().BeFalse();
+                restored.Error!.Code.Should().Be(BaseSemanticActivationErrorCodes.RecoveryProofInvalid);
+                return;
+            }
             restored.IsSuccess().Should().BeTrue($"{restored.Error?.Code}:{restored.Error?.Message}:{restored.Error?.Detail}");
+            if (artifactContainsLive)
+            {
+                BaseActivationYieldReservationState reservation =
+                    (await store.ReadYieldReservationStateAsync()).Value!;
+                reservation.ReservedUnusedSlots.Should().Be(0);
+                reservation.RetainedUsedSlots.Should().Be(pruneAfterRetirement ? 0 : 1);
+            }
 
             await using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path};Pooling=False");
             await connection.OpenAsync(); await using var command = connection.CreateCommand();
@@ -1625,7 +1797,10 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
         int maximumCanonicalKeyBytes = 256,
         bool enableScopeRotationKey = false,
         ISqliteAdministrationOperationController? administrationOperations = null,
-        TimeSpan? restoreStagingTimeout = null)
+        TimeSpan? restoreStagingTimeout = null,
+        BaseOpaqueTokenProtector? suppliedTokenProtector = null,
+        TimeProvider? suppliedTimeProvider = null,
+        bool installCertificationSubjectLifecycle = false)
     {
         BaseSemanticActivationKeyDefinition definition = installedDefinition ?? SemanticDefinition(maximumLiveSlots, maximumReceiptBytes, maximumCanonicalKeyBytes);
         var options = new HPDBaseSqliteOptions
@@ -1642,16 +1817,32 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
             AdministrationEnabled = administrationEnabled, MaxBackupArtifactBytes = 16 * 1024 * 1024,
             RestoreStagingTimeout = restoreStagingTimeout ?? TimeSpan.FromSeconds(30),
         };
-        var protector = new BaseOpaqueTokenProtector(Options.Create(new HPDBaseTokenProtectionOptions
+        if (installCertificationSubjectLifecycle)
+        {
+            BaseGeneratedSubjectRegistration subject =
+                BaseSemanticActivationCertificationSubjectAuthority.Registration;
+            options.Collections = [BaseSemanticActivationCertificationSubjectAuthority.Collection];
+            options.ExportedSubjects = [subject.Definition];
+            options.SubjectLifecycleConsumers =
+                [BaseSemanticActivationCertificationSubjectAuthority.Lifecycle.Definition];
+            options.SubjectRetirementConsumers =
+                [BaseSemanticActivationCertificationSubjectAuthority.Retirement.Definition];
+            options.SubjectRetirementPolicies =
+                [BaseSemanticActivationCertificationSubjectAuthority.RetirementPolicy.Policy];
+        }
+        var protector = suppliedTokenProtector ?? new BaseOpaqueTokenProtector(Options.Create(new HPDBaseTokenProtectionOptions
         {
             ActiveKey = new BaseOpaqueTokenKey { Id = 31, Key = Enumerable.Repeat((byte)0x31, 32).ToArray(), IssueNotBefore = DateTimeOffset.UnixEpoch },
             DecryptionKeys = enableScopeRotationKey
                 ? [new BaseOpaqueTokenKey { Id = 32, Key = Enumerable.Repeat((byte)0x32, 32).ToArray(), IssueNotBefore = DateTimeOffset.UnixEpoch }]
                 : [],
         }));
-        var store = new SqliteRecordStore(options, NullLoggerFactory.Instance, TimeProvider.System,
+        var store = new SqliteRecordStore(options, NullLoggerFactory.Instance,
+            suppliedTimeProvider ?? TimeProvider.System,
             tokenProtector: protector, administrationOperations: administrationOperations);
         store.InitializeUnacceptedSchemaForTestsAsync().AsTask().GetAwaiter().GetResult();
+        if (installCertificationSubjectLifecycle)
+            ApplyCertificationSubjectSchemaAsync(store).AsTask().GetAwaiter().GetResult();
         if (administrationEnabled)
         {
             using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path};Pooling=False");
@@ -1668,6 +1859,65 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
             }).AsTask().GetAwaiter().GetResult();
         }
         return store;
+    }
+
+    private static async ValueTask ApplyCertificationSubjectSchemaAsync(SqliteRecordStore store)
+    {
+        const string applicationId = "certification-application";
+        const string targetChecksum = "9a94da3f0844e47d5f470f3a61b3a45d32249126756f9d19d131503644a0ea87";
+        OperationResult<BaseSchemaPreparedPlan> prepared = await store.PrepareSchemaPlanAsync(new BaseSchemaPreparationRequest
+        {
+            ApplicationId = applicationId,
+            LogicalDelta = [new BaseSchemaLogicalOperation
+            {
+                Kind = BaseSchemaOperationKind.CreateCollection,
+                LogicalId = $"c:{BaseSemanticActivationCertificationSubjectAuthority.CollectionId}",
+            }],
+            ObservedState = new BaseSchemaObservedState
+            {
+                StoreId = "module-store",
+                Generation = 0,
+                Compatibility = BaseSchemaCompatibility.Unknown,
+                Assets = [],
+                MigrationState = BaseSchemaMigrationState.None,
+            },
+            Classification = BaseSchemaPlanClassification.SafeStructural,
+            ExpectedGeneration = 0,
+            TargetChecksum = targetChecksum,
+            PreparationTimeout = TimeSpan.FromSeconds(5),
+        }).ConfigureAwait(false);
+        if (!prepared.IsSuccess() || prepared.Value is null)
+            throw new InvalidOperationException($"base.semanticActivation.certificationInvalid:schema-prepare:{prepared.Error?.Code}");
+        BaseSchemaPreparedPlan plan = prepared.Value;
+        var envelope = new BaseSchemaProviderVerifiedEnvelope
+        {
+            PlanId = "certification-plan-v1",
+            TargetBaselineId = "certification-baseline-v1",
+            ApplicationId = applicationId,
+            StoreId = "module-store",
+            PersistedStoreInstanceId = plan.PersistedStoreInstanceId,
+            ProviderId = plan.ProviderId,
+            ProviderVersion = plan.ProviderVersion,
+            PlannerVersion = plan.PlannerVersion,
+            Classification = BaseSchemaPlanClassification.SafeStructural,
+            LogicalPlanDigest = "certification-logical-v1",
+            ProviderApplyArtifactDigest = plan.ProviderApplyArtifactDigest,
+            CreatedAt = DateTimeOffset.UnixEpoch,
+            ExpiresAt = DateTimeOffset.UnixEpoch.AddYears(100),
+        };
+        OperationResult<BaseSchemaApplyResult> applied = await store.ApplySchemaAsync(new BaseSchemaProviderApplyRequest
+        {
+            VerifiedPlanEnvelope = JsonSerializer.SerializeToUtf8Bytes(
+                envelope, HPDBaseJsonSerializerContext.Default.BaseSchemaProviderVerifiedEnvelope),
+            ProviderApplyArtifact = plan.ProviderApplyArtifact,
+            ExpectedGeneration = 0,
+            ExpectedTargetChecksum = targetChecksum,
+            LeaseTimeout = TimeSpan.FromSeconds(5),
+            ApplyTimeout = TimeSpan.FromSeconds(5),
+            CommitCompletionTimeout = TimeSpan.FromSeconds(5),
+        }).ConfigureAwait(false);
+        if (!applied.IsSuccess())
+            throw new InvalidOperationException($"base.semanticActivation.certificationInvalid:schema-apply:{applied.Error?.Code}");
     }
 
     private static BaseSemanticActivationKeyDefinition SemanticDefinition(long maximumLiveSlots = 100,
@@ -1696,14 +1946,14 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
     };
 
     private static BaseTransactionalActivationRegistration<Request, Result> RuntimeActivation(
-        BaseRegisteredModuleMutationDefinition module) => BaseActivationDefinitionBuilder.CreateTransactional(new BaseActivationDefinition
+        BaseRegisteredModuleMutationDefinition module) => BaseActivationDefinitionBuilder.CreateGeneratedTransactional(new BaseActivationDefinitionDraft
         {
             Id = "module.semantic.child", Version = 1, OwningModuleId = "module",
-            ExecutionClass = BaseActivationExecutionClass.TransactionalOperation, InputTypeId = "request", ResultTypeId = "result",
+            ExecutionClass = BaseActivationExecutionClass.TransactionalOperation,
             Grants = new BaseActivationGrantSet
             {
                 Enqueue = "activation.enqueue", Observe = "activation.observe", Claim = "activation.claim", Execute = "activation.execute",
-                Renew = "activation.renew", Complete = "activation.complete", Fail = "activation.fail", Cancel = "activation.cancel",
+                Renew = "activation.renew", Complete = "activation.complete", Fail = "activation.fail", Yield = "activation.yield", Cancel = "activation.cancel",
                 Inspect = "activation.inspect", Replay = "activation.replay", Migrate = "activation.migrate", Reconcile = "activation.reconcile",
                 Retry = "activation.retry", Dispose = "activation.dispose", Remove = "activation.remove", Repair = "activation.repair",
             },
@@ -1712,10 +1962,15 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
                 MaximumAttempts = 1, InitialDelayMilliseconds = 1, MaximumDelayMilliseconds = 1,
                 MultiplierNumerator = 1, MultiplierDenominator = 1, JitterBasisPoints = 0, RetryableFailureCodes = [],
             },
+            ReceiptRetention = new BaseActivationReceiptRetentionPolicy
+            {
+                FormatVersion = 1, DuplicateResolutionLifetime = TimeSpan.FromHours(24),
+                ProtectedBackupCoverage = BaseActivationProtectedBackupCoverage.NotRequired,
+            },
             Limits = new BaseActivationLimits
             {
-                MaximumInputBytes = 4096, MaximumResultBytes = 4096, MaximumAttempts = 1, MaximumRenewalsPerAttempt = 1,
-                MaximumChildrenPerAttempt = 4, MaximumLineageDepth = 4, LeaseDuration = TimeSpan.FromMinutes(1),
+                MaximumInputBytes = 4096, MaximumResultBytes = 4096, MaximumAttempts = 1, MaximumYields = 0, MaximumRenewalsPerSlice = 1,
+                MaximumChildrenPerSlice = 4, MaximumLineageDepth = 4, LeaseDuration = TimeSpan.FromMinutes(1),
                 HandlerTimeout = TimeSpan.FromMinutes(1), Provider = ActivationLimits(), AtomicCreation = ExecutionLimits(),
             },
             TransactionalTarget = new BaseModuleMutationActivationTarget
@@ -1723,9 +1978,7 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
                 OperationId = module.Id, OperationVersion = module.Version,
                 OperationChecksum = Convert.ToHexStringLower(module.Checksum.ToArray()),
             },
-            Checksum = [],
-        }, Json.Default.Request, Json.Default.Result, [],
-        [BaseModuleDtoPropertyBinding.Create<Result, string>("result.generation", nameof(Result.Generation))]);
+        }, SqliteActivationDtos.HPDBaseActivationDtoAuthority);
 
     private static DefaultBaseModuleMutationRuntime RuntimeSemantic(
         SqliteRecordStore store,
@@ -1780,7 +2033,8 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
         BaseSemanticActivationKeyDefinition? semanticDefinition = null,
         long semanticOwnerGeneration = 1,
         BaseSemanticActivationSubjectLifetimeBinding? subjectLifetime = null,
-        long? acceptedTimeSeconds = null) : IAtomicMutationProcessor
+        long? acceptedTimeSeconds = null,
+        int maximumYields = 0) : IAtomicMutationProcessor
     {
         public BaseSemanticActivationCapturedState? CapturedState { get; private set; }
         public BaseCapturedSemanticActivationEvidence? CapturedEvidence { get; private set; }
@@ -1829,9 +2083,16 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
                 SubjectLifetime = subjectLifetime,
                 Activation = new()
                 {
-                    Definition = installedSemantic.Activation, CanonicalInput = "payload"u8.ToArray().ToImmutableArray(),
+                    Definition = installedSemantic.Activation,
+                    ReceiptRetention = new BaseActivationReceiptRetentionPolicy
+                    {
+                        FormatVersion = 1,
+                        DuplicateResolutionLifetime = TimeSpan.FromHours(24),
+                        ProtectedBackupCoverage = BaseActivationProtectedBackupCoverage.NotRequired,
+                    },
+                    CanonicalInput = "payload"u8.ToArray().ToImmutableArray(),
                     InputChecksum = SHA256.HashData("payload"u8).ToImmutableArray(), Scope = scope, Due = due, Priority = 0, InitiallyEligible = true,
-                    Limits = CreationLimits(), Identity = new()
+                    Limits = CreationLimits(maximumYields), Identity = new()
                     {
                         SemanticDefinition = definition, Key = key, ScopeBindingId = binding.ToImmutableArray(),
                         DerivedActivationIdBytes = activationId.ToImmutableArray(),
@@ -2037,10 +2298,11 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
             MaximumScopeDirectoryBytes = 4096, MaximumEvidenceBytes = 16384, MaximumReceiptBytes = 4096, MaximumTransientBytes = 32768,
         };
 
-        private static BaseActivationLimits CreationLimits() => new()
+        private static BaseActivationLimits CreationLimits(int maximumYields) => new()
         {
-            MaximumInputBytes = 4096, MaximumResultBytes = 4096, MaximumAttempts = 3, MaximumRenewalsPerAttempt = 3,
-            MaximumChildrenPerAttempt = 8, MaximumLineageDepth = 8, LeaseDuration = TimeSpan.FromMinutes(1), HandlerTimeout = TimeSpan.FromMinutes(1),
+            MaximumInputBytes = 4096, MaximumResultBytes = 4096, MaximumAttempts = 3,
+            MaximumYields = maximumYields, MaximumRenewalsPerSlice = 3,
+            MaximumChildrenPerSlice = 8, MaximumLineageDepth = 8, LeaseDuration = TimeSpan.FromMinutes(1), HandlerTimeout = TimeSpan.FromMinutes(1),
             Provider = ActivationLimits(), AtomicCreation = ExecutionLimits(),
         };
 

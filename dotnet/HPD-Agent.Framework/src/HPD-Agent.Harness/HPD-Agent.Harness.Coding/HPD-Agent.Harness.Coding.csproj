@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <HpdAgentEventPrecompileRequireAnalyzer>false</HpdAgentEventPrecompileRequireAnalyzer>
     <IsPackable>true</IsPackable>
     <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
     <RootNamespace>HPD.Agent.ToolHarness.Coding</RootNamespace>
@@ -10,6 +11,7 @@
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
     <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
     <NoWarn>$(NoWarn);CA2255;CS8602;CS8620;IL2026;IL3050</NoWarn>
+    <WarningsAsErrors>$(WarningsAsErrors)</WarningsAsErrors>
 
     <!-- Package Metadata (inherits Version, Authors, License from Directory.Build.props) -->
     <PackageId>HPD-Agent.ToolHarness.Coding</PackageId>

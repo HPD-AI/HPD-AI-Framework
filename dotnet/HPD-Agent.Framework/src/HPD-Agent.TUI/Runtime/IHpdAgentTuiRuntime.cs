@@ -23,6 +23,11 @@ public interface IHpdAgentTuiRuntime
         AgentInputEvent input,
         CancellationToken cancellationToken = default);
 
+    Task<AgentTuiSubmitResult> CancelExecutionAsync(
+        AgentTuiRuntimeScope scope,
+        string threadExecutionId,
+        CancellationToken cancellationToken = default);
+
     Task<ThreadContextUsage> EstimateContextUsageAsync(
         AgentTuiRuntimeScope scope,
         AgentRunConfig? runConfig = null,

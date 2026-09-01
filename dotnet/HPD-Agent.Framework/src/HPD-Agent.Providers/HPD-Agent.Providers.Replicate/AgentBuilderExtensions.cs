@@ -16,7 +16,7 @@ public static class AgentBuilderExtensions
     public static AgentBuilder WithReplicateImageGeneration(
         this AgentBuilder builder,
         string model = ReplicateProvider.DefaultModel,
-        string? apiKey = null,
+        ProviderAuthentication? authentication = null,
         string? endpoint = null,
         string? mediaType = null,
         Action<ReplicateProviderConfig>? configureClient = null,
@@ -35,8 +35,11 @@ public static class AgentBuilderExtensions
 
         var imageConfig = new ImageGenerationClientConfig
         {
-            ProviderKey = "replicate",
-            ApiKey = apiKey,
+            Provider = new ProviderReference
+            {
+                Key = "replicate",
+                Authentication = authentication ?? new ApiKeyProviderAuthentication { SecretKey = "replicate:ApiKey" }
+            },
             Endpoint = endpoint,
             ModelName = model,
             MediaType = mediaType,
@@ -48,6 +51,10 @@ public static class AgentBuilderExtensions
         builder.Config.SetClientConfig(ProviderClientFamily.ImageGeneration, imageConfig);
         return builder;
     }
+
+    /// <summary>Configures Replicate image generation with a literal runtime-only API key.</summary>
+    public static AgentBuilder WithReplicateImageGeneration(this AgentBuilder builder, string model, ReadOnlySpan<char> apiKey, string? endpoint = null, string? mediaType = null, Action<ReplicateProviderConfig>? configureClient = null, Action<ReplicateImageOptions>? configureOptions = null) =>
+        builder.WithReplicateImageGeneration(model, builder.RegisterExplicitApiKey(apiKey), endpoint, mediaType, configureClient, configureOptions);
 
     private static void ValidateProviderOptions(ReplicateImageOptions config, Action<ReplicateImageOptions>? configure)
     {

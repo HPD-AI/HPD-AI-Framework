@@ -416,8 +416,8 @@ public sealed class ClientToolProviderContractsTests
             new ClientToolProviderBindingScope { AgentId = "agent", SessionId = "session", ThreadId = "thread" });
         binding.Should().NotBeNull();
 
-        var operation = registry.RegisterBackgroundOperation(
-            new ClientToolProviderBackgroundOperationDescriptor
+        var operation = registry.RegisterOperation(
+            new ClientToolProviderOperationDescriptor
             {
                 Binding = new ClientToolProviderToolBinding
                 {
@@ -437,14 +437,14 @@ public sealed class ClientToolProviderContractsTests
                 ThreadId = "thread"
             });
 
-        registry.TryResolveBackgroundOperationOutcome(
+        registry.TryResolveOperationOutcome(
             registration.ClientRuntimeId,
             registration.ConnectionId,
-            new ClientToolProviderBackgroundOperationOutcomeMessage
+            new ClientToolProviderOperationOutcomeMessage
             {
                 BindingId = binding.Lease.BindingId,
                 ClientOperationId = "op_1",
-                State = ClientToolBackgroundOperationOutcomeState.Faulted,
+                State = ClientToolOperationOutcomeState.Faulted,
                 Error = new ClientToolError
                 {
                     Kind = "stale_context",
@@ -464,7 +464,7 @@ public sealed class ClientToolProviderContractsTests
             }).Should().BeTrue();
 
         var result = await operation.Completion.WaitAsync(TimeSpan.FromSeconds(1));
-        result.State.Should().Be(ClientToolBackgroundOperationOutcomeState.Faulted);
+        result.State.Should().Be(ClientToolOperationOutcomeState.Faulted);
         result.Error.Should().NotBeNull();
         result.Error!.Kind.Should().Be("stale_context");
         result.Error.Retryable.Should().BeTrue();
@@ -472,8 +472,8 @@ public sealed class ClientToolProviderContractsTests
         result.Error.Metadata.Should().Contain("expectedRevision", "42");
         result.Metadata.Should().Contain("artifactId", "file_1");
 
-        var ambiguous = registry.RegisterBackgroundOperation(
-            new ClientToolProviderBackgroundOperationDescriptor
+        var ambiguous = registry.RegisterOperation(
+            new ClientToolProviderOperationDescriptor
             {
                 Binding = new ClientToolProviderToolBinding
                 {
@@ -499,11 +499,11 @@ public sealed class ClientToolProviderContractsTests
             registration.ClientRuntimeId,
             registration.ConnectionId);
 
-        ClientToolBackgroundOperationResult unknown =
+        ClientToolOperationResult unknown =
             await ambiguous.Completion.WaitAsync(
                 TimeSpan.FromSeconds(1));
         unknown.State.Should().Be(
-            ClientToolBackgroundOperationOutcomeState.Unknown);
+            ClientToolOperationOutcomeState.Unknown);
         unknown.ErrorType.Should().Be("unknown_outcome");
     }
 

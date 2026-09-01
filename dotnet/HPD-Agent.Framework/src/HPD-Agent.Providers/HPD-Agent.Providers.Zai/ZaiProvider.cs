@@ -6,6 +6,7 @@ using System.Collections.Generic;
 namespace HPD.Agent.Providers.Zai;
 
 [HpdProvider("zai", "Z.AI")]
+[HpdProviderBackend("platform", ProviderAuthenticationKind.ApiKey, IsDefaultBackend = true, IsDefaultAuthentication = true, DefaultSecretKey = "zai:ApiKey")]
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(ZaiProviderConfig), typeof(ZaiJsonContext))]
 [HpdProviderSecretAlias("zai:ApiKey", "ZAI_API_KEY", "Z_AI_API_KEY", "BIGMODEL_API_KEY")]
@@ -53,6 +54,7 @@ internal sealed class ZaiProvider : OpenAICompatibleChatProviderBase<ZaiProvider
     };
 
     protected override OpenAICompatibleProviderDefinition Definition => ProviderDefinition;
+    protected override System.Text.Json.Serialization.Metadata.JsonTypeInfo<ZaiProviderConfig> ConfigurationTypeInfo => ZaiJsonContext.Default.ZaiProviderConfig;
 
     public override IProviderErrorHandler CreateErrorHandler()
         => new OpenAICompatibleErrorHandler(DisplayName);

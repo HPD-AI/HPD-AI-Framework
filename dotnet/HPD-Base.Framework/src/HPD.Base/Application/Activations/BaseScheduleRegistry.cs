@@ -22,10 +22,10 @@ public sealed class BaseScheduleRegistry
 }
 
 /// <summary>Creates an inert identity for one sealed durable schedule.</summary>
-public static class BaseScheduleRegistration
+internal static class BaseScheduleRegistration
 {
     /// <summary>Seals the definition and returns its non-executable identity.</summary>
-    public static BaseScheduleRegistrationIdentity Create(BaseScheduleDefinition definition)
+    internal static BaseScheduleRegistrationIdentity Create(BaseScheduleDefinition definition)
     {
         BaseScheduleDefinition sealedDefinition = BaseScheduleDefinitionBuilder.Create(definition);
         return new BaseScheduleRegistrationIdentity(

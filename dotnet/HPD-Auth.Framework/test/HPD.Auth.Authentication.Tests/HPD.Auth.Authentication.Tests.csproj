@@ -28,6 +28,7 @@
     <ProjectReference Include="..\..\src\HPD.Auth.Authentication\HPD.Auth.Authentication.csproj" />
     <ProjectReference Include="..\..\src\HPD.Auth.Core\HPD.Auth.Core.csproj" />
     <ProjectReference Include="..\..\src\HPD.Auth\HPD.Auth.csproj" />
+    <ProjectReference Include="..\HPD.Auth.Testing\HPD.Auth.Testing.csproj" />
   </ItemGroup>
 
 </Project>

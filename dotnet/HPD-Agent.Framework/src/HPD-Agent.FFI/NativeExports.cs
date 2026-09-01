@@ -3,9 +3,12 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using System.Threading.Channels;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 using HPD.Agent;
+using HPD.Agent.Providers;
 using HPD.Agent.Serialization;
 
 namespace HPD.Agent.FFI;
@@ -44,24 +47,47 @@ public class NativeFunctionInfo
 {
     [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;
-    
+
     [JsonPropertyName("description")]
     public string Description { get; set; } = string.Empty;
-    
+
     [JsonPropertyName("wrapperFunctionName")]
     public string WrapperFunctionName { get; set; } = string.Empty;
-    
+
     [JsonPropertyName("schema")]
     public string Schema { get; set; } = "{}";
-    
+
     [JsonPropertyName("requiresPermission")]
     public bool RequiresPermission { get; set; }
-    
+
     [JsonPropertyName("requiredPermissions")]
     public List<string> RequiredPermissions { get; set; } = new();
-    
+
     [JsonPropertyName("ToolHarness_name")]
     public string ToolHarnessName { get; set; } = string.Empty;
+}
+
+/// <summary>Stable language-neutral projection of one unified operation.</summary>
+public sealed record FfiAgentOperation
+{
+    /// <summary>Gets the HPD-authoritative operation identifier.</summary>
+    public required string OperationId { get; init; }
+    /// <summary>Gets the provider-authoritative identifier when present.</summary>
+    public string? ProviderOperationId { get; init; }
+    /// <summary>Gets the stable operation name.</summary>
+    public required string Name { get; init; }
+    /// <summary>Gets the lowercase source discriminator.</summary>
+    public required string Source { get; init; }
+    /// <summary>Gets the lowercase provider-status discriminator.</summary>
+    public required string ProviderStatus { get; init; }
+    /// <summary>Gets the lowercase observation-status discriminator.</summary>
+    public required string ObservationStatus { get; init; }
+    /// <summary>Gets the lowercase control-kind discriminator.</summary>
+    public required string ControlKind { get; init; }
+    /// <summary>Gets the lowercase control capabilities.</summary>
+    public required string ControlCapabilities { get; init; }
+    /// <summary>Gets the optimistic concurrency version.</summary>
+    public required long Version { get; init; }
 }
 
 /// <summary>
@@ -72,6 +98,15 @@ public static partial class NativeExports
 {
     internal static IntPtr RegisterManagedAgentForTesting(HPD.Agent.Agent agent) =>
         ObjectManager.Add(agent);
+
+    internal static IntPtr RegisterProviderAccountServiceForTesting(
+        ProviderAuthenticationCoordinator coordinator,
+        IProviderAuthenticationSelectionAuthorizer authorizer)
+    {
+        var handle = ObjectManager.Add(new object());
+        ObjectManager.Attach(handle, new ProviderAccountFfiService(coordinator, authorizer));
+        return handle;
+    }
 
     internal static void DestroyHandleForTesting(IntPtr handle) =>
         ObjectManager.Remove(handle);
@@ -116,7 +151,7 @@ public static partial class NativeExports
             byte[] responseBytes = Encoding.UTF8.GetBytes(response + '\0'); // null-terminated
             IntPtr responsePtr = Marshal.AllocHGlobal(responseBytes.Length);
             Marshal.Copy(responseBytes, 0, responsePtr, responseBytes.Length);
-            
+
             return responsePtr;
         }
         catch (Exception ex)
@@ -163,7 +198,8 @@ public static partial class NativeExports
             var providerComposition = HPD.Agent.Providers.Generated.GeneratedProviderComposition.Composition;
             var agentConfig = DeserializeAgentConfig(configJson);
 
-            var builder = new AgentBuilder(agentConfig, providerComposition);
+            var builder = new AgentBuilder(agentConfig, providerComposition)
+                .WithEventComposition(GeneratedAgentEventComposition.Composition);
 
             // Parse and add native ToolHarnesses (Rust, C++, Zig, Go, etc.)
             string? ToolHarnessesJson = Marshal.PtrToStringUTF8(ToolHarnessesJsonPtr);
@@ -214,7 +250,12 @@ public static partial class NativeExports
             }
 
             var agent = builder.BuildAsync().GetAwaiter().GetResult();
-            return ObjectManager.Add(agent);
+            var handle = ObjectManager.Add(agent);
+            var coordinator = builder.ServiceProvider?.GetService<ProviderAuthenticationCoordinator>();
+            var authorizer = builder.ServiceProvider?.GetService<IProviderAuthenticationSelectionAuthorizer>();
+            if (coordinator is not null && authorizer is not null)
+                ObjectManager.Attach(handle, new ProviderAccountFfiService(coordinator, authorizer));
+            return handle;
         }
         catch (Exception ex)
         {
@@ -251,13 +292,13 @@ public static partial class NativeExports
 
                 // Execute the native function via FFI
                 var result = NativeToolHarnessFFI.ExecuteFunction(nativeFunc.Name, argsDict);
-                
+
                 if (!result.Success)
                 {
                     // Return error as structured response for better AI understanding
                     return Task.FromResult<object?>(new { error = result.Error ?? "Unknown error", success = false });
                 }
-                
+
                 // Parse the result
                 if (result.Result != null)
                 {
@@ -266,16 +307,16 @@ public static partial class NativeExports
                         using (result.Result)
                         {
                             var root = result.Result.RootElement;
-                            
+
                             // Check if it's a success/result envelope
-                            if (root.TryGetProperty("success", out var successProp) && 
+                            if (root.TryGetProperty("success", out var successProp) &&
                                 root.TryGetProperty("result", out var resultProp))
                             {
                                 if (successProp.GetBoolean())
                                 {
                                     // Return just the result value
-                                    return Task.FromResult<object?>(resultProp.ValueKind == JsonValueKind.String 
-                                        ? resultProp.GetString() 
+                                    return Task.FromResult<object?>(resultProp.ValueKind == JsonValueKind.String
+                                        ? resultProp.GetString()
                                         : resultProp.GetRawText());
                                 }
                                 else if (root.TryGetProperty("error", out var errorProp))
@@ -283,7 +324,7 @@ public static partial class NativeExports
                                     return Task.FromResult<object?>(new { error = errorProp.GetString(), success = false });
                                 }
                             }
-                            
+
                             // Return raw response if not in envelope format
                             return Task.FromResult<object?>(root.GetRawText());
                         }
@@ -293,14 +334,21 @@ public static partial class NativeExports
                         return Task.FromResult<object?>(new { error = $"Failed to parse result: {ex.Message}", success = false });
                     }
                 }
-                
+
                 return Task.FromResult<object?>(null);
             },
             new HPDAIFunctionFactoryOptions
             {
                 Name = nativeFunc.Name,
                 Description = nativeFunc.Description,
-                RequiresPermission = nativeFunc.RequiresPermission,
+                FunctionPermission = nativeFunc.RequiresPermission
+                    ? new AIFunctionPermissionDeclaration
+                    {
+                        RequiresPermission = true,
+                        Authority = $"function/{Uri.EscapeDataString(nativeFunc.Name)}",
+                        Source = PermissionDeclarationSource.FrameworkDefault
+                    }
+                    : null,
                 SchemaProvider = () =>
                 {
                     try
@@ -308,7 +356,7 @@ public static partial class NativeExports
                         // Parse the schema JSON from native code
                         var schemaDoc = JsonDocument.Parse(nativeFunc.Schema);
                         var rootSchema = schemaDoc.RootElement;
-                        
+
                         // Check if this is an OpenAPI function calling format
                         if (rootSchema.TryGetProperty("function", out var functionElement) &&
                             functionElement.TryGetProperty("parameters", out var parametersElement))
@@ -340,12 +388,230 @@ public static partial class NativeExports
     [UnmanagedCallersOnly(EntryPoint = "destroy_agent")]
     public static void DestroyAgent(IntPtr agentHandle)
     {
-        ObjectManager.Remove(agentHandle);
+        try
+        {
+            if (ObjectManager.Get<HPD.Agent.Agent>(agentHandle) is { } agent)
+                agent.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
+        catch (Exception exception)
+        {
+            Console.Error.WriteLine($"Agent shutdown failed: {exception.Message}");
+        }
+        finally { ObjectManager.Remove(agentHandle); }
     }
 
-    //    
+    /// <summary>Returns the agent's single unified operation collection as UTF-8 JSON.</summary>
+    /// <param name="agentHandle">Handle of the owning agent.</param>
+    /// <returns>A caller-owned JSON string pointer, or zero when the handle is invalid.</returns>
+    [UnmanagedCallersOnly(EntryPoint = "list_agent_operations")]
+    public static IntPtr ListAgentOperations(IntPtr agentHandle)
+    {
+        var agent = ObjectManager.Get<HPD.Agent.Agent>(agentHandle);
+        if (agent is null) return IntPtr.Zero;
+        var operations = agent.ListOperations().Select(static operation => new FfiAgentOperation
+        {
+            OperationId = operation.OperationId,
+            ProviderOperationId = operation.ProviderOperationId,
+            Name = operation.Name,
+            Source = operation.SourceKind.ToString().ToLowerInvariant(),
+            ProviderStatus = operation.ProviderStatus.ToString().ToLowerInvariant(),
+            ObservationStatus = operation.ObservationStatus.ToString().ToLowerInvariant(),
+            ControlKind = operation.Control.Kind.ToString().ToLowerInvariant(),
+            ControlCapabilities = operation.Control.Capabilities.ToString().Replace(" ", string.Empty).ToLowerInvariant(),
+            Version = operation.Version
+        }).ToList();
+        return MarshalString(JsonSerializer.Serialize(operations, HPDFFIJsonContext.Default.ListFfiAgentOperation));
+    }
+
+    /// <summary>Requests cancellation of one unified operation.</summary>
+    /// <param name="agentHandle">Handle of the owning agent.</param>
+    /// <param name="operationIdPtr">Pointer to the UTF-8 operation identifier.</param>
+    /// <returns>Zero on success and minus one on invalid input or failure.</returns>
+    [UnmanagedCallersOnly(EntryPoint = "cancel_agent_operation")]
+    public static int CancelAgentOperation(IntPtr agentHandle, IntPtr operationIdPtr)
+    {
+        try
+        {
+            var agent = ObjectManager.Get<HPD.Agent.Agent>(agentHandle);
+            var operationId = Marshal.PtrToStringUTF8(operationIdPtr);
+            if (agent is null || string.IsNullOrWhiteSpace(operationId)) return -1;
+            agent.CancelOperationAsync(operationId).AsTask().GetAwaiter().GetResult();
+            return 0;
+        }
+        catch { return -1; }
+    }
+
+    /// <summary>Begins an authorization transaction for a portable provider-account selection.</summary>
+    /// <param name="agentHandle">Handle of the agent whose authentication runtime is used.</param>
+    /// <param name="requestJsonPtr">Pointer to a UTF-8 <see cref="BeginProviderAuthorizationFfiRequest"/> document.</param>
+    /// <returns>A caller-owned redacted challenge or error JSON string.</returns>
+    [UnmanagedCallersOnly(EntryPoint = "begin_provider_authorization")]
+    public static IntPtr BeginProviderAuthorization(IntPtr agentHandle, IntPtr requestJsonPtr) =>
+        BeginProviderAuthorizationCore(agentHandle, Marshal.PtrToStringUTF8(requestJsonPtr));
+
+    /// <summary>Completes a correlated provider authorization transaction.</summary>
+    /// <param name="agentHandle">Handle of the owning agent.</param>
+    /// <param name="requestJsonPtr">Pointer to a UTF-8 completion request.</param>
+    /// <returns>A caller-owned JSON string containing <see langword="true"/> or a redacted error.</returns>
+    [UnmanagedCallersOnly(EntryPoint = "complete_provider_authorization")]
+    public static IntPtr CompleteProviderAuthorization(IntPtr agentHandle, IntPtr requestJsonPtr) =>
+        CompleteProviderAuthorizationCore(agentHandle, Marshal.PtrToStringUTF8(requestJsonPtr));
+
+    /// <summary>Advances one device authorization transaction by at most one provider step.</summary>
+    [UnmanagedCallersOnly(EntryPoint = "advance_provider_device_authorization")]
+    public static IntPtr AdvanceProviderDeviceAuthorization(IntPtr agentHandle, IntPtr requestJsonPtr) =>
+        AdvanceProviderDeviceAuthorizationCore(agentHandle, Marshal.PtrToStringUTF8(requestJsonPtr));
+
+    /// <summary>Reads one device authorization transaction without contacting the provider.</summary>
+    [UnmanagedCallersOnly(EntryPoint = "get_provider_device_authorization_status")]
+    public static IntPtr GetProviderDeviceAuthorizationStatus(IntPtr agentHandle, IntPtr requestJsonPtr) =>
+        GetProviderDeviceAuthorizationStatusCore(agentHandle, Marshal.PtrToStringUTF8(requestJsonPtr));
+
+    /// <summary>Cancels one device authorization transaction.</summary>
+    [UnmanagedCallersOnly(EntryPoint = "cancel_provider_device_authorization")]
+    public static IntPtr CancelProviderDeviceAuthorization(IntPtr agentHandle, IntPtr requestJsonPtr) =>
+        CancelProviderDeviceAuthorizationCore(agentHandle, Marshal.PtrToStringUTF8(requestJsonPtr));
+
+    /// <summary>Reads redacted authorization status for a provider account.</summary>
+    [UnmanagedCallersOnly(EntryPoint = "get_provider_authorization_status")]
+    public static IntPtr GetProviderAuthorizationStatus(IntPtr agentHandle, IntPtr requestJsonPtr) =>
+        ProviderAccountOperationCore(agentHandle, Marshal.PtrToStringUTF8(requestJsonPtr),
+            static (service, request) => service.StatusAsync(request),
+            HPDFFIJsonContext.Default.ProviderAuthorizationStatus);
+
+    /// <summary>Conditionally removes local authorization state.</summary>
+    [UnmanagedCallersOnly(EntryPoint = "disconnect_provider_account")]
+    public static IntPtr DisconnectProviderAccount(IntPtr agentHandle, IntPtr requestJsonPtr) =>
+        ProviderAccountOperationCore(agentHandle, Marshal.PtrToStringUTF8(requestJsonPtr),
+            static (service, request) => service.DisconnectAsync(request),
+            HPDFFIJsonContext.Default.ProviderDisconnectResult);
+
+    /// <summary>Attempts provider-side credential revocation without deleting local state.</summary>
+    [UnmanagedCallersOnly(EntryPoint = "revoke_provider_account")]
+    public static IntPtr RevokeProviderAccount(IntPtr agentHandle, IntPtr requestJsonPtr) =>
+        ProviderAccountOperationCore(agentHandle, Marshal.PtrToStringUTF8(requestJsonPtr),
+            static (service, request) => service.RevokeAsync(request),
+            HPDFFIJsonContext.Default.ProviderRevocationResult);
+
+    /// <summary>Attempts remote revocation and conditionally removes local state.</summary>
+    [UnmanagedCallersOnly(EntryPoint = "revoke_and_disconnect_provider_account")]
+    public static IntPtr RevokeAndDisconnectProviderAccount(IntPtr agentHandle, IntPtr requestJsonPtr) =>
+        ProviderAccountOperationCore(agentHandle, Marshal.PtrToStringUTF8(requestJsonPtr),
+            static (service, request) => service.RevokeAndDisconnectAsync(request),
+            HPDFFIJsonContext.Default.ProviderDisconnectResult);
+
+    internal static IntPtr BeginProviderAuthorizationCore(IntPtr agentHandle, string? requestJson)
+    {
+        try
+        {
+            var service = RequireProviderAccountService(agentHandle);
+            var request = JsonSerializer.Deserialize(requestJson ?? string.Empty,
+                HPDFFIJsonContext.Default.BeginProviderAuthorizationFfiRequest)
+                ?? throw new JsonException("The provider authorization begin request was null.");
+            var result = service.BeginAsync(request).AsTask().GetAwaiter().GetResult();
+            return MarshalString(JsonSerializer.Serialize(
+                result, HPDFFIJsonContext.Default.ProviderAuthorizationChallenge));
+        }
+        catch (Exception exception) { return ProviderAccountError(exception); }
+    }
+
+    internal static IntPtr CompleteProviderAuthorizationCore(IntPtr agentHandle, string? requestJson)
+    {
+        try
+        {
+            var service = RequireProviderAccountService(agentHandle);
+            var request = JsonSerializer.Deserialize(requestJson ?? string.Empty,
+                HPDFFIJsonContext.Default.CompleteProviderAuthorizationFfiRequest)
+                ?? throw new JsonException("The provider authorization completion request was null.");
+            service.CompleteAsync(request).AsTask().GetAwaiter().GetResult();
+            return MarshalString("true");
+        }
+        catch (Exception exception) { return ProviderAccountError(exception); }
+    }
+
+    internal static IntPtr AdvanceProviderDeviceAuthorizationCore(IntPtr agentHandle, string? requestJson)
+    {
+        try
+        {
+            var service = RequireProviderAccountService(agentHandle);
+            var request = JsonSerializer.Deserialize(requestJson ?? string.Empty,
+                HPDFFIJsonContext.Default.ProviderDeviceAuthorizationFfiRequest)
+                ?? throw new JsonException("The provider device authorization advance request was null.");
+            var result = service.AdvanceDeviceAsync(request).AsTask().GetAwaiter().GetResult();
+            return MarshalString(JsonSerializer.Serialize(
+                result, HPDFFIJsonContext.Default.ProviderDeviceAuthorizationStatus));
+        }
+        catch (Exception exception) { return ProviderAccountError(exception); }
+    }
+
+    internal static IntPtr GetProviderDeviceAuthorizationStatusCore(IntPtr agentHandle, string? requestJson)
+    {
+        try
+        {
+            var service = RequireProviderAccountService(agentHandle);
+            var request = JsonSerializer.Deserialize(requestJson ?? string.Empty,
+                HPDFFIJsonContext.Default.ProviderDeviceAuthorizationFfiRequest)
+                ?? throw new JsonException("The provider device authorization status request was null.");
+            var result = service.GetDeviceStatusAsync(request).AsTask().GetAwaiter().GetResult();
+            return MarshalString(JsonSerializer.Serialize(
+                result, HPDFFIJsonContext.Default.ProviderDeviceAuthorizationStatus));
+        }
+        catch (Exception exception) { return ProviderAccountError(exception); }
+    }
+
+    internal static IntPtr CancelProviderDeviceAuthorizationCore(IntPtr agentHandle, string? requestJson)
+    {
+        try
+        {
+            var service = RequireProviderAccountService(agentHandle);
+            var request = JsonSerializer.Deserialize(requestJson ?? string.Empty,
+                HPDFFIJsonContext.Default.ProviderDeviceAuthorizationFfiRequest)
+                ?? throw new JsonException("The provider device authorization cancellation request was null.");
+            service.CancelDeviceAsync(request).AsTask().GetAwaiter().GetResult();
+            return MarshalString("true");
+        }
+        catch (Exception exception) { return ProviderAccountError(exception); }
+    }
+
+    private static IntPtr ProviderAccountOperationCore<TResult>(
+        IntPtr agentHandle,
+        string? requestJson,
+        Func<ProviderAccountFfiService, ProviderAccountFfiRequest, ValueTask<TResult>> operation,
+        JsonTypeInfo<TResult> resultType)
+    {
+        try
+        {
+            var service = RequireProviderAccountService(agentHandle);
+            var request = JsonSerializer.Deserialize(requestJson ?? string.Empty,
+                HPDFFIJsonContext.Default.ProviderAccountFfiRequest)
+                ?? throw new JsonException("The provider account request was null.");
+            var result = operation(service, request).AsTask().GetAwaiter().GetResult();
+            return MarshalString(JsonSerializer.Serialize(result, resultType));
+        }
+        catch (Exception exception) { return ProviderAccountError(exception); }
+    }
+
+    private static ProviderAccountFfiService RequireProviderAccountService(IntPtr agentHandle) =>
+        ObjectManager.GetAttachment<ProviderAccountFfiService>(agentHandle)
+        ?? throw new InvalidOperationException("The FFI host did not install provider account authorization services.");
+
+    private static IntPtr ProviderAccountError(Exception exception)
+    {
+        var code = exception switch
+        {
+            ProviderAuthenticationException authentication => authentication.DiagnosticCode,
+            AgentRunConfigurationException configuration => configuration.Code,
+            JsonException => "InvalidProviderAccountRequest",
+            _ => "ProviderAccountServicesUnavailable"
+        };
+        return MarshalString(JsonSerializer.Serialize(
+            new ProviderAccountFfiError { DiagnosticCode = code },
+            HPDFFIJsonContext.Default.ProviderAccountFfiError));
+    }
+
+    //
     // CONVERSATION THREAD MANAGEMENT
-    //    
+    //
 
     /// <summary>
     /// Creates a new conversation thread for managing conversation state.
@@ -509,9 +775,9 @@ public static partial class NativeExports
         }
     }
 
-    //    
+    //
     // AGENT EXECUTION APIs
-    //    
+    //
 
     /// <summary>
     /// Runs the agent synchronously with the given input and returns the final response.
@@ -631,7 +897,7 @@ public static partial class NativeExports
                 using var subscription = agent.SubscribeAny(evt =>
                 {
                     // Serialize event to JSON
-                    var eventJson = AgentEventSerializer.ToJson(evt);
+                    var eventJson = agent.Config.EventComposition!.Codec.Serialize(evt);
                     var eventPtr = MarshalString(eventJson);
 
                     try
@@ -669,9 +935,9 @@ public static partial class NativeExports
 
     // V2 serialize_thread / deserialize_thread APIs removed — recovery is projected from thread events.
 
-    //    
+    //
     // PERMISSION SYSTEM APIs (Human-in-the-Loop)
-    //    
+    //
 
     /// <summary>
     /// Responds to a permission request from the agent.
@@ -708,11 +974,11 @@ public static partial class NativeExports
             if (string.IsNullOrEmpty(permissionId)) return 0;
 
             // Map integer to PermissionChoice enum
-            PermissionChoice choice = permissionChoice switch
+            var choiceId = permissionChoice switch
             {
-                1 => PermissionChoice.AlwaysAllow,
-                2 => PermissionChoice.AlwaysDeny,
-                _ => PermissionChoice.Ask
+                1 => "always_allow",
+                2 => "always_deny",
+                _ => approved == 1 ? "allow_once" : "deny_once"
             };
 
             // Send response back to the agent
@@ -720,9 +986,8 @@ public static partial class NativeExports
                 new PermissionResponseEvent(
                     permissionId,
                     "FFI",  // Source name
-                    approved == 1,
-                    approved == 1 ? null : "User denied permission via FFI",
-                    choice
+                    choiceId,
+                    approved == 1 ? null : "User denied permission via FFI"
                 )
             ).GetAwaiter().GetResult();
 
@@ -735,9 +1000,9 @@ public static partial class NativeExports
         }
     }
 
-    //    
+    //
     // HELPER METHODS
-    //    
+    //
 
     /// <summary>
     /// Helper method to marshal a C# string to unmanaged UTF-8 memory.
@@ -752,11 +1017,11 @@ public static partial class NativeExports
         return ptr;
     }
 
-    //    
+    //
     // Future APIs:
     // - Advanced memory management APIs (optional user-facing CRUD)
     // - Provider discovery and management
-    //    
+    //
 }
 
 /// <summary>

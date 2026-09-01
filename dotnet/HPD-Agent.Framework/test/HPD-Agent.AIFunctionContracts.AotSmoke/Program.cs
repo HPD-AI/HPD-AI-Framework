@@ -10,6 +10,10 @@ var function = ContractSmokeHarnessRegistration.CreateToolHarness(harness).Singl
 var requestSchema = function.JsonSchema.GetProperty("properties").GetProperty("request");
 if (requestSchema.GetProperty("oneOf").GetArrayLength() != 2)
     return 1;
+var branches = requestSchema.GetProperty("oneOf");
+if (branches[0].GetProperty("properties").TryGetProperty("invocationMode", out _) ||
+    !branches[1].GetProperty("properties").TryGetProperty("invocationMode", out _))
+    return 3;
 
 using var document = JsonDocument.Parse("""{"request":{"action":"launch","target":"worker","retries":[1,2]}}""");
 var arguments = new AIFunctionArguments();
@@ -19,9 +23,68 @@ var result = await ((HPDAIFunctionFactory.HPDAIFunction)function).InvokeAsync(
     CreateContext(function),
     CancellationToken.None);
 
+var subAgentFunction = SubAgentsFunctionFactory.Create([new SubAgentActionDescriptor
+{
+    ParentToolHarness = "AotSmokeHarness",
+    RequiresToolHarnessActivation = false,
+    Action = "reviewer",
+    Description = "Reviews code.",
+    CapabilityId = CapabilityId.Create("aot:reviewer"),
+    Definition = SubAgent.FromConfig("reviewer", "reviewer-agent", "Reviews code.", new AgentConfig()),
+    InvocationModePolicy = AgentInvocationModePolicy.SynchronousOnly,
+    InvocationModeHandling = AgentInvocationModeHandling.ToolBody,
+    ContextPolicy = SubAgentContextPolicy.Fresh,
+    RequiresPermission = true,
+    BranchBinder = json => SubAgentGeneratedBranchBinder.Bind(json, allowContext: false)
+}]);
+if (!subAgentFunction.JsonSchema.GetRawText().Contains("reviewer", StringComparison.Ordinal))
+    return 4;
+using var subAgentBranch = JsonDocument.Parse("""{"input":"inspect"}""");
+var subAgentBinding = SubAgentGeneratedBranchBinder.Bind(subAgentBranch.RootElement, allowContext: false);
+if (subAgentBinding.Value is not BoundSubAgentStartAction { Input: "inspect", Context: null })
+    return 6;
+using var subAgentInvocationDocument = JsonDocument.Parse("""{"request":{"action":"reviewer","input":"inspect"}}""");
+var subAgentArguments = new AIFunctionArguments();
+subAgentArguments.SetJson(subAgentInvocationDocument.RootElement.Clone());
+try
+{
+    _ = await ((HPDAIFunctionFactory.HPDAIFunction)subAgentFunction).InvokeAsync(
+        subAgentArguments,
+        CreateContext(subAgentFunction, subAgentInvocationDocument.RootElement.GetProperty("request")),
+        CancellationToken.None);
+    return 7;
+}
+catch (InvalidOperationException exception) when (
+    exception.Message.Contains("subagent_creation_requires_session_store", StringComparison.Ordinal))
+{
+    // Verified action selection and the final generated branch binder executed. The
+    // smoke context intentionally has no durable subagent runtime, so dispatch stops here.
+}
+var operationJson = JsonSerializer.Serialize<SubAgentActionResult>(new SubAgentOperationResult
+{
+    Status = SubAgentOperationStatus.Completed,
+    Child = "reviewer-1",
+    Output = "ok"
+}, HPDJsonContext.Default.SubAgentActionResult);
+var forkJson = JsonSerializer.Serialize(new ThreadForkResult
+{
+    OperationId = "fork-1",
+    Source = new ThreadKey("s", "source"),
+    Target = new ThreadKey("s", "target"),
+    SourceBoundary = new ThreadJournalCursor(1, 2),
+    SubAgentPolicy = SubAgentForkPolicy.Detach,
+    Status = ThreadForkOperationStatus.Committed,
+    Children = []
+}, HPDJsonContext.Default.ThreadForkResult);
+if (!operationJson.Contains("reviewer-1", StringComparison.Ordinal) ||
+    !forkJson.Contains("fork-1", StringComparison.Ordinal))
+    return 5;
+
 return result as string == "worker:2" && harness.InvocationCount == 1 ? 0 : 2;
 
-static global::HPD.Agent.Middleware.FunctionExecutionContext CreateContext(AIFunction function)
+static global::HPD.Agent.Middleware.FunctionExecutionContext CreateContext(
+    AIFunction function,
+    JsonElement? validatedAction = null)
 {
     var state = AgentLoopState.InitialSafe([], "aot-run", "aot-conversation", "AotAgent");
     var session = new global::HPD.Agent.Session("aot-session");
@@ -50,7 +113,22 @@ static global::HPD.Agent.Middleware.FunctionExecutionContext CreateContext(AIFun
             Arguments = new Dictionary<string, object?>(),
             State = state,
             ResultMetadata = new ToolResultMetadata(),
-            EventCoordinator = agentContext.EventCoordinator
+            EventCoordinator = agentContext.EventCoordinator,
+            InvocationMode = validatedAction is { } action
+                ? new ResolvedFunctionInvocation
+                {
+                    Action = "reviewer",
+                    Mode = AgentInvocationMode.Synchronous,
+                    Policy = AgentInvocationModePolicy.SynchronousOnly,
+                    Handling = AgentInvocationModeHandling.ToolBody,
+                    ValidatedAction = new ValidatedFunctionAction
+                    {
+                        Action = "reviewer",
+                        CanonicalJson = action.Clone()
+                    },
+                    IngressProvenance = FunctionArgumentIngressProvenance.Original
+                }
+                : null
         });
 }
 
@@ -76,6 +154,10 @@ public sealed partial class ContractSmokeHarness
 [JsonDerivedType(typeof(ContinueRequest), "continue")]
 public abstract record OperationRequest;
 
+[AIFunctionAction("launch")]
 public sealed record LaunchRequest(string Target, IReadOnlyList<int> Retries) : OperationRequest;
 
+[AIFunctionAction("continue",
+    InvocationModePolicy = AIFunctionActionInvocationModePolicy.ModelChoice,
+    InvocationModeHandling = AIFunctionActionInvocationModeHandling.ToolBody)]
 public sealed record ContinueRequest(string DebugTreeId, int? ThreadId = null) : OperationRequest;

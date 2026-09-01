@@ -27,7 +27,7 @@ internal static class CodingCommandRenderText
         var parts = new List<string>();
         if (state.DisplayState == CodingCommandDisplayState.Backgrounded)
         {
-            parts.Add(state.BackgroundHandleId is null ? "background" : $"background {state.BackgroundHandleId}");
+            parts.Add(state.OperationId is null ? "background" : $"background {state.OperationId}");
         }
 
         if (state.DurationMilliseconds is { } duration &&

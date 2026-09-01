@@ -1,6 +1,7 @@
 using HPD.Agent;
 using HPD.Agent.Hosting.Data;
 using Microsoft.Extensions.Logging;
+using HPD.Events.Struct;
 
 namespace HPD.Agent.Hosting.Lifecycle;
 
@@ -9,15 +10,28 @@ public sealed class AgentStreamingService : IAgentStreamingService
     private readonly SessionManager _sessionManager;
     private readonly AgentManager _agentManager;
     private readonly ILogger<AgentStreamingService>? _logger;
+    private readonly IAgentEventContentArchiver _eventContentArchiver;
 
     public AgentStreamingService(
         SessionManager sessionManager,
         AgentManager agentManager,
-        ILogger<AgentStreamingService>? logger = null)
+        ILogger<AgentStreamingService>? logger = null,
+        IContentStore? contentStore = null,
+        IStructEventHub? structEvents = null)
     {
         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
         _agentManager = agentManager ?? throw new ArgumentNullException(nameof(agentManager));
         _logger = logger;
+        _eventContentArchiver = new AgentEventContentArchiver(contentStore, diagnostic =>
+        {
+            if (structEvents is not null)
+                structEvents.Route<AgentEventArchiveDiagnostic>().CreateEmitter().Emit(in diagnostic);
+            _logger?.LogWarning(
+                diagnostic.Exception,
+                "Agent event content archival skipped or failed for {EventType}: {Reason}",
+                diagnostic.EventType.Name,
+                diagnostic.Reason);
+        });
     }
 
     public async Task<AgentServiceResult<ThreadEventObservationLease>> ObserveThreadEventsAsync(
@@ -49,9 +63,16 @@ public sealed class AgentStreamingService : IAgentStreamingService
         AgentInputEvent input,
         CancellationToken cancellationToken = default)
     {
-        var registration = AgentInputDispatcher.GetBuiltInRegistration(input.GetType());
-        if (registration.Delivery == AgentInputDelivery.ActiveControl)
+        if (input is UserMessagesInputEvent { Delivery: AgentInputDelivery.Steer })
             return await SubmitActiveControlAsync(agentId, sessionId, threadId, input, cancellationToken)
+                .ConfigureAwait(false);
+
+        var registration = AgentInputDispatcher.GetBuiltInRegistration(input.GetType());
+        if (registration.RoutingClass == AgentInputRoutingClass.ActiveControl)
+            return await SubmitActiveControlAsync(agentId, sessionId, threadId, input, cancellationToken)
+                .ConfigureAwait(false);
+        if (registration.RoutingClass == AgentInputRoutingClass.SessionControl)
+            return await SubmitSessionControlAsync(agentId, sessionId, threadId, input, cancellationToken)
                 .ConfigureAwait(false);
 
         var lease = await GetAgentForExecutionAsync(agentId, sessionId, threadId, cancellationToken)
@@ -69,44 +90,42 @@ public sealed class AgentStreamingService : IAgentStreamingService
                 $"Thread '{threadId}' in session '{sessionId}' already has an active execution.");
         }
 
+        var publisher = new AgentEventPublisher(
+            _sessionManager.Store,
+            agent.EventCoordinator,
+            _eventContentArchiver);
+        execution.Reservation.BindPromotion(
+            async ct =>
+            {
+                await publisher.CommitAndPublishAsync(
+                    new ThreadKey(sessionId, threadId),
+                    new ThreadExecutionStartedEvent(execution.ThreadExecutionId, agentId, DateTimeOffset.UtcNow)
+                    {
+                        SessionId = sessionId,
+                        ThreadId = threadId
+                    },
+                    ct).ConfigureAwait(false);
+                if (!_sessionManager.ActivateThreadExecution(sessionId, threadId, execution.ThreadExecutionId))
+                    throw new InvalidOperationException($"Thread execution '{execution.ThreadExecutionId}' lost its reserved ownership before promotion.");
+            },
+            async (outcome, error, ct) => await CommitTerminalAsync(
+                execution,
+                publisher,
+                outcome == ThreadExecutionOutcome.Cancelled,
+                outcome == ThreadExecutionOutcome.Failed ? error : null,
+                ct).ConfigureAwait(false));
         input = ApplyRouteScope(input, agentId, sessionId, threadId, execution.ThreadExecutionId);
-        var publisher = new ThreadEventPublisher(_sessionManager.Store, agent.EventCoordinator);
-        var startCommitted = false;
+        input = agent.AuthorizeCoordinatorAssignedWork(input, execution.Reservation);
 
         try
         {
             await agent.StartAsync(input.RunConfig, CancellationToken.None).ConfigureAwait(false);
-            await publisher.CommitAndPublishAsync(
-                new ThreadKey(sessionId, threadId),
-                new ThreadExecutionStartedEvent(execution.ThreadExecutionId, agentId, execution.StartedAt)
-                {
-                    SessionId = sessionId,
-                    ThreadId = threadId
-                },
-                cancellationToken).ConfigureAwait(false);
-            startCommitted = true;
-
-            if (!_sessionManager.ActivateThreadExecution(sessionId, threadId, execution.ThreadExecutionId))
-                throw new InvalidOperationException($"Thread execution '{execution.ThreadExecutionId}' lost its reserved ownership before activation.");
-
-            var submission = await agent.EnqueueAsync(input, CancellationToken.None).ConfigureAwait(false);
-            _ = FinishExecutionAsync(execution, submission, publisher, runtimePin);
+            var submission = await agent.SubmitRuntimeInputAsync(input, CancellationToken.None).ConfigureAwait(false);
+            _ = ObserveExecutionAsync(execution, submission, runtimePin);
         }
-        catch (Exception ex)
+        catch
         {
-            if (startCommitted)
-            {
-                await CommitTerminalAsync(
-                    execution,
-                    publisher,
-                    cancelled: ex is OperationCanceledException,
-                    error: ex,
-                    CancellationToken.None).ConfigureAwait(false);
-            }
-            else
-            {
-                _sessionManager.ReleaseThreadExecution(sessionId, threadId, execution.ThreadExecutionId);
-            }
+            _sessionManager.ReleaseThreadExecution(sessionId, threadId, execution.ThreadExecutionId);
             runtimePin.Dispose();
             throw;
         }
@@ -168,31 +187,63 @@ public sealed class AgentStreamingService : IAgentStreamingService
 
         var scoped = ApplyRouteScope(input, routeAgentId, sessionId, threadId);
         var result = await agent.RunAsync(scoped, cancellationToken).ConfigureAwait(false);
+        var (disposition, executionId) = result switch
+        {
+            AgentInputResult.Control control => (control.Disposition, control.ThreadExecutionId),
+            AgentInputResult.Steered steered => (AgentInputDisposition.Accepted, steered.ThreadExecutionId),
+            AgentInputResult.Completed completed => (AgentInputDisposition.Completed, completed.ThreadExecutionId),
+            _ => throw new InvalidOperationException($"Unsupported input result '{result.GetType().Name}'.")
+        };
         return AgentServiceResult<InputSubmissionDto>.Success(new InputSubmissionDto(
-            ToWireDisposition(result.Disposition),
-            result.ThreadExecutionId ?? activeExecution.ThreadExecutionId,
+            ToWireDisposition(disposition),
+            executionId ?? activeExecution.ThreadExecutionId,
             ActiveExecution: ToExecutionDto(activeExecution)));
     }
 
-    private async Task FinishExecutionAsync(
+    private async Task<AgentServiceResult<InputSubmissionDto>> SubmitSessionControlAsync(
+        string agentId,
+        string sessionId,
+        string threadId,
+        AgentInputEvent input,
+        CancellationToken cancellationToken)
+    {
+        var lease = await GetAgentForExecutionAsync(agentId, sessionId, threadId, cancellationToken)
+            .ConfigureAwait(false);
+        if (lease.Status != AgentServiceStatus.Success)
+            return new AgentServiceResult<InputSubmissionDto>(
+                lease.Status, default, lease.ErrorCode, lease.ErrorMessage, lease.ErrorMessages);
+
+        var runtimePin = _agentManager.PinRuntime(agentId, sessionId, threadId);
+        try
+        {
+            var agent = lease.Value!;
+            var scoped = ApplyRouteScope(input, agentId, sessionId, threadId);
+            await agent.StartAsync(scoped.RunConfig, CancellationToken.None).ConfigureAwait(false);
+            var result = await agent.RunAsync(scoped, cancellationToken).ConfigureAwait(false);
+            return AgentServiceResult<InputSubmissionDto>.Success(new InputSubmissionDto(
+                "completed",
+                Result: result));
+        }
+        finally
+        {
+            runtimePin.Dispose();
+        }
+    }
+
+    private async Task ObserveExecutionAsync(
         ThreadExecutionState execution,
-        AgentRuntimeInputSubmission submission,
-        IThreadEventPublisher publisher,
+        RuntimeInputReceipt submission,
         IDisposable runtimePin)
     {
         try
         {
-            var outcome = await submission.Completion.ConfigureAwait(false);
-            await CommitTerminalAsync(
-                execution,
-                publisher,
-                outcome.Cancelled,
-                outcome.Error,
-                CancellationToken.None).ConfigureAwait(false);
+            _ = await submission.Completion.ConfigureAwait(false);
             runtimePin.Dispose();
+            submission.Dispose();
         }
         catch (Exception ex)
         {
+            submission.Dispose();
             _logger?.LogCritical(
                 ex,
                 "Thread execution {ThreadExecutionId} could not commit its terminal lifecycle fact; ownership remains active.",
@@ -214,7 +265,7 @@ public sealed class AgentStreamingService : IAgentStreamingService
 
     private async Task CommitTerminalAsync(
         ThreadExecutionState execution,
-        IThreadEventPublisher publisher,
+        IAgentEventPublisher publisher,
         bool cancelled,
         Exception? error,
         CancellationToken cancellationToken)
@@ -371,7 +422,7 @@ public sealed class AgentStreamingService : IAgentStreamingService
             var ownsCoordinator = runtimeAgent is null;
             try
             {
-                await new ThreadEventPublisher(_sessionManager.Store, coordinator)
+                await new AgentEventPublisher(_sessionManager.Store, coordinator, _eventContentArchiver)
                     .CommitAndPublishAsync(
                         thread,
                         terminalEvents,
@@ -440,8 +491,6 @@ public sealed class AgentStreamingService : IAgentStreamingService
         execution.StartedAt,
         null,
         null,
-        null,
-        [],
         []);
 
     private async Task<AgentServiceResult<Agent>> GetAgentForExecutionAsync(

@@ -3,6 +3,7 @@
 
 using Microsoft.Extensions.AI;
 using HPD.Agent.Evaluations.Tracing;
+using HPD.Agent.Middleware;
 
 namespace HPD.Agent.Evaluations;
 
@@ -32,8 +33,20 @@ public sealed class TurnEvaluationContext
 
     public string UserInput { get; init; } = string.Empty;
 
+    /// <summary>User-authored input messages for this turn.</summary>
+    public IReadOnlyList<ChatMessage> UserInputMessages { get; init; } = [];
+
+    /// <summary>Hidden runtime context supplied for this turn, excluded from user-authored history.</summary>
+    public IReadOnlyList<ChatMessage> RuntimeContextMessages { get; init; } = [];
+
+    /// <summary>The semantic source that initiated this turn.</summary>
+    public AgentTurnTriggerSource TriggerSource { get; init; }
+
     /// <summary>Prior turns — does not include the current turn's messages.</summary>
     public IReadOnlyList<ChatMessage> ConversationHistory { get; init; } = [];
+
+    /// <summary>Complete model-visible messages captured for this evaluated turn.</summary>
+    public IReadOnlyList<ChatMessage> EvaluationMessages { get; init; } = [];
 
     // ── Output ────────────────────────────────────────────────────────────────
 
@@ -51,6 +64,8 @@ public sealed class TurnEvaluationContext
     // ── Performance ───────────────────────────────────────────────────────────
 
     public UsageDetails? TurnUsage { get; init; }
+    /// <summary>Complete heterogeneous provider usage from the committed terminal event.</summary>
+    public MessageTurnUsageSummary? MessageTurnUsage { get; init; }
     public IReadOnlyList<UsageDetails?> IterationUsage { get; init; } = [];
     public int IterationCount { get; init; }
     public TimeSpan Duration { get; init; }

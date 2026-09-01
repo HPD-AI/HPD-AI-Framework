@@ -26,13 +26,14 @@ public interface IProviderRuntimeRegistry
     /// <summary>Gets every generated runtime registration.</summary>
     IReadOnlyCollection<ProviderRuntimeFactoryRegistration> Registrations { get; }
 
-    /// <summary>Gets the factory for a provider and client family.</summary>
+    /// <summary>Gets the factory for a provider, backend, and client family.</summary>
     /// <exception cref="KeyNotFoundException">No matching factory is registered.</exception>
-    ProviderRuntimeFactoryRegistration GetFactory(string providerKey, ProviderClientFamily family);
+    ProviderRuntimeFactoryRegistration GetFactory(string providerKey, string backendKey, ProviderClientFamily family);
 
-    /// <summary>Attempts to find the factory for a provider and client family.</summary>
+    /// <summary>Attempts to find the factory for a provider, backend, and client family.</summary>
     bool TryGetFactory(
         string providerKey,
+        string backendKey,
         ProviderClientFamily family,
         out ProviderRuntimeFactoryRegistration? registration);
 }
@@ -179,6 +180,7 @@ public sealed class ProviderComposition
                 var displayName = contributions[0].DisplayName;
                 var documentationUri = contributions[0].DocumentationUri;
                 var families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>();
+                var backends = new Dictionary<string, ProviderBackendDescriptor>(StringComparer.Ordinal);
                 var aliases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
                 foreach (var contribution in contributions)
@@ -189,15 +191,30 @@ public sealed class ProviderComposition
 
                     foreach (var pair in contribution.Families)
                     {
-                        if (!families.TryAdd(pair.Key, pair.Value))
-                            throw Error("HPDP010", $"Provider '{canonical}' contributes client family '{pair.Key}' more than once.");
+                        if (families.TryGetValue(pair.Key, out var existingFamily))
+                        {
+                            if (!Equivalent(existingFamily, pair.Value))
+                                throw Error("HPDP010", $"Provider '{canonical}' has conflicting contributions for client family '{pair.Key}'.");
+                        }
+                        else
+                        {
+                            families.Add(pair.Key, pair.Value);
+                        }
+                    }
+
+                    foreach (var pair in contribution.Backends)
+                    {
+                        if (!backends.TryAdd(pair.Key, pair.Value))
+                            throw Error("HPDP014", $"Provider '{canonical}' contributes backend '{pair.Key}' more than once.");
                     }
 
                     foreach (var alias in contribution.Aliases)
                         aliases.Add(alias);
                 }
 
-                var descriptor = new CompositeDescriptor(canonical, displayName, documentationUri, families, aliases);
+                if (backends.Values.Count(static backend => backend.IsDefault) > 1)
+                    throw Error("HPDP015", $"Provider '{canonical}' declares more than one default backend.");
+                var descriptor = new CompositeDescriptor(canonical, displayName, documentationUri, families, backends, aliases);
                 providers.Add(canonical, descriptor);
                 AddKey(keys, canonical, canonical);
                 foreach (var alias in aliases)
@@ -207,6 +224,34 @@ public sealed class ProviderComposition
             return new DescriptorRegistry(
                 new ReadOnlyDictionary<string, IProviderDescriptor>(providers),
                 new ReadOnlyDictionary<string, string>(keys));
+        }
+
+        private static bool Equivalent(ProviderFamilyDescriptor left, ProviderFamilyDescriptor right) =>
+            left.Family == right.Family &&
+            left.Lifetime == right.Lifetime &&
+            left.BindsModelToClient == right.BindsModelToClient &&
+            string.Equals(left.DefaultModelId, right.DefaultModelId, StringComparison.Ordinal) &&
+            SequenceEqual(left.SupportedModels, right.SupportedModels) &&
+            DictionaryEqual(left.Capabilities, right.Capabilities);
+
+        private static bool SequenceEqual(IReadOnlyList<string>? left, IReadOnlyList<string>? right) =>
+            ReferenceEquals(left, right) ||
+            left is not null && right is not null && left.SequenceEqual(right, StringComparer.Ordinal);
+
+        private static bool DictionaryEqual(
+            IReadOnlyDictionary<string, object?>? left,
+            IReadOnlyDictionary<string, object?>? right)
+        {
+            if (ReferenceEquals(left, right))
+                return true;
+            if (left is null || right is null || left.Count != right.Count)
+                return false;
+            foreach (var pair in left)
+            {
+                if (!right.TryGetValue(pair.Key, out var value) || !Equals(pair.Value, value))
+                    return false;
+            }
+            return true;
         }
 
         private static void AddKey(Dictionary<string, string> keys, string key, string canonical)
@@ -220,40 +265,41 @@ public sealed class ProviderComposition
     private sealed class RuntimeRegistry : IProviderRuntimeRegistry
     {
         private readonly IProviderDescriptorRegistry _descriptors;
-        private readonly IReadOnlyDictionary<(string Key, ProviderClientFamily Family), ProviderRuntimeFactoryRegistration> _factories;
+        private readonly IReadOnlyDictionary<(string Key, string Backend, ProviderClientFamily Family), ProviderRuntimeFactoryRegistration> _factories;
 
-        private RuntimeRegistry(IProviderDescriptorRegistry descriptors, Dictionary<(string, ProviderClientFamily), ProviderRuntimeFactoryRegistration> factories)
+        private RuntimeRegistry(IProviderDescriptorRegistry descriptors, Dictionary<(string, string, ProviderClientFamily), ProviderRuntimeFactoryRegistration> factories)
         {
             _descriptors = descriptors;
-            _factories = new ReadOnlyDictionary<(string, ProviderClientFamily), ProviderRuntimeFactoryRegistration>(factories);
+            _factories = new ReadOnlyDictionary<(string, string, ProviderClientFamily), ProviderRuntimeFactoryRegistration>(factories);
             Registrations = Array.AsReadOnly(factories.Values.Distinct().OrderBy(x => x.ProviderKey, StringComparer.Ordinal).ToArray());
         }
 
         public IReadOnlyCollection<ProviderRuntimeFactoryRegistration> Registrations { get; }
 
-        public ProviderRuntimeFactoryRegistration GetFactory(string providerKey, ProviderClientFamily family) =>
-            TryGetFactory(providerKey, family, out var registration)
+        public ProviderRuntimeFactoryRegistration GetFactory(string providerKey, string backendKey, ProviderClientFamily family) =>
+            TryGetFactory(providerKey, backendKey, family, out var registration)
                 ? registration!
-                : throw new KeyNotFoundException($"Provider '{providerKey}' does not support client family '{family}'.");
+                : throw new KeyNotFoundException($"Provider '{providerKey}' backend '{backendKey}' does not support client family '{family}'.");
 
-        public bool TryGetFactory(string providerKey, ProviderClientFamily family, out ProviderRuntimeFactoryRegistration? registration)
+        public bool TryGetFactory(string providerKey, string backendKey, ProviderClientFamily family, out ProviderRuntimeFactoryRegistration? registration)
         {
             registration = null;
             if (!_descriptors.TryGet(providerKey, out var descriptor))
                 return false;
-            return _factories.TryGetValue((descriptor.ProviderKey, family), out registration);
+            return _factories.TryGetValue((descriptor.ProviderKey, backendKey, family), out registration);
         }
 
         public static RuntimeRegistry Create(IReadOnlyList<ProviderManifestFragment> fragments, IProviderDescriptorRegistry descriptors)
         {
-            var factories = new Dictionary<(string, ProviderClientFamily), ProviderRuntimeFactoryRegistration>(new RuntimeKeyComparer());
+            var factories = new Dictionary<(string, string, ProviderClientFamily), ProviderRuntimeFactoryRegistration>(new RuntimeKeyComparer());
             foreach (var registration in fragments.SelectMany(x => x.RuntimeFactories))
             {
                 var canonical = descriptors.Canonicalize(registration.ProviderKey);
+                foreach (var backend in registration.BackendKeys)
                 foreach (var family in registration.Families)
                 {
-                    if (!factories.TryAdd((canonical, family), registration))
-                        throw Error("HPDP010", $"Provider '{canonical}' has more than one runtime factory for client family '{family}'.");
+                    if (!factories.TryAdd((canonical, backend, family), registration))
+                        throw Error("HPDP010", $"Provider '{canonical}' backend '{backend}' has more than one runtime factory for client family '{family}'.");
                 }
             }
             return new RuntimeRegistry(descriptors, factories);
@@ -319,27 +365,37 @@ public sealed class ProviderComposition
 
     private sealed class CompositeDescriptor : IProviderDescriptor
     {
-        public CompositeDescriptor(string key, string name, Uri? uri, Dictionary<ProviderClientFamily, ProviderFamilyDescriptor> families, HashSet<string> aliases)
+        public CompositeDescriptor(
+            string key,
+            string name,
+            Uri? uri,
+            Dictionary<ProviderClientFamily, ProviderFamilyDescriptor> families,
+            Dictionary<string, ProviderBackendDescriptor> backends,
+            HashSet<string> aliases)
         {
             ProviderKey = key;
             DisplayName = name;
             DocumentationUri = uri;
             Families = new ReadOnlyDictionary<ProviderClientFamily, ProviderFamilyDescriptor>(families);
+            Backends = new ReadOnlyDictionary<string, ProviderBackendDescriptor>(backends);
             Aliases = Array.AsReadOnly(aliases.OrderBy(x => x, StringComparer.Ordinal).ToArray());
         }
         public string ProviderKey { get; }
         public string DisplayName { get; }
         public Uri? DocumentationUri { get; }
         public IReadOnlyDictionary<ProviderClientFamily, ProviderFamilyDescriptor> Families { get; }
+        public IReadOnlyDictionary<string, ProviderBackendDescriptor> Backends { get; }
         public IReadOnlyList<string> Aliases { get; }
     }
 
-    private sealed class RuntimeKeyComparer : IEqualityComparer<(string Key, ProviderClientFamily Family)>
+    private sealed class RuntimeKeyComparer : IEqualityComparer<(string Key, string Backend, ProviderClientFamily Family)>
     {
-        public bool Equals((string Key, ProviderClientFamily Family) x, (string Key, ProviderClientFamily Family) y) =>
-            x.Family == y.Family && StringComparer.OrdinalIgnoreCase.Equals(x.Key, y.Key);
-        public int GetHashCode((string Key, ProviderClientFamily Family) obj) =>
-            HashCode.Combine(StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Key), obj.Family);
+        public bool Equals((string Key, string Backend, ProviderClientFamily Family) x, (string Key, string Backend, ProviderClientFamily Family) y) =>
+            x.Family == y.Family && StringComparer.OrdinalIgnoreCase.Equals(x.Key, y.Key) &&
+            StringComparer.OrdinalIgnoreCase.Equals(x.Backend, y.Backend);
+        public int GetHashCode((string Key, string Backend, ProviderClientFamily Family) obj) =>
+            HashCode.Combine(StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Key),
+                StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Backend), obj.Family);
     }
 
     private sealed class SerializationKeyComparer : IEqualityComparer<(string Key, ProviderClientFamily Family, ProviderPayloadKind Kind)>

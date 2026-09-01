@@ -4,28 +4,32 @@ using Microsoft.Extensions.DependencyInjection;
 namespace HPD.Agent.Secrets;
 
 /// <summary>
-/// Wraps an existing service provider and adds additional singleton services.
-/// Used to inject ISecretResolver into the provider resolution chain without
-/// replacing the user's service provider.
+/// Wraps an existing service provider with exact singleton overrides owned by an agent build.
 /// </summary>
 internal class CompositeServiceProvider : IServiceProvider
 {
     private readonly IServiceProvider _inner;
-    private readonly ISecretResolver _secretResolver;
+    private readonly IReadOnlyDictionary<Type, object> _overrides;
 
-    public CompositeServiceProvider(IServiceProvider? inner, ISecretResolver secretResolver)
+    /// <summary>Creates a provider overlay from the supplied singleton instances.</summary>
+    public CompositeServiceProvider(IServiceProvider? inner, params object[] services)
     {
         _inner = inner ?? new ServiceCollection().BuildServiceProvider();
-        _secretResolver = secretResolver;
+        ArgumentNullException.ThrowIfNull(services);
+        var overrides = new Dictionary<Type, object>();
+        foreach (var service in services)
+        {
+            ArgumentNullException.ThrowIfNull(service);
+            foreach (var contract in service.GetType().GetInterfaces().Append(service.GetType()))
+                overrides[contract] = service;
+        }
+        _overrides = overrides;
     }
 
     public object? GetService(Type serviceType)
     {
-        // If requesting ISecretResolver, return our instance
-        if (serviceType == typeof(ISecretResolver))
-            return _secretResolver;
-
-        // Otherwise delegate to inner provider
-        return _inner.GetService(serviceType);
+        return _overrides.TryGetValue(serviceType, out var service)
+            ? service
+            : _inner.GetService(serviceType);
     }
 }

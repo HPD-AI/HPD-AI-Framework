@@ -160,7 +160,6 @@ public sealed class DebugPresentationEventTests : IDisposable
     [Fact]
     public void New_debug_presentation_events_round_trip_through_registered_serializer()
     {
-        CodingHarnessEventSerialization.RegisterEvents();
         var original = new DebugPrimaryStopAvailableEvent
         {
             DebugTreeId = "tree",
@@ -177,8 +176,8 @@ public sealed class DebugPresentationEventTests : IDisposable
             HitBreakpointIdentityUnknown = false
         };
 
-        var json = AgentEventSerializer.ToJson(original);
-        var roundTrip = AgentEventSerializer.FromJson(json)
+        var json = CodingEventTestCodec.Codec.Serialize(original);
+        var roundTrip = CodingEventTestCodec.Codec.DeserializeEvent(json)
             .Should().BeOfType<DebugPrimaryStopAvailableEvent>().Subject;
 
         roundTrip.SuspensionEpoch.Should().Be(8);
@@ -188,8 +187,7 @@ public sealed class DebugPresentationEventTests : IDisposable
     [Fact]
     public void Activity_and_breakpoint_hit_evidence_round_trip_through_registered_serializer()
     {
-        CodingHarnessEventSerialization.RegisterEvents();
-        var execution = AgentEventSerializer.FromJson(AgentEventSerializer.ToJson(
+        var execution = CodingEventTestCodec.Codec.DeserializeEvent(CodingEventTestCodec.Codec.Serialize(
                 new DebugExecutionCommandAppliedEvent
                 {
                     DebugTreeId = "tree",
@@ -203,7 +201,7 @@ public sealed class DebugPresentationEventTests : IDisposable
         execution.ToolCallId.Should().Be("step-call");
         execution.Command.Should().Be(DebugExecutionCommand.StepOver);
         execution.AdapterThreadId.Should().Be(7);
-        var stopped = AgentEventSerializer.FromJson(AgentEventSerializer.ToJson(
+        var stopped = CodingEventTestCodec.Codec.DeserializeEvent(CodingEventTestCodec.Codec.Serialize(
                 new DebugPrimaryStopAvailableEvent
                 {
                     DebugTreeId = "tree",

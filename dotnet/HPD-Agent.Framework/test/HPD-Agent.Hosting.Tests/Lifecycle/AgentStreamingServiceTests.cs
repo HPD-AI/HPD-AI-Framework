@@ -1,13 +1,14 @@
 using FluentAssertions;
 using HPD.Agent.Hosting.Lifecycle;
 using HPD.Agent.Hosting.Tests.Infrastructure;
+using HPD.Agent.Providers;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Hosting.Tests.Lifecycle;
 
-public sealed class AgentStreamingServiceTests : IDisposable
+public sealed class AgentStreamingServiceTests : IAsyncLifetime
 {
-    private readonly InMemorySessionStore _sessionStore = new();
+    private readonly InMemorySessionStore _sessionStore = new(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
     private readonly InMemoryAgentStore _agentStore = new();
     private readonly TestSessionManager _sessionManager;
     private readonly TestAgentManager _agentManager;
@@ -20,10 +21,12 @@ public sealed class AgentStreamingServiceTests : IDisposable
         _service = new AgentStreamingService(_sessionManager, _agentManager);
     }
 
-    public void Dispose()
+    public Task InitializeAsync() => Task.CompletedTask;
+
+    public async Task DisposeAsync()
     {
         _sessionManager.Dispose();
-        _agentManager.Dispose();
+        await _agentManager.DisposeAsync();
     }
 
     [Fact]
@@ -58,7 +61,11 @@ public sealed class AgentStreamingServiceTests : IDisposable
         {
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig
             {
-                ProviderKey = "openrouter",
+                Provider = new ProviderReference
+                {
+                    Key = "openrouter", Backend = "platform",
+                    Authentication = new ApiKeyProviderAuthentication { SecretKey = "openrouter:ApiKey" }
+                },
                 ModelName = "model-1"
             } },
             Context = new AgentContextRunConfig
@@ -97,22 +104,30 @@ public sealed class AgentStreamingServiceTests : IDisposable
     }
 
     [Fact]
-    public void ApplyRouteScope_PreservesBackgroundNotificationRunConfig()
+    public void ApplyRouteScope_PreservesOperationNotificationRunConfig()
     {
         var runConfig = new AgentRunConfig
         {
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig
             {
-                ProviderKey = "openrouter",
+                Provider = new ProviderReference
+                {
+                    Key = "openrouter", Backend = "platform",
+                    Authentication = new ApiKeyProviderAuthentication { SecretKey = "openrouter:ApiKey" }
+                },
                 ModelName = "model-1"
             } }
         };
-        var input = new BackgroundTaskNotificationInputEvent(
+        var input = new AgentOperationNotificationInputEvent(
             [
-                new BackgroundTaskNotification(
-                    "notification-1",
-                    ["task-1"],
-                    "Background task completed.")
+                new AgentOperationNotification
+                {
+                    NotificationId = "notification-1",
+                    OperationId = "operation-1",
+                    Name = "compile",
+                    ProviderStatus = "completed",
+                    Summary = "Operation completed."
+                }
             ])
         {
             ClientInputId = "client-input-1",
@@ -130,7 +145,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
             "route-thread",
             "route-run");
 
-        var notification = scoped.Should().BeOfType<BackgroundTaskNotificationInputEvent>().Subject;
+        var notification = scoped.Should().BeOfType<AgentOperationNotificationInputEvent>().Subject;
         notification.AgentId.Should().Be("route-agent");
         notification.SessionId.Should().Be("route-session");
         notification.ThreadId.Should().Be("route-thread");
@@ -204,7 +219,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
                 {
                     Chat = new ChatClientConfig
                     {
-                        ProviderKey = "test",
+                        Provider = TestAgentFactory.TestSelection(),
                         ModelName = "test-model"
                     }
                 }
@@ -254,7 +269,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
             Name = "agent-1",
             Clients = new AgentClientsConfig
             {
-                Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" }
+                Chat = new ChatClientConfig { Provider = TestAgentFactory.TestSelection(), ModelName = "test-model" }
             }
         }, "agent-1");
 
@@ -289,7 +304,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
                 {
                     Chat = new ChatClientConfig
                     {
-                        ProviderKey = "test",
+                        Provider = TestAgentFactory.TestSelection(),
                         ModelName = "test-model"
                     }
                 }
@@ -332,10 +347,141 @@ public sealed class AgentStreamingServiceTests : IDisposable
         observed.OfType<ThreadExecutionStartedEvent>()
             .Single(evt => evt.ThreadExecutionId == threadExecutionId)
             .AgentId.Should().Be(stored.Id);
+        var terminal = observed.OfType<ThreadExecutionFinishedEvent>()
+            .Single(evt => evt.ThreadExecutionId == threadExecutionId);
+        terminal.Outcome.Should().Be(ThreadExecutionOutcome.Succeeded);
+        terminal.Error.Should().BeNull();
 
         await WaitUntilAsync(
             () => _sessionManager.GetActiveThreadExecution(sessionId, threadId) is null,
             TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task SubmitInputAsync_RoutesSteeringBeforeNewWorkReservation()
+    {
+        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync(
+            "agent-1", "session-hosted-steer");
+        var stored = await _agentManager.CreateDefinitionAsync(new AgentConfig
+        {
+            Name = "agent-1",
+            Clients = new AgentClientsConfig
+            {
+                Chat = new ChatClientConfig
+                {
+                    Provider = TestAgentFactory.TestSelection(),
+                    ModelName = "test-model"
+                }
+            }
+        }, "agent-1");
+        await _agentManager.GetOrBuildAgentRuntimeAsync(stored.Id, sessionId, threadId);
+        _sessionManager.TryReserveThreadExecution(stored.Id, sessionId, threadId, out var execution)
+            .Should().BeTrue();
+        _sessionManager.ActivateThreadExecution(sessionId, threadId, execution.ThreadExecutionId)
+            .Should().BeTrue();
+
+        var submitted = await _service.SubmitInputAsync(
+            stored.Id,
+            sessionId,
+            threadId,
+            new UserMessagesInputEvent
+            {
+                Delivery = AgentInputDelivery.Steer,
+                ThreadExecutionId = execution.ThreadExecutionId,
+                Messages = [new ChatMessage(ChatRole.User, "steer")]
+            });
+
+        submitted.Status.Should().Be(AgentServiceStatus.Success);
+        submitted.ErrorCode.Should().BeNull();
+        submitted.Value!.Disposition.Should().Be("no_active_execution");
+        submitted.Value.ActiveExecution!.ThreadExecutionId.Should().Be(execution.ThreadExecutionId);
+    }
+
+    [Fact]
+    public async Task SubmitInputAsync_ReturnsMismatchForStaleSteeringExecutionId()
+    {
+        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync(
+            "agent-1", "session-hosted-stale-steer");
+        _sessionManager.TryReserveThreadExecution("agent-1", sessionId, threadId, out var execution)
+            .Should().BeTrue();
+        _sessionManager.ActivateThreadExecution(sessionId, threadId, execution.ThreadExecutionId)
+            .Should().BeTrue();
+
+        var submitted = await _service.SubmitInputAsync(
+            "agent-1",
+            sessionId,
+            threadId,
+            new UserMessagesInputEvent
+            {
+                Delivery = AgentInputDelivery.Steer,
+                ThreadExecutionId = "stale-execution",
+                Messages = [new ChatMessage(ChatRole.User, "steer")]
+            });
+
+        submitted.Status.Should().Be(AgentServiceStatus.Success);
+        submitted.Value!.Disposition.Should().Be("active_execution_mismatch");
+        submitted.Value.ActiveExecution!.ThreadExecutionId.Should().Be(execution.ThreadExecutionId);
+    }
+
+    [Fact]
+    public async Task SubmitInputAsync_QueuedWorkStillConflictsWithActiveExecution()
+    {
+        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync(
+            "agent-1", "session-hosted-queued-conflict");
+        _sessionManager.TryReserveThreadExecution("agent-1", sessionId, threadId, out var execution)
+            .Should().BeTrue();
+        _sessionManager.ActivateThreadExecution(sessionId, threadId, execution.ThreadExecutionId)
+            .Should().BeTrue();
+
+        var submitted = await _service.SubmitInputAsync(
+            "agent-1",
+            sessionId,
+            threadId,
+            new UserMessagesInputEvent
+            {
+                Delivery = AgentInputDelivery.Queue,
+                Messages = [new ChatMessage(ChatRole.User, "queue")]
+            });
+
+        submitted.Status.Should().Be(AgentServiceStatus.Conflict);
+        submitted.ErrorCode.Should().Be("ThreadExecutionActive");
+    }
+
+    [Fact]
+    public async Task SubmitInputAsync_ExecutesSessionControlDirectlyWithoutReservingWorkSlot()
+    {
+        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync(
+            "agent-1", "session-control");
+        var stored = await _agentManager.CreateDefinitionAsync(new AgentConfig
+        {
+            Name = "agent-1",
+            Clients = new AgentClientsConfig
+            {
+                Chat = new ChatClientConfig
+                {
+                    Provider = TestAgentFactory.TestSelection(),
+                    ModelName = "test-model"
+                }
+            }
+        }, "agent-1");
+
+        var submitted = await _service.SubmitInputAsync(
+            stored.Id,
+            sessionId,
+            threadId,
+            new AudioSessionInputEvent
+            {
+                ClientInputId = "audio-start-1",
+                Command = new AudioSessionCommand.Start()
+            });
+
+        submitted.Status.Should().Be(AgentServiceStatus.Success);
+        submitted.Value!.Disposition.Should().Be("completed");
+        submitted.Value.ThreadExecutionId.Should().BeNull();
+        var audio = submitted.Value.Result.Should().BeOfType<AgentInputResult.AudioSession>().Subject;
+        var rejected = audio.Result.Should().BeOfType<AudioSessionInputResult.Rejected>().Subject;
+        rejected.Disposition.Should().Be(AudioSessionInputDisposition.CapabilityNotInstalled);
+        _sessionManager.GetActiveThreadExecution(sessionId, threadId).Should().BeNull();
     }
 
     private static async Task WaitUntilAsync(Func<bool> predicate, TimeSpan timeout)
@@ -366,7 +512,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
                     {
                         Chat = new ChatClientConfig
                         {
-                            ProviderKey = "test",
+                            Provider = TestAgentFactory.TestSelection(),
                             ModelName = "test-model"
                         }
                     }

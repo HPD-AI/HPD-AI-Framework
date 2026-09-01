@@ -1,6 +1,7 @@
 using FluentAssertions;
 using HPD.Gateway;
 using HPD.Gateway.ControlPlane;
+using HPD.AI.Platform.Studio;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -23,7 +24,7 @@ public sealed class GatewayControlPlaneCompositionTests
 
         capability.Durability.Should().Be(GatewayAuthorityDurability.ProcessLocal);
         provider.GetService<GatewayControlPlaneRegistration>()!.AdminOptions.Should().BeNull();
-        provider.GetService<GatewayControlPlaneRegistration>()!.StudioOptions.Should().BeNull();
+        provider.GetService<GatewayControlPlaneRegistration>()!.StudioConfigured.Should().BeFalse();
     }
 
     [Fact]
@@ -57,21 +58,8 @@ public sealed class GatewayControlPlaneCompositionTests
     }
 
     [Fact]
-    public void Studio_and_admin_must_share_the_exact_governed_surface()
+    public void Studio_uses_the_exact_installed_admin_surface_without_caller_configuration()
     {
-        AssertRejected(static controlPlane => controlPlane
-            .UseProcessLocalAuthority()
-            .AddAdminApi(options => options.RoutePrefix = "/management/custom")
-            .AddStudio(), "*ApiBasePath*RoutePrefix*");
-        AssertRejected(static controlPlane => controlPlane
-            .UseProcessLocalAuthority()
-            .AddAdminApi(options => options.EndpointSurfaceId = "custom-admin")
-            .AddStudio(), "*same endpoint surface ID*");
-        AssertRejected(static controlPlane => controlPlane
-            .UseProcessLocalAuthority()
-            .AddAdminApi(options => options.RequireManagementListener = false)
-            .AddStudio(), "*same management-listener requirement*");
-
         var valid = new ServiceCollection();
         valid.AddHpdGatewayControlPlane(static controlPlane => controlPlane
             .UseProcessLocalAuthority()
@@ -80,18 +68,18 @@ public sealed class GatewayControlPlaneCompositionTests
                 options.RoutePrefix = "/management/custom";
                 options.EndpointSurfaceId = "custom-admin";
                 options.RequireManagementListener = false;
-            })
-            .AddStudio(options =>
-            {
-                options.ApiBasePath = "/management/custom";
-                options.EndpointSurfaceId = "custom-admin";
-                options.RequireManagementListener = false;
-            }));
+            }).AddStudio());
 
         using ServiceProvider provider = valid.BuildServiceProvider();
         GatewayControlPlaneRegistration registration = provider.GetRequiredService<GatewayControlPlaneRegistration>();
         registration.AdminOptions!.RoutePrefix.Should().Be("/management/custom");
-        registration.StudioOptions!.ApiBasePath.Should().Be("/management/custom");
+        registration.StudioConfigured.Should().BeTrue();
+        IBaseStudioFrameworkEndpointSurface surface = provider
+            .GetServices<IBaseStudioFrameworkEndpointSurface>().Should().ContainSingle().Subject;
+        surface.EndpointSurfaceId.Should().Be("gateway.admin.v1");
+        surface.Operations.Should().HaveCount(23).And.BeInAscendingOrder(static operation => operation.OperationId);
+        BaseStudioSha256.FixedTimeEquals(surface.OperationInventoryChecksum,
+            BaseStudioFrameworkSurfaceOperation.ComputeInventoryChecksum(surface.EndpointSurfaceId, surface.Operations)).Should().BeTrue();
     }
 
     [Fact]
@@ -103,10 +91,6 @@ public sealed class GatewayControlPlaneCompositionTests
             static controlPlane => controlPlane.UseProcessLocalAuthority().UseProcessLocalAuthority(),
             static controlPlane => controlPlane.UseProcessLocalAuthority(options => options.MaximumTargets = 0),
             static controlPlane => controlPlane.UseProcessLocalAuthority().AddStudio(),
-            static controlPlane => controlPlane
-                .UseProcessLocalAuthority()
-                .AddAdminApi(options => options.RoutePrefix = "/management/other")
-                .AddStudio(),
             static controlPlane =>
             {
                 controlPlane.UseProcessLocalAuthority().AddAdminApi().AddStudio();
@@ -150,15 +134,6 @@ public sealed class GatewayControlPlaneCompositionTests
         assembly.GetType("HPD.Gateway.Studio.GatewayStudioExtensions").Should().BeNull();
         assembly.GetExportedTypes().Should().OnlyContain(static type =>
             type.Namespace == "HPD.Gateway.ControlPlane");
-    }
-
-    private static void AssertRejected(Action<GatewayControlPlaneBuilder> configure, string message)
-    {
-        var services = new ServiceCollection();
-        ServiceDescriptor[] before = [.. services];
-        Action registration = () => services.AddHpdGatewayControlPlane(configure);
-        registration.Should().Throw<InvalidOperationException>().WithMessage(message);
-        services.Should().Equal(before);
     }
 
     private sealed class ExistingRegistrationMarker;

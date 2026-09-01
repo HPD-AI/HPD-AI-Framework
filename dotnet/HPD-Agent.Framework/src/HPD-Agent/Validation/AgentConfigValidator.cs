@@ -32,13 +32,45 @@ public static class AgentConfigValidator
         // Basic configuration validation
         ValidateName(config, errors);
         ValidateMaxAgenticIterations(config, errors);
-        ValidateMcp(config, errors);
         ValidateErrorHandling(config, errors);
         ValidateCompaction(config, errors);
         ValidateCaching(config, errors);
+        ValidateOperations(config, errors);
+        ValidateAudio(config, errors);
         ValidateCrossConfiguration(config, errors);
 
         return errors;
+    }
+
+    private static void ValidateAudio(AgentConfig config, List<string> errors)
+    {
+        var audio = config.Audio;
+        if (audio is null) return;
+        if (!Enum.IsDefined(audio.InputMode)) errors.Add("Audio InputMode is invalid.");
+        if (!Enum.IsDefined(audio.OutputMode)) errors.Add("Audio OutputMode is invalid.");
+        if (audio.InputMode == AudioInputMode.StreamingSpeechToText &&
+            config.Clients.SpeechToText is null)
+            errors.Add("Streaming Audio input requires a speech-to-text client configuration.");
+        if (audio.Transport is not { } transport) return;
+        if (string.IsNullOrWhiteSpace(transport.ComponentInstance) || transport.ComponentInstance.Length > 128)
+            errors.Add("Audio transport ComponentInstance must contain 1-128 characters.");
+        if (string.IsNullOrWhiteSpace(transport.Schema) || transport.Schema.Length > 256 || transport.Version == 0)
+            errors.Add("Audio transport schema identity is invalid.");
+        if (!Uri.TryCreate(transport.Endpoint, UriKind.Absolute, out _))
+            errors.Add("Audio transport Endpoint must be an absolute URI.");
+    }
+
+    private static void ValidateOperations(AgentConfig config, List<string> errors)
+    {
+        try
+        {
+            config.Shutdown.Validate();
+            config.OperationRetention.Validate();
+        }
+        catch (ArgumentOutOfRangeException exception)
+        {
+            errors.Add(exception.Message);
+        }
     }
 
     private static void ValidateName(AgentConfig config, List<string> errors)
@@ -58,24 +90,6 @@ public static class AgentConfigValidator
         if (config.MaxAgenticIterations <= 0 || config.MaxAgenticIterations > 50)
         {
             errors.Add("MaxFunctionCallTurns must be between 1 and 50.");
-        }
-    }
-
-    private static void ValidateMcp(AgentConfig config, List<string> errors)
-    {
-        if (config.Mcp != null && !string.IsNullOrEmpty(config.Mcp.ManifestPath))
-        {
-            if (!IsValidPath(config.Mcp.ManifestPath))
-            {
-                errors.Add("MCP ManifestPath must be a valid file path.");
-            }
-        }
-
-        if (config.Mcp != null &&
-            !string.IsNullOrEmpty(config.Mcp.ManifestPath) &&
-            !string.IsNullOrEmpty(config.Mcp.ManifestContent))
-        {
-            errors.Add("MCP ManifestPath and ManifestContent cannot both be set.");
         }
     }
 

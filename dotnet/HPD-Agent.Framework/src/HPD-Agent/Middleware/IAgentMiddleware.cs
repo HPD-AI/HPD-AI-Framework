@@ -123,8 +123,8 @@ public interface IAgentMiddleware
         => Task.CompletedTask;
 
     /// <summary>
-    /// Called AFTER a message turn completes.
-    /// Use for: Memory extraction, analytics, turn-level logging.
+    /// Called after the final response exists but before turn history and accounting are sealed.
+    /// Provider work and supported durable turn-history mutations must complete in this hook.
     /// </summary>
     /// <param name="context">Typed context with FinalResponse, TurnHistory</param>
     /// <param name="cancellationToken">Cancellation token</param>

@@ -1,5 +1,6 @@
 using FluentAssertions;
 using HPD.Agent;
+using HPD.Agent.Providers;
 using HPD.Agent.TUI.Commands;
 using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Models;
@@ -11,18 +12,40 @@ namespace HPD.Agent.TUI.Tests;
 
 public sealed class ModelSelectionCommandTests
 {
+    private static AgentTuiProviderChoice ProviderChoice(
+        string providerKey,
+        string displayName,
+        bool IsRegistered,
+        bool IsAuthenticated,
+        bool IsExpired = false,
+        bool SupportsLiveModelSearch = false,
+        bool SupportsFreeModels = false,
+        ChatClientConfig? Chat = null) => new(
+        providerKey, $"{providerKey}-target", providerKey,
+        new ProviderReference { Key = providerKey }, displayName,
+        IsRegistered, IsAuthenticated, IsExpired, SupportsLiveModelSearch, SupportsFreeModels, Chat);
+
+    private static AgentTuiSelectedModel SelectedModel(
+        string providerKey,
+        string modelId,
+        string? DisplayName = null,
+        AgentTuiModelCapabilities? Capabilities = null,
+        ChatClientConfig? Chat = null) => new(
+        providerKey, $"{providerKey}-target", providerKey,
+        new ProviderReference { Key = providerKey }, modelId, DisplayName, Capabilities, Chat);
+
     [Fact]
     public async Task ModelCommand_OnlyUsesConnectedProviders()
     {
         var selection = new AgentTuiModelSelectionState();
         var catalog = new TestModelCatalog(
             [
-                new AgentTuiProviderChoice(
+                ProviderChoice(
                     "disconnected",
                     "Disconnected",
                     IsRegistered: true,
                     IsAuthenticated: false),
-                new AgentTuiProviderChoice(
+                ProviderChoice(
                     "openrouter",
                     "OpenRouter",
                     IsRegistered: true,
@@ -54,7 +77,7 @@ public sealed class ModelSelectionCommandTests
             arguments));
 
         selection.Current.Should().NotBeNull();
-        selection.Current!.ProviderKey.Should().Be("openrouter");
+        selection.Current!.Provider.Key.Should().Be("openrouter");
         selection.Current.ModelId.Should().Be("deepseek/deepseek-chat");
 
         var runConfig = registry.RunConfigComposer!(new AgentTuiRunConfigContext(
@@ -62,8 +85,39 @@ public sealed class ModelSelectionCommandTests
             shell,
             "hello"));
         runConfig.Should().NotBeNull();
-        runConfig!.Clients.Chat!.ProviderKey.Should().Be("openrouter");
+        runConfig!.Clients.Chat!.Provider!.Key.Should().Be("openrouter");
         runConfig.Clients.Chat.ModelName.Should().Be("deepseek/deepseek-chat");
+    }
+
+    [Fact]
+    public async Task ModelCommand_PreservesTargetChatConfigurationFromProviderChoice()
+    {
+        var selection = new AgentTuiModelSelectionState();
+        var targetChat = new ChatClientConfig
+        {
+            Endpoint = "https://target.example/v1/"
+        };
+        var catalog = new TestModelCatalog(
+            [ProviderChoice("openai", "OpenAI", true, true, Chat: targetChat)],
+            [new AgentTuiModelChoice("openai", "gpt-test", "GPT Test", true)]);
+        var registry = new HpdAgentTuiBuilder().AddModelSelection(catalog, selection).Build();
+        registry.TryFindSlashCommand("/model", out var command, out var arguments).Should().BeTrue();
+        var scope = new AgentTuiRuntimeScope("agent", "session", "main");
+        var shell = new ChatShellModel(scope);
+
+        await command.ExecuteAsync(new AgentTuiCommandContext(
+            scope,
+            shell,
+            shell.Navigation,
+            new NoopRuntime(),
+            new FirstChoiceDialogs(),
+            static (_, _) => ValueTask.CompletedTask,
+            command,
+            arguments));
+
+        selection.Current.Should().NotBeNull();
+        selection.Current!.Chat.Should().NotBeSameAs(targetChat);
+        selection.Current.Chat!.Endpoint.Should().Be("https://target.example/v1/");
     }
 
     [Fact]
@@ -71,7 +125,8 @@ public sealed class ModelSelectionCommandTests
     {
         var selection = new AgentTuiModelSelectionState();
         var registry = new HpdAgentTuiBuilder()
-            .AddModelSelectionCommand(new TestModelCatalog([], []), selection)
+            .AddModelSelectionCommand(new TestModelCatalog(
+                [ProviderChoice("openrouter", "OpenRouter", true, true)], []), selection)
             .UseModelSelectionRunConfig(selection)
             .Build();
         registry.TryFindSlashCommand("/model openrouter model-a", out var command, out var arguments).Should().BeTrue();
@@ -88,7 +143,7 @@ public sealed class ModelSelectionCommandTests
             command,
             arguments));
 
-        selection.Current.Should().BeEquivalentTo(new AgentTuiSelectedModel(
+        selection.Current.Should().BeEquivalentTo(SelectedModel(
             "openrouter",
             "model-a",
             Capabilities: AgentTuiModelCapabilities.None));
@@ -100,7 +155,7 @@ public sealed class ModelSelectionCommandTests
         var selection = new AgentTuiModelSelectionState();
         var catalog = new TestModelCatalog(
             [
-                new AgentTuiProviderChoice(
+                ProviderChoice(
                     "openrouter",
                     "OpenRouter",
                     IsRegistered: true,
@@ -147,7 +202,7 @@ public sealed class ModelSelectionCommandTests
         var selection = new AgentTuiModelSelectionState();
         var catalog = new TestModelCatalog(
             [
-                new AgentTuiProviderChoice(
+                ProviderChoice(
                     "openrouter",
                     "OpenRouter",
                     IsRegistered: true,
@@ -194,12 +249,12 @@ public sealed class ModelSelectionCommandTests
         var selection = new AgentTuiModelSelectionState();
         var catalog = new TestModelCatalog(
             [
-                new AgentTuiProviderChoice(
+                ProviderChoice(
                     "provider-a",
                     "Provider A",
                     IsRegistered: true,
                     IsAuthenticated: true),
-                new AgentTuiProviderChoice(
+                ProviderChoice(
                     "provider-b",
                     "Provider B",
                     IsRegistered: true,
@@ -226,28 +281,30 @@ public sealed class ModelSelectionCommandTests
         registry.TryFindSlashCommand("/model", out var command, out var arguments).Should().BeTrue();
         var scope = new AgentTuiRuntimeScope("agent", "session", "main");
         var shell = new ChatShellModel(scope);
+        var dialogs = new QueuedDialogs(
+            selections:
+            [
+                "Provider A",
+                null,
+                "Provider B",
+                "Provider B Model"
+            ],
+            inputs: []);
 
         await command.ExecuteAsync(new AgentTuiCommandContext(
             scope,
             shell,
             shell.Navigation,
             new NoopRuntime(),
-            new QueuedDialogs(
-                selections:
-                [
-                    "Provider A",
-                    null,
-                    "Provider B",
-                    "Provider B Model"
-                ],
-                inputs: []),
+            dialogs,
             static (_, _) => ValueTask.CompletedTask,
             command,
             arguments));
 
         selection.Current.Should().NotBeNull();
-        selection.Current!.ProviderKey.Should().Be("provider-b");
+        selection.Current!.Provider.Key.Should().Be("provider-b");
         selection.Current!.ModelId.Should().Be("gpt-b");
+        dialogs.FilteredSelectionCalls.Should().Be(2);
     }
 
     [Fact]
@@ -256,7 +313,7 @@ public sealed class ModelSelectionCommandTests
         var selection = new AgentTuiModelSelectionState();
         var catalog = new TestModelCatalog(
             [
-                new AgentTuiProviderChoice(
+                ProviderChoice(
                     "openai",
                     "OpenAI",
                     IsRegistered: true,
@@ -298,7 +355,7 @@ public sealed class ModelSelectionCommandTests
         var selection = new AgentTuiModelSelectionState();
         var catalog = new TestModelCatalog(
             [
-                new AgentTuiProviderChoice(
+                ProviderChoice(
                     "openrouter",
                     "OpenRouter",
                     IsRegistered: true,
@@ -358,7 +415,7 @@ public sealed class ModelSelectionCommandTests
         var selection = new AgentTuiModelSelectionState();
         var catalog = new TestModelCatalog(
             [
-                new AgentTuiProviderChoice(
+                ProviderChoice(
                     "openrouter",
                     "OpenRouter",
                     IsRegistered: true,
@@ -420,7 +477,7 @@ public sealed class ModelSelectionCommandTests
         var commitSawFinalState = false;
         var catalog = new TestModelCatalog(
             [
-                new AgentTuiProviderChoice(
+                ProviderChoice(
                     "openai",
                     "OpenAI",
                     IsRegistered: true,
@@ -455,7 +512,7 @@ public sealed class ModelSelectionCommandTests
                 };
                 options.SelectionCommitted = (_, model) =>
                 {
-                    commitSawFinalState = selection.Current?.ProviderKey == model.ProviderKey
+                    commitSawFinalState = selection.Current?.Provider.Key == model.Provider.Key
                         && selection.Current.ModelId == model.ModelId
                         && selection.Current.Chat?.Reasoning?.Effort == ReasoningEffort.High
                         && model.Chat?.Reasoning?.Effort == ReasoningEffort.High;
@@ -490,7 +547,7 @@ public sealed class ModelSelectionCommandTests
         var selection = new AgentTuiModelSelectionState();
         var catalog = new TestModelCatalog(
             [
-                new AgentTuiProviderChoice(
+                ProviderChoice(
                     "openai",
                     "OpenAI",
                     IsRegistered: true,
@@ -537,7 +594,7 @@ public sealed class ModelSelectionCommandTests
         var selection = new AgentTuiModelSelectionState();
         var catalog = new TestModelCatalog(
             [
-                new AgentTuiProviderChoice(
+                ProviderChoice(
                     "openai",
                     "OpenAI",
                     IsRegistered: true,
@@ -592,7 +649,7 @@ public sealed class ModelSelectionCommandTests
         var selection = new AgentTuiModelSelectionState();
         var catalog = new TestModelCatalog(
             [
-                new AgentTuiProviderChoice(
+                ProviderChoice(
                     "openai",
                     "OpenAI",
                     IsRegistered: true,
@@ -639,7 +696,7 @@ public sealed class ModelSelectionCommandTests
         var selection = new AgentTuiModelSelectionState();
         var catalog = new TestModelCatalog(
             [
-                new AgentTuiProviderChoice(
+                ProviderChoice(
                     "openai",
                     "OpenAI",
                     IsRegistered: true,
@@ -705,7 +762,7 @@ public sealed class ModelSelectionCommandTests
         var contributor = new TestModelConfigContributor();
         var catalog = new TestModelCatalog(
             [
-                new AgentTuiProviderChoice(
+                ProviderChoice(
                     "test-provider",
                     "Test Provider",
                     IsRegistered: true,
@@ -777,14 +834,14 @@ public sealed class ModelSelectionCommandTests
 
         public ValueTask<IReadOnlyList<AgentTuiModelChoice>> GetModelsAsync(
             AgentTuiModelCatalogContext context,
-            string providerKey,
+            AgentTuiProviderChoice provider,
             AgentTuiModelQuery query,
             CancellationToken cancellationToken = default)
         {
             ModelQueries.Add(query);
             return ValueTask.FromResult<IReadOnlyList<AgentTuiModelChoice>>(
                 _models
-                    .Where(model => model.ProviderKey == providerKey)
+                    .Where(model => model.SelectionId == provider.SelectionId)
                     .Where(model => !query.FreeOnly || model.IsFree)
                     .Where(model => string.IsNullOrWhiteSpace(query.Search)
                         || model.ModelId.Contains(query.Search, StringComparison.OrdinalIgnoreCase)
@@ -1054,7 +1111,7 @@ public sealed class ModelSelectionCommandTests
         public string Label => "Provider behavior";
 
         public bool CanConfigure(AgentTuiSelectedModel model)
-            => model.ProviderKey == "test-provider";
+            => model.Provider.Key == "test-provider";
 
         public ValueTask<AgentTuiSelectedModel?> ConfigureAsync(
             AgentTuiCommandContext context,
@@ -1110,6 +1167,10 @@ public sealed class ModelSelectionCommandTests
             AgentEvent response,
             CancellationToken cancellationToken = default)
             => Task.FromResult(new AgentRespondResult(AgentRespondStatus.Accepted, ((IAgentResponseEvent)response).RequestId));
+
+        public Task<AgentTuiSubmitResult> CancelExecutionAsync(
+            AgentTuiRuntimeScope scope, string threadExecutionId, CancellationToken cancellationToken = default)
+            => Task.FromResult(new AgentTuiSubmitResult(AgentInputDisposition.Accepted, threadExecutionId, null));
 
         public Task<AgentTuiThreadState> GetThreadStateAsync(
             AgentTuiRuntimeScope scope,

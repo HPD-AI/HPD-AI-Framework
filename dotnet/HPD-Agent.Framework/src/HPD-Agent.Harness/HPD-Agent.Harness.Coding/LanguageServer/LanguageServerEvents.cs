@@ -1,5 +1,6 @@
 using HPD.Agent;
 using HPD.Events;
+using HPD.Agent.Serialization;
 
 namespace HPDOS.ToolHarnesses.Middleware;
 
@@ -11,6 +12,8 @@ public abstract record LanguageServerEvent : AgentEvent
 }
 
 /// <summary>Authoritative snapshot of language-server processes observed by the current runtime.</summary>
+[DurableEvent]
+[EventType("LANGUAGE_SERVER_STATUS_SNAPSHOT")]
 public sealed record LanguageServerStatusSnapshotEvent : AgentEvent
 {
     public override EventKind Kind { get; init; } = EventKind.Diagnostic;
@@ -26,27 +29,39 @@ public sealed record LanguageServerStatusSnapshot
     public string? Message { get; init; }
 }
 
+[DurableEvent]
+[EventType("LANGUAGE_SERVER_DOCUMENT_OPENED")]
 public sealed record LanguageServerDocumentOpenedEvent : LanguageServerEvent
 {
     public required string LanguageId { get; init; }
     public int DocumentVersion { get; init; }
 }
 
+[DurableEvent]
+[EventType("LANGUAGE_SERVER_DOCUMENT_CHANGED")]
 public sealed record LanguageServerDocumentChangedEvent : LanguageServerEvent
 {
     public required string LanguageId { get; init; }
     public int DocumentVersion { get; init; }
 }
 
+[DurableEvent]
+[EventType("LANGUAGE_SERVER_DOCUMENT_CLOSED")]
 public sealed record LanguageServerDocumentClosedEvent : LanguageServerEvent;
 
+[DurableEvent]
+[EventType("LANGUAGE_SERVER_DOCUMENT_SAVED")]
 public sealed record LanguageServerDocumentSavedEvent : LanguageServerEvent;
 
+[DurableEvent]
+[EventType("LANGUAGE_SERVER_WATCHED_FILE_CHANGED")]
 public sealed record LanguageServerWatchedFileChangedEvent : LanguageServerEvent
 {
     public required LanguageServerWatchedFileChangeKind ChangeKind { get; init; }
 }
 
+[DurableEvent]
+[EventType("LANGUAGE_SERVER_DIAGNOSTICS_RECEIVED")]
 public sealed record LanguageServerDiagnosticsReceivedEvent : LanguageServerEvent
 {
     public int ErrorCount { get; init; }

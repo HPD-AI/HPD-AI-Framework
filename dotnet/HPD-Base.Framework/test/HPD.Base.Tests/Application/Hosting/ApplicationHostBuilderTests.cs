@@ -16,6 +16,25 @@ public sealed class ApplicationHostBuilderTests
     private static GeneratedApplicationJsonContext Metadata() => MetadataOwner;
     private static BaseJsonProperty<GeneratedProject, string> ProjectProperty(string wireName) =>
         BaseJsonProperty<GeneratedProject, string>.Bind(Metadata().GeneratedProject, wireName);
+
+    [Fact]
+    public void Store_receipt_binds_and_owns_the_complete_provider_descriptor_checksum()
+    {
+        var services = new ServiceCollection().AddLogging();
+        services.AddHPDBase(builder => builder
+            .ConfigureSchema(options => options.ApplicationId = "provider-checksum-test")
+            .AddCollection(GeneratedProject.Collection)
+            .UseStore(InMemoryProviderInstaller.Create(null)));
+        using ServiceProvider provider = services.BuildServiceProvider();
+        HPDBaseInstalledFeatures features = provider.GetRequiredService<HPDBaseInstalledFeatures>();
+
+        byte[] selected = features.StoreProvider.ProviderChecksum.ToArray();
+        Assert.Equal(selected, features.StoreReceipt.ProviderChecksum.ToArray());
+        selected[0] ^= 0xff;
+        Assert.NotEqual(selected, features.StoreProvider.ProviderChecksum.ToArray());
+        Assert.Equal(features.StoreProvider.ProviderChecksum.ToArray(),
+            features.StoreReceipt.ProviderChecksum.ToArray());
+    }
     [Fact]
     public async Task FreshSqlitePlansAreBoundToDistinctPersistentPhysicalStoreIdentities()
     {
@@ -500,7 +519,7 @@ public sealed class ApplicationHostBuilderTests
             SubjectId = "subject_1",
         });
         BaseResult<BaseRecord<GeneratedProject>> result = await session
-            .Collection(GeneratedProject.Collection).GetAsync(new RecordId("record_1"));
+            .Collection(GeneratedProject.Collection).GetAsync(RecordId.Create("record_1"));
 
         application.CurrentReadiness.State.Should().Be(BaseApplicationReadinessState.NotStarted);
         result.Should().BeOfType<BaseFailure<BaseRecord<GeneratedProject>>>()
@@ -540,9 +559,20 @@ public sealed class ApplicationHostBuilderTests
         try
         {
             var services = new ServiceCollection().AddLogging();
+            var firstRestoreObserver = new RecordingRestoreObserver();
+            var hostileRestoreObserver = new RecordingRestoreObserver(throwAfterObservation: true);
+            var cancelingRestoreObserver = new CancelingRestoreObserver();
+            var timingOutRestoreObserver = new TimingOutRestoreObserver();
+            var lastRestoreObserver = new RecordingRestoreObserver();
+            services.AddSingleton<IBaseCommittedRestoreObserver>(firstRestoreObserver);
+            services.AddSingleton<IBaseCommittedRestoreObserver>(hostileRestoreObserver);
+            services.AddSingleton<IBaseCommittedRestoreObserver>(cancelingRestoreObserver);
+            services.AddSingleton<IBaseCommittedRestoreObserver>(timingOutRestoreObserver);
+            services.AddSingleton<IBaseCommittedRestoreObserver>(lastRestoreObserver);
             services.AddHPDBase(builder => builder
                 .ConfigureSchema(options => { options.ApplicationId = "administration-test"; options.PlanProtectionKey = Enumerable.Repeat((byte)0x72, 32).ToArray(); })
                 .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey { Id = 7, Key = tokenKey, IssueNotBefore = DateTimeOffset.UnixEpoch })
+                .ConfigureRuntime(options => options.Events.PostCommitWorkTimeout = TimeSpan.FromMilliseconds(20))
                 .AddPolicyAuthority<AdministrationAllowPolicyEvaluator>(new BasePolicyAuthorityDefinition
                 {
                     Id = "hpd.base.hosting.admin-allow", Version = 1, OwningModuleId = "hpd.base.tests",
@@ -558,8 +588,8 @@ public sealed class ApplicationHostBuilderTests
             (await application.InitializeAsync()).IsSuccess().Should().BeTrue();
             var administrator = new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System };
             BaseCollectionSession<GeneratedProject> collection = provider.GetRequiredService<IBaseSessionFactory>().For(administrator).Collection(GeneratedProject.Collection);
-            BaseRecord<GeneratedProject> created = (await collection.CreateAsync(new RecordId("project-1"), new GeneratedProject { OrganizationId = "org", Name = "before" })).RequireValue();
-            _ = (await collection.CreateAsync(new RecordId("project-2"), new GeneratedProject { OrganizationId = "org", Name = "second" })).RequireValue();
+            BaseRecord<GeneratedProject> created = (await collection.CreateAsync(RecordId.Create("project-1"), new GeneratedProject { OrganizationId = "org", Name = "before" })).RequireValue();
+            _ = (await collection.CreateAsync(RecordId.Create("project-2"), new GeneratedProject { OrganizationId = "org", Name = "second" })).RequireValue();
 
             var rawStore = (SqliteRecordStore)provider.GetRequiredService<IRecordStoreRegistry>().GetStore("sqlite")!;
             var firstPageQuery = new RecordQuery
@@ -582,7 +612,7 @@ public sealed class ApplicationHostBuilderTests
             (await collection.ReplaceAsync(created.Id, new GeneratedProject { OrganizationId = "org", Name = "after" })).RequireValue();
 
             artifact.Position = 0;
-            BaseRestoreResult restored = (await application.Administration.RestoreAsync(artifact, new BaseRestoreRequest
+            BaseRestoreRequest restoreRequest = new()
             {
                 StoreId = "sqlite", Principal = administrator,
                 ExpectedCurrentStoreIdentityDigest = manifest.StoreIdentityDigest,
@@ -591,9 +621,31 @@ public sealed class ApplicationHostBuilderTests
                 RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
                 ConfirmDestructiveReplacement = true,
                 ScheduleRestoreDomain = BaseScheduleRestoreDomain.InPlaceRecovery,
-            })).RequireValue();
+            };
+            BaseResult<BaseRestoreResult> rejectedRestore = await application.Administration.RestoreAsync(
+                artifact, restoreRequest with { ConfirmDestructiveReplacement = false });
+            rejectedRestore.Should().BeOfType<BaseFailure<BaseRestoreResult>>();
+            firstRestoreObserver.Observed.Should().BeEmpty();
+            hostileRestoreObserver.Observed.Should().BeEmpty();
+            cancelingRestoreObserver.Observed.Should().BeEmpty();
+            timingOutRestoreObserver.Observed.Should().BeEmpty();
+            lastRestoreObserver.Observed.Should().BeEmpty();
+
+            artifact.Position = 0;
+            BaseSuccess<BaseRestoreResult> restoreSuccess = (await application.Administration.RestoreAsync(
+                artifact, restoreRequest)).Should().BeOfType<BaseSuccess<BaseRestoreResult>>().Subject;
+            BaseRestoreResult restored = restoreSuccess.Value;
 
             restored.RestoreEpoch.Should().Be(manifest.RestoreEpoch + 1);
+            restoreSuccess.Warnings.Should().ContainSingle(warning =>
+                warning.Code == "base.runtime.restoreObserverFailed"
+                && warning.Message == "A committed restore observer failed.");
+            firstRestoreObserver.Observed.Should().ContainSingle().Which.Should().Be(restored);
+            hostileRestoreObserver.Observed.Should().ContainSingle().Which.Should().Be(restored);
+            cancelingRestoreObserver.Observed.Should().ContainSingle().Which.Should().Be(restored);
+            timingOutRestoreObserver.Observed.Should().ContainSingle().Which.Should().Be(restored);
+            lastRestoreObserver.Observed.Should().ContainSingle().Which.Should().Be(restored);
+            firstRestoreObserver.Observed[0].Should().NotBeSameAs(lastRestoreObserver.Observed[0]);
             (await collection.GetAsync(created.Id)).RequireValue().Value.Name.Should().Be("before");
             OperationResult<RecordPage> invalidated = await rawStore.ListAsync(
                 GeneratedProject.Collection.Definition,
@@ -605,6 +657,49 @@ public sealed class ApplicationHostBuilderTests
         {
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             foreach (string candidate in Directory.GetFiles(Path.GetDirectoryName(path)!, Path.GetFileName(path) + "*")) File.Delete(candidate);
+        }
+    }
+
+    private sealed class RecordingRestoreObserver(bool throwAfterObservation = false)
+        : IBaseCommittedRestoreObserver
+    {
+        internal List<BaseRestoreResult> Observed { get; } = [];
+
+        public ValueTask ObserveAsync(
+            BaseRestoreResult restore,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Observed.Add(restore);
+            return throwAfterObservation
+                ? ValueTask.FromException(new InvalidOperationException("hostile observer"))
+                : ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class CancelingRestoreObserver : IBaseCommittedRestoreObserver
+    {
+        internal List<BaseRestoreResult> Observed { get; } = [];
+
+        public ValueTask ObserveAsync(
+            BaseRestoreResult restore,
+            CancellationToken cancellationToken = default)
+        {
+            Observed.Add(restore);
+            return ValueTask.FromCanceled(new CancellationToken(canceled: true));
+        }
+    }
+
+    private sealed class TimingOutRestoreObserver : IBaseCommittedRestoreObserver
+    {
+        internal List<BaseRestoreResult> Observed { get; } = [];
+
+        public async ValueTask ObserveAsync(
+            BaseRestoreResult restore,
+            CancellationToken cancellationToken = default)
+        {
+            Observed.Add(restore);
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
         }
     }
 
@@ -815,7 +910,7 @@ public sealed class ApplicationHostBuilderTests
     }
 
     [Fact]
-    public void RequiredPhysicalIndexesInstallOnlyOnCapableProviders()
+    public async Task RequiredPhysicalIndexesInitializeOnBothCertifiedBuiltInProviders()
     {
         var required = HPD.Base.BaseCollection.Define(
             "required.projects",
@@ -823,17 +918,21 @@ public sealed class ApplicationHostBuilderTests
             schema =>
             {
                 schema.String("organization-id", "OrganizationId", ProjectProperty("organizationId")).Required();
-                schema.Index("organization", "organization-id").Required();
+                schema.Index("organization", 1, index => index.Part(ProjectProperty("organizationId")).StoreRequired());
             });
 
-        Action register = () => new ServiceCollection().AddHPDBase(
-            builder => builder.UseStore(SqliteStore.Configure()).AddCollection(required));
-        register.Should().NotThrow();
+        var sqliteServices = new ServiceCollection();
+        sqliteServices.AddHPDBase(builder => builder
+            .UseStore(SqliteStore.Configure()).AddCollection(required));
+        await using ServiceProvider sqlite = sqliteServices.BuildServiceProvider();
+        sqlite.GetRequiredService<HPDBaseInstalledFeatures>().StoreProvider
+            .LogicalIndexes.Supported.Should().BeTrue();
 
-        Action defaultRegister = () => new ServiceCollection().AddHPDBase(
-            builder => builder.AddCollection(required));
-        defaultRegister.Should().Throw<InvalidOperationException>()
-            .WithMessage("*cannot be installed*InMemory*");
+        var inMemoryServices = new ServiceCollection();
+        inMemoryServices.AddHPDBase(builder => builder.AddCollection(required));
+        await using (ServiceProvider inMemory = inMemoryServices.BuildServiceProvider())
+            (await inMemory.GetRequiredService<IHPDBaseApplication>().InitializeAsync())
+                .Status.Should().Be(OperationStatus.Ok);
     }
 
     [Fact]

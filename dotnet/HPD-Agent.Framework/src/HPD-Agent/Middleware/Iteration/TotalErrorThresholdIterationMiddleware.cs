@@ -246,6 +246,8 @@ public class TotalErrorThresholdMiddleware : IAgentMiddleware
 /// Event emitted when total error threshold is exceeded.
 /// Used for observability and telemetry.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("TOTAL_ERROR_THRESHOLD_EXCEEDED")]
 public record TotalErrorThresholdExceededEvent(
     string AgentName,
     int TotalErrorCount,

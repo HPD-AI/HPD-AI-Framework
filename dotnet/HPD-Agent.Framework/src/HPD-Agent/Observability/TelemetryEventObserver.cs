@@ -272,12 +272,12 @@ public class TelemetryEventObserver : IDisposable
             case ContainerExpandedEvent e:
                 _containerExpansions.Add(1,
                     new KeyValuePair<string, object?>("container.name", e.ContainerName),
-                    new KeyValuePair<string, object?>("container.type", e.Type.ToString()),
+                    new KeyValuePair<string, object?>("container.type", e.ContainerType.ToString()),
                     new KeyValuePair<string, object?>("unlocked.count", e.UnlockedFunctions.Count));
 
                 _containerMemberCountHistogram.Record(e.UnlockedFunctions.Count,
                     new KeyValuePair<string, object?>("container.name", e.ContainerName),
-                    new KeyValuePair<string, object?>("container.type", e.Type.ToString()));
+                    new KeyValuePair<string, object?>("container.type", e.ContainerType.ToString()));
                 break;
 
             case FunctionRetryEvent e:
@@ -383,32 +383,38 @@ public class TelemetryEventObserver : IDisposable
 
     private void RecordTurnUsage(MessageTurnFinishedEvent evt)
     {
-        var usage = evt.Usage;
-        if (usage is null)
-            return;
-
-        var tags = new KeyValuePair<string, object?>[]
+        foreach (var operation in evt.Usage.Operations)
         {
-            new("agent.id", evt.AgentId),
-            new("agent.name", evt.AgentName)
-        };
+            var usage = operation.Usage;
+            if (usage is null)
+                continue;
 
-        RecordIfPresent(_usageInputTokensHistogram, usage.InputTokenCount, tags);
-        RecordIfPresent(_usageOutputTokensHistogram, usage.OutputTokenCount, tags);
-        RecordIfPresent(_usageCachedInputTokensHistogram, usage.CachedInputTokenCount, tags);
-        RecordIfPresent(_usageReasoningTokensHistogram, usage.ReasoningTokenCount, tags);
-        RecordIfPresent(_usageInputAudioTokensHistogram, usage.InputAudioTokenCount, tags);
-        RecordIfPresent(_usageInputTextTokensHistogram, usage.InputTextTokenCount, tags);
-        RecordIfPresent(_usageOutputAudioTokensHistogram, usage.OutputAudioTokenCount, tags);
-        RecordIfPresent(_usageOutputTextTokensHistogram, usage.OutputTextTokenCount, tags);
+            var tags = new KeyValuePair<string, object?>[]
+            {
+                new("agent.id", evt.AgentId),
+                new("agent.name", evt.AgentName),
+                new("provider.family", operation.Family.ToString()),
+                new("provider.key", operation.ProviderKey),
+                new("model.id", operation.ModelId),
+                new("provider.operation.kind", operation.OperationKind.ToString()),
+                new("provider.operation.outcome", operation.Outcome.ToString())
+            };
 
-        var totalTokens = usage.TotalTokenCount;
-        if (totalTokens is null && (usage.InputTokenCount.HasValue || usage.OutputTokenCount.HasValue))
-        {
-            totalTokens = (usage.InputTokenCount ?? 0) + (usage.OutputTokenCount ?? 0);
+            RecordIfPresent(_usageInputTokensHistogram, usage.InputTokenCount, tags);
+            RecordIfPresent(_usageOutputTokensHistogram, usage.OutputTokenCount, tags);
+            RecordIfPresent(_usageCachedInputTokensHistogram, usage.CachedInputTokenCount, tags);
+            RecordIfPresent(_usageReasoningTokensHistogram, usage.ReasoningTokenCount, tags);
+            RecordIfPresent(_usageInputAudioTokensHistogram, usage.InputAudioTokenCount, tags);
+            RecordIfPresent(_usageInputTextTokensHistogram, usage.InputTextTokenCount, tags);
+            RecordIfPresent(_usageOutputAudioTokensHistogram, usage.OutputAudioTokenCount, tags);
+            RecordIfPresent(_usageOutputTextTokensHistogram, usage.OutputTextTokenCount, tags);
+
+            var totalTokens = usage.TotalTokenCount;
+            if (totalTokens is null && (usage.InputTokenCount.HasValue || usage.OutputTokenCount.HasValue))
+                totalTokens = (usage.InputTokenCount ?? 0) + (usage.OutputTokenCount ?? 0);
+
+            RecordIfPresent(_usageTotalTokensHistogram, totalTokens, tags);
         }
-
-        RecordIfPresent(_usageTotalTokensHistogram, totalTokens, tags);
     }
 
     private static void RecordIfPresent(

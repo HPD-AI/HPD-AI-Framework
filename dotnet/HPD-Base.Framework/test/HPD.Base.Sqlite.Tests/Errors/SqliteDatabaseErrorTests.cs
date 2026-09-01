@@ -15,7 +15,7 @@ public sealed class SqliteDatabaseErrorTests
         try
         {
             var setup = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path });
-            var created = await setup.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("seed"), Payload = Payload("seed") }, Operation(BaseOperationKind.Create));
+            var created = await setup.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = RecordId.Create("seed"), Payload = Payload("seed") }, Operation(BaseOperationKind.Create));
             created.Status.Should().Be(OperationStatus.Created);
 
             await using var lockConnection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString());
@@ -25,7 +25,7 @@ public sealed class SqliteDatabaseErrorTests
             await lockCommand.ExecuteNonQueryAsync();
 
             var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path, BusyTimeout = TimeSpan.FromMilliseconds(1), CommandTimeout = TimeSpan.FromSeconds(1) }, initializeSchema: false);
-            var result = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("blocked"), Payload = Payload("blocked") }, Operation(BaseOperationKind.Create));
+            var result = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = RecordId.Create("blocked"), Payload = Payload("blocked") }, Operation(BaseOperationKind.Create));
 
             result.Status.Should().Be(OperationStatus.Conflict);
             result.Error!.Code.Should().Be(BaseMutationErrorCodes.TransactionConflict);
@@ -47,7 +47,7 @@ public sealed class SqliteDatabaseErrorTests
         {
             await File.WriteAllTextAsync(path, "not sqlite");
             var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path }, initializeSchema: false);
-            var result = await store.GetAsync(Collection(), new RecordId("one"), Operation(BaseOperationKind.Get));
+            var result = await store.GetAsync(Collection(), RecordId.Create("one"), Operation(BaseOperationKind.Get));
 
             result.Status.Should().Be(OperationStatus.StoreError);
             result.Error!.Code.Should().BeOneOf("sqlite.database.corrupt", "sqlite.database.unavailable");
@@ -67,7 +67,7 @@ public sealed class SqliteDatabaseErrorTests
         var path = Path.Combine(Path.GetTempPath(), "hpd-base-sqlite-missing-" + Guid.NewGuid().ToString("N"), "store.db");
         var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path }, initializeSchema: false);
 
-        var result = await store.GetAsync(Collection(), new RecordId("one"), Operation(BaseOperationKind.Get));
+        var result = await store.GetAsync(Collection(), RecordId.Create("one"), Operation(BaseOperationKind.Get));
 
         result.Status.Should().Be(OperationStatus.StoreError);
         result.Error!.Code.Should().Be("sqlite.database.cantOpen");

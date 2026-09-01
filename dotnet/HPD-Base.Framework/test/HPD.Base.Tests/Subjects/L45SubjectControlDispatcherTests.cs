@@ -43,7 +43,7 @@ public sealed class L45SubjectControlDispatcherTests
                     OccurredAt = DateTimeOffset.UnixEpoch,
                     Operation = BaseOperationKind.Patch,
                     CollectionId = "records",
-                    RecordId = new RecordId("one"),
+                    RecordId = RecordId.Create("one"),
                 },
             },
             Entry(3, 1, 2, BaseSubjectAuthorityPublicationKind.EpochRotation),

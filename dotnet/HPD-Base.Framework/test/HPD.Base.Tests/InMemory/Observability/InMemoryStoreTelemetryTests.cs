@@ -21,11 +21,11 @@ public sealed class InMemoryStoreTelemetryTests
             collection,
             new RecordCreateRequest
             {
-                RequestedId = new RecordId("rec_secret"),
+                RequestedId = RecordId.Create("rec_secret"),
                 Payload = InMemoryTestData.Payload(("title", "payload-secret"))
             },
             context);
-        await store.GetAsync(collection, new RecordId("rec_secret"), InMemoryTestData.Operation(BaseOperationKind.Get));
+        await store.GetAsync(collection, RecordId.Create("rec_secret"), InMemoryTestData.Operation(BaseOperationKind.Get));
         await store.ListAsync(
             collection,
             new RecordQuery

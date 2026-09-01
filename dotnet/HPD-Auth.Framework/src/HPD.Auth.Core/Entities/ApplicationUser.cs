@@ -7,7 +7,7 @@ namespace HPD.Auth.Core.Entities;
 /// <summary>
 /// HPD user entity extending ASP.NET Core Identity.
 /// v2.2: Enhanced with multi-tenancy primitives ("Sleeper Cells"), JSONB metadata,
-///       RequiredActions workflow, and -compatible EmailConfirmedAt.
+///       RequiredActions workflow, and an explicit EmailConfirmedAt timestamp.
 /// </summary>
 public class ApplicationUser : IdentityUser<Guid>
 {
@@ -22,7 +22,7 @@ public class ApplicationUser : IdentityUser<Guid>
     public Guid InstanceId { get; set; } = Guid.Empty;
 
     /// <summary>
-    /// Authorization scope ( pattern).
+    /// Authorization scope used to bind tokens to an application audience.
     /// Used to scope tokens to specific apps within a tenant.
     /// Examples: "authenticated", "admin_portal", "mobile_app"
     /// </summary>
@@ -30,7 +30,7 @@ public class ApplicationUser : IdentityUser<Guid>
     public string? Audience { get; set; }
 
     // ─────────────────────────────────────────────────────────────
-    // v2.2: JSONB Metadata ( Pattern)
+    // v2.2: Structured Metadata
     // ─────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -50,7 +50,7 @@ public class ApplicationUser : IdentityUser<Guid>
     public string AppMetadata { get; set; } = "{}";
 
     // ─────────────────────────────────────────────────────────────
-    // v2.2: Workflow Engine ( Pattern)
+    // v2.2: Required-Action Workflow
     // ─────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -111,12 +111,12 @@ public class ApplicationUser : IdentityUser<Guid>
     public string SubscriptionTier { get; set; } = "free";
 
     // ─────────────────────────────────────────────────────────────
-    // -Compatible Token Response
+    // Token Response Metadata
     // ─────────────────────────────────────────────────────────────
 
     /// <summary>
     /// Timestamp when the user's email was confirmed.
-    /// Used to construct -compatible token responses with confirmed_at.
+    /// Used to construct token responses with confirmed_at.
     /// </summary>
     public DateTime? EmailConfirmedAt { get; set; }
 

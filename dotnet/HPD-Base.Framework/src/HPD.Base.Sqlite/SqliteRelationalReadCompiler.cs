@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Text;
 using Microsoft.Data.Sqlite;
@@ -12,12 +13,14 @@ internal sealed class SqliteRelationalReadCompiler(
 {
     private readonly Dictionary<string, BaseRelationalParameterValue> _parameters =
         request.ParameterValues.ToDictionary(static value => value.ParameterId, StringComparer.Ordinal);
+    private readonly Dictionary<string, BaseRelationalReadParameter> _parameterDefinitions =
+        request.Plan.Parameters.ToDictionary(static value => value.Id, StringComparer.Ordinal);
     private readonly Dictionary<string, BaseRelationalReadSourcePolicy> _policies =
         request.SourcePolicies.ToDictionary(static value => value.SourceId, StringComparer.Ordinal);
     private readonly Dictionary<string, Source> _sources = request.Plan.Sources
         .Select((source, index) => new Source(source, physical.Collection(source.CollectionId), "s" + index.ToString(CultureInfo.InvariantCulture)))
         .ToDictionary(static source => source.Definition.Id, StringComparer.Ordinal);
-    private readonly List<(string Name, QueryValue Value)> _bound = [];
+    private readonly List<(string Name, QueryValue Value, bool Binary)> _bound = [];
     private readonly Dictionary<BaseRelationalOperand, SubjectJoin> _subjectJoins = [];
 
     internal CompiledRead Compile()
@@ -76,7 +79,15 @@ internal sealed class SqliteRelationalReadCompiler(
         string count = "SELECT COUNT(*) FROM (" + core + ") counted";
         string page = core + order + " LIMIT $__limit OFFSET $__offset";
         return new CompiledRead(count, page, _bound.ToArray(), plan.Projection.Select(item => Kind(item.Operand, plan)).ToArray(),
-            plan.Projection.Select(item => item.Operand.Kind == BaseRelationalOperandKind.SubjectReference ? _subjectJoins[item.Operand].Definition : null).ToArray(),
+            plan.Projection.Select(item => BinaryOperand(item.Operand)).ToArray(),
+            plan.Projection.Select(item => item.Operand.Kind switch
+            {
+                BaseRelationalOperandKind.SubjectReference => _subjectJoins[item.Operand].Definition,
+                BaseRelationalOperandKind.StoredSubjectReference => subjects.Single(subject =>
+                    string.Equals(subject.Id, item.Operand.SubjectContractId, StringComparison.Ordinal)
+                    && subject.Version == item.Operand.SubjectContractVersion),
+                _ => null,
+            }).ToArray(),
             plan.Projection.Select(static item => item.FieldId).ToArray());
     }
 
@@ -99,6 +110,8 @@ internal sealed class SqliteRelationalReadCompiler(
     {
         BaseRelationalOperand left = Required(node.Left);
         BaseRelationalOperand right = Required(node.Right);
+        if (node.Operator is FilterOperator.Contains or FilterOperator.StartsWith or FilterOperator.EndsWith)
+            return StringPredicate(node.Operator, left, right, plan);
         string operation = node.Operator switch
         {
             FilterOperator.Equal => " IS ",
@@ -108,13 +121,35 @@ internal sealed class SqliteRelationalReadCompiler(
         return Present(left) + " AND " + Present(right) + " AND " + Operand(left, plan) + operation + Operand(right, plan);
     }
 
+    private string StringPredicate(
+        FilterOperator operation,
+        BaseRelationalOperand left,
+        BaseRelationalOperand right,
+        BaseRelationalReadPlan plan)
+    {
+        string leftSql = Operand(left, plan);
+        string rightSql = Operand(right, plan);
+        string comparison = operation switch
+        {
+            FilterOperator.Contains => $"instr({leftSql},{rightSql}) > 0",
+            FilterOperator.StartsWith => $"instr({leftSql},{rightSql}) = 1",
+            FilterOperator.EndsWith => $"(length({rightSql}) = 0 OR substr({leftSql},-length({rightSql})) IS {rightSql})",
+            _ => throw new InvalidOperationException(),
+        };
+        return Present(left) + " AND " + Present(right) + " AND " + comparison;
+    }
+
     private string In(BaseRelationalPredicate node, BaseRelationalReadPlan plan)
     {
         BaseRelationalOperand left = Required(node.Left);
         QueryValue[] values = ArrayValues(Required(node.Right));
         QueryValue[] nonNull = values.Where(static value => value.Kind != QueryValueKind.Null).ToArray();
         var branches = new List<string>();
-        if (nonNull.Length != 0) branches.Add(Operand(left, plan) + " IN (" + string.Join(",", nonNull.Select(Bind)) + ")");
+        if (nonNull.Length != 0)
+        {
+            bool binary = BinaryOperand(left) || BinaryOperand(Required(node.Right));
+            branches.Add(Operand(left, plan) + " IN (" + string.Join(",", nonNull.Select(value => Bind(value, binary))) + ")");
+        }
         if (values.Any(static value => value.Kind == QueryValueKind.Null)) branches.Add(Operand(left, plan) + " IS NULL");
         return Present(left) + " AND " + Present(Required(node.Right)) + " AND (" + (branches.Count == 0 ? "1=0" : string.Join(" OR ", branches)) + ")";
     }
@@ -123,7 +158,8 @@ internal sealed class SqliteRelationalReadCompiler(
     {
         QueryValue[] values = ArrayValues(Required(node.Right));
         if (values.Length != 2) throw new InvalidOperationException();
-        return Present(Required(node.Left)) + " AND " + Present(Required(node.Right)) + " AND " + Operand(Required(node.Left), plan) + " BETWEEN " + Bind(values[0]) + " AND " + Bind(values[1]);
+        bool binary = BinaryOperand(Required(node.Left)) || BinaryOperand(Required(node.Right));
+        return Present(Required(node.Left)) + " AND " + Present(Required(node.Right)) + " AND " + Operand(Required(node.Left), plan) + " BETWEEN " + Bind(values[0], binary) + " AND " + Bind(values[1], binary);
     }
 
     private QueryValue[] ArrayValues(BaseRelationalOperand operand) => operand.Kind switch
@@ -144,7 +180,7 @@ internal sealed class SqliteRelationalReadCompiler(
         FilterNodeKind.IsDefined => FieldPresent(source, Required(node.Field)),
         FilterNodeKind.Compare => PolicyComparison(node, source),
         FilterNodeKind.In => PolicyIn(node, source),
-        FilterNodeKind.Between when node.Values is { Length: 2 } => FieldPresent(source, Required(node.Field)) + " AND " + Field(source, Required(node.Field)) + " BETWEEN " + Bind(node.Values[0]) + " AND " + Bind(node.Values[1]),
+        FilterNodeKind.Between when node.Values is { Length: 2 } => FieldPresent(source, Required(node.Field)) + " AND " + Field(source, Required(node.Field)) + " BETWEEN " + Bind(node.Values[0], BinaryField(source, Required(node.Field))) + " AND " + Bind(node.Values[1], BinaryField(source, Required(node.Field))),
         _ => throw new InvalidOperationException(),
     };
 
@@ -158,7 +194,7 @@ internal sealed class SqliteRelationalReadCompiler(
             FilterOperator.NotEqual => " IS NOT ",
             _ => Compare(node.Operator),
         };
-        return FieldPresent(source, fieldId) + " AND " + Field(source, fieldId) + operation + Bind(value);
+        return FieldPresent(source, fieldId) + " AND " + Field(source, fieldId) + operation + Bind(value, BinaryField(source, fieldId));
     }
 
     private string PolicyIn(FilterExpression node, Source source)
@@ -167,7 +203,7 @@ internal sealed class SqliteRelationalReadCompiler(
         QueryValue[] values = node.Values ?? throw new InvalidOperationException();
         QueryValue[] nonNull = values.Where(static value => value.Kind != QueryValueKind.Null).ToArray();
         var branches = new List<string>();
-        if (nonNull.Length != 0) branches.Add(Field(source, fieldId) + " IN (" + string.Join(",", nonNull.Select(Bind)) + ")");
+        if (nonNull.Length != 0) branches.Add(Field(source, fieldId) + " IN (" + string.Join(",", nonNull.Select(value => Bind(value, BinaryField(source, fieldId)))) + ")");
         if (values.Any(static value => value.Kind == QueryValueKind.Null)) branches.Add(Field(source, fieldId) + " IS NULL");
         return FieldPresent(source, fieldId) + " AND (" + (branches.Count == 0 ? "1=0" : string.Join(" OR ", branches)) + ")";
     }
@@ -175,11 +211,15 @@ internal sealed class SqliteRelationalReadCompiler(
     private string Operand(BaseRelationalOperand operand, BaseRelationalReadPlan plan) => operand.Kind switch
     {
         BaseRelationalOperandKind.RecordId => _sources[Required(operand.SourceId)].Alias + ".record_id",
+        BaseRelationalOperandKind.RecordRevision => "('sqlite:' || CAST(" + _sources[Required(operand.SourceId)].Alias + ".revision AS TEXT))",
         BaseRelationalOperandKind.SourceField => Field(_sources[Required(operand.SourceId)], Required(operand.FieldId)),
-        BaseRelationalOperandKind.Parameter => Bind(_parameters[Required(operand.ParameterId)].Value),
+        BaseRelationalOperandKind.Parameter => Bind(
+            _parameters[Required(operand.ParameterId)].Value,
+            _parameterDefinitions[Required(operand.ParameterId)].MaximumBinaryBytes is not null),
         BaseRelationalOperandKind.Literal => Bind(Required(operand.Literal)),
         BaseRelationalOperandKind.Aggregate => Aggregate(plan.Aggregates.Single(item => item.Id == operand.AggregateId), plan),
         BaseRelationalOperandKind.SubjectReference => SubjectReference(_subjectJoins[operand], _sources[Required(operand.SourceId)]),
+        BaseRelationalOperandKind.StoredSubjectReference => Field(_sources[Required(operand.SourceId)], Required(operand.FieldId)),
         _ => throw new InvalidOperationException(),
     };
 
@@ -206,11 +246,13 @@ internal sealed class SqliteRelationalReadCompiler(
     private QueryValueKind Kind(BaseRelationalOperand operand, BaseRelationalReadPlan plan) => operand.Kind switch
     {
         BaseRelationalOperandKind.RecordId => QueryValueKind.Id,
+        BaseRelationalOperandKind.RecordRevision => QueryValueKind.String,
         BaseRelationalOperandKind.SourceField => FieldKind(_sources[Required(operand.SourceId)].Collection.Fields.Single(item => item.Definition.Id == operand.FieldId).Definition),
         BaseRelationalOperandKind.Parameter => _parameters[Required(operand.ParameterId)].Value.Kind,
         BaseRelationalOperandKind.Literal => Required(operand.Literal).Kind,
         BaseRelationalOperandKind.Aggregate => AggregateKind(plan.Aggregates.Single(item => item.Id == operand.AggregateId), plan),
         BaseRelationalOperandKind.SubjectReference => QueryValueKind.SubjectReference,
+        BaseRelationalOperandKind.StoredSubjectReference => QueryValueKind.SubjectReference,
         _ => throw new InvalidOperationException(),
     };
 
@@ -230,7 +272,13 @@ internal sealed class SqliteRelationalReadCompiler(
         _ => Kind(Required(aggregate.Operand), plan),
     };
 
-    private static QueryValueKind FieldKind(FieldDefinition field) => field.Format == "date-time"
+    private static QueryValueKind FieldKind(FieldDefinition field) => field.ScalarKind is BaseScalarKind.Guid or BaseScalarKind.RecordId
+        ? QueryValueKind.Id
+        : field.ScalarKind == BaseScalarKind.CanonicalJson
+        ? QueryValueKind.CanonicalJson
+        : field.ScalarKind == BaseScalarKind.ModuleGeneration
+        ? QueryValueKind.String
+        : field.Format == "date-time"
         ? QueryValueKind.DateTime
         : field.Type switch
     {
@@ -253,7 +301,7 @@ internal sealed class SqliteRelationalReadCompiler(
     private string BindText(string value)
     {
         string name = "$s" + _bound.Count.ToString(CultureInfo.InvariantCulture);
-        _bound.Add((name, new QueryValue { Kind = QueryValueKind.String, String = value }));
+        _bound.Add((name, new QueryValue { Kind = QueryValueKind.String, String = value }, false));
         return name;
     }
     private string FieldPresent(Source source, string fieldId)
@@ -265,9 +313,19 @@ internal sealed class SqliteRelationalReadCompiler(
     {
         BaseRelationalOperandKind.SourceField => FieldPresent(_sources[Required(operand.SourceId)], Required(operand.FieldId)),
         BaseRelationalOperandKind.RecordId => _sources[Required(operand.SourceId)].Alias + ".record_id IS NOT NULL",
+        BaseRelationalOperandKind.RecordRevision => _sources[Required(operand.SourceId)].Alias + ".revision IS NOT NULL",
         _ => "1=1",
     };
-    private string Bind(QueryValue value) { string name = "$r" + _bound.Count.ToString(CultureInfo.InvariantCulture); _bound.Add((name, value)); return name; }
+    private string Bind(QueryValue value, bool binary = false) { string name = "$r" + _bound.Count.ToString(CultureInfo.InvariantCulture); _bound.Add((name, value, binary)); return name; }
+    private bool BinaryOperand(BaseRelationalOperand operand) => operand.Kind switch
+    {
+        BaseRelationalOperandKind.SourceField => _sources[Required(operand.SourceId)].Collection.Fields
+            .Single(item => item.Definition.Id == operand.FieldId).Definition.ScalarKind == BaseScalarKind.Binary,
+        BaseRelationalOperandKind.Parameter => _parameterDefinitions[Required(operand.ParameterId)].MaximumBinaryBytes is not null,
+        _ => false,
+    };
+    private static bool BinaryField(Source source, string fieldId) => source.Collection.Fields
+        .Single(item => item.Definition.Id == fieldId).Definition.ScalarKind == BaseScalarKind.Binary;
     private string JoinChildren(BaseRelationalPredicate[]? children, string separator, BaseRelationalReadPlan plan) => "(" + string.Join(separator, (children ?? throw new InvalidOperationException()).Select(child => Predicate(child, plan))) + ")";
     private string JoinPolicy(FilterExpression[]? children, string separator, Source source) => "(" + string.Join(separator, (children ?? throw new InvalidOperationException()).Select(child => Policy(child, source))) + ")";
     private static string Compare(FilterOperator operation) => operation switch { FilterOperator.Equal => " = ", FilterOperator.NotEqual => " <> ", FilterOperator.LessThan => " < ", FilterOperator.LessThanOrEqual => " <= ", FilterOperator.GreaterThan => " > ", FilterOperator.GreaterThanOrEqual => " >= ", _ => throw new InvalidOperationException() };
@@ -282,28 +340,44 @@ internal sealed class SqliteRelationalReadCompiler(
 internal sealed record CompiledRead(
         string CountSql,
         string PageSql,
-        (string Name, QueryValue Value)[] Parameters,
+        (string Name, QueryValue Value, bool Binary)[] Parameters,
         QueryValueKind[] Kinds,
+        bool[] BinaryOutputs,
         BaseExportedSubjectDefinition?[] SubjectDefinitions,
         string[] FieldIds)
     {
         internal void Bind(SqliteCommand command)
         {
-            foreach ((string name, QueryValue value) in Parameters)
-                command.Parameters.AddWithValue(name, Native(value));
+            foreach ((string name, QueryValue value, bool binary) in Parameters)
+                command.Parameters.AddWithValue(name, Native(value, binary));
         }
 
         internal BaseRelationalRow ReadRow(SqliteDataReader reader)
         {
             var fields = new BaseRelationalFieldValue[FieldIds.Length];
             for (int index = 0; index < fields.Length; index++)
-                fields[index] = new BaseRelationalFieldValue { FieldId = FieldIds[index], Value = ReadValue(reader, index, Kinds[index], SubjectDefinitions[index]) };
+                fields[index] = new BaseRelationalFieldValue { FieldId = FieldIds[index], Value = ReadValue(reader, index, Kinds[index], BinaryOutputs[index], SubjectDefinitions[index]) };
             return new BaseRelationalRow { Fields = fields };
         }
     }
 
-    internal static int EstimateBytes(BaseRelationalRow row) => row.Fields.Sum(field => field.FieldId.Length * 2 + ValueText(field.Value).Length * 2 + 16);
-    private static object Native(QueryValue value) => value.Kind switch
+    internal static long EstimateBytes(BaseRelationalRow row)
+    {
+        long bytes = 0;
+        foreach (BaseRelationalFieldValue field in row.Fields)
+            bytes = checked(bytes + (long)field.FieldId.Length * 2 +
+                (field.Value.Kind == QueryValueKind.CanonicalJson
+                    ? field.Value.CanonicalJsonUtf8.Length
+                    : (long)ValueText(field.Value).Length * 2) + 16);
+        return bytes;
+    }
+    private static object Native(QueryValue value, bool binary)
+    {
+        if (binary)
+            return value.Kind == QueryValueKind.Null
+                ? DBNull.Value
+                : BaseBinary.FromBase64(value.String ?? throw new InvalidOperationException()).ToArray();
+        return value.Kind switch
     {
         QueryValueKind.Null => DBNull.Value,
         QueryValueKind.String => value.String!,
@@ -313,12 +387,16 @@ internal sealed record CompiledRead(
         QueryValueKind.Number => value.Number!.Value,
         QueryValueKind.Decimal => value.Decimal!,
         QueryValueKind.DateTime => value.DateTime!.Value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
+        QueryValueKind.CanonicalJson => new UTF8Encoding(false, true).GetString(value.CanonicalJsonUtf8.AsSpan()),
         _ => throw new InvalidOperationException(),
     };
+    }
     private static BaseRelationalReadExecutionResult Never() => throw new InvalidOperationException();
-    private static QueryValue ReadValue(SqliteDataReader reader, int ordinal, QueryValueKind kind, BaseExportedSubjectDefinition? subject)
+    private static QueryValue ReadValue(SqliteDataReader reader, int ordinal, QueryValueKind kind, bool binary, BaseExportedSubjectDefinition? subject)
     {
         if (reader.IsDBNull(ordinal)) return new QueryValue { Kind = QueryValueKind.Null };
+        if (binary)
+            return new QueryValue { Kind = QueryValueKind.String, String = Convert.ToBase64String((byte[])reader.GetValue(ordinal)) };
         return kind switch
         {
             QueryValueKind.Boolean => new QueryValue { Kind = kind, Boolean = Convert.ToInt64(reader.GetValue(ordinal), CultureInfo.InvariantCulture) != 0 },
@@ -328,6 +406,11 @@ internal sealed record CompiledRead(
             QueryValueKind.DateTime => new QueryValue { Kind = kind, DateTime = DateTimeOffset.Parse(Convert.ToString(reader.GetValue(ordinal), CultureInfo.InvariantCulture)!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind) },
             QueryValueKind.Id => new QueryValue { Kind = kind, Id = Convert.ToString(reader.GetValue(ordinal), CultureInfo.InvariantCulture) },
             QueryValueKind.SubjectReference => ReadSubjectReference(Convert.ToString(reader.GetValue(ordinal), CultureInfo.InvariantCulture)!, subject!),
+            QueryValueKind.CanonicalJson => new QueryValue
+            {
+                Kind = kind,
+                CanonicalJsonUtf8 = ImmutableArray.Create(BaseStrictUtf8.Encode(Convert.ToString(reader.GetValue(ordinal), CultureInfo.InvariantCulture)!)),
+            },
             _ => new QueryValue { Kind = QueryValueKind.String, String = Convert.ToString(reader.GetValue(ordinal), CultureInfo.InvariantCulture) },
         };
     }
@@ -335,18 +418,28 @@ internal sealed record CompiledRead(
     {
         using System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(json);
         System.Text.Json.JsonElement root = document.RootElement;
-        byte[] epoch = Convert.FromHexString(root.GetProperty("authorityEpochHex").GetString()!);
-        byte[] incarnation = Convert.FromHexString(root.GetProperty("incarnationHex").GetString()!);
+        string epoch = root.TryGetProperty("authorityEpochHex", out System.Text.Json.JsonElement epochHex)
+            ? BaseSubjectReferenceEncoding.Encode(Convert.FromHexString(epochHex.GetString()!))
+            : root.GetProperty("authorityEpoch").GetString()!;
+        string incarnation = root.TryGetProperty("incarnationHex", out System.Text.Json.JsonElement incarnationHex)
+            ? BaseSubjectReferenceEncoding.Encode(Convert.FromHexString(incarnationHex.GetString()!))
+            : root.GetProperty("incarnation").GetString()!;
+        BaseSubjectId subjectId = BaseSubjectId.Create(
+            root.GetProperty("subjectId").GetString()!, definition.SubjectIdKind, definition.MaximumSubjectIdUtf8Bytes);
+        BaseSubjectAuthorityEpoch authorityEpoch = BaseSubjectAuthorityEpoch.Parse(epoch);
+        BaseSubjectIncarnation subjectIncarnation = BaseSubjectIncarnation.Parse(incarnation);
+        if (root.EnumerateObject().Count() != 3)
+            throw new InvalidOperationException(BaseSubjectErrorCodes.ReferenceInvalid);
         return new QueryValue
         {
             Kind = QueryValueKind.SubjectReference,
-            SubjectId = root.GetProperty("subjectId").GetString(),
+            SubjectId = new string(subjectId.Value.AsSpan()),
             SubjectIdKind = definition.SubjectIdKind,
             SubjectIdMaximumUtf8Bytes = definition.MaximumSubjectIdUtf8Bytes,
-            SubjectAuthorityEpoch = BaseSubjectReferenceEncoding.Encode(epoch),
-            SubjectIncarnation = BaseSubjectReferenceEncoding.Encode(incarnation),
+            SubjectAuthorityEpoch = authorityEpoch.ToBase64Url(),
+            SubjectIncarnation = subjectIncarnation.ToBase64Url(),
         };
     }
     private static string ValueText(QueryValue value) => value.Kind switch
-    { QueryValueKind.Null => "", QueryValueKind.String => value.String ?? "", QueryValueKind.Id => value.Id ?? "", QueryValueKind.Boolean => value.Boolean?.ToString() ?? "", QueryValueKind.Integer => value.Integer?.ToString(CultureInfo.InvariantCulture) ?? "", QueryValueKind.Number => value.Number?.ToString("R", CultureInfo.InvariantCulture) ?? "", QueryValueKind.Decimal => value.Decimal ?? "", QueryValueKind.DateTime => value.DateTime?.ToString("O", CultureInfo.InvariantCulture) ?? "", _ => "" };
+    { QueryValueKind.Null => "", QueryValueKind.String => value.String ?? "", QueryValueKind.Id => value.Id ?? "", QueryValueKind.Boolean => value.Boolean?.ToString() ?? "", QueryValueKind.Integer => value.Integer?.ToString(CultureInfo.InvariantCulture) ?? "", QueryValueKind.Number => value.Number?.ToString("R", CultureInfo.InvariantCulture) ?? "", QueryValueKind.Decimal => value.Decimal ?? "", QueryValueKind.DateTime => value.DateTime?.ToString("O", CultureInfo.InvariantCulture) ?? "", QueryValueKind.CanonicalJson => value.CanonicalJsonUtf8.IsDefault ? "" : Convert.ToBase64String(value.CanonicalJsonUtf8.AsSpan()), _ => "" };
 }

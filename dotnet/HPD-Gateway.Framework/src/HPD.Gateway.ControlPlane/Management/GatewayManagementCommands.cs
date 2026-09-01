@@ -384,7 +384,7 @@ internal sealed class GatewayManagementCommandCoordinator(
                 .Collection(GatewayCommandReceipt.Collection).GetAsync(receiptId, cancellationToken).ConfigureAwait(false);
             if (priorReceiptResult.TryGetValue(out BaseRecord<GatewayCommandReceipt>? priorReceipt))
             {
-                if (!CryptographicOperations.FixedTimeEquals(fingerprint, priorReceipt!.Value.Fingerprint))
+                if (!CryptographicOperations.FixedTimeEquals(fingerprint, priorReceipt!.Value.Fingerprint.ToArray()))
                     return new(GatewayManagementCommandState.Conflict, "management.idempotency-key.reused");
                 return new(
                     GatewayManagementCommandState.Duplicate,
@@ -417,7 +417,7 @@ internal sealed class GatewayManagementCommandCoordinator(
                 TargetNodeId = command.TargetNodeId,
                 Outcome = GatewayValidationOutcome.Valid,
                 ContentHashValue = canonical.ContentHash.Value,
-                DiagnosticsJson = "[]"u8.ToArray(),
+                DiagnosticsJson = BaseBinary.From("[]"u8),
                 CorrelationId = command.CorrelationId,
             });
             batch.Create(GatewayAcceptedRevision.Collection, revisionId, new GatewayAcceptedRevision
@@ -426,7 +426,7 @@ internal sealed class GatewayManagementCommandCoordinator(
                 TargetNodeId = command.TargetNodeId,
                 ContentHashAlgorithm = canonical.ContentHash.Algorithm,
                 ContentHashValue = canonical.ContentHash.Value,
-                CanonicalConfigurationUtf8 = canonical.Utf8Json.AsSpan().ToArray(),
+                CanonicalConfigurationUtf8 = BaseBinary.From(canonical.Utf8Json.AsSpan()),
                 SchemaVersion = "1.0",
                 CanonicalizationVersion = "1",
                 ParentRevisionId = desired?.Value.RevisionId,
@@ -551,7 +551,7 @@ internal sealed class GatewayManagementCommandCoordinator(
                 .Collection(GatewayCommandReceipt.Collection).GetAsync(receiptId, cancellationToken).ConfigureAwait(false);
             if (priorReceiptResult.TryGetValue(out BaseRecord<GatewayCommandReceipt>? priorReceipt))
             {
-                if (!CryptographicOperations.FixedTimeEquals(fingerprint, priorReceipt!.Value.Fingerprint))
+                if (!CryptographicOperations.FixedTimeEquals(fingerprint, priorReceipt!.Value.Fingerprint.ToArray()))
                     return new(GatewayManagementCommandState.Conflict, "management.idempotency-key.reused");
                 return new(GatewayManagementCommandState.Duplicate, "management.duplicate",
                     priorReceipt.Value.StableOperationId, priorReceipt.Value.StableDesiredStateToken,
@@ -755,7 +755,7 @@ internal sealed class GatewayManagementCommandCoordinator(
         TargetNodeId = targetNodeId,
         Operation = operation,
         IdempotencyKey = key,
-        Fingerprint = fingerprint,
+        Fingerprint = BaseBinary.From(fingerprint),
         StableResultCode = result,
         StableOperationId = operationId,
         StableRevisionId = revisionId,

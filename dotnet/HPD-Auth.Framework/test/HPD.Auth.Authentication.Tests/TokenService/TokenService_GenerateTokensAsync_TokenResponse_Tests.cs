@@ -28,7 +28,7 @@ public class TokenService_GenerateTokensAsync_TokenResponse_Tests
 
         var user     = await ServiceProviderBuilder.CreateUserAsync(scope);
         var svc      = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response = await svc.GenerateTokensAsync(user);
+        var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
 
         response.ExpiresIn.Should().Be((int)lifetime.TotalSeconds);
     }
@@ -43,7 +43,7 @@ public class TokenService_GenerateTokensAsync_TokenResponse_Tests
         var before   = DateTimeOffset.UtcNow;
         var user     = await ServiceProviderBuilder.CreateUserAsync(scope);
         var svc      = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response = await svc.GenerateTokensAsync(user);
+        var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
         var after    = DateTimeOffset.UtcNow;
 
         var expectedMin = before.AddSeconds(response.ExpiresIn - 5).ToUnixTimeSeconds();
@@ -62,7 +62,7 @@ public class TokenService_GenerateTokensAsync_TokenResponse_Tests
         using var scope = ServiceProviderBuilder.CreateScope();
         var user     = await ServiceProviderBuilder.CreateUserAsync(scope);
         var svc      = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response = await svc.GenerateTokensAsync(user);
+        var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
 
         response.TokenType.Should().Be("bearer");
     }
@@ -76,7 +76,7 @@ public class TokenService_GenerateTokensAsync_TokenResponse_Tests
         using var scope = ServiceProviderBuilder.CreateScope();
         var user     = await ServiceProviderBuilder.CreateUserAsync(scope);
         var svc      = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response = await svc.GenerateTokensAsync(user);
+        var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
 
         response.AccessToken.Should().NotBeNullOrEmpty();
     }
@@ -90,7 +90,7 @@ public class TokenService_GenerateTokensAsync_TokenResponse_Tests
         using var scope = ServiceProviderBuilder.CreateScope();
         var user     = await ServiceProviderBuilder.CreateUserAsync(scope);
         var svc      = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response = await svc.GenerateTokensAsync(user);
+        var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
 
         response.RefreshToken.Should().NotBeNullOrEmpty();
     }
@@ -104,7 +104,7 @@ public class TokenService_GenerateTokensAsync_TokenResponse_Tests
         using var scope = ServiceProviderBuilder.CreateScope();
         var user     = await ServiceProviderBuilder.CreateUserAsync(scope);
         var svc      = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response = await svc.GenerateTokensAsync(user);
+        var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
 
         response.User.Id.Should().Be(user.Id);
     }
@@ -118,7 +118,7 @@ public class TokenService_GenerateTokensAsync_TokenResponse_Tests
         using var scope = ServiceProviderBuilder.CreateScope();
         var user     = await ServiceProviderBuilder.CreateUserAsync(scope);
         var svc      = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response = await svc.GenerateTokensAsync(user);
+        var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
 
         response.User.Email.Should().Be(user.Email);
     }
@@ -135,7 +135,7 @@ public class TokenService_GenerateTokensAsync_TokenResponse_Tests
             u => u.EmailConfirmedAt = confirmedAt);
 
         var svc      = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response = await svc.GenerateTokensAsync(user);
+        var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
 
         response.User.EmailConfirmedAt.Should().Be(confirmedAt);
     }
@@ -151,7 +151,7 @@ public class TokenService_GenerateTokensAsync_TokenResponse_Tests
             u => u.EmailConfirmedAt = null);
 
         var svc      = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response = await svc.GenerateTokensAsync(user);
+        var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
 
         response.User.EmailConfirmedAt.Should().BeNull();
     }
@@ -167,7 +167,7 @@ public class TokenService_GenerateTokensAsync_TokenResponse_Tests
             u => u.UserMetadata = """{"theme":"dark"}""");
 
         var svc      = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response = await svc.GenerateTokensAsync(user);
+        var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
 
         response.User.UserMetadata.ValueKind.Should().Be(JsonValueKind.Object);
         response.User.UserMetadata.GetProperty("theme").GetString().Should().Be("dark");
@@ -184,29 +184,26 @@ public class TokenService_GenerateTokensAsync_TokenResponse_Tests
             u => u.AppMetadata = """{"plan":"pro"}""");
 
         var svc      = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response = await svc.GenerateTokensAsync(user);
+        var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
 
         response.User.AppMetadata.ValueKind.Should().Be(JsonValueKind.Object);
         response.User.AppMetadata.GetProperty("plan").GetString().Should().Be("pro");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Test 26 — Invalid JSON in UserMetadata falls back to empty object
+    // Test 26 — canonical empty metadata remains an empty object
     // ─────────────────────────────────────────────────────────────────────────
     [Fact]
-    public async Task GenerateTokensAsync_TokenResponse_User_InvalidJson_Falls_Back_To_EmptyObject()
+    public async Task GenerateTokensAsync_TokenResponse_User_EmptyMetadata_Remains_EmptyObject()
     {
         using var scope = ServiceProviderBuilder.CreateScope();
         var user = await ServiceProviderBuilder.CreateUserAsync(scope,
-            u => u.UserMetadata = "not-json");
+            u => u.UserMetadata = "{}");
 
         var svc = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        Core.Models.TokenResponse? response = null;
+        Core.Models.TokenResponse response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
 
-        Func<Task> act = async () => response = await svc.GenerateTokensAsync(user);
-        await act.Should().NotThrowAsync();
-
-        response!.User.UserMetadata.ValueKind.Should().Be(JsonValueKind.Object);
+        response.User.UserMetadata.ValueKind.Should().Be(JsonValueKind.Object);
         response.User.UserMetadata.EnumerateObject().Should().BeEmpty();
     }
 
@@ -223,7 +220,7 @@ public class TokenService_GenerateTokensAsync_TokenResponse_Tests
         });
 
         var svc      = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response = await svc.GenerateTokensAsync(user);
+        var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
 
         response.User.RequiredActions.Should().Contain("VERIFY_EMAIL");
     }
@@ -240,9 +237,10 @@ public class TokenService_GenerateTokensAsync_TokenResponse_Tests
             u => u.Created = created);
 
         var svc      = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response = await svc.GenerateTokensAsync(user);
+        var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
 
-        response.User.CreatedAt.Should().Be(created);
+        response.User.CreatedAt.Should().Be(user.Created);
+        response.User.CreatedAt.Should().BeAfter(created);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -256,7 +254,7 @@ public class TokenService_GenerateTokensAsync_TokenResponse_Tests
             u => u.SubscriptionTier = "enterprise");
 
         var svc      = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response = await svc.GenerateTokensAsync(user);
+        var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
 
         response.User.SubscriptionTier.Should().Be("enterprise");
     }

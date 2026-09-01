@@ -42,7 +42,7 @@ public sealed class BaseTestHostTests
         host.Faults.FailNextPostCommitObserver();
         BaseResult<BaseRecord<GeneratedProject>> result =
             await records.CreateAsync(
-                new RecordId("project_1"),
+                RecordId.Create("project_1"),
                 new GeneratedProject
                 {
                     OrganizationId = "org_1",
@@ -56,7 +56,7 @@ public sealed class BaseTestHostTests
         success.Warnings.Should().ContainSingle(
             warning => warning.Code == "base.runtime.events.observerFailed");
         host.Probe.Mutations.Should().ContainSingle(
-            mutation => mutation.Resource.RecordId == new RecordId("project_1"));
+            mutation => mutation.Resource.RecordId == RecordId.Create("project_1"));
     }
 
     [Fact]
@@ -72,7 +72,7 @@ public sealed class BaseTestHostTests
         var failedBatch = session.Atomic();
         failedBatch.Create(
             GeneratedProject.Collection,
-            new RecordId("project_1"),
+            RecordId.Create("project_1"),
             new GeneratedProject { OrganizationId = "org_1", Name = "failed" });
         BaseBatchResult failed =
             (await failedBatch.CommitAsync()).RequireValue();
@@ -80,7 +80,7 @@ public sealed class BaseTestHostTests
         failed.Outcome.Should().Be(BaseRecordBatchOutcome.RolledBack);
         failed.Error!.Code.Should().Be("base.testing.atomicCommitFailed");
         (await session.Collection(GeneratedProject.Collection)
-                .GetAsync(new RecordId("project_1")))
+                .GetAsync(RecordId.Create("project_1")))
             .Should().BeOfType<
                 BaseFailure<BaseRecord<GeneratedProject>>>();
         host.Probe.Mutations.Should().BeEmpty();
@@ -88,7 +88,7 @@ public sealed class BaseTestHostTests
         var committedBatch = session.Atomic();
         committedBatch.Create(
             GeneratedProject.Collection,
-            new RecordId("project_1"),
+            RecordId.Create("project_1"),
             new GeneratedProject { OrganizationId = "org_1", Name = "committed" });
         (await committedBatch.CommitAsync())
             .RequireValue()
@@ -113,7 +113,7 @@ public sealed class BaseTestHostTests
             var batch = session.Atomic();
             batch.Create(
                 GeneratedProject.Collection,
-                new RecordId("project_rollback"),
+                RecordId.Create("project_rollback"),
                 new GeneratedProject { OrganizationId = "org_1", Name = "rollback" });
 
             BaseBatchResult failure =
@@ -121,7 +121,7 @@ public sealed class BaseTestHostTests
             failure.Outcome.Should().Be(BaseRecordBatchOutcome.RolledBack);
             failure.Error!.Code.Should().Be("base.testing.atomicCommitFailed");
             (await session.Collection(GeneratedProject.Collection)
-                    .GetAsync(new RecordId("project_rollback")))
+                    .GetAsync(RecordId.Create("project_rollback")))
                 .Should().BeOfType<
                     BaseFailure<BaseRecord<GeneratedProject>>>();
             (await host.JournalAsync()).Should().BeEmpty();
@@ -185,7 +185,7 @@ public sealed class BaseTestHostTests
             PrincipalContext principal = BaseTestPrincipal.System("administration-test");
             BaseCollectionSession<GeneratedProject> collection = host.Session(principal)
                 .Collection(GeneratedProject.Collection);
-            (await collection.CreateAsync(new RecordId("before-backup"), new GeneratedProject
+            (await collection.CreateAsync(RecordId.Create("before-backup"), new GeneratedProject
             {
                 OrganizationId = "org_1",
                 Name = "retained",
@@ -209,11 +209,11 @@ public sealed class BaseTestHostTests
             BaseBatchBuilder failed = host.Session(principal).Atomic();
             failed.Create(
                 GeneratedProject.Collection,
-                new RecordId("failed-after-backup"),
+                RecordId.Create("failed-after-backup"),
                 new GeneratedProject { OrganizationId = "org_1", Name = "rolled-back" });
             (await failed.CommitAsync()).RequireValue().Outcome.Should().Be(BaseRecordBatchOutcome.RolledBack);
 
-            (await collection.CreateAsync(new RecordId("after-backup"), new GeneratedProject
+            (await collection.CreateAsync(RecordId.Create("after-backup"), new GeneratedProject
             {
                 OrganizationId = "org_1",
                 Name = "removed-by-restore",
@@ -234,11 +234,11 @@ public sealed class BaseTestHostTests
                 })).RequireValue();
 
             restored.RestoreEpoch.Should().Be(manifest.RestoreEpoch + 1);
-            (await collection.GetAsync(new RecordId("before-backup"))).Should()
+            (await collection.GetAsync(RecordId.Create("before-backup"))).Should()
                 .BeOfType<BaseSuccess<BaseRecord<GeneratedProject>>>();
-            (await collection.GetAsync(new RecordId("failed-after-backup"))).Should()
+            (await collection.GetAsync(RecordId.Create("failed-after-backup"))).Should()
                 .BeOfType<BaseFailure<BaseRecord<GeneratedProject>>>();
-            (await collection.GetAsync(new RecordId("after-backup"))).Should()
+            (await collection.GetAsync(RecordId.Create("after-backup"))).Should()
                 .BeOfType<BaseFailure<BaseRecord<GeneratedProject>>>();
         }
         finally
@@ -262,7 +262,7 @@ public sealed class BaseTestHostTests
         var batch = session.Atomic();
         batch.Create(
             GeneratedProject.Collection,
-            new RecordId("project_indeterminate"),
+            RecordId.Create("project_indeterminate"),
             new GeneratedProject { OrganizationId = "org_1", Name = "indeterminate" });
 
         BaseFailure<BaseBatchResult> failure =
@@ -272,7 +272,7 @@ public sealed class BaseTestHostTests
         failure.Status.Should().Be(OperationStatus.StoreError);
         failure.Error.Code.Should().Be("base.runtime.batch.indeterminate");
         (await session.Collection(GeneratedProject.Collection)
-                .GetAsync(new RecordId("project_indeterminate")))
+                .GetAsync(RecordId.Create("project_indeterminate")))
             .RequireValue()
             .Value.Name.Should().Be("indeterminate");
         host.Probe.Mutations.Should().BeEmpty();
@@ -289,17 +289,17 @@ public sealed class BaseTestHostTests
             .Session(BaseTestPrincipal.System("application-test"))
             .Collection(GeneratedProject.Collection);
         await records.CreateAsync(
-            new RecordId("project_1"),
+            RecordId.Create("project_1"),
             new GeneratedProject { OrganizationId = "org_1", Name = "visible" });
 
         host.Policy.DenyAll();
         BaseResult<BaseRecord<GeneratedProject>> denied =
-            await records.GetAsync(new RecordId("project_1"));
+            await records.GetAsync(RecordId.Create("project_1"));
         denied.Should().BeOfType<
             BaseFailure<BaseRecord<GeneratedProject>>>();
 
         host.Policy.AllowAll();
-        (await records.GetAsync(new RecordId("project_1")))
+        (await records.GetAsync(RecordId.Create("project_1")))
             .RequireValue()
             .Should().NotBeNull();
     }

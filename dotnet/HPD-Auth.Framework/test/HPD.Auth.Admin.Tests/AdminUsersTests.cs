@@ -180,14 +180,14 @@ public class AdminUsersTests : IAsyncLifetime
         body.Users.Should().HaveCount(5);
     }
 
-    // 1.12 — per_page=1000 is clamped to 500
+    // 1.12 — per_page=1000 is clamped to the registered-read authority ceiling
     [Fact]
-    public async Task ListUsers_OverCapPerPage_ClampedTo500()
+    public async Task ListUsers_OverCapPerPage_ClampedTo200()
     {
         var resp = await _admin.GetAsync("/api/admin/users?per_page=1000");
         resp.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await resp.ReadJsonAsync<AdminUserListResponse>();
-        body!.PerPage.Should().Be(500);
+        body!.PerPage.Should().Be(200);
     }
 
     // 1.13 — sort=email&order=asc
@@ -583,9 +583,9 @@ public class AdminUsersTests : IAsyncLifetime
 
     // ── Section 6: DELETE /api/admin/users/{id} ──────────────────────────────
 
-    // 6.1 — hard delete
+    // 6.1 — tombstone and schedule retirement
     [Fact]
-    public async Task DeleteUser_HardDelete_UserRemovedFromDb()
+    public async Task DeleteUser_TombstonedUserIsImmediatelyHidden()
     {
         var user = await _factory.SeedUserAsync("harddelete@example.com");
         var resp = await _admin.DeleteAsync($"/api/admin/users/{user.Id}");
@@ -595,21 +595,19 @@ public class AdminUsersTests : IAsyncLifetime
         getResp.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
-    // 6.2 — soft delete
+    // 6.2 — obsolete softDelete input cannot select a weaker lifecycle path
     [Fact]
-    public async Task DeleteUser_SoftDelete_IsDeletedTrueRowStillExists()
+    public async Task DeleteUser_SoftDeleteQueryStillUsesAuthoritativeTombstonePath()
     {
         var user = await _factory.SeedUserAsync("softdelete@example.com");
         var resp = await _admin.DeleteAsync($"/api/admin/users/{user.Id}?softDelete=true");
         resp.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
-        // Row still exists, IsDeleted=true.
+        // Identity reads cannot redisclose a tombstoned subject during retention.
         using var scope = _factory._GetScope();
         var userManager = scope.GetService<UserManager<ApplicationUser>>();
         var found = await userManager.FindByIdAsync(user.Id.ToString());
-        found.Should().NotBeNull();
-        found!.IsDeleted.Should().BeTrue();
-        found.DeletedAt.Should().NotBeNull();
+        found.Should().BeNull();
     }
 
     // 6.3 — non-existent user → 404
@@ -620,9 +618,9 @@ public class AdminUsersTests : IAsyncLifetime
         resp.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
-    // 6.4 — audit log for hard delete
+    // 6.4 — audit log for tombstone
     [Fact]
-    public async Task DeleteUser_HardDelete_AuditLogHasHardDeleteAction()
+    public async Task DeleteUser_Tombstone_AuditLogHasDeleteAction()
     {
         var user = await _factory.SeedUserAsync("audithard@example.com");
         var userId = user.Id;
@@ -633,9 +631,9 @@ public class AdminUsersTests : IAsyncLifetime
         logs.First().Action.Should().Be("admin.user.delete");
     }
 
-    // 6.5 — audit log for soft delete
+    // 6.5 — obsolete query spelling preserves the same audit action
     [Fact]
-    public async Task DeleteUser_SoftDelete_AuditLogHasSoftDeleteAction()
+    public async Task DeleteUser_SoftDeleteQuery_AuditLogHasDeleteAction()
     {
         var user = await _factory.SeedUserAsync("auditsoft@example.com");
         await _admin.DeleteAsync($"/api/admin/users/{user.Id}?softDelete=true");

@@ -132,6 +132,24 @@ public sealed class TranscriptModel
         }
     }
 
+    /// <summary>Finalizes an existing keyed live entry without appending when it is absent or already final.</summary>
+    public bool TryFinalizeLive(string entryKey, TranscriptEntry finalEntry)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(entryKey);
+        ArgumentNullException.ThrowIfNull(finalEntry);
+
+        lock (_gate)
+        {
+            if (!_entryKeys.TryGetValue(entryKey, out var index)
+                || _entries[index].State != TranscriptEntryState.Live)
+                return false;
+
+            _entries[index] = (finalEntry with { EntryKey = entryKey }).AsFinal();
+            MarkChanged();
+            return true;
+        }
+    }
+
     public bool RemoveLive(string entryKey)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(entryKey);

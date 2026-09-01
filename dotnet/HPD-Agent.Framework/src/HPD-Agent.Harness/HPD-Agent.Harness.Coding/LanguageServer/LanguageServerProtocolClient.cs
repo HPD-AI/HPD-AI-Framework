@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using HPDOS.ToolHarnesses.Middleware.Protocol.Generated;
 
 namespace HPDOS.ToolHarnesses.Middleware;
 
@@ -90,7 +91,7 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
         LanguageServerTextDocumentSyncKind changeKind,
         string text,
         string previousText)
-        => CreateDidChangeContentChanges(changeKind, text, previousText);
+        => JsonSerializer.SerializeToNode(CreateDidChangeContentChanges(changeKind, text, previousText))!.AsArray();
 
     public async ValueTask StartAsync(CancellationToken cancellationToken)
     {
@@ -132,17 +133,17 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
             return;
 
         await SendNotificationAsync(
-            "textDocument/didOpen",
-            new JsonObject
+            LanguageProtocolDescriptors.DidOpenTextDocumentNotification.Method,
+            JsonSerializer.SerializeToNode(new DidOpenTextDocumentParams
             {
-                ["textDocument"] = new JsonObject
+                TextDocument = new TextDocumentItem
                 {
-                    ["uri"] = request.Uri,
-                    ["languageId"] = request.LanguageId,
-                    ["version"] = request.Version,
-                    ["text"] = request.Text
+                    Uri = request.Uri,
+                    LanguageId = new LanguageKind(request.LanguageId),
+                    Version = request.Version,
+                    Text = request.Text
                 }
-            },
+            }, LspJsonContext.Default.DidOpenTextDocumentParams),
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -155,29 +156,29 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
             return;
 
         await SendNotificationAsync(
-            "textDocument/didChange",
-            new JsonObject
+            LanguageProtocolDescriptors.DidChangeTextDocumentNotification.Method,
+            JsonSerializer.SerializeToNode(new DidChangeTextDocumentParams
             {
-                ["textDocument"] = new JsonObject
+                TextDocument = new VersionedTextDocumentIdentifier
                 {
-                    ["uri"] = request.Uri,
-                    ["version"] = request.Version
+                    Uri = request.Uri,
+                    Version = request.Version
                 },
-                ["contentChanges"] = CreateDidChangeContentChanges(Capabilities.Change, request.Text, previousText)
-            },
+                ContentChanges = CreateDidChangeContentChanges(Capabilities.Change, request.Text, previousText)
+            }, LspJsonContext.Default.DidChangeTextDocumentParams),
             cancellationToken).ConfigureAwait(false);
     }
 
-    private static JsonArray CreateDidChangeContentChanges(
+    private static List<TextDocumentContentChangeEvent> CreateDidChangeContentChanges(
         LanguageServerTextDocumentSyncKind changeKind,
         string text,
         string previousText)
     {
-        var contentChanges = new JsonArray();
+        var contentChanges = new List<TextDocumentContentChangeEvent>();
         if (changeKind == LanguageServerTextDocumentSyncKind.Incremental)
         {
             var end = GetEndPosition(previousText);
-            contentChanges.Add((JsonNode)new JsonObject
+            contentChanges.Add(new TextDocumentContentChangeEvent(JsonSerializer.SerializeToElement(new JsonObject
             {
                 ["range"] = new JsonObject
                 {
@@ -193,14 +194,14 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
                     }
                 },
                 ["text"] = text
-            });
+            })));
             return contentChanges;
         }
 
-        contentChanges.Add((JsonNode)new JsonObject
+        contentChanges.Add(new TextDocumentContentChangeEvent(JsonSerializer.SerializeToElement(new JsonObject
         {
             ["text"] = text
-        });
+        })));
         return contentChanges;
     }
 
@@ -238,12 +239,15 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
         if (!Capabilities.Save)
             return;
 
-        var textDocument = new JsonObject { ["uri"] = request.Uri };
-        var parameters = new JsonObject { ["textDocument"] = textDocument };
-        if (Capabilities.IncludeTextOnSave && request.Text is not null)
-            parameters["text"] = request.Text;
-
-        await SendNotificationAsync("textDocument/didSave", parameters, cancellationToken).ConfigureAwait(false);
+        var parameters = new DidSaveTextDocumentParams
+        {
+            TextDocument = new TextDocumentIdentifier { Uri = request.Uri },
+            Text = Capabilities.IncludeTextOnSave ? request.Text : null
+        };
+        await SendNotificationAsync(
+            LanguageProtocolDescriptors.DidSaveTextDocumentNotification.Method,
+            JsonSerializer.SerializeToNode(parameters, LspJsonContext.Default.DidSaveTextDocumentParams),
+            cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask DidCloseAsync(LanguageServerDocumentCloseRequest request, CancellationToken cancellationToken)
@@ -252,11 +256,11 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
             return;
 
         await SendNotificationAsync(
-            "textDocument/didClose",
-            new JsonObject
+            LanguageProtocolDescriptors.DidCloseTextDocumentNotification.Method,
+            JsonSerializer.SerializeToNode(new DidCloseTextDocumentParams
             {
-                ["textDocument"] = new JsonObject { ["uri"] = request.Uri }
-            },
+                TextDocument = new TextDocumentIdentifier { Uri = request.Uri }
+            }, LspJsonContext.Default.DidCloseTextDocumentParams),
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -264,16 +268,12 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
         LanguageServerWatchedFileChangeRequest request,
         CancellationToken cancellationToken)
     {
-        var changes = new JsonArray();
-        changes.Add((JsonNode)new JsonObject
-        {
-            ["uri"] = request.Uri,
-            ["type"] = (int)request.Kind
-        });
-
         await SendNotificationAsync(
-            "workspace/didChangeWatchedFiles",
-            new JsonObject { ["changes"] = changes },
+            LanguageProtocolDescriptors.DidChangeWatchedFilesNotification.Method,
+            JsonSerializer.SerializeToNode(new DidChangeWatchedFilesParams
+            {
+                Changes = [new FileEvent { Uri = request.Uri, Type = (uint)request.Kind }]
+            }, LspJsonContext.Default.DidChangeWatchedFilesParams),
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -348,8 +348,8 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
             if (IsRunning)
             {
                 using var shutdownCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-                await SendRequestAsync("shutdown", null, TimeSpan.FromSeconds(2), shutdownCts.Token).ConfigureAwait(false);
-                await SendNotificationAsync("exit", null, shutdownCts.Token).ConfigureAwait(false);
+                await SendRequestAsync(LanguageProtocolDescriptors.ShutdownRequest.Method, null, TimeSpan.FromSeconds(2), shutdownCts.Token).ConfigureAwait(false);
+                await SendNotificationAsync(LanguageProtocolDescriptors.ExitNotification.Method, null, shutdownCts.Token).ConfigureAwait(false);
             }
         }
         catch
@@ -383,13 +383,13 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
     {
         var parameters = CreateInitializeParameters();
         var result = await SendRequestAsync(
-            "initialize",
+            LanguageProtocolDescriptors.InitializeRequest.Method,
             parameters,
             TimeSpan.FromSeconds(45),
             cancellationToken).ConfigureAwait(false);
 
         Capabilities = ParseServerCapabilities(result);
-        await SendNotificationAsync("initialized", new JsonObject(), cancellationToken).ConfigureAwait(false);
+        await SendNotificationAsync(LanguageProtocolDescriptors.InitializedNotification.Method, new JsonObject(), cancellationToken).ConfigureAwait(false);
     }
 
     private JsonObject CreateInitializeParameters()
@@ -651,11 +651,11 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
 
         JsonNode? result = method switch
         {
-            "workspace/configuration" => HandleWorkspaceConfiguration(parameters),
-            "workspace/workspaceFolders" => workspaceFolders,
-            "client/registerCapability" => HandleRegisterCapability(parameters),
-            "client/unregisterCapability" => HandleUnregisterCapability(parameters),
-            "workspace/diagnostic/refresh" => HandleDiagnosticRefresh(),
+            var value when value == LanguageProtocolDescriptors.ConfigurationRequest.Method => HandleWorkspaceConfiguration(parameters),
+            var value when value == LanguageProtocolDescriptors.WorkspaceFoldersRequest.Method => workspaceFolders,
+            var value when value == LanguageProtocolDescriptors.RegistrationRequest.Method => HandleRegisterCapability(parameters),
+            var value when value == LanguageProtocolDescriptors.UnregistrationRequest.Method => HandleUnregisterCapability(parameters),
+            var value when value == LanguageProtocolDescriptors.DiagnosticRefreshRequest.Method => HandleDiagnosticRefresh(),
             _ => null
         };
 
@@ -808,7 +808,7 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
 
     private void HandleNotification(string method, JsonNode? parameters)
     {
-        if (method != "textDocument/publishDiagnostics")
+        if (method != LanguageProtocolDescriptors.PublishDiagnosticsNotification.Method)
             return;
 
         var uri = parameters?["uri"]?.GetValue<string>();
@@ -1066,7 +1066,7 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
         try
         {
             result = await SendRequestAsync(
-                "textDocument/diagnostic",
+                LanguageProtocolDescriptors.DocumentDiagnosticRequest.Method,
                 new JsonObject
                 {
                     ["identifier"] = identifier,
@@ -1092,7 +1092,7 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
         try
         {
             result = await SendRequestAsync(
-                "workspace/diagnostic",
+                LanguageProtocolDescriptors.WorkspaceDiagnosticRequest.Method,
                 new JsonObject
                 {
                     ["identifier"] = identifier,

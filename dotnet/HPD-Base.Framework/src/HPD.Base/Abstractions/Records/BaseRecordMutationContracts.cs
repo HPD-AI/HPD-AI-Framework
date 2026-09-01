@@ -143,6 +143,9 @@ public sealed record BaseRecordBatchRequest
 
     /// <summary>Gets the Runtime-owned same-store activation fence, when this is an activation child.</summary>
     internal BaseActivationGuard? ActivationGuard { get; init; }
+
+    /// <summary>Gets the Runtime-owned closed receipt projection for a specialized internal operation.</summary>
+    internal BaseAtomicReceiptProjection? ReceiptProjection { get; init; }
 }
 
 /// <summary>Describes one closed, typed mutation in a record batch.</summary>

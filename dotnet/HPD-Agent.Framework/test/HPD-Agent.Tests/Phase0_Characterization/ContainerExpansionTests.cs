@@ -34,7 +34,7 @@ public class ContainerExpansionTests : AgentTestBase
             CollapsedToolHarnessTestHelper.MemberFunc("WriteFile", "Writes a file", () => "written"));
         var config = DefaultConfig();
         config.Collapsing = new CollapsingConfig { Enabled = true };
-        config.EnsureChatClientConfig().ProviderKey = "test";
+        config.EnsureChatClientConfig().Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" };
         config.EnsureChatClientConfig().ModelName = "test-model";
         var agent = CreateAgent(config, fakeLLM, tools: [container, .. members]);
 
@@ -105,7 +105,7 @@ public class ContainerExpansionTests : AgentTestBase
             Enabled = true
         };
         config.EnsureChatClientConfig();
-        config.EnsureChatClientConfig().ProviderKey = "test";
+        config.EnsureChatClientConfig().Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" };
         config.EnsureChatClientConfig().ModelName = "test-model";
 
         // Register both container and member functions
@@ -192,7 +192,7 @@ public class ContainerExpansionTests : AgentTestBase
         var config = DefaultConfig();
         config.Collapsing = new CollapsingConfig { Enabled = true };
         config.EnsureChatClientConfig();
-        config.EnsureChatClientConfig().ProviderKey = "test";
+        config.EnsureChatClientConfig().Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" };
         config.EnsureChatClientConfig().ModelName = "test-model";
 
         var allFunctions = new List<AIFunction> { container };
@@ -271,7 +271,7 @@ public class ContainerExpansionTests : AgentTestBase
         var config = DefaultConfig();
         config.Collapsing = new CollapsingConfig { Enabled = true };
         config.EnsureChatClientConfig();
-        config.EnsureChatClientConfig().ProviderKey = "test";
+        config.EnsureChatClientConfig().Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" };
         config.EnsureChatClientConfig().ModelName = "test-model";
 
         var allFunctions = new List<AIFunction> { getTime, container };

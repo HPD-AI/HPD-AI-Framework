@@ -165,6 +165,17 @@ public static class ThreadProjector
                 break;
             }
 
+            case ThreadMessageReplacedEvent data:
+            {
+                if (!string.Equals(data.MessageId, data.Replacement.MessageId, StringComparison.Ordinal))
+                    throw new InvalidOperationException("A thread-message replacement must preserve its message ID.");
+                if (!messages.ContainsKey(data.MessageId))
+                    throw new InvalidOperationException($"Cannot replace missing thread message '{data.MessageId}'.");
+                messages[data.MessageId] = MessageProjection.FromChatMessage(data.Replacement);
+                thread.LastActivity = evt.Timestamp.UtcDateTime;
+                break;
+            }
+
             case ReasoningMessageStartEvent data:
             {
                 GetMessage(messages, messageOrder, data.MessageId, ParseRole(data.Role))
@@ -292,7 +303,6 @@ public static class ThreadProjector
             data.ParentSessionId,
             data.ParentThreadId,
             data.SubAgentName,
-            data.SubAgentTaskName,
             data.InvocationId,
             data.SubAgentSourceKind,
             data.ParentToolCallId,
@@ -318,7 +328,6 @@ public static class ThreadProjector
             data.ParentSessionId,
             data.ParentThreadId,
             data.SubAgentName,
-            data.SubAgentTaskName,
             data.InvocationId,
             data.SubAgentSourceKind,
             data.ParentToolCallId,
@@ -342,7 +351,6 @@ public static class ThreadProjector
         string? parentSessionId,
         string? parentThreadId,
         string? subAgentName,
-        string? subAgentTaskName,
         string? invocationId,
         string? subAgentSourceKind,
         string? parentToolCallId,
@@ -363,7 +371,6 @@ public static class ThreadProjector
         thread.ParentSessionId = parentSessionId;
         thread.ParentThreadId = parentThreadId;
         thread.SubAgentName = subAgentName;
-        thread.SubAgentTaskName = subAgentTaskName;
         thread.InvocationId = invocationId;
         thread.SubAgentSourceKind = subAgentSourceKind;
         thread.ParentToolCallId = parentToolCallId;

@@ -3,6 +3,8 @@ using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using HPD.Agent.Serialization;
+using HPD.Agent.Permissions;
 
 namespace HPD.Agent;
 
@@ -20,7 +22,7 @@ public sealed record FileSessionStoreDiagnostics(
 /// Segmented, append-oriented local-file implementation of the canonical thread journal.
 /// This is a new storage format; it does not read the removed JsonSessionStore layout.
 /// </summary>
-public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
+public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore, IPermissionPreferenceStore
 {
     private const string DescriptorSchema = "hpd.agent.thread-descriptor";
     private const int DescriptorVersion = 2;
@@ -37,6 +39,9 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
     private long _observationWaitCount;
 
     /// <inheritdoc />
+    public AgentEventCodec EventCodec { get; }
+
+    /// <inheritdoc />
     public async ValueTask StageThreadDeltaAsync(
         ThreadKey thread,
         AgentEvent delta,
@@ -47,8 +52,8 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
         _ = GetPendingIdentity(delta);
         var path = GetPendingDeltaPath(thread, delta);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        var frame = JsonSerializer.Serialize<AgentEvent>(
-            delta with { ThreadSequenceNumber = 0 }, ThreadEventJson.CompactOptions) + "\n";
+        EventCodec.RequireDurable(delta);
+        var frame = EventCodec.Serialize(delta with { ThreadSequenceNumber = 0 }) + "\n";
         var bytes = Encoding.UTF8.GetBytes(frame);
         await using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read, 16 * 1024, true);
         await stream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
@@ -65,7 +70,7 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
     {
         ValidateThreadKey(thread);
         var path = GetPendingDeltaPath(thread, messageEnd);
-        var deltas = await ReadPendingDeltasAsync(path, cancellationToken).ConfigureAwait(false);
+        var deltas = await ReadPendingDeltasAsync(thread, path, cancellationToken).ConfigureAwait(false);
         var events = ThreadDeltaCoalescer.Coalesce(deltas, messageEnd);
         var result = await AppendThreadEventsAsync(thread, events, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
@@ -86,7 +91,7 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
 
         foreach (var path in Directory.EnumerateFiles(directory, "*.events").OrderBy(static path => path, StringComparer.Ordinal))
         {
-            var deltas = await ReadPendingDeltasAsync(path, cancellationToken).ConfigureAwait(false);
+            var deltas = await ReadPendingDeltasAsync(thread, path, cancellationToken).ConfigureAwait(false);
             if (deltas.Count == 0)
             {
                 File.Delete(path);
@@ -166,6 +171,7 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
     }
 
     private async ValueTask<IReadOnlyList<AgentEvent>> ReadPendingDeltasAsync(
+        ThreadKey thread,
         string path,
         CancellationToken cancellationToken)
     {
@@ -186,8 +192,7 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
         {
             if (string.IsNullOrWhiteSpace(line))
                 continue;
-            events.Add(JsonSerializer.Deserialize<AgentEvent>(line, ThreadEventJson.Options)
-                ?? throw new InvalidDataException($"Pending delta frame '{path}' is empty."));
+            events.Add(DeserializeDurableEvent(line, thread, ReadJournalGeneration(thread), 0));
         }
         return events;
     }
@@ -215,9 +220,13 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
             Directory.Delete(directory);
     }
 
-    public FileSessionStore(string basePath, FileSessionStoreOptions? options = null)
+    public FileSessionStore(
+        string basePath,
+        AgentEventCodec eventCodec,
+        FileSessionStoreOptions? options = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(basePath);
+        EventCodec = eventCodec ?? throw new ArgumentNullException(nameof(eventCodec));
         _options = options ?? new FileSessionStoreOptions();
         if (_options.SegmentEventCapacity <= 0)
             throw new ArgumentOutOfRangeException(nameof(options), "SegmentEventCapacity must be positive.");
@@ -238,8 +247,10 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
         if (!File.Exists(path))
             return null;
         await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 16 * 1024, true);
-        return await JsonSerializer.DeserializeAsync(stream, SessionJsonContext.Combined.Session, cancellationToken)
+        var session = await JsonSerializer.DeserializeAsync(stream, SessionJsonContext.Combined.Session, cancellationToken)
             .ConfigureAwait(false);
+        return session is not null && await ThreadForkVisibility.IsSessionVisibleAsync(this, session, cancellationToken)
+            .ConfigureAwait(false) ? session : null;
     }
 
     public async Task SaveSessionAsync(Session session, CancellationToken cancellationToken = default)
@@ -258,13 +269,203 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
         }
     }
 
-    public Task<List<string>> ListSessionIdsAsync(CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public async ValueTask<SessionPreparationResult> TryPrepareSessionAsync(
+        Session session,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        var gate = _sessionGates.GetOrAdd(session.Id, static _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var path = GetSessionMetadataPath(session.Id);
+            if (File.Exists(path))
+            {
+                await using var read = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 16 * 1024, true);
+                var current = await JsonSerializer.DeserializeAsync(
+                    read, SessionJsonContext.Combined.Session, cancellationToken).ConfigureAwait(false);
+                return current?.Preparation == session.Preparation
+                    ? SessionPreparationResult.ExistingOwned
+                    : SessionPreparationResult.Conflict;
+            }
+            var json = JsonSerializer.Serialize(session, SessionJsonContext.Combined.Session);
+            await WriteAtomicallyAsync(path, json, cancellationToken).ConfigureAwait(false);
+            return SessionPreparationResult.Created;
+        }
+        finally { gate.Release(); }
+    }
+
+    public async Task<List<string>> ListSessionIdsAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var path = GetSessionsPath();
-        return Task.FromResult(!Directory.Exists(path)
+        var candidates = !Directory.Exists(path)
             ? []
-            : Directory.EnumerateDirectories(path).Select(Path.GetFileName).Where(name => name is not null).Cast<string>().ToList());
+            : Directory.EnumerateDirectories(path).Select(Path.GetFileName).Where(name => name is not null).Cast<string>().ToList();
+        var visible = new List<string>();
+        foreach (var sessionId in candidates)
+            if (await LoadSessionAsync(sessionId, cancellationToken).ConfigureAwait(false) is not null)
+                visible.Add(sessionId);
+        return visible;
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<PermissionPreferenceSnapshot> ReadAsync(
+        string sessionId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        var gate = _sessionGates.GetOrAdd(sessionId, static _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try { return (await ReadPreferenceStateAsync(sessionId, cancellationToken).ConfigureAwait(false)).Snapshot; }
+        finally { gate.Release(); }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<PermissionPreferenceCommitResult> CommitAsync(
+        PermissionPreferenceCommit commit,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(commit);
+        if (commit.AuditThread.SessionId != commit.SessionId)
+            throw new InvalidOperationException("Permission audit thread must belong to the preference session.");
+        var gate = _sessionGates.GetOrAdd(commit.SessionId, static _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var state = await ReadPreferenceStateAsync(commit.SessionId, cancellationToken).ConfigureAwait(false);
+            var replay = state.Outbox.FirstOrDefault(value => value.IdempotencyKey == commit.IdempotencyKey);
+            if (replay is not null)
+            {
+                if (replay.State == PermissionPreferenceOutboxState.Pending ||
+                    replay is { State: PermissionPreferenceOutboxState.Claimed, ClaimExpiresAt: { } expiry } &&
+                    expiry <= DateTimeOffset.UtcNow)
+                {
+                    replay = replay with
+                    {
+                        State = PermissionPreferenceOutboxState.Claimed,
+                        ClaimToken = Guid.NewGuid().ToString("N"),
+                        ClaimantId = commit.PublisherClaimantId,
+                        ClaimExpiresAt = DateTimeOffset.UtcNow.AddMinutes(1)
+                    };
+                    state = state with
+                    {
+                        Outbox = state.Outbox.Select(value => value.IdempotencyKey == commit.IdempotencyKey
+                            ? replay : value).ToArray()
+                    };
+                    await WritePreferenceStateAsync(commit.SessionId, state, cancellationToken).ConfigureAwait(false);
+                }
+                return new PermissionPreferenceCommitResult
+                {
+                    Status = PermissionPreferenceCommitStatus.AlreadyCommitted,
+                    CurrentVersion = state.Snapshot.Version,
+                    Outbox = replay
+                };
+            }
+            if (state.Snapshot.Version != commit.ExpectedVersion)
+                return new PermissionPreferenceCommitResult
+                {
+                    Status = PermissionPreferenceCommitStatus.VersionConflict,
+                    CurrentVersion = state.Snapshot.Version
+                };
+            if (commit.Replacement.Version != commit.ExpectedVersion + 1)
+                throw new InvalidOperationException("Permission replacement version must advance exactly once.");
+            var wal = new FilePermissionPreferenceWal(commit, state);
+            await WriteAtomicallyAsync(
+                GetPermissionPreferenceWalPath(commit.SessionId),
+                JsonSerializer.Serialize(wal),
+                cancellationToken).ConfigureAwait(false);
+            state = await RecoverPreferenceWalAsync(commit.SessionId, cancellationToken).ConfigureAwait(false);
+            var outbox = state.Outbox.Single(value => value.IdempotencyKey == commit.IdempotencyKey);
+            return new PermissionPreferenceCommitResult
+            {
+                Status = PermissionPreferenceCommitStatus.Committed,
+                CurrentVersion = commit.Replacement.Version,
+                Outbox = outbox
+            };
+        }
+        finally { gate.Release(); }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<IReadOnlyList<PermissionPreferenceOutboxRecord>> ClaimPendingPublicationAsync(
+        string sessionId,
+        string claimantId,
+        int maxCount,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(claimantId);
+        if (maxCount <= 0) throw new ArgumentOutOfRangeException(nameof(maxCount));
+        var gate = _sessionGates.GetOrAdd(sessionId, static _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var state = await ReadPreferenceStateAsync(sessionId, cancellationToken).ConfigureAwait(false);
+            var now = DateTimeOffset.UtcNow;
+            var ids = state.Outbox.Where(value => value.State == PermissionPreferenceOutboxState.Pending ||
+                    value is { State: PermissionPreferenceOutboxState.Claimed, ClaimExpiresAt: { } expiry } && expiry <= now)
+                .OrderBy(static value => value.ThreadSequenceNumber)
+                .Take(maxCount)
+                .Select(static value => value.SettlementId)
+                .ToHashSet(StringComparer.Ordinal);
+            var claimed = new List<PermissionPreferenceOutboxRecord>();
+            var replacements = state.Outbox.Select(value =>
+            {
+                if (!ids.Contains(value.SettlementId)) return value;
+                var updated = value with
+                {
+                    State = PermissionPreferenceOutboxState.Claimed,
+                    ClaimToken = Guid.NewGuid().ToString("N"),
+                    ClaimantId = claimantId,
+                    ClaimExpiresAt = now.AddMinutes(1)
+                };
+                claimed.Add(updated);
+                return updated;
+            }).ToArray();
+            if (claimed.Count > 0)
+                await WritePreferenceStateAsync(
+                    sessionId, state with { Outbox = replacements }, cancellationToken).ConfigureAwait(false);
+            return claimed;
+        }
+        finally { gate.Release(); }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<bool> AcknowledgePublicationAsync(
+        string settlementId,
+        string claimToken,
+        CancellationToken cancellationToken)
+    {
+        foreach (var sessionId in await ListSessionIdsAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var gate = _sessionGates.GetOrAdd(sessionId, static _ => new SemaphoreSlim(1, 1));
+            await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var state = await ReadPreferenceStateAsync(sessionId, cancellationToken).ConfigureAwait(false);
+                var current = state.Outbox.FirstOrDefault(value => value.SettlementId == settlementId);
+                if (current is null) continue;
+                if (current.State == PermissionPreferenceOutboxState.Acknowledged) return true;
+                if (current.State != PermissionPreferenceOutboxState.Claimed || current.ClaimToken != claimToken)
+                    return false;
+                var replacements = state.Outbox.Select(value => value.SettlementId == settlementId
+                    ? value with
+                    {
+                        State = PermissionPreferenceOutboxState.Acknowledged,
+                        ClaimToken = null,
+                        ClaimantId = null,
+                        ClaimExpiresAt = null
+                    }
+                    : value).ToArray();
+                await WritePreferenceStateAsync(
+                    sessionId, state with { Outbox = replacements }, cancellationToken).ConfigureAwait(false);
+                return true;
+            }
+            finally { gate.Release(); }
+        }
+        return false;
     }
 
     public async Task DeleteSessionAsync(string sessionId, CancellationToken cancellationToken = default)
@@ -327,7 +528,11 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
         if (!ThreadExists(thread))
             return null;
         await EnsurePendingDeltasRecoveredAsync(thread, cancellationToken).ConfigureAwait(false);
-        return await GetRuntime(thread).GetDescriptorAsync(cancellationToken).ConfigureAwait(false);
+        var descriptor = await GetRuntime(thread).GetDescriptorAsync(cancellationToken).ConfigureAwait(false);
+        return descriptor is not null && descriptor.Kind != ThreadKind.FrameworkInternal &&
+            await ThreadForkVisibility.IsVisibleAsync(this, descriptor, cancellationToken).ConfigureAwait(false)
+                ? descriptor
+                : null;
     }
 
     public async IAsyncEnumerable<ThreadDescriptor> ListThreadsAsync(
@@ -358,7 +563,9 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
             var descriptor = await GetRuntime(key).GetDescriptorAsync(cancellationToken).ConfigureAwait(false);
             if (descriptor is not null && descriptor.Key != key)
                 continue;
-            if (descriptor is null || (!request.IncludeHidden && descriptor.Visibility == ThreadVisibility.Hidden))
+            if (descriptor is null || descriptor.Kind == ThreadKind.FrameworkInternal ||
+                !await ThreadForkVisibility.IsVisibleAsync(this, descriptor, cancellationToken).ConfigureAwait(false) ||
+                (!request.IncludeHidden && descriptor.Visibility == ThreadVisibility.Hidden))
                 continue;
             yield return descriptor;
             if (++count >= request.MaxCount)
@@ -398,7 +605,7 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
             if (segment.LastSequence <= request.After.SequenceNumber || segment.FirstSequence > boundary.Through)
                 continue;
 
-            await foreach (var evt in ReadSegmentEventsAsync(segment, cancellationToken).ConfigureAwait(false))
+            await foreach (var evt in ReadSegmentEventsAsync(thread, boundary.Generation, segment, cancellationToken).ConfigureAwait(false))
             {
                 if (evt.ThreadSequenceNumber <= request.After.SequenceNumber || evt.ThreadSequenceNumber > boundary.Through)
                     continue;
@@ -494,7 +701,109 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
     private string GetSessionsPath() => Path.Combine(_basePath, "sessions");
     private string GetSessionPath(string sessionId) => Path.Combine(GetSessionsPath(), sessionId);
     private string GetSessionMetadataPath(string sessionId) => Path.Combine(GetSessionPath(sessionId), "session.meta.json");
+    private string GetPermissionPreferencePath(string sessionId) =>
+        Path.Combine(GetSessionPath(sessionId), "permission-preferences.v9.json");
+    private string GetPermissionPreferenceWalPath(string sessionId) =>
+        Path.Combine(GetSessionPath(sessionId), "permission-preferences.v9.wal.json");
     private string GetThreadsPath(string sessionId) => Path.Combine(GetSessionPath(sessionId), "threads");
+
+    private async ValueTask<FilePermissionPreferenceState> ReadPreferenceStateAsync(
+        string sessionId,
+        CancellationToken cancellationToken)
+    {
+        if (File.Exists(GetPermissionPreferenceWalPath(sessionId)))
+            return await RecoverPreferenceWalAsync(sessionId, cancellationToken).ConfigureAwait(false);
+        return await ReadPreferenceStateFileAsync(sessionId, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask<FilePermissionPreferenceState> ReadPreferenceStateFileAsync(
+        string sessionId,
+        CancellationToken cancellationToken)
+    {
+        var path = GetPermissionPreferencePath(sessionId);
+        if (!File.Exists(path))
+            return new FilePermissionPreferenceState(new PermissionPreferenceSnapshot(0, []), []);
+        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 16 * 1024, true);
+        return await JsonSerializer.DeserializeAsync<FilePermissionPreferenceState>(
+                stream, cancellationToken: cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidDataException($"Permission preference state '{path}' is empty.");
+    }
+
+    private async ValueTask<FilePermissionPreferenceState> RecoverPreferenceWalAsync(
+        string sessionId,
+        CancellationToken cancellationToken)
+    {
+        var walPath = GetPermissionPreferenceWalPath(sessionId);
+        await using var walStream = new FileStream(walPath, FileMode.Open, FileAccess.Read, FileShare.Read, 16 * 1024, true);
+        var wal = await JsonSerializer.DeserializeAsync<FilePermissionPreferenceWal>(
+                walStream, cancellationToken: cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidDataException($"Permission preference WAL '{walPath}' is empty.");
+        var state = await ReadPreferenceStateFileAsync(sessionId, cancellationToken).ConfigureAwait(false);
+        if (state.Outbox.Any(value => value.IdempotencyKey == wal.Commit.IdempotencyKey))
+        {
+            File.Delete(walPath);
+            return state;
+        }
+
+        PermissionPreferenceChangedEvent? committedEvent = null;
+        var head = await GetThreadEventHeadAsync(wal.Commit.AuditThread, cancellationToken).ConfigureAwait(false);
+        if (head is not null)
+        {
+            await foreach (var batch in ReadThreadEventsAsync(
+                wal.Commit.AuditThread,
+                new ThreadEventReadRequest(ThreadJournalCursor.Start(head.Cursor.Generation), head.Cursor.SequenceNumber),
+                cancellationToken).ConfigureAwait(false))
+            {
+                committedEvent = batch.Events.OfType<PermissionPreferenceChangedEvent>().FirstOrDefault(value =>
+                    value.PreferenceId == wal.Commit.Event.PreferenceId && value.Key == wal.Commit.Event.Key &&
+                    value.Decision == wal.Commit.Event.Decision && value.Persistence == wal.Commit.Event.Persistence);
+                if (committedEvent is not null) break;
+            }
+        }
+        if (committedEvent is null)
+        {
+            var appended = await AppendThreadEventsAsync(
+                wal.Commit.AuditThread, [wal.Commit.Event], cancellationToken: cancellationToken).ConfigureAwait(false);
+            committedEvent = (PermissionPreferenceChangedEvent)appended.CommittedEvents.Single();
+        }
+        var settlementId = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(wal.Commit.IdempotencyKey))).ToLowerInvariant();
+        var outbox = new PermissionPreferenceOutboxRecord
+        {
+            SettlementId = settlementId,
+            ClaimToken = Guid.NewGuid().ToString("N"),
+            ClaimantId = wal.Commit.PublisherClaimantId,
+            ClaimExpiresAt = DateTimeOffset.UtcNow.AddMinutes(1),
+            State = PermissionPreferenceOutboxState.Claimed,
+            SessionId = wal.Commit.SessionId,
+            AuditThread = wal.Commit.AuditThread,
+            CommittedEvent = committedEvent,
+            ThreadSequenceNumber = committedEvent.ThreadSequenceNumber,
+            IdempotencyKey = wal.Commit.IdempotencyKey
+        };
+        state = new FilePermissionPreferenceState(
+            wal.Commit.Replacement,
+            wal.PreviousState.Outbox.Append(outbox).ToArray());
+        await WritePreferenceStateAsync(sessionId, state, cancellationToken).ConfigureAwait(false);
+        File.Delete(walPath);
+        return state;
+    }
+
+    private Task WritePreferenceStateAsync(
+        string sessionId,
+        FilePermissionPreferenceState state,
+        CancellationToken cancellationToken) =>
+        WriteAtomicallyAsync(
+            GetPermissionPreferencePath(sessionId),
+            JsonSerializer.Serialize(state),
+            cancellationToken);
+
+    private sealed record FilePermissionPreferenceState(
+        PermissionPreferenceSnapshot Snapshot,
+        IReadOnlyList<PermissionPreferenceOutboxRecord> Outbox);
+    private sealed record FilePermissionPreferenceWal(
+        PermissionPreferenceCommit Commit,
+        FilePermissionPreferenceState PreviousState);
     private string GetThreadPath(ThreadKey key) => Path.Combine(GetThreadsPath(key.SessionId), key.ThreadId);
     private string GetJournalPath(ThreadKey key) => Path.Combine(GetThreadPath(key), "journal");
     private string GetJournalGenerationPath(ThreadKey key) => Path.Combine(GetJournalPath(key), "generation");
@@ -506,6 +815,8 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
         => new(events.ToArray(), generation, events[0].ThreadSequenceNumber, events[^1].ThreadSequenceNumber);
 
     private async IAsyncEnumerable<AgentEvent> ReadSegmentEventsAsync(
+        ThreadKey thread,
+        long generation,
         SegmentSnapshot segment,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
@@ -522,8 +833,7 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
                 continue;
             if (index > start)
             {
-                var frame = JsonSerializer.Deserialize<List<AgentEvent>>(bytes.AsSpan(start, index - start), ThreadEventJson.Options)
-                    ?? throw new InvalidDataException($"Journal segment '{segment.Path}' contains an empty frame.");
+                var frame = DeserializeFrame(bytes.AsSpan(start, index - start), thread, generation, segment.FirstSequence);
                 Interlocked.Add(ref _eventDecodeCount, frame.Count);
                 foreach (var evt in frame)
                     yield return evt;
@@ -541,6 +851,55 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
         await File.WriteAllTextAsync(temp, content, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
         File.Move(temp, path, true);
     }
+
+    private IReadOnlyList<AgentEvent> DeserializeFrame(
+        ReadOnlySpan<byte> bytes,
+        ThreadKey thread,
+        long generation,
+        long firstSequence)
+    {
+        using var document = JsonDocument.Parse(bytes.ToArray());
+        if (document.RootElement.ValueKind != JsonValueKind.Array)
+            throw new InvalidDataException("Journal frame must be a JSON array.");
+        var events = new List<AgentEvent>();
+        foreach (var element in document.RootElement.EnumerateArray())
+        {
+            var sequence = element.TryGetProperty("threadSequenceNumber", out var sequenceProperty) &&
+                sequenceProperty.TryGetInt64(out var persistedSequence)
+                ? persistedSequence
+                : firstSequence + events.Count;
+            events.Add(DeserializeDurableEvent(element.GetRawText(), thread, generation, sequence));
+        }
+        return events;
+    }
+
+    private AgentEvent DeserializeDurableEvent(string json, ThreadKey thread, long generation, long sequence)
+    {
+        try
+        {
+            return EventCodec.DeserializeEvent(json);
+        }
+        catch (UnknownAgentEventDiscriminatorException exception)
+        {
+            throw new UnknownDurableAgentEventException(
+                exception.Discriminator,
+                thread.SessionId,
+                thread.ThreadId,
+                generation,
+                sequence,
+                exception.CodecDigest,
+                exception);
+        }
+    }
+
+    private long ReadJournalGeneration(ThreadKey thread)
+    {
+        var path = GetJournalGenerationPath(thread);
+        return File.Exists(path) && long.TryParse(File.ReadAllText(path), out var generation) ? generation : 0;
+    }
+
+    private string SerializeFrame(IEnumerable<AgentEvent> events) =>
+        "[" + string.Join(',', events.Select(evt => EventCodec.Serialize(evt))) + "]\n";
 
     private static void ValidateThreadKey(ThreadKey key)
     {
@@ -606,7 +965,9 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
                 var segmentPath = _store.GetSegmentPath(_key, segmentStart);
                 Directory.CreateDirectory(Path.GetDirectoryName(segmentPath)!);
                 await EnsureJournalGenerationAsync(generation, cancellationToken).ConfigureAwait(false);
-                var frame = "[" + string.Join(',', committed.Select(evt => JsonSerializer.Serialize(evt, ThreadEventJson.CompactOptions))) + "]\n";
+                foreach (var evt in committed)
+                    _store.EventCodec.RequireDurable(evt);
+                var frame = _store.SerializeFrame(committed);
                 await AppendTextAsync(segmentPath, frame, cancellationToken).ConfigureAwait(false);
 
                 var indexText = string.Concat(committed.Select(evt => $"{evt.ThreadSequenceNumber}\t{evt.EventId}\t{segmentStart}\n"));
@@ -668,7 +1029,9 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
                 var replacementJournal = Path.Combine(replacementRoot, "journal");
                 Directory.CreateDirectory(replacementJournal);
                 var segmentPath = Path.Combine(replacementJournal, "segment-00000000000000000001.events");
-                var frame = "[" + string.Join(',', committed.Select(evt => JsonSerializer.Serialize(evt, ThreadEventJson.CompactOptions))) + "]\n";
+                foreach (var evt in committed)
+                    _store.EventCodec.RequireDurable(evt);
+                var frame = _store.SerializeFrame(committed);
                 await File.WriteAllTextAsync(segmentPath, frame, new UTF8Encoding(false), cancellationToken).ConfigureAwait(false);
                 await File.WriteAllTextAsync(
                     Path.Combine(replacementJournal, "generation"),
@@ -873,7 +1236,8 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
                 ParseSegmentStart(lastSegment),
                 long.MaxValue,
                 new FileInfo(lastSegment).Length);
-            await foreach (var evt in _store.ReadSegmentEventsAsync(snapshot, cancellationToken).ConfigureAwait(false))
+            var generation = await ReadJournalGenerationAsync(cancellationToken).ConfigureAwait(false);
+            await foreach (var evt in _store.ReadSegmentEventsAsync(_key, generation, snapshot, cancellationToken).ConfigureAwait(false))
                 head = evt.ThreadSequenceNumber;
             return head;
         }
@@ -907,7 +1271,7 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
                 currentStart = ParseSegmentStart(path);
                 currentCount = 0;
                 var snapshot = new SegmentSnapshot(path, currentStart, long.MaxValue, new FileInfo(path).Length);
-                await foreach (var evt in _store.ReadSegmentEventsAsync(snapshot, cancellationToken).ConfigureAwait(false))
+                await foreach (var evt in _store.ReadSegmentEventsAsync(_key, generation, snapshot, cancellationToken).ConfigureAwait(false))
                 {
                     var expected = (descriptor?.Head ?? 0) + 1;
                     if (evt.ThreadSequenceNumber != expected || !_eventIds.Add(evt.EventId))

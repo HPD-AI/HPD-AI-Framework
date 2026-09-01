@@ -1,4 +1,4 @@
-export { createGatewayStudioModule } from './module.ts';
+export { activateStudioModule, studioFrameworkClientActivators, studioModuleDescriptor } from './module.ts';
 export { createGatewayStudioController } from './state.ts';
 export { createGatewayDeclarationController, initialGatewayDocument } from './declaration-state.ts';
 export { parseGatewayJson, serializeGatewayJson, gatewayJsonSemanticEqual } from './authored-json.ts';
@@ -13,7 +13,7 @@ export type {GatewayEditorCapabilityProjection} from './capability-projection.ts
 export { createGatewayManagedWorkflowController } from './managed-workflows.ts';
 export { createGatewayOperationsController } from './operations.ts';
 export type { GatewayOperationsController, GatewayOperationsSnapshot, GatewayAdministrativeReview, GatewayDiagnosticBundle } from './operations.ts';
-export type { GatewayObservabilityLink } from './module.ts';
+export type { GatewayObservabilityLink } from './observability-links.ts';
 export type { GatewayManagedWorkflowController, GatewayManagedWorkflowSnapshot, GatewayMutationKind, GatewayWorkflowPhase, GatewayWorkflowResult } from './managed-workflows.ts';
 export type {
   GatewayLifecycleStage,

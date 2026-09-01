@@ -1001,7 +1001,7 @@ internal sealed class GatewaySharedAdmissionProviderRuntime : IDisposable
         }
         Task completed = await Task.WhenAny(operation,
             Task.Delay(remaining, _timeProvider, admission.Token)).ConfigureAwait(false);
-        if (ReferenceEquals(completed, operation))
+        if (ReferenceEquals(completed, operation) && !admission.IsCancellationRequested)
             return CompleteSynchronously(request, operation, providerCancellation);
 
         SignalAndDispose(providerCancellation);

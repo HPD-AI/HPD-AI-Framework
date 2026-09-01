@@ -27,7 +27,7 @@ public sealed partial class SqliteRecordStore
             || request.Definition.OwningModuleId != installed.OwningModuleId
             || !CryptographicOperations.FixedTimeEquals(request.Definition.Checksum.AsSpan(), installed.Checksum.AsSpan()))
             return PreflightFailure(BaseSemanticActivationErrorCodes.GraphChanged, OperationStatus.Conflict, ErrorCategory.Conflict);
-        BaseSemanticActivationCapability providerCapability = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true);
+        BaseSemanticActivationCapability providerCapability = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true, maintenanceSupported: true);
         int maximumKeyBytes = Math.Min(installed.Limits.MaximumCanonicalKeyBytes, providerCapability.MaximumKeyBytes);
         if (request.MaximumCanonicalKeyBytes != maximumKeyBytes || request.CanonicalKey.Length > maximumKeyBytes)
             return PreflightFailure(BaseSemanticActivationErrorCodes.BudgetExceeded, OperationStatus.ValidationFailed, ErrorCategory.Validation);
@@ -45,6 +45,7 @@ public sealed partial class SqliteRecordStore
                 ?? throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
         }
         Volatile.Write(ref _currentStoreInstanceId, storeInstance);
+        Volatile.Write(ref _storeInstanceIdentityLoaded, 1);
         long schemaGeneration = Volatile.Read(ref _schemaGeneration);
         (long semanticGeneration, byte[] definitionSet) = await ReadSemanticPreflightAuthorityAsync(connection, transaction, token).ConfigureAwait(false);
         if (request.StoreAuthority.ApplicationId != _options.SemanticActivationApplicationId
@@ -94,12 +95,14 @@ public sealed partial class SqliteRecordStore
                 throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
         }
         long activationGeneration; BaseActivationState activationState; ImmutableArray<byte> activationChecksum; ImmutableArray<byte> terminalReceipt;
+        long yieldCount; long maximumYields; long executionSliceOrdinal; long? attemptStartedAt; long? sliceStartedAt;
+        BaseActivationYieldDisposition? terminalYieldDisposition; string? terminalYieldFailureCode;
         BaseActivationPayload activationPayload; ImmutableArray<byte> creationFingerprint; int priority; ImmutableArray<byte>? overlapKey;
         BaseScheduleOverlapPolicy overlapPolicy; bool eligible; int attemptNumber; long claimEpoch; ImmutableArray<byte>? canonicalResult;
         await using (SqliteCommand activation = connection.CreateCommand())
         {
             activation.Transaction = transaction;
-            activation.CommandText = $"SELECT definition_id,definition_version,definition_checksum,canonical_input,input_checksum,scope_kind,scope_value,payload_checksum,fingerprint,state,generation,requested_due_at,effective_due_at,occurrence_id,priority,overlap_key,overlap_policy,eligible,control_checksum,attempt_number,claim_epoch,claim_fence,claim_worker,lease_revision,lease_expires_at,canonical_result,terminal_receipt_checksum FROM {_names.Activations} WHERE activation_id=$id;";
+            activation.CommandText = $"SELECT definition_id,definition_version,definition_checksum,canonical_input,input_checksum,scope_kind,scope_value,payload_checksum,fingerprint,state,generation,requested_due_at,effective_due_at,occurrence_id,priority,overlap_key,overlap_policy,eligible,control_checksum,attempt_number,claim_epoch,claim_fence,claim_worker,lease_revision,lease_expires_at,canonical_result,terminal_receipt_checksum,yield_count,maximum_yields,execution_slice_ordinal,attempt_started_at,slice_started_at,yield_terminal_disposition,yield_terminal_failure_code,receipt_format_version,receipt_duplicate_lifetime_ms,receipt_backup_coverage FROM {_names.Activations} WHERE activation_id=$id;";
             activation.Parameters.AddWithValue("$id", live.ActivationId);
             await using SqliteDataReader reader = await activation.ExecuteReaderAsync(token).ConfigureAwait(false);
             if (!await reader.ReadAsync(token).ConfigureAwait(false)) throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
@@ -112,6 +115,12 @@ public sealed partial class SqliteRecordStore
             {
                 ActivationId = live.ActivationId,
                 Definition = new() { Id = reader.GetString(0), Version = reader.GetInt32(1), Checksum = ((byte[])reader.GetValue(2)).ToImmutableArray() },
+                ReceiptRetention = new BaseActivationReceiptRetentionPolicy
+                {
+                    FormatVersion = reader.GetInt32(34),
+                    DuplicateResolutionLifetime = TimeSpan.FromMilliseconds(reader.GetInt64(35)),
+                    ProtectedBackupCoverage = (BaseActivationProtectedBackupCoverage)reader.GetInt32(36),
+                },
                 CanonicalInput = ((byte[])reader.GetValue(3)).ToImmutableArray(), InputChecksum = ((byte[])reader.GetValue(4)).ToImmutableArray(),
                 Scope = live.Scope, OccurrenceId = null, RequestedDueAt = reader.GetInt64(11), EffectiveDueAt = reader.GetInt64(12),
                 Checksum = ((byte[])reader.GetValue(7)).ToImmutableArray(),
@@ -121,12 +130,19 @@ public sealed partial class SqliteRecordStore
             overlapPolicy = (BaseScheduleOverlapPolicy)reader.GetInt32(16); eligible = reader.GetInt32(17) != 0;
             attemptNumber = reader.GetInt32(19); claimEpoch = reader.GetInt64(20);
             canonicalResult = reader.IsDBNull(25) ? null : ((byte[])reader.GetValue(25)).ToImmutableArray();
+            yieldCount = reader.GetInt64(27); maximumYields = reader.GetInt64(28); executionSliceOrdinal = reader.GetInt64(29);
+            attemptStartedAt = reader.IsDBNull(30) ? null : reader.GetInt64(30);
+            sliceStartedAt = reader.IsDBNull(31) ? null : reader.GetInt64(31);
+            terminalYieldDisposition = reader.IsDBNull(32) ? null : (BaseActivationYieldDisposition)reader.GetInt32(32);
+            terminalYieldFailureCode = reader.IsDBNull(33) ? null : reader.GetString(33);
         }
         if (activationState is not (BaseActivationState.Succeeded or BaseActivationState.Exhausted or BaseActivationState.Cancelled
                 or BaseActivationState.Migrated or BaseActivationState.Disposed) || terminalReceipt.Length != 32)
             return PreflightFailure(BaseSemanticActivationErrorCodes.ActivationNotTerminal, OperationStatus.Conflict, ErrorCategory.Conflict);
-        byte[] expectedControl = SHA256.HashData(Encoding.UTF8.GetBytes($"base.activation.control.v2\0{live.ActivationId}\n{activationGeneration}\n{(int)activationState}"));
-        if (!CryptographicOperations.FixedTimeEquals(expectedControl, activationChecksum.AsSpan())) throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+        if (!BaseActivationControlChecksumContract.Matches(activationChecksum.AsSpan(), live.ActivationId,
+            activationGeneration, activationState, activationPayload.EffectiveDueAt, yieldCount, maximumYields,
+            executionSliceOrdinal, attemptStartedAt, sliceStartedAt, terminalYieldDisposition,
+            terminalYieldFailureCode)) throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
         BaseSemanticRecoveryTerminalReceiptEvidence? receipt = await ReadPreflightTerminalReceiptAsync(connection, transaction, live.ActivationId, activationGeneration,
             activationState, activationChecksum, terminalReceipt, token).ConfigureAwait(false);
         if (receipt is null) throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
@@ -142,6 +158,10 @@ public sealed partial class SqliteRecordStore
             Payload = activationPayload, CreationFingerprint = creationFingerprint, Priority = priority,
             OverlapKey = overlapKey, OverlapPolicy = overlapPolicy, Eligible = eligible,
             State = activationState, Generation = activationGeneration, ControlChecksum = activationChecksum,
+            EffectiveDueAt = activationPayload.EffectiveDueAt, YieldCount = yieldCount, MaximumYields = maximumYields,
+            ExecutionSliceOrdinal = executionSliceOrdinal, AttemptStartedAt = attemptStartedAt,
+            SliceStartedAt = sliceStartedAt, TerminalYieldDisposition = terminalYieldDisposition,
+            TerminalYieldFailureCode = terminalYieldFailureCode,
             AttemptNumber = attemptNumber, ClaimEpoch = claimEpoch, CanonicalResult = canonicalResult,
             CanonicalResultChecksum = canonicalResult is null ? null : SHA256.HashData(canonicalResult.Value.AsSpan()).ToImmutableArray(),
             TerminalReceipt = receipt, Checksum = [],
@@ -177,34 +197,118 @@ public sealed partial class SqliteRecordStore
         long generation, BaseActivationState state, ImmutableArray<byte> controlChecksum,
         ImmutableArray<byte> authorityChecksum, CancellationToken token)
     {
+        if (state == BaseActivationState.Migrated)
+            return await ReadPreflightMigrationReceiptAsync(
+                connection, transaction, activationId, generation, controlChecksum, authorityChecksum, token).ConfigureAwait(false);
         await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction; command.CommandTimeout = TimeoutSeconds();
-        command.CommandText = $"SELECT receipt_key,operation_kind,fingerprint,result_json,result_checksum,authority_checksum FROM {_names.ActivationReceipts} WHERE activation_id=$id AND authority_checksum=$authority LIMIT 2;";
+        command.CommandText = $"SELECT receipt_key,operation_kind,activation_id,definition_id,definition_version,definition_checksum,receipt_format_version,receipt_duplicate_lifetime_ms,receipt_backup_coverage,fingerprint,result_json,result_checksum,authority_checksum,committed_at,duplicate_resolve_until,receipt_sequence,prior_ordered_checksum,ordered_checksum FROM {_names.ActivationInstanceReceipts} WHERE activation_id=$id AND authority_checksum=$authority LIMIT 2;";
         command.Parameters.AddWithValue("$id", activationId); command.Parameters.Add("$authority", SqliteType.Blob).Value = authorityChecksum.ToArray();
         await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
         if (!await reader.ReadAsync(token).ConfigureAwait(false)) return null;
-        string receiptKey = reader.GetString(0); string kind = reader.GetString(1); byte[] fingerprint = (byte[])reader.GetValue(2);
-        byte[] json = (byte[])reader.GetValue(3); byte[] resultChecksum = (byte[])reader.GetValue(4); byte[] storedAuthority = (byte[])reader.GetValue(5);
-        BaseActivationTransitionResult? result = JsonSerializer.Deserialize(json, HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult);
-        byte[] expectedAuthority = SHA256.HashData(Encoding.UTF8.GetBytes(kind).Concat(fingerprint).Concat(json).ToArray());
-        bool valid = PreflightTerminalKind(kind, state) && fingerprint.Length == 32 && result is not null
-            && result.State == state && result.Generation == generation
-            && CryptographicOperations.FixedTimeEquals(result.ControlChecksum.AsSpan(), controlChecksum.AsSpan())
+        string receiptKey = reader.GetString(0); string kind = reader.GetString(1); string storedActivationId = reader.GetString(2);
+        var definition = new BaseActivationDefinitionKey
+        {
+            Id = reader.GetString(3), Version = reader.GetInt32(4), Checksum = ((byte[])reader.GetValue(5)).ToImmutableArray(),
+        };
+        var retention = new BaseActivationReceiptRetentionPolicy
+        {
+            FormatVersion = reader.GetInt32(6),
+            DuplicateResolutionLifetime = TimeSpan.FromMilliseconds(reader.GetInt64(7)),
+            ProtectedBackupCoverage = (BaseActivationProtectedBackupCoverage)reader.GetInt32(8),
+        };
+        byte[] fingerprint = (byte[])reader.GetValue(9); byte[] json = (byte[])reader.GetValue(10);
+        byte[] resultChecksum = (byte[])reader.GetValue(11); byte[] storedAuthority = (byte[])reader.GetValue(12);
+        long committedAt = reader.GetInt64(13); long duplicateResolveUntil = reader.GetInt64(14);
+        long sequence = reader.GetInt64(15); byte[] priorOrdered = (byte[])reader.GetValue(16); byte[] ordered = (byte[])reader.GetValue(17);
+        BaseActivationTransitionResult? transition = kind == "activation-yielded-v1" ? null
+            : JsonSerializer.Deserialize(json, HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult);
+        BaseActivationYieldReceipt? yielded = kind == "activation-yielded-v1"
+            ? JsonSerializer.Deserialize(json, HPDBaseJsonSerializerContext.Default.BaseActivationYieldReceipt) : null;
+        ImmutableArray<byte> expectedAuthority = BaseActivationInstanceReceiptChainContract.ReceiptAuthorityChecksum(receiptKey, kind, storedActivationId,
+            definition, retention, fingerprint, resultChecksum, committedAt, duplicateResolveUntil,
+            sequence, priorOrdered);
+        ImmutableArray<byte> expectedOrdered = BaseActivationInstanceReceiptChainContract.Append(
+            sequence, priorOrdered, storedAuthority, receiptKey);
+        bool resultMatches = transition is not null
+            ? transition.State == state && transition.Generation == generation
+                && CryptographicOperations.FixedTimeEquals(transition.ControlChecksum.AsSpan(), controlChecksum.AsSpan())
+            : yielded is not null && yielded.ResultingState == state && yielded.ResultingGeneration == generation
+                && CryptographicOperations.FixedTimeEquals(yielded.ControlChecksum.AsSpan(), controlChecksum.AsSpan());
+        bool valid = PreflightTerminalKind(kind, state) && storedActivationId == activationId
+            && fingerprint.Length == 32 && resultMatches
             && CryptographicOperations.FixedTimeEquals(SHA256.HashData(json), resultChecksum)
             && CryptographicOperations.FixedTimeEquals(authorityChecksum.AsSpan(), storedAuthority)
-            && CryptographicOperations.FixedTimeEquals(expectedAuthority, storedAuthority);
+            && CryptographicOperations.FixedTimeEquals(expectedAuthority.AsSpan(), storedAuthority)
+            && CryptographicOperations.FixedTimeEquals(expectedOrdered.AsSpan(), ordered);
         bool additional = await reader.ReadAsync(token).ConfigureAwait(false);
         return valid && !additional ? new BaseSemanticRecoveryTerminalReceiptEvidence
         {
-            ReceiptKey = receiptKey, OperationKind = kind, Fingerprint = fingerprint.ToImmutableArray(),
+            Kind = BaseSemanticRecoveryTerminalReceiptKind.Instance,
+            ReceiptKey = receiptKey, OperationKind = kind,
+            Fingerprint = fingerprint.ToImmutableArray(),
             ResultBytes = json.ToImmutableArray(), ResultChecksum = resultChecksum.ToImmutableArray(),
             AuthorityChecksum = storedAuthority.ToImmutableArray(),
+            Instance = new BaseSemanticRecoveryInstanceReceiptAuthority
+            {
+                ActivationId = storedActivationId, Definition = definition, ReceiptRetention = retention,
+                CommittedAt = committedAt, DuplicateResolveUntil = duplicateResolveUntil,
+                ReceiptSequence = sequence, PriorOrderedChecksum = priorOrdered.ToImmutableArray(),
+                OrderedChecksum = ordered.ToImmutableArray(),
+            },
+        } : null;
+    }
+
+    private async ValueTask<BaseSemanticRecoveryTerminalReceiptEvidence?> ReadPreflightMigrationReceiptAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string activationId,
+        long generation,
+        ImmutableArray<byte> controlChecksum,
+        ImmutableArray<byte> authorityChecksum,
+        CancellationToken token)
+    {
+        await using SqliteCommand command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandTimeout = TimeoutSeconds();
+        command.CommandText = $"SELECT receipt_key,operation_kind,fingerprint,result_json,result_checksum,authority_checksum FROM {_names.ActivationControlReceipts} WHERE authority_checksum=$authority LIMIT 2;";
+        command.Parameters.Add("$authority", SqliteType.Blob).Value = authorityChecksum.ToArray();
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
+        if (!await reader.ReadAsync(token).ConfigureAwait(false)) return null;
+        string receiptKey = reader.GetString(0); string operationKind = reader.GetString(1);
+        byte[] fingerprint = (byte[])reader[2]; byte[] resultBytes = (byte[])reader[3];
+        byte[] resultChecksum = (byte[])reader[4]; byte[] storedAuthority = (byte[])reader[5];
+        BaseActivationMigrationResult? result = JsonSerializer.Deserialize(
+            resultBytes, HPDBaseJsonSerializerContext.Default.BaseActivationMigrationResult);
+        ImmutableArray<byte> expectedAuthority = BaseActivationControlReceiptContract.AuthorityChecksum(
+            receiptKey, operationKind, fingerprint, resultChecksum);
+        bool valid = operationKind == "activation-migrated" && result is not null
+            && result.SourceActivationId == activationId && result.SourceGeneration == generation
+            && result.SourceControlChecksum.AsSpan().SequenceEqual(controlChecksum.AsSpan())
+            && result.SourceDefinition.Version > 0 && result.SourceDefinition.Checksum.Length == 32
+            && result.ReplacementDefinition.Version > 0 && result.ReplacementDefinition.Checksum.Length == 32
+            && result.MigrationVersion > 0 && result.MigrationChecksum.Length == 32
+            && fingerprint.Length == 32
+            && CryptographicOperations.FixedTimeEquals(SHA256.HashData(resultBytes), resultChecksum)
+            && CryptographicOperations.FixedTimeEquals(authorityChecksum.AsSpan(), storedAuthority)
+            && CryptographicOperations.FixedTimeEquals(expectedAuthority.AsSpan(), storedAuthority);
+        bool additional = await reader.ReadAsync(token).ConfigureAwait(false);
+        return valid && !additional ? new BaseSemanticRecoveryTerminalReceiptEvidence
+        {
+            Kind = BaseSemanticRecoveryTerminalReceiptKind.Migration,
+            ReceiptKey = receiptKey,
+            OperationKind = operationKind,
+            Fingerprint = fingerprint.ToImmutableArray(),
+            ResultBytes = resultBytes.ToImmutableArray(),
+            ResultChecksum = resultChecksum.ToImmutableArray(),
+            AuthorityChecksum = storedAuthority.ToImmutableArray(),
+            Migration = new BaseSemanticRecoveryMigrationReceiptAuthority { Result = result! },
         } : null;
     }
 
     private static bool PreflightTerminalKind(string kind, BaseActivationState state) => state switch
     {
         BaseActivationState.Succeeded => kind is "activation-completed" or "effect-completed" or "effect-reconciled",
-        BaseActivationState.Exhausted => kind is "activation-failed-terminal" or "effect-reconciled",
+        BaseActivationState.Exhausted => kind is "activation-failed-terminal" or "effect-reconciled" or "activation-yielded-v1",
         BaseActivationState.Cancelled => kind == "activation-cancelled",
         BaseActivationState.Migrated => kind == "activation-migrated",
         BaseActivationState.Disposed => kind == "activation-disposed",

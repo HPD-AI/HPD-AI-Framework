@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace HPD.Base;
 
@@ -139,6 +141,8 @@ public sealed record BaseSubjectRetirementPolicy
     public required BaseSubjectRetirementTimeoutBehavior TimeoutBehavior { get; init; }
 /// <summary>Defines PurgeRetention for coordinated subject retirement.</summary>
     public required BaseSubjectPurgeRetentionPolicy PurgeRetention { get; init; }
+    /// <summary>Gets whether final purge requires an activation-owned same-transaction guard.</summary>
+    public required BaseSubjectFinalExecutionMode FinalPurgeExecutionMode { get; init; }
 /// <summary>Defines PolicyChecksum for coordinated subject retirement.</summary>
     public required string PolicyChecksum { get; init; }
 }
@@ -454,6 +458,15 @@ public sealed record BaseSubjectRetirementProviderPurgeRequest
     public required DateTimeOffset ObservedAtUtc { get; init; }
 /// <summary>Defines Operation for coordinated subject retirement.</summary>
     public required OperationContext Operation { get; init; }
+    /// <summary>Gets the optional same-store activation fence.</summary>
+    public BaseActivationGuard? ActivationGuard { get; init; }
+}
+
+/// <summary>Contains execution authority for one final coordinated subject purge.</summary>
+public sealed record BaseSubjectFinalPurgeExecutionOptions
+{
+    /// <summary>Gets the activation-owned same-transaction guard.</summary>
+    internal BaseActivationGuard? ActivationGuard { get; init; }
 }
 
 /// <summary>Contains provider-applied purge evidence before receipt commit.</summary>
@@ -1038,12 +1051,27 @@ public sealed record BaseSubjectFinalPurgeResult
 }
 
 /// <summary>Identifies one durable retirement publication position.</summary>
+[JsonConverter(typeof(BaseSubjectRetirementPositionJsonConverter))]
 public readonly record struct BaseSubjectRetirementPosition
 {
 /// <summary>Defines BaseSubjectRetirementPosition for coordinated subject retirement.</summary>
     public BaseSubjectRetirementPosition(long value) { ArgumentOutOfRangeException.ThrowIfLessThan(value, 1); Value = value; }
 /// <summary>Defines Value for coordinated subject retirement.</summary>
     public long Value { get; }
+}
+
+/// <summary>Encodes retirement publication positions as their positive canonical integer.</summary>
+public sealed class BaseSubjectRetirementPositionJsonConverter : JsonConverter<BaseSubjectRetirementPosition>
+{
+    /// <inheritdoc />
+    public override BaseSubjectRetirementPosition Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        reader.TokenType == JsonTokenType.Number && reader.TryGetInt64(out long value)
+            ? new BaseSubjectRetirementPosition(value)
+            : throw new JsonException("A retirement publication position must be a positive integer.");
+
+    /// <inheritdoc />
+    public override void Write(Utf8JsonWriter writer, BaseSubjectRetirementPosition value, JsonSerializerOptions options) =>
+        writer.WriteNumberValue(value.Value);
 }
 
 /// <summary>Classifies one sanitized coordinated-retirement control publication.</summary>
@@ -1313,6 +1341,8 @@ public sealed record BaseSubjectRetirementTerminalReceipt
 /// <summary>Defines certified provider bounds for coordinated retirement.</summary>
 public sealed record BaseSubjectRetirementCapability
 {
+    /// <summary>Gets whether final purge can validate an activation guard in the same transaction.</summary>
+    public required bool ActivationGuardedFinalPurgeSupported { get; init; }
 /// <summary>Defines TransactionalBarrierSupported for coordinated subject retirement.</summary>
     public required bool TransactionalBarrierSupported { get; init; }
 /// <summary>Defines TransactionalFinalPurgeSupported for coordinated subject retirement.</summary>
@@ -1359,6 +1389,7 @@ public static class BaseSubjectRetirementProviderCapabilities
 /// <summary>Defines BuiltIn for coordinated subject retirement.</summary>
     public static BaseSubjectRetirementCapability BuiltIn { get; } = new()
     {
+        ActivationGuardedFinalPurgeSupported = true,
         TransactionalBarrierSupported = true,
         TransactionalFinalPurgeSupported = true,
         MaximumRequiredConsumersPerContract = 32,

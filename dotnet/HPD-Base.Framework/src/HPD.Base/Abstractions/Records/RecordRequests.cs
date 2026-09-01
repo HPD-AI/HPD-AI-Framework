@@ -17,6 +17,8 @@ public sealed record RecordPatchRequest
 {
     /// <summary>Gets or sets the patch.</summary>
     public required RecordPayload Patch { get; init; }
+    /// <summary>Gets the owned, ordinal stable field identifiers removed by this patch.</summary>
+    public required System.Collections.Immutable.ImmutableArray<string> RemovedFieldIds { get; init; }
     /// <summary>Gets or sets the expected revision.</summary>
     public RevisionToken? ExpectedRevision { get; init; }
 }

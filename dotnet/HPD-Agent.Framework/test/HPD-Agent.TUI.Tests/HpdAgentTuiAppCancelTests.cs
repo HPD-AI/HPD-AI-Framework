@@ -343,7 +343,7 @@ public sealed class HpdAgentTuiAppCancelTests
             new KeyEvent(KeyCode.Escape)).Should().BeTrue();
 
         await runtime.Interrupted.Task.WaitAsync(TimeSpan.FromSeconds(2));
-        runtime.InterruptReason.Should().Be("Cancelled from TUI.");
+        runtime.CancelledExecutionId.Should().Be("run-123456789");
 
         var entries = state.Shell.Transcript.Snapshot().Entries;
         entries.Select(static entry => entry.Cell).OfType<RunStatusCell>().Should().BeEmpty();
@@ -582,7 +582,7 @@ public sealed class HpdAgentTuiAppCancelTests
         public TaskCompletionSource<ThreadJournalCursor> ObserverStarted { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public string? InterruptReason { get; private set; }
+        public string? CancelledExecutionId { get; private set; }
 
         public TaskCompletionSource ActiveExecutionRequested { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -627,15 +627,6 @@ public sealed class HpdAgentTuiAppCancelTests
             CancellationToken cancellationToken = default)
         {
             Calls.Add("submit");
-            if (input is InterruptionRequestEvent interruption)
-            {
-                InterruptReason = interruption.Reason;
-                Interrupted.SetResult();
-                return Task.FromResult(new AgentTuiSubmitResult(
-                    AgentInputDisposition.Accepted,
-                    input.ThreadExecutionId,
-                    ActiveExecution));
-            }
             SubmissionStarted.TrySetResult();
             if (DelaySubmission)
             {
@@ -645,6 +636,18 @@ public sealed class HpdAgentTuiAppCancelTests
                 AgentInputDisposition.Queued,
                 (ActiveExecution?.ThreadExecutionId ?? "run"),
                 ActiveExecution ?? new AgentTuiThreadExecution("run", scope.AgentId, scope.SessionId, scope.ThreadId, "active", DateTimeOffset.UtcNow)));
+        }
+
+        public Task<AgentTuiSubmitResult> CancelExecutionAsync(
+            AgentTuiRuntimeScope scope, string threadExecutionId, CancellationToken cancellationToken = default)
+        {
+            Calls.Add("cancel");
+            CancelledExecutionId = threadExecutionId;
+            Interrupted.TrySetResult();
+            return Task.FromResult(new AgentTuiSubmitResult(
+                AgentInputDisposition.Accepted,
+                threadExecutionId,
+                ActiveExecution));
         }
 
         public void CompleteSubmission(string threadExecutionId)

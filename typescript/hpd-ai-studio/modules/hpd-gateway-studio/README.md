@@ -14,3 +14,9 @@ reviews. Diagnose presents serving/publication disagreement, effective
 provenance, activation evidence, validated HTTPS observability links, and a
 redacted deterministic local observation export capped at 1 MiB. Neither
 workspace reads HPD.Base, YARP internals, or telemetry stores directly.
+
+The package exports one authorization-neutral `studioModuleDescriptor` and one
+`activateStudioModule` entrypoint. The shared Studio shell supplies the exact sealed
+`gateway.admin` generated-client binding for the current principal generation. There is
+no public module factory, bearer-token input, base-URL option, raw transport, string-named
+context, or module-owned authentication lifecycle.

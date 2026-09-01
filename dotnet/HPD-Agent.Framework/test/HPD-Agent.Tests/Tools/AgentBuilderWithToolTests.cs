@@ -1,6 +1,7 @@
 using HPD.Agent.Tests.Infrastructure;
 using HPD.Agent.Tests.TestToolHarnesses;
 using HPD.Agent.Middleware;
+using HPD.Agent.Providers;
 using HPD.MultiAgent;
 using Microsoft.Extensions.AI;
 using Xunit;
@@ -40,29 +41,27 @@ public class AgentBuilderWithToolTests
     }
 
     [Fact]
-    public void SubAgentAvailabilityProjection_PreservesDynamicallyAddedTools()
+    public void UnifiedSubAgentComposition_UsesOneReservedFunction()
     {
-        AIFunction staticFunction = AIFunctionFactory.Create(
-            () => "static",
-            "static_tool");
-        AIFunction dynamicFunction = AIFunctionFactory.Create(
-            () => "dynamic",
-            "dynamic_client_tool");
-        var middleware = new SubAgentAvailabilityMiddleware(
-            [staticFunction]);
+        var descriptor = new SubAgentActionDescriptor
+        {
+            ParentToolHarness = "TestHarness",
+            RequiresToolHarnessActivation = false,
+            Action = "reviewer",
+            Description = "Reviews code.",
+            CapabilityId = CapabilityId.Create("test:reviewer"),
+            Definition = SubAgent.FromConfig("reviewer", "reviewer", "Reviews code.", new AgentConfig()),
+            InvocationModePolicy = AgentInvocationModePolicy.SynchronousOnly,
+            InvocationModeHandling = AgentInvocationModeHandling.ToolBody,
+            ContextPolicy = SubAgentContextPolicy.Fresh,
+            RequiresPermission = true
+        };
 
-        IList<AITool> projected =
-            middleware.ProjectAvailableTools(
-                [staticFunction, dynamicFunction],
-                currentDepth: 0,
-                maximumDepth: 4);
+        var function = SubAgentsFunctionFactory.Create([descriptor]);
 
-        Assert.Contains(
-            projected,
-            tool => tool.Name == "static_tool");
-        Assert.Contains(
-            projected,
-            tool => tool.Name == "dynamic_client_tool");
+        Assert.Equal("SubAgents", function.Name);
+        Assert.Contains("reviewer", function.JsonSchema.GetRawText());
+        Assert.Contains("continue", function.JsonSchema.GetRawText());
     }
 
     [Fact]
@@ -205,8 +204,16 @@ public class AgentBuilderWithToolTests
         Assert.True((bool)container.AdditionalProperties!["IsContainer"]!);
         Assert.True((bool)container.AdditionalProperties["IsToolHarnessContainer"]!);
         Assert.Equal(new[] { "lookup_order" }, (string[])container.AdditionalProperties["ChildFunctions"]!);
-        var middlewareFactory = Assert.Single(factory.CollapseMiddlewareFactories!);
-        Assert.IsType<ReflectionScopedMiddleware>(middlewareFactory());
+        Assert.Empty(factory.Middleware ?? []);
+    }
+
+    [Fact]
+    public void ReflectionToolFactory_RejectsToolHarnessMiddleware()
+    {
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            ReflectionToolFactory.TryCreateToolHarnessFactory(
+                typeof(ReflectionMiddlewareRejectedHarness), out _, out _));
+        Assert.Contains("source-generated", error.Message);
     }
 
     [Fact]
@@ -227,11 +234,12 @@ public class AgentBuilderWithToolTests
     public void GeneratedFactory_CreatesSubAgentCapability()
     {
         var factory = GetAdvancedFactory();
-        var functions = factory.CreateFunctions(new ReflectionAdvancedToolHarness(), null, null);
-        var subAgent = Assert.Single(functions, f => f.Name == "support_escalation");
+        var subAgent = Assert.Single(factory.CreateSubAgentActions!(new ReflectionAdvancedToolHarness()));
 
+        Assert.Equal("support_escalation", subAgent.Action);
         Assert.Equal("Escalates support questions to a specialist.", subAgent.Description);
-        Assert.True((bool)subAgent.AdditionalProperties!["IsSubAgent"]!);
+        Assert.Equal(nameof(ReflectionAdvancedToolHarness), subAgent.ParentToolHarness);
+        Assert.False(subAgent.RequiresToolHarnessActivation);
     }
 
     [Fact]
@@ -239,12 +247,15 @@ public class AgentBuilderWithToolTests
     {
         var client = new FakeChatClient();
         client.EnqueueToolCall(
-            "support_escalation",
+            "SubAgents",
             "call-subagent",
             new Dictionary<string, object?>
             {
-                ["taskName"] = "order_escalation",
-                ["input"] = "help with this order"
+                ["request"] = new Dictionary<string, object?>
+                {
+                    ["action"] = "support_escalation",
+                    ["input"] = "help with this order"
+                }
             });
         client.EnqueueTextResponse("child handled escalation");
         client.EnqueueTextResponse("parent saw escalation");
@@ -257,7 +268,7 @@ public class AgentBuilderWithToolTests
             {
                 Chat = new ChatClientConfig
                 {
-                    ProviderKey = "test",
+                    Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" },
                     ModelName = "test-model"
                 }
             },
@@ -266,6 +277,7 @@ public class AgentBuilderWithToolTests
                 MaxTurnDuration = TimeSpan.FromSeconds(20)
             }
         };
+        config.Clients.Chat!.Override = ClientOverride<IChatClient>.Borrow(client, "test", "local");
 
         var agent = await new AgentBuilder(config, new TestProviderRegistry(client))
             .WithAgentStore(new InMemoryAgentStore())
@@ -283,7 +295,6 @@ public class AgentBuilderWithToolTests
         var invocation = Assert.Single(parentEvents!.OfType<SubAgentInvocationStartedEvent>());
         Assert.Equal("test/support-escalation", invocation.ChildAgentId);
         Assert.Equal("support_escalation", invocation.RoleName);
-        Assert.Equal("order_escalation", invocation.TaskName);
         Assert.Equal(SubAgentContextPolicy.Isolated, invocation.ContextPolicy);
         Assert.Equal(AgentInvocationMode.Synchronous, invocation.Mode);
     }
@@ -309,7 +320,7 @@ public class AgentBuilderWithToolTests
         Assert.Single(functions, function => function.Name == "advanced_lookup_order");
         Assert.Single(functions, function => function.Name == "advanced_get_return_policy");
         Assert.Single(functions, function => function.Name == "order_support");
-        Assert.Single(functions, function => function.Name == "support_escalation");
+        Assert.DoesNotContain(functions, function => function.Name == "support_escalation");
         Assert.Single(functions, function => function.Name == "support_workflow");
         Assert.Equal(functions.Count, functions.Select(function => function.Name).Distinct(StringComparer.Ordinal).Count());
 
@@ -324,7 +335,6 @@ public class AgentBuilderWithToolTests
 
         Assert.Contains(HPDCapabilityKind.Function, kinds);
         Assert.Contains(HPDCapabilityKind.SkillActivation, kinds);
-        Assert.Contains(HPDCapabilityKind.SubAgent, kinds);
         Assert.Contains(HPDCapabilityKind.MultiAgent, kinds);
     }
 
@@ -349,8 +359,7 @@ public class ReflectionWeatherToolHarness
 [Collapse(
     "Support tools for orders and returns.",
     FunctionResult = "Support tools are active.",
-    SystemPrompt = "Use support tool results when available.",
-    Middlewares = [typeof(ReflectionScopedMiddleware)]
+    SystemPrompt = "Use support tool results when available."
 )]
 public class ReflectionSupportToolHarness
 {
@@ -364,6 +373,13 @@ public class ReflectionSupportToolHarness
 
 public sealed class ReflectionScopedMiddleware : IToolHarnessMiddleware
 {
+}
+
+[Collapse("Rejected", Middlewares = [typeof(ReflectionScopedMiddleware)])]
+public sealed class ReflectionMiddlewareRejectedHarness
+{
+    [AIFunction]
+    public string Ping() => "pong";
 }
 
 public class ReflectionAdvancedToolHarness

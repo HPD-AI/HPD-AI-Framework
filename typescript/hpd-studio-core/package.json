@@ -16,15 +16,25 @@
   },
   "scripts": {
     "test": "node --experimental-strip-types --test test/*.test.ts",
-    "typecheck": "svelte-check --tsconfig ./tsconfig.json"
+    "typecheck": "svelte-check --tsgo --tsconfig ./tsconfig.json"
   },
-  "files": ["src", "README.md"],
-  "peerDependencies": { "svelte": "^5.0.0" },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "svelte": "^5.0.0"
+  },
   "devDependencies": {
-    "@types/node": "^24.0.0",
-    "svelte": "^5.0.0",
-    "svelte-check": "^4.0.0",
-    "typescript": "^5.0.0"
+    "@types/node": "26.2.0",
+    "@typescript/native": "npm:typescript@7.0.2",
+    "svelte": "5.56.10",
+    "svelte-check": "4.7.6",
+    "typescript": "6.0.3"
   },
-  "license": "FSL-1.1-ALv2"
+  "license": "FSL-1.1-ALv2",
+  "dependencies": {
+    "@hpd/base-client": "file:../hpd-base-client",
+    "@noble/hashes": "2.3.0"
+  }
 }

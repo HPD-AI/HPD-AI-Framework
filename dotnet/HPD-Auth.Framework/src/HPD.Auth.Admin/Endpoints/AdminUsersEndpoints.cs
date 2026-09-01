@@ -7,7 +7,6 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.EntityFrameworkCore;
 
 namespace HPD.Auth.Admin.Endpoints;
 
@@ -60,7 +59,7 @@ public static class AdminUsersEndpoints
         group.MapDelete("/{id}", DeleteUserAsync)
              .RequireHPDControlPlaneCapability(app, HPDAuthAdminCapabilities.IdentityDelete)
              .WithName("AdminDeleteUser")
-             .WithSummary("Delete a user. Pass softDelete=true to soft-delete (sets IsDeleted flag).");
+             .WithSummary("Tombstone a user and durably schedule its bounded retirement workflow.");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -69,6 +68,7 @@ public static class AdminUsersEndpoints
 
     private static async Task<IResult> ListUsersAsync(
         UserManager<ApplicationUser> userManager,
+        IAuthAdminUserQuery userQuery,
         IAuthAuditWriter auditWriter,
         IAuthCorrelationContext correlationContext,
         string? search = null,
@@ -83,41 +83,32 @@ public static class AdminUsersEndpoints
         CancellationToken ct = default)
     {
         page = Math.Max(1, page);
-        per_page = Math.Clamp(per_page, 1, 500);
+        per_page = Math.Clamp(per_page, 1, 200);
+        long offset = checked((long)(page - 1) * per_page);
+        if (offset > 100_000)
+            return Results.BadRequest(new { error = "The requested page exceeds the administrative query bound." });
 
-        var query = BuildFilterQuery(userManager, search, email, emailVerified, enabled);
-
-        // Role filter requires a separate async lookup — resolve IDs first.
-        if (!string.IsNullOrWhiteSpace(role))
+        AuthAdminUserQueryResult queryResult = await userQuery.ExecuteAsync(new AuthAdminUserQuery
         {
-            var usersInRole = await userManager.GetUsersInRoleAsync(role);
-            var roleUserIds = usersInRole.Select(u => u.Id).ToHashSet();
-            query = query.Where(u => roleUserIds.Contains(u.Id));
-        }
-
-        query = ApplySorting(query, sort, order);
-
-        var total = await query.CountAsync(ct);
-        var users = await query
-            .Skip((page - 1) * per_page)
-            .Take(per_page)
-            .ToListAsync(ct);
+            Search = search, Email = email, EmailVerified = emailVerified, Enabled = enabled, Role = role,
+            Offset = checked((int)offset), Limit = per_page, Sort = ParseSort(sort), Direction = ParseDirection(order),
+        }, ct);
 
         // Fetch roles for each user (N lookups — acceptable for admin pagination sizes).
-        var responses = new List<AdminUserResponse>(users.Count);
-        foreach (var u in users)
+        var responses = new List<AdminUserResponse>(queryResult.Users.Count);
+        foreach (ApplicationUser u in queryResult.Users)
         {
             var roles = await userManager.GetRolesAsync(u);
             responses.Add(ToResponse(u, roles));
         }
 
-        var totalPages = (int)Math.Ceiling(total / (double)per_page);
+        int totalPages = checked((int)Math.Ceiling(queryResult.Total / (double)per_page));
         await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserList, correlationContext, cancellationToken: ct);
-        return Results.Ok(new AdminUserListResponse(responses, total, page, per_page, totalPages));
+        return Results.Ok(new AdminUserListResponse(responses, queryResult.Total, page, per_page, totalPages));
     }
 
     private static async Task<IResult> CountUsersAsync(
-        UserManager<ApplicationUser> userManager,
+        IAuthAdminUserQuery userQuery,
         IAuthAuditWriter auditWriter,
         IAuthCorrelationContext correlationContext,
         string? search = null,
@@ -127,18 +118,14 @@ public static class AdminUsersEndpoints
         string? role = null,
         CancellationToken ct = default)
     {
-        var query = BuildFilterQuery(userManager, search, email, emailVerified, enabled);
-
-        if (!string.IsNullOrWhiteSpace(role))
+        AuthAdminUserQueryResult queryResult = await userQuery.ExecuteAsync(new AuthAdminUserQuery
         {
-            var usersInRole = await userManager.GetUsersInRoleAsync(role);
-            var roleUserIds = usersInRole.Select(u => u.Id).ToHashSet();
-            query = query.Where(u => roleUserIds.Contains(u.Id));
-        }
-
-        var count = await query.CountAsync(ct);
+            Search = search, Email = email, EmailVerified = emailVerified, Enabled = enabled, Role = role,
+            Offset = 0, Limit = 1, Sort = AuthAdminUserSort.CreatedAt,
+            Direction = AuthAdminSortDirection.Descending,
+        }, ct);
         await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserCount, correlationContext, cancellationToken: ct);
-        return Results.Ok(count);
+        return Results.Ok(queryResult.Total);
     }
 
     private static async Task<IResult> GetUserAsync(
@@ -272,29 +259,15 @@ public static class AdminUsersEndpoints
         UserManager<ApplicationUser> userManager,
         IAuthAuditWriter auditWriter,
         IAuthCorrelationContext correlationContext,
-        bool softDelete = false,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
         if (user is null)
             return Results.NotFound();
 
-        if (softDelete)
-        {
-            user.IsDeleted = true;
-            user.DeletedAt = DateTime.UtcNow;
-            user.Updated = DateTime.UtcNow;
-
-            var updateResult = await userManager.UpdateAsync(user);
-            if (!updateResult.Succeeded)
-                return Results.BadRequest(updateResult.Errors);
-        }
-        else
-        {
-            var deleteResult = await userManager.DeleteAsync(user);
-            if (!deleteResult.Succeeded)
-                return Results.BadRequest(deleteResult.Errors);
-        }
+        var deleteResult = await userManager.DeleteAsync(user);
+        if (!deleteResult.Succeeded)
+            return Results.BadRequest(deleteResult.Errors);
 
         await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserDelete, correlationContext, user.Id, cancellationToken: ct);
 
@@ -305,53 +278,17 @@ public static class AdminUsersEndpoints
     // Shared helpers (internal — used by other endpoint files via ToResponse)
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Build the base IQueryable with all supported filter predicates applied.
-    /// The role filter is excluded here because it requires an async lookup.
-    /// </summary>
-    internal static IQueryable<ApplicationUser> BuildFilterQuery(
-        UserManager<ApplicationUser> userManager,
-        string? search,
-        string? email,
-        bool? emailVerified,
-        bool? enabled)
+    private static AuthAdminUserSort ParseSort(string sort) => sort switch
     {
-        var query = userManager.Users.Where(u => !u.IsDeleted);
+        "email" => AuthAdminUserSort.Email,
+        "last_login" => AuthAdminUserSort.LastLoginAt,
+        _ => AuthAdminUserSort.CreatedAt,
+    };
 
-        if (!string.IsNullOrWhiteSpace(search))
-            query = query.Where(u =>
-                (u.Email != null && u.Email.Contains(search)) ||
-                (u.UserName != null && u.UserName.Contains(search)) ||
-                (u.FirstName != null && u.FirstName.Contains(search)) ||
-                (u.LastName != null && u.LastName.Contains(search)));
-
-        if (!string.IsNullOrWhiteSpace(email))
-            query = query.Where(u => u.Email != null && u.Email.Contains(email));
-
-        if (emailVerified.HasValue)
-            query = query.Where(u => u.EmailConfirmed == emailVerified.Value);
-
-        if (enabled.HasValue)
-            query = query.Where(u => u.IsActive == enabled.Value);
-
-        return query;
-    }
-
-    private static IQueryable<ApplicationUser> ApplySorting(
-        IQueryable<ApplicationUser> query,
-        string sort,
-        string order)
-    {
-        bool descending = order.Equals("desc", StringComparison.OrdinalIgnoreCase);
-
-        return sort switch
-        {
-            "email"      => descending ? query.OrderByDescending(u => u.Email) : query.OrderBy(u => u.Email),
-            "last_login" => descending ? query.OrderByDescending(u => u.LastLoginAt) : query.OrderBy(u => u.LastLoginAt),
-            // default: created_at
-            _            => descending ? query.OrderByDescending(u => u.Created) : query.OrderBy(u => u.Created),
-        };
-    }
+    private static AuthAdminSortDirection ParseDirection(string order) =>
+        order.Equals("desc", StringComparison.OrdinalIgnoreCase)
+            ? AuthAdminSortDirection.Descending
+            : AuthAdminSortDirection.Ascending;
 
     /// <summary>
     /// Map an <see cref="ApplicationUser"/> to the admin response DTO.

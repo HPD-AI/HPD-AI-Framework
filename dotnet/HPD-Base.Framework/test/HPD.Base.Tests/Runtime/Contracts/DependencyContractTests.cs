@@ -15,6 +15,7 @@ public sealed class DependencyContractTests
         "System.Diagnostics.DiagnosticSource",
         "System.Text.Json",
         "System.Text.Encodings.Web",
+        "System.Text.Encoding.Extensions",
         "System.Threading",
         "System.Threading.Channels",
         "System.Security.Cryptography",

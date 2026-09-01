@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
 namespace HPD.Base.Testing;
@@ -17,7 +19,7 @@ public sealed class BaseInMemorySemanticActivationCertificationFixtureFactory
     {
         IBaseSemanticActivationCertificationStore store = CreateStore();
         Subject = BaseSemanticActivationCertificationContract.CreateSubject(
-            "hpd.base.inMemory.semanticActivations", "1", "inmemory", HPDBaseStoreProviderFactory.ProtocolVersion,
+            "hpd.base.inMemory.semanticActivations", "2", "inmemory", HPDBaseStoreProviderFactory.ProtocolVersion,
             store.SemanticProvider.SemanticActivationCapability, store.ModuleMutationCapability, store.ActivationProvider.Descriptor.Capability);
     }
 
@@ -32,7 +34,13 @@ public sealed class BaseInMemorySemanticActivationCertificationFixtureFactory
             new Fixture(Subject, CreateStore(), caseId, ordinal, deadlineUtc));
     }
 
-    private sealed class InMemoryCertificationStore(InMemoryRecordStore store)
+    private sealed class InMemoryCertificationStore(
+        InMemoryRecordStore store,
+        BaseSemanticActivationKeyDefinition installedDefinition,
+        BaseSemanticActivationMigrationDefinition installedMigration,
+        BaseSemanticActivationRemovalAuthority installedRemoval,
+        BaseTestTimeProvider time,
+        ServiceProvider services)
         : IBaseSemanticActivationCertificationStore
     {
         public string LogicalStoreId => "semantic-certification";
@@ -44,7 +52,11 @@ public sealed class BaseInMemorySemanticActivationCertificationFixtureFactory
         public IBaseActivationProvider ActivationProvider => store;
         public IBaseSemanticActivationCapabilityProvider SemanticProvider => store;
         public BaseModuleMutationCapability ModuleMutationCapability => store.Capabilities.ModuleMutation!;
-        public IBaseSemanticActivationAdministration? SemanticAdministration => null;
+        public IBaseSemanticActivationAdministration? SemanticAdministration => store;
+        private BaseTestTimeProvider Time { get; } = time;
+        private ServiceProvider Services { get; } = services;
+        internal InMemoryRecordStore InnerStore => store;
+        internal BaseSemanticActivationKeyDefinition InstalledDefinition => installedDefinition;
         public ValueTask<(long Live, long Retired, long Absent, long Activations, long Receipts)> ObserveAsync(CancellationToken cancellationToken) => store.ObserveSemanticActivationCertificationStateAsync(cancellationToken);
         public ValueTask<ImmutableArray<byte>> ReadAuthorityAsync(CancellationToken cancellationToken) => store.ReadSemanticActivationCertificationAuthorityAsync(cancellationToken);
         public (int Active, int Quarantined, int Released, int RejectedLateCompletions) ObserveLateWork() => store.ObserveAtomicLateWorkCertificationState();
@@ -53,25 +65,1036 @@ public sealed class BaseInMemorySemanticActivationCertificationFixtureFactory
             ValueTask.FromResult(OperationResults.Unsupported<BaseBackupManifest>(new BaseError { Code = BaseSemanticActivationErrorCodes.ProviderContractInvalid, Message = "InMemory semantic backup is not advertised.", Category = ErrorCategory.Unsupported }));
         public ValueTask<OperationResult<BaseRestoreResult>> RestoreAsync(Stream source, BaseRestoreRequest request, CancellationToken cancellationToken) =>
             ValueTask.FromResult(OperationResults.Unsupported<BaseRestoreResult>(new BaseError { Code = BaseSemanticActivationErrorCodes.ProviderContractInvalid, Message = "InMemory semantic restore is not advertised.", Category = ErrorCategory.Unsupported }));
-        public ValueTask<BaseSemanticActivationCertificationOperationInput?> CreateAdministrationInputAsync(
+        public async ValueTask<BaseSemanticActivationCertificationOperationInput?> CreateAdministrationInputAsync(
             BaseSemanticActivationCertificationOperation operation, string caseId, int ordinal,
-            DateTimeOffset deadlineUtc, CancellationToken cancellationToken) => ValueTask.FromResult<BaseSemanticActivationCertificationOperationInput?>(null);
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+            DateTimeOffset deadlineUtc, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            BaseSemanticActivationKeyDefinition installed = InstalledDefinition;
+            var key = new BaseSemanticActivationDefinitionKey
+            {
+                Id = installed.Id, Version = installed.Version, Checksum = installed.Checksum,
+            };
+            if (operation == BaseSemanticActivationCertificationOperation.Inspect)
+            {
+                var request = new BaseSemanticActivationProviderInspectionRequest
+                {
+                    ApplicationId = "certification-application", LogicalStoreId = LogicalStoreId,
+                    ProviderIncarnation = store.ProviderIncarnation, RestoreEpoch = 0,
+                    Definition = key, State = null, After = null, Take = 256,
+                    Limits = installed.Limits.Execution, RuntimeRequestAuthorityChecksum = [],
+                };
+                request = request with
+                {
+                    RuntimeRequestAuthorityChecksum = BaseSemanticActivationInspectionContract.RequestChecksum(request),
+                };
+                return new() { Inspection = request };
+            }
+            if (operation == BaseSemanticActivationCertificationOperation.MaintenanceAuthority)
+            {
+                var request = new BaseSemanticActivationMaintenanceAuthorityRequest
+                {
+                    ApplicationId = "certification-application", LogicalStoreId = LogicalStoreId,
+                    ProviderIncarnation = store.ProviderIncarnation, RestoreEpoch = 0,
+                    Definition = key, SemanticAuthorityGeneration = 1,
+                    MaximumRows = 1, MaximumBytes = 1_048_576, RuntimeRequestChecksum = [],
+                };
+                request = request with
+                {
+                    RuntimeRequestChecksum = BaseSemanticActivationMaintenanceAuthorityContract.RequestChecksum(request),
+                };
+                return new()
+                {
+                    MaintenanceAuthority = request,
+                };
+            }
+            if (operation == BaseSemanticActivationCertificationOperation.Maintain)
+            {
+                byte[] fingerprint = SHA256.HashData(Encoding.UTF8.GetBytes(caseId));
+                if (caseId is "maintenance-compact-multipage"
+                    or "maintenance-progress-invisible"
+                    or "maintenance-resume")
+                {
+                    BaseSemanticActivationMaintenanceAuthority compaction = await SeedCompactionSlotsAsync(
+                        caseId, deadlineUtc, cancellationToken).ConfigureAwait(false);
+                    var inspection = new BaseSemanticActivationProviderInspectionRequest
+                    {
+                        ApplicationId = "certification-application", LogicalStoreId = LogicalStoreId,
+                        ProviderIncarnation = store.ProviderIncarnation, RestoreEpoch = 0,
+                        Definition = key, State = null, After = null, Take = 1,
+                        Limits = installed.Limits.Execution, RuntimeRequestAuthorityChecksum = [],
+                    };
+                    inspection = inspection with
+                    {
+                        RuntimeRequestAuthorityChecksum =
+                            BaseSemanticActivationInspectionContract.RequestChecksum(inspection),
+                    };
+                    return new()
+                    {
+                        Inspection = inspection,
+                        Maintenance = new BaseSemanticActivationCompactRequest
+                        {
+                            Identity = BaseMutationRequestIdentity.Create(
+                                "semantic-certification", "compact", caseId,
+                                BaseMutationRequestFingerprint.Create(fingerprint)),
+                            ProviderIncarnation = store.ProviderIncarnation, Definition = key,
+                            ExpectedSemanticAuthorityGeneration = compaction.SemanticAuthorityGeneration,
+                            ExpectedRetiredCount = compaction.RetiredCount,
+                            ExpectedRetiredChecksum = compaction.RetiredAuthorityChecksum,
+                            Limits = new BaseSemanticActivationMaintenanceLimits
+                            {
+                                PageSize = 1, MaximumPages = 8, MaximumRows = 8,
+                                MaximumBytes = 1_048_576, Deadline = TimeSpan.FromSeconds(5),
+                            },
+                        },
+                    };
+                }
+                if (caseId == "maintenance-migrate")
+                {
+                    await SeedLiveSlotsAsync(caseId, deadlineUtc, cancellationToken).ConfigureAwait(false);
+                    BaseSemanticActivationMigrationDefinition migration = installedMigration;
+                    return new()
+                    {
+                        Maintenance = new BaseSemanticActivationMigrateRequest
+                        {
+                            Identity = BaseMutationRequestIdentity.Create(
+                                "semantic-certification", "migrate", caseId,
+                                BaseMutationRequestFingerprint.Create(fingerprint)),
+                            ProviderIncarnation = store.ProviderIncarnation,
+                            Definition = migration.From,
+                            ExpectedSemanticAuthorityGeneration = 1,
+                            Migration = migration,
+                            Limits = new BaseSemanticActivationMaintenanceLimits
+                            {
+                                PageSize = 1, MaximumPages = 16, MaximumRows = 512,
+                                MaximumBytes = 1_048_576, Deadline = TimeSpan.FromSeconds(5),
+                            },
+                        },
+                    };
+                }
+                if (caseId == "maintenance-remove")
+                {
+                    BaseSemanticActivationRemovalAuthority removal = installedRemoval;
+                    return new()
+                    {
+                        Maintenance = new BaseSemanticActivationRemoveRequest
+                        {
+                            Identity = BaseMutationRequestIdentity.Create(
+                                "semantic-certification", "remove", caseId,
+                                BaseMutationRequestFingerprint.Create(fingerprint)),
+                            ProviderIncarnation = store.ProviderIncarnation,
+                            Definition = new BaseSemanticActivationDefinitionKey
+                            {
+                                Id = removal.From.Id, Version = removal.From.Version,
+                                Checksum = removal.From.Checksum,
+                            },
+                            ExpectedSemanticAuthorityGeneration = 1,
+                            RemovalAuthority = removal,
+                            ExpectedLiveCount = 0, ExpectedRetiredCount = 0,
+                            ExpectedAbsenceCount = 0,
+                            ExpectedDefinitionStateChecksum = EmptyDefinitionStateChecksum(),
+                            ExpectedAbsenceAuthorityChecksum = EmptyOrderedAuthoritiesChecksum(),
+                            Limits = new BaseSemanticActivationMaintenanceLimits
+                            {
+                                PageSize = 256, MaximumPages = 1, MaximumRows = 512,
+                                MaximumBytes = 1_048_576, Deadline = TimeSpan.FromSeconds(5),
+                            },
+                        },
+                    };
+                }
+                return new()
+                {
+                    Maintenance = new BaseSemanticActivationCompactRequest
+                    {
+                        Identity = BaseMutationRequestIdentity.Create("semantic-certification", "compact", caseId,
+                            BaseMutationRequestFingerprint.Create(fingerprint)),
+                        ProviderIncarnation = store.ProviderIncarnation, Definition = key,
+                        ExpectedSemanticAuthorityGeneration = 1, ExpectedRetiredCount = 0,
+                        ExpectedRetiredChecksum = EmptyOrderedAuthoritiesChecksum(),
+                        Limits = new BaseSemanticActivationMaintenanceLimits
+                        {
+                            PageSize = 256, MaximumPages = 1, MaximumRows = 1,
+                            MaximumBytes = 1_048_576, Deadline = TimeSpan.FromSeconds(5),
+                        },
+                    },
+                };
+            }
+            return null;
+        }
+
+        private async ValueTask SeedLiveSlotsAsync(
+            string caseId, DateTimeOffset deadlineUtc, CancellationToken cancellationToken)
+        {
+            BaseAtomicMutationExecutionLimits limits =
+                DefaultBaseModuleMutationRuntime.ResolveExecutionLimits(
+                    BaseModuleMutationPlatform.MaximumLimits);
+            BaseAtomicMutationAuthorityRequirement authority = (await store
+                .CaptureAtomicMutationAuthorityRequirementAsync(
+                    "certification-application", [], limits, cancellationToken)
+                .ConfigureAwait(false)).Value
+                ?? throw new InvalidOperationException("base.semanticActivation.certificationInvalid");
+            for (int index = 0; index < 2; index++)
+            {
+                string key = $"{caseId}:seed:{index}";
+                var processor = new BaseSemanticActivationCertificationProcessor(
+                    authority, limits, LogicalStoreId, key,
+                    semanticLimits: BaseSemanticActivationCertificationProcessor.SemanticLimits(),
+                    semanticKey: $"certification-subject-{index}",
+                    installedDefinition: InstalledDefinition);
+                RecordMutationExecutionResult result = await store.ExecuteAtomicAsync(
+                    processor, CertificationRequest(key, deadlineUtc), cancellationToken).ConfigureAwait(false);
+                if (result.Outcome != RecordMutationExecutionOutcome.Committed)
+                    throw new InvalidOperationException("base.semanticActivation.certificationInvalid");
+            }
+        }
+
+        private async ValueTask<BaseSemanticActivationMaintenanceAuthority> SeedCompactionSlotsAsync(
+            string caseId, DateTimeOffset deadlineUtc, CancellationToken cancellationToken)
+        {
+            BaseAtomicMutationExecutionLimits limits =
+                DefaultBaseModuleMutationRuntime.ResolveExecutionLimits(
+                    BaseModuleMutationPlatform.MaximumLimits);
+            for (int index = 0; index < 2; index++)
+            {
+                BaseSubjectReference<BaseSemanticActivationCertificationLifecycleSubject> subject =
+                    await CreateCertificationSubjectAsync(caseId, index, cancellationToken)
+                        .ConfigureAwait(false);
+                BaseSemanticActivationSubjectLifetimeBinding lifetime =
+                    BaseSemanticActivationCertificationSubjectAuthority.Bind(subject);
+                BaseAtomicMutationAuthorityRequirement authority = (await store
+                    .CaptureAtomicMutationAuthorityRequirementAsync(
+                        "certification-application", [], limits, cancellationToken)
+                    .ConfigureAwait(false)).Value
+                    ?? throw new InvalidOperationException("base.semanticActivation.certificationInvalid");
+                string semanticKey = $"{caseId}:compact:{index}";
+                // Each seeded lifetime advances beyond the prior lifetime's complete
+                // receipt-retention and prune horizon. Provider time authority is
+                // monotonic across the complete certification store.
+                long acceptedBase = checked(100L + index * 86_402_000L);
+                var ensure = new BaseSemanticActivationCertificationProcessor(
+                    authority, limits, LogicalStoreId, semanticKey + ":ensure",
+                    semanticLimits: BaseSemanticActivationCertificationProcessor.SemanticLimits(),
+                    acceptedTime: acceptedBase, semanticKey: semanticKey, subjectLifetime: lifetime,
+                    installedDefinition: InstalledDefinition);
+                RecordMutationExecutionResult ensured = await store.ExecuteAtomicAsync(
+                    ensure, CertificationRequest(semanticKey + ":ensure", deadlineUtc), cancellationToken)
+                    .ConfigureAwait(false);
+                if (ensured.Outcome != RecordMutationExecutionOutcome.Committed
+                    || ensure.Provisional?.ActivationId is null)
+                    throw new InvalidOperationException(
+                        $"base.semanticActivation.certificationInvalid:ensure:{ensured.Outcome}:{ensured.Error?.Code}:{ensure.FailureStage}");
+                BaseActivationTransitionResult completedActivation =
+                    await CompleteActivationAsync(
+                        ensure.Provisional.ActivationId, semanticKey, acceptedBase,
+                        cancellationToken).ConfigureAwait(false);
+                if (index == 0)
+                    await DisposeActivationAsync(
+                        ensure.Provisional.ActivationId, completedActivation.Generation,
+                        semanticKey, acceptedBase, cancellationToken).ConfigureAwait(false);
+                authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync(
+                    "certification-application", [], limits, cancellationToken)
+                    .ConfigureAwait(false)).Value
+                    ?? throw new InvalidOperationException("base.semanticActivation.certificationInvalid");
+                var retire = new BaseSemanticActivationCertificationProcessor(
+                    authority, limits, LogicalStoreId, semanticKey + ":retire", retire: true,
+                    semanticLimits: BaseSemanticActivationCertificationProcessor.SemanticLimits(),
+                    acceptedTime: checked(acceptedBase + 4), semanticKey: semanticKey,
+                    subjectLifetime: lifetime, installedDefinition: InstalledDefinition);
+                RecordMutationExecutionRequest retireRequest = CertificationRequest(
+                    semanticKey + ":retire", deadlineUtc) with
+                {
+                    AtomicRequest = CertificationRequest(
+                        semanticKey + ":retire", deadlineUtc).AtomicRequest! with
+                    {
+                        ExpiresAt = Time.GetUtcNow().AddSeconds(1),
+                    },
+                };
+                RecordMutationExecutionResult retired = await store.ExecuteAtomicAsync(
+                    retire, retireRequest, cancellationToken)
+                    .ConfigureAwait(false);
+                if (retired.Outcome != RecordMutationExecutionOutcome.Committed)
+                    throw new InvalidOperationException("base.semanticActivation.certificationInvalid");
+                if (index == 1)
+                    await DisposeActivationAsync(
+                        ensure.Provisional.ActivationId, completedActivation.Generation,
+                        semanticKey, checked(acceptedBase + 2), cancellationToken).ConfigureAwait(false);
+                await RetireCertificationSubjectAsync(
+                    subject, semanticKey, cancellationToken).ConfigureAwait(false);
+                await PruneActivationAsync(
+                    semanticKey,
+                    checked(acceptedBase + 86_401_000L),
+                    cancellationToken)
+                    .ConfigureAwait(false);
+                Time.Advance(TimeSpan.FromSeconds(2));
+                authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync(
+                    "certification-application", [], limits, cancellationToken)
+                    .ConfigureAwait(false)).Value
+                    ?? throw new InvalidOperationException("base.semanticActivation.certificationInvalid");
+                var expiredReceiptReplay = new BaseSemanticActivationCertificationProcessor(
+                    authority, limits, LogicalStoreId, semanticKey + ":retire", retire: true,
+                    semanticLimits: BaseSemanticActivationCertificationProcessor.SemanticLimits(),
+                    acceptedTime: checked(acceptedBase + 86_401_001L), semanticKey: semanticKey,
+                    subjectLifetime: lifetime, installedDefinition: InstalledDefinition);
+                RecordMutationExecutionResult replayed = await store.ExecuteAtomicAsync(
+                    expiredReceiptReplay, retireRequest, cancellationToken)
+                    .ConfigureAwait(false);
+                if (replayed.Outcome != RecordMutationExecutionOutcome.Committed)
+                    throw new InvalidOperationException(
+                        $"base.semanticActivation.certificationInvalid:receipt-expiry:{replayed.Error?.Code}");
+            }
+            BaseSemanticActivationKeyDefinition definition = InstalledDefinition;
+            var request = new BaseSemanticActivationMaintenanceAuthorityRequest
+            {
+                ApplicationId = "certification-application", LogicalStoreId = LogicalStoreId,
+                ProviderIncarnation = store.ProviderIncarnation, RestoreEpoch = 0,
+                Definition = new BaseSemanticActivationDefinitionKey
+                {
+                    Id = definition.Id, Version = definition.Version, Checksum = definition.Checksum,
+                },
+                SemanticAuthorityGeneration = 1, MaximumRows = 8, MaximumBytes = 1_048_576,
+                RuntimeRequestChecksum = [],
+            };
+            request = request with
+            {
+                RuntimeRequestChecksum = BaseSemanticActivationMaintenanceAuthorityContract.RequestChecksum(request),
+            };
+            return (await store.InspectMaintenanceAuthorityAsync(request, cancellationToken)
+                .ConfigureAwait(false)).RequireValue();
+        }
+
+        private async ValueTask<BaseSubjectReference<BaseSemanticActivationCertificationLifecycleSubject>>
+            CreateCertificationSubjectAsync(
+                string caseId, int index, CancellationToken cancellationToken)
+        {
+            string id = $"subject-{index}-{Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(caseId)))[..12]}";
+            PrincipalContext principal = CertificationPrincipal();
+            OperationContext operation = CertificationOperation(
+                BaseOperationKind.Create,
+                BaseSemanticActivationCertificationSubjectAuthority.CollectionId);
+            var payload = new RecordPayload
+            {
+                Kind = RecordPayloadKind.FieldMap,
+                Fields = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+                {
+                    ["active"] = ParseCanonicalJson("true"),
+                    ["tombstoned"] = ParseCanonicalJson("false"),
+                },
+            };
+            OperationResult<RecordEnvelope> created = await Services
+                .GetRequiredService<IBaseRecordRuntime>()
+                .CreateAsync(
+                    BaseSemanticActivationCertificationSubjectAuthority.CollectionId,
+                    new RecordCreateRequest { RequestedId = RecordId.Create(id), Payload = payload },
+                    principal, operation, cancellationToken)
+                .ConfigureAwait(false);
+            if (!created.IsSuccess())
+                throw new InvalidOperationException(
+                    $"base.semanticActivation.certificationInvalid:subject-create:{created.Error?.Code}");
+
+            OperationResult<BaseRelationalReadExecutionResult> acquired = await store.ExecuteReadAsync(new()
+            {
+                ApplicationId = "certification-application",
+                LogicalStoreId = LogicalStoreId,
+                LogicalSchemaChecksum = BaseSchemaAuthorityChecksum.Create(new byte[32]),
+                Plan = new BaseRelationalReadPlan
+                {
+                    Id = "certification.subject.acquire",
+                    Topology = BaseRelationalReadTopology.Ordinary,
+                    SchemaGeneration = 1,
+                    Pagination = new BaseRegisteredReadPaginationAuthority
+                    {
+                        Mode = BaseRegisteredReadPaginationMode.PageOnly,
+                        MaximumOffset = 0,
+                    },
+                    Sources = [new BaseRelationalReadSource
+                    {
+                        Id = "subjects",
+                        CollectionId = BaseSemanticActivationCertificationSubjectAuthority.CollectionId,
+                    }],
+                    Predicate = new BaseRelationalPredicate
+                    {
+                        Kind = FilterNodeKind.Compare,
+                        Operator = FilterOperator.Equal,
+                        Left = new BaseRelationalOperand
+                        {
+                            Kind = BaseRelationalOperandKind.RecordId,
+                            SourceId = "subjects",
+                            FieldId = "base.recordId",
+                        },
+                        Right = new BaseRelationalOperand
+                        {
+                            Kind = BaseRelationalOperandKind.Literal,
+                            Literal = BaseQueryValue.From(id),
+                        },
+                    },
+                    Projection = [new BaseRelationalReadProjection
+                    {
+                        FieldId = "reference",
+                        Operand = new BaseRelationalOperand
+                        {
+                            Kind = BaseRelationalOperandKind.SubjectReference,
+                            SourceId = "subjects",
+                            SubjectContractId = BaseSemanticActivationCertificationSubjectAuthority.ContractId,
+                            SubjectContractVersion = 1,
+                        },
+                    }],
+                    Parameters = [],
+                    Budgets = new BaseRelationalReadBudgets
+                    {
+                        MaxResultRows = 1, MaxResultBytes = 4096, MaxOperations = 16,
+                        MaxExecutionMilliseconds = 2_000, MaxCompoundBranches = 0,
+                        MaxCompoundOperations = 0,
+                    },
+                },
+                ParameterValues = [],
+                SourcePolicies = [new BaseRelationalReadSourcePolicy
+                {
+                    SourceId = "subjects",
+                    CollectionId = BaseSemanticActivationCertificationSubjectAuthority.CollectionId,
+                }],
+                Operation = CertificationOperation(
+                    BaseOperationKind.SubjectAcquire,
+                    BaseSemanticActivationCertificationSubjectAuthority.CollectionId),
+                AcquisitionTimeout = TimeSpan.FromSeconds(1),
+                ExecutionTimeout = TimeSpan.FromSeconds(1),
+                MaxResultRows = 1,
+                MaxResultBytes = 4096,
+            }, cancellationToken).ConfigureAwait(false);
+            if (!acquired.IsSuccess() || acquired.Value?.Result.Rows is not { Length: 1 } rows)
+                throw new InvalidOperationException(
+                    $"base.semanticActivation.certificationInvalid:subject-acquire:{acquired.Error?.Code}");
+            QueryValue value = rows[0].Fields.Single().Value;
+            return new BaseSubjectReference<BaseSemanticActivationCertificationLifecycleSubject>(
+                BaseSubjectId.Create(value.SubjectId!, value.SubjectIdKind!.Value),
+                BaseSubjectAuthorityEpoch.Parse(value.SubjectAuthorityEpoch!),
+                BaseSubjectIncarnation.Parse(value.SubjectIncarnation!));
+        }
+
+        private async ValueTask RetireCertificationSubjectAsync(
+            BaseSubjectReference<BaseSemanticActivationCertificationLifecycleSubject> subject,
+            string identityPrefix,
+            CancellationToken cancellationToken)
+        {
+            PrincipalContext principal = CertificationPrincipal();
+            IBaseRecordRuntime records = Services.GetRequiredService<IBaseRecordRuntime>();
+            RecordEnvelope current = (await records.GetAsync(
+                BaseSemanticActivationCertificationSubjectAuthority.CollectionId,
+                RecordId.Create(subject.SubjectId.Value), principal,
+                CertificationOperation(BaseOperationKind.Get,
+                    BaseSemanticActivationCertificationSubjectAuthority.CollectionId),
+                cancellationToken).ConfigureAwait(false)).Value
+                ?? throw new InvalidOperationException("base.semanticActivation.certificationInvalid:subject-missing");
+            BaseSession session = Services.GetRequiredService<IBaseSessionFactory>().For(principal);
+            BaseExportedSubjectContract<BaseSemanticActivationCertificationLifecycleSubject> exporter =
+                session.GetExportedSubjectContract<BaseSemanticActivationCertificationLifecycleSubject>(
+                    BaseSemanticActivationCertificationSubjectAuthority.Registration);
+            BaseSubjectTombstoneResult<BaseSemanticActivationCertificationLifecycleSubject> tombstone =
+                (await exporter.TombstoneAsync(new()
+                {
+                    Subject = subject,
+                    ExpectedPrivateRevision = current.Metadata.Revision!.Value,
+                    Identity = LifecycleIdentity(identityPrefix + ":tombstone"),
+                }, cancellationToken).ConfigureAwait(false)).RequireValue();
+            BaseInstalledSubjectRetirementConsumer<BaseSemanticActivationCertificationLifecycleSubject> consumer =
+                session.SubjectRetirements.Get(
+                    BaseSemanticActivationCertificationSubjectAuthority.Retirement);
+            await using IAsyncEnumerator<BaseSubjectRequiredLifecycleDelivery<BaseSemanticActivationCertificationLifecycleSubject>> deliveries =
+                consumer.ReadRequiredAsync(cancellationToken).GetAsyncEnumerator(cancellationToken);
+            if (!await deliveries.MoveNextAsync().ConfigureAwait(false))
+                throw new InvalidOperationException("base.semanticActivation.certificationInvalid:retirement-delivery");
+            BaseSubjectRequiredLifecycleDelivery<BaseSemanticActivationCertificationLifecycleSubject> delivery =
+                deliveries.Current;
+            BaseSubjectAcknowledgementResult acknowledgement = (await consumer.AcknowledgeAsync(
+                delivery.Acknowledgement,
+                BaseSubjectAcknowledgementDisposition.Completed,
+                delivery.AcknowledgementIdentity,
+                cancellationToken: cancellationToken).ConfigureAwait(false)).RequireValue();
+            BaseInstalledSubjectLifecycleConsumer<BaseSemanticActivationCertificationLifecycleSubject> lifecycle =
+                session.SubjectLifecycle.Get(BaseSemanticActivationCertificationSubjectAuthority.Lifecycle);
+            _ = (await lifecycle.AdvanceAsync(
+                delivery.Lifecycle.Checkpoint,
+                delivery.Lifecycle.AdvanceIdentity,
+                cancellationToken: cancellationToken).ConfigureAwait(false)).RequireValue();
+            BaseSubjectFinalPurgeResult purged = (await session.SubjectRetirements.PurgeAsync(new()
+            {
+                ContractId = BaseSemanticActivationCertificationSubjectAuthority.ContractId,
+                ContractVersion = 1,
+                SubjectId = subject.SubjectId,
+                AuthorityEpoch = subject.AuthorityEpoch,
+                Incarnation = subject.Incarnation,
+                ExpectedTombstoneSequence = tombstone.Fact.Fact.SubjectSequence,
+                ExpectedPrivateRevision = tombstone.PrivateRevision,
+                ExpectedBarrierGeneration = acknowledgement.BarrierGeneration
+                    ?? throw new InvalidOperationException("base.semanticActivation.certificationInvalid:barrier-generation"),
+                ExpectedBarrierChecksum = acknowledgement.BarrierChecksum
+                    ?? throw new InvalidOperationException("base.semanticActivation.certificationInvalid:barrier-checksum"),
+                Identity = LifecycleIdentity(identityPrefix + ":purge"),
+            }, cancellationToken: cancellationToken).ConfigureAwait(false)).RequireValue();
+            if (purged.RetiredSubjectSequence != checked(tombstone.Fact.Fact.SubjectSequence + 1))
+                throw new InvalidOperationException("base.semanticActivation.certificationInvalid:subject-terminal");
+        }
+
+        private static PrincipalContext CertificationPrincipal() => new()
+        {
+            AuthenticationState = PrincipalAuthenticationState.System,
+            SubjectKind = AccessSubjectKind.System,
+            SubjectId = "semantic-certification",
+        };
+
+        private static OperationContext CertificationOperation(
+            BaseOperationKind kind, string collectionId) => new()
+        {
+            ApplicationId = "certification-application",
+            Operation = kind,
+            CollectionId = collectionId,
+            Audience = HPDBaseEndpointAudience.Application,
+            Mode = OperationMode.System,
+        };
+
+        private static BaseMutationRequestIdentity LifecycleIdentity(string value) =>
+            BaseMutationRequestIdentity.Create(
+                "semantic-certification", "subject-lifecycle", value,
+                BaseMutationRequestFingerprint.Create(SHA256.HashData(Encoding.UTF8.GetBytes(value))));
+
+        private static JsonElement ParseCanonicalJson(string value)
+        {
+            using JsonDocument document = JsonDocument.Parse(value);
+            return document.RootElement.Clone();
+        }
+
+        private async ValueTask<BaseActivationTransitionResult> CompleteActivationAsync(
+            string activationId, string prefix, long acceptedBase,
+            CancellationToken cancellationToken)
+        {
+            BaseActivationExecutionLimits execution = CertificationActivationLimits();
+            BaseActivationDefinitionKey definition = InstalledDefinition.Activation;
+            BaseOwnedScopeSeekAuthority scope = CertificationScope();
+            BaseActivationDueObservation observation = (await store.ObserveDueAsync(new()
+            {
+                ApplicationId = "certification-application", WorkerModuleId = "certification",
+                Definitions = [definition], Scope = scope,
+                AcceptedTime = CertificationAcceptedTime(checked(acceptedBase + 1)),
+                MaximumCandidates = 8, Limits = execution,
+            }, cancellationToken).ConfigureAwait(false)).Value
+                ?? throw new InvalidOperationException("base.semanticActivation.certificationInvalid");
+            var worker = new BaseActivationWorkerAuthority
+            {
+                ApplicationId = "certification-application", ModuleId = "certification",
+                WorkerIdentity = "semantic-compaction-worker", Definitions = [definition], Scope = scope,
+                Checksum = new byte[32].ToImmutableArray(),
+            };
+            BaseActivationClaimResult claimResult = (await store.TryClaimNextAsync(new()
+            {
+                Observation = observation.Token, Worker = worker,
+                AcceptedTime = CertificationAcceptedTime(checked(acceptedBase + 1)), LeaseMilliseconds = 1_000,
+                Identity = CertificationIdentity(prefix + ":claim"), Limits = execution,
+            }, cancellationToken).ConfigureAwait(false)).Value
+                ?? throw new InvalidOperationException("base.semanticActivation.certificationInvalid");
+            BaseActivationClaimedResult claimed = claimResult as BaseActivationClaimedResult
+                ?? throw new InvalidOperationException("base.semanticActivation.certificationInvalid");
+            if (claimed.Claim.ActivationId != activationId)
+                throw new InvalidOperationException("base.semanticActivation.certificationInvalid");
+            byte[] result = "certification-complete"u8.ToArray();
+            BaseActivationTransitionResult completed = (await store.TransitionAsync(new BaseActivationCompleteRequest
+            {
+                ActivationId = activationId, Claim = claimed.Claim,
+                CanonicalResult = result.ToImmutableArray(),
+                ResultChecksum = SHA256.HashData(result).ToImmutableArray(),
+                AcceptedTime = CertificationAcceptedTime(checked(acceptedBase + 2)),
+                Identity = CertificationIdentity(prefix + ":complete"), Limits = execution,
+            }, cancellationToken).ConfigureAwait(false)).Value
+                ?? throw new InvalidOperationException("base.semanticActivation.certificationInvalid");
+            return completed;
+        }
+
+        private async ValueTask DisposeActivationAsync(
+            string activationId, long expectedGeneration, string prefix, long acceptedBase,
+            CancellationToken cancellationToken)
+        {
+            BaseActivationExecutionLimits execution = CertificationActivationLimits();
+            BaseActivationTransitionResult disposed = (await store.TransitionAsync(new BaseActivationDisposeRequest
+            {
+                ActivationId = activationId, ExpectedGeneration = expectedGeneration,
+                AcceptedTime = CertificationAcceptedTime(checked(acceptedBase + 3)),
+                Identity = CertificationIdentity(prefix + ":dispose"), Limits = execution,
+            }, cancellationToken).ConfigureAwait(false)).Value
+                ?? throw new InvalidOperationException("base.semanticActivation.certificationInvalid");
+            if (disposed.State != BaseActivationState.Disposed)
+                throw new InvalidOperationException("base.semanticActivation.certificationInvalid");
+        }
+
+        private async ValueTask PruneActivationAsync(
+            string prefix, long acceptedTime, CancellationToken cancellationToken)
+        {
+            BaseSemanticActivationKeyDefinition semantic = InstalledDefinition;
+            OperationResult<BaseActivationPrunePage> result = await store.PruneAsync(new()
+            {
+                ApplicationId = "certification-application", Scope = CertificationScope(),
+                Definition = semantic.Activation, Take = 8,
+                AcceptedTime = CertificationAcceptedTime(acceptedTime),
+                Identity = CertificationIdentity(prefix + ":prune"), Limits = CertificationActivationLimits(),
+            }, cancellationToken).ConfigureAwait(false);
+            BaseActivationPrunePage page = result.Value
+                ?? throw new InvalidOperationException(
+                    $"base.semanticActivation.certificationInvalid:prune:{result.Status}:{result.Error?.Code}");
+            if (page.Items.Length != 1)
+                throw new InvalidOperationException(
+                    $"base.semanticActivation.certificationInvalid:prune-items:{page.Items.Length}:{page.Completed}");
+        }
+
+        private static BaseOwnedScopeSeekAuthority CertificationScope() => new()
+        {
+            Kind = BaseSubjectScopeKind.Global,
+            ProtectedIndexDigest = SHA256.HashData(Encoding.UTF8.GetBytes(
+                $"base.activation.scope.v2\0{(int)BaseSubjectScopeKind.Global}\n")).ToImmutableArray(),
+        };
+
+        private static BaseActivationExecutionLimits CertificationActivationLimits() => new()
+        {
+            MaximumCandidates = 8, MaximumInputBytes = 4096, MaximumResultBytes = 4096,
+            MaximumEvidenceBytes = 4096, MaximumTransientBytes = 16384,
+            MaximumReadIntervals = 8, MaximumIndexOperations = 64,
+            AcquisitionTimeout = TimeSpan.FromSeconds(5), TransactionTimeout = TimeSpan.FromSeconds(5),
+            CommitObservationTimeout = TimeSpan.FromSeconds(5), ReceiptResolutionTimeout = TimeSpan.FromSeconds(5),
+        };
+
+        private static BaseMutationRequestIdentity CertificationIdentity(string key)
+        {
+            byte[] digest = SHA256.HashData(Encoding.UTF8.GetBytes(key));
+            return BaseMutationRequestIdentity.Create(
+                "semantic-certification", "activation.transition", key,
+                BaseMutationRequestFingerprint.Create(digest));
+        }
+
+        private static BaseAcceptedTimeReceipt CertificationAcceptedTime(long milliseconds)
+        {
+            const string application = "certification-application";
+            const long generation = 1, skew = 30_000;
+            long sequence = checked(milliseconds + 1);
+            using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            AppendCertification(hash, "base.activation.acceptedTime.v2\0");
+            AppendCertification(hash, application); AppendCertification(hash, generation);
+            AppendCertification(hash, milliseconds); AppendCertification(hash, milliseconds);
+            AppendCertification(hash, sequence); AppendCertification(hash, skew);
+            return new BaseAcceptedTimeReceipt(
+                application, generation, milliseconds, milliseconds, sequence, skew, hash.GetHashAndReset());
+        }
+
+        private static void AppendCertification(IncrementalHash hash, string value)
+        {
+            byte[] bytes = Encoding.UTF8.GetBytes(value);
+            Span<byte> length = stackalloc byte[4];
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(length, checked((uint)bytes.Length));
+            hash.AppendData(length); hash.AppendData(bytes);
+        }
+
+        private static void AppendCertification(IncrementalHash hash, long value)
+        {
+            Span<byte> bytes = stackalloc byte[8];
+            System.Buffers.Binary.BinaryPrimitives.WriteInt64BigEndian(bytes, value);
+            hash.AppendData(bytes);
+        }
+
+        private static RecordMutationExecutionRequest CertificationRequest(
+            string id, DateTimeOffset deadlineUtc)
+        {
+            byte[] digest = SHA256.HashData(Encoding.UTF8.GetBytes(
+                "base.semanticActivation.certificationRequest.v2\0" + id));
+            return new RecordMutationExecutionRequest
+            {
+                AcquisitionTimeout = TimeSpan.FromSeconds(5),
+                TransactionTimeout = TimeSpan.FromSeconds(5),
+                CommitCompletionTimeout = TimeSpan.FromSeconds(5),
+                AtomicRequest = new BaseAtomicMutationExecutionRequest
+                {
+                    Identity = BaseMutationRequestIdentity.Create(
+                        "semantic-certification", "semantic.ensure", id,
+                        BaseMutationRequestFingerprint.Create(digest)),
+                    StructuralDigest = digest, ExpiresAt = deadlineUtc.AddMinutes(5),
+                    MaxReceiptBytes = 1_048_576,
+                },
+            };
+        }
+
+        private static ImmutableArray<byte> EmptyOrderedAuthoritiesChecksum()
+        {
+            using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            hash.AppendData("base.semanticActivation.orderedRows.v1\0"u8);
+            return hash.GetHashAndReset().ToImmutableArray();
+        }
+
+        private static ImmutableArray<byte> EmptyDefinitionStateChecksum()
+        {
+            using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            hash.AppendData("base.semanticActivation.definitionState.v1\0"u8);
+            return hash.GetHashAndReset().ToImmutableArray();
+        }
+        public ValueTask DisposeAsync() => Services.DisposeAsync();
     }
 
-    private static IBaseSemanticActivationCertificationStore CreateStore() => new InMemoryCertificationStore(new InMemoryRecordStore(new HPDBaseInMemoryStoreOptions
-        {
-            StoreId = "semantic-certification", SemanticActivationApplicationId = "certification-application",
-            SemanticActivationOwnerGeneration = 1,
-            SemanticActivationDefinitionSetChecksum = BaseSemanticActivationCertificationProcessor.InstalledDefinitionSetChecksum.ToArray(),
-        }, new BaseOpaqueTokenProtector(Options.Create(new HPDBaseTokenProtectionOptions
+    private static IBaseSemanticActivationCertificationStore CreateStore(
+        BaseSemanticActivationExecutionLimits? semanticCapabilityLimits = null)
+    {
+        BaseAtomicMutationExecutionLimits limits =
+            DefaultBaseModuleMutationRuntime.ResolveExecutionLimits(BaseModuleMutationPlatform.MaximumLimits);
+        var time = new BaseTestTimeProvider(
+            new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        BaseGeneratedSubjectRegistration subject =
+            BaseSemanticActivationCertificationSubjectAuthority.Registration;
+        BaseGeneratedSubjectLifecycleConsumerIdentity<BaseSemanticActivationCertificationLifecycleSubject> lifecycle =
+            BaseSemanticActivationCertificationSubjectAuthority.Lifecycle;
+        BaseGeneratedSubjectRetirementConsumerIdentity<BaseSemanticActivationCertificationLifecycleSubject> retirement =
+            BaseSemanticActivationCertificationSubjectAuthority.Retirement;
+        BaseGeneratedSubjectRetirementPolicyIdentity<BaseSemanticActivationCertificationLifecycleSubject> policy =
+            BaseSemanticActivationCertificationSubjectAuthority.RetirementPolicy;
+        int nonceOrdinal = 0;
+        var tokenProtector = new BaseOpaqueTokenProtector(Options.Create(new HPDBaseTokenProtectionOptions
         {
             ActiveKey = new BaseOpaqueTokenKey
             {
                 Id = 1, Key = Enumerable.Repeat((byte)0x53, 32).ToArray(),
                 IssueNotBefore = DateTimeOffset.UnixEpoch,
             },
-        })), TimeProvider.System));
+        }), time, length => SHA256.HashData(Encoding.UTF8.GetBytes(
+            $"semantic-certification-nonce:{nonceOrdinal++}"))[..length]);
+        BaseSemanticActivationKeyDefinition installedDefinition =
+            BaseSemanticActivationCertificationProcessor.InstalledDefinition(
+                limits);
+        BaseSemanticActivationKeyDefinition installedDefinitionV2 =
+            BaseSemanticActivationCertificationProcessor.InstalledDefinitionV2(
+                limits);
+        BaseSemanticActivationMigrationDefinition installedMigration =
+            BaseSemanticActivationCertificationProcessor.InstalledMigration(
+                limits);
+        BaseSemanticActivationRemovalAuthority installedRemoval =
+            BaseSemanticActivationCertificationProcessor.InstalledRemoval(
+                limits);
+        var options = new HPDBaseInMemoryStoreOptions
+        {
+            StoreId = "semantic-certification", SemanticActivationApplicationId = "certification-application",
+            SemanticActivationOwnerGeneration = 1,
+            SemanticActivationDefinitionSetChecksum = BaseSemanticActivationCertificationProcessor.InstalledDefinitionSetChecksum.ToArray(),
+            SemanticActivations =
+            [
+                installedDefinition,
+                installedDefinitionV2,
+            ],
+            SemanticActivationMigrations =
+            [
+                installedMigration,
+            ],
+            SemanticActivationRemovals =
+            [
+                installedRemoval,
+            ],
+            Collections = [BaseSemanticActivationCertificationSubjectAuthority.Collection],
+            CollectionIds = [BaseSemanticActivationCertificationSubjectAuthority.CollectionId],
+            ExportedSubjects = [subject.Definition],
+            SubjectLifecycleConsumers = [lifecycle.Definition],
+            SubjectRetirementConsumers = [retirement.Definition],
+            SubjectRetirementPolicies = [policy.Policy],
+        };
+        var store = new InMemoryRecordStore(
+            options, tokenProtector, time,
+            Enumerable.Repeat((byte)0x6B, 32).ToImmutableArray(),
+            semanticCapabilityLimits is null ? null : MaintenanceCapability(semanticCapabilityLimits));
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<TimeProvider>(time);
+        services.AddSingleton(tokenProtector);
+        var testPolicy = new BaseTestPolicy();
+        services.AddSingleton(testPolicy);
+        services.AddHPDBaseRuntime();
+        services.Configure<HPDBaseSchemaOptions>(options =>
+            options.ApplicationId = "certification-application");
+        var policyAuthority = new BasePolicyAuthorityBuilder();
+        policyAuthority.AddPolicy(new BasePolicyAuthorityDefinition
+        {
+            Id = "certification.policy", Version = 1, OwningModuleId = "certification",
+            EvaluatorContractId = "certification.policy-evaluator", EvaluatorContractVersion = 1,
+            CompositionOrder = 0,
+        }, new BaseTestPolicyEvaluator(testPolicy));
+        foreach (AccessGrant grant in CertificationGrants())
+            policyAuthority.AddStaticGrant(new BaseGrantAuthorityDefinition
+            {
+                Id = grant.Id, Version = 1, OwningModuleId = "certification",
+                SourceContractId = "certification.static-grants", SourceContractVersion = 1,
+            }, grant);
+        services.AddSingleton(policyAuthority.Freeze("certification-application"));
+        services.AddSingleton<IBaseDescriptorContributor>(new CertificationCollectionContributor());
+        services.AddSingleton(new BaseCollectionRegistry(new Dictionary<string, CollectionDefinition>(StringComparer.Ordinal)
+        {
+            [BaseSemanticActivationCertificationSubjectAuthority.CollectionId] =
+                BaseSemanticActivationCertificationSubjectAuthority.Collection,
+        }));
+        var subjectRegistry = new BaseSubjectContractRegistry([subject]);
+        var lifecycleRegistry = new BaseSubjectLifecycleRegistry([lifecycle.Definition], subjectRegistry);
+        services.AddSingleton(subjectRegistry);
+        services.AddSingleton(lifecycleRegistry);
+        services.AddSingleton(new BaseSubjectRetirementRegistry(
+            [retirement.Definition], [policy.Policy], lifecycleRegistry));
+        services.AddSingleton<IBaseSessionFactory, DefaultBaseSessionFactory>();
+        ServiceProvider provider = services.BuildServiceProvider();
+        provider.GetRequiredService<IBaseDescriptorRegistry>().RebuildAsync()
+            .AsTask().GetAwaiter().GetResult();
+        provider.GetRequiredService<IRecordStoreRegistry>().Add(new RecordStoreRegistration
+        {
+            StoreId = store.Capabilities.StoreId,
+            Store = store,
+            CollectionIds = [BaseSemanticActivationCertificationSubjectAuthority.CollectionId],
+        });
+        return new InMemoryCertificationStore(
+            store, installedDefinition, installedMigration, installedRemoval, time, provider);
+    }
+
+    internal static async ValueTask VerifyCompactionAccountingBoundariesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        for (int dimension = 0; dimension < 5; dimension++)
+        {
+            BaseSemanticActivationExecutionLimits generous =
+                BaseSemanticActivationCertificationProcessor.SemanticLimits();
+            (BaseResult<BaseSemanticActivationMaintenanceResult> baselineResult,
+                InMemorySemanticMaintenanceAccounting baselineAccounting, _) =
+                await ExecuteCompactionWithLimitsAsync(generous, cancellationToken).ConfigureAwait(false);
+            if (baselineResult is not BaseSuccess<BaseSemanticActivationMaintenanceResult>)
+                throw new InvalidOperationException("base.semanticActivation.certificationInvalid");
+            long baseline = AccountingValue(baselineAccounting, dimension);
+            long exact = 0;
+            BaseResult<BaseSemanticActivationMaintenanceResult>? acceptedAtBoundary = null;
+            InMemorySemanticMaintenanceAccounting? acceptedAccountingAtBoundary = null;
+            bool acceptedCloneAtBoundary = false;
+            BaseResult<BaseSemanticActivationMaintenanceResult>? rejectedAtBoundary = null;
+            InMemorySemanticMaintenanceAccounting? rejectedAccountingAtBoundary = null;
+            bool rejectedCloneAtBoundary = false;
+            foreach (long candidate in MaintenanceCandidates(baseline))
+            {
+                (BaseResult<BaseSemanticActivationMaintenanceResult> candidateResult,
+                    InMemorySemanticMaintenanceAccounting candidateAccounting, bool candidateClone) =
+                    await ExecuteCompactionWithLimitsAsync(
+                        WithMaintenanceLimit(generous, dimension, candidate),
+                        cancellationToken).ConfigureAwait(false);
+                if (candidateResult is not BaseSuccess<BaseSemanticActivationMaintenanceResult>
+                    || !candidateClone)
+                    continue;
+                if (candidate == 1)
+                {
+                    exact = candidate; acceptedAtBoundary = candidateResult;
+                    acceptedAccountingAtBoundary = candidateAccounting;
+                    acceptedCloneAtBoundary = candidateClone; break;
+                }
+                (BaseResult<BaseSemanticActivationMaintenanceResult> adjacent,
+                    InMemorySemanticMaintenanceAccounting adjacentAccounting, bool adjacentClone) =
+                    await ExecuteCompactionWithLimitsAsync(
+                        WithMaintenanceLimit(generous, dimension, candidate - 1),
+                        cancellationToken).ConfigureAwait(false);
+                if (adjacent is BaseFailure<BaseSemanticActivationMaintenanceResult> adjacentFailure
+                    && adjacentFailure.Error.Code == BaseSemanticActivationErrorCodes.BudgetExceeded
+                    && !adjacentClone && AccountingValue(adjacentAccounting, dimension) > candidate - 1)
+                {
+                    exact = candidate; acceptedAtBoundary = candidateResult;
+                    acceptedAccountingAtBoundary = candidateAccounting;
+                    acceptedCloneAtBoundary = candidateClone;
+                    rejectedAtBoundary = adjacent;
+                    rejectedAccountingAtBoundary = adjacentAccounting;
+                    rejectedCloneAtBoundary = adjacentClone;
+                    break;
+                }
+            }
+            if (exact == 0)
+                throw new InvalidOperationException(
+                    "base.semanticActivation.certificationInvalid:accountingBoundaryMissing");
+            if (exact == 1)
+            {
+                if (BaseSemanticActivationCapabilityContract.IsValid(MaintenanceCapability(
+                    WithMaintenanceLimit(generous, dimension, 0))))
+                    throw new InvalidOperationException("base.semanticActivation.certificationInvalid");
+                if (acceptedAtBoundary is not BaseSuccess<BaseSemanticActivationMaintenanceResult> minimumSuccess
+                    || minimumSuccess.Value.Disposition is not BaseSemanticActivationMaintenanceDisposition.InProgress
+                        and not BaseSemanticActivationMaintenanceDisposition.Completed
+                    || !acceptedCloneAtBoundary)
+                    throw new InvalidOperationException("base.semanticActivation.certificationInvalid");
+                continue;
+            }
+            if (rejectedAtBoundary is not BaseFailure<BaseSemanticActivationMaintenanceResult> rejectedFailure
+                || rejectedFailure.Error.Code != BaseSemanticActivationErrorCodes.BudgetExceeded
+                || rejectedCloneAtBoundary
+                || AccountingValue(rejectedAccountingAtBoundary!, dimension) <= exact - 1)
+                throw new InvalidOperationException(
+                    $"base.semanticActivation.certificationInvalid:below:{dimension}:{exact}:{AccountingValue(rejectedAccountingAtBoundary!, dimension)}:{rejectedAtBoundary?.Status}:{(rejectedAtBoundary as BaseFailure<BaseSemanticActivationMaintenanceResult>)?.Error.Code}:{rejectedCloneAtBoundary}");
+            BaseSemanticActivationMaintenanceResult accepted = acceptedAtBoundary is
+                BaseSuccess<BaseSemanticActivationMaintenanceResult> success
+                ? success.Value
+                : throw new InvalidOperationException(
+                    $"base.semanticActivation.certificationInvalid:exact:{dimension}:{exact}");
+            if (accepted.Disposition is not BaseSemanticActivationMaintenanceDisposition.InProgress
+                and not BaseSemanticActivationMaintenanceDisposition.Completed || !acceptedCloneAtBoundary)
+                throw new InvalidOperationException("base.semanticActivation.certificationInvalid");
+            if (AccountingValue(acceptedAccountingAtBoundary!, dimension) > exact)
+                throw new InvalidOperationException("base.semanticActivation.certificationInvalid");
+        }
+    }
+
+    private static async ValueTask<(BaseResult<BaseSemanticActivationMaintenanceResult> Result,
+        InMemorySemanticMaintenanceAccounting Accounting, bool CloneReached)>
+        ExecuteCompactionWithLimitsAsync(
+            BaseSemanticActivationExecutionLimits limits,
+            CancellationToken cancellationToken)
+    {
+        await using IBaseSemanticActivationCertificationStore owned = CreateStore(limits);
+        var certification = (InMemoryCertificationStore)owned;
+        BaseSemanticActivationCertificationOperationInput input =
+            await certification.CreateAdministrationInputAsync(
+                BaseSemanticActivationCertificationOperation.Maintain,
+                "maintenance-compact-multipage", 0,
+                new DateTimeOffset(2035, 1, 1, 0, 0, 0, TimeSpan.Zero),
+                cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("base.semanticActivation.certificationInvalid");
+        BaseSemanticActivationCompactRequest request =
+            (BaseSemanticActivationCompactRequest?)input.Maintenance
+            ?? throw new InvalidOperationException("base.semanticActivation.certificationInvalid");
+        request = request with
+        {
+            Limits = request.Limits with
+            {
+                MaximumBytes = Math.Min(
+                    request.Limits.MaximumBytes,
+                    limits.MaximumTransientBytes),
+            },
+        };
+        bool cloneReached = false;
+        certification.InnerStore.BeforeSemanticMaintenanceStateClone = () => cloneReached = true;
+        BaseResult<BaseSemanticActivationMaintenanceResult> result =
+            await certification.InnerStore.ExecuteAsync(request, cancellationToken).ConfigureAwait(false);
+        InMemorySemanticMaintenanceAccounting accounting =
+            certification.InnerStore.LastSemanticMaintenanceAccounting
+            ?? throw new InvalidOperationException(
+                $"base.semanticActivation.certificationInvalid:noAccounting:{result.Status}:{(result as BaseFailure<BaseSemanticActivationMaintenanceResult>)?.Error.Code}");
+        return (result, accounting, cloneReached);
+    }
+
+    private static BaseSemanticActivationExecutionLimits WithMaintenanceLimit(
+        BaseSemanticActivationExecutionLimits limits, int dimension, long value) => dimension switch
+    {
+        0 => limits with { MaximumReadIntervals = checked((int)value) },
+        1 => limits with { MaximumIndexOperations = checked((int)value) },
+        2 => limits with { MaximumEvidenceBytes = value },
+        3 => limits with { MaximumReceiptBytes = value },
+        4 => limits with { MaximumTransientBytes = value },
+        _ => throw new ArgumentOutOfRangeException(nameof(dimension)),
+    };
+
+    private static long MaintenanceLimit(
+        BaseSemanticActivationExecutionLimits limits, int dimension) => dimension switch
+    {
+        0 => limits.MaximumReadIntervals,
+        1 => limits.MaximumIndexOperations,
+        2 => limits.MaximumEvidenceBytes,
+        3 => limits.MaximumReceiptBytes,
+        4 => limits.MaximumTransientBytes,
+        _ => throw new ArgumentOutOfRangeException(nameof(dimension)),
+    };
+
+    private static BaseSemanticActivationCapability MaintenanceCapability(
+        BaseSemanticActivationExecutionLimits limits)
+    {
+        BaseSemanticActivationCapability value = BaseSemanticActivationCapabilityContract
+            .BuiltIn(durable: false, maintenanceSupported: true) with
+        {
+            MaximumReadIntervals = limits.MaximumReadIntervals,
+            MaximumIndexOperations = limits.MaximumIndexOperations,
+            MaximumEvidenceBytes = limits.MaximumEvidenceBytes,
+            MaximumReceiptBytes = limits.MaximumReceiptBytes,
+            MaximumTransientBytes = limits.MaximumTransientBytes,
+            Checksum = [],
+        };
+        return value with { Checksum = BaseSemanticActivationCapabilityContract.Checksum(value) };
+    }
+
+    private static IEnumerable<long> MaintenanceCandidates(long baseline)
+    {
+        yield return baseline;
+        for (long offset = 1; offset <= 512; offset++)
+        {
+            if (baseline > offset) yield return baseline - offset;
+            yield return checked(baseline + offset);
+        }
+    }
+
+    private static long AccountingValue(InMemorySemanticMaintenanceAccounting value, int dimension) =>
+        dimension switch
+        {
+            0 => value.ReadIntervals,
+            1 => value.IndexOperations,
+            2 => value.EvidenceBytes,
+            3 => value.ReceiptBytes,
+            4 => value.TransientBytes,
+            _ => throw new ArgumentOutOfRangeException(nameof(dimension)),
+        };
+
+    private static IEnumerable<AccessGrant> CertificationGrants()
+    {
+        yield return RuntimeGrant("certification.subjects.runtime");
+        foreach ((string id, string action) in new[]
+        {
+            ("base.subjectLifecycle.tombstone", "base.subjectLifecycle.tombstone"),
+            ("certification.subject.lifecycle.read", "certification.subject.lifecycle"),
+            ("base.subjectLifecycle.feed.read", "base.subjectLifecycle.feed.read"),
+            ("base.subjectLifecycle.feed.checkpoint", "base.subjectLifecycle.feed.checkpoint"),
+            ("certification.subject.retirement.acknowledge", "certification.subject.lifecycle"),
+            ("base.subjectRetirement.acknowledge", "base.subjectRetirement.acknowledge"),
+            ("base.subjectRetirement.purge", "base.subjectRetirement.purge"),
+        })
+            yield return SubjectGrant(id, action);
+        yield return new AccessGrant
+        {
+            Id = "certification.subject.retirement.purge.source",
+            ApplicationId = "certification-application", ModuleId = "certification",
+            Audience = HPDBaseEndpointAudience.Application,
+            Subject = CertificationAccessSubject(),
+            Action = BaseSemanticActivationCertificationSubjectAuthority.CollectionId,
+            Effect = GrantEffect.Allow,
+            Scope = new ResourceScope
+            {
+                Kind = ResourceScopeKind.Collection,
+                CollectionId = BaseSemanticActivationCertificationSubjectAuthority.CollectionId,
+            },
+        };
+    }
+
+    private static AccessGrant RuntimeGrant(string id) => new()
+    {
+        Id = id, ApplicationId = "certification-application", ModuleId = "certification",
+        Audience = HPDBaseEndpointAudience.Application, Subject = CertificationAccessSubject(),
+        Action = "*", Effect = GrantEffect.Allow,
+        Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime },
+    };
+
+    private static AccessGrant SubjectGrant(string id, string action) => new()
+    {
+        Id = id, ApplicationId = "certification-application", ModuleId = "certification",
+        Audience = HPDBaseEndpointAudience.Application, Subject = CertificationAccessSubject(),
+        Action = action, Effect = GrantEffect.Allow,
+        Scope = new ResourceScope
+        {
+            Kind = ResourceScopeKind.SubjectContract,
+            SubjectContractId = BaseSemanticActivationCertificationSubjectAuthority.ContractId,
+            SubjectContractVersion = 1,
+        },
+    };
+
+    private static AccessSubject CertificationAccessSubject() => new()
+    {
+        Kind = AccessSubjectKind.System,
+        Id = "semantic-certification",
+    };
+
+    private sealed class CertificationCollectionContributor : IBaseDescriptorContributor
+    {
+        public string Id => "certification.subjects";
+        public void Contribute(IBaseDescriptorContributionBuilder builder) =>
+            builder.AddCollection(BaseSemanticActivationCertificationSubjectAuthority.Collection);
+    }
 
     internal sealed class Fixture(
         BaseSemanticActivationCertificationSubject subject,
@@ -417,7 +1440,8 @@ public sealed class BaseInMemorySemanticActivationCertificationFixtureFactory
             $"base.semanticActivation.inMemoryCertification.v2\0{ordinal}\n{caseId}\n{value}")).ToImmutableArray();
 
         private static async ValueTask CompleteActivationAsync(
-            IBaseSemanticActivationCertificationStore store, string activationId, string prefix, CancellationToken cancellationToken)
+            IBaseSemanticActivationCertificationStore store, string activationId, string prefix,
+            CancellationToken cancellationToken)
         {
             BaseActivationExecutionLimits execution = ActivationExecutionLimits();
             BaseActivationDefinitionKey definition = BaseSemanticActivationCertificationProcessor
@@ -457,6 +1481,16 @@ public sealed class BaseInMemorySemanticActivationCertificationFixtureFactory
                     Identity = Identity(prefix + ":complete"), Limits = execution,
                 }, cancellationToken).ConfigureAwait(false);
             if (!completed.IsSuccess()) throw new InvalidOperationException("base.semanticActivation.certificationInvalid");
+            OperationResult<BaseActivationTransitionResult> disposed = await store.ActivationProvider.TransitionAsync(
+                new BaseActivationDisposeRequest
+                {
+                    ActivationId = activationId,
+                    ExpectedGeneration = completed.Value!.Generation,
+                    AcceptedTime = AcceptedTime(12),
+                    Identity = Identity(prefix + ":dispose"),
+                    Limits = execution,
+                }, cancellationToken).ConfigureAwait(false);
+            if (!disposed.IsSuccess()) throw new InvalidOperationException("base.semanticActivation.certificationInvalid");
         }
 
         private static BaseActivationExecutionLimits ActivationExecutionLimits() => new()

@@ -2,6 +2,7 @@ using HPD.Payments.Connectors.Simulator.Core;
 using HPD.Payments.Connectors.Simulator.Scenarios;
 using HPD.Payments.Contracts.ExternalEffect;
 using HPD.Payments.Primitives.Identity;
+using HPD.Payments.Connectors.Simulator.Tests.Certification;
 
 namespace HPD.Payments.Connectors.Simulator.Tests.Baseline;
 
@@ -14,6 +15,7 @@ public static class SimulatorBaselineTests
     /// <returns>Zero after all proof groups pass; assertion failures terminate with a nonzero process result.</returns>
     public static int Main()
     {
+        if (!ReleaseCellBinding.ValidateAndExecute("test-simulator-certification")) return 1;
         RunAll();
         return 0;
     }
@@ -28,6 +30,7 @@ public static class SimulatorBaselineTests
         WithinQuestionConflictsRemainScoped();
         RevisionChangesRejectStaleRequestsBeforeDispatch();
         ResultsOwnBoundedTraceStorage();
+        SimulatorCapabilityCertification.RunAll();
     }
 
     private static void RejectAndAcceptAreDeterministic()

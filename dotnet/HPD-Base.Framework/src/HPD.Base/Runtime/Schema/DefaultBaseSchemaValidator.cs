@@ -28,12 +28,23 @@ internal sealed class DefaultBaseSchemaValidator : IBaseSchemaValidator
             return ValueTask.FromResult(OperationResults.Unsupported<BaseValidatedPayload>(UnsupportedPatchError()));
         }
 
-        if (request.Patch.Fields is null || request.Patch.Fields.Count == 0)
+        if ((request.Patch.Fields is null || request.Patch.Fields.Count == 0)
+            && request.RemovedFieldIds.IsEmpty)
         {
             return ValueTask.FromResult(OperationResults.ValidationFailed<BaseValidatedPayload>(new BaseError
             {
                 Code = "base.runtime.patch.empty",
                 Message = "Patch must contain at least one top-level field.",
+                Category = ErrorCategory.Validation
+            }));
+        }
+
+        if (!ValidRemovals(request))
+        {
+            return ValueTask.FromResult(OperationResults.ValidationFailed<BaseValidatedPayload>(new BaseError
+            {
+                Code = "base.runtime.patch.removalsInvalid",
+                Message = "The patch removal set is invalid.",
                 Category = ErrorCategory.Validation
             }));
         }
@@ -44,6 +55,29 @@ internal sealed class DefaultBaseSchemaValidator : IBaseSchemaValidator
             request.Operation,
             SchemaValidationOperation.Patch,
             request.Patch.Fields?.Keys.ToArray()));
+    }
+
+    private static bool ValidRemovals(BasePayloadValidationRequest request)
+    {
+        if (request.RemovedFieldIds.IsDefault
+            || !request.RemovedFieldIds.SequenceEqual(
+                request.RemovedFieldIds.Order(StringComparer.Ordinal), StringComparer.Ordinal)
+            || request.RemovedFieldIds.Distinct(StringComparer.Ordinal).Count() != request.RemovedFieldIds.Length)
+            return false;
+
+        foreach (string fieldId in request.RemovedFieldIds)
+        {
+            FieldDefinition? field = request.Collection.Fields?.SingleOrDefault(candidate =>
+                string.Equals(candidate.Id, fieldId, StringComparison.Ordinal));
+            if (field is null
+                || field.Presence != BaseFieldPresence.Optional
+                || field.Nullability != BaseFieldNullability.NonNullable
+                || field.ReadOnly
+                || (request.Patch?.Fields?.ContainsKey(field.WireName) ?? false))
+                return false;
+        }
+
+        return true;
     }
 
     /// <summary>Executes the validate replace async operation.</summary>
@@ -147,7 +181,7 @@ internal sealed class DefaultBaseSchemaValidator : IBaseSchemaValidator
         {
             foreach (var field in fields.Values)
             {
-                if (field.Required && !fieldValues.ContainsKey(field.WireName))
+                if (field.Presence == BaseFieldPresence.Required && !fieldValues.ContainsKey(field.WireName))
                 {
                     return ValidationError("base.runtime.payload.requiredField", $"Required field '{field.WireName}' is missing.", field.WireName);
                 }
@@ -163,9 +197,15 @@ internal sealed class DefaultBaseSchemaValidator : IBaseSchemaValidator
                 continue;
             }
 
-            if (!field.Nullable && value.ValueKind == JsonValueKind.Null)
+            if (field.Nullability == BaseFieldNullability.NonNullable && value.ValueKind == JsonValueKind.Null)
             {
                 return ValidationError("base.runtime.payload.nonNullable", $"Field '{name}' cannot be null.", name);
+            }
+
+            BaseError? scalarError = BaseCanonicalRecordValidator.Validate(field, value);
+            if (scalarError is not null)
+            {
+                return scalarError;
             }
 
             if (field.Type == "vector" && value.ValueKind != JsonValueKind.Null)
@@ -181,7 +221,7 @@ internal sealed class DefaultBaseSchemaValidator : IBaseSchemaValidator
                 try
                 {
                     BaseBinary binary = BaseBinary.FromBase64(value.GetString()!);
-                    if (binary.Length > maximum)
+                    if (binary.Length < (field.MinimumBytes ?? 0) || binary.Length > maximum)
                         return ValidationError(BaseBinaryErrorCodes.ValueTooLarge, "The binary value exceeds its declared bound.", name);
                 }
                 catch (ArgumentOutOfRangeException)

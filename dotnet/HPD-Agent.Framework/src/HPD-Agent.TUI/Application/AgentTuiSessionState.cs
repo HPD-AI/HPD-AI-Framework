@@ -9,13 +9,16 @@ public sealed class AgentTuiSessionState
 {
     private readonly HpdAgentTuiRegistry _registry;
     private readonly AgentTuiStateBag _state = new();
+    private readonly Action? _requestRender;
 
     public AgentTuiSessionState(
         AgentTuiRuntimeScope scope,
-        HpdAgentTuiRegistry registry)
+        HpdAgentTuiRegistry registry,
+        Action? requestRender = null)
     {
         Scope = scope ?? throw new ArgumentNullException(nameof(scope));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+        _requestRender = requestRender;
         Shell = new ChatShellModel(scope);
     }
 
@@ -38,7 +41,8 @@ public sealed class AgentTuiSessionState
             Shell.Navigation,
             _registry,
             _state,
-            deliveryMode);
+            deliveryMode,
+            _requestRender);
         foreach (var handler in _registry.FindEventHandlers(evt, Scope))
         {
             await handler.Value.HandleAsync(evt, context, cancellationToken)

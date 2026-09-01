@@ -8,10 +8,10 @@ public sealed class ThreadJournalStoreContractTests
     [Fact]
     public async Task Publisher_CommitsBeforePublishingTheExactCanonicalValue()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         using var coordinator = new EventCoordinator();
         await using var inbox = coordinator.CreateInbox<AgentEvent>();
-        var publisher = new ThreadEventPublisher(store, coordinator);
+        var publisher = new AgentEventPublisher(store, coordinator);
         var key = new ThreadKey("session-1", "main");
         var proposed = new TextDeltaEvent("hello", "message-1");
 
@@ -32,10 +32,10 @@ public sealed class ThreadJournalStoreContractTests
     [Fact]
     public async Task Publisher_DoesNotPublishWhenCanonicalAppendFails()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         using var coordinator = new EventCoordinator();
         await using var inbox = coordinator.CreateInbox<AgentEvent>();
-        var publisher = new ThreadEventPublisher(store, coordinator);
+        var publisher = new AgentEventPublisher(store, coordinator);
         var key = new ThreadKey("session-1", "main");
 
         await Assert.ThrowsAsync<ThreadAppendConflictException>(async () =>
@@ -58,7 +58,7 @@ public sealed class ThreadJournalStoreContractTests
             var deltaStore = Assert.IsAssignableFrom<IThreadDeltaStore>(store);
             using var coordinator = new EventCoordinator();
             await using var inbox = coordinator.CreateInbox<AgentEvent>();
-            var publisher = new ThreadEventPublisher(store, coordinator);
+            var publisher = new AgentEventPublisher(store, coordinator);
             var key = new ThreadKey("session-1", "main");
 
             var first = await publisher.StageAndPublishDeltaAsync(
@@ -116,17 +116,17 @@ public sealed class ThreadJournalStoreContractTests
         try
         {
             var key = new ThreadKey("session-1", "main");
-            var first = new FileSessionStore(directory);
+            var first = new FileSessionStore(directory, HPD.Agent.Tests.TestEventApplication.Codec);
             await first.AppendThreadEventsAsync(key, [Scoped(key, new TextMessageStartEvent("message-1", "assistant"))]);
             await first.StageThreadDeltaAsync(key, Scoped(key, new TextDeltaEvent("partial", "message-1")));
 
-            var reopened = new FileSessionStore(directory);
+            var reopened = new FileSessionStore(directory, HPD.Agent.Tests.TestEventApplication.Codec);
             Assert.Equal(3, (await reopened.GetThreadEventHeadAsync(key))!.ThreadSequenceNumber);
             var replay = await reopened.CollectThreadEventsAsync(key);
             Assert.Equal("partial", Assert.IsType<TextDeltaEvent>(replay![1]).Text);
             Assert.IsType<TextMessageEndEvent>(replay[2]);
 
-            var reopenedAgain = new FileSessionStore(directory);
+            var reopenedAgain = new FileSessionStore(directory, HPD.Agent.Tests.TestEventApplication.Codec);
             Assert.Equal(3, (await reopenedAgain.GetThreadEventHeadAsync(key))!.ThreadSequenceNumber);
         }
         finally
@@ -200,7 +200,7 @@ public sealed class ThreadJournalStoreContractTests
         try
         {
             var key = new ThreadKey("session-1", "main");
-            var store = new FileSessionStore(directory);
+            var store = new FileSessionStore(directory, HPD.Agent.Tests.TestEventApplication.Codec);
             await store.AppendThreadEventsAsync(key, [Scoped(key, new TextDeltaEvent("one", "message-1"))]);
 
             using var cancellation = new CancellationTokenSource();
@@ -333,7 +333,7 @@ public sealed class ThreadJournalStoreContractTests
         try
         {
             var key = new ThreadKey("session-1", "main");
-            var first = new FileSessionStore(directory, new FileSessionStoreOptions(SegmentEventCapacity: 2));
+            var first = new FileSessionStore(directory, HPD.Agent.Tests.TestEventApplication.Codec, new FileSessionStoreOptions(SegmentEventCapacity: 2));
             await first.AppendThreadEventsAsync(key,
             [
                 Scoped(key, new TextDeltaEvent("one", "message-1")),
@@ -341,7 +341,7 @@ public sealed class ThreadJournalStoreContractTests
             ]);
             await first.AppendThreadEventsAsync(key, [Scoped(key, new TextDeltaEvent("three", "message-1"))]);
 
-            var reopened = new FileSessionStore(directory, new FileSessionStoreOptions(SegmentEventCapacity: 2));
+            var reopened = new FileSessionStore(directory, HPD.Agent.Tests.TestEventApplication.Codec, new FileSessionStoreOptions(SegmentEventCapacity: 2));
             var events = new List<AgentEvent>();
             await foreach (var batch in reopened.ReadThreadEventsAsync(
                 key,
@@ -366,7 +366,7 @@ public sealed class ThreadJournalStoreContractTests
         try
         {
             var key = new ThreadKey("session-1", "main");
-            var store = new FileSessionStore(directory);
+            var store = new FileSessionStore(directory, HPD.Agent.Tests.TestEventApplication.Codec);
             await store.AppendThreadEventsAsync(key, [Scoped(key, new TextDeltaEvent("committed", "message-1"))]);
 
             var segment = Assert.Single(Directory.GetFiles(
@@ -374,7 +374,7 @@ public sealed class ThreadJournalStoreContractTests
                 "segment-*.events"));
             await File.AppendAllTextAsync(segment, "[{\"type\":\"TEXT_DELTA\"");
 
-            var reopened = new FileSessionStore(directory);
+            var reopened = new FileSessionStore(directory, HPD.Agent.Tests.TestEventApplication.Codec);
             Assert.Equal(1, (await reopened.GetThreadEventHeadAsync(key))!.ThreadSequenceNumber);
             Assert.EndsWith("\n", await File.ReadAllTextAsync(segment), StringComparison.Ordinal);
         }
@@ -392,7 +392,7 @@ public sealed class ThreadJournalStoreContractTests
         try
         {
             var key = new ThreadKey("session-1", "main");
-            var store = new FileSessionStore(directory);
+            var store = new FileSessionStore(directory, HPD.Agent.Tests.TestEventApplication.Codec);
             await store.AppendThreadEventsAsync(
                 key,
                 [Scoped(key, new TextDeltaEvent("committed", "message-1"))]);
@@ -402,7 +402,7 @@ public sealed class ThreadJournalStoreContractTests
             var descriptor = await File.ReadAllTextAsync(descriptorPath);
             await File.WriteAllTextAsync(descriptorPath, descriptor.Replace("\"version\": 2", "\"version\": 1"));
 
-            var reopened = new FileSessionStore(directory);
+            var reopened = new FileSessionStore(directory, HPD.Agent.Tests.TestEventApplication.Codec);
             var recovered = await reopened.GetThreadEventHeadAsync(key);
 
             Assert.Equal(new ThreadJournalCursor(1, 1), recovered!.Cursor);
@@ -422,7 +422,7 @@ public sealed class ThreadJournalStoreContractTests
         try
         {
             var key = new ThreadKey("session-1", "main");
-            var store = new FileSessionStore(directory);
+            var store = new FileSessionStore(directory, HPD.Agent.Tests.TestEventApplication.Codec);
             await store.AppendThreadEventsAsync(
                 key,
                 [Scoped(key, new TextDeltaEvent("old", "message-1"))]);
@@ -435,7 +435,7 @@ public sealed class ThreadJournalStoreContractTests
             File.Delete(Path.Combine(threadPath, "thread.descriptor.json"));
             File.Delete(Path.Combine(threadPath, "journal.index"));
 
-            var reopened = new FileSessionStore(directory);
+            var reopened = new FileSessionStore(directory, HPD.Agent.Tests.TestEventApplication.Codec);
             var recovered = await reopened.GetThreadEventHeadAsync(key);
 
             Assert.Equal(new ThreadJournalCursor(2, 1), recovered!.Cursor);
@@ -467,14 +467,14 @@ public sealed class ThreadJournalStoreContractTests
     {
         if (!fileStore)
         {
-            await test(new InMemorySessionStore());
+            await test(new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec));
             return;
         }
 
         var directory = Path.Combine(Path.GetTempPath(), $"hpd-file-journal-{Guid.NewGuid():N}");
         try
         {
-            await test(new FileSessionStore(directory));
+            await test(new FileSessionStore(directory, HPD.Agent.Tests.TestEventApplication.Codec));
         }
         finally
         {

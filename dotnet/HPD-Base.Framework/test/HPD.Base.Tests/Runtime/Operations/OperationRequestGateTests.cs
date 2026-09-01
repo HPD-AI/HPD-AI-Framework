@@ -23,7 +23,7 @@ public sealed class OperationRequestGateTests
 
         var result = await provider.GetRequiredService<IBaseRecordRuntime>().CreateAsync(
             "items",
-            CreateRequest() with { RequestedId = new RecordId("client_1") },
+            CreateRequest() with { RequestedId = RecordId.Create("client_1") },
             RuntimeTestData.AnonymousPrincipal,
             RuntimeTestData.Operation(BaseOperationKind.Create),
             CancellationToken.None);
@@ -41,7 +41,7 @@ public sealed class OperationRequestGateTests
 
         var result = await provider.GetRequiredService<IBaseRecordRuntime>().GetAsync(
             "items",
-            new RecordId(" "),
+            default,
             RuntimeTestData.AnonymousPrincipal,
             RuntimeTestData.Operation(BaseOperationKind.Get),
             CancellationToken.None);

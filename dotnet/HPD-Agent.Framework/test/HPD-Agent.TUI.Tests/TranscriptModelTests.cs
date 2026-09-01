@@ -7,6 +7,17 @@ namespace HPD.Agent.TUI.Tests;
 public sealed class TranscriptModelTests
 {
     [Fact]
+    public void TryFinalizeLive_DoesNotAppendWhenKeyIsMissing()
+    {
+        var model = new TranscriptModel();
+
+        var finalized = model.TryFinalizeLive("usage:missing", Row("final", "usage:missing", "priced"));
+
+        finalized.Should().BeFalse();
+        model.Count.Should().Be(0);
+    }
+
+    [Fact]
     public void UpsertLive_ReplacesExistingKeyedLiveEntry()
     {
         var model = new TranscriptModel();

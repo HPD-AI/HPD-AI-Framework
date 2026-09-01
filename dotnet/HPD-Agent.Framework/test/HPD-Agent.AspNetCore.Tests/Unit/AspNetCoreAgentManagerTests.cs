@@ -23,7 +23,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
 
     public AspNetCoreAgentManagerTests()
     {
-        _sessionStore = new InMemorySessionStore();
+        _sessionStore = new InMemorySessionStore(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec);
         _agentStore = new InMemoryAgentStore();
         _optionsMonitor = new OptionsMonitorWrapper();
         _serviceProvider = new ServiceCollection().BuildServiceProvider();
@@ -189,7 +189,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
         var stored = await manager.CreateDefinitionAsync(new AgentConfig
         {
             Name = "Coding",
-            Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" } },
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig { Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" }, ModelName = "test-model" } },
             ToolHarnesses = [nameof(CodingToolHarness)]
         }, "Coding");
 
@@ -258,7 +258,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
                         Strategy = new SummarizingCompaction
                         {
                             Summarizer = new ChatClientConfig {
-                                ProviderKey = "test",
+                                Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" },
                                 ModelName = "summarizer-model"
                             }
                         }
@@ -303,21 +303,21 @@ public class AspNetCoreAgentManagerTests : IDisposable
         return await manager.CreateDefinitionAsync(new AgentConfig
         {
             Name = "Default",
-            Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" } }
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig { Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" }, ModelName = "test-model" } }
         }, "Default");
     }
 
     private static AgentConfig MakeConfig(string name) => new AgentConfig
     {
         Name = name,
-        Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" } }
+        Clients = new AgentClientsConfig { Chat = new ChatClientConfig { Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" }, ModelName = "test-model" } }
     };
 
     private static void InjectTestProvider(AgentBuilder builder)
     {
         builder.Config.SetChatClientConfig(new ChatClientConfig
         {
-            ProviderKey = "test",
+            Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" },
             ModelName = "test-model"
         });
 
@@ -367,7 +367,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
         private static AgentConfig MakeConfig(string name) => new AgentConfig
         {
             Name = name,
-            Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" } }
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig { Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" }, ModelName = "test-model" } }
         };
     }
 
@@ -381,7 +381,15 @@ public class AspNetCoreAgentManagerTests : IDisposable
             IServiceProvider serviceProvider,
             string name,
             IAgentFactory? agentFactory = null)
-            : base(agentStore, sessionManager, optionsMonitor, serviceProvider, name, new InMemoryContentStore(), agentFactory) { }
+            : base(
+                agentStore,
+                sessionManager,
+                optionsMonitor,
+                serviceProvider,
+                name,
+                new InMemoryContentStore(),
+                agentFactory,
+                HPD.Agent.AspNetCore.Tests.TestEventApplication.Composition) { }
 
         public TimeSpan GetIdleTimeoutForTests() => GetIdleTimeout();
     }

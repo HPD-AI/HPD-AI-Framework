@@ -1,4 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><IsTestProject>false</IsTestProject></PropertyGroup>
+  <PropertyGroup><OutputType>Exe</OutputType><IsTestProject>false</IsTestProject><NoWarn>$(NoWarn);CA1303</NoWarn><PublishAot>true</PublishAot><PublishTrimmed>true</PublishTrimmed></PropertyGroup>
   <ItemGroup><ProjectReference Include="../../src/HPD.Payments.Profiles.Distributed/HPD.Payments.Profiles.Distributed.csproj" /></ItemGroup>
 </Project>

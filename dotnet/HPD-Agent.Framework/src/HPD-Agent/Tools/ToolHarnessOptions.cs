@@ -3,13 +3,14 @@
 
 namespace HPD.Agent;
 
+using HPD.Agent.Middleware;
+
 /// <summary>
-/// Per-toolharness configuration provided at builder registration time via
-/// <c>WithToolHarness&lt;T&gt;(opts => opts.AddScopedMiddleware(...))</c>.
+/// Per-toolharness configuration and exceptional exact-type activation overrides.
 /// </summary>
 /// <remarks>
 /// <para>
-/// This is the §5B (builder-time DI override) path from .
+/// This is the exceptional exact-type activation override path.
 /// Use it when your toolharness-scoped middleware requires constructor parameters
 /// that cannot be expressed as a parameterless constructor in
 /// <c>[Collapse(Middlewares = [typeof(T)])]</c>.
@@ -17,29 +18,28 @@ namespace HPD.Agent;
 /// <example>
 /// <code>
 /// builder.WithToolHarness&lt;DatabaseToolHarness&gt;(opts =>
-///     opts.AddScopedMiddleware(new DbAuditMiddleware(sp.GetRequiredService&lt;IAuditLog&gt;()))
-///         .AddScopedMiddleware(new DbRateLimitMiddleware(new DbRateLimitConfig { RequestsPerMinute = 20 })));
+///     opts.OverrideMiddleware&lt;DbAuditMiddleware&gt;(context =&gt;
+///         ToolHarnessMiddlewareActivation.ExecutionOwned(new DbAuditMiddleware(context.GetRequiredService&lt;IAuditLog&gt;()))));
 /// </code>
 /// </example>
 /// </remarks>
 public sealed class ToolHarnessOptions
 {
-    internal readonly List<Middleware.IAgentMiddleware> ScopedMiddlewares = [];
+    internal readonly Dictionary<Type, ToolHarnessMiddlewareFactory> MiddlewareOverrides = [];
     internal readonly List<ISkillSource> SkillSources = [];
     internal readonly List<StoredSkillSourceRegistration> StoredSkillSources = [];
 
     /// <summary>
-    /// Adds a middleware instance that will be activated whenever this toolharness's container is
-    /// expanded by the LLM. The instance is merged with any middlewares declared on the toolharness
-    /// class via <c>[Collapse(Middlewares = [...])]</c>, with DI-provided instances appended after
-    /// attribute-declared ones.
+    /// Replaces one already-declared middleware at its generated position for every input execution.
     /// </summary>
-    /// <param name="middleware">Middleware instance to activate on toolharness expansion.</param>
+    /// <param name="factory">Per-execution factory returning an explicitly owned activation.</param>
     /// <returns>This <see cref="ToolHarnessOptions"/> for chaining.</returns>
-    public ToolHarnessOptions AddScopedMiddleware(Middleware.IAgentMiddleware middleware)
+    public ToolHarnessOptions OverrideMiddleware<TMiddleware>(ToolHarnessMiddlewareFactory factory)
+        where TMiddleware : class, IToolHarnessMiddleware
     {
-        ArgumentNullException.ThrowIfNull(middleware);
-        ScopedMiddlewares.Add(middleware);
+        ArgumentNullException.ThrowIfNull(factory);
+        if (!MiddlewareOverrides.TryAdd(typeof(TMiddleware), factory))
+            throw new InvalidOperationException($"Middleware '{typeof(TMiddleware)}' is already overridden.");
         return this;
     }
 

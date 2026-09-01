@@ -298,9 +298,8 @@ internal sealed class DebugExecutionPlanningService(
         bool isRestart,
         CancellationToken cancellationToken)
     {
-        var backgroundHandles = context.BackgroundHandles ??
-            throw new InvalidOperationException(
-                "Debug sessions require a background-handle registry.");
+        if (!context.CanStartOperations)
+            throw new InvalidOperationException("Debug sessions require an active operation registry.");
         DebugSessionStartResult result;
         try
         {
@@ -312,7 +311,7 @@ internal sealed class DebugExecutionPlanningService(
                 Permission = permission,
                 SemanticLaunchOperation = semanticLaunchOperation,
                 IsRestart = isRestart,
-                BackgroundHandles = backgroundHandles,
+                ExecutionContext = context,
                 InitializeFeatures = new DebugInitializeFeatures
                 {
                     RunInTerminalHandler = hostRequestBroker is not null,

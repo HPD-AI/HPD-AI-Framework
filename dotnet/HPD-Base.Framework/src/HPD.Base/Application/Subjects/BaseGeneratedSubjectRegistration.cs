@@ -20,12 +20,24 @@ public sealed class BaseGeneratedSubjectRegistration
     internal BaseExportedSubjectDefinition Definition { get; }
     internal string Checksum { get; }
     internal string PlanChecksum { get; }
+
+    /// <summary>Gets the stable exported-subject contract identifier.</summary>
+    public string Id => Definition.Id;
+
+    /// <summary>Gets the positive exported-subject contract version.</summary>
+    public int Version => Definition.Version;
+
+    /// <summary>Gets the normalized exported-subject contract checksum.</summary>
+    public string ContractChecksum => Checksum;
 }
 
 /// <summary>Provides generated-only construction of exported-subject installation receipts.</summary>
 public static class BaseGeneratedSubjects
 {
     /// <summary>Creates one immutable generated exported-subject installation receipt.</summary>
+    /// <typeparam name="TSubject">The generated exported-subject marker type.</typeparam>
+    /// <param name="definition">The complete generated subject definition.</param>
+    /// <returns>A deeply owned installation receipt.</returns>
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     public static BaseGeneratedSubjectRegistration Register<TSubject>(BaseExportedSubjectDefinition definition)
     {
@@ -34,6 +46,101 @@ public static class BaseGeneratedSubjects
         return new BaseGeneratedSubjectRegistration(typeof(TSubject), normalized,
             BaseSubjectContractGraph.Checksum(normalized),
             BaseSubjectContractNormalizer.NormalizePlan(normalized.ValidationPlan).Checksum);
+    }
+}
+
+/// <summary>Contains exact generated subject authority admitted by a module DTO property.</summary>
+[System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+public sealed class BaseGeneratedModuleSubjectQualifier
+{
+    internal BaseGeneratedModuleSubjectQualifier(string contractId, int contractVersion, string contractChecksum,
+        BaseSubjectIdKind subjectIdKind, int maximumSubjectIdUtf8Bytes,
+        BaseSubjectReferenceRequirement requirement, BaseSubjectValidationGuarantee guarantee)
+    {
+        BaseApplicationId.Validate(contractId, nameof(contractId));
+        if (contractVersion < 1 || contractChecksum.Length != 64
+            || !contractChecksum.All(static value => value is >= '0' and <= '9' or >= 'a' and <= 'f')
+            || !Enum.IsDefined(subjectIdKind) || maximumSubjectIdUtf8Bytes is < 1 or > 256
+            || !Enum.IsDefined(requirement) || guarantee != BaseSubjectValidationGuarantee.TransactionSnapshot)
+            throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+        ContractId = new string(contractId.AsSpan()); ContractVersion = contractVersion;
+        ContractChecksum = new string(contractChecksum.AsSpan()); SubjectIdKind = subjectIdKind;
+        MaximumSubjectIdUtf8Bytes = maximumSubjectIdUtf8Bytes; Requirement = requirement; Guarantee = guarantee;
+        CodecId = "hpd.base.subject-reference.v1";
+        CodecChecksum = SHA256.HashData(Encoding.ASCII.GetBytes(CodecId));
+        var writer = new ArrayBufferWriter<byte>();
+        writer.Write(new byte[] { 1 });
+        Write(writer, ContractId); WriteInt64(writer, ContractVersion); Write(writer, ContractChecksum);
+        WriteInt64(writer, (long)SubjectIdKind); WriteInt64(writer, MaximumSubjectIdUtf8Bytes);
+        WriteInt64(writer, (long)Requirement); WriteInt64(writer, (long)Guarantee);
+        Write(writer, CodecId); Write(writer, CodecChecksum);
+        QualifierChecksum = SHA256.HashData(writer.WrittenSpan);
+    }
+    internal string ContractId { get; }
+    internal int ContractVersion { get; }
+    internal string ContractChecksum { get; }
+    internal BaseSubjectIdKind SubjectIdKind { get; }
+    internal int MaximumSubjectIdUtf8Bytes { get; }
+    internal BaseSubjectReferenceRequirement Requirement { get; }
+    internal BaseSubjectValidationGuarantee Guarantee { get; }
+    internal string CodecId { get; }
+    internal byte[] CodecChecksum { get; }
+    internal byte[] QualifierChecksum { get; }
+
+    internal BaseGeneratedModuleSubjectQualifier Copy() => new(
+        ContractId, ContractVersion, ContractChecksum, SubjectIdKind,
+        MaximumSubjectIdUtf8Bytes, Requirement, Guarantee);
+
+    private static void Write(ArrayBufferWriter<byte> writer, string value) => Write(writer, Encoding.UTF8.GetBytes(value));
+    private static void Write(ArrayBufferWriter<byte> writer, ReadOnlySpan<byte> value)
+    {
+        Span<byte> length = writer.GetSpan(sizeof(uint));
+        BinaryPrimitives.WriteUInt32BigEndian(length, checked((uint)value.Length)); writer.Advance(sizeof(uint));
+        writer.Write(value);
+    }
+    private static void WriteInt64(ArrayBufferWriter<byte> writer, long value)
+    {
+        Span<byte> destination = writer.GetSpan(sizeof(long));
+        BinaryPrimitives.WriteInt64BigEndian(destination, value); writer.Advance(sizeof(long));
+    }
+}
+
+/// <summary>Publishes and resolves reflection-free generated subject authority.</summary>
+public static class BaseGeneratedSubjectAuthority
+{
+    /// <summary>Publishes the one generated subject receipt for a closed marker.</summary>
+    /// <typeparam name="TSubject">The generated exported-subject marker type.</typeparam>
+    /// <param name="registration">The generator-owned subject registration.</param>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public static void Publish<TSubject>(BaseGeneratedSubjectRegistration registration)
+    {
+        ArgumentNullException.ThrowIfNull(registration);
+        if (registration.MarkerType != typeof(TSubject) || Holder<TSubject>.Registration is not null)
+            throw new InvalidOperationException(BaseSubjectErrorCodes.RegistrationConflict);
+        Holder<TSubject>.Registration = registration;
+    }
+
+    /// <summary>Resolves one exact qualifier from generated marker authority.</summary>
+    /// <typeparam name="TSubject">The generated exported-subject marker type.</typeparam>
+    /// <param name="requirement">The required subject lifecycle state.</param>
+    /// <param name="guarantee">The required validation guarantee.</param>
+    /// <returns>A deeply owned module-property qualifier.</returns>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public static BaseGeneratedModuleSubjectQualifier Resolve<TSubject>(
+        BaseSubjectReferenceRequirement requirement, BaseSubjectValidationGuarantee guarantee)
+    {
+        BaseGeneratedSubjectRegistration registration = Holder<TSubject>.Registration
+            ?? throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+        if (!Enum.IsDefined(requirement) || !Enum.IsDefined(guarantee))
+            throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+        BaseExportedSubjectDefinition definition = registration.Definition;
+        return new BaseGeneratedModuleSubjectQualifier(definition.Id, definition.Version, registration.Checksum,
+            definition.SubjectIdKind, definition.MaximumSubjectIdUtf8Bytes, requirement, guarantee);
+    }
+
+    private static class Holder<TSubject>
+    {
+        internal static BaseGeneratedSubjectRegistration? Registration;
     }
 }
 
@@ -75,7 +182,7 @@ internal static class BaseSubjectContractGraph
     internal static BaseExportedSubjectDefinition Normalize(BaseExportedSubjectDefinition value)
     {
         ArgumentNullException.ThrowIfNull(value);
-        if (value.ValidationPlan is null)
+        if (value.ValidationPlan is null || value.TombstoneMetadata?.Instant is null || value.TombstoneMetadata.Sequence is null)
             throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
         try
         {
@@ -91,9 +198,20 @@ internal static class BaseSubjectContractGraph
             throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid, exception);
         }
         if (value.Version < 1 || !Enum.IsDefined(value.SubjectIdKind) || !Enum.IsDefined(value.Scope) ||
+            !Enum.IsDefined(value.FinalRetirementExecutionMode) ||
             value.MaximumSubjectIdUtf8Bytes is < 1 or > 256 || value.Audiences is null || value.Audiences.Length == 0 ||
             value.Audiences.Any(static audience => !Enum.IsDefined(audience)) ||
             value.Audiences.Distinct().Count() != value.Audiences.Length)
+            throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+
+        BaseSubjectTombstoneInstantBinding instant = NormalizeInstant(value.TombstoneMetadata.Instant);
+        BaseSubjectTombstoneSequenceBinding sequence = NormalizeSequence(value.TombstoneMetadata.Sequence);
+        string? activeFieldId = value.ValidationPlan.Active?.FieldId;
+        string? scopeFieldId = value.ValidationPlan.Scope?.FieldId;
+        string?[] reserved = [value.TombstoneFieldId, activeFieldId, scopeFieldId];
+        if (instant.FieldId is not null && reserved.Contains(instant.FieldId, StringComparer.Ordinal)
+            || sequence.FieldId is not null && (reserved.Contains(sequence.FieldId, StringComparer.Ordinal)
+                || string.Equals(sequence.FieldId, instant.FieldId, StringComparison.Ordinal)))
             throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
 
         BaseSubjectValidationPlanDefinition initialPlan = value.ValidationPlan with
@@ -109,6 +227,7 @@ internal static class BaseSubjectContractGraph
             AcquisitionGrantId = Copy(value.AcquisitionGrantId), ValidationGrantId = Copy(value.ValidationGrantId),
             AdministrationGrantId = Copy(value.AdministrationGrantId),
             TombstoneFieldId = Copy(value.TombstoneFieldId),
+            TombstoneMetadata = new BaseSubjectTombstoneMetadataDefinition { Instant = instant, Sequence = sequence },
             Audiences = [.. value.Audiences.Order()], ValidationPlan = normalizedPlan,
         };
         string checksum = Checksum(initial);
@@ -124,6 +243,9 @@ internal static class BaseSubjectContractGraph
         Write(writer, value.OwningModuleId); Write(writer, (int)value.SubjectIdKind); Write(writer, value.MaximumSubjectIdUtf8Bytes);
         Write(writer, (int)value.Scope); Write(writer, value.AcquisitionGrantId); Write(writer, value.ValidationGrantId); Write(writer, value.AdministrationGrantId);
         Write(writer, value.TombstoneFieldId); Write(writer, value.SupportsCoordinatedRetirement ? 1 : 0);
+        Write(writer, (int)value.TombstoneMetadata.Instant.Kind); Write(writer, value.TombstoneMetadata.Instant.FieldId);
+        Write(writer, (int)value.TombstoneMetadata.Sequence.Kind); Write(writer, value.TombstoneMetadata.Sequence.FieldId);
+        Write(writer, (int)value.FinalRetirementExecutionMode);
         foreach (HPDBaseEndpointAudience audience in value.Audiences) Write(writer, (int)audience);
         BaseSubjectValidationPlanDefinition plan = value.ValidationPlan;
         Write(writer, plan.Id); Write(writer, plan.Version); Write(writer, plan.PrivateCollectionId); Write(writer, (int)plan.SubjectId);
@@ -138,6 +260,30 @@ internal static class BaseSubjectContractGraph
     }
 
     private static string Copy(string value) => new(value.AsSpan());
+    private static BaseSubjectTombstoneInstantBinding NormalizeInstant(BaseSubjectTombstoneInstantBinding value)
+    {
+        if (!Enum.IsDefined(value.Kind) || value.Kind == BaseSubjectTombstoneMetadataBindingKind.NotStored && value.FieldId is not null
+            || value.Kind == BaseSubjectTombstoneMetadataBindingKind.RequiredField && value.FieldId is null)
+            throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+        if (value.FieldId is not null)
+        {
+            try { BaseApplicationId.Validate(value.FieldId, nameof(value)); }
+            catch (ArgumentException exception) { throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid, exception); }
+        }
+        return value with { FieldId = value.FieldId is null ? null : Copy(value.FieldId) };
+    }
+    private static BaseSubjectTombstoneSequenceBinding NormalizeSequence(BaseSubjectTombstoneSequenceBinding value)
+    {
+        if (!Enum.IsDefined(value.Kind) || value.Kind == BaseSubjectTombstoneMetadataBindingKind.NotStored && value.FieldId is not null
+            || value.Kind == BaseSubjectTombstoneMetadataBindingKind.RequiredField && value.FieldId is null)
+            throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+        if (value.FieldId is not null)
+        {
+            try { BaseApplicationId.Validate(value.FieldId, nameof(value)); }
+            catch (ArgumentException exception) { throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid, exception); }
+        }
+        return value with { FieldId = value.FieldId is null ? null : Copy(value.FieldId) };
+    }
     private static void Write(ArrayBufferWriter<byte> writer, string? value)
     {
         Span<byte> tag = writer.GetSpan(1); tag[0] = value is null ? (byte)0 : (byte)1; writer.Advance(1);
@@ -173,7 +319,7 @@ public sealed class BaseExportedSubjectContract<TSubject>
     public string Checksum { get; }
 
     /// <summary>Atomically tombstones one exact exported-subject lifetime.</summary>
-    public ValueTask<BaseResult<BaseSubjectLifecycleFact<TSubject>>> TombstoneAsync(
+    public ValueTask<BaseResult<BaseSubjectTombstoneResult<TSubject>>> TombstoneAsync(
         BaseSubjectTombstoneRequest<TSubject> request,
         CancellationToken cancellationToken = default)
     {
@@ -186,11 +332,12 @@ public sealed class BaseExportedSubjectContract<TSubject>
     /// <summary>Atomically performs uncoordinated final retirement of one tombstoned lifetime.</summary>
     public ValueTask<BaseResult<BaseSubjectFinalRetirementResult<TSubject>>> FinalizeRetirementAsync(
         BaseSubjectFinalRetirementRequest<TSubject> request,
+        BaseSubjectFinalRetirementExecutionOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         IBaseSubjectLifecycleExporterRuntime runtime = _session.Services.GetService(typeof(IBaseSubjectLifecycleExporterRuntime)) as IBaseSubjectLifecycleExporterRuntime
             ?? throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
-        return runtime.FinalizeRetirementAsync(_session, _registration, request, cancellationToken);
+        return runtime.FinalizeRetirementAsync(_session, _registration, request, options, cancellationToken);
     }
 }

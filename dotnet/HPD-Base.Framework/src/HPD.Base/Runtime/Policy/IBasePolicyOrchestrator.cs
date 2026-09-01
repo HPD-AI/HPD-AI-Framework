@@ -16,6 +16,28 @@ public interface IBasePolicyOrchestrator
     ValueTask<OperationResult<BasePolicyEvaluation>> EvaluateWriteAsync(
         BasePolicyRequest request,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Evaluates one graph-owned Studio boundary.</summary>
+    ValueTask<OperationResult<BasePolicyEvaluation>> EvaluateStudioAsync(
+        BaseStudioPolicyRequest request,
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>Defines one Studio policy request without fabricating record authority.</summary>
+public sealed record BaseStudioPolicyRequest
+{
+    /// <summary>Gets the authenticated BASE principal.</summary>
+    public required PrincipalContext Principal { get; init; }
+    /// <summary>Gets the control-plane operation context.</summary>
+    public required OperationContext Operation { get; init; }
+    /// <summary>Gets the fixed Studio operation identity.</summary>
+    public required string StudioOperationId { get; init; }
+    /// <summary>Gets the owning Studio module identity.</summary>
+    public required string StudioModuleId { get; init; }
+    /// <summary>Gets the optional Studio resource kind.</summary>
+    public string? StudioResourceKind { get; init; }
+    /// <summary>Gets the optional opaque Studio resource identity.</summary>
+    public string? StudioResourceIdentity { get; init; }
 }
 
 /// <summary>Represents a base policy request.</summary>
@@ -26,7 +48,7 @@ public sealed record BasePolicyRequest
     /// <summary>Gets or sets the operation.</summary>
     public required OperationContext Operation { get; init; }
     /// <summary>Gets or sets the collection.</summary>
-    public required CollectionDefinition Collection { get; init; }
+    public required CollectionDefinition? Collection { get; init; }
     /// <summary>Gets or sets the resource kind.</summary>
     public required PolicyResourceKind ResourceKind { get; init; }
     /// <summary>Gets or sets the query.</summary>

@@ -9,8 +9,26 @@ namespace HPD.Base;
 /// </summary>
 /// <typeparam name="TRecord">The collection's persisted record type.</typeparam>
 [JsonConverter(typeof(BaseRecordIdJsonConverterFactory))]
-public readonly record struct BaseRecordId<TRecord>(RecordId Value)
+public readonly struct BaseRecordId<TRecord> : IEquatable<BaseRecordId<TRecord>>, IBaseRecordIdValue
 {
+    private readonly RecordId _value;
+
+    /// <summary>Initializes a typed identifier from one validated Runtime identifier.</summary>
+    public BaseRecordId(RecordId value)
+    {
+        if (!value.IsValid) throw new ArgumentException("The record identifier is invalid.");
+        _value = RecordId.Create(value.Value);
+    }
+
+    /// <summary>Gets the validated Runtime identifier.</summary>
+    public RecordId Value => _value.IsValid
+        ? _value
+        : throw new InvalidOperationException("The record identifier is invalid.");
+
+    /// <summary>Gets whether this value contains one canonical typed record identifier.</summary>
+    internal bool IsValid => _value.IsValid;
+    string IBaseRecordIdValue.CanonicalValue => Value.Value;
+
     /// <summary>Creates a typed record identifier from its wire value.</summary>
     /// <param name="value">The canonical record identifier string.</param>
     /// <returns>The validated typed identifier.</returns>
@@ -41,7 +59,27 @@ public readonly record struct BaseRecordId<TRecord>(RecordId Value)
     public static explicit operator BaseRecordId<TRecord>(RecordId value) => new(value);
 
     /// <inheritdoc />
+    public bool Equals(BaseRecordId<TRecord> other) => _value == other._value;
+
+    /// <inheritdoc />
+    public override bool Equals(object? obj) => obj is BaseRecordId<TRecord> other && Equals(other);
+
+    /// <inheritdoc />
+    public override int GetHashCode() => _value.GetHashCode();
+
+    /// <summary>Compares two typed identifiers for exact equality.</summary>
+    public static bool operator ==(BaseRecordId<TRecord> left, BaseRecordId<TRecord> right) => left.Equals(right);
+
+    /// <summary>Compares two typed identifiers for exact inequality.</summary>
+    public static bool operator !=(BaseRecordId<TRecord> left, BaseRecordId<TRecord> right) => !left.Equals(right);
+
+    /// <inheritdoc />
     public override string ToString() => Value.Value;
+}
+
+internal interface IBaseRecordIdValue
+{
+    string CanonicalValue { get; }
 }
 
 /// <summary>Creates closed scalar JSON converters for typed record identifiers.</summary>
@@ -90,7 +128,7 @@ public sealed class BaseRecordIdJsonConverterFactory : JsonConverterFactory
             if (reader.TokenType != JsonTokenType.String ||
                 !BaseRecordId<TRecord>.TryParse(reader.GetString(), out var value))
             {
-                throw new JsonException("Typed record id must be a valid JSON string.");
+                throw new JsonException("RecordId must be a canonical JSON string.");
             }
 
             return value;
@@ -100,7 +138,11 @@ public sealed class BaseRecordIdJsonConverterFactory : JsonConverterFactory
         public override void Write(
             Utf8JsonWriter writer,
             BaseRecordId<TRecord> value,
-            JsonSerializerOptions options) =>
+            JsonSerializerOptions options)
+        {
+            if (!value.IsValid)
+                throw new JsonException("RecordId must be a canonical JSON string.");
             writer.WriteStringValue(value.Value.Value);
+        }
     }
 }

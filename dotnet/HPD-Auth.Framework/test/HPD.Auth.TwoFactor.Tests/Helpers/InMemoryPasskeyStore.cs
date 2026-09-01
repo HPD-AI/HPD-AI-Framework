@@ -7,10 +7,8 @@ namespace HPD.Auth.TwoFactor.Tests.Helpers;
 /// <summary>
 /// In-memory passkey store for tests.
 ///
-/// EF Core's in-memory provider does not properly materialise IdentityUserPasskey.Data
-/// (a ComplexProperty configured with .ToJson() by IdentityDbContext Version3).
-/// Registering this store after AddHPDAuth() overrides the EF-backed IUserPasskeyStore
-/// so passkey CRUD in tests works correctly without touching EF Core complex type mappings.
+/// The store copies payloads so focused endpoint tests exercise detached-value
+/// semantics without depending on a persistence provider.
 /// </summary>
 public sealed class InMemoryPasskeyStore : IUserPasskeyStore<ApplicationUser>
 {

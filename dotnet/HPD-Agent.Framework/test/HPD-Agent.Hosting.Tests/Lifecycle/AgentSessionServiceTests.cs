@@ -6,7 +6,7 @@ namespace HPD.Agent.Hosting.Tests.Lifecycle;
 
 public class AgentSessionServiceTests : IDisposable
 {
-    private readonly InMemorySessionStore _store = new();
+    private readonly InMemorySessionStore _store = new(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
     private readonly TestSessionManager _manager;
     private readonly AgentSessionService _service;
 

@@ -14,7 +14,7 @@ public static class AgentBuilderExtensions
     public static AgentBuilder WithDeepInfra(
         this AgentBuilder builder,
         string model = DeepInfraProvider.DefaultChatModel,
-        string? apiKey = null,
+        ProviderAuthentication? authentication = null,
         string? endpoint = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -24,8 +24,11 @@ public static class AgentBuilderExtensions
 
         var chatConfig = new ChatClientConfig
         {
-            ProviderKey = "deepinfra",
-            ApiKey = apiKey,
+            Provider = new ProviderReference
+            {
+                Key = "deepinfra",
+                Authentication = authentication ?? new ApiKeyProviderAuthentication { SecretKey = "deepinfra:ApiKey" }
+            },
             Endpoint = endpoint,
             ModelName = model
         };
@@ -35,4 +38,8 @@ public static class AgentBuilderExtensions
 
         return builder;
     }
+
+    /// <summary>Configures DeepInfra with a literal runtime-only API key.</summary>
+    public static AgentBuilder WithDeepInfra(this AgentBuilder builder, string model, ReadOnlySpan<char> apiKey, string? endpoint = null) =>
+        builder.WithDeepInfra(model, builder.RegisterExplicitApiKey(apiKey), endpoint);
 }

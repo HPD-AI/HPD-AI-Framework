@@ -57,7 +57,7 @@ export interface StudioModuleInitialization {
   readonly lifecycle: StudioLifecycle;
 }
 
-export interface StudioModuleActivation {
+export interface StudioModuleInitializationResult {
   dispose?(): void | Promise<void>;
 }
 
@@ -68,7 +68,7 @@ export interface StudioModule {
   readonly description?: string;
   readonly routes: readonly StudioRoute[];
   readonly navItems?: readonly StudioNavItem[];
-  initialize?(context: StudioModuleInitialization): void | StudioModuleActivation | Promise<void | StudioModuleActivation>;
+  initialize?(context: StudioModuleInitialization): void | StudioModuleInitializationResult | Promise<void | StudioModuleInitializationResult>;
 }
 
 export interface StudioModuleRegistration {

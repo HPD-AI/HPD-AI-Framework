@@ -30,8 +30,14 @@ internal sealed class SqliteHealthContributor : IBaseHealthContributor
         string[] missing = [];
         var quarantinedMutations = _store.QuarantinedMutationCount;
         var quarantinedAdministration = _store.QuarantinedAdministrationCount;
+        bool logicalIndexesQuarantined = _store.LogicalIndexStoreIsQuarantined;
         var restoreRecoveryPending = _store.RestoreRecoveryPending;
-        if (_store.RestoreRecoveryIndeterminate)
+        if (logicalIndexesQuarantined)
+        {
+            status = HealthStatus.Unhealthy;
+            summary = "SQLite logical-index authority is quarantined.";
+        }
+        else if (_store.RestoreRecoveryIndeterminate)
         {
             status = HealthStatus.Unhealthy;
             summary = "SQLite restore outcome is indeterminate and the store is maintenance-closed.";
@@ -93,6 +99,8 @@ internal sealed class SqliteHealthContributor : IBaseHealthContributor
                     new HealthMetric { Name = "missingSchemaParts", Kind = HealthMetricValueKind.Number, NumberValue = missing.Length },
                     new HealthMetric { Name = "quarantinedMutations", Kind = HealthMetricValueKind.Number, NumberValue = quarantinedMutations },
                     new HealthMetric { Name = "quarantinedAdministration", Kind = HealthMetricValueKind.Number, NumberValue = quarantinedAdministration },
+                    new HealthMetric { Name = "logicalIndexQuarantined", Kind = HealthMetricValueKind.Boolean, BooleanValue = logicalIndexesQuarantined },
+                    new HealthMetric { Name = "logicalIndexReasonCode", Kind = HealthMetricValueKind.Text, TextValue = logicalIndexesQuarantined ? BaseSchemaErrorCodes.ProviderEvidenceInvalid : null },
                     new HealthMetric { Name = "restoreRecoveryPending", Kind = HealthMetricValueKind.Boolean, BooleanValue = restoreRecoveryPending },
                     new HealthMetric { Name = "restoreRecoveryIndeterminate", Kind = HealthMetricValueKind.Boolean, BooleanValue = _store.RestoreRecoveryIndeterminate }
                 ],

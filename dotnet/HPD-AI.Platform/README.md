@@ -6,11 +6,8 @@ Composable Svelte-based Studio shell for HPD AI framework modules.
 
 ```csharp
 builder.Services.AddHPDAIPlatform()
-    .AddAgentStudio()
-    .AddGraphStudio()
-    .AddRagStudio()
-    .AddAuthStudio()
-    .AddMLStudio();
+    .AddBaseStudio()
+    .AddGraphStudio();
 
 app.MapHPDAIPlatform(options =>
 {
@@ -19,7 +16,7 @@ app.MapHPDAIPlatform(options =>
 });
 ```
 
-`HPD-AI.Platform` owns the shell, runtime configuration, routing, and final CSS bundle. Domain Studio packages such as `HPD-Agent.Studio`, `HPD-Graph.Studio`, `HPD-RAG.Studio`, `HPD.Auth.Studio`, and `HPD.ML.Studio` contribute module source and metadata through the fluent builder.
+`HPD-AI.Platform` owns the shell, runtime configuration, routing, and final CSS bundle. Domain Studio packages contribute immutable module definitions through the frozen Studio graph. Placeholder-only product modules are not registered or shipped.
 
 Product packages should prefer their governed mapping extension (for example,
 `MapHpdGatewayStudio`) when listener ownership or endpoint isolation is part of the product

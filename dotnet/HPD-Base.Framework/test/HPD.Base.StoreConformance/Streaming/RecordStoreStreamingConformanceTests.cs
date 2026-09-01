@@ -51,7 +51,7 @@ public abstract class RecordStoreStreamingConformanceTests<TFixture> : RecordSto
 
         if (Capabilities.Read.Get)
         {
-            var get = await store.GetAsync(Collection, new RecordId("stream-one"), Operation(BaseOperationKind.Get, new RecordId("stream-one")));
+            var get = await store.GetAsync(Collection, RecordId.Create("stream-one"), Operation(BaseOperationKind.Get, RecordId.Create("stream-one")));
             RecordStoreConformanceAssertions.Success(get, OperationStatus.Ok);
             RecordStoreConformanceAssertions.HasField(get.Value!, "title", "one");
         }

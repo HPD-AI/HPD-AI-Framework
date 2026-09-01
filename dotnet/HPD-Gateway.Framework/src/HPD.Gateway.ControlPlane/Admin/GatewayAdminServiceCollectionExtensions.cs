@@ -24,6 +24,7 @@ internal static class GatewayAdminComposition
             options.AddDocumentTransformer<GatewayAdminOpenApiDocumentTransformer>();
         });
         services.AddSingleton<GatewayAdminOpenApiContract>();
+        services.AddSingleton<GatewayAdminHandlerCatalog>();
         return services;
     }
 }

@@ -1,6 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
 namespace HPD.Agent;
 
+using HPD.Agent.Serialization;
+
 /// <summary>
 /// Extension methods for registering session store services with DI container.
 /// </summary>
@@ -23,9 +25,11 @@ public static class ServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddSessionStore(
         this IServiceCollection services,
-        string storagePath)
+        string storagePath,
+        AgentEventCodec eventCodec)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(storagePath);
-        return services.AddSessionStore(new FileSessionStore(storagePath));
+        ArgumentNullException.ThrowIfNull(eventCodec);
+        return services.AddSessionStore(new FileSessionStore(storagePath, eventCodec));
     }
 }

@@ -20,7 +20,7 @@ public static partial class SemanticEnsureMutationSmoke
             SystemCollectionIds = [], SystemSourceGrants = [], GenerationCellIds = [], ImportedSubjectContractIds = [],
             Template = new BaseModuleMutationTemplate
             {
-                Captures = [], Guards = SemanticGuards(), Body = SemanticBody(),
+                Captures = [], Guards = SemanticGuards(), Preconditions = [], Body = SemanticBody(),
                 Result = new BaseModuleResultProjection
                 {
                     Value = ensure ? EnsureResult() : RetireResult(),
@@ -62,39 +62,33 @@ public static partial class SemanticEnsureMutationSmoke
     private static BaseModuleMutationBlock Require(string id, string guard) => new()
     { Statements = [new BaseModuleRequireStatement { Id = id, GuardId = guard, RequirementId = "semantic-state-captured" }] };
 
-    private static BaseModuleObjectExpression EnsureResult() => new()
+    private static BaseModuleObjectExpression EnsureResult()
     {
-        Id = "semantic-ensure-result", ResultTypeId = "hpd.base.sqlite.aot.semantic.ensure-result",
-        Properties =
-        [
-            new BaseModuleObjectPropertyExpression { StablePropertyId = "hpd.base.sqlite.aot.semantic.result.activation-id", Value = new BaseModuleConditionalExpression
-            {
-                Id = "semantic-id-retired", ResultTypeId = "string?", GuardId = "semantic-retired",
-                WhenTrue = Null("semantic-id-retired-null"),
-                WhenFalse = new BaseModuleConditionalExpression
-                {
-                    Id = "semantic-id-absent", ResultTypeId = "string?", GuardId = "semantic-absent",
-                    WhenTrue = Null("semantic-id-absent-null"),
-                    WhenFalse = new BaseModuleSemanticActivationIdExpression { Id = "semantic-id", ResultTypeId = "string?" },
-                },
-            } },
-            new BaseModuleObjectPropertyExpression { StablePropertyId = "hpd.base.sqlite.aot.semantic.result.disposition", Value = new BaseModuleSemanticActivationDispositionExpression { Id = "semantic-disposition", ResultTypeId = "string" } },
-            new BaseModuleObjectPropertyExpression { StablePropertyId = "hpd.base.sqlite.aot.semantic.result.materialized", Value = new BaseModuleSemanticActivationWasMaterializedExpression { Id = "semantic-materialized", ResultTypeId = "boolean" } },
-        ],
-    };
+        BaseModuleValue<string?> missingRetired = BaseModuleMutationTemplateBuilder.Missing(
+            "semantic-id-retired-missing", ResultProperties.ActivationId);
+        BaseModuleValue<string?> missingAbsent = BaseModuleMutationTemplateBuilder.Missing(
+            "semantic-id-absent-missing", ResultProperties.ActivationId);
+        BaseModuleValue<string?> activationId = BaseModuleMutationTemplateBuilder.SemanticActivationId(
+            "semantic-id", ResultProperties.ActivationId);
+        BaseModuleValue<string?> absentChoice = BaseModuleMutationTemplateBuilder.Conditional(
+            "semantic-id-absent", "semantic-absent", missingAbsent, activationId);
+        BaseModuleValue<string?> resultId = BaseModuleMutationTemplateBuilder.Conditional(
+            "semantic-id-retired", "semantic-retired", missingRetired, absentChoice);
+        return BaseModuleMutationTemplateBuilder.ResultObject(
+            "semantic-ensure-result",
+            BaseModuleMutationTemplateBuilder.Property(ResultProperties.ActivationId, resultId),
+            BaseModuleMutationTemplateBuilder.Property(ResultProperties.Disposition,
+                BaseModuleMutationTemplateBuilder.SemanticEnsureDisposition("semantic-disposition", ResultProperties.Disposition)),
+            BaseModuleMutationTemplateBuilder.Property(ResultProperties.WasMaterialized,
+                BaseModuleMutationTemplateBuilder.SemanticActivationWasMaterialized("semantic-materialized", ResultProperties.WasMaterialized))).Value;
+    }
 
-    private static BaseModuleObjectExpression RetireResult() => new()
-    {
-        Id = "semantic-retire-result", ResultTypeId = "hpd.base.sqlite.aot.semantic.retire-result",
-        Properties = [new BaseModuleObjectPropertyExpression
-        {
-            StablePropertyId = "hpd.base.sqlite.aot.semantic.result.retirement-disposition",
-            Value = new BaseModuleSemanticActivationRetirementDispositionExpression { Id = "semantic-retirement-disposition", ResultTypeId = "string" },
-        }],
-    };
-
-    private static BaseModuleConstantExpression Null(string id) => new()
-    { Id = id, ResultTypeId = "string?", CanonicalBaseJson = "null"u8.ToArray().ToImmutableArray() };
+    private static BaseModuleObjectExpression RetireResult() =>
+        BaseModuleMutationTemplateBuilder.ResultObject(
+            "semantic-retire-result",
+            BaseModuleMutationTemplateBuilder.Property(SemanticRetirementMutationSmoke.ResultProperties.Disposition,
+                BaseModuleMutationTemplateBuilder.SemanticRetirementDisposition(
+                    "semantic-retirement-disposition", SemanticRetirementMutationSmoke.ResultProperties.Disposition))).Value;
 }
 
 [BaseRegisteredModuleMutation("hpd.base.sqlite.aot.semantic.retire-operation", typeof(SemanticMutationSmokeJsonContext), typeof(SemanticMutationSmokeRequest), typeof(SemanticRetireSmokeResult), Version = 1, OwningModuleId = "hpd.base.sqlite.aot", GrantId = "hpd.base.sqlite.aot.semantic.retire-operation")]
@@ -111,13 +105,20 @@ public sealed record SemanticMutationSmokeRequest
 }
 public sealed record SemanticEnsureSmokeResult
 {
-    [BaseField("hpd.base.sqlite.aot.semantic.result.disposition")] public required string Disposition { get; init; }
-    [BaseField("hpd.base.sqlite.aot.semantic.result.activation-id")] public string? ActivationId { get; init; }
+    [BaseField("hpd.base.sqlite.aot.semantic.result.disposition", AllowedEnumLiterals = ["created", "existing", "retired"])]
+    [JsonConverter(typeof(BaseClosedEnumJsonConverter<BaseSemanticActivationEnsureDisposition>))]
+    public required BaseSemanticActivationEnsureDisposition Disposition { get; init; }
+    [BaseField("hpd.base.sqlite.aot.semantic.result.activation-id", Presence = BaseFieldPresence.Optional,
+        Nullability = BaseFieldNullability.NonNullable, MaximumUtf8Bytes = 256)]
+    public string? ActivationId { get; init; }
     [BaseField("hpd.base.sqlite.aot.semantic.result.materialized")] public required bool WasMaterialized { get; init; }
 }
 public sealed record SemanticRetireSmokeResult
 {
-    [BaseField("hpd.base.sqlite.aot.semantic.result.retirement-disposition")] public required string Disposition { get; init; }
+    [BaseField("hpd.base.sqlite.aot.semantic.result.retirement-disposition",
+        AllowedEnumLiterals = ["alreadyCompacted", "alreadyRetired", "retiredNow"])]
+    [JsonConverter(typeof(BaseClosedEnumJsonConverter<BaseSemanticActivationRetirementDisposition>))]
+    public required BaseSemanticActivationRetirementDisposition Disposition { get; init; }
 }
 [JsonSerializable(typeof(SemanticMutationSmokeRequest))]
 [JsonSerializable(typeof(SemanticEnsureSmokeResult))]

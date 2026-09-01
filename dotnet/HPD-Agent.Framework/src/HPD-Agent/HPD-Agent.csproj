@@ -1,12 +1,15 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <HpdAgentEventPrecompileRequireAnalyzer>false</HpdAgentEventPrecompileRequireAnalyzer>
     <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
     <RootNamespace>HPD.Agent</RootNamespace>
+    <HpdAgentEventModuleId>hpd.agent.core</HpdAgentEventModuleId>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
     <NoWarn>$(NoWarn);HPDAUDIO001;MEAI001;IL2026;IL2075;IL3050;CS0108;CS0628;CS8424;CS8600;CS8601;CS8602;CS8604;CS8619;CS8907;CS9113</NoWarn>
+    <WarningsAsErrors>$(WarningsAsErrors)</WarningsAsErrors>
     <!-- Native AOT Configuration -->
     <PublishAot>true</PublishAot>
     <IsAotCompatible>true</IsAotCompatible>
@@ -33,6 +36,7 @@
     <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="10.0.9" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.9" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.9" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.9" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.9" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.9" />
     <PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" Version="10.0.9" />
@@ -67,6 +71,9 @@
       <!-- Include dependencies of the source generator -->
       <None Include="../HPD-Agent.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('../HPD-Agent.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.dll')" />
       <None Include="../HPD-Agent.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.CSharp.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('../HPD-Agent.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.CSharp.dll')" />
+      <None Include="buildTransitive/HPD-Agent.Framework.targets" Pack="true" PackagePath="buildTransitive/HPD-Agent.Framework.targets" Visible="false" />
+      <None Include="../HPD-Agent.EventPrecompiler/bin/Debug/net8.0/*.dll;../HPD-Agent.EventPrecompiler/bin/Debug/net8.0/*.json"
+            Pack="true" PackagePath="tools/net8.0/" Visible="false" />
     </ItemGroup>
   </Target>
 
@@ -74,6 +81,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="HPD.Agent.Audio" />
     <InternalsVisibleTo Include="HPD-Agent.Tests" />
+    <InternalsVisibleTo Include="HPD-Agent.ToolHarness.Runtime.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.Authority.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.LiveAudio.Contracts.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.Hosting.Tests" />

@@ -1,5 +1,9 @@
+using System.Buffers;
+using System.Buffers.Binary;
 using System.Text.Json.Serialization.Metadata;
 using System.ComponentModel;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace HPD.Base;
 
@@ -71,7 +75,7 @@ public sealed class BaseReadDefinition<TParameters, TRow> : IBaseReadRegistratio
     /// <summary>Gets the exact declared system source collection identifiers.</summary>
     public IReadOnlyList<string> SystemSourceIds { get; internal init; } = Array.Empty<string>();
 
-    internal BaseRelationalReadPlan Plan { get; }
+    internal BaseRelationalReadPlan Plan { get; private set; }
 
     /// <summary>Gets source-generated request metadata.</summary>
     private JsonTypeInfo<TParameters>? _parameterJsonTypeInfo;
@@ -97,6 +101,7 @@ public sealed class BaseReadDefinition<TParameters, TRow> : IBaseReadRegistratio
     JsonTypeInfo IBaseReadRegistration.ParameterJsonTypeInfo => ParameterJsonTypeInfo;
     JsonTypeInfo IBaseReadRegistration.RowJsonTypeInfo => RowJsonTypeInfo;
     BaseRelationalReadPlan IBaseReadRegistration.Plan => Plan;
+    void IBaseReadRegistration.BindPlan(BaseRelationalReadPlan plan) => Plan = plan ?? throw new ArgumentNullException(nameof(plan));
     Type IBaseReadRegistration.ResponseType => typeof(BasePage<TRow>);
     BaseReadExposure IBaseReadRegistration.Exposure => Exposure;
     BaseReadAuthorization IBaseReadRegistration.Authorization => Authorization;
@@ -121,10 +126,14 @@ public sealed class BaseReadDefinition<TParameters, TRow> : IBaseReadRegistratio
         if (SerializerRegistration is null) return;
         _parameterJsonTypeInfo = (JsonTypeInfo<TParameters>)owner.Resolve(this, typeof(TParameters));
         _rowJsonTypeInfo = (JsonTypeInfo<TRow>)owner.Resolve(this, typeof(TRow));
-        ParameterSerializerContractChecksum = BaseSerializerContract.Checksum(_parameterJsonTypeInfo,
-            ClientContract.Parameters.Select(static value => (value.Id, value.GeneratedName, value.WireName)), ParameterDeclarations);
-        RowSerializerContractChecksum = BaseSerializerContract.Checksum(_rowJsonTypeInfo,
-            ClientContract.Row.Select(static value => (value.Id, value.GeneratedName, value.WireName)), RowDeclarations);
+        ParameterSerializerContractChecksum = BaseReadGeneratedContract.BindScalarConstraints(
+            BaseSerializerContract.Checksum(_parameterJsonTypeInfo,
+                ClientContract.Parameters.Select(static value => (value.Id, value.GeneratedName, value.WireName)), ParameterDeclarations),
+            ClientContract.Parameters);
+        RowSerializerContractChecksum = BaseReadGeneratedContract.BindScalarConstraints(
+            BaseSerializerContract.Checksum(_rowJsonTypeInfo,
+                ClientContract.Row.Select(static value => (value.Id, value.GeneratedName, value.WireName)), RowDeclarations),
+            ClientContract.Row);
     }
     internal IReadOnlyList<BaseSerializerPropertyDeclaration>? ParameterDeclarations { get; set; }
     internal IReadOnlyList<BaseSerializerPropertyDeclaration>? RowDeclarations { get; set; }
@@ -139,7 +148,12 @@ public sealed class BaseReadDefinition<TParameters, TRow> : IBaseReadRegistratio
     {
         if (parameters is not TParameters typed)
             return new BaseUntypedRegisteredReadResult { Status = OperationStatus.ValidationFailed, Error = new BaseError { Code = "base.relational.read.invalid", Message = "Registered read parameters are invalid.", Category = ErrorCategory.Validation } };
-        OperationResult<BaseRegisteredReadEvaluation<TRow>> result = await runtime.ExecuteAsync(this, typed, page, principal, operation, cancellationToken).ConfigureAwait(false);
+        OperationResult<BaseRegisteredReadEvaluation<TRow>> result = await runtime.ExecuteAsync(this, typed, new BaseRegisteredReadWindow
+        {
+            Kind = BaseRegisteredReadWindowKind.Page,
+            Page = page.Page,
+            PerPage = page.PerPage,
+        }, principal, operation, cancellationToken).ConfigureAwait(false);
         return result.Value is null
             ? new BaseUntypedRegisteredReadResult { Status = result.Status, Error = result.Error }
             : new BaseUntypedRegisteredReadResult { Status = result.Status, Items = result.Value.Page.Items.Cast<object>().ToArray(), Page = result.Value.Page.Page, Count = result.Value.Page.Count, Dependencies = result.Value.Dependencies };
@@ -166,6 +180,7 @@ internal interface IBaseReadRegistration : IBaseSerializerMetadataSource
     string Id { get; }
     /// <summary>Gets the plan.</summary>
     BaseRelationalReadPlan Plan { get; }
+    void BindPlan(BaseRelationalReadPlan plan);
     /// <summary>Gets the parameter JSON type info.</summary>
     JsonTypeInfo ParameterJsonTypeInfo { get; }
     /// <summary>Gets the row JSON type info.</summary>
@@ -235,6 +250,10 @@ public sealed record BaseReadClientProperty
     public required bool Array { get; init; }
     /// <summary>Gets whether the property may contain null.</summary>
     public required bool Nullable { get; init; }
+    /// <summary>Gets the minimum decoded byte length when this property is binary.</summary>
+    public int? MinimumBinaryBytes { get; init; }
+    /// <summary>Gets the maximum decoded byte length when this property is binary.</summary>
+    public int? MaximumBinaryBytes { get; init; }
 }
 
 internal sealed record BaseUntypedRegisteredReadResult
@@ -275,6 +294,20 @@ public readonly record struct BaseReadPageRequest(int Page, int PerPage)
         ArgumentOutOfRangeException.ThrowIfLessThan(page, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(perPage, 1);
         return new BaseReadPageRequest(page, perPage);
+    }
+}
+
+/// <summary>Defines a bounded arbitrary-offset request for an offset-enabled registered read.</summary>
+/// <param name="Offset">The zero-based row offset.</param>
+/// <param name="Limit">The positive result limit.</param>
+public readonly record struct BaseReadOffsetRequest(int Offset, int Limit)
+{
+    /// <summary>Creates and validates an arbitrary-offset request.</summary>
+    public static BaseReadOffsetRequest Create(int offset, int limit)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(offset);
+        ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1);
+        return new BaseReadOffsetRequest(offset, limit);
     }
 }
 
@@ -352,10 +385,12 @@ public static class BaseReadGeneratedContract
             SecretOutputFieldIds = Array.AsReadOnly(secret),
             SystemSourceIds = Array.AsReadOnly(systemSources),
         };
-        definition.ParameterSerializerContractChecksum = BaseSerializerContract.Checksum(parameterJson,
-            clientContract.Parameters.Select(static value => (value.Id, value.GeneratedName, value.WireName)));
-        definition.RowSerializerContractChecksum = BaseSerializerContract.Checksum(rowJson,
-            clientContract.Row.Select(static value => (value.Id, value.GeneratedName, value.WireName)));
+        definition.ParameterSerializerContractChecksum = BindScalarConstraints(
+            BaseSerializerContract.Checksum(parameterJson,
+                clientContract.Parameters.Select(static value => (value.Id, value.GeneratedName, value.WireName))), clientContract.Parameters);
+        definition.RowSerializerContractChecksum = BindScalarConstraints(
+            BaseSerializerContract.Checksum(rowJson,
+                clientContract.Row.Select(static value => (value.Id, value.GeneratedName, value.WireName))), clientContract.Row);
         return definition;
     }
 
@@ -428,6 +463,66 @@ public static class BaseReadGeneratedContract
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static QueryValue Value<TValue>(TValue value) => BaseQueryValue.From(value);
 
+    /// <summary>Encodes one binary value only after enforcing its installed decoded-byte range.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static QueryValue BinaryValue(BaseBinary value, int minimumBytes, int maximumBytes)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        ValidateBinaryRange(value.Length, minimumBytes, maximumBytes);
+        return Value(Convert.ToBase64String(value.ToArray()));
+    }
+
+    /// <summary>Decodes one canonical binary projection and enforces its installed decoded-byte range.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static BaseBinary ReadBinary(BaseRelationalRow row, string fieldId, int minimumBytes, int maximumBytes)
+    {
+        BaseBinary value = BaseBinary.FromBase64(Read<string>(row, fieldId));
+        ValidateBinaryRange(value.Length, minimumBytes, maximumBytes);
+        return value;
+    }
+
+    /// <summary>Binds exact scalar constraints into one registered-read serializer checksum.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static string BindScalarConstraints(string serializerChecksum, IReadOnlyList<BaseReadClientProperty> properties)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serializerChecksum);
+        ArgumentNullException.ThrowIfNull(properties);
+        var writer = new ArrayBufferWriter<byte>();
+        WriteChecksumValue(writer, "hpd.base.registered-read.scalar-contract.v1");
+        WriteChecksumValue(writer, serializerChecksum);
+        WriteChecksumInteger(writer, properties.Count);
+        foreach (BaseReadClientProperty property in properties)
+        {
+            ArgumentNullException.ThrowIfNull(property);
+            WriteChecksumValue(writer, property.Id);
+            WriteChecksumInteger(writer, property.MinimumBinaryBytes ?? -1);
+            WriteChecksumInteger(writer, property.MaximumBinaryBytes ?? -1);
+        }
+        return Convert.ToHexStringLower(SHA256.HashData(writer.WrittenSpan));
+    }
+
+    private static void ValidateBinaryRange(int length, int minimumBytes, int maximumBytes)
+    {
+        if (minimumBytes < 0 || maximumBytes is < 1 or > 1_048_576 || minimumBytes > maximumBytes ||
+            length < minimumBytes || length > maximumBytes)
+            throw new InvalidOperationException("The registered-read binary value is outside its installed decoded-byte range.");
+    }
+
+    private static void WriteChecksumValue(IBufferWriter<byte> writer, string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        byte[] bytes = Encoding.UTF8.GetBytes(value);
+        WriteChecksumInteger(writer, bytes.Length);
+        writer.Write(bytes);
+    }
+
+    private static void WriteChecksumInteger(IBufferWriter<byte> writer, int value)
+    {
+        Span<byte> bytes = writer.GetSpan(sizeof(int));
+        BinaryPrimitives.WriteInt32BigEndian(bytes, value);
+        writer.Advance(sizeof(int));
+    }
+
     /// <summary>Decodes one generated supported scalar projection value.</summary>
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static TValue Read<TValue>(BaseRelationalRow row, string fieldId)
@@ -441,6 +536,7 @@ public static class BaseReadGeneratedContract
             : typeof(TValue) == typeof(decimal) ? QueryValueKind.Decimal
             : typeof(TValue) == typeof(DateTimeOffset) || typeof(TValue) == typeof(DateTime) ? QueryValueKind.DateTime
             : typeof(TValue) == typeof(Guid) || typeof(TValue) == typeof(RecordId) ? QueryValueKind.Id
+            : typeof(TValue) == typeof(RevisionToken) ? QueryValueKind.String
             : throw new InvalidOperationException("The registered-read projection type is unsupported.");
         if (value.Kind != expected)
             throw new InvalidOperationException("The provider returned a registered-read projection value with the wrong type.");
@@ -453,6 +549,7 @@ public static class BaseReadGeneratedContract
             : typeof(TValue) == typeof(DateTimeOffset) ? value.DateTime!.Value
             : typeof(TValue) == typeof(DateTime) ? value.DateTime!.Value.UtcDateTime
             : typeof(TValue) == typeof(Guid) ? Guid.Parse(value.Id!)
+            : typeof(TValue) == typeof(RevisionToken) ? new RevisionToken(value.String!)
             : RecordId.Create(value.Id!);
         return (TValue)decoded;
     }
@@ -461,6 +558,31 @@ public static class BaseReadGeneratedContract
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static TValue? ReadNullable<TValue>(BaseRelationalRow row, string fieldId)
         where TValue : struct => IsNull(row, fieldId) ? null : Read<TValue>(row, fieldId);
+
+    /// <summary>Decodes one opaque module generation projected by a certified relational provider.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static BaseModuleGeneration ReadModuleGeneration(BaseRelationalRow row, string fieldId) =>
+        BaseModuleGeneration.ParseCanonical(Read<string>(row, fieldId));
+
+    /// <summary>Materializes canonical JSON after Runtime has validated its installed source-field authority.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static BaseCanonicalJson ReadCanonicalJson(BaseRelationalRow row, string fieldId)
+    {
+        QueryValue value = row.Fields.SingleOrDefault(field => string.Equals(field.FieldId, fieldId, StringComparison.Ordinal))?.Value
+            ?? throw new InvalidOperationException("The provider omitted a required registered-read projection field.");
+        if (value.Kind != QueryValueKind.CanonicalJson || value.CanonicalJsonUtf8.IsDefaultOrEmpty)
+            throw new InvalidOperationException("The provider returned a registered-read projection value with the wrong type.");
+        return BaseCanonicalJson.ParseAndValidate(value.CanonicalJsonUtf8.AsSpan(), new BaseCanonicalJsonLimits
+        {
+            MaximumCanonicalBytes = 1_048_576,
+            MaximumDepth = 64,
+            MaximumArrayItemsPerContainer = 16_384,
+            MaximumObjectPropertiesPerContainer = 16_384,
+            MaximumTotalNodes = 65_536,
+            MaximumTotalStringUtf8Bytes = 1_048_576,
+            MaximumTotalNameUtf8Bytes = 1_048_576,
+        });
+    }
 
     /// <summary>Returns whether one exact generated projection value is canonical null.</summary>
     [EditorBrowsable(EditorBrowsableState.Never)]

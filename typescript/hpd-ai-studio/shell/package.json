@@ -5,38 +5,29 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "prebuild": "npm --prefix ../../hpd-gateway-client run build && npm --prefix ../../hpd-base-client run build",
     "build": "vite build",
-    "pretest": "npm --prefix ../../hpd-gateway-client run build && npm --prefix ../../hpd-base-client run build",
     "test": "vitest run",
-    "pretypecheck": "npm --prefix ../../hpd-gateway-client run build && npm --prefix ../../hpd-base-client run build",
-    "typecheck": "svelte-check --tsconfig ./tsconfig.json",
+    "test:e2e": "playwright test",
+    "typecheck": "svelte-check --tsgo --tsconfig ./tsconfig.json",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
-    "@hpd-research/hpd-agent-studio": "file:../modules/hpd-agent-studio",
-    "@hpd-research/hpd-auth-studio": "file:../modules/hpd-auth-studio",
     "@hpd-research/hpd-base-studio": "file:../modules/hpd-base-studio",
-    "@hpd-research/hpd-gateway-studio": "file:../modules/hpd-gateway-studio",
-    "@hpd-research/hpd-graph-studio": "file:../modules/hpd-graph-studio",
-    "@hpd-research/hpd-ml-studio": "file:../modules/hpd-ml-studio",
-    "@hpd-research/hpd-rag-studio": "file:../modules/hpd-rag-studio",
     "@hpd-research/hpd-studio-core": "file:../../hpd-studio-core",
-    "@hpd-research/hpd-studio-design": "file:../packages/hpd-studio-design",
-    "@hpd/base-client": "file:../../hpd-base-client",
-    "@hpd/gateway-client": "file:../../hpd-gateway-client"
+    "@hpd-research/hpd-studio-design": "file:../packages/hpd-studio-design"
   },
   "devDependencies": {
-    "@playwright/test": "^1.62.1",
-    "@sveltejs/vite-plugin-svelte": "^6.0.0",
-    "@tailwindcss/vite": "^4.3.1",
-    "@types/node": "^24.13.3",
-    "axe-core": "^4.13.0",
-    "svelte": "^5.0.0",
-    "svelte-check": "^4.0.0",
-    "tailwindcss": "^4.3.1",
-    "typescript": "^5.0.0",
-    "vite": "^7.0.0",
-    "vitest": "^4.0.0"
+    "@playwright/test": "1.62.1",
+    "@sveltejs/vite-plugin-svelte": "6.2.4",
+    "@tailwindcss/vite": "4.3.1",
+    "@types/node": "26.2.0",
+    "@typescript/native": "npm:typescript@7.0.2",
+    "axe-core": "4.13.0",
+    "svelte": "5.56.10",
+    "svelte-check": "4.7.6",
+    "tailwindcss": "4.3.1",
+    "typescript": "6.0.3",
+    "vite": "7.3.6",
+    "vitest": "4.1.0"
   }
 }

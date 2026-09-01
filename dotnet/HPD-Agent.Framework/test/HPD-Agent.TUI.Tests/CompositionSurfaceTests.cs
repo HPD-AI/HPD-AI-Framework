@@ -1,5 +1,6 @@
 using FluentAssertions;
 using HPD.Agent;
+using HPD.Agent.Providers;
 using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Models;
 using HPD.Agent.TUI.Runtime;
@@ -376,7 +377,7 @@ public sealed class CompositionSurfaceTests
         {
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig
             {
-                ProviderKey = context.Scope.AgentId,
+                Provider = new ProviderReference { Key = context.Scope.AgentId },
                 ModelName = context.Prompt
             } }
         };

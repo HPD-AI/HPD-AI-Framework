@@ -1,4 +1,6 @@
 using HPD.Auth.Core.Interfaces;
+using HPD.Auth.Core.Models;
+using HPD.Auth.Endpoints;
 using HPD.Auth.OAuth.Handlers;
 using HPD.Auth.OAuth.Services;
 using Microsoft.AspNetCore.Authentication;
@@ -178,7 +180,10 @@ public static class OAuthEndpoints
         {
             // JWT mode — issue a token pair and return it as JSON.
             // Used by native API clients that cannot use cookies.
-            var tokens = await tokenService.GenerateTokensAsync(result.User!, ct);
+            var tokens = await tokenService.GenerateTokensAsync(
+                result.User!,
+                TokenIssuanceIdentityHttp.Create(ctx, "auth.oauth"),
+                ct);
             return Results.Ok(tokens);
         }
     }

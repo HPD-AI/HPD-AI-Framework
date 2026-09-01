@@ -2,13 +2,13 @@ using FluentAssertions;
 using HPD.Auth.Core.Entities;
 using HPD.Auth.Core.Audit;
 using HPD.Auth.Core.Interfaces;
-using HPD.Auth.Infrastructure.Data;
-using HPD.Auth.Infrastructure.Stores;
+using HPD.Base;
 using HPD.Auth.Tests.Helpers;
 using HPD.Events;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Xunit;
 
 namespace HPD.Auth.Tests;
@@ -31,7 +31,6 @@ public class AddHPDAuthRegistrationTests
         var service = scope.ServiceProvider.GetService<IAuthAuditReader>();
 
         service.Should().NotBeNull();
-        service.Should().BeOfType<AuthAuditStore>();
         scope.ServiceProvider.GetService<IAuthAuditWriter>().Should().BeSameAs(service);
     }
 
@@ -46,7 +45,6 @@ public class AddHPDAuthRegistrationTests
         var service = scope.ServiceProvider.GetService<ISessionManager>();
 
         service.Should().NotBeNull();
-        service.Should().BeOfType<SessionStore>();
     }
 
     // ── 1.3 ──────────────────────────────────────────────────────────────────────
@@ -60,7 +58,6 @@ public class AddHPDAuthRegistrationTests
         var service = scope.ServiceProvider.GetService<IRefreshTokenStore>();
 
         service.Should().NotBeNull();
-        service.Should().BeOfType<RefreshTokenStore>();
     }
 
     // ── 1.3b ─────────────────────────────────────────────────────────────────────
@@ -105,14 +102,14 @@ public class AddHPDAuthRegistrationTests
     // ── 1.5 ──────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void AddHPDAuth_Registers_HPDAuthDbContext()
+    public void AddHPDAuth_Registers_BaseSessionFactory()
     {
-        var sp = ServiceProviderBuilder.Build(appName: "Reg_DbContext");
+        var sp = ServiceProviderBuilder.Build(appName: "Reg_BaseSessionFactory");
         using var scope = sp.CreateScope();
 
-        var dbContext = scope.ServiceProvider.GetService<HPDAuthDbContext>();
+        var sessions = scope.ServiceProvider.GetService<IBaseSessionFactory>();
 
-        dbContext.Should().NotBeNull();
+        sessions.Should().NotBeNull();
     }
 
     // ── 1.6 ──────────────────────────────────────────────────────────────────────
@@ -152,5 +149,21 @@ public class AddHPDAuthRegistrationTests
         var roleManager = scope.ServiceProvider.GetService<RoleManager<ApplicationRole>>();
 
         roleManager.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task AddHPDAuth_StartsBaseKeyCacheBeforeDataProtectionKeyRing()
+    {
+        await using ServiceProvider provider = ServiceProviderBuilder.Build(
+            appName: "Reg_DataProtectionStartupOrder");
+
+        IHostedService[] hosted = provider.GetServices<IHostedService>().ToArray();
+        int cacheLoader = Array.FindIndex(hosted,
+            static service => service.GetType().Name == "HPDBaseDataProtectionXmlRepository");
+        int keyRing = Array.FindIndex(hosted,
+            static service => service.GetType().Name == "DataProtectionHostedService");
+
+        cacheLoader.Should().BeGreaterThanOrEqualTo(0);
+        keyRing.Should().BeGreaterThan(cacheLoader);
     }
 }

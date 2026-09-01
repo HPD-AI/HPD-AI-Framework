@@ -9,7 +9,7 @@ using HPD.Agent;
 namespace HPD.Agent.Tests.SourceGenerator;
 
 /// <summary>
-/// Tests for [MCPServer] attribute source generation:
+/// Tests for [McpServer] attribute source generation:
 /// - Attribute detection (IsToolClass)
 /// - Capability analysis (CapabilityAnalyzer.AnalyzeMCPServerCapability)
 /// - Diagnostic errors (HPDAG0301-0304)
@@ -31,10 +31,10 @@ public class MCPServerSourceGeneratorTests
                 MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
                 MetadataReference.CreateFromFile(typeof(System.Runtime.CompilerServices.RuntimeHelpers).Assembly.Location),
                 MetadataReference.CreateFromFile(typeof(Microsoft.Extensions.AI.AIFunction).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(CollapseAttribute).Assembly.Location), // HPD-Agent assembly (has MCPServerAttribute)
+                MetadataReference.CreateFromFile(typeof(CollapseAttribute).Assembly.Location), // HPD-Agent assembly (has McpServerAttribute)
                 MetadataReference.CreateFromFile(typeof(System.Collections.Generic.List<>).Assembly.Location),
                 MetadataReference.CreateFromFile(typeof(System.Linq.Enumerable).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(HPD.Agent.MCP.MCPServerConfig).Assembly.Location), // HPD-Agent.MCP assembly
+                MetadataReference.CreateFromFile(typeof(HPD.Agent.MCP.McpServerConfig).Assembly.Location), // HPD-Agent.MCP assembly
             },
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
 
@@ -75,8 +75,8 @@ namespace TestToolHarnesses
 {
     public partial class MyToolHarness
     {
-        [MCPServer]
-        public MCPServerConfig WolframServer() => new MCPServerConfig
+        [McpServer]
+        public McpServerConfig WolframServer() => new McpServerConfig
         {
             Name = ""wolfram"",
             Command = ""npx"",
@@ -97,7 +97,7 @@ namespace TestToolHarnesses
     [Fact]
     public void IsToolClass_OnlyMCPServerMethods_StillDetectedAsToolHarness()
     {
-        // Class with ONLY [MCPServer] methods (no [AIFunction]) should still be detected
+        // Class with ONLY [McpServer] methods (no [AIFunction]) should still be detected
         var source = @"
 using HPD.Agent;
 using HPD.Agent.MCP;
@@ -106,16 +106,16 @@ namespace TestToolHarnesses
 {
     public partial class MCPOnlyToolHarness
     {
-        [MCPServer]
-        public MCPServerConfig Server1() => new MCPServerConfig
+        [McpServer]
+        public McpServerConfig Server1() => new McpServerConfig
         {
             Name = ""server1"",
             Command = ""node"",
             Arguments = new[] { ""server1.js"" }
         };
 
-        [MCPServer]
-        public MCPServerConfig Server2() => new MCPServerConfig
+        [McpServer]
+        public McpServerConfig Server2() => new McpServerConfig
         {
             Name = ""server2"",
             Command = ""python"",
@@ -136,7 +136,7 @@ namespace TestToolHarnesses
     #region Capability Analysis - Valid Return Types
 
     [Fact]
-    public void AnalyzeMCPServer_ReturnsMCPServerConfig_ProducesCapability()
+    public void AnalyzeMCPServer_ReturnsMcpServerConfig_ProducesCapability()
     {
         var source = @"
 using HPD.Agent;
@@ -146,8 +146,8 @@ namespace TestToolHarnesses
 {
     public partial class TestToolHarness
     {
-        [MCPServer]
-        public MCPServerConfig MyServer() => new MCPServerConfig
+        [McpServer]
+        public McpServerConfig MyServer() => new McpServerConfig
         {
             Name = ""test"",
             Command = ""node"",
@@ -165,7 +165,7 @@ namespace TestToolHarnesses
     }
 
     [Fact]
-    public void AnalyzeMCPServer_ReturnsNullableMCPServerConfig_ProducesCapability()
+    public void AnalyzeMCPServer_ReturnsNullableMcpServerConfig_ProducesCapability()
     {
         var source = @"
 using HPD.Agent;
@@ -175,8 +175,8 @@ namespace TestToolHarnesses
 {
     public partial class TestToolHarness
     {
-        [MCPServer(""filesystem"", FromManifest = ""mcp.json"")]
-        public MCPServerConfig? FileSystem() => null;
+        [McpServer(""filesystem"", FromManifest = ""mcp.json"")]
+        public McpServerConfig? FileSystem() => null;
     }
 }";
 
@@ -201,7 +201,7 @@ namespace TestToolHarnesses
 {
     public partial class TestToolHarness
     {
-        [MCPServer]
+        [McpServer]
         public string BadServer() => ""not a config"";
 
         // Need at least one valid capability so the class is processed
@@ -226,7 +226,7 @@ namespace TestToolHarnesses
 {
     public partial class TestToolHarness
     {
-        [MCPServer]
+        [McpServer]
         public int BadServer() => 42;
 
         [AIFunction]
@@ -255,9 +255,9 @@ namespace TestToolHarnesses
 {
     public partial class TestToolHarness
     {
-        [MCPServer]
+        [McpServer]
         [AIFunction]
-        public MCPServerConfig ConflictingServer() => new MCPServerConfig
+        public McpServerConfig ConflictingServer() => new McpServerConfig
         {
             Name = ""test"",
             Command = ""node""
@@ -277,8 +277,8 @@ namespace TestToolHarnesses
     [Fact]
     public void AnalyzeMCPServer_CombinedWithSkill_MethodIgnored()
     {
-        // [Skill] is checked before [MCPServer] in dispatch priority.
-        // When return type is MCPServerConfig (not Skill), the Skill analyzer returns null.
+        // [Skill] is checked before [McpServer] in dispatch priority.
+        // When return type is McpServerConfig (not Skill), the Skill analyzer returns null.
         // The method is silently ignored (not recognized as either capability).
         var source = @"
 using HPD.Agent;
@@ -288,9 +288,9 @@ namespace TestToolHarnesses
 {
     public partial class TestToolHarness
     {
-        [MCPServer]
+        [McpServer]
         [Skill]
-        public MCPServerConfig ConflictingServer() => new MCPServerConfig
+        public McpServerConfig ConflictingServer() => new McpServerConfig
         {
             Name = ""test"",
             Command = ""node""
@@ -304,7 +304,7 @@ namespace TestToolHarnesses
         var (generatedCode, diagnostics) = RunGenerator(source);
 
         // Method is silently dropped (return type doesn't match Skill's expected return type).
-        // The generated code should not contain an MCPServerRegistration for this method.
+        // The generated code should not contain a McpServerSource for this method.
         Assert.NotNull(generatedCode);
         Assert.DoesNotContain("ConflictingServer", generatedCode!);
     }
@@ -312,8 +312,8 @@ namespace TestToolHarnesses
     [Fact]
     public void AnalyzeMCPServer_CombinedWithSubAgent_MethodIgnored()
     {
-        // [SubAgent] is checked before [MCPServer] in dispatch priority.
-        // When return type is MCPServerConfig (not SubAgent), the SubAgent analyzer returns null.
+        // [SubAgent] is checked before [McpServer] in dispatch priority.
+        // When return type is McpServerConfig (not SubAgent), the SubAgent analyzer returns null.
         var source = @"
 using HPD.Agent;
 using HPD.Agent.MCP;
@@ -322,9 +322,9 @@ namespace TestToolHarnesses
 {
     public partial class TestToolHarness
     {
-        [MCPServer]
+        [McpServer]
         [SubAgent]
-        public MCPServerConfig ConflictingServer() => new MCPServerConfig
+        public McpServerConfig ConflictingServer() => new McpServerConfig
         {
             Name = ""test"",
             Command = ""node""
@@ -345,7 +345,7 @@ namespace TestToolHarnesses
     [Fact]
     public void AnalyzeMCPServer_CombinedWithMultiAgent_ProducesConflictError()
     {
-        // [MultiAgent] is checked before [MCPServer] in dispatch priority.
+        // [MultiAgent] is checked before [McpServer] in dispatch priority.
         // MultiAgent explicitly checks for conflicting attributes and emits HPDAG0202.
         var source = @"
 using HPD.Agent;
@@ -355,9 +355,9 @@ namespace TestToolHarnesses
 {
     public partial class TestToolHarness
     {
-        [MCPServer]
+        [McpServer]
         [MultiAgent]
-        public MCPServerConfig ConflictingServer() => new MCPServerConfig
+        public McpServerConfig ConflictingServer() => new McpServerConfig
         {
             Name = ""test"",
             Command = ""node""
@@ -390,8 +390,8 @@ namespace TestToolHarnesses
 {
     public partial class TestToolHarness
     {
-        [MCPServer]
-        public MCPServerConfig WolframServer() => new MCPServerConfig
+        [McpServer]
+        public McpServerConfig WolframServer() => new McpServerConfig
         {
             Name = ""wolfram"",
             Command = ""npx"",
@@ -418,8 +418,8 @@ namespace TestToolHarnesses
 {
     public partial class TestToolHarness
     {
-        [MCPServer(""filesystem"", FromManifest = ""mcp.json"")]
-        public MCPServerConfig? FileSystem() => null;
+        [McpServer(""filesystem"", FromManifest = ""mcp.json"")]
+        public McpServerConfig? FileSystem() => null;
     }
 }";
 
@@ -441,8 +441,8 @@ namespace TestToolHarnesses
 {
     public partial class TestToolHarness
     {
-        [MCPServer(Name = ""CustomName"")]
-        public MCPServerConfig MyServer() => new MCPServerConfig
+        [McpServer(Name = ""CustomName"")]
+        public McpServerConfig MyServer() => new McpServerConfig
         {
             Name = ""test"",
             Command = ""node""
@@ -467,8 +467,8 @@ namespace TestToolHarnesses
 {
     public partial class TestToolHarness
     {
-        [MCPServer(Description = ""A test MCP server"")]
-        public MCPServerConfig MyServer() => new MCPServerConfig
+        [McpServer(Description = ""A test MCP server"")]
+        public McpServerConfig MyServer() => new McpServerConfig
         {
             Name = ""test"",
             Command = ""node""
@@ -493,8 +493,8 @@ namespace TestToolHarnesses
 {
     public partial class TestToolHarness
     {
-        [MCPServer(CollapseWithinToolHarness = true)]
-        public MCPServerConfig MyServer() => new MCPServerConfig
+        [McpServer(CollapseWithinToolHarness = true)]
+        public McpServerConfig MyServer() => new McpServerConfig
         {
             Name = ""test"",
             Command = ""node""
@@ -519,9 +519,9 @@ namespace TestToolHarnesses
 {
     public partial class TestToolHarness
     {
-        [MCPServer]
+        [McpServer]
         [RequiresPermission]
-        public MCPServerConfig MyServer() => new MCPServerConfig
+        public McpServerConfig MyServer() => new McpServerConfig
         {
             Name = ""test"",
             Command = ""node""
@@ -546,8 +546,8 @@ namespace TestToolHarnesses
 {
     public partial class TestToolHarness
     {
-        [MCPServer]
-        public MCPServerConfig MyServer() => new MCPServerConfig
+        [McpServer]
+        public McpServerConfig MyServer() => new McpServerConfig
         {
             Name = ""test"",
             Command = ""node""
@@ -577,8 +577,8 @@ namespace TestToolHarnesses
 {
     public partial class TestToolHarness
     {
-        [MCPServer]
-        public static MCPServerConfig StaticServer() => new MCPServerConfig
+        [McpServer]
+        public static McpServerConfig StaticServer() => new McpServerConfig
         {
             Name = ""static-test"",
             Command = ""node""
@@ -589,7 +589,7 @@ namespace TestToolHarnesses
         var (generatedCode, diagnostics) = RunGenerator(source);
 
         Assert.NotNull(generatedCode);
-        Assert.Contains("ConfigProvider: static _ =>", generatedCode!);
+        Assert.Contains("FactoryProvider: static _ =>", generatedCode!);
         Assert.Contains("TestToolHarness.StaticServer()", generatedCode!);
     }
 
@@ -604,8 +604,8 @@ namespace TestToolHarnesses
 {
     public partial class TestToolHarness
     {
-        [MCPServer]
-        public MCPServerConfig InstanceServer() => new MCPServerConfig
+        [McpServer]
+        public McpServerConfig InstanceServer() => new McpServerConfig
         {
             Name = ""instance-test"",
             Command = ""node""
@@ -616,7 +616,7 @@ namespace TestToolHarnesses
         var (generatedCode, diagnostics) = RunGenerator(source);
 
         Assert.NotNull(generatedCode);
-        Assert.Contains("ConfigProvider: static instance =>", generatedCode!);
+        Assert.Contains("FactoryProvider: static instance =>", generatedCode!);
         Assert.Contains("((TestToolHarness)instance!).InstanceServer()", generatedCode!);
     }
 
@@ -635,8 +635,8 @@ namespace TestToolHarnesses
 {
     public partial class TestToolHarness
     {
-        [MCPServer]
-        public MCPServerConfig MyServer() => new MCPServerConfig
+        [McpServer]
+        public McpServerConfig MyServer() => new McpServerConfig
         {
             Name = ""test"",
             Command = ""node""
@@ -650,7 +650,7 @@ namespace TestToolHarnesses
         var (generatedCode, diagnostics) = RunGenerator(source);
 
         Assert.NotNull(generatedCode);
-        Assert.Contains("HasMCPServers: true", generatedCode!);
+        Assert.Contains("HasMcpServers: true", generatedCode!);
     }
 
     [Fact]
@@ -671,7 +671,7 @@ namespace TestToolHarnesses
         var (generatedCode, diagnostics) = RunGenerator(source);
 
         Assert.NotNull(generatedCode);
-        Assert.Contains("HasMCPServers: false", generatedCode!);
+        Assert.Contains("HasMcpServers: false", generatedCode!);
     }
 
     #endregion
@@ -695,8 +695,8 @@ namespace TestToolHarnesses
         [AIFunction]
         public string Func2() => ""2"";
 
-        [MCPServer]
-        public MCPServerConfig Server1() => new MCPServerConfig
+        [McpServer]
+        public McpServerConfig Server1() => new McpServerConfig
         {
             Name = ""s1"",
             Command = ""node""
@@ -727,15 +727,15 @@ namespace TestToolHarnesses
 {
     public partial class TestToolHarness
     {
-        [MCPServer]
-        public MCPServerConfig Server1() => new MCPServerConfig
+        [McpServer]
+        public McpServerConfig Server1() => new McpServerConfig
         {
             Name = ""s1"",
             Command = ""node""
         };
 
-        [MCPServer]
-        public MCPServerConfig Server2() => new MCPServerConfig
+        [McpServer]
+        public McpServerConfig Server2() => new McpServerConfig
         {
             Name = ""s2"",
             Command = ""python""
@@ -768,8 +768,8 @@ namespace TestToolHarnesses
 {
     public partial class SearchToolHarness
     {
-        [MCPServer]
-        public MCPServerConfig BraveSearch() => new MCPServerConfig
+        [McpServer]
+        public McpServerConfig BraveSearch() => new McpServerConfig
         {
             Name = ""brave"",
             Command = ""node""
@@ -835,8 +835,8 @@ namespace TestToolHarnesses
         [AIFunction]
         public string Function1() => ""func"";
 
-        [MCPServer]
-        public MCPServerConfig Server1() => new MCPServerConfig
+        [McpServer]
+        public McpServerConfig Server1() => new McpServerConfig
         {
             Name = ""s1"",
             Command = ""node""
@@ -873,9 +873,9 @@ namespace TestToolHarnesses
 {
     public partial class TestToolHarness
     {
-        [MCPServer]
+        [McpServer]
         [System.ComponentModel.Description(""Override description"")]
-        public MCPServerConfig MyServer() => new MCPServerConfig
+        public McpServerConfig MyServer() => new McpServerConfig
         {
             Name = ""test"",
             Command = ""node""
@@ -912,8 +912,8 @@ namespace TestToolHarnesses
         [AIFunction]
         public string WriteFile(string path, string content) => ""ok"";
 
-        [MCPServer(CollapseWithinToolHarness = true)]
-        public MCPServerConfig GitServer() => new MCPServerConfig
+        [McpServer(CollapseWithinToolHarness = true)]
+        public McpServerConfig GitServer() => new McpServerConfig
         {
             Name = ""git"",
             Command = ""git-mcp""
@@ -939,7 +939,7 @@ namespace TestToolHarnesses
         Assert.Contains("CollapseWithinToolHarness: true", generatedCode!);
 
         // HasMCPServers flag set
-        Assert.Contains("HasMCPServers: true", generatedCode!);
+        Assert.Contains("HasMcpServers: true", generatedCode!);
 
         // Functions registered
         Assert.Contains("ReadFile", generatedCode!);
@@ -953,8 +953,7 @@ namespace TestToolHarnesses
     [Fact]
     public void MCPServerRegistration_NotInFunctionsAdd()
     {
-        // Regression test: MCPServerRegistration must NOT appear inside functions.Add(...)
-        // This was the CS1503 bug — MCPServerRegistration is not an AIFunction.
+        // MCP sources have their own collection and must not appear inside functions.Add(...).
         var source = @"
 using HPD.Agent;
 using HPD.Agent.MCP;
@@ -966,8 +965,8 @@ namespace TestToolHarnesses
         [AIFunction]
         public string Helper() => ""help"";
 
-        [MCPServer]
-        public MCPServerConfig MyServer() => new MCPServerConfig
+        [McpServer]
+        public McpServerConfig MyServer() => new McpServerConfig
         {
             Name = ""test"",
             Command = ""node""
@@ -984,7 +983,7 @@ namespace TestToolHarnesses
         Assert.Contains("CollectMcpServers", generatedCode!);
 
         // MCP server source collection must NOT be emitted inside functions.Add(...)
-        Assert.DoesNotContain("functions.Add(new HPD.Agent.MCP.MCPServerRegistration", generatedCode!);
+        Assert.DoesNotContain("functions.Add(new HPD.Agent.McpServerSource", generatedCode!);
 
         // The AIFunction should be in functions.Add(...)
         Assert.Contains("functions.Add(", generatedCode!);
@@ -1008,8 +1007,8 @@ namespace TestToolHarnesses
         [AIFunction]
         public string ReadFile(string path) => ""content"";
 
-        [MCPServer]
-        public MCPServerConfig GitServer() => new MCPServerConfig
+        [McpServer]
+        public McpServerConfig GitServer() => new McpServerConfig
         {
             Name = ""git"",
             Command = ""git-mcp""
@@ -1031,7 +1030,7 @@ namespace TestToolHarnesses
         // MCPServer dispatched to source collection
         Assert.Contains("McpServerSource", generatedCode!);
         Assert.Contains("CollectMcpServers", generatedCode!);
-        Assert.DoesNotContain("functions.Add(new HPD.Agent.MCP.MCPServerRegistration", generatedCode!);
+        Assert.DoesNotContain("functions.Add(new HPD.Agent.McpServerSource", generatedCode!);
     }
 
     #endregion

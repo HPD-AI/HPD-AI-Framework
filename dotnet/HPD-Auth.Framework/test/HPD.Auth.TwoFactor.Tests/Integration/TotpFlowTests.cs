@@ -220,7 +220,7 @@ public class TotpFlowTests : IAsyncLifetime
         await client.PostJsonAsync("/api/auth/factors", new { type = "totp" });
 
         // Use a dedicated scope to read the key — dispose it before the HTTP call so the
-        // post-HTTP assertion opens a completely fresh DbContext (no stale change-tracker cache).
+        // The post-HTTP assertion opens a fresh scope so no scoped store state is reused.
         string code;
         using (var keyScope = _factory.CreateServiceScope())
         {

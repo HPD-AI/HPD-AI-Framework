@@ -22,11 +22,22 @@ namespace HPD.Agent.TUI;
 
 public sealed class HpdAgentTuiApp : IAsyncDisposable
 {
+    private sealed record QueuedCommand(
+        string CommandLine,
+        CancellationToken CancellationToken)
+    {
+        public TaskCompletionSource Completion { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
     private static readonly TimeSpan CancelConfirmationWindow = TimeSpan.FromSeconds(2);
     private readonly IHpdAgentTuiRuntime _runtime;
     private readonly AgentTuiRuntimeScope? _requestedScope;
     private readonly HpdAgentTuiRegistry _registry;
     private readonly ManagedTerminalTuiApplication _application;
+    private readonly object _commandGate = new();
+    private readonly Queue<QueuedCommand> _queuedCommands = [];
+    private bool _commandsReady;
     private PromptView? _prompt;
     private AgentTuiSessionState? _state;
     private AgentTuiRuntimeScope? _scope;
@@ -106,15 +117,69 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             }
         }
 
-        await _application.RunAsync(options, linked.Token).ConfigureAwait(false);
+        var applicationTask = _application.RunAsync(options, linked.Token);
+        StartQueuedCommands();
+        await applicationTask.ConfigureAwait(false);
         await linked.CancelAsync().ConfigureAwait(false);
         await StopObserverAsync().ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Executes a slash command, or queues it until the initial TUI shell is ready.
+    /// </summary>
+    /// <param name="commandLine">The complete slash-command line.</param>
+    /// <param name="cancellationToken">A token that cancels the queued or executing command.</param>
+    /// <returns>A task that completes after the command finishes.</returns>
     public Task ExecuteCommandAsync(
         string commandLine,
         CancellationToken cancellationToken = default)
-        => SubmitCommandAsync(commandLine, cancellationToken);
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(commandLine);
+        lock (_commandGate)
+        {
+            if (!_commandsReady)
+            {
+                var queued = new QueuedCommand(commandLine, cancellationToken);
+                _queuedCommands.Enqueue(queued);
+                return queued.Completion.Task;
+            }
+        }
+
+        return SubmitCommandAsync(commandLine, cancellationToken);
+    }
+
+    private void StartQueuedCommands()
+    {
+        QueuedCommand[] queued;
+        lock (_commandGate)
+        {
+            _commandsReady = true;
+            queued = _queuedCommands.ToArray();
+            _queuedCommands.Clear();
+        }
+
+        foreach (var command in queued)
+        {
+            _ = ExecuteQueuedCommandAsync(command);
+        }
+    }
+
+    private async Task ExecuteQueuedCommandAsync(QueuedCommand command)
+    {
+        try
+        {
+            await SubmitCommandAsync(command.CommandLine, command.CancellationToken).ConfigureAwait(false);
+            command.Completion.TrySetResult();
+        }
+        catch (OperationCanceledException) when (command.CancellationToken.IsCancellationRequested)
+        {
+            command.Completion.TrySetCanceled(command.CancellationToken);
+        }
+        catch (Exception ex)
+        {
+            command.Completion.TrySetException(ex);
+        }
+    }
 
     public Func<AgentTuiRuntimeScope, CancellationToken, ValueTask>? DurableScopeEnsuredAsync { get; set; }
 
@@ -164,7 +229,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         _activeThreadExecutionId = null;
         _scopeIsDurable = false;
         _scope = scope;
-        _state = new AgentTuiSessionState(scope, _registry);
+        _state = new AgentTuiSessionState(scope, _registry, RequestRender);
         AgentTuiPerformanceDiagnostics.ConfigureFromEnvironment(_state.State);
         _state.Shell.Runtime = _runtime;
         _state.Shell.SwitchScopeAsync = SwitchScopeAsync;
@@ -388,7 +453,6 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         var rejectedDraft = restoreRejectedDraft
             ? input switch
             {
-                SteeringInputEvent { Messages.Count: 1 } steering => steering.Messages[0].Text,
                 UserMessagesInputEvent { Messages.Count: 1 } messages => messages.Messages[0].Text,
                 _ => null
             }
@@ -697,15 +761,9 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 ActivityState.Running,
                 ActivitySeverity.Warning);
             RequestRender();
-            var result = await _runtime.SubmitInputAsync(
+            var result = await _runtime.CancelExecutionAsync(
                     scope,
-                    new InterruptionRequestEvent(null, "Cancelled from TUI.", InterruptionSource.User)
-                    {
-                        AgentId = scope.AgentId,
-                        SessionId = scope.SessionId,
-                        ThreadId = scope.ThreadId,
-                        ThreadExecutionId = activeExecution.ThreadExecutionId
-                    },
+                    activeExecution.ThreadExecutionId,
                     CancellationToken.None)
                 .ConfigureAwait(false);
             if (result.Disposition is AgentInputDisposition.NoActiveExecution or AgentInputDisposition.ExecutionFinishing)
@@ -1159,18 +1217,9 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                     case AgentTuiInteractionResultKind.InterruptTurn:
                         if (_activeThreadExecutionId is { } interactionExecutionId)
                         {
-                            await _runtime.SubmitInputAsync(
+                            await _runtime.CancelExecutionAsync(
                                     _scope,
-                                    new InterruptionRequestEvent(
-                                        null,
-                                        result.Reason ?? "Interrupted by TUI interaction.",
-                                        InterruptionSource.User)
-                                    {
-                                        AgentId = _scope.AgentId,
-                                        SessionId = _scope.SessionId,
-                                        ThreadId = _scope.ThreadId,
-                                        ThreadExecutionId = interactionExecutionId
-                                    },
+                                    interactionExecutionId,
                                     interactionCancellation.Token)
                                 .ConfigureAwait(false);
                         }
@@ -1272,8 +1321,9 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         RequestRender();
         var submitted = await SubmitInputCoreAsync(
             scope,
-            new SteeringInputEvent
+            new UserMessagesInputEvent
             {
+                Delivery = AgentInputDelivery.Steer,
                 AgentId = scope.AgentId,
                 SessionId = scope.SessionId,
                 ThreadId = scope.ThreadId,

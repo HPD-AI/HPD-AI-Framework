@@ -57,7 +57,7 @@ public class TracingObserverTests : IDisposable
         };
 
     private static MessageTurnFinishedEvent TurnFinished() =>
-        new MessageTurnFinishedEvent("turn-1", "conv-1", "test-agent", "TestAgent", TimeSpan.FromMilliseconds(200))
+        new MessageTurnFinishedEvent("turn-1", "conv-1", "test-agent", "TestAgent", TimeSpan.FromMilliseconds(200), MessageTurnUsageSummary.Empty)
         {
             TraceId = TraceId,
             SpanId = TurnSpanId
@@ -72,7 +72,7 @@ public class TracingObserverTests : IDisposable
         };
 
     private static AgentTurnFinishedEvent IterFinished(int iteration = 1) =>
-        new AgentTurnFinishedEvent(iteration)
+        FinishedIteration(iteration) with
         {
             TraceId = TraceId,
             SpanId = IterSpanId,
@@ -92,6 +92,12 @@ public class TracingObserverTests : IDisposable
         {
             TraceId = TraceId
         };
+
+    private static AgentTurnFinishedEvent FinishedIteration(int iteration) => new(
+        "turn-1", iteration, $"operation-{iteration}", null, 1,
+        HPD.Agent.Providers.ProviderClientFamily.Chat,
+        ProviderOperationOutcome.Succeeded,
+        null, null, null, null);
 
     private static ToolCallResultEvent ToolResult(string callId = ToolCallId) =>
         new ToolCallResultEvent(callId, new ToolResultPayload(Text: """{"result": "success"}"""), "MyToolHarness")
@@ -378,7 +384,7 @@ public class TracingObserverTests : IDisposable
     [Fact]
     public async Task TurnError_SetsErrorStatusOnTurnSpan()
     {
-        var error = new MessageTurnErrorEvent("Something went wrong", new InvalidOperationException("boom"))
+        var error = new MessageTurnErrorEvent("turn-1", "Something went wrong", MessageTurnUsageSummary.Empty, new InvalidOperationException("boom"))
         {
             TraceId = TraceId
         };
@@ -394,7 +400,7 @@ public class TracingObserverTests : IDisposable
     [Fact]
     public async Task TurnError_SanitizesErrorMessage()
     {
-        var error = new MessageTurnErrorEvent("connection string: Server=db;Password=abc123;", null)
+        var error = new MessageTurnErrorEvent("turn-1", "connection string: Server=db;Password=abc123;", MessageTurnUsageSummary.Empty, null)
         {
             TraceId = TraceId
         };
@@ -468,7 +474,7 @@ public class TracingObserverTests : IDisposable
             SpanId = iterSpan1,
             ParentSpanId = TurnSpanId
         });
-        await EmitAsync(new AgentTurnFinishedEvent(1)
+        await EmitAsync(FinishedIteration(1) with
         {
             TraceId = TraceId,
             SpanId = iterSpan1
@@ -480,7 +486,7 @@ public class TracingObserverTests : IDisposable
             SpanId = iterSpan2,
             ParentSpanId = TurnSpanId
         });
-        await EmitAsync(new AgentTurnFinishedEvent(2)
+        await EmitAsync(FinishedIteration(2) with
         {
             TraceId = TraceId,
             SpanId = iterSpan2
@@ -522,8 +528,8 @@ public class TracingObserverTests : IDisposable
         await obs1.HandleAsync(new MessageTurnStartedEvent("t1", "c", "A") { TraceId = trace1, SpanId = "span1111aaaabbbb" });
         await obs2.HandleAsync(new MessageTurnStartedEvent("t2", "c", "A") { TraceId = trace2, SpanId = "span2222ccccdddd" });
 
-        await obs1.HandleAsync(new MessageTurnFinishedEvent("t1", "c", "A", TimeSpan.Zero) { TraceId = trace1, SpanId = "span1111aaaabbbb" });
-        await obs2.HandleAsync(new MessageTurnFinishedEvent("t2", "c", "A", TimeSpan.Zero) { TraceId = trace2, SpanId = "span2222ccccdddd" });
+        await obs1.HandleAsync(new MessageTurnFinishedEvent("t1", "c", "agent", "A", TimeSpan.Zero, MessageTurnUsageSummary.Empty) { TraceId = trace1, SpanId = "span1111aaaabbbb" });
+        await obs2.HandleAsync(new MessageTurnFinishedEvent("t2", "c", "agent", "A", TimeSpan.Zero, MessageTurnUsageSummary.Empty) { TraceId = trace2, SpanId = "span2222ccccdddd" });
 
         obs1.Dispose();
         obs2.Dispose();

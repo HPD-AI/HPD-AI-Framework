@@ -93,9 +93,9 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
 
         await attachment.BeforeMessageTurnAsync(context, CancellationToken.None);
 
-        Assert.Same(audio, context.UserMessage?.Contents.Single());
+        Assert.Same(audio, context.UserInputMessages.FirstOrDefault()?.Contents.Single());
         var inputContentMetadata = Assert.IsType<AudioInteractionInputMetadata[]>(
-            context.UserMessage?.AdditionalProperties?[AudioRuntimeAttachment.AudioInteractionInputsMetadataKey]);
+            context.UserInputMessages.FirstOrDefault()?.AdditionalProperties?[AudioRuntimeAttachment.AudioInteractionInputsMetadataKey]);
         var inputContent = Assert.Single(inputContentMetadata);
         Assert.Equal(0, inputContent.ContentIndex);
         Assert.Equal("TypedContent", inputContent.SourceKind);
@@ -106,17 +106,17 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
 
         await upload.BeforeMessageTurnAsync(context, CancellationToken.None);
 
-        Assert.IsType<UriContent>(context.UserMessage?.Contents.Single());
-        Assert.IsNotType<TextContent>(context.UserMessage?.Contents.Single());
+        Assert.IsType<UriContent>(context.UserInputMessages.FirstOrDefault()?.Contents.Single());
+        Assert.IsNotType<TextContent>(context.UserInputMessages.FirstOrDefault()?.Contents.Single());
         Assert.Equal(
             inputContentMetadata,
-            context.UserMessage?.AdditionalProperties?[AudioRuntimeAttachment.AudioInteractionInputsMetadataKey]);
+            context.UserInputMessages.FirstOrDefault()?.AdditionalProperties?[AudioRuntimeAttachment.AudioInteractionInputsMetadataKey]);
     }
 
     [Fact]
     public async Task BeforeMessageTurn_ProjectsInputMediaTranscript_ToSessionThreadWithoutRawAudio()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             ThreadProjectionSink = new SessionThreadProjectionSink(store),
@@ -134,8 +134,8 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
 
         await attachment.BeforeMessageTurnAsync(context, CancellationToken.None);
 
-        Assert.Contains(audio, context.UserMessage!.Contents);
-        Assert.Contains(context.UserMessage.Contents.OfType<TextContent>(), text =>
+        Assert.Contains(audio, context.UserInputMessages[0].Contents);
+        Assert.Contains(context.UserInputMessages[0].Contents.OfType<TextContent>(), text =>
             text.Text == "middleware transcript:middleware.wav");
 
         var loaded = await store.ProjectThreadAsync("session-middleware", "main", ThreadProjectionPurpose.ThreadHistory);
@@ -156,7 +156,7 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
     [Fact]
     public async Task BeforeMessageTurn_CreatesInteractionFactoryFromInputMediaResolver()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
         var client = new FakeSpeechToTextClient("meai middleware transcript");
         var factoryCreateCount = 0;
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
@@ -188,12 +188,12 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
         Assert.Equal(ChatRole.User, projectedMessage.Role);
         Assert.Equal("meai middleware transcript", projectedMessage.Text);
 
-        Assert.Contains(audio, context.UserMessage!.Contents);
-        Assert.Contains(context.UserMessage.Contents.OfType<TextContent>(), text =>
+        Assert.Contains(audio, context.UserInputMessages[0].Contents);
+        Assert.Contains(context.UserInputMessages[0].Contents.OfType<TextContent>(), text =>
             text.Text == "meai middleware transcript");
 
         var runtimeMetadata = Assert.IsType<AudioInteractionRuntimeMetadata[]>(
-            context.UserMessage?.AdditionalProperties?[AudioRuntimeAttachment.AudioInteractionRuntimeResultsKey]);
+            context.UserInputMessages.FirstOrDefault()?.AdditionalProperties?[AudioRuntimeAttachment.AudioInteractionRuntimeResultsKey]);
         Assert.Equal("meai middleware transcript", Assert.Single(runtimeMetadata).Transcript);
     }
 
@@ -230,7 +230,7 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
         Assert.NotNull(route.LastRequest);
         var passedCandidate = Assert.Single(route.LastRequest!.Candidates);
         Assert.Equal("candidate-stt", passedCandidate.ProviderKey);
-        Assert.Contains(context.UserMessage!.Contents.OfType<TextContent>(), text =>
+        Assert.Contains(context.UserInputMessages[0].Contents.OfType<TextContent>(), text =>
             text.Text == "candidate transcript:candidate-flow.wav");
     }
 
@@ -265,11 +265,11 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
 
         await attachment.BeforeMessageTurnAsync(context, CancellationToken.None);
 
-        Assert.Contains(context.UserMessage!.Contents.OfType<TextContent>(), text =>
+        Assert.Contains(context.UserInputMessages[0].Contents.OfType<TextContent>(), text =>
             text.Text == "stt transcript:inputContent-audio.wav");
 
         var metadata = Assert.Single(Assert.IsType<AudioInteractionRuntimeMetadata[]>(
-            context.UserMessage.AdditionalProperties[AudioRuntimeAttachment.AudioInteractionRuntimeResultsKey]));
+            context.UserInputMessages[0].AdditionalProperties[AudioRuntimeAttachment.AudioInteractionRuntimeResultsKey]));
         Assert.Equal("stt-runtime", metadata.ProviderKey);
         Assert.Equal(nameof(ProviderRouteDecisionKind.OpenCandidate), metadata.RouteDecisionKind);
         Assert.Equal(nameof(AudioInteractionTopology.SplitSpeechToTextChatTextToSpeech), metadata.Topology);
@@ -291,7 +291,7 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
         await attachment.BeforeMessageTurnAsync(context, CancellationToken.None);
 
         Assert.Empty(attachment.LastResults);
-        Assert.False(context.UserMessage!.AdditionalProperties?.ContainsKey(
+        Assert.False(context.UserInputMessages[0].AdditionalProperties?.ContainsKey(
             AudioRuntimeAttachment.AudioInteractionRuntimeResultsKey) ?? false);
     }
 
@@ -323,17 +323,17 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
         await attachment.BeforeMessageTurnAsync(context, CancellationToken.None);
 
         Assert.Empty(attachment.LastResults);
-        var preparedAudio = Assert.IsType<AudioContent>(context.UserMessage!.Contents.Single());
+        var preparedAudio = Assert.IsType<AudioContent>(context.UserInputMessages[0].Contents.Single());
         Assert.Equal("audio/pcm;rate=24000", preparedAudio.MediaType);
         Assert.Equal("native-realtime.pcm", preparedAudio.Name);
         Assert.NotEmpty(preparedAudio.Data.ToArray());
-        Assert.DoesNotContain(context.UserMessage.Contents.OfType<TextContent>(), text =>
+        Assert.DoesNotContain(context.UserInputMessages[0].Contents.OfType<TextContent>(), text =>
             text.Text.StartsWith("should not run:", StringComparison.Ordinal));
 
         var inputContentMetadata = Assert.Single(Assert.IsType<AudioInteractionInputMetadata[]>(
-            context.UserMessage.AdditionalProperties![AudioRuntimeAttachment.AudioInteractionInputsMetadataKey]));
+            context.UserInputMessages[0].AdditionalProperties![AudioRuntimeAttachment.AudioInteractionInputsMetadataKey]));
         Assert.Equal("native-realtime.wav", inputContentMetadata.Name);
-        Assert.False(context.UserMessage.AdditionalProperties.ContainsKey(
+        Assert.False(context.UserInputMessages[0].AdditionalProperties.ContainsKey(
             AudioRuntimeAttachment.AudioInteractionRuntimeResultsKey));
     }
 
@@ -356,7 +356,7 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
 
         await attachment.BeforeMessageTurnAsync(context, CancellationToken.None);
 
-        var preparedAudio = Assert.IsType<AudioContent>(context.UserMessage!.Contents.Single());
+        var preparedAudio = Assert.IsType<AudioContent>(context.UserInputMessages[0].Contents.Single());
         Assert.Equal("audio/pcm;rate=24000", preparedAudio.MediaType);
         Assert.Equal("freesound_community-how-are-you-doing-today-103598.pcm", preparedAudio.Name);
         Assert.True(preparedAudio.Data.Length > audio.Data.Length);
@@ -393,7 +393,7 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
             new ChatMessage(ChatRole.User, [audio]));
 
         await attachment.BeforeMessageTurnAsync(beforeMessageContext, CancellationToken.None);
-        var messages = new List<ChatMessage> { beforeMessageContext.UserMessage! };
+        var messages = new List<ChatMessage> { beforeMessageContext.UserInputMessages[0] };
         var beforeIterationContext = CreateBeforeIterationContext(
             "session-inputContent-audio-skip",
             messages);
@@ -442,10 +442,10 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
 
         await attachment.BeforeMessageTurnAsync(context, CancellationToken.None);
 
-        Assert.Contains(context.UserMessage!.Contents.OfType<TextContent>(), text =>
+        Assert.Contains(context.UserInputMessages[0].Contents.OfType<TextContent>(), text =>
             text.Text == "transcribe-only transcript:transcribe-only.wav");
         var metadata = Assert.Single(Assert.IsType<AudioInteractionRuntimeMetadata[]>(
-            context.UserMessage.AdditionalProperties![AudioRuntimeAttachment.AudioInteractionRuntimeResultsKey]));
+            context.UserInputMessages[0].AdditionalProperties![AudioRuntimeAttachment.AudioInteractionRuntimeResultsKey]));
         Assert.Equal(nameof(ProviderResponseOwnership.HpdChatOwnsResponse), metadata.ResponseOwnership);
     }
 
@@ -488,140 +488,12 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
         await attachment.BeforeMessageTurnAsync(beforeMessageContext, CancellationToken.None);
         var beforeIterationContext = CreateBeforeIterationContext(
             "session-transcribe-only-no-skip",
-            [beforeMessageContext.UserMessage!]);
+            [beforeMessageContext.UserInputMessages[0]]);
 
         await ((IAgentMiddleware)attachment).BeforeIterationAsync(beforeIterationContext, CancellationToken.None);
 
         Assert.False(beforeIterationContext.SkipLLMCall);
         Assert.Null(beforeIterationContext.OverrideResponse);
-    }
-
-    [Fact]
-    public void UseSpeechToTextProvider_ConfiguresInteractionSessionFactoryResolver()
-    {
-        var registry = new ProviderRegistry();
-        registry.Register(new FakeSpeechToTextClientProvider(
-            "fake-stt",
-            new FakeSpeechToTextClient("configured")));
-        var options = new AudioRuntimeAttachmentOptions();
-
-        Assert.Null(options.InteractionSessionFactoryResolver);
-
-        options.UseSpeechToTextProvider(
-            registry,
-            new ProviderClientConfig
-            {
-                ProviderKey = "fake-stt",
-                ModelName = "config-model"
-            });
-
-        Assert.NotNull(options.InteractionSessionFactoryResolver);
-        var factory = options.InteractionSessionFactoryResolver!(
-            new EmptyInputContentSourceResolver());
-        Assert.NotNull(factory);
-    }
-
-    [Fact]
-    public async Task BeforeMessageTurn_SpeechToTextProviderBridge_ProjectsCommittedTranscriptWithoutRawAudio()
-    {
-        var store = new InMemorySessionStore();
-        var client = new FakeSpeechToTextClient("provider registry transcript");
-        var provider = new FakeSpeechToTextClientProvider("fake-stt", client);
-        var registry = new ProviderRegistry();
-        registry.Register(provider);
-
-        var options = new AudioRuntimeAttachmentOptions
-        {
-            ThreadProjectionSink = new SessionThreadProjectionSink(store)
-        };
-        options.UseSpeechToTextProvider(
-            registry,
-            new InputMediaSpeechToTextProviderOptions
-            {
-                ProviderKey = "fake-stt",
-                ModelId = "test-model",
-                SpeechLanguage = "en-US",
-                SpeechSampleRate = 16_000
-            });
-        var attachment = new AudioRuntimeAttachment(options);
-
-        var bytes = new byte[] { 5, 4, 3, 2 };
-        var audio = AudioContent.Wav(bytes);
-        audio.Name = "provider-bridge.wav";
-        var message = new ChatMessage(ChatRole.User, [audio]);
-        var context = CreateBeforeMessageTurnContext("session-provider-bridge", message);
-
-        await attachment.BeforeMessageTurnAsync(context, CancellationToken.None);
-
-        Assert.Equal(1, provider.CreateCount);
-        Assert.NotNull(provider.LastConfig);
-        Assert.Equal("fake-stt", provider.LastConfig.ProviderKey);
-        Assert.Equal("test-model", provider.LastConfig.ModelName);
-        Assert.Equal(bytes, client.LastAudioBytes);
-        Assert.NotNull(client.LastOptions);
-        Assert.Equal("test-model", client.LastOptions.ModelId);
-        Assert.Equal("en-US", client.LastOptions.SpeechLanguage);
-        Assert.Equal(16_000, client.LastOptions.SpeechSampleRate);
-        Assert.True(client.IsDisposed);
-
-        var loaded = await store.ProjectThreadAsync("session-provider-bridge", "main", ThreadProjectionPurpose.ThreadHistory);
-        var events = await store.CollectThreadEventsAsync("session-provider-bridge", "main");
-
-        Assert.NotNull(loaded);
-        var projectedMessage = Assert.Single(loaded.Messages);
-        Assert.Equal(ChatRole.User, projectedMessage.Role);
-        Assert.Equal("provider registry transcript", projectedMessage.Text);
-
-        Assert.NotNull(events);
-        Assert.DoesNotContain(events.OfType<ContentAddedEvent>(), e => e.Content is AudioContent or DataContent);
-        var textDelta = Assert.Single(events.OfType<TextDeltaEvent>());
-        Assert.Equal("provider registry transcript", textDelta.Text);
-    }
-
-    [Fact]
-    public async Task BeforeMessageTurn_SpeechToTextProviderBridge_MissingProviderThrowsUsefulException()
-    {
-        var options = new AudioRuntimeAttachmentOptions();
-        options.UseSpeechToTextProvider(
-            new ProviderRegistry(),
-            new InputMediaSpeechToTextProviderOptions
-            {
-                ProviderKey = "missing-stt"
-            });
-        var attachment = new AudioRuntimeAttachment(options);
-        var audio = AudioContent.Wav(new byte[] { 1, 2, 3 });
-        var context = CreateBeforeMessageTurnContext(
-            "session-missing-provider",
-            new ChatMessage(ChatRole.User, [audio]));
-
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            attachment.BeforeMessageTurnAsync(context, CancellationToken.None));
-
-        Assert.Contains("Provider 'missing-stt' is not registered", exception.Message);
-    }
-
-    [Fact]
-    public async Task BeforeMessageTurn_SpeechToTextProviderBridge_WrongProviderFamilyThrowsUsefulException()
-    {
-        var registry = new ProviderRegistry();
-        registry.Register(new WrongFamilyProvider("fake-chat"));
-        var options = new AudioRuntimeAttachmentOptions();
-        options.UseSpeechToTextProvider(
-            registry,
-            new InputMediaSpeechToTextProviderOptions
-            {
-                ProviderKey = "fake-chat"
-            });
-        var attachment = new AudioRuntimeAttachment(options);
-        var audio = AudioContent.Wav(new byte[] { 1, 2, 3 });
-        var context = CreateBeforeMessageTurnContext(
-            "session-wrong-family",
-            new ChatMessage(ChatRole.User, [audio]));
-
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            attachment.BeforeMessageTurnAsync(context, CancellationToken.None));
-
-        Assert.Contains("does not support client family 'SpeechToText'", exception.Message);
     }
 
     [Fact]
@@ -776,88 +648,6 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
         {
             IsDisposed = true;
         }
-    }
-
-    private sealed class FakeSpeechToTextClientProvider(
-        string providerKey,
-        FakeSpeechToTextClient client) : ISpeechToTextClientProvider
-    {
-        public string ProviderKey => providerKey;
-
-        public string DisplayName => "Fake STT";
-
-        public int CreateCount { get; private set; }
-
-        public ProviderClientConfig? LastConfig { get; private set; }
-
-        public ISpeechToTextClient CreateSpeechToTextClient(
-            ProviderClientConfig config,
-            IServiceProvider? services = null)
-        {
-            CreateCount++;
-            LastConfig = config;
-            return client;
-        }
-
-        public IProviderErrorHandler CreateErrorHandler() => new GenericErrorHandler();
-
-        public ProviderMetadata GetMetadata()
-            => new()
-            {
-                ProviderKey = ProviderKey,
-                DisplayName = DisplayName,
-                Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
-                {
-                    [ProviderClientFamily.SpeechToText] = new()
-                    {
-                        Family = ProviderClientFamily.SpeechToText
-                    }
-                }
-            };
-
-        public ProviderValidationResult ValidateConfiguration(
-            ProviderClientConfig config,
-            ProviderClientFamily family)
-            => ProviderValidationResult.Success();
-    }
-
-    private sealed class WrongFamilyProvider(string providerKey) : IProvider
-    {
-        public string ProviderKey => providerKey;
-
-        public string DisplayName => "Wrong Family";
-
-        public IProviderErrorHandler CreateErrorHandler() => new GenericErrorHandler();
-
-        public ProviderMetadata GetMetadata()
-            => new()
-            {
-                ProviderKey = ProviderKey,
-                DisplayName = DisplayName,
-                Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
-                {
-                    [ProviderClientFamily.Chat] = new()
-                    {
-                        Family = ProviderClientFamily.Chat
-                    }
-                }
-            };
-
-        public ProviderValidationResult ValidateConfiguration(
-            ProviderClientConfig config,
-            ProviderClientFamily family)
-            => ProviderValidationResult.Success();
-    }
-
-    private sealed class EmptyInputContentSourceResolver : IInputContentSourceResolver
-    {
-        public ValueTask<InputContentSourceOpenResult> OpenAsync(
-            InputContentRef inputContent,
-            CancellationToken cancellationToken = default)
-            => ValueTask.FromResult(InputContentSourceOpenResult.NotResolved(
-                inputContent.Id,
-                InputContentSourceOpenStatus.NotFound,
-                "not configured"));
     }
 
     private sealed class RecordingProviderRoute : IProviderRoute

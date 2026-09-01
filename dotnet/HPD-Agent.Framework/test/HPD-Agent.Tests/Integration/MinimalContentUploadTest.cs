@@ -17,7 +17,7 @@ public class MinimalContentUploadTest
 
         try
         {
-            var store = new FileSessionStore(tempDir);
+            var store = new FileSessionStore(tempDir, HPD.Agent.Tests.TestEventApplication.Codec);
             var contentStore = new LocalFileContentStore(Path.Combine(tempDir, "content"));
             var session = await store.LoadSessionAsync("minimal-session") ?? new HPD.Agent.Session("minimal-session");
             session.Store = store;

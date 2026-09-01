@@ -9,7 +9,7 @@ public static class SiliconFlowAgentBuilderExtensions
     public static AgentBuilder WithSiliconFlow(
         this AgentBuilder builder,
         string model = SiliconFlowProvider.DefaultChatModel,
-        string? apiKey = null,
+        ProviderAuthentication? authentication = null,
         string? endpoint = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -21,8 +21,11 @@ public static class SiliconFlowAgentBuilderExtensions
 
         var chatConfig = new ChatClientConfig
         {
-            ProviderKey = "siliconflow",
-            ApiKey = apiKey,
+            Provider = new ProviderReference
+            {
+                Key = "siliconflow",
+                Authentication = authentication ?? new ApiKeyProviderAuthentication { SecretKey = "siliconflow:ApiKey" }
+            },
             Endpoint = endpoint,
             ModelName = model
         };
@@ -32,4 +35,6 @@ public static class SiliconFlowAgentBuilderExtensions
 
         return builder;
     }
+    /// <summary>Configures SiliconFlow with a literal runtime-only API key.</summary>
+    public static AgentBuilder WithSiliconFlow(this AgentBuilder builder, string model, ReadOnlySpan<char> apiKey, string? endpoint = null) => builder.WithSiliconFlow(model, builder.RegisterExplicitApiKey(apiKey), endpoint);
 }

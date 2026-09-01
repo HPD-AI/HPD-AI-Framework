@@ -7,9 +7,7 @@ using System.Threading.Tasks;
 using HPD.Agent;
 using HPD.Agent.Providers;
 using HPD.Agent.ErrorHandling;
-using HPD.Agent.Secrets;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Agent.Providers.HuggingFace;
 
@@ -38,11 +36,13 @@ namespace HPD.Agent.Providers.HuggingFace;
 /// </para>
 /// </remarks>
 [HpdProvider("huggingface", "Hugging Face")]
+[HpdProviderBackend("platform", ProviderAuthenticationKind.ApiKey, IsDefaultBackend = true, IsDefaultAuthentication = true, DefaultSecretKey = "huggingface:ApiKey")]
+[HpdProviderBackend("platform", ProviderAuthenticationKind.OAuth, IsInteractive = true, SupportsRefresh = true)]
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(HuggingFaceProviderConfig), typeof(HuggingFaceJsonContext))]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.OperationOptions, typeof(HuggingFaceChatRequestOptions), typeof(HuggingFaceJsonContext))]
 [HpdProviderSecretAlias("huggingface:ApiKey", "HUGGINGFACE_API_KEY")]
-internal class HuggingFaceProvider : IChatClientProvider, IProviderSecretAliasProvider
+internal class HuggingFaceProvider : IProvider, IProviderClientFactory<IChatClient>, IProviderSecretAliasProvider
 {
     private static readonly Uri DefaultEndpoint = new("https://router.huggingface.co/");
 
@@ -60,19 +60,27 @@ internal class HuggingFaceProvider : IChatClientProvider, IProviderSecretAliasPr
         };
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
-    public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
+    public ProviderClientCredentialBinding ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor)
     {
-        // Get secret resolver from services
-        var secrets = services?.GetService<ISecretResolver>();
-        if (secrets == null)
-        {
-            throw new InvalidOperationException(
-                "ISecretResolver is required for provider initialization. " +
-                "Ensure the agent builder is properly configured with secret resolution.");
-        }
+        ArgumentNullException.ThrowIfNull(descriptor);
+        return ProviderClientCredentialBinding.ConstructionTime;
+    }
 
-        // Resolve API key using ISecretResolver
-        string apiKey = await secrets.RequireAsync("huggingface:ApiKey", "Hugging Face", config.ApiKey, cancellationToken).ConfigureAwait(false);
+    public ValueTask<ProviderClientConstruction<IChatClient>> CreateAsync(
+        ProviderClientConstructionContext context,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
+        var config = context.EffectiveConfig;
+        var apiKey = context.CredentialBinding is ProviderCredentialBindingContext.ConstructionTime construction
+            ? construction.Lease.Credential switch
+            {
+                ProviderCredential.ApiKey value => value.Value.Value.ToString(),
+                ProviderCredential.BearerToken value => value.Value.Value.ToString(),
+                _ => throw new InvalidOperationException("Hugging Face requires API-key or OAuth bearer authentication.")
+            }
+            : throw new InvalidOperationException("Hugging Face captures its credential during construction.");
 
         string? modelName = config.ModelName;
         if (string.IsNullOrEmpty(modelName))
@@ -80,12 +88,15 @@ internal class HuggingFaceProvider : IChatClientProvider, IProviderSecretAliasPr
             throw new InvalidOperationException("For HuggingFace, the ModelName (repository ID) must be configured.");
         }
 
-        var endpoint = string.IsNullOrWhiteSpace(config.Endpoint)
-            ? DefaultEndpoint
-            : new Uri(config.Endpoint, UriKind.Absolute);
+        var endpoint = config.Endpoint ?? DefaultEndpoint;
 
         var client = new global::HuggingFace.HuggingFaceInferenceClient(apiKey, baseUri: endpoint);
-        return new HuggingFaceConfiguredChatClient(client, modelName);
+        IChatClient configured = new HuggingFaceConfiguredChatClient(client, modelName);
+        return ValueTask.FromResult(new ProviderClientConstruction<IChatClient>
+        {
+            Client = configured,
+            Owner = ProviderClientConstructionUtilities.Own(configured)
+        });
     }
 
     public IProviderErrorHandler CreateErrorHandler()
@@ -117,21 +128,15 @@ internal class HuggingFaceProvider : IChatClientProvider, IProviderSecretAliasPr
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
-    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
+    public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
     {
         var errors = new List<string>();
 
-        // Note: API key validation is now deferred to CreateChatClient where ISecretResolver is available
-        // This method only validates config structure, not secret resolution
+        if (config.Family != ProviderClientFamily.Chat)
+            errors.Add("Hugging Face supports only chat.");
 
         if (string.IsNullOrEmpty(config.ModelName))
             errors.Add("Model name (repository ID like 'meta-llama/Meta-Llama-3-8B-Instruct') is required");
-
-        if (!string.IsNullOrWhiteSpace(config.Endpoint) &&
-            !Uri.IsWellFormedUriString(config.Endpoint, UriKind.Absolute))
-        {
-            errors.Add("Endpoint must be a valid, absolute URI");
-        }
 
         return errors.Count > 0
             ? ProviderValidationResult.Failure(errors.ToArray())

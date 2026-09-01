@@ -201,7 +201,7 @@ public class LoggingMiddleware : IAgentMiddleware
         sb.AppendLine("═══════════════════════════════════════════════════════════════════════════════════════════════════");
         sb.AppendLine($"{_options.LogPrefix} MESSAGE TURN #{turnNumber} - START");
         sb.AppendLine($"  Agent: {context.AgentName}");
-        sb.AppendLine($"  UserMessage: {context.UserMessage?.Text?.Length ?? 0} chars");
+        sb.AppendLine($"  UserMessages: {context.UserInputMessages.Count} ({context.UserInputMessages.Sum(static message => message.Text?.Length ?? 0)} chars)");
         sb.AppendLine($"  ThreadHistory: {context.ThreadHistory?.Count ?? 0} messages");
         sb.AppendLine($"  ConversationId: {context.ConversationId}");
 
@@ -437,16 +437,18 @@ public class LoggingMiddleware : IAgentMiddleware
                 sb.Append($"{_options.LogPrefix}[HARNESS COLLAPSE] {toolharnessName}");
                 if (_options.IncludeTiming) sb.Append($" ({elapsedMs}ms)");
 
-                // Show which toolharness-scoped middlewares are active for this toolharness
-                var containerState = context.GetMiddlewareState<ContainerMiddlewareState>();
-                if (containerState != null
-                    && containerState.ToolHarnessPipelines.TryGetValue(toolharnessName, out var pipeline)
-                    && !pipeline.IsEmpty)
+                var harnessIdentity = props?.TryGetValue("ToolHarnessIdentity", out var identityValue) == true
+                    ? identityValue as string
+                    : null;
+                var diagnostics = context.Base.ToolHarnessPipelines?.GetDiagnosticsSnapshot();
+                var entry = harnessIdentity is null
+                    ? null
+                    : diagnostics?.Entries.FirstOrDefault(value =>
+                        string.Equals(value.HarnessIdentity, harnessIdentity, StringComparison.Ordinal));
+                if (entry is not null)
                 {
                     sb.AppendLine();
-                    sb.AppendLine($"  Active scoped middleware ({pipeline.Count}):");
-                    foreach (var mw in pipeline.Middlewares)
-                        sb.Append($"    • {mw.GetType().Name}");
+                    sb.Append($"  Scoped runtime: {entry.State}, activation {entry.ActivationOrdinal}, admissions {entry.AdmissionCount}");
                 }
             }
         }

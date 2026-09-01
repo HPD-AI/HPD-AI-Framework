@@ -149,7 +149,7 @@ public static class MiddlewareTestHelpers
         conversationHistory ??= new List<ChatMessage>();
         runConfig ??= new AgentRunConfig();
 
-        return context.AsBeforeMessageTurn(userMessage, conversationHistory, runConfig);
+        return context.AsBeforeMessageTurn([userMessage], conversationHistory, runConfig);
     }
 
     /// <summary>

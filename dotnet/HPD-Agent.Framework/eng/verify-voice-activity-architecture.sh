@@ -2,7 +2,7 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-voice="$root/src/HPD-Agent.Audio/Abstractions/VoiceActivity"
+voice="$root/src/HPD-Agent.Audio/HPD-Agent.Audio/Abstractions/VoiceActivity"
 silero="$root/src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.Silero"
 agent="$root/src/HPD-Agent"
 

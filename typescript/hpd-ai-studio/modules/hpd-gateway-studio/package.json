@@ -14,7 +14,8 @@
     "pretest": "npm --prefix ../../../hpd-gateway-client run build",
     "test": "vitest run",
     "pretypecheck": "npm --prefix ../../../hpd-gateway-client run build",
-    "typecheck": "svelte-check --tsconfig ./tsconfig.json"
+    "typecheck": "svelte-check --tsgo --tsconfig ./tsconfig.json",
+    "build": "vite build"
   },
   "files": ["src", "README.md"],
   "dependencies": {
@@ -22,15 +23,18 @@
   },
   "peerDependencies": {
     "@hpd-research/hpd-studio-core": "0.1.0",
-    "svelte": "^5.0.0"
+    "svelte": "5.56.10"
   },
   "devDependencies": {
     "@hpd-research/hpd-studio-core": "file:../../../hpd-studio-core",
-    "@types/node": "^24.0.0",
-    "svelte": "^5.0.0",
-    "svelte-check": "^4.0.0",
-    "typescript": "^5.0.0",
-    "vitest": "^4.0.0"
+    "@sveltejs/vite-plugin-svelte": "6.2.4",
+    "@types/node": "24.10.13",
+    "@typescript/native": "npm:typescript@7.0.2",
+    "svelte": "5.56.10",
+    "svelte-check": "4.7.6",
+    "typescript": "6.0.3",
+    "vite": "7.3.6",
+    "vitest": "4.1.10"
   },
   "license": "FSL-1.1-ALv2"
 }

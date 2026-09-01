@@ -9,27 +9,6 @@ namespace HPD.Agent.Providers;
 /// </summary>
 public static class ProviderRegistryExtensions
 {
-    /// <summary>Resolves and captures one immutable typed provider-family selection.</summary>
-    public static ResolvedProviderFamily<TProvider> ResolveRequiredFamily<TProvider>(
-        this IProviderRegistry registry,
-        ProviderClientConfig configuration,
-        ProviderClientFamily family,
-        ProviderFamilyLifetime defaultLifetime)
-        where TProvider : class, IProvider
-    {
-        ArgumentNullException.ThrowIfNull(configuration);
-        if (string.IsNullOrWhiteSpace(configuration.ProviderKey))
-            throw new ArgumentException("The provider configuration must select a provider key.", nameof(configuration));
-        if (!Enum.IsDefined(defaultLifetime)) throw new ArgumentOutOfRangeException(nameof(defaultLifetime));
-
-        var provider = registry.GetRequiredFamilyProvider<TProvider>(configuration.ProviderKey, family);
-        var metadata = provider.GetMetadata();
-        var lifetime = metadata.Families.TryGetValue(family, out var descriptor)
-            ? descriptor.Lifetime
-            : defaultLifetime;
-        return new ResolvedProviderFamily<TProvider>(provider, family, configuration, lifetime);
-    }
-
     /// <summary>
     /// Resolves one provider-family contract by its existing registry key and
     /// generated family identity, including a contract owned by a leaf package.
@@ -73,7 +52,7 @@ public static class ProviderRegistryExtensions
     public static TProvider GetRequiredProvider<TProvider>(
         this IProviderRegistry registry,
         string providerKey)
-        where TProvider : class, IProvider
+        where TProvider : class
     {
         ArgumentNullException.ThrowIfNull(registry);
 
@@ -99,23 +78,23 @@ public static class ProviderRegistryExtensions
     }
 
     private static string GetRequiredFamilyName<TProvider>()
-        where TProvider : class, IProvider
+        where TProvider : class
     {
         var providerType = typeof(TProvider);
 
-        if (providerType == typeof(IChatClientProvider))
+        if (providerType == typeof(IProviderClientFactory<Microsoft.Extensions.AI.IChatClient>))
             return ProviderClientFamily.Chat.ToString();
-        if (providerType == typeof(ITextToSpeechClientProvider))
+        if (providerType == typeof(IProviderClientFactory<Microsoft.Extensions.AI.ITextToSpeechClient>))
             return ProviderClientFamily.TextToSpeech.ToString();
-        if (providerType == typeof(ISpeechToTextClientProvider))
+        if (providerType == typeof(IProviderClientFactory<Microsoft.Extensions.AI.ISpeechToTextClient>))
             return ProviderClientFamily.SpeechToText.ToString();
-        if (providerType == typeof(IRealtimeClientProvider))
+        if (providerType == typeof(IProviderClientFactory<Microsoft.Extensions.AI.IRealtimeClient>))
             return ProviderClientFamily.Realtime.ToString();
-        if (providerType == typeof(IImageGeneratorProvider))
+        if (providerType == typeof(IProviderClientFactory<Microsoft.Extensions.AI.IImageGenerator>))
             return ProviderClientFamily.ImageGeneration.ToString();
-        if (providerType == typeof(IEmbeddingGeneratorProvider))
+        if (providerType == typeof(IProviderClientFactory<Microsoft.Extensions.AI.IEmbeddingGenerator>))
             return ProviderClientFamily.Embeddings.ToString();
-        if (providerType == typeof(IHostedFileClientProvider))
+        if (providerType == typeof(IProviderClientFactory<Microsoft.Extensions.AI.IHostedFileClient>))
             return ProviderClientFamily.HostedFiles.ToString();
         return providerType.Name;
     }

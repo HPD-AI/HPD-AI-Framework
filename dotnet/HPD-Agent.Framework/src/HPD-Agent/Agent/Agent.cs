@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.AI;
+using System.Collections.Concurrent;
 using HPD.Agent.Middleware;
 using System.Runtime.CompilerServices;
 using System.Diagnostics;
@@ -17,8 +18,8 @@ using HPD.Agent.Providers;
 using HPD.Agent.StructuredOutput;
 using HPD.Events;
 using HPD.Events.Struct;
-using ClientToolBackgroundOperationOutcomeEvent = HPD.Agent.ClientTools.ClientToolBackgroundOperationOutcomeEvent;
-using IClientToolBackgroundOperationRegistry = HPD.Agent.ClientTools.IClientToolBackgroundOperationRegistry;
+using ClientToolOperationOutcomeEvent = HPD.Agent.ClientTools.ClientToolOperationOutcomeEvent;
+using IClientToolOperationRegistry = HPD.Agent.ClientTools.IClientToolOperationRegistry;
 
 
 namespace HPD.Agent;
@@ -27,20 +28,23 @@ namespace HPD.Agent;
 /// Core Agent class implementing agentic behavior with function calling, middleware, and event coordination.
 /// </code>
 /// </summary>
-public sealed class Agent
+public sealed partial class Agent : IAsyncDisposable
 {
     internal ProviderComposition? ProviderComposition => _chatClientResolver.Composition;
 
     private readonly IChatClient? _baseClient;
     private readonly AgentChatClientHandle? _defaultChatClientHandle;
     private readonly AgentChatClientResolver _chatClientResolver;
+    private readonly AgentProviderProfileIndex? _providerProfileIndex;
     private readonly ProviderClientManager<ITextToSpeechClient> _textToSpeechClientManager = new();
     private readonly ProviderClientManager<ISpeechToTextClient> _speechToTextClientManager = new();
     private readonly ProviderClientManager<IRealtimeClient> _realtimeClientManager = new();
     private readonly ProviderClientManager<IImageGenerator> _imageGeneratorManager = new();
     private readonly ProviderClientManager<IEmbeddingGenerator> _embeddingGeneratorManager = new();
     private readonly ProviderClientManager<IHostedFileClient> _hostedFileClientManager = new();
+    private readonly InMemorySessionStore _ephemeralEventJournal;
     private readonly AgentClientSet? _clientSet;
+    private readonly IAsyncDisposable? _providerRuntimeOwner;
     private readonly string _name;
     private readonly ChatClientMetadata _metadata;
     // OpenTelemetry Activity Source for telemetry
@@ -68,27 +72,30 @@ public sealed class Agent
     private readonly List<RuntimeStructHandlerSubscription> _structHandlerSubscriptions = new();
     private readonly object _runtimeLock = new();
     private Channel<AgentInputEvent>? _runtimeInbox;
+    private AgentWorkScheduler? _runtimeWorkScheduler;
     private CancellationTokenSource? _runtimeCts;
     private Task? _runtimeLoopTask;
     private Middleware.AgentRuntimeContext? _runtimeContext;
     private HPD.Events.IEventCoordinator? _runtimeEventCoordinator;
     private StructEventHub? _runtimeStructEvents;
-    private BackgroundTaskNotificationDispatcher? _runtimeNotificationDispatcher;
+    private AgentOperationNotificationDispatcher? _runtimeNotificationDispatcher;
     private bool _runtimeStarting;
     private bool _runtimeStopping;
     private ActiveRuntimeInput? _activeRuntimeInput;
-    // Number of queued inputs the runtime loop should drain as cancelled. Set when an interrupt
-    // arrives with no active execution but queued work is waiting, so the interrupt is not lost.
-    private int _runtimeCancelDrainRemaining;
     private readonly Dictionary<AgentInputEvent, TaskCompletionSource<AgentRuntimeInputOutcome>> _runtimeInputCompletions =
+        new(ReferenceEqualityComparer.Instance);
+    private readonly HashSet<AgentInputEvent> _cancelledRuntimeInputs =
         new(ReferenceEqualityComparer.Instance);
     private readonly ILogger? _agentLogger;
 
     // Provider registry for runtime provider switching via AgentRunConfig.ProviderKey/ModelId
     private readonly Providers.IProviderRegistry? _providerRegistry;
 
-    // Store used for opt-in event content persistence.
+    // Store and generated-policy archiver used for event content retention.
     private readonly IContentStore? _contentStore;
+    private readonly bool _ownsSessionStore;
+    private readonly bool _ownsContentStore;
+    private readonly IAgentEventContentArchiver _eventContentArchiver;
 
     // Service provider for creating new clients
     private readonly IServiceProvider? _serviceProvider;
@@ -100,12 +107,22 @@ public sealed class Agent
     // HttpClients created by AgentBuilder for OpenAPI sources that did not provide their own.
     // Disposed when the Agent is disposed.
     private readonly IReadOnlyList<HttpClient>? _ownedHttpClients;
-    private SkillCatalog? _skillCatalog;
+    private AgentCapabilityCatalog? _capabilityCatalog;
+    private IReadOnlyList<IAgentCapabilitySource> _capabilitySources = [];
+    private readonly AgentOperationRegistry _operationRegistry;
+    private readonly ConcurrentDictionary<long, CancellationTokenSource> _activeTurnCancellations = new();
+    private readonly ConcurrentDictionary<long, Task> _toolHarnessExecutionCompletions = new();
+    private readonly AgentResourceRegistry _agentResources;
+    private long _nextActiveTurnId;
+    private long _nextToolHarnessExecutionId;
     private readonly ContainerMiddleware? _containerMiddleware;
     private CancellationTokenSource? _skillWatchCancellation;
     private IReadOnlyList<Task> _skillWatchTasks = [];
+    private int _disposeState;
+    private readonly TaskCompletionSource _disposeCompletion =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    private async Task<bool> DrainAcceptedSteeringAsync(
+    private async Task<bool> DrainAcceptedTurnContinuationsAsync(
         ActiveRuntimeInput? activeInput,
         List<ChatMessage> sharedMessages,
         List<ChatMessage> turnHistory,
@@ -118,17 +135,22 @@ public sealed class Agent
             return false;
 
         var drained = false;
-        while (activeInput.Steering.Reader.TryRead(out var accepted))
+        while (activeInput.Continuations.Reader.TryRead(out var accepted))
         {
             var messages = accepted.Messages.ToArray();
-            foreach (var message in messages)
+            if (accepted.OperationNotification is null)
             {
-                EnsureMessageIdentity(message);
-                message.WithPolicy(
-                    AgentMessageSource.Steering,
-                    AgentMessageVisibility.Transcript,
-                    AgentMessagePersistence.ThreadHistory);
+                foreach (var message in messages)
+                {
+                    EnsureMessageIdentity(message);
+                    message.WithPolicy(
+                        AgentMessageSource.Steering,
+                        AgentMessageVisibility.Transcript,
+                        AgentMessagePersistence.ThreadHistory);
+                }
             }
+            else
+                foreach (var message in messages) EnsureMessageIdentity(message);
 
             await CommitThreadMessagesAsync(
                     session,
@@ -140,6 +162,14 @@ public sealed class Agent
                 .ConfigureAwait(false);
             sharedMessages.AddRange(messages);
             turnHistory.AddRange(messages);
+            if (accepted.OperationNotification is not null)
+            {
+                await PublishAgentOperationNotificationDeliveredAsync(
+                        accepted.OperationNotification,
+                        eventCoordinator,
+                        CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
             drained = true;
         }
 
@@ -157,7 +187,7 @@ public sealed class Agent
                 return true;
 
             activeInput.State = ActiveRuntimeInputState.Finishing;
-            if (activeInput.Steering.Reader.TryPeek(out _))
+            if (activeInput.Continuations.Reader.TryPeek(out _))
             {
                 activeInput.State = ActiveRuntimeInputState.Accepting;
                 return false;
@@ -208,7 +238,7 @@ public sealed class Agent
     /// <summary>
     /// Provider from the configuration
     /// </summary>
-    public string? ProviderKey => Config?.ResolveClientConfig(Providers.ProviderClientFamily.Chat)?.ProviderKey;
+    public string? ProviderKey => Config?.ResolveClientConfig(Providers.ProviderClientFamily.Chat)?.Provider?.Key;
 
     /// <summary>
     /// Model ID from the configuration
@@ -256,6 +286,11 @@ public sealed class Agent
     /// <param name="workflowOptions">Options from workflow (may contain handoff tools)</param>
     /// <param name="conversationContext">Additional context to inject (e.g., ConversationId)</param>
     /// <returns>Merged ChatOptions ready for agent execution</returns>
+    private AgentEventPublisher CreateEventPublisher(
+        ISessionStore store,
+        HPD.Events.IEventCoordinator coordinator) =>
+        new(store, coordinator, _eventContentArchiver);
+
     /// <summary>
     /// Initializes a new Agent instance from an AgentConfig object
     /// </summary>
@@ -272,24 +307,50 @@ public sealed class Agent
         IContentStore? contentStore = null,
         IReadOnlyDictionary<string, MiddlewareStateFactory>? stateFactories = null,
         IReadOnlyList<HttpClient>? ownedHttpClients = null,
-        AgentClientSet? clientSet = null)
+        AgentClientSet? clientSet = null,
+        IAsyncDisposable? providerRuntimeOwner = null,
+        bool ownsSessionStore = false,
+        bool ownsContentStore = false,
+        IAsyncDisposable? agentResourceOwner = null)
     {
         _providerRegistry = providerRegistry;
         _contentStore = contentStore;
+        _ownsSessionStore = ownsSessionStore;
+        _ownsContentStore = ownsContentStore;
+        _eventContentArchiver = new AgentEventContentArchiver(
+            contentStore,
+            diagnostic =>
+            {
+                _structEvents.Route<AgentEventArchiveDiagnostic>().CreateEmitter().Emit(in diagnostic);
+                _agentLogger?.LogDebug(
+                    diagnostic.Exception,
+                    "Agent event content archival skipped or failed for {EventType}: {Reason}",
+                    diagnostic.EventType.Name,
+                    diagnostic.Reason);
+            });
         _serviceProvider = serviceProvider;
         _stateFactories = stateFactories?.ToImmutableDictionary()
             ?? ImmutableDictionary<string, MiddlewareStateFactory>.Empty;
         _ownedHttpClients = ownedHttpClients;
         Config = config ?? throw new ArgumentNullException(nameof(config));
+        _ephemeralEventJournal = new InMemorySessionStore(
+            config.EventComposition?.Codec
+            ?? throw new InvalidOperationException("AgentConfig.EventComposition must be resolved before Agent construction."));
         _clientSet = clientSet;
+        _providerRuntimeOwner = providerRuntimeOwner;
+        _agentResources = agentResourceOwner as AgentResourceRegistry ?? new AgentResourceRegistry([]);
         _baseClient = clientSet?.Chat ?? baseClient;
         _defaultChatClientHandle = _baseClient is null
             ? null
             : AgentChatClientHandle.Borrowed(
                 _baseClient,
                 AgentChatClientSource.BuilderDefault,
-                clientSet?.GetResolvedConfig(Providers.ProviderClientFamily.Chat));
+                clientSet?.GetResolvedConfig(Providers.ProviderClientFamily.Chat),
+                clientSet?.GetExecutionIdentity(Providers.ProviderClientFamily.Chat));
         _chatClientResolver = new AgentChatClientResolver(providerRegistry, serviceProvider);
+        _providerProfileIndex = _chatClientResolver.Composition is null
+            ? null
+            : AgentProviderProfileIndex.Create(config, _chatClientResolver.Composition);
         _name = config.Name ?? "Agent"; // Default to "Agent" to prevent null dictionary key exceptions
 
         // Initialize unified middleware pipeline
@@ -300,7 +361,7 @@ public sealed class Agent
         // Initialize Microsoft.Extensions.AI compliance metadata
         var chatConfig = config.ResolveClientConfig(Providers.ProviderClientFamily.Chat);
         _metadata = new ChatClientMetadata(
-            providerName: chatConfig?.ProviderKey,
+            providerName: chatConfig?.Provider?.Key,
             providerUri: null,
             defaultModelId: chatConfig?.ModelName
         );
@@ -313,6 +374,12 @@ public sealed class Agent
         // Create event coordinator for Middleware events and human-in-the-loop
         // Direct use of HPD.Events.EventCoordinator (no wrapper)
         _eventCoordinator = new HPD.Events.Core.EventCoordinator();
+        var operationThreadEvents = Config.SessionStore is null
+            ? null
+            : CreateEventPublisher(Config.SessionStore, _eventCoordinator);
+        _operationRegistry = new AgentOperationRegistry(
+            new AgentOperationEventSink(_eventCoordinator, operationThreadEvents),
+            Config.OperationRetention);
 
         // Plan mode instructions now injected by AgentPlanAgentMiddleware (middleware-based)
         _messageProcessor = new MessageProcessor(
@@ -322,9 +389,7 @@ public sealed class Agent
             _middlewarePipeline,
             config.ErrorHandling,
             config.ServerConfiguredTools,
-            config.AgenticLoop,
-            GetCurrentRuntimeBackgroundTaskRegistry,
-            GetCurrentRuntimeBackgroundHandleRegistry);
+            config.AgenticLoop);
         _functionCallProcessor = new FunctionCallProcessor(
             _eventCoordinator, // Pass IEventCoordinator for decoupled event emission
             _middlewarePipeline, // Pass unified middleware pipeline for permission checks
@@ -334,14 +399,12 @@ public sealed class Agent
             config.ServerConfiguredTools,
             config.AgenticLoop,  // Pass agentic loop config for TerminateOnUnknownCalls
             _name,
-            _stateFactories,
-            GetCurrentRuntimeBackgroundTaskRegistry,
-            GetCurrentRuntimeBackgroundHandleRegistry);
+            _stateFactories);
         _agentTurn = new AgentTurn(
             _baseClient,
             config.ConfigureOptions,
             config.ClientMiddleware?.Chat,
-            serviceProvider);  
+            serviceProvider);
         _chatModelTurnExecutor = new ChatModelTurnExecutor(_agentTurn);
         _realtimeProviderProtocolParticipant = new RealtimeProviderProtocolParticipantV1();
 
@@ -379,22 +442,65 @@ public sealed class Agent
     /// </summary>
     public ChatOptions? DefaultOptions => _messageProcessor.DefaultOptions;
 
-    internal void SetSkillCatalog(
-        SkillCatalog catalog,
-        IEnumerable<(ISkillSource Source, SkillSourceContext Context)> sources)
+    internal void SetCapabilityCatalog(
+        AgentCapabilityCatalog catalog,
+        IEnumerable<(ISkillSource Source, SkillSourceContext Context)> sources,
+        IReadOnlyList<IAgentCapabilitySource>? capabilitySources = null)
     {
-        _skillCatalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+        _capabilityCatalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+        _capabilitySources = capabilitySources ?? [];
         ArgumentNullException.ThrowIfNull(sources);
         var watchable = sources
             .Where(entry => entry.Source is IWatchableSkillSource)
             .ToArray();
-        if (watchable.Length == 0)
+        if (watchable.Length == 0 && _capabilitySources.Count == 0)
             return;
         _skillWatchCancellation = new CancellationTokenSource();
         _skillWatchTasks = watchable.Select(entry => WatchSkillSourceAsync(
             (IWatchableSkillSource)entry.Source,
             entry.Context,
-            _skillWatchCancellation.Token)).ToArray();
+            _skillWatchCancellation.Token))
+            .Concat(_capabilitySources.Select(source => WatchCapabilitySourceAsync(
+                source,
+                _skillWatchCancellation.Token)))
+            .ToArray();
+    }
+
+    private async Task WatchCapabilitySourceAsync(
+        IAgentCapabilitySource source,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var enumerator = source.WatchAsync(cancellationToken)
+                .GetAsyncEnumerator(cancellationToken);
+            Task<bool> pendingInvalidation = enumerator.MoveNextAsync().AsTask();
+            while (await pendingInvalidation.ConfigureAwait(false))
+            {
+                while (true)
+                {
+                    pendingInvalidation = enumerator.MoveNextAsync().AsTask();
+                    var quietWindow = Task.Delay(TimeSpan.FromMilliseconds(200), cancellationToken);
+                    var completed = await Task.WhenAny(pendingInvalidation, quietWindow).ConfigureAwait(false);
+                    if (completed != pendingInvalidation)
+                        break;
+                    if (!await pendingInvalidation.ConfigureAwait(false))
+                        break;
+                }
+                await RefreshCapabilitiesAsync("source-invalidation", cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            _agentLogger?.LogWarning(
+                exception,
+                "Capability source watcher {SourceId} stopped; catalog epoch {Epoch} remains active.",
+                source.Id,
+                CapabilityEpoch);
+        }
     }
 
     private async Task WatchSkillSourceAsync(
@@ -422,7 +528,7 @@ public sealed class Agent
                         break;
                 }
 
-                await ReloadSkillsAsync("watch", cancellationToken).ConfigureAwait(false);
+                await RefreshCapabilitiesAsync("watch", cancellationToken).ConfigureAwait(false);
                 if (pendingChange.IsCompletedSuccessfully && !pendingChange.Result)
                     break;
             }
@@ -433,76 +539,69 @@ public sealed class Agent
         catch (Exception exception)
         {
             // A watcher is advisory. Preserve the last-known-good catalog and keep failures
-            // bounded to host diagnostics; explicit ReloadSkillsAsync remains available.
+            // bounded to host diagnostics; explicit capability refresh remains available.
             _agentLogger?.LogWarning(
                 exception,
                 "Skill source watcher stopped for harness {ToolHarness}; catalog epoch {Epoch} remains active.",
                 context.OwnerToolHarnessName,
-                SkillCatalogEpoch);
+                CapabilityEpoch);
         }
     }
 
-    /// <summary>Rereads all harness-bound runtime skill sources and atomically publishes a validated catalog.</summary>
-    public async ValueTask<SkillReloadResult> ReloadSkillsAsync(CancellationToken cancellationToken = default)
-        => await ReloadSkillsAsync("manual", cancellationToken).ConfigureAwait(false);
+    /// <summary>Rereads every registered dynamic source and atomically publishes a complete validated catalog.</summary>
+    public async ValueTask<AgentCapabilityRefreshResult> RefreshCapabilitiesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        ThrowIfShutdownStarted();
+        return await RefreshCapabilitiesAsync("manual", cancellationToken).ConfigureAwait(false);
+    }
 
-    private async ValueTask<SkillReloadResult> ReloadSkillsAsync(
+    private async ValueTask<AgentCapabilityRefreshResult> RefreshCapabilitiesAsync(
         string reason,
         CancellationToken cancellationToken)
     {
-        if (_skillCatalog is null)
-            return new SkillReloadResult(false, 0, "This agent has no skill catalog.");
+        if (_capabilityCatalog is null)
+            return new AgentCapabilityRefreshResult(false, 0, "This agent has no capability catalog.");
 
-        var previousEpoch = SkillCatalogEpoch;
+        var previousEpoch = CapabilityEpoch;
         await _eventCoordinator.EmitAsync(
-            EnrichOutputEvent(new SkillReloadStartedEvent(previousEpoch, reason)),
+            EnrichOutputEvent(new AgentCapabilityRefreshStartedEvent(previousEpoch, reason)),
             cancellationToken).ConfigureAwait(false);
-        var result = await _skillCatalog.ReloadAsync(
-            new SkillReloadRequest(reason),
-            cancellationToken).ConfigureAwait(false);
+        var result = await _capabilityCatalog.RefreshAsync(reason, cancellationToken).ConfigureAwait(false);
         if (!result.Published)
         {
             await _eventCoordinator.EmitAsync(
-                EnrichOutputEvent(new SkillReloadRejectedEvent(
+                EnrichOutputEvent(new AgentCapabilityRefreshRejectedEvent(
                     result.Epoch,
-                    BoundSkillReloadError(result.Error),
+                    BoundCapabilityRefreshError(result.Error),
                     reason)),
                 cancellationToken).ConfigureAwait(false);
             return result;
         }
 
-        using var lease = _skillCatalog.Acquire();
+        await using var lease = _capabilityCatalog.Acquire();
         _messageProcessor.ReplaceCapabilityFunctions(lease.Snapshot.Functions);
         _containerMiddleware?.ReplaceCapabilityFunctions(lease.Snapshot.Functions);
         await _eventCoordinator.EmitAsync(
-            EnrichOutputEvent(new SkillReloadPublishedEvent(
+            EnrichOutputEvent(new AgentCapabilityRefreshPublishedEvent(
                 previousEpoch,
                 result.Epoch,
-                result.ChangedSkillIds ?? Array.Empty<string>(),
                 reason)),
             cancellationToken).ConfigureAwait(false);
         return result;
     }
 
-    private static string BoundSkillReloadError(string? error)
+    private static string BoundCapabilityRefreshError(string? error)
     {
         const int maximumLength = 512;
         var bounded = string.IsNullOrWhiteSpace(error)
-            ? "The replacement skill catalog failed validation."
+            ? "The replacement capability catalog failed validation."
             : error.Replace('\r', ' ').Replace('\n', ' ');
         return bounded.Length <= maximumLength ? bounded : bounded[..maximumLength];
     }
 
-    internal long SkillCatalogEpoch
-    {
-        get
-        {
-            if (_skillCatalog is null)
-                return -1;
-            using var lease = _skillCatalog.Acquire();
-            return lease.Snapshot.Epoch;
-        }
-    }
+    /// <summary>Gets the currently published complete capability epoch.</summary>
+    public long CapabilityEpoch => _capabilityCatalog?.CurrentEpoch ?? -1;
 
     /// <summary>
     /// Gets whether this agent currently has a continuous runtime input loop.
@@ -549,9 +648,7 @@ public sealed class Agent
                 pipeline,
                 Config?.ErrorHandling,
                 Config?.ServerConfiguredTools,
-                Config?.AgenticLoop,
-                GetCurrentRuntimeBackgroundTaskRegistry,
-                GetCurrentRuntimeBackgroundHandleRegistry);
+                Config?.AgenticLoop);
 
         return new FunctionCallProcessor(
             eventCoordinator,
@@ -562,9 +659,7 @@ public sealed class Agent
             Config?.ServerConfiguredTools,
             Config?.AgenticLoop,
             _name,
-            _stateFactories,
-            GetCurrentRuntimeBackgroundTaskRegistry,
-            GetCurrentRuntimeBackgroundHandleRegistry);
+            _stateFactories);
     }
 
     private sealed class RuntimeStructHandlerSubscription(
@@ -778,7 +873,11 @@ public sealed class Agent
         if (newMessages.Count == 0)
             return;
 
-        thread.AddMessages(newMessages);
+        var threadHistoryMessages = newMessages
+            .Where(static message => message.GetPersistence() == AgentMessagePersistence.ThreadHistory)
+            .ToArray();
+        if (threadHistoryMessages.Length > 0)
+            thread.AddMessages(threadHistoryMessages);
 
         var store = Config?.SessionStore;
         if (store == null)
@@ -790,7 +889,7 @@ public sealed class Agent
             await store.SaveSessionAsync(session, cancellationToken).ConfigureAwait(false);
         }
 
-        var publisher = new ThreadEventPublisher(store, eventCoordinator);
+        var publisher = CreateEventPublisher(store, eventCoordinator);
         foreach (var message in newMessages.Where(ShouldCommitMessageSnapshotToThread))
         {
             AgentMessagePolicy.StampDefaults(message);
@@ -816,12 +915,33 @@ public sealed class Agent
         Thread? thread,
         List<ChatMessage> turnHistory,
         IReadOnlyList<string?> messageIdsBeforeAfterTurn,
+        IReadOnlyDictionary<string, string> messageSnapshotsBeforeAfterTurn,
+        HPD.Events.IEventCoordinator eventCoordinator,
         CancellationToken cancellationToken)
     {
-        if (thread == null || turnHistory.Count == 0)
+        if (thread == null)
             return;
 
-        var changedMessages = new List<ChatMessage>();
+        var committedIds = messageIdsBeforeAfterTurn
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id!)
+            .ToArray();
+        var committedIdSet = committedIds.ToHashSet(StringComparer.Ordinal);
+        var finalizedExistingIds = turnHistory
+            .Select(message => message.MessageId)
+            .Where(id => id is not null && committedIdSet.Contains(id))
+            .Select(id => id!)
+            .ToArray();
+        if (finalizedExistingIds.Length != finalizedExistingIds.Distinct(StringComparer.Ordinal).Count())
+            throw new InvalidOperationException("AfterMessageTurnAsync produced duplicate committed message identities.");
+        if (!committedIds.SequenceEqual(finalizedExistingIds, StringComparer.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "AfterMessageTurnAsync cannot remove or reorder committed messages. Append messages or replace a message while preserving its MessageId.");
+        }
+
+        var replacementMessages = new List<ChatMessage>();
+        var appendedMessages = new List<ChatMessage>();
 
         for (var i = 0; i < turnHistory.Count; i++)
         {
@@ -840,20 +960,23 @@ public sealed class Agent
             var existingIndex = thread.Messages.FindIndex(existing => existing.MessageId == message.MessageId);
             if (existingIndex >= 0)
             {
-                if (!ReferenceEquals(thread.Messages[existingIndex], message))
+                if (messageSnapshotsBeforeAfterTurn.TryGetValue(message.MessageId!, out var before) &&
+                    !string.Equals(before, SerializeMessageSnapshot(message), StringComparison.Ordinal))
                 {
                     thread.Messages[existingIndex] = message;
-                    changedMessages.Add(message);
+                    replacementMessages.Add(message);
                 }
             }
             else
             {
+                if (message.GetPersistence() != AgentMessagePersistence.ThreadHistory)
+                    continue;
                 thread.Messages.Add(message);
-                changedMessages.Add(message);
+                appendedMessages.Add(message);
             }
         }
 
-        if (changedMessages.Count == 0)
+        if (replacementMessages.Count == 0 && appendedMessages.Count == 0)
             return;
 
         thread.LastActivity = DateTime.UtcNow;
@@ -868,14 +991,85 @@ public sealed class Agent
             await store.SaveSessionAsync(session, cancellationToken).ConfigureAwait(false);
         }
 
-        // Reconciled ChatMessage snapshots should not be re-expanded into thread events during
-        // normal turns; that would duplicate the events already appended to thread history.
+        var replacements = replacementMessages
+            .Select(message => (AgentEvent)new ThreadMessageReplacedEvent(
+                message.MessageId!,
+                CloneMessageForThread(message),
+                "after-message-turn-finalization"))
+            .ToArray();
+        var appendedEvents = appendedMessages
+            .SelectMany(message =>
+            {
+                AgentMessagePolicy.StampDefaults(message);
+                return ThreadMessageEventConverter.ToThreadEvents(
+                        thread.SessionId,
+                        thread.Id,
+                        message,
+                        clientInputId: null)
+                    .Select(EnrichOutputEvent);
+            });
+        var finalizationEvents = replacements.Concat(appendedEvents).ToArray();
+        if (finalizationEvents.Length > 0)
+        {
+            var publisher = CreateEventPublisher(store, eventCoordinator);
+            await publisher.CommitAndPublishAsync(
+                new ThreadKey(thread.SessionId, thread.Id),
+                finalizationEvents,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
     }
+
+    private static string SerializeMessageSnapshot(ChatMessage message)
+    {
+        var serializable = CloneMessageForThread(message);
+        serializable.AdditionalProperties = null;
+        var messageJson = JsonSerializer.Serialize(
+            serializable,
+            Serialization.AgentEventJsonContext.Default.MicrosoftExtensionsAiChatMessage);
+        if (message.AdditionalProperties is null || message.AdditionalProperties.Count == 0)
+            return messageJson;
+
+        var properties = string.Join(",", message.AdditionalProperties
+            .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+            .Select(pair => $"{SerializeSnapshotString(pair.Key)}:{CanonicalizeSnapshotValue(pair.Value)}"));
+        return $"{messageJson}|{{{properties}}}";
+    }
+
+    private static string CanonicalizeSnapshotValue(object? value)
+        => value switch
+        {
+            null => "null",
+            string text => SerializeSnapshotString(text),
+            bool boolean => boolean ? "true" : "false",
+            byte or sbyte or short or ushort or int or uint or long or ulong or float or double or decimal
+                => Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture)!,
+            JsonElement element => element.GetRawText(),
+            System.Collections.IDictionary dictionary => "{" + string.Join(",", dictionary.Keys.Cast<object>()
+                .OrderBy(key => Convert.ToString(key, System.Globalization.CultureInfo.InvariantCulture), StringComparer.Ordinal)
+                .Select(key => $"{CanonicalizeSnapshotValue(key)}:{CanonicalizeSnapshotValue(dictionary[key])}")) + "}",
+            System.Collections.IEnumerable sequence => "[" + string.Join(",", sequence.Cast<object?>().Select(CanonicalizeSnapshotValue)) + "]",
+            _ => SerializeSnapshotString(value.ToString() ?? string.Empty)
+        };
+
+    private static string SerializeSnapshotString(string value) => JsonSerializer.Serialize(
+        value,
+        Serialization.AgentEventJsonContext.Default.String);
 
     private static void EnsureMessageIdentity(ChatMessage message)
     {
         message.MessageId ??= Guid.NewGuid().ToString();
         message.CreatedAt ??= DateTimeOffset.UtcNow;
+    }
+
+    private static void CollapseDuplicateMessageSnapshots(List<ChatMessage> messages)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = messages.Count - 1; i >= 0; i--)
+        {
+            var messageId = messages[i].MessageId;
+            if (!string.IsNullOrWhiteSpace(messageId) && !seen.Add(messageId))
+                messages.RemoveAt(i);
+        }
     }
 
     private static bool ShouldCommitMessageSnapshotToThread(ChatMessage message)
@@ -892,22 +1086,20 @@ public sealed class Agent
         evt = EnrichOutputEvent(evt);
         if (thread == null)
         {
-            await eventCoordinator.EmitAsync(evt, cancellationToken).ConfigureAwait(false);
-            return evt;
+            return await CreateEventPublisher(_ephemeralEventJournal, eventCoordinator)
+                .CommitAndPublishAsync(new ThreadKey($"ephemeral:{AgentId}", "main"), evt, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         var store = Config?.SessionStore;
         if (store == null)
         {
-            var stateless = ThreadEventValidation.PrepareForAppend(
-                thread.SessionId,
-                thread.Id,
-                evt) with { ThreadSequenceNumber = 0 };
-            await eventCoordinator.EmitAsync(stateless, cancellationToken).ConfigureAwait(false);
-            return stateless;
+            return await CreateEventPublisher(_ephemeralEventJournal, eventCoordinator)
+                .CommitAndPublishAsync(new ThreadKey(thread.SessionId, thread.Id), evt, cancellationToken)
+                .ConfigureAwait(false);
         }
 
-        var publisher = new ThreadEventPublisher(store, eventCoordinator);
+        var publisher = CreateEventPublisher(store, eventCoordinator);
         return await publisher.CommitAndPublishAsync(
             new ThreadKey(thread.SessionId, thread.Id),
             evt,
@@ -919,23 +1111,96 @@ public sealed class Agent
         string? messageTurnId,
         string? conversationId,
         Exception exception,
+        MessageTurnUsageSummary usage,
         HPD.Events.IEventCoordinator eventCoordinator)
     {
-        if (thread == null)
+        if (string.IsNullOrWhiteSpace(messageTurnId))
             return;
 
         await CommitAndPublishThreadEventAsync(
             thread,
-            ThreadEventFactory.TurnFailed(
-                thread.SessionId,
-                thread.Id,
-                messageTurnId,
-                conversationId,
-                AgentId,
-                _name,
-                exception),
+            new MessageTurnErrorEvent(messageTurnId, exception.Message, usage, exception)
+            {
+                ConversationId = conversationId,
+                AgentId = AgentId,
+                AgentName = _name,
+                ErrorType = exception.GetType().FullName
+            },
             eventCoordinator,
             CancellationToken.None).ConfigureAwait(false);
+    }
+
+    private async Task CommitPendingFailedProviderAttemptsAsync(
+        MessageTurnUsageCollector collector,
+        Thread? thread,
+        string? messageTurnId,
+        string? conversationId,
+        int iteration,
+        int inputMessageCount,
+        bool isResume,
+        int turnMessageCount,
+        Exception exception,
+        HPD.Events.IEventCoordinator eventCoordinator)
+    {
+        if (string.IsNullOrWhiteSpace(messageTurnId))
+            return;
+        var outcome = exception is OperationCanceledException
+            ? ProviderOperationOutcome.Cancelled
+            : ProviderOperationOutcome.Failed;
+        foreach (var attempt in collector.GetPendingAttempts())
+        {
+            AgentEvent terminal = attempt.Family is ProviderClientFamily.Chat or ProviderClientFamily.Realtime
+                ? new AgentTurnFinishedEvent(
+                    messageTurnId, iteration, attempt.OperationId, attempt.LogicalOperationId, attempt.Attempt,
+                    attempt.Family, outcome, null, attempt.ProviderKey, attempt.ModelId, null)
+                : new ProviderOperationUsageEvent(
+                    messageTurnId, attempt.OperationId, attempt.LogicalOperationId, attempt.Attempt,
+                    attempt.OperationKind, attempt.Family, outcome, null,
+                    attempt.ProviderKey, attempt.ModelId, null);
+            await collector.CommitTerminalAsync(terminal, CancellationToken.None).ConfigureAwait(false);
+        }
+    }
+
+    private static bool TryCreateProviderUsageMeasurement(
+        AgentEvent evt,
+        [NotNullWhen(true)] out ProviderUsageMeasurement? measurement)
+    {
+        measurement = evt switch
+        {
+            AgentTurnFinishedEvent model => new ProviderUsageMeasurement(
+                model.EventId,
+                model.MessageTurnId,
+                model.ThreadSequenceNumber,
+                model.OperationId,
+                model.LogicalOperationId,
+                model.Attempt,
+                model.Family is ProviderClientFamily.Realtime
+                    ? ProviderOperationKind.RealtimeModelResponse
+                    : ProviderOperationKind.ChatModelResponse,
+                model.Family,
+                model.Outcome,
+                model.Usage,
+                model.ProviderKey,
+                model.ModelId,
+                model.ResponseId),
+            ProviderOperationUsageEvent operation => new ProviderUsageMeasurement(
+                operation.EventId,
+                operation.MessageTurnId,
+                operation.ThreadSequenceNumber,
+                operation.OperationId,
+                operation.LogicalOperationId,
+                operation.Attempt,
+                operation.OperationKind,
+                operation.Family,
+                operation.Outcome,
+                operation.Usage,
+                operation.ProviderKey,
+                operation.ModelId,
+                operation.ResponseId),
+            _ => null
+        };
+
+        return measurement is not null;
     }
 
     private async Task<AgentEvent> CommitAgentThreadEventAsync(
@@ -954,8 +1219,9 @@ public sealed class Agent
         evt = EnrichOutputEvent(evt);
         if (thread == null)
         {
-            await eventCoordinator.EmitAsync(evt, cancellationToken).ConfigureAwait(false);
-            return evt;
+            return await CreateEventPublisher(_ephemeralEventJournal, eventCoordinator)
+                .CommitAndPublishAsync(new ThreadKey($"ephemeral:{AgentId}", "main"), evt, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         var threadEvent = ThreadEventFactory.FromAgentEvent(
@@ -995,7 +1261,7 @@ public sealed class Agent
         var threadEvent = CreateAgentThreadEvent(
             thread, evt, messageTurnId, conversationId, iteration,
             inputMessageCount, isResume, turnMessageCount);
-        var publisher = new ThreadEventPublisher(Config!.SessionStore!, eventCoordinator);
+        var publisher = CreateEventPublisher(Config!.SessionStore!, eventCoordinator);
         return await publisher.StageAndPublishDeltaAsync(
             new ThreadKey(thread.SessionId, thread.Id), threadEvent, cancellationToken).ConfigureAwait(false);
     }
@@ -1015,7 +1281,7 @@ public sealed class Agent
         var threadEvent = CreateAgentThreadEvent(
             thread, evt, messageTurnId, conversationId, iteration,
             inputMessageCount, isResume, turnMessageCount);
-        var publisher = new ThreadEventPublisher(Config!.SessionStore!, eventCoordinator);
+        var publisher = CreateEventPublisher(Config!.SessionStore!, eventCoordinator);
         var result = await publisher.FinalizeAndPublishDeltasAsync(
             new ThreadKey(thread.SessionId, thread.Id), threadEvent, cancellationToken).ConfigureAwait(false);
         return result.CommittedEvents[^1];
@@ -1080,148 +1346,110 @@ public sealed class Agent
                 $"Canonical event '{evt.GetType().Name}' could not be scoped to thread '{thread.Id}'.");
     }
 
-    private async Task PersistAgentEventContentAsync(
-        Session? session,
-        AgentEvent evt,
-        CancellationToken cancellationToken)
-        => await PersistAgentEventContentAsync(
-            session?.Id,
-            evt,
-            cancellationToken).ConfigureAwait(false);
-
-    private async Task PersistAgentEventContentAsync(
-        string? sessionId,
-        AgentEvent evt,
-        CancellationToken cancellationToken)
+    internal AgentInputResult.Control CancelRuntimeExecution(string threadExecutionId)
     {
-        if (_contentStore == null || evt.GetContentPersistenceRequest() == null)
-            return;
-
-        try
-        {
-            await AgentEventContentPersistence.PersistAsync(
-                _contentStore,
-                evt,
-                sessionId,
-                cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _agentLogger?.LogDebug(ex,
-                "Agent event content persistence failed for {EventType}",
-                evt.GetType().Name);
-            // Event content persistence is opt-in telemetry/storage and should not break streaming.
-        }
-    }
-
-    private async Task<AgentInputResult> HandleInterruptionAsync(
-        InterruptionRequestEvent interruption,
-        CancellationToken cancellationToken)
-    {
-        var eventCoordinator = GetActiveEventCoordinator();
-
-        // A targeted interruption owns only the named event flow. It remains useful
-        // even when no model input is active and must never cancel an unrelated input.
-        if (!string.IsNullOrWhiteSpace(interruption.EventFlowId))
-        {
-            eventCoordinator.EventFlows.InterruptFlow(interruption.EventFlowId);
-            await PublishScopedRuntimeEventAsync(new InterruptionHandledEvent(
-                interruption.EventFlowId,
-                interruption.Reason,
-                interruption.Source)
-            {
-                SessionId = interruption.SessionId,
-                ThreadId = interruption.ThreadId
-            }, eventCoordinator, cancellationToken).ConfigureAwait(false);
-
-            lock (_runtimeLock)
-                return ControlResult(AgentInputDisposition.Accepted, _activeRuntimeInput?.ThreadExecutionId);
-        }
-
-        ActiveRuntimeInput? activeInput;
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadExecutionId);
+        CancellationTokenSource? executionCancellation = null;
+        AgentInputResult.Control result;
         lock (_runtimeLock)
         {
-            activeInput = _activeRuntimeInput;
+            var activeInput = _activeRuntimeInput;
             if (activeInput is null)
+                result = new AgentInputResult.Control(AgentInputDisposition.NoActiveExecution, threadExecutionId);
+            else if (!string.Equals(activeInput.ThreadExecutionId, threadExecutionId, StringComparison.Ordinal))
+                result = new AgentInputResult.Control(
+                    AgentInputDisposition.ActiveExecutionMismatch,
+                    activeInput.ThreadExecutionId);
+            else
             {
-                // No active execution. If queued work is waiting, cancel that backlog rather than
-                // silently dropping the interrupt; the single-reader runtime loop drains it as
-                // cancelled. Otherwise there is genuinely nothing to cancel.
-                if (!(_runtimeInbox is not null &&
-                      !_runtimeStopping &&
-                      _runtimeLoopTask is { IsCompleted: false } &&
-                      _runtimeInbox.Reader.Count > 0))
-                {
-                    return ControlResult(AgentInputDisposition.NoActiveExecution, interruption.ThreadExecutionId);
-                }
-
-                _runtimeCancelDrainRemaining = _runtimeInbox.Reader.Count;
+                executionCancellation = activeInput.Cancellation;
+                result = new AgentInputResult.Control(AgentInputDisposition.Accepted, activeInput.ThreadExecutionId);
             }
-            else if (!string.Equals(activeInput.ThreadExecutionId, interruption.ThreadExecutionId, StringComparison.Ordinal))
-            {
-                return ControlResult(AgentInputDisposition.ActiveExecutionMismatch, activeInput.ThreadExecutionId);
-            }
-            // An interrupt is accepted regardless of state: unlike steering it does not need
-            // to attach to a live accepting turn. Rejecting while Finishing created a false
-            // "cannot cancel" window right as a turn was wrapping up. Cancelling a Finishing
-            // input is safe - the runtime loop unwinds cooperatively.
         }
 
-        eventCoordinator.EventFlows.InterruptAll();
-
-        activeInput?.Cancellation.Cancel();
-
-        await PublishScopedRuntimeEventAsync(new InterruptionHandledEvent(
-            interruption.EventFlowId,
-            interruption.Reason,
-            interruption.Source)
-        {
-            SessionId = interruption.SessionId,
-            ThreadId = interruption.ThreadId
-        }, eventCoordinator, cancellationToken).ConfigureAwait(false);
-
-        return ControlResult(AgentInputDisposition.Accepted, activeInput?.ThreadExecutionId);
+        executionCancellation?.Cancel();
+        return result;
     }
 
-    private Task<AgentInputResult> HandleSteeringAsync(
-        SteeringInputEvent steering,
+    private async ValueTask<AgentInputResult> TrySteerAsync(
+        UserMessagesInputEvent steering,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (string.IsNullOrWhiteSpace(steering.ThreadExecutionId))
-            throw new ArgumentException("Steering requires ThreadExecutionId.", nameof(steering));
         if (steering.Messages.Count == 0 || steering.Messages.Any(static message => message is null))
             throw new ArgumentException("Steering requires at least one non-null message.", nameof(steering));
         if (steering.Messages.Any(static message => message.Role != ChatRole.User))
             throw new ArgumentException("Steering currently accepts only user-role messages.", nameof(steering));
 
-        AgentInputResult result;
+        AgentInputResult? result = null;
+        var startOrdinaryTurn = false;
         lock (_runtimeLock)
         {
             var activeInput = _activeRuntimeInput;
             if (activeInput is null)
-                result = ControlResult(AgentInputDisposition.NoActiveExecution, steering.ThreadExecutionId);
-            else if (!string.Equals(activeInput.ThreadExecutionId, steering.ThreadExecutionId, StringComparison.Ordinal))
+            {
+                if (string.IsNullOrWhiteSpace(steering.ThreadExecutionId))
+                    startOrdinaryTurn = true;
+                else
+                    result = ControlResult(AgentInputDisposition.NoActiveExecution, steering.ThreadExecutionId);
+            }
+            else if (!string.IsNullOrWhiteSpace(steering.ThreadExecutionId) &&
+                     !string.Equals(activeInput.ThreadExecutionId, steering.ThreadExecutionId, StringComparison.Ordinal))
                 result = ControlResult(AgentInputDisposition.ActiveExecutionMismatch, activeInput.ThreadExecutionId);
             else if (activeInput.Input is not UserMessagesInputEvent)
                 result = ControlResult(AgentInputDisposition.ActiveInputNotSteerable, activeInput.ThreadExecutionId);
             else if (activeInput.State != ActiveRuntimeInputState.Accepting)
                 result = ControlResult(AgentInputDisposition.ExecutionFinishing, activeInput.ThreadExecutionId);
-            else if (!activeInput.Steering.Writer.TryWrite(new AcceptedSteeringInput(steering.Messages, steering.ClientInputId)))
+            else if (!activeInput.Continuations.Writer.TryWrite(
+                         new AcceptedTurnContinuation(steering.Messages, steering.ClientInputId)))
                 result = ControlResult(AgentInputDisposition.ExecutionFinishing, activeInput.ThreadExecutionId);
             else
-                result = ControlResult(AgentInputDisposition.Accepted, activeInput.ThreadExecutionId);
+                result = new AgentInputResult.Steered(activeInput.ThreadExecutionId);
         }
 
-        return Task.FromResult(result);
+        if (startOrdinaryTurn)
+        {
+            return await RunCapturedInputAsync(
+                    steering with { Delivery = AgentInputDelivery.Queue },
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return result!;
+    }
+
+    private PreparedAgentWorkAdmission PrepareOperationNotificationAdmission(
+        AgentOperationNotificationInputEvent input,
+        AgentWorkScheduler scheduler)
+    {
+        var admitted = (AgentOperationNotificationInputEvent)AuthorizeWorkIdentity(
+            CaptureInput(input),
+            _inputDispatcher.GetRegistration(input.GetType()));
+        var continuation = AgentOperationNotificationDispatcher.ToNotificationTurnInput(admitted);
+
+        return scheduler.Prepare(
+            admitted,
+            tryCommitToActiveTurn: () =>
+            {
+                var activeInput = _activeRuntimeInput;
+                if (activeInput is null ||
+                    activeInput.State != ActiveRuntimeInputState.Accepting ||
+                    activeInput.Input is not (UserMessagesInputEvent or AgentOperationNotificationInputEvent) ||
+                    !string.Equals(activeInput.Input.SessionId, admitted.SessionId, StringComparison.Ordinal) ||
+                    !string.Equals(activeInput.Input.ThreadId, admitted.ThreadId, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                return activeInput.Continuations.Writer.TryWrite(new AcceptedTurnContinuation(
+                    continuation.Messages,
+                    continuation.ClientInputId,
+                    admitted));
+            });
     }
 
     private static AgentInputResult ControlResult(AgentInputDisposition disposition, string? executionId)
-        => new() { Disposition = disposition, ThreadExecutionId = executionId };
+        => new AgentInputResult.Control(disposition, executionId);
 
     private AgentInputEvent TargetActiveExecution(AgentInputEvent input)
     {
@@ -1343,22 +1571,6 @@ public sealed class Agent
         return _structEvents;
     }
 
-    private Middleware.IAgentBackgroundTaskRegistry? GetCurrentRuntimeBackgroundTaskRegistry()
-    {
-        lock (_runtimeLock)
-        {
-            return _runtimeContext;
-        }
-    }
-
-    private Middleware.IAgentBackgroundHandleRegistry? GetCurrentRuntimeBackgroundHandleRegistry()
-    {
-        lock (_runtimeLock)
-        {
-            return _runtimeContext;
-        }
-    }
-
     private async Task<AgentInputResult> RunInputDirectAsync(
         AgentInputEvent input,
         AgentInputHandlerRegistration registration,
@@ -1378,6 +1590,160 @@ public sealed class Agent
                 cancellationToken)
             .ConfigureAwait(false);
 
+    private async Task<AgentInputResult> ExecuteCoordinatedInputAsync(
+        AgentInputEvent input,
+        AgentInputHandlerRegistration registration,
+        HPD.Events.IEventCoordinator eventCoordinator,
+        ActiveRuntimeInput? activeInput,
+        CancellationToken cancellationToken)
+    {
+        if (registration.RoutingClass == AgentInputRoutingClass.Work &&
+            input.WorkIdentityAuthority == AgentWorkIdentityAuthority.CoordinatorAssigned)
+        {
+            var reservation = input.WorkIdentityReservation as CoordinatorWorkReservation
+                ?? throw new InvalidOperationException("Coordinator-assigned work lacks its promotion reservation.");
+            var finished = false;
+            try
+            {
+                await reservation.PromoteAsync(cancellationToken).ConfigureAwait(false);
+                var result = await RunInputDirectAsync(
+                        input, registration, eventCoordinator, activeInput, cancellationToken)
+                    .ConfigureAwait(false);
+                await reservation.FinishAsync(
+                    ThreadExecutionOutcome.Succeeded, null, CancellationToken.None).ConfigureAwait(false);
+                finished = true;
+                if (input is AgentOperationNotificationInputEvent notification)
+                {
+                    await PublishAgentOperationNotificationDeliveredAsync(
+                        notification, eventCoordinator, CancellationToken.None).ConfigureAwait(false);
+                }
+                return result;
+            }
+            catch (Exception exception)
+            {
+                if (!finished)
+                {
+                    await reservation.FinishAsync(
+                        exception is OperationCanceledException
+                            ? ThreadExecutionOutcome.Cancelled
+                            : ThreadExecutionOutcome.Failed,
+                        exception,
+                        CancellationToken.None).ConfigureAwait(false);
+                }
+                throw;
+            }
+        }
+
+        if (registration.RoutingClass != AgentInputRoutingClass.Work ||
+            Config.SessionStore is not { } executionStore ||
+            input.SessionId is not { Length: > 0 } executionSessionId ||
+            input.ThreadId is not { Length: > 0 } executionThreadId)
+        {
+            if (registration.RoutingClass != AgentInputRoutingClass.Work)
+                return await RunInputDirectAsync(
+                        input, registration, eventCoordinator, activeInput, cancellationToken)
+                    .ConfigureAwait(false);
+
+            var executionId = input.ThreadExecutionId
+                ?? throw new InvalidOperationException("Admitted unscoped work requires an execution identity.");
+            await PublishScopedRuntimeEventAsync(new ThreadExecutionStartedEvent(
+                executionId,
+                input.AgentId ?? _name,
+                DateTimeOffset.UtcNow)
+            {
+                SessionId = input.SessionId,
+                ThreadId = input.ThreadId,
+                ThreadExecutionId = executionId
+            }, eventCoordinator, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var unscopedResult = await RunInputDirectAsync(
+                        input, registration, eventCoordinator, activeInput, cancellationToken)
+                    .ConfigureAwait(false);
+                await PublishScopedRuntimeEventAsync(new ThreadExecutionFinishedEvent(
+                    executionId,
+                    input.AgentId ?? _name,
+                    ThreadExecutionOutcome.Succeeded,
+                    DateTimeOffset.UtcNow)
+                {
+                    SessionId = input.SessionId,
+                    ThreadId = input.ThreadId,
+                    ThreadExecutionId = executionId
+                }, eventCoordinator, CancellationToken.None).ConfigureAwait(false);
+                if (input is AgentOperationNotificationInputEvent unscopedNotification)
+                {
+                    await PublishAgentOperationNotificationDeliveredAsync(
+                            unscopedNotification, eventCoordinator, CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
+                return unscopedResult;
+            }
+            catch (Exception exception)
+            {
+                await PublishScopedRuntimeEventAsync(new ThreadExecutionFinishedEvent(
+                    executionId,
+                    input.AgentId ?? _name,
+                    exception is OperationCanceledException
+                        ? ThreadExecutionOutcome.Cancelled
+                        : ThreadExecutionOutcome.Failed,
+                    DateTimeOffset.UtcNow,
+                    exception is OperationCanceledException
+                        ? null
+                        : new ThreadExecutionError(exception.GetType().Name, exception.Message))
+                {
+                    SessionId = input.SessionId,
+                    ThreadId = input.ThreadId,
+                    ThreadExecutionId = executionId
+                }, eventCoordinator, CancellationToken.None).ConfigureAwait(false);
+                throw;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(input.ThreadExecutionId))
+            throw new InvalidOperationException("Coordinated work requires an admitted execution identity.");
+
+        var controller = ThreadExecutionControllerRegistry.For(executionStore);
+        var acquired = await controller.TryAcquireAsync(
+            new ThreadExecutionStartRequest(
+                new ThreadKey(executionSessionId, executionThreadId),
+                input.ThreadExecutionId,
+                this),
+            cancellationToken).ConfigureAwait(false);
+        if (!acquired.Acquired || acquired.Lease is null)
+            throw new InvalidOperationException($"thread_execution_busy:{acquired.ActiveThreadExecutionId}");
+
+        try
+        {
+            var result = await RunInputDirectAsync(
+                    input, registration, eventCoordinator, activeInput, cancellationToken)
+                .ConfigureAwait(false);
+            await controller.ReleaseAsync(
+                acquired.Lease,
+                new ThreadExecutionTerminalResult(ThreadExecutionOutcome.Succeeded),
+                CancellationToken.None).ConfigureAwait(false);
+            if (input is AgentOperationNotificationInputEvent notification)
+            {
+                await PublishAgentOperationNotificationDeliveredAsync(
+                        notification, eventCoordinator, CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
+            return result;
+        }
+        catch (Exception exception)
+        {
+            await controller.ReleaseAsync(
+                acquired.Lease,
+                new ThreadExecutionTerminalResult(
+                    exception is OperationCanceledException
+                        ? ThreadExecutionOutcome.Cancelled
+                        : ThreadExecutionOutcome.Failed,
+                    exception.GetType().Name,
+                    exception.Message),
+                CancellationToken.None).ConfigureAwait(false);
+            throw;
+        }
+    }
+
     private AgentInputHandlingContext CreateInputHandlingContext(
         HPD.Events.IEventCoordinator eventCoordinator,
         ActiveRuntimeInput? activeInput)
@@ -1396,16 +1762,13 @@ public sealed class Agent
             DefaultChatClient = _defaultChatClientHandle,
             ActiveInput = activeInput,
             RunMessagesAsync = RunMessagesInputAsync,
-            InterruptAsync = HandleInterruptionAsync,
-            SteerAsync = HandleSteeringAsync,
-            TryResolveClientToolBackgroundOperation = ResolveClientToolBackgroundOperation,
-            PublishBackgroundTaskNotificationDelivered = PublishBackgroundTaskNotificationDeliveredAsync
+            TryResolveClientToolOperation = ResolveClientToolOperation
         };
 
-    private bool ResolveClientToolBackgroundOperation(ClientToolBackgroundOperationOutcomeEvent input)
+    private bool ResolveClientToolOperation(ClientToolOperationOutcomeEvent input)
     {
-        var registry = GetCurrentRuntimeBackgroundTaskRegistry() as IClientToolBackgroundOperationRegistry;
-        return registry?.TryResolveClientToolBackgroundOperation(input) == true;
+        lock (_runtimeLock)
+            return _runtimeContext?.TryResolveClientToolOperation(input) == true;
     }
 
     private async Task RunRuntimeLoopAsync(
@@ -1417,15 +1780,17 @@ public sealed class Agent
         {
             await foreach (var input in reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
             {
-                // An interrupt that arrived with no active execution may have asked the loop to
-                // drain the queued backlog as cancelled. Skip (and complete) those inputs without
-                // running a model turn so the interrupt is not silently lost.
-                if (TryDrainCancelledInput(input))
-                    continue;
+                lock (_runtimeLock)
+                {
+                    if (_cancelledRuntimeInputs.Remove(input))
+                        continue;
+                }
 
                 using var activeInputCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 var activeInput = new ActiveRuntimeInput(input, activeInputCts);
-                var result = AgentTurnResult.Empty;
+                AgentInputResult result = new AgentInputResult.Completed(
+                    AgentTurnResult.Empty,
+                    input.ThreadExecutionId);
                 Exception? runError = null;
                 var runCancelled = false;
                 lock (_runtimeLock)
@@ -1438,14 +1803,14 @@ public sealed class Agent
                 try
                 {
                     var registration = _inputDispatcher.GetRegistration(input.GetType());
-                    var inputResult = await RunInputDirectAsync(
+                    var inputResult = await ExecuteCoordinatedInputAsync(
                             input,
                             registration,
                             eventCoordinator,
                             activeInput,
                             activeInputCts.Token)
                         .ConfigureAwait(false);
-                    result = inputResult.TurnResult;
+                    result = inputResult;
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -1468,7 +1833,7 @@ public sealed class Agent
                     lock (_runtimeLock)
                     {
                         activeInput.State = ActiveRuntimeInputState.Finished;
-                        activeInput.Steering.Writer.TryComplete(runError);
+                        activeInput.Continuations.Writer.TryComplete(runError);
                         if (ReferenceEquals(_activeRuntimeInput, activeInput))
                             _activeRuntimeInput = null;
                         if (_runtimeInputCompletions.Remove(input, out var completion))
@@ -1501,50 +1866,22 @@ public sealed class Agent
             _runtimeInputCompletions.Clear();
         }
 
-        var outcome = new AgentRuntimeInputOutcome(AgentTurnResult.Empty, Cancelled: true, Error: null);
+        var outcome = new AgentRuntimeInputOutcome(
+            new AgentInputResult.Completed(AgentTurnResult.Empty, null),
+            Cancelled: true,
+            Error: null);
         foreach (var completion in abandoned)
             completion.TrySetResult(outcome);
     }
 
-    /// <summary>
-    /// Drains one queued input as cancelled when an interrupt requested backlog cancellation.
-    /// Returns true when the input should be skipped (already completed as cancelled) by the
-    /// runtime loop instead of being run.
-    /// </summary>
-    private bool TryDrainCancelledInput(AgentInputEvent input)
-    {
-        lock (_runtimeLock)
-        {
-            if (_runtimeCancelDrainRemaining <= 0)
-                return false;
-
-            _runtimeCancelDrainRemaining--;
-            if (_runtimeInputCompletions.Remove(input, out var completion))
-            {
-                completion.TrySetResult(new AgentRuntimeInputOutcome(
-                    AgentTurnResult.Empty,
-                    Cancelled: true,
-                    Error: null));
-            }
-
-            return true;
-        }
-    }
-
-    private async ValueTask PublishBackgroundTaskNotificationDeliveredAsync(
-        BackgroundTaskNotificationInputEvent input,
+    private async ValueTask PublishAgentOperationNotificationDeliveredAsync(
+        AgentOperationNotificationInputEvent input,
         HPD.Events.IEventCoordinator runtimeCoordinator,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(input.SessionId) ||
-            string.IsNullOrWhiteSpace(input.ThreadId))
-        {
-            return;
-        }
-
         foreach (var notification in input.Notifications)
         {
-            await PublishScopedRuntimeEventAsync(new BackgroundTaskNotificationDeliveredEvent
+            await PublishScopedRuntimeEventAsync(new AgentOperationNotificationDeliveredEvent
             {
                 NotificationId = notification.NotificationId,
                 DeliveredAt = DateTimeOffset.UtcNow,
@@ -1562,8 +1899,13 @@ public sealed class Agent
     {
         if (string.IsNullOrWhiteSpace(evt.SessionId) || string.IsNullOrWhiteSpace(evt.ThreadId))
         {
-            await runtimeCoordinator.EmitAsync(evt, cancellationToken).ConfigureAwait(false);
-            return evt;
+            var codec = Config?.EventComposition?.Codec
+                ?? throw new InvalidOperationException("Agent runtime has no event composition authority.");
+            if (!codec.TryGetByType(evt.GetType(), out _))
+                throw new InvalidOperationException($"Agent event type '{evt.GetType().FullName}' is not present in codec '{codec.Digest}'.");
+            var live = evt with { ThreadSequenceNumber = 0 };
+            await runtimeCoordinator.EmitAsync(live, cancellationToken).ConfigureAwait(false);
+            return live;
         }
 
         var store = Config?.SessionStore;
@@ -1573,11 +1915,15 @@ public sealed class Agent
                 evt.SessionId,
                 evt.ThreadId,
                 evt) with { ThreadSequenceNumber = 0 };
+            var codec = Config?.EventComposition?.Codec
+                ?? throw new InvalidOperationException("Agent runtime has no event composition authority.");
+            if (!codec.TryGetByType(stateless.GetType(), out _))
+                throw new InvalidOperationException($"Agent event type '{stateless.GetType().FullName}' is not present in codec '{codec.Digest}'.");
             await runtimeCoordinator.EmitAsync(stateless, cancellationToken).ConfigureAwait(false);
             return stateless;
         }
 
-        return await new ThreadEventPublisher(store, runtimeCoordinator).CommitAndPublishAsync(
+        return await CreateEventPublisher(store, runtimeCoordinator).PublishAsync(
             new ThreadKey(evt.SessionId, evt.ThreadId),
             EnrichOutputEvent(evt),
             cancellationToken).ConfigureAwait(false);
@@ -1588,21 +1934,24 @@ public sealed class Agent
     /// </summary>
     public async Task StartAsync(AgentRunConfig? runConfig = null, CancellationToken cancellationToken = default)
     {
+        ThrowIfShutdownStarted();
         cancellationToken.ThrowIfCancellationRequested();
 
         Middleware.AgentRuntimeContext runtimeContext;
         HPD.Events.IEventCoordinator runtimeCoordinator;
-        IThreadEventPublisher? runtimeThreadEvents;
+        IAgentEventPublisher? runtimeThreadEvents;
         StructEventHub runtimeStructEvents;
         CancellationTokenSource runtimeCts;
         Channel<AgentInputEvent> runtimeInbox;
-        BackgroundTaskNotificationDispatcher runtimeNotificationDispatcher;
+        AgentWorkScheduler? runtimeWorkScheduler;
+        AgentOperationNotificationDispatcher runtimeNotificationDispatcher;
 
         lock (_runtimeLock)
         {
             if (_runtimeStarting || (!_runtimeStopping && _runtimeLoopTask is { IsCompleted: false }))
             {
-                _runtimeNotificationDispatcher?.UpdateRunConfig(runConfig);
+                _runtimeNotificationDispatcher?.UpdateRunConfig(
+                    AgentRunConfigSnapshot.Capture(runConfig, _chatClientResolver.Composition));
                 return;
             }
 
@@ -1612,7 +1961,7 @@ public sealed class Agent
             runtimeCoordinator = new HPD.Events.Core.EventCoordinator();
             runtimeCoordinator.SetParent(_eventCoordinator);
             runtimeThreadEvents = Config?.SessionStore is { } store
-                ? new ThreadEventPublisher(store, runtimeCoordinator)
+                ? CreateEventPublisher(store, runtimeCoordinator)
                 : null;
             runtimeStructEvents = new StructEventHub();
             runtimeInbox = Channel.CreateUnbounded<AgentInputEvent>(new UnboundedChannelOptions
@@ -1621,6 +1970,7 @@ public sealed class Agent
                 SingleWriter = false,
                 AllowSynchronousContinuations = false
             });
+            runtimeWorkScheduler = new AgentWorkScheduler(_runtimeLock, runtimeInbox.Writer);
             runtimeContext = new Middleware.AgentRuntimeContext(
                 _name,
                 Config ?? throw new InvalidOperationException("Agent configuration is not available."),
@@ -1630,7 +1980,7 @@ public sealed class Agent
                 runtimeInbox.Writer,
                 async (runtimeInput, ct) =>
                 {
-                    await runtimeInbox.Writer.WriteAsync(runtimeInput, ct).ConfigureAwait(false);
+                    using var receipt = await SubmitRuntimeInputAsync(runtimeInput, ct).ConfigureAwait(false);
                 },
                 HasActiveRuntimeInputs,
                 runtimeCts.Token,
@@ -1650,17 +2000,19 @@ public sealed class Agent
                     _functionExecutionCore,
                     runtimeContext,
                     runtimeCoordinator));
-            runtimeNotificationDispatcher = new BackgroundTaskNotificationDispatcher(
-                _name,
-                runtimeCoordinator,
+            runtimeContext.RuntimeCapabilities.Set(_operationRegistry);
+            runtimeContext.RuntimeCapabilities.Set<IClientToolOperationRegistry>(runtimeContext);
+            runtimeNotificationDispatcher = new AgentOperationNotificationDispatcher(
+                _eventCoordinator,
                 runtimeThreadEvents,
-                runtimeInbox.Writer,
-                runConfig);
+                input => PrepareOperationNotificationAdmission(input, runtimeWorkScheduler),
+                AgentRunConfigSnapshot.Capture(runConfig, _chatClientResolver.Composition));
 
             _runtimeCts = runtimeCts;
             _runtimeEventCoordinator = runtimeCoordinator;
             _runtimeStructEvents = runtimeStructEvents;
             _runtimeContext = runtimeContext;
+            _runtimeWorkScheduler = runtimeWorkScheduler;
             _runtimeNotificationDispatcher = runtimeNotificationDispatcher;
             _runtimeInbox = null;
             _runtimeStopping = false;
@@ -1758,13 +2110,13 @@ public sealed class Agent
         CancellationToken cancellationToken)
     {
         Task? runtimeTask;
-        BackgroundTaskNotificationDispatcher? runtimeNotificationDispatcher;
+        AgentOperationNotificationDispatcher? runtimeNotificationDispatcher;
+        AgentWorkScheduler? runtimeWorkScheduler;
         var drainPendingInputs = true;
         TimeSpan? drainTimeout = null;
         Exception? stopError = null;
         List<Exception>? exceptions = null;
 
-        runtimeContext.StopAcceptingBackgroundTaskRegistrations();
 
         try
         {
@@ -1777,6 +2129,12 @@ public sealed class Agent
                 drainTimeout = beforeStop.DrainTimeout;
             }
         }
+        catch (OperationCanceledException)
+        {
+            // Stop has already been committed by StopAsync. Cancellation can skip the
+            // graceful phase, but it cannot abandon the runtime in a stopping state.
+            drainPendingInputs = false;
+        }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             stopError = ex;
@@ -1788,27 +2146,35 @@ public sealed class Agent
         {
             runtimeTask = _runtimeLoopTask;
             runtimeNotificationDispatcher = _runtimeNotificationDispatcher;
+            runtimeWorkScheduler = _runtimeWorkScheduler;
             _runtimeStopping = true;
         }
 
         if (runtimeNotificationDispatcher is not null)
         {
-            if (drainPendingInputs)
+            try
             {
-                try
-                {
-                    await runtimeNotificationDispatcher.CompleteAsync(cancellationToken).ConfigureAwait(false);
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    stopError ??= ex;
-                    exceptions ??= new List<Exception>();
-                    exceptions.Add(ex);
-                }
+                await runtimeNotificationDispatcher.CompleteAsync(CancellationToken.None).ConfigureAwait(false);
             }
-            else
+            catch (Exception ex)
             {
-                runtimeNotificationDispatcher.Dispose();
+                stopError ??= ex;
+                exceptions ??= new List<Exception>();
+                exceptions.Add(ex);
+            }
+        }
+
+        if (runtimeWorkScheduler is not null)
+        {
+            try
+            {
+                await runtimeWorkScheduler.StopPreparing().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                stopError ??= ex;
+                exceptions ??= new List<Exception>();
+                exceptions.Add(ex);
             }
         }
 
@@ -1839,9 +2205,16 @@ public sealed class Agent
 
                 try
                 {
-                    await runtimeTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+                    // The caller token bounds graceful drain. Once it expires we cancel
+                    // locally owned work and await convergence before disposing anything
+                    // that the runtime may still publish through.
+                    await runtimeTask.ConfigureAwait(false);
                 }
-                catch (Exception innerEx) when (innerEx is not OperationCanceledException)
+                catch (OperationCanceledException)
+                {
+                    // Expected when forced cancellation terminates the runtime loop.
+                }
+                catch (Exception innerEx)
                 {
                     stopError ??= innerEx;
                     exceptions ??= new List<Exception>();
@@ -1861,9 +2234,9 @@ public sealed class Agent
 
         try
         {
-            await runtimeContext.DisposeRegisteredResourcesAsync(cancellationToken).ConfigureAwait(false);
+            await runtimeContext.DisposeRegisteredResourcesAsync(CancellationToken.None).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex)
         {
             stopError ??= ex;
             exceptions ??= new List<Exception>();
@@ -1874,9 +2247,9 @@ public sealed class Agent
         {
             await _middlewarePipeline.ExecuteAfterStoppedAsync(
                 runtimeContext.AsAfterStopped(reason, stopError),
-                cancellationToken).ConfigureAwait(false);
+                CancellationToken.None).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex)
         {
             exceptions ??= new List<Exception>();
             exceptions.Add(ex);
@@ -1891,6 +2264,7 @@ public sealed class Agent
                 _runtimeLoopTask = null;
                 _runtimeCts = null;
                 _runtimeContext = null;
+                _runtimeWorkScheduler = null;
                 _runtimeEventCoordinator = null;
                 _runtimeStructEvents = null;
                 _runtimeNotificationDispatcher = null;
@@ -1956,14 +2330,72 @@ public sealed class Agent
     {
         var registration = _inputDispatcher.GetRegistration(input.GetType());
 
-        if (registration.Delivery == AgentInputDelivery.QueuedWork)
+        if (input is UserMessagesInputEvent { Delivery: AgentInputDelivery.Steer } steering)
+            return await TrySteerAsync(steering, cancellationToken).ConfigureAwait(false);
+
+        input = AuthorizeWorkIdentity(input, registration);
+
+        return await RunCapturedInputCoreAsync(input, registration, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal AgentInputEvent AuthorizeCoordinatorAssignedWork(
+        AgentInputEvent input,
+        CoordinatorWorkReservation reservation)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        ArgumentNullException.ThrowIfNull(reservation);
+        if (string.IsNullOrWhiteSpace(input.ThreadExecutionId))
+            throw new ArgumentException("Coordinator-assigned work requires an execution ID.", nameof(input));
+        if (!reservation.Matches(input))
+            throw new InvalidOperationException("Coordinator work does not match its execution reservation.");
+        return input with
+        {
+            WorkIdentityAuthority = AgentWorkIdentityAuthority.CoordinatorAssigned,
+            WorkIdentityReservation = reservation,
+            WorkIdentityValidated = false
+        };
+    }
+
+    private AgentInputEvent AuthorizeWorkIdentity(
+        AgentInputEvent input,
+        AgentInputHandlerRegistration registration)
+    {
+        if (registration.RoutingClass != AgentInputRoutingClass.Work || input.WorkIdentityValidated)
+            return input;
+
+        if (input.WorkIdentityAuthority == AgentWorkIdentityAuthority.CoordinatorAssigned)
+        {
+            if (input.WorkIdentityReservation is not CoordinatorWorkReservation reservation ||
+                !reservation.Matches(input) ||
+                string.IsNullOrWhiteSpace(input.ThreadExecutionId))
+            {
+                throw new InvalidOperationException("Coordinator-assigned work lacks a valid reservation proof.");
+            }
+            return input with { WorkIdentityValidated = true };
+        }
+
+        if (!string.IsNullOrWhiteSpace(input.ThreadExecutionId))
+            throw new InvalidOperationException("Framework-allocated work must not supply a thread execution ID.");
+        return input with
+        {
+            ThreadExecutionId = Guid.NewGuid().ToString("N"),
+            WorkIdentityValidated = true
+        };
+    }
+
+    private async Task<AgentInputResult> RunCapturedInputCoreAsync(
+        AgentInputEvent input,
+        AgentInputHandlerRegistration registration,
+        CancellationToken cancellationToken)
+    {
+
+        if (registration.RoutingClass == AgentInputRoutingClass.Work)
         {
             ChannelWriter<AgentInputEvent>? runtimeWriter;
             bool runtimeTransitioning;
 
             lock (_runtimeLock)
             {
-                _runtimeNotificationDispatcher?.UpdateRunConfig(input.RunConfig);
                 runtimeTransitioning = _runtimeStarting || _runtimeStopping;
                 runtimeWriter = !_runtimeStopping &&
                     _runtimeInbox != null &&
@@ -1974,75 +2406,97 @@ public sealed class Agent
 
             if (runtimeWriter is not null)
             {
-                try
-                {
-                    await runtimeWriter.WriteAsync(input, cancellationToken).ConfigureAwait(false);
-                    return new AgentInputResult
-                    {
-                        Disposition = AgentInputDisposition.Queued,
-                        ThreadExecutionId = input.ThreadExecutionId
-                    };
-                }
-                catch (ChannelClosedException ex)
-                {
-                    throw new InvalidOperationException(
-                        "Agent runtime is starting or stopping and cannot accept user input.",
-                        ex);
-                }
+                using var receipt = await SubmitRuntimeInputAsync(input, cancellationToken).ConfigureAwait(false);
+                var outcome = await receipt.Completion.ConfigureAwait(false);
+                if (outcome.Error is not null)
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(outcome.Error).Throw();
+                if (outcome.Cancelled)
+                    throw new OperationCanceledException(receipt.CallerToken);
+                return outcome.Result;
             }
 
             if (runtimeTransitioning)
                 throw new InvalidOperationException("Agent runtime is starting or stopping and cannot accept user input.");
         }
 
-        return await RunInputDirectAsync(input, registration, cancellationToken).ConfigureAwait(false);
+        return await ExecuteCoordinatedInputAsync(
+                input, registration, GetActiveEventCoordinator(), null, cancellationToken)
+            .ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Enqueues input into an already-running runtime and returns a receipt whose completion
-    /// reports execution outcome. This method does not create hosted thread-execution lifecycle facts.
-    /// </summary>
-    public ValueTask<AgentRuntimeInputSubmission> EnqueueAsync(
-        AgentInputEvent input,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(input);
-        return EnqueueCapturedAsync(CaptureInput(input), cancellationToken);
-    }
-
-    private async ValueTask<AgentRuntimeInputSubmission> EnqueueCapturedAsync(
+    /// <summary>Admits one captured work item to the running runtime.</summary>
+    internal async ValueTask<RuntimeInputReceipt> SubmitRuntimeInputAsync(
         AgentInputEvent input,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(input);
+        input = CaptureInput(input);
         var registration = _inputDispatcher.GetRegistration(input.GetType());
-        if (registration.Delivery != AgentInputDelivery.QueuedWork)
-            throw new ArgumentException("Active-control inputs cannot be enqueued as runtime work.", nameof(input));
+        if (registration.RoutingClass != AgentInputRoutingClass.Work)
+            throw new ArgumentException("Only work inputs can be enqueued as runtime work.", nameof(input));
+        input = AuthorizeWorkIdentity(input, registration);
 
-        ChannelWriter<AgentInputEvent>? runtimeWriter;
+        AgentWorkScheduler? runtimeWorkScheduler;
         var completion = new TaskCompletionSource<AgentRuntimeInputOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
         lock (_runtimeLock)
         {
-            runtimeWriter = !_runtimeStopping &&
-                _runtimeInbox != null &&
+            runtimeWorkScheduler = !_runtimeStopping &&
                 _runtimeLoopTask is { IsCompleted: false }
-                    ? _runtimeInbox.Writer
+                    ? _runtimeWorkScheduler ?? throw new InvalidOperationException("Agent runtime scheduler is unavailable.")
                     : null;
 
-            if (runtimeWriter is null)
+            if (runtimeWorkScheduler is null)
                 throw new InvalidOperationException("Agent runtime is not running and cannot accept queued input.");
-            if (!_runtimeInputCompletions.TryAdd(input, completion))
-                throw new InvalidOperationException("The same input instance is already queued in this runtime.");
         }
 
+        CancellationTokenRegistration cancellationRegistration = default;
+        using var prepared = runtimeWorkScheduler.Prepare(
+            input,
+            reserveCompletion: () =>
+            {
+                if (!_runtimeInputCompletions.TryAdd(input, completion))
+                    throw new InvalidOperationException("The same input instance is already queued in this runtime.");
+            },
+            abortCompletion: () =>
+            {
+                _runtimeInputCompletions.Remove(input);
+                _cancelledRuntimeInputs.Remove(input);
+            });
         try
         {
-            await runtimeWriter.WriteAsync(input, cancellationToken).ConfigureAwait(false);
-            return new AgentRuntimeInputSubmission(input, completion.Task);
+            if (cancellationToken.CanBeCanceled)
+            {
+                cancellationRegistration = cancellationToken.Register(() =>
+                {
+                    CancellationTokenSource? activeCancellation = null;
+                    lock (_runtimeLock)
+                    {
+                        if (ReferenceEquals(_activeRuntimeInput?.Input, input))
+                        {
+                            activeCancellation = _activeRuntimeInput.Cancellation;
+                        }
+                        else if (_runtimeInputCompletions.Remove(input, out var queuedCompletion))
+                        {
+                            _cancelledRuntimeInputs.Add(input);
+                            queuedCompletion.TrySetCanceled(cancellationToken);
+                        }
+                    }
+
+                    activeCancellation?.Cancel();
+                });
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            prepared.CommitVisible();
+            return new RuntimeInputReceipt(
+                input,
+                completion.Task,
+                cancellationToken,
+                cancellationRegistration);
         }
         catch (Exception ex)
         {
-            lock (_runtimeLock)
-                _runtimeInputCompletions.Remove(input);
+            cancellationRegistration.Dispose();
             completion.TrySetException(ex);
             throw;
         }
@@ -2098,7 +2552,7 @@ public sealed class Agent
         var store = Config?.SessionStore
             ?? throw new InvalidOperationException(
                 "A scoped response requires the configured session store so it can commit before request completion.");
-        var publisher = new ThreadEventPublisher(store, coordinator);
+        var publisher = CreateEventPublisher(store, coordinator);
         var key = new ThreadKey(agentResponse.SessionId, agentResponse.ThreadId);
 
         var result = await coordinator.RespondAsync(
@@ -2157,7 +2611,9 @@ public sealed class Agent
         CancellationToken cancellationToken)
     {
         var result = await RunAsync(input, cancellationToken).ConfigureAwait(false);
-        return result.TurnResult;
+        return result is AgentInputResult.Completed completed
+            ? completed.TurnResult
+            : throw new InvalidOperationException("Queued user input did not complete as a turn.");
     }
 
     private AgentInputEvent CaptureInput(AgentInputEvent input)
@@ -2170,12 +2626,7 @@ public sealed class Agent
                 RunConfig = runConfig,
                 Messages = messages.Messages.ToArray()
             },
-            SteeringInputEvent steering => steering with
-            {
-                RunConfig = runConfig,
-                Messages = steering.Messages.ToArray()
-            },
-            BackgroundTaskNotificationInputEvent notification => notification with
+            AgentOperationNotificationInputEvent notification => notification with
             {
                 RunConfig = runConfig,
                 Notifications = notification.Notifications.ToArray()
@@ -2216,6 +2667,7 @@ public sealed class Agent
         HPD.Events.IEventCoordinator? eventCoordinator = null,
         string? clientInputId = null,
         ActiveRuntimeInput? activeInput = null,
+        ProviderOperationAccountingBridge? accountingBridge = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default,
         AgentChatClientHandle? inheritedChatClient = null,
         ClientFamilyInheritanceMode inheritedChatMode = ClientFamilyInheritanceMode.UseOwn)
@@ -2257,6 +2709,14 @@ public sealed class Agent
 
         // Create linked cancellation token for turn timeout
         using var turnCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var activeTurnId = Interlocked.Increment(ref _nextActiveTurnId);
+        if (!_activeTurnCancellations.TryAdd(activeTurnId, turnCts))
+            throw new InvalidOperationException("Failed to register the active agent turn.");
+        if (Volatile.Read(ref _disposeState) != 0)
+        {
+            _activeTurnCancellations.TryRemove(activeTurnId, out _);
+            throw new ObjectDisposedException(nameof(Agent));
+        }
         if (Config?.AgenticLoop?.MaxTurnDuration is { } turnTimeout)
         {
             turnCts.CancelAfter(turnTimeout);
@@ -2291,6 +2751,24 @@ public sealed class Agent
         var isResumeTurn = newInputMessages.Count == 0 && thread?.Messages.Count > 0;
         AgentChatClientLease? chatClientLease = null;
         AgentClientSet? runClientSet = null;
+        var toolHarnessExecutionScope = ToolHarnessExecutionScope.Create(
+            _serviceProvider,
+            exception => _agentLogger?.LogError(exception, "ToolHarness execution cleanup failed after input completion."));
+        var toolHarnessExecutionId = Interlocked.Increment(ref _nextToolHarnessExecutionId);
+        if (!_toolHarnessExecutionCompletions.TryAdd(toolHarnessExecutionId, toolHarnessExecutionScope.Completion))
+            throw new InvalidOperationException("Failed to track ToolHarness execution cleanup.");
+        _ = toolHarnessExecutionScope.Completion.ContinueWith(
+            (_, state) =>
+            {
+                var tuple = ((ConcurrentDictionary<long, Task> Completions, long Id))state!;
+                if (tuple.Completions.TryGetValue(tuple.Id, out var completion) && completion.IsCompletedSuccessfully)
+                    tuple.Completions.TryRemove(tuple.Id, out _);
+            },
+            (_toolHarnessExecutionCompletions, toolHarnessExecutionId),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+        var toolHarnessDeactivationReason = ToolHarnessDeactivationReason.Failed;
 
         try
         {
@@ -2305,7 +2783,10 @@ public sealed class Agent
                 SpanId       = turnSpanId,
                 ParentSpanId = null   // root span
             };
- 
+            using var providerAccountingScope = accountingBridge?.Collector is { } collector
+                ? ProviderOperationAccountingScope.Push(collector)
+                : null;
+
             AgentLoopState state;
             IEnumerable<ChatMessage> effectiveMessages;
             ChatOptions? effectiveOptions;
@@ -2324,19 +2805,32 @@ public sealed class Agent
 
             // Use PreparedTurn's already-prepared messages and options
             effectiveMessages = turn.MessagesForLLM;
-            effectiveOptions = turn.Options;  // Already merged + Middlewareed
+            effectiveOptions = turn.Options;
+            var capabilityOverlay = AgentTurnCapabilityOverlay.Compose(
+                turn.CatalogLease?.Snapshot,
+                effectiveOptions?.Tools,
+                runConfig?.RuntimeTools,
+                runConfig?.Tools?.Additional);
+            effectiveOptions = effectiveOptions?.Clone() ?? new ChatOptions();
+            effectiveOptions.Tools = capabilityOverlay.Tools.ToArray();
+            yield return new AgentTurnCapabilitiesPinnedEvent
+            {
+                Identity = capabilityOverlay.Identity,
+                TraceId = traceId,
+                SpanId = turnSpanId
+            };
 
-            //     
+            //
             // BUILD CONFIGURATION & DECISION ENGINE (common to both paths)
-            //     
+            //
 
             var config = BuildDecisionConfiguration(effectiveOptions);
             var decisionEngine = new AgentDecisionEngine();
-            
+
             // INITIALIZE TURN HISTORY: Add only NEW input messages (Option 2 pattern)
             // All NEW messages from this turn will be saved to session at the end
             // PreparedTurn separates MessagesForLLM (full history) from NewInputMessages (to persist)
-            
+
             foreach (var msg in newInputMessages)
             {
                 turnHistory.Add(msg);
@@ -2346,6 +2840,7 @@ public sealed class Agent
 
             // Collect all response updates to build final history
             var responseUpdates = new List<ChatResponseUpdate>();
+            string? currentAssistantMessageId = null;
 
             var effectiveRunConfig = runConfig ?? new AgentRunConfig();
             if (ResolveModelTransport(effectiveRunConfig) is Middleware.AgentModelTransport.Chat)
@@ -2360,8 +2855,13 @@ public sealed class Agent
                         ParentInheritance = inheritedChatMode
                     },
                     effectiveCancellationToken).ConfigureAwait(false);
+                if (chatClientLease.Handle.ExecutionIdentity is null)
+                    throw new AgentRunConfigurationException(
+                        "subagent_provider_attribution_missing",
+                        "clients.chat",
+                        "The selected chat client must declare a safe provider/backend/adapter execution identity.");
             }
-            runClientSet = await ResolveRunClientSetAsync(effectiveRunConfig, effectiveCancellationToken)
+            runClientSet = await ResolveRunClientSetV9Async(effectiveRunConfig, effectiveCancellationToken)
                 .ConfigureAwait(false);
             var effectiveClientSet = runClientSet ?? _clientSet;
 
@@ -2397,14 +2897,14 @@ public sealed class Agent
                 initialState: state,
                 eventCoordinator: eventCoordinator,
                 threadEvents: Config?.SessionStore is { } turnStore
-                    ? new ThreadEventPublisher(turnStore, eventCoordinator)
+                    ? CreateEventPublisher(turnStore, eventCoordinator)
                     : null,
                 session: session,
                 thread: thread,
                 cancellationToken: effectiveCancellationToken,
                 effectiveChatClient: chatClientLease?.Handle,
                 chatClientResolver: _chatClientResolver,
-                services: _serviceProvider,     // Pass service provider for DI
+                services: toolHarnessExecutionScope.Services,
                 runtimeCapabilities: _runtimeContext?.RuntimeCapabilities,
                 traceId: traceId,                // Propagate trace ID to all middleware-emitted events
                 threadExecutionId: activeInput?.ThreadExecutionId,
@@ -2416,7 +2916,9 @@ public sealed class Agent
                 contentStore: _contentStore,
                 structEvents: GetActiveStructEvents(),
                 inputHandler: async (input, ct) =>
-                    _ = await RunAsync(TargetActiveExecution(input), ct).ConfigureAwait(false));
+                    _ = await RunAsync(TargetActiveExecution(input), ct).ConfigureAwait(false),
+                toolHarnessExecutionScope: toolHarnessExecutionScope,
+                agentResources: _agentResources.Resources);
 
             // IMPORTANT: Create runConfig instance ONCE and reuse it throughout the entire turn
             // Middleware may modify the consolidated per-run concern objects.
@@ -2431,52 +2933,76 @@ public sealed class Agent
             // MIDDLEWARE: BeforeMessageTurnAsync (turn-level hook)
             // Pass shared message list - middleware mutations are visible to all immediately
             var beforeTurnContext = agentContext.AsBeforeMessageTurn(
-                userMessage: newInputMessages.FirstOrDefault(),
+                inputMessages: newInputMessages,
                 conversationHistory: sharedMessages,  // SAME shared list, no copy
                 runConfig: effectiveRunConfig);
+
+            var originalUserInputs = newInputMessages
+                .Where(static message => message.GetSource() == AgentMessageSource.UserInput)
+                .ToArray();
+            var originalRuntimeInputs = newInputMessages
+                .Where(static message => message.GetSource() != AgentMessageSource.UserInput)
+                .ToArray();
 
             await turnPipeline.ExecuteBeforeMessageTurnAsync(beforeTurnContext, effectiveCancellationToken);
 
             // V2: State updates are immediate - no GetPendingState() needed!
             state = agentContext.State;
 
-            // UPDATE TURN HISTORY: If middleware transformed the user message (e.g., DataContent → UriContent),
-            // replace it in turnHistory so the transformed version gets persisted to session
-            if (beforeTurnContext.UserMessage != null && newInputMessages.Count > 0)
+            if (beforeTurnContext.UserInputMessages.Count != originalUserInputs.Length ||
+                beforeTurnContext.RuntimeContextMessages.Count != originalRuntimeInputs.Length)
             {
-                var originalMessage = newInputMessages[0];
-                if (!ReferenceEquals(originalMessage, beforeTurnContext.UserMessage))
+                throw new InvalidOperationException(
+                    "Before-message-turn middleware may replace current input messages but cannot add or remove them.");
+            }
+
+            foreach (var runtimeMessage in beforeTurnContext.RuntimeContextMessages)
+            {
+                if (runtimeMessage.GetSource() == AgentMessageSource.BackgroundNotification &&
+                    (runtimeMessage.Role != ChatRole.System ||
+                     runtimeMessage.GetVisibility() != AgentMessageVisibility.Hidden ||
+                     runtimeMessage.GetPersistence() != AgentMessagePersistence.ModelContextOnly))
                 {
-                    // Middleware transformed the message - update every turn-owned message list.
-                    // turnHistory controls persistence; shared/effective messages control the LLM request.
-                    for (int i = 0; i < turnHistory.Count; i++)
-                    {
-                        if (ReferenceEquals(turnHistory[i], originalMessage))
-                        {
-                            turnHistory[i] = beforeTurnContext.UserMessage;
-                            break;
-                        }
-                    }
+                    throw new InvalidOperationException(
+                        "Background notification middleware must preserve system role, hidden visibility, and model-context-only persistence.");
+                }
+            }
 
-                    for (int i = 0; i < sharedMessages.Count; i++)
-                    {
-                        if (ReferenceEquals(sharedMessages[i], originalMessage))
-                        {
-                            sharedMessages[i] = beforeTurnContext.UserMessage;
-                            break;
-                        }
-                    }
+            var inputReplacements = originalUserInputs
+                .Zip(beforeTurnContext.UserInputMessages)
+                .Concat(originalRuntimeInputs.Zip(beforeTurnContext.RuntimeContextMessages));
+            foreach (var (originalMessage, replacementMessage) in inputReplacements)
+            {
+                if (ReferenceEquals(originalMessage, replacementMessage))
+                    continue;
 
-                    if (effectiveMessages is List<ChatMessage> effectiveList &&
-                        !ReferenceEquals(effectiveList, sharedMessages))
+                for (var i = 0; i < turnHistory.Count; i++)
+                {
+                    if (ReferenceEquals(turnHistory[i], originalMessage))
                     {
-                        for (int i = 0; i < effectiveList.Count; i++)
+                        turnHistory[i] = replacementMessage;
+                        break;
+                    }
+                }
+
+                for (var i = 0; i < sharedMessages.Count; i++)
+                {
+                    if (ReferenceEquals(sharedMessages[i], originalMessage))
+                    {
+                        sharedMessages[i] = replacementMessage;
+                        break;
+                    }
+                }
+
+                if (effectiveMessages is List<ChatMessage> effectiveList &&
+                    !ReferenceEquals(effectiveList, sharedMessages))
+                {
+                    for (var i = 0; i < effectiveList.Count; i++)
+                    {
+                        if (ReferenceEquals(effectiveList[i], originalMessage))
                         {
-                            if (ReferenceEquals(effectiveList[i], originalMessage))
-                            {
-                                effectiveList[i] = beforeTurnContext.UserMessage;
-                                break;
-                            }
+                            effectiveList[i] = replacementMessage;
+                            break;
                         }
                     }
                 }
@@ -2504,7 +3030,7 @@ public sealed class Agent
 
             while (!state.IsTerminated)
             {
-                if (await DrainAcceptedSteeringAsync(
+                if (await DrainAcceptedTurnContinuationsAsync(
                         activeInput,
                         sharedMessages,
                         turnHistory,
@@ -2518,6 +3044,7 @@ public sealed class Agent
 
                 // Generate message ID for this iteration
                 var assistantMessageId = Guid.NewGuid().ToString();
+                currentAssistantMessageId = assistantMessageId;
                 var iterSpanId         = GenerateSpanId();
 
                 // Emit iteration start
@@ -2539,15 +3066,15 @@ public sealed class Agent
                     AgentName: _name)
                 { TraceId = traceId };
 
-                //      
+                //
                 // FUNCTIONAL CORE: Pure Decision (No I/O)
-                //      
+                //
 
                 var decision = decisionEngine.DecideNextAction(state, lastResponse, config);
 
-                //      
+                //
                 // OBSERVABILITY: Emit iteration and decision events
-                //      
+                //
 
                 // Emit iteration start event
                 yield return new IterationStartEvent(
@@ -2572,9 +3099,9 @@ public sealed class Agent
                 // NOTE: Circuit breaker events are now emitted directly by CircuitBreakerIterationMiddleware
                 // via context.PublishAsync() in BeforeToolExecutionAsync.
 
-                //     
+                //
                 // ARCHITECTURAL DECISION: Inline Execution for Zero-Latency Streaming
-                //     
+                //
                 //
                 // LLM calls and tool execution happen INLINE (not extracted to methods)
                 // to preserve real-time streaming. Extracting would add 200-3000ms latency
@@ -2582,7 +3109,7 @@ public sealed class Agent
                 //
 
                 if (decision is AgentDecision.CallLLM)
-                {    
+                {
 
                     // Select the provider input for this iteration.
                     IEnumerable<ChatMessage> messagesToSend;
@@ -2610,35 +3137,6 @@ public sealed class Agent
                     }
 
                     var modelVisibleMessages = messagesToSend as List<ChatMessage> ?? messagesToSend.ToList();
-
-                    // ═══════════════════════════════════════════════════════════════
-                    // RUNTIME TOOLS MERGE (for structured output tool mode)
-                    // Must happen BEFORE BeforeIterationAsync so middleware sees the output tool
-                    // Only merge once - subsequent iterations reuse the merged options
-                    // ═══════════════════════════════════════════════════════════════
-                    var hasRuntimeTools = runConfig?.RuntimeTools?.Count > 0;
-                    var hasAdditionalTools = runConfig?.Tools?.Additional?.Count > 0;
-
-                    if ((hasRuntimeTools || hasAdditionalTools) && state.Iteration == 0)
-                    {
-                        // Clone options to avoid mutating shared instances
-                        effectiveOptions = effectiveOptions?.Clone() ?? new ChatOptions();
-
-                        // Merge runtime tools with existing tools
-                        var allTools = new List<AITool>();
-                        if (effectiveOptions.Tools != null)
-                            allTools.AddRange(effectiveOptions.Tools);
-
-                        // Add internal runtime tools (from structured output)
-                        if (hasRuntimeTools)
-                            allTools.AddRange(runConfig!.RuntimeTools!);
-
-                        // Add user-provided additional tools
-                        if (hasAdditionalTools)
-                            allTools.AddRange(runConfig!.Tools!.Additional!);
-
-                        effectiveOptions.Tools = allTools;
-                    }
 
                     // ═══════════════════════════════════════════════════════════════
                     // RUNTIME TOOL MODE OVERRIDE (for structured output tool/union mode)
@@ -2711,10 +3209,13 @@ public sealed class Agent
                     var toolRequests = new List<FunctionCallContent>();
                     bool messageStarted = false;
                     bool reasoningMessageStarted = false;
-                    bool backgroundOperationEventEmitted = false;
+                    AgentOperation? providerResponseOperation = FindProviderResponseOperation(
+                        runConfig?.BackgroundResponses?.ContinuationToken);
                     ResponseContinuationToken? lastContinuationToken = null;
                     Middleware.AgentModelTurnRequest? currentModelRequest = null;
                     Middleware.IAgentModelTurnExecutor? currentModelTurnExecutor = null;
+                    var logicalModelOperationId = Guid.NewGuid().ToString("N");
+                    var physicalModelAttempt = 0;
 
                     // Execute LLM call (unless skipped by Middleware)
 
@@ -2791,7 +3292,7 @@ public sealed class Agent
 
                                     if (functionCall.Arguments != null && functionCall.Arguments.Count > 0)
                                     {
-                                        var argsJson = SerializeFunctionArgumentsForEvent(functionCall);
+                                        var argsJson = FunctionCallArgumentSerializer.Serialize(functionCall);
                                         yield return new ToolCallArgsEvent(functionCall.CallId, argsJson) { TraceId = traceId };
                                     }
                                 }
@@ -2819,8 +3320,10 @@ public sealed class Agent
                         var chatModel = selectedTransport is Middleware.AgentModelTransport.Chat
                             ? chatClientLease?.Client
                             : null;
-                        var realtimeModel = selectedTransport is Middleware.AgentModelTransport.Realtime
-                            ? effectiveClientSet?.Realtime
+                        var realtimeModel = selectedTransport is Middleware.AgentModelTransport.Realtime &&
+                            effectiveClientSet is not null
+                            ? await effectiveClientSet.GetRealtimeAsync(
+                                effectiveCancellationToken).ConfigureAwait(false)
                             : null;
 
                         if (selectedTransport is Middleware.AgentModelTransport.Chat && chatModel is null)
@@ -2959,9 +3462,168 @@ public sealed class Agent
                                     when lifecycle.State is Middleware.AgentModelResponseState.Completed =>
                                     new ChatResponseUpdate { FinishReason = ChatFinishReason.Stop },
                                 Middleware.AgentAudioDeltaUpdate => null,
-                                Middleware.AgentUsageUpdate => null,
+                                Middleware.AgentUsageUpdate usage when usage.Usage is not null =>
+                                    new ChatResponseUpdate
+                                    {
+                                        Contents = [new UsageContent(usage.Usage)]
+                                    },
                                 _ => null
                             };
+                        }
+
+                        async IAsyncEnumerable<Middleware.AgentModelUpdate> ExecuteAccountedModelAttempt(
+                            Middleware.AgentModelTurnRequest request,
+                            [EnumeratorCancellation] CancellationToken attemptCancellationToken = default)
+                        {
+                            var attemptNumber = Interlocked.Increment(ref physicalModelAttempt);
+                            var family = request.Transport is Middleware.AgentModelTransport.Realtime
+                                ? Providers.ProviderClientFamily.Realtime
+                                : Providers.ProviderClientFamily.Chat;
+                            var selected = Config?.ResolveClientConfig(family, effectiveRunConfig.Clients);
+                            var selectedIdentity = family is Providers.ProviderClientFamily.Chat
+                                ? chatClientLease?.Handle.ExecutionIdentity
+                                : effectiveClientSet?.GetExecutionIdentity(family);
+                            if (selectedIdentity is null)
+                                throw new AgentRunConfigurationException(
+                                    "subagent_provider_attribution_missing",
+                                    $"clients.{family}",
+                                    "The selected runtime client has no safe execution identity.");
+                            var operationId = Guid.NewGuid().ToString("N");
+                            ProviderOperationAccountingScope.Current?.RegisterAttempt(new(
+                                operationId, logicalModelOperationId, attemptNumber,
+                                family is Providers.ProviderClientFamily.Realtime
+                                    ? ProviderOperationKind.RealtimeModelResponse
+                                    : ProviderOperationKind.ChatModelResponse,
+                                family,
+                                selectedIdentity.ProviderKey,
+                                selectedIdentity.ModelName));
+                            ProviderUsageAccumulator? usageAccumulator = null;
+                            UsageUpdateSemantics ResolveAttemptUsageSemantics()
+                            {
+                                var declaration = family is ProviderClientFamily.Realtime
+                                    ? request.RealtimeModel?.GetService(typeof(ProviderStreamingUsageSemanticsDeclaration))
+                                        as ProviderStreamingUsageSemanticsDeclaration
+                                    : request.ChatModel?.GetService(typeof(ProviderStreamingUsageSemanticsDeclaration))
+                                        as ProviderStreamingUsageSemanticsDeclaration;
+                                return ProviderStreamingUsageSemanticsCatalog.Resolve(
+                                    selectedIdentity.ProviderKey, family, declaration);
+                            }
+                            var transcriptionAttempts = new Dictionary<string, (string OperationId, UsageDetails? Usage)>(StringComparer.Ordinal);
+                            string? attemptModelId = selectedIdentity.ModelName;
+                            string? attemptResponseId = null;
+                            await using var attemptEnumerator = modelTurnExecutor
+                                .RunAsync(request, attemptCancellationToken)
+                                .GetAsyncEnumerator(attemptCancellationToken);
+                            while (true)
+                            {
+                                bool moved = false;
+                                Exception? failure = null;
+                                try
+                                {
+                                    moved = await attemptEnumerator.MoveNextAsync().ConfigureAwait(false);
+                                }
+                                catch (Exception exception)
+                                {
+                                    failure = exception;
+                                }
+
+                                if (failure is not null)
+                                {
+                                    foreach (var (itemId, transcription) in transcriptionAttempts)
+                                    {
+                                        accountingBridge.EnqueueTerminal(new ProviderOperationUsageEvent(
+                                            messageTurnId, transcription.OperationId, itemId, 1,
+                                            ProviderOperationKind.RealtimeInputTranscription,
+                                            ProviderClientFamily.Realtime,
+                                            failure is OperationCanceledException
+                                                ? ProviderOperationOutcome.Cancelled
+                                                : ProviderOperationOutcome.Failed,
+                                            transcription.Usage, selected?.Provider?.Key, selected?.ModelName, itemId));
+                                    }
+                                    transcriptionAttempts.Clear();
+                                    accountingBridge?.EnqueueTerminal(new AgentTurnFinishedEvent(
+                                        messageTurnId, state.Iteration, operationId, logicalModelOperationId,
+                                        attemptNumber, family,
+                                        failure is OperationCanceledException
+                                            ? ProviderOperationOutcome.Cancelled
+                                            : ProviderOperationOutcome.Failed,
+                                        usageAccumulator?.Usage, selected?.Provider?.Key, attemptModelId, attemptResponseId)
+                                    { TraceId = traceId, SpanId = iterSpanId, ParentSpanId = turnSpanId });
+                                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+                                }
+
+                                if (!moved)
+                                {
+                                    foreach (var (itemId, transcription) in transcriptionAttempts)
+                                    {
+                                        accountingBridge.EnqueueTerminal(new ProviderOperationUsageEvent(
+                                            messageTurnId, transcription.OperationId, itemId, 1,
+                                            ProviderOperationKind.RealtimeInputTranscription,
+                                            ProviderClientFamily.Realtime, ProviderOperationOutcome.Unknown,
+                                            transcription.Usage, selected?.Provider?.Key, selected?.ModelName, itemId));
+                                    }
+                                    transcriptionAttempts.Clear();
+                                    accountingBridge?.EnqueueTerminal(new AgentTurnFinishedEvent(
+                                        messageTurnId, state.Iteration, operationId, logicalModelOperationId,
+                                        attemptNumber, family, ProviderOperationOutcome.Succeeded,
+                                        usageAccumulator?.Usage, selected?.Provider?.Key, attemptModelId, attemptResponseId)
+                                    { TraceId = traceId, SpanId = iterSpanId, ParentSpanId = turnSpanId });
+                                    yield break;
+                                }
+
+                                var current = attemptEnumerator.Current;
+                                if (current.ChatUpdate is { } chatUpdate)
+                                {
+                                    attemptModelId = chatUpdate.ModelId ?? attemptModelId;
+                                    attemptResponseId = chatUpdate.ResponseId ?? attemptResponseId;
+                                    foreach (var usageContent in chatUpdate.Contents.OfType<UsageContent>())
+                                    {
+                                        (usageAccumulator ??= new ProviderUsageAccumulator(
+                                            ResolveAttemptUsageSemantics()))
+                                            .Observe(usageContent.Details);
+                                    }
+                                }
+                                if (current is Middleware.AgentUsageUpdate { Usage: { } reportedUsage })
+                                {
+                                    (usageAccumulator ??= new ProviderUsageAccumulator(
+                                        ResolveAttemptUsageSemantics()))
+                                        .Observe(reportedUsage);
+                                }
+                                if (current is AgentInputTranscriptUpdate transcript)
+                                {
+                                    var itemId = string.IsNullOrWhiteSpace(transcript.ItemId)
+                                        ? $"transcription-{transcriptionAttempts.Count + 1}"
+                                        : transcript.ItemId;
+                                    if (!transcriptionAttempts.TryGetValue(itemId, out var transcription))
+                                    {
+                                        transcription = (Guid.NewGuid().ToString("N"), null);
+                                        transcriptionAttempts.Add(itemId, transcription);
+                                        ProviderOperationAccountingScope.Current?.RegisterAttempt(new(
+                                            transcription.OperationId, itemId, 1,
+                                            ProviderOperationKind.RealtimeInputTranscription,
+                                            ProviderClientFamily.Realtime,
+                                            selected?.Provider?.Key, selected?.ModelName));
+                                    }
+                                    if (transcript.Usage is not null)
+                                    {
+                                        transcription = (transcription.OperationId, transcript.Usage);
+                                        transcriptionAttempts[itemId] = transcription;
+                                    }
+                                    if (transcript.Stage is AgentInputTranscriptStage.Final or AgentInputTranscriptStage.Failed)
+                                    {
+                                        accountingBridge.EnqueueTerminal(new ProviderOperationUsageEvent(
+                                            messageTurnId, transcription.OperationId, itemId, 1,
+                                            ProviderOperationKind.RealtimeInputTranscription,
+                                            ProviderClientFamily.Realtime,
+                                            transcript.Stage is AgentInputTranscriptStage.Failed
+                                                ? ProviderOperationOutcome.Failed
+                                                : ProviderOperationOutcome.Succeeded,
+                                            transcription.Usage, selected?.Provider?.Key, selected?.ModelName, itemId));
+                                        transcriptionAttempts.Remove(itemId);
+                                    }
+                                }
+                                yield return current;
+                            }
                         }
 
                         if (coalesceDeltas)
@@ -2969,7 +3631,7 @@ public sealed class Agent
                             // COALESCE MODE: Buffer all updates, then emit coalesced events
                             await foreach (var modelUpdate in turnPipeline.ExecuteModelTurnStreamingAsync(
                                 modelRequest,
-                                (req) => modelTurnExecutor.RunAsync(req, effectiveCancellationToken),
+                                (req) => ExecuteAccountedModelAttempt(req, effectiveCancellationToken),
                                 effectiveCancellationToken))
                             {
                                 if (modelUpdate is AgentInputTranscriptUpdate transcriptUpdate &&
@@ -3025,25 +3687,38 @@ public sealed class Agent
                                 {
                                     lastContinuationToken = continuationToken;
 
-                                    // Emit background operation started event on first token
-                                    if (!backgroundOperationEventEmitted && allowBackgroundResponses)
+                                    if (providerResponseOperation is null && allowBackgroundResponses)
                                     {
-                                        backgroundOperationEventEmitted = true;
-                                        yield return new ModelBackgroundOperationStartedEvent(
-                                            ContinuationToken: continuationToken,
-                                            Status: OperationStatus.InProgress,
-                                            OperationId: assistantMessageId)
-                        { TraceId = traceId };
-
-                                        // Track in agent loop state for crash recovery
-                                        state = state.WithBackgroundOperation(new BackgroundOperationInfo
+                                        var now = DateTimeOffset.UtcNow;
+                                        providerResponseOperation = await _operationRegistry.RegisterAsync(
+                                            new AgentOperationSnapshot
                                         {
-                                            TokenData = Convert.ToBase64String(continuationToken.ToBytes().Span),
-                                            Iteration = state.Iteration,
-                                            StartedAt = DateTimeOffset.UtcNow,
-                                            LastKnownStatus = OperationStatus.InProgress
-                                        });
+                                            OperationId = Guid.NewGuid().ToString("N"),
+                                            ProviderOperationId = assistantMessageId,
+                                            SourceKind = AgentOperationSourceKind.ProviderOperation,
+                                            Name = "model.response",
+                                            Address = new AgentExecutionAddress(
+                                                AgentId, session?.Id ?? string.Empty, thread?.Id ?? string.Empty),
+                                            OriginatingThreadExecutionId = activeInput?.ThreadExecutionId,
+                                            ProviderStatus = AgentOperationProviderStatus.Running,
+                                            ObservationStatus = AgentOperationObservationStatus.Attached,
+                                            Control = new AgentOperationControl(
+                                                assistantMessageId, AgentOperationKind.Provider,
+                                                AgentOperationCapabilities.None),
+                                            Notification = new AgentOperationNotificationPolicy
+                                            {
+                                                IncludeTerminal = true,
+                                                DeduplicationKey = $"model.response:{assistantMessageId}"
+                                            },
+                                            RegisteredAt = now,
+                                            StartedAt = now,
+                                            UpdatedAt = now,
+                                            Version = 0
+                                        }, observer: new ProviderResponseObservation(continuationToken),
+                                            cancellationToken: effectiveCancellationToken).ConfigureAwait(false);
                                     }
+                                    else if (providerResponseOperation?.Observer is ProviderResponseObservation observation)
+                                        observation.ContinuationToken = continuationToken;
                                 }
 #pragma warning restore MEAI001
 
@@ -3062,7 +3737,7 @@ public sealed class Agent
                                         }
                                         else if (content is FunctionCallContent functionCall)
                                         {
-                                            toolRequests.Add(functionCall);
+                                            toolRequests.Add(FunctionExecutionCore.NormalizeProviderFunctionCall(functionCall));
                                             assistantContents.Add(functionCall);
                                         }
                                     }
@@ -3135,7 +3810,7 @@ public sealed class Agent
 
                                     if (functionCall.Arguments != null && functionCall.Arguments.Count > 0)
                                     {
-                                        var argsJson = SerializeFunctionArgumentsForEvent(functionCall);
+                                        var argsJson = FunctionCallArgumentSerializer.Serialize(functionCall);
 
                                         yield return new ToolCallArgsEvent(functionCall.CallId, argsJson) { TraceId = traceId };
                                     }
@@ -3155,7 +3830,7 @@ public sealed class Agent
                             // STREAMING MODE: Emit immediately (existing behavior)
                             await foreach (var modelUpdate in turnPipeline.ExecuteModelTurnStreamingAsync(
                                 modelRequest,
-                                (req) => modelTurnExecutor.RunAsync(req, effectiveCancellationToken),
+                                (req) => ExecuteAccountedModelAttempt(req, effectiveCancellationToken),
                                 effectiveCancellationToken))
                             {
                                 if (modelUpdate is AgentInputTranscriptUpdate transcriptUpdate &&
@@ -3211,25 +3886,38 @@ public sealed class Agent
                                 {
                                     lastContinuationToken = continuationToken;
 
-                                    // Emit background operation started event on first token
-                                    if (!backgroundOperationEventEmitted && allowBackgroundResponses)
+                                    if (providerResponseOperation is null && allowBackgroundResponses)
                                     {
-                                        backgroundOperationEventEmitted = true;
-                                        yield return new ModelBackgroundOperationStartedEvent(
-                                            ContinuationToken: continuationToken,
-                                            Status: OperationStatus.InProgress,
-                                            OperationId: assistantMessageId)
-                        { TraceId = traceId };
-
-                                        // Track in agent loop state for crash recovery
-                                        state = state.WithBackgroundOperation(new BackgroundOperationInfo
+                                        var now = DateTimeOffset.UtcNow;
+                                        providerResponseOperation = await _operationRegistry.RegisterAsync(
+                                            new AgentOperationSnapshot
                                         {
-                                            TokenData = Convert.ToBase64String(continuationToken.ToBytes().Span),
-                                            Iteration = state.Iteration,
-                                            StartedAt = DateTimeOffset.UtcNow,
-                                            LastKnownStatus = OperationStatus.InProgress
-                                        });
+                                            OperationId = Guid.NewGuid().ToString("N"),
+                                            ProviderOperationId = assistantMessageId,
+                                            SourceKind = AgentOperationSourceKind.ProviderOperation,
+                                            Name = "model.response",
+                                            Address = new AgentExecutionAddress(
+                                                AgentId, session?.Id ?? string.Empty, thread?.Id ?? string.Empty),
+                                            OriginatingThreadExecutionId = activeInput?.ThreadExecutionId,
+                                            ProviderStatus = AgentOperationProviderStatus.Running,
+                                            ObservationStatus = AgentOperationObservationStatus.Attached,
+                                            Control = new AgentOperationControl(
+                                                assistantMessageId, AgentOperationKind.Provider,
+                                                AgentOperationCapabilities.None),
+                                            Notification = new AgentOperationNotificationPolicy
+                                            {
+                                                IncludeTerminal = true,
+                                                DeduplicationKey = $"model.response:{assistantMessageId}"
+                                            },
+                                            RegisteredAt = now,
+                                            StartedAt = now,
+                                            UpdatedAt = now,
+                                            Version = 0
+                                        }, observer: new ProviderResponseObservation(continuationToken),
+                                            cancellationToken: effectiveCancellationToken).ConfigureAwait(false);
                                     }
+                                    else if (providerResponseOperation?.Observer is ProviderResponseObservation observation)
+                                        observation.ContinuationToken = continuationToken;
                                 }
 #pragma warning restore MEAI001
 
@@ -3297,12 +3985,12 @@ public sealed class Agent
 
                                             if (functionCall.Arguments != null && functionCall.Arguments.Count > 0)
                                             {
-                                                var argsJson = SerializeFunctionArgumentsForEvent(functionCall);
+                                                var argsJson = FunctionCallArgumentSerializer.Serialize(functionCall);
 
                                                 yield return new ToolCallArgsEvent(functionCall.CallId, argsJson) { TraceId = traceId };
                                             }
 
-                                            toolRequests.Add(functionCall);
+                                            toolRequests.Add(FunctionExecutionCore.NormalizeProviderFunctionCall(functionCall));
                                             assistantContents.Add(functionCall);
                                         }
                                     }
@@ -3337,18 +4025,16 @@ public sealed class Agent
                         }
                     } // End of else block (LLM call not skipped)
 
-                    // Clear background operation state when completed (token becomes null)
-                    if (backgroundOperationEventEmitted && lastContinuationToken == null)
+                    if (providerResponseOperation is not null && lastContinuationToken == null)
                     {
-                        // Operation completed - clear the tracked background operation
-                        state = state.WithBackgroundOperation(null);
-
-                        // Emit completion status event
-                        yield return new ModelBackgroundOperationStatusEvent(
-                            ContinuationToken: null!,  // null indicates completion
-                            Status: OperationStatus.Completed,
-                            StatusMessage: "Background operation completed successfully")
-                        { TraceId = traceId };
+                        await _operationRegistry.TransitionAsync(
+                            providerResponseOperation.Snapshot.OperationId,
+                            new AgentOperationTransition
+                            {
+                                ProviderStatus = AgentOperationProviderStatus.Completed,
+                                Completion = new AgentOperationCompletion("Model response completed."),
+                                ProviderDeduplicationKey = $"model.response.completed:{assistantMessageId}"
+                            }, effectiveCancellationToken).ConfigureAwait(false);
                     }
 
                     // Close the message if we started one (applies to both middleware and normal flow)
@@ -3359,6 +4045,28 @@ public sealed class Agent
 
                     // V2: Sync state after LLM call (middleware may have updated it)
                     state = agentContext.State;
+
+                    // Materialize and account for this model call exactly once before any
+                    // tool/non-tool branching or response-update clearing. ToChatResponse()
+                    // aggregates every MEAI UsageContent reported by this call.
+                    var iterationResponse = responseUpdates.Count > 0
+                        ? ConstructChatResponseFromUpdates(responseUpdates)
+                        : null;
+                    var iterationUsage = iterationResponse?.Usage;
+                    state = state.WithAccumulatedUsage(iterationUsage);
+                    agentContext.SyncState(state);
+
+                    var clientFamily = currentModelRequest?.Transport is Middleware.AgentModelTransport.Realtime
+                        ? Providers.ProviderClientFamily.Realtime
+                        : Providers.ProviderClientFamily.Chat;
+                    var resolvedClientConfig = Config?.ResolveClientConfig(
+                        clientFamily,
+                        effectiveRunConfig.Clients);
+
+                    foreach (var terminalAttempt in accountingBridge?.DrainTerminals() ?? [])
+                    {
+                        yield return terminalAttempt;
+                    }
 
                     // Check for early termination from BeforeIteration middleware (e.g., ContinuationPermissionMiddleware)
                     if (state.IsTerminated)
@@ -3371,9 +4079,12 @@ public sealed class Agent
                     {
                         // Coalesce text content before creating the message
                         var coalescedContents = CoalesceTextContents(assistantContents);
-                        
+
                         // Create assistant message with tool calls
-                        var assistantMessage = new ChatMessage(ChatRole.Assistant, coalescedContents);
+                        var assistantMessage = new ChatMessage(ChatRole.Assistant, coalescedContents)
+                        {
+                            MessageId = assistantMessageId
+                        };
 
                         // Add to shared message list - visible to all contexts immediately
                         sharedMessages.Add(assistantMessage);
@@ -3394,7 +4105,10 @@ public sealed class Agent
                         // Add to history if there's ANY content (text OR tool calls)
                         if (historyContents.Count > 0)
                         {
-                            var historyMessage = new ChatMessage(ChatRole.Assistant, historyContents);
+                            var historyMessage = new ChatMessage(ChatRole.Assistant, historyContents)
+                            {
+                                MessageId = assistantMessageId
+                            };
                             turnHistory.Add(historyMessage);
                             await CommitThreadMessagesAsync(
                                 session,
@@ -3436,6 +4150,7 @@ public sealed class Agent
                             }
 
                             // If not terminated, continue to next iteration without executing tools
+                            responseUpdates.Clear();
                             continue;
                         }
 
@@ -3468,7 +4183,7 @@ public sealed class Agent
                                         toolRequest.CallId,
                                         assistantMessageId,
                                         toolRequest.Name,
-                                        SerializeFunctionArgumentsForEvent(toolRequest))
+                                        FunctionCallArgumentSerializer.Serialize(toolRequest))
                                     { TraceId = traceId };
                                 }
                             }
@@ -3515,7 +4230,7 @@ public sealed class Agent
                             break;
                         }
 
-                        // UPDATE STATE WITH COMPLETED FUNCTIONS   
+                        // UPDATE STATE WITH COMPLETED FUNCTIONS
                         foreach (var functionName in successfulFunctions)
                         {
                             state = state.CompleteFunction(functionName);
@@ -3560,7 +4275,7 @@ public sealed class Agent
                                     result.CallId,
                                     assistantMessageId,
                                     toolRequest.Name,
-                                    SerializeFunctionArgumentsForEvent(toolRequest))
+                                    FunctionCallArgumentSerializer.Serialize(toolRequest))
                                 { TraceId = traceId };
                                 callIdToToolHarness.TryGetValue(result.CallId, out var toolharnessName);
                                 callIdToCallType.TryGetValue(result.CallId, out var callType);
@@ -3600,32 +4315,45 @@ public sealed class Agent
                         // V2: Sync state after middleware
                         state = agentContext.State;
 
-                        var finalResponse = ConstructChatResponseFromUpdates(responseUpdates);
+                        var finalResponse = iterationResponse
+                            ?? ConstructChatResponseFromUpdates(responseUpdates);
                         lastResponse = finalResponse;
-
-                        // Accumulate token usage across iterations
-                        state = state.WithAccumulatedUsage(finalResponse.Usage);
-                        agentContext.SyncState(state);
 
                         // Add final assistant message to turnHistory before clearing responseUpdates
                         // This ensures the assistant's response is persisted to the session
                         if (finalResponse.Messages.Count > 0)
                         {
                             var finalAssistantMessage = finalResponse.Messages[0];
+                            finalAssistantMessage.MessageId = assistantMessageId;
                             if (finalAssistantMessage.Contents.Count > 0)
                             {
-                                // Add to shared message list - visible to all contexts immediately
-                                sharedMessages.Add(finalAssistantMessage);
-
-                                // Add to turnHistory for session persistence
-                                turnHistory.Add(finalAssistantMessage);
-                                await CommitThreadMessagesAsync(
-                                    session,
-                                    thread,
-                                    [finalAssistantMessage],
-                                    clientInputId: null,
-                                    eventCoordinator,
-                                    effectiveCancellationToken).ConfigureAwait(false);
+                                var existingTurnIndex = turnHistory.FindIndex(
+                                    message => message.MessageId == assistantMessageId);
+                                if (existingTurnIndex >= 0)
+                                {
+                                    // Realtime transports may have already materialized this streamed
+                                    // assistant message. Preserve its journal identity and replace the
+                                    // in-memory snapshot instead of creating a duplicate identity.
+                                    turnHistory[existingTurnIndex] = finalAssistantMessage;
+                                    var existingSharedIndex = sharedMessages.FindIndex(
+                                        message => message.MessageId == assistantMessageId);
+                                    if (existingSharedIndex >= 0)
+                                        sharedMessages[existingSharedIndex] = finalAssistantMessage;
+                                    else
+                                        sharedMessages.Add(finalAssistantMessage);
+                                }
+                                else
+                                {
+                                    sharedMessages.Add(finalAssistantMessage);
+                                    turnHistory.Add(finalAssistantMessage);
+                                    await CommitThreadMessagesAsync(
+                                        session,
+                                        thread,
+                                        [finalAssistantMessage],
+                                        clientInputId: null,
+                                        eventCoordinator,
+                                        effectiveCancellationToken).ConfigureAwait(false);
+                                }
                             }
                         }
 
@@ -3662,14 +4390,6 @@ public sealed class Agent
                     throw new InvalidOperationException($"Unknown decision type: {decision.GetType().Name}");
                 }
 
-                // Emit iteration end
-                yield return new AgentTurnFinishedEvent(state.Iteration)
-                {
-                    TraceId      = traceId,
-                    SpanId       = iterSpanId,
-                    ParentSpanId = turnSpanId
-                };
-
                 // Check if middleware signaled termination (e.g., circuit breaker, error threshold)
                 // This is a safety check in case the break statements inside nested blocks didn't exit properly
                 if (state.IsTerminated)
@@ -3686,12 +4406,11 @@ public sealed class Agent
             {
                 var finalResponse = ConstructChatResponseFromUpdates(responseUpdates);
 
-                // Accumulate usage from this final response
-                state = state.WithAccumulatedUsage(finalResponse.Usage);
-
                 if (finalResponse.Messages.Count > 0)
                 {
                     var finalAssistantMessage = finalResponse.Messages[0];
+                    if (currentAssistantMessageId is not null)
+                        finalAssistantMessage.MessageId = currentAssistantMessageId;
 
                     if (finalAssistantMessage.Contents.Count > 0)
                     {
@@ -3711,7 +4430,68 @@ public sealed class Agent
                 }
             }
 
-            // Emit MESSAGE TURN finished event
+            // Provider work and durable turn-history rewrites must settle before accounting closes.
+            agentContext.SyncState(state);
+            CollapseDuplicateMessageSnapshots(turnHistory);
+            var messageIdsBeforeAccountingClose = turnHistory
+                .Select(message => message.MessageId)
+                .ToList();
+            var messageSnapshotsBeforeAccountingClose = turnHistory
+                .Where(message => !string.IsNullOrWhiteSpace(message.MessageId))
+                .ToDictionary(
+                    message => message.MessageId!,
+                    SerializeMessageSnapshot,
+                    StringComparer.Ordinal);
+            Middleware.AfterMessageTurnContext? completedTurnContext = null;
+            if (lastResponse is not null)
+            {
+                completedTurnContext = agentContext.AsAfterMessageTurn(
+                    finalResponse: lastResponse,
+                    turnHistory: turnHistory,
+                    runConfig: effectiveRunConfig,
+                    triggerSource: beforeTurnContext.TriggerSource,
+                    userInputMessages: beforeTurnContext.UserInputMessages.ToArray(),
+                    runtimeContextMessages: beforeTurnContext.RuntimeContextMessages.ToArray());
+                // Async-iterator yields restore the caller's ExecutionContext between MoveNext calls.
+                // Re-establish the turn collector for the complete finalizer unwind so provider work
+                // dispatched by AfterMessageTurnAsync is owned by this closing message turn.
+                using var finalizationAccountingScope = accountingBridge?.Collector is { } finalizationCollector
+                    ? ProviderOperationAccountingScope.Push(finalizationCollector)
+                    : null;
+                await turnPipeline.ExecuteAfterMessageTurnAsync(
+                    completedTurnContext,
+                    effectiveCancellationToken).ConfigureAwait(false);
+                foreach (var runtimeMessage in completedTurnContext.RuntimeContextMessages)
+                {
+                    if (runtimeMessage.GetSource() != AgentMessageSource.BackgroundNotification)
+                        continue;
+                    var finalRuntimeMessage = completedTurnContext.TurnHistory.FirstOrDefault(message =>
+                        ReferenceEquals(message, runtimeMessage) ||
+                        (!string.IsNullOrWhiteSpace(runtimeMessage.MessageId) &&
+                         string.Equals(message.MessageId, runtimeMessage.MessageId, StringComparison.Ordinal)));
+                    if (finalRuntimeMessage is null ||
+                        finalRuntimeMessage.GetSource() != AgentMessageSource.BackgroundNotification ||
+                        finalRuntimeMessage.Role != ChatRole.System ||
+                        finalRuntimeMessage.GetVisibility() != AgentMessageVisibility.Hidden ||
+                        finalRuntimeMessage.GetPersistence() != AgentMessagePersistence.ModelContextOnly)
+                    {
+                        throw new InvalidOperationException(
+                            "After-message-turn middleware must preserve background notifications as hidden, system-role, model-context-only runtime context.");
+                    }
+                }
+            }
+
+            state = agentContext.State;
+            await ReconcileCommittedTurnHistoryAsync(
+                session,
+                thread,
+                turnHistory,
+                messageIdsBeforeAccountingClose,
+                messageSnapshotsBeforeAccountingClose,
+                eventCoordinator,
+                effectiveCancellationToken).ConfigureAwait(false);
+
+            // Emit MESSAGE TURN finished event after all turn-owned provider work has settled.
             turnStopwatch.Stop();
             yield return new MessageTurnFinishedEvent(
                 messageTurnId,
@@ -3719,11 +4499,14 @@ public sealed class Agent
                 AgentId,
                 _name,
                 turnStopwatch.Elapsed,
-                Usage: state.AccumulatedUsage)
+                MessageTurnUsageSummary.Empty)
             {
                 TraceId      = traceId,
                 SpanId       = turnSpanId,
-                ParentSpanId = null
+                ParentSpanId = null,
+                Iteration = state.Iteration,
+                TerminationReason = state.TerminationReason,
+                TurnMessageCount = turnHistory.Count
             };
 
             // Record orchestration telemetry metrics
@@ -3740,40 +4523,6 @@ public sealed class Agent
                 turnStopwatch.Elapsed,
                 DateTimeOffset.UtcNow)
             { TraceId = traceId };
-    
-            // MIDDLEWARE: AfterMessageTurnAsync (V2 - turn-level hook)
-            // Update AgentContext with final state
-            agentContext.SyncState(state);
-
-            var messageIdsBeforeAfterTurn = turnHistory
-                .Select(message => message.MessageId)
-                .ToList();
-
-            // Only call AfterMessageTurn if we have a response (may be null if terminated early)
-            if (lastResponse != null)
-            {
-                // Create typed context for AfterMessageTurn
-                var afterTurnContext = agentContext.AsAfterMessageTurn(
-                    finalResponse: lastResponse,
-                    turnHistory: turnHistory,
-                    runConfig: effectiveRunConfig);
-
-                // Execute AfterMessageTurnAsync in REVERSE order (stack unwinding)
-                await turnPipeline.ExecuteAfterMessageTurnAsync(afterTurnContext, effectiveCancellationToken);
-            }
-
-            // V2: Sync state after middleware
-            state = agentContext.State;
-
-            // Durable transcript messages are committed incrementally at stable message boundaries.
-            // AfterMessageTurn may still rewrite turnHistory for next-turn behavior, so reconcile
-            // those edits back into the already-committed thread messages by stable message ID.
-            await ReconcileCommittedTurnHistoryAsync(
-                session,
-                thread,
-                turnHistory,
-                messageIdsBeforeAfterTurn,
-                effectiveCancellationToken).ConfigureAwait(false);
 
             // PERSISTENCE: Save persistent middleware state ( split by scope)
             if (session != null)
@@ -3808,14 +4557,30 @@ public sealed class Agent
             }
 
             historyCompletionSource.TrySetResult(turnHistory);
+            toolHarnessDeactivationReason = ToolHarnessDeactivationReason.Completed;
         }
         finally
         {
+            var cleanupFailures = new List<Exception>();
+            if (toolHarnessDeactivationReason == ToolHarnessDeactivationReason.Failed && effectiveCancellationToken.IsCancellationRequested)
+                toolHarnessDeactivationReason = ToolHarnessDeactivationReason.Cancelled;
+            try { await toolHarnessExecutionScope.ReleaseForegroundAsync(toolHarnessDeactivationReason).ConfigureAwait(false); }
+            catch (Exception ex) { cleanupFailures.Add(ex); }
+            _activeTurnCancellations.TryRemove(activeTurnId, out _);
             if (chatClientLease is not null)
-                await chatClientLease.DisposeAsync().ConfigureAwait(false);
-            runClientSet?.Dispose();
-            turn.CatalogLease?.Dispose();
+                try { await chatClientLease.DisposeAsync().ConfigureAwait(false); } catch (Exception ex) { cleanupFailures.Add(ex); }
+            if (runClientSet is not null)
+                try { await runClientSet.DisposeAsync().ConfigureAwait(false); } catch (Exception ex) { cleanupFailures.Add(ex); }
+            if (turn.CatalogLease is not null)
+                try { await turn.CatalogLease.DisposeAsync().ConfigureAwait(false); } catch (Exception ex) { cleanupFailures.Add(ex); }
             RootAgent = previousRootAgent;
+            if (cleanupFailures.Count > 0)
+            {
+                var cleanupFailure = new AggregateException("Agent execution cleanup failed.", cleanupFailures);
+                if (toolHarnessDeactivationReason == ToolHarnessDeactivationReason.Completed)
+                    throw cleanupFailure;
+                _agentLogger?.LogError(cleanupFailure, "Agent cleanup also failed while preserving the original execution failure.");
+            }
         }
     }
 
@@ -3862,15 +4627,6 @@ public sealed class Agent
     private static List<AIContent> CoalesceTextContents(List<AIContent> contents)
     {
         return ThreadMessageEventConverter.CoalesceTextContents(contents);
-    }
-
-    private static string SerializeFunctionArgumentsForEvent(FunctionCallContent functionCall)
-    {
-        return functionCall.Arguments is { Count: > 0 }
-            ? JsonSerializer.Serialize(
-                functionCall.Arguments,
-                HPDJsonContext.Default.DictionaryStringObject)
-            : "{}";
     }
 
     private static List<ChatMessage> ProjectMessagesForModelHistory(
@@ -3952,16 +4708,62 @@ public sealed class Agent
         return updates.ToChatResponse();
     }
 
-    /// <inheritdoc />
-    public void Dispose()
+    /// <summary>Returns immutable snapshots of all operations currently known to this agent.</summary>
+    public IReadOnlyList<AgentOperationSnapshot> ListOperations() => _operationRegistry.Snapshot();
+
+    /// <summary>Requests provider cancellation for one operation without conflating it with observation shutdown.</summary>
+    public ValueTask CancelOperationAsync(
+        string operationId,
+        CancellationToken cancellationToken = default) =>
+        _operationRegistry.RequestCancellationAsync(operationId, cancellationToken);
+
+    /// <summary>Supplies protocol-neutral input to an operation currently awaiting provider input.</summary>
+    public ValueTask SupplyOperationInputAsync(
+        string operationId,
+        AgentOperationInput input,
+        CancellationToken cancellationToken = default) =>
+        _operationRegistry.SupplyInputAsync(operationId, input, cancellationToken);
+
+    /// <summary>
+    /// Asynchronously stops accepted work and releases observers, transports, capability
+    /// revisions, providers, event infrastructure, and owned clients in dependency order.
+    /// </summary>
+    public async ValueTask DisposeAsync()
     {
-        StopAsync().GetAwaiter().GetResult();
+        if (Interlocked.Exchange(ref _disposeState, 1) != 0)
+        {
+            await _disposeCompletion.Task.ConfigureAwait(false);
+            return;
+        }
+        try
+        {
+            await DisposeCoreAsync().ConfigureAwait(false);
+            _disposeCompletion.TrySetResult();
+        }
+        catch (Exception exception)
+        {
+            _disposeCompletion.TrySetException(exception);
+            throw;
+        }
+    }
+
+    private async ValueTask DisposeCoreAsync()
+    {
+        var failures = new List<Exception>();
+        async ValueTask AttemptAsync(Func<ValueTask> cleanup)
+        {
+            try { await cleanup().ConfigureAwait(false); }
+            catch (Exception ex) { failures.Add(ex); }
+        }
+
+        await AttemptAsync(async () => await StopAsync().ConfigureAwait(false)).ConfigureAwait(false);
 
         _skillWatchCancellation?.Cancel();
         if (_skillWatchTasks.Count > 0)
         {
-            try { Task.WhenAll(_skillWatchTasks).GetAwaiter().GetResult(); }
+            try { await Task.WhenAll(_skillWatchTasks).ConfigureAwait(false); }
             catch (OperationCanceledException) { }
+            catch (Exception ex) { failures.Add(ex); }
         }
         _skillWatchCancellation?.Dispose();
 
@@ -3973,28 +4775,105 @@ public sealed class Agent
         }
 
         foreach (var subscription in structSubscriptions)
-            subscription.Dispose();
+            try { subscription.Dispose(); } catch (Exception ex) { failures.Add(ex); }
 
         foreach (var subscription in _eventSubscriptions)
-            subscription.Dispose();
+            try { subscription.Dispose(); } catch (Exception ex) { failures.Add(ex); }
 
+        await AttemptAsync(() => DrainActiveTurnsAsync(Config.Shutdown)).ConfigureAwait(false);
+        await AttemptAsync(() => _operationRegistry.ShutdownAsync(Config.Shutdown)).ConfigureAwait(false);
+        try { await DrainToolHarnessExecutionCompletionsAsync().ConfigureAwait(false); }
+        catch (Exception ex) { failures.Add(ex); }
+        await AttemptAsync(() => _agentResources.DisposeAsync()).ConfigureAwait(false);
+
+        if (_capabilityCatalog is not null)
+        {
+            try
+            {
+                var leakedRevisionOwners = await _capabilityCatalog
+                    .ShutdownAsync(Config.Shutdown.LeaseLeaks)
+                    .ConfigureAwait(false);
+                if (leakedRevisionOwners > 0)
+                    _agentLogger?.LogWarning(
+                        "Agent shutdown found {LeakedRevisionOwnerCount} capability revision owner(s) still pinned by leaked leases; policy {LeaseLeakPolicy} was applied.",
+                        leakedRevisionOwners,
+                        Config.Shutdown.LeaseLeaks);
+            }
+            catch (Exception ex) { failures.Add(ex); }
+        }
+        foreach (var source in _capabilitySources)
+            await AttemptAsync(source.DisposeAsync).ConfigureAwait(false);
+        if (_providerRuntimeOwner is not null)
+            await AttemptAsync(_providerRuntimeOwner.DisposeAsync).ConfigureAwait(false);
         if (_clientSet != null)
-            _clientSet.Dispose();
+            await AttemptAsync(_clientSet.DisposeAsync).ConfigureAwait(false);
         else
-            _baseClient?.Dispose();
-        _chatClientResolver.Dispose();
-        _textToSpeechClientManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        _speechToTextClientManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        _realtimeClientManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        _imageGeneratorManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        _embeddingGeneratorManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        _hostedFileClientManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        _realtimeProviderProtocolParticipant.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        (_eventCoordinator as IDisposable)?.Dispose();
+            try { _baseClient?.Dispose(); } catch (Exception ex) { failures.Add(ex); }
+        await AttemptAsync(_chatClientResolver.DisposeAsync).ConfigureAwait(false);
+        await AttemptAsync(_textToSpeechClientManager.DisposeAsync).ConfigureAwait(false);
+        await AttemptAsync(_speechToTextClientManager.DisposeAsync).ConfigureAwait(false);
+        await AttemptAsync(_realtimeClientManager.DisposeAsync).ConfigureAwait(false);
+        await AttemptAsync(_imageGeneratorManager.DisposeAsync).ConfigureAwait(false);
+        await AttemptAsync(_embeddingGeneratorManager.DisposeAsync).ConfigureAwait(false);
+        await AttemptAsync(_hostedFileClientManager.DisposeAsync).ConfigureAwait(false);
+        await AttemptAsync(_realtimeProviderProtocolParticipant.DisposeAsync).ConfigureAwait(false);
         if (_ownedHttpClients != null)
             foreach (var client in _ownedHttpClients)
-                client.Dispose();
-        _skillCatalog?.Dispose();
+                try { client.Dispose(); } catch (Exception ex) { failures.Add(ex); }
+        if (_eventCoordinator is IAsyncDisposable asyncEventCoordinator)
+            await AttemptAsync(asyncEventCoordinator.DisposeAsync).ConfigureAwait(false);
+        else
+            try { (_eventCoordinator as IDisposable)?.Dispose(); } catch (Exception ex) { failures.Add(ex); }
+        if (_ownsContentStore)
+            await AttemptAsync(() => DisposeOwnedStoreAsync(_contentStore)).ConfigureAwait(false);
+        if (_ownsSessionStore)
+            await AttemptAsync(() => DisposeOwnedStoreAsync(Config.SessionStore)).ConfigureAwait(false);
+
+        if (failures.Count > 0)
+            throw new AggregateException("Agent shutdown encountered one or more cleanup failures.", failures);
+    }
+
+    private static async ValueTask DisposeOwnedStoreAsync(object? store)
+    {
+        if (store is IAsyncDisposable asyncDisposable)
+            await asyncDisposable.DisposeAsync().ConfigureAwait(false);
+        else
+            (store as IDisposable)?.Dispose();
+    }
+
+    private void ThrowIfShutdownStarted() =>
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, this);
+
+    private async ValueTask DrainActiveTurnsAsync(AgentShutdownOptions options)
+    {
+        var gracefulDeadline = DateTimeOffset.UtcNow + options.GracefulDrainTimeout;
+        while (!_activeTurnCancellations.IsEmpty && DateTimeOffset.UtcNow < gracefulDeadline)
+            await Task.Delay(TimeSpan.FromMilliseconds(25)).ConfigureAwait(false);
+        if (_activeTurnCancellations.IsEmpty)
+            return;
+
+        foreach (var cancellation in _activeTurnCancellations.Values)
+            cancellation.Cancel();
+
+        var cancellationDeadline = DateTimeOffset.UtcNow + options.CancellationDrainTimeout;
+        while (!_activeTurnCancellations.IsEmpty && DateTimeOffset.UtcNow < cancellationDeadline)
+            await Task.Delay(TimeSpan.FromMilliseconds(25)).ConfigureAwait(false);
+        if (!_activeTurnCancellations.IsEmpty)
+        {
+            _agentLogger?.LogWarning(
+                "Agent shutdown abandoned {Count} turn(s) that retained resources after both drain deadlines; policy {Policy}.",
+                _activeTurnCancellations.Count,
+                options.LeaseLeaks);
+        }
+    }
+
+    private async ValueTask DrainToolHarnessExecutionCompletionsAsync()
+    {
+        if (_toolHarnessExecutionCompletions.IsEmpty)
+            return;
+
+        var completions = Task.WhenAll(_toolHarnessExecutionCompletions.Values);
+        await completions.ConfigureAwait(false);
     }
 
     /// <summary>
@@ -4042,7 +4921,9 @@ public sealed class Agent
 
         // Prepare turn (stateless - no thread)
         var inputMessages = messages.ToList();
-        var catalogLease = _skillCatalog?.Acquire();
+        if (_capabilityCatalog is not null)
+            await _capabilityCatalog.EnsureReadyAsync(cancellationToken).ConfigureAwait(false);
+        var catalogLease = _capabilityCatalog?.Acquire();
         PreparedTurn turn;
         try
         {
@@ -4057,12 +4938,14 @@ public sealed class Agent
         }
         catch
         {
-            catalogLease?.Dispose();
+            if (catalogLease is not null)
+                await catalogLease.DisposeAsync().ConfigureAwait(false);
             throw;
         }
 
         var turnHistory = new List<ChatMessage>();
         var historyCompletionSource = new TaskCompletionSource<IReadOnlyList<ChatMessage>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var accountingBridge = new ProviderOperationAccountingBridge();
 
         await foreach (var evt in RunAgenticLoopInternal(
             turn,
@@ -4071,6 +4954,7 @@ public sealed class Agent
             session: null,
             initialContextProperties: null,
             clientInputId: null,
+            accountingBridge: accountingBridge,
             cancellationToken: cancellationToken))
         {
             var outputEvent = EnrichOutputEvent(evt);
@@ -4257,6 +5141,7 @@ public sealed class Agent
         AgentChatClientHandle? inheritedChatClient = null,
         ClientFamilyInheritanceMode inheritedChatMode = ClientFamilyInheritanceMode.UseOwn)
     {
+        ThrowIfShutdownStarted();
         // Validation
         if (thread != null)
         {
@@ -4278,7 +5163,9 @@ public sealed class Agent
 
         // Prepare turn
         var inputMessages = messages?.ToList() ?? new List<ChatMessage>();
-        var catalogLease = _skillCatalog?.Acquire();
+        if (_capabilityCatalog is not null)
+            await _capabilityCatalog.EnsureReadyAsync(cancellationToken).ConfigureAwait(false);
+        var catalogLease = _capabilityCatalog?.Acquire();
         PreparedTurn turn;
         try
         {
@@ -4293,7 +5180,8 @@ public sealed class Agent
         }
         catch
         {
-            catalogLease?.Dispose();
+            if (catalogLease is not null)
+                await catalogLease.DisposeAsync().ConfigureAwait(false);
             throw;
         }
 
@@ -4304,6 +5192,7 @@ public sealed class Agent
         var initialProperties = BuildInitialContextProperties(options);
 
         // Execute agentic loop
+        var accountingBridge = new ProviderOperationAccountingBridge();
         var internalStream = RunAgenticLoopInternal(
             turn,
             turnHistory,
@@ -4315,6 +5204,7 @@ public sealed class Agent
             eventCoordinator: eventCoordinator,
             clientInputId: clientInputId,
             activeInput: activeInput,
+            accountingBridge: accountingBridge,
             cancellationToken: cancellationToken,
             inheritedChatClient: inheritedChatClient,
             inheritedChatMode: inheritedChatMode);
@@ -4327,6 +5217,19 @@ public sealed class Agent
         var turnFinished = false;
         var stagedTextMessages = new HashSet<string>(StringComparer.Ordinal);
         var stagedReasoningMessages = new HashSet<string>(StringComparer.Ordinal);
+        MessageTurnUsageCollector? usageCollector = null;
+        using var usageSubscription = eventCoordinator.SubscribeAny(committedEvent =>
+        {
+            if (committedEvent is AgentEvent agentEvent &&
+                TryCreateProviderUsageMeasurement(agentEvent, out var measurement) &&
+                usageCollector is not null &&
+                string.Equals(measurement.MessageTurnId, messageTurnId, StringComparison.Ordinal))
+            {
+                usageCollector.TryAcceptCommitted(measurement);
+            }
+
+            return ValueTask.CompletedTask;
+        });
 
         try
         {
@@ -4340,7 +5243,7 @@ public sealed class Agent
 
                     evt = enumerator.Current;
                 }
-                catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+                catch (Exception ex)
                 {
                     await FinalizeOutstandingAgentDeltasAsync(
                         thread, stagedTextMessages, stagedReasoningMessages,
@@ -4349,11 +5252,30 @@ public sealed class Agent
                         eventCoordinator).ConfigureAwait(false);
                     if (!turnFinished)
                     {
+                        foreach (var terminalAttempt in accountingBridge.DrainTerminals())
+                        {
+                            if (usageCollector is not null)
+                                await usageCollector.CommitTerminalAsync(terminalAttempt, CancellationToken.None).ConfigureAwait(false);
+                            else
+                                await CommitAgentThreadEventAsync(
+                                    thread, terminalAttempt, messageTurnId, conversationId, currentIteration,
+                                    inputMessages.Count, isResume, null, turnHistory.Count,
+                                    eventCoordinator, CancellationToken.None).ConfigureAwait(false);
+                        }
+                        if (usageCollector is not null)
+                        {
+                            await CommitPendingFailedProviderAttemptsAsync(
+                                usageCollector, thread, messageTurnId, conversationId, currentIteration,
+                                inputMessages.Count, isResume, turnHistory.Count, ex, eventCoordinator).ConfigureAwait(false);
+                        }
                         await AppendThreadFailureRuntimeEventAsync(
                             thread,
                             messageTurnId,
                             conversationId,
                             ex,
+                            usageCollector is null
+                                ? MessageTurnUsageSummary.Empty
+                                : await usageCollector.CloseAsync(CancellationToken.None).ConfigureAwait(false),
                             eventCoordinator).ConfigureAwait(false);
                     }
 
@@ -4364,6 +5286,18 @@ public sealed class Agent
             {
                 messageTurnId = started.MessageTurnId;
                 conversationId = started.ConversationId;
+                usageCollector = new MessageTurnUsageCollector(started.MessageTurnId);
+                accountingBridge.Collector = usageCollector;
+                usageCollector.ConfigureCommitter(async (terminalEvent, commitCancellationToken) =>
+                {
+                    var committed = await CommitAgentThreadEventAsync(
+                        thread, terminalEvent, messageTurnId, conversationId, currentIteration,
+                        inputMessages.Count, isResume, null, turnHistory.Count,
+                        eventCoordinator, commitCancellationToken).ConfigureAwait(false);
+                    if (TryCreateProviderUsageMeasurement(committed, out var measurement))
+                        usageCollector.TryAcceptCommitted(measurement);
+                    return committed;
+                });
             }
             else if (evt is AgentTurnStartedEvent agentTurnStarted)
             {
@@ -4373,8 +5307,14 @@ public sealed class Agent
             {
                 currentIteration = agentTurnFinished.Iteration;
             }
-            else if (evt is MessageTurnFinishedEvent)
+            else if (evt is MessageTurnFinishedEvent finished)
             {
+                evt = finished with
+                {
+                    Usage = usageCollector is null
+                        ? MessageTurnUsageSummary.Empty
+                        : await usageCollector.CloseAsync(cancellationToken).ConfigureAwait(false)
+                };
                 turnFinished = true;
             }
 
@@ -4424,10 +5364,15 @@ public sealed class Agent
                     eventCoordinator, cancellationToken).ConfigureAwait(false);
             }
 
-            await PersistAgentEventContentAsync(
-                session,
-                outputEvent,
-                cancellationToken).ConfigureAwait(false);
+            // The iterator owns model-call commits, so accept their committed identity
+            // synchronously. The coordinator subscription remains necessary for
+            // message-turn-owned operations published directly by middleware (audio,
+            // hosted operations, and future provider families).
+            if (TryCreateProviderUsageMeasurement(outputEvent, out var committedMeasurement) &&
+                string.Equals(committedMeasurement.MessageTurnId, messageTurnId, StringComparison.Ordinal))
+            {
+                usageCollector?.TryAcceptCommitted(committedMeasurement);
+            }
 
             // Custom streaming callback if provided
             if (options?.Streaming?.Callback != null)
@@ -4448,6 +5393,9 @@ public sealed class Agent
                         messageTurnId,
                         conversationId,
                         ex,
+                        usageCollector is null
+                            ? MessageTurnUsageSummary.Empty
+                            : await usageCollector.CloseAsync(CancellationToken.None).ConfigureAwait(false),
                         eventCoordinator).ConfigureAwait(false);
                     throw;
                 }
@@ -5247,384 +6195,6 @@ public sealed class Agent
         return properties;
     }
 
-    private async ValueTask<AgentClientSet?> ResolveRunClientSetAsync(
-        AgentRunConfig runConfig,
-        CancellationToken cancellationToken)
-    {
-        var runClients = runConfig.Clients;
-        var families = new[]
-        {
-            Providers.ProviderClientFamily.TextToSpeech,
-            Providers.ProviderClientFamily.SpeechToText,
-            Providers.ProviderClientFamily.Realtime,
-            Providers.ProviderClientFamily.ImageGeneration,
-            Providers.ProviderClientFamily.Embeddings,
-            Providers.ProviderClientFamily.HostedFiles
-        };
-        if (!families.Any(family =>
-                runClients.GetFamilyConfig(family) is not null ||
-                Config?.ResolveClientConfig(family) is { ProviderKey.Length: > 0 }))
-            return null;
-
-        var owned = new HashSet<object>(ReferenceEqualityComparer.Instance);
-        var leases = new List<IAsyncDisposable>();
-        var resolved = _clientSet?.ResolvedConfigs.ToDictionary(pair => pair.Key, pair => pair.Value)
-            ?? new Dictionary<Providers.ProviderClientFamily, ProviderClientConfig>();
-
-        try
-        {
-        var textToSpeech = await ResolveRunClientAsync<Providers.ITextToSpeechClientProvider, ITextToSpeechClient>(
-            Providers.ProviderClientFamily.TextToSpeech,
-            runClients,
-            runClients.TextToSpeech?.Override?.Client,
-            _clientSet?.TextToSpeech,
-            static (provider, config, services) => provider.CreateTextToSpeechClient(config, services),
-            Config?.ClientMiddleware?.TextToSpeech,
-            _textToSpeechClientManager,
-            owned,
-            leases,
-            resolved,
-            cancellationToken).ConfigureAwait(false);
-        var speechToText = await ResolveRunClientAsync<Providers.ISpeechToTextClientProvider, ISpeechToTextClient>(
-            Providers.ProviderClientFamily.SpeechToText,
-            runClients,
-            runClients.SpeechToText?.Override?.Client,
-            _clientSet?.SpeechToText,
-            static (provider, config, services) => provider.CreateSpeechToTextClient(config, services),
-            Config?.ClientMiddleware?.SpeechToText,
-            _speechToTextClientManager,
-            owned,
-            leases,
-            resolved,
-            cancellationToken).ConfigureAwait(false);
-        var realtime = await ResolveRunClientAsync<Providers.IRealtimeClientProvider, IRealtimeClient>(
-            Providers.ProviderClientFamily.Realtime,
-            runClients,
-            runClients.Realtime?.Override?.Client,
-            _clientSet?.Realtime,
-            static (provider, config, services) => provider.CreateRealtimeClient(config, services),
-            Config?.ClientMiddleware?.Realtime,
-            _realtimeClientManager,
-            owned,
-            leases,
-            resolved,
-            cancellationToken).ConfigureAwait(false);
-        var image = await ResolveRunClientAsync<Providers.IImageGeneratorProvider, IImageGenerator>(
-            Providers.ProviderClientFamily.ImageGeneration,
-            runClients,
-            runClients.ImageGeneration?.Override?.Client,
-            _clientSet?.ImageGenerator,
-            static (provider, config, services) => provider.CreateImageGenerator(config, services),
-            Config?.ClientMiddleware?.ImageGeneration,
-            _imageGeneratorManager,
-            owned,
-            leases,
-            resolved,
-            cancellationToken).ConfigureAwait(false);
-        var embeddings = await ResolveRunClientAsync<Providers.IEmbeddingGeneratorProvider, IEmbeddingGenerator>(
-            Providers.ProviderClientFamily.Embeddings,
-            runClients,
-            runClients.Embeddings?.Override?.Client,
-            _clientSet?.EmbeddingGenerator,
-            static (provider, config, services) => provider.CreateEmbeddingGenerator(config, services),
-            Config?.ClientMiddleware?.Embeddings,
-            _embeddingGeneratorManager,
-            owned,
-            leases,
-            resolved,
-            cancellationToken).ConfigureAwait(false);
-        var hostedFiles = await ResolveRunClientAsync<Providers.IHostedFileClientProvider, IHostedFileClient>(
-            Providers.ProviderClientFamily.HostedFiles,
-            runClients,
-            runClients.HostedFiles?.Override?.Client,
-            _clientSet?.HostedFiles,
-            static (provider, config, services) => provider.CreateHostedFileClient(config, services),
-            Config?.ClientMiddleware?.HostedFiles,
-            _hostedFileClientManager,
-            owned,
-            leases,
-            resolved,
-            cancellationToken).ConfigureAwait(false);
-
-        var result = new AgentClientSet
-        {
-            TextToSpeech = textToSpeech,
-            SpeechToText = speechToText,
-            Realtime = realtime,
-            ImageGenerator = image,
-            EmbeddingGenerator = embeddings,
-            HostedFiles = hostedFiles,
-            ResolvedConfigs = resolved
-        };
-        result.SetOwnedClients(owned);
-        result.SetLeases(leases);
-        return result;
-        }
-        catch
-        {
-            for (var index = leases.Count - 1; index >= 0; index--)
-                await leases[index].DisposeAsync().ConfigureAwait(false);
-            foreach (var client in owned)
-            {
-                if (client is IAsyncDisposable asyncDisposable)
-                    await asyncDisposable.DisposeAsync().ConfigureAwait(false);
-                else if (client is IDisposable disposable)
-                    disposable.Dispose();
-            }
-            throw;
-        }
-    }
-
-    private async ValueTask<TClient?> ResolveRunClientAsync<TProvider, TClient>(
-        Providers.ProviderClientFamily family,
-        AgentClientsConfig runClients,
-        TClient? runOverride,
-        TClient? builderDefault,
-        Func<TProvider, ProviderClientConfig, IServiceProvider?, TClient> factory,
-        IReadOnlyList<Func<TClient, IServiceProvider?, TClient>>? middleware,
-        ProviderClientManager<TClient> manager,
-        HashSet<object> owned,
-        List<IAsyncDisposable> leases,
-        Dictionary<Providers.ProviderClientFamily, ProviderClientConfig> resolved,
-        CancellationToken cancellationToken)
-        where TProvider : class, Providers.IProvider
-        where TClient : class
-    {
-        var hasRunConfig = runClients.GetFamilyConfig(family) is not null;
-        if (!hasRunConfig && builderDefault is not null)
-            return builderDefault;
-        if (runOverride is not null)
-            return runOverride;
-
-        var effective = hasRunConfig
-            ? Config?.ResolveClientConfig(family, runClients)
-            : Config?.ResolveClientConfig(family);
-        if (effective is null || string.IsNullOrWhiteSpace(effective.ProviderKey))
-            return null;
-        if (_providerRegistry is null)
-            throw new AgentRunConfigurationException(
-                "ProviderFamilyResolutionFailed",
-                $"Clients.{family}",
-                $"The {family} provider '{effective.ProviderKey}' cannot be resolved because no provider registry is available.");
-
-        var safeResolvedConfig = ProviderClientConfigResolver.Clone(effective);
-        var authentication = await ResolveAuxiliaryAuthenticationAsync(
-            effective,
-            family,
-            cancellationToken).ConfigureAwait(false);
-        effective = authentication.Config;
-        if (authentication.Credential is not null)
-            leases.Add(authentication.Credential);
-
-        var provider = _providerRegistry.GetRequiredProvider<TProvider>(effective.ProviderKey);
-        TClient CreateClient()
-        {
-            var validation = provider.ValidateConfiguration(effective, family);
-            if (!validation.IsValid)
-                throw new AgentRunConfigurationException(
-                    "ProviderConfigurationInvalid",
-                    $"Clients.{family}",
-                    string.Join("; ", validation.Errors),
-                    effective.ProviderKey);
-            var created = factory(provider, effective, _serviceProvider);
-            if (middleware is not null)
-            {
-                for (var index = middleware.Count - 1; index >= 0; index--)
-                    created = middleware[index](created, _serviceProvider)
-                        ?? throw new InvalidOperationException($"{family} client middleware returned null.");
-            }
-            return created;
-        }
-
-        TClient client;
-        if (authentication.CacheIdentity is null)
-        {
-            client = CreateClient();
-            owned.Add(client);
-        }
-        else
-        {
-            var lease = await manager.AcquireAsync(
-                new ProviderClientCacheKey
-                {
-                    ProviderKey = effective.ProviderKey,
-                    Family = family,
-                    AuthenticationIdentity = authentication.CacheIdentity,
-                    AuthenticationGeneration = authentication.Generation,
-                    Endpoint = effective.Endpoint,
-                    ProviderConfigFingerprint = ProviderClientFingerprint.Combine(
-                        GetAuxiliaryProviderConfigFingerprint(effective, family),
-                        effective.CustomHeaders),
-                    ClientBoundModel = BindsModelToClient(effective.ProviderKey, family)
-                        ? effective.ModelName
-                        : null
-                },
-                _ => ValueTask.FromResult(CreateClient()),
-                cancellationToken).ConfigureAwait(false);
-            leases.Add(lease);
-            client = lease.Client;
-        }
-        resolved[family] = safeResolvedConfig;
-        return client;
-    }
-
-    private async ValueTask<AuxiliaryAuthenticationResolution> ResolveAuxiliaryAuthenticationAsync(
-        ProviderClientConfig config,
-        ProviderClientFamily family,
-        CancellationToken cancellationToken)
-    {
-        if (config.CustomHeaders is not null)
-        {
-            foreach (var header in config.CustomHeaders.Keys)
-            {
-                if (header.Equals("Authorization", StringComparison.OrdinalIgnoreCase) ||
-                    header.Equals("Proxy-Authorization", StringComparison.OrdinalIgnoreCase) ||
-                    header.Equals("api-key", StringComparison.OrdinalIgnoreCase) ||
-                    header.Equals("x-api-key", StringComparison.OrdinalIgnoreCase))
-                    throw new AgentRunConfigurationException(
-                        "AuthenticationHeaderNotAllowed",
-                        $"Clients.{family}.CustomHeaders.{header}",
-                        $"Header '{header}' cannot carry provider credentials. Use ApiKey or AuthenticationKey.",
-                        config.ProviderKey);
-            }
-        }
-
-        if (!string.IsNullOrWhiteSpace(config.ApiKey))
-        {
-            var credential = ProviderCredentialLease.CreateExplicit(config.ApiKey);
-            var explicitConfig = ProviderClientConfigResolver.Clone(config);
-            explicitConfig.ApiKey = credential.Secret.ToString();
-            return new AuxiliaryAuthenticationResolution(explicitConfig, null, 0, credential);
-        }
-
-        var registry = _serviceProvider?.GetService(typeof(IProviderAuthenticationRegistry))
-            as IProviderAuthenticationRegistry;
-        var authenticationKey = config.AuthenticationKey;
-        var scope = _serviceProvider?.GetService(typeof(ProviderAuthorizationScope))
-            as ProviderAuthorizationScope
-            ?? new ProviderAuthorizationScope { TrustDomainId = "local-process" };
-        var context = new ProviderAuthenticationContext
-        {
-            ProviderKey = config.ProviderKey,
-            Family = family,
-            AuthorizationScope = scope
-        };
-
-        ProviderAuthenticationRegistration? registration = null;
-        if (string.IsNullOrWhiteSpace(authenticationKey))
-        {
-            if (registry is null)
-                return new AuxiliaryAuthenticationResolution(config, "canonical", 0, null);
-
-            var compatible = new List<ProviderAuthenticationRegistration>();
-            await foreach (var candidate in registry.ListCompatibleAsync(context, cancellationToken)
-                .ConfigureAwait(false))
-            {
-                compatible.Add(candidate);
-            }
-            var defaults = compatible.Where(static candidate => candidate.IsDefault).ToArray();
-            if (defaults.Length > 1 || (defaults.Length == 0 && compatible.Count > 1))
-                throw new AgentRunConfigurationException(
-                    "AuthenticationSelectionRequired",
-                    $"Clients.{family}.AuthenticationKey",
-                    $"Provider '{config.ProviderKey}' has multiple compatible authentication registrations and no unique default.",
-                    config.ProviderKey);
-            registration = defaults.Length == 1 ? defaults[0] : compatible.Count == 1 ? compatible[0] : null;
-            if (registration is null)
-                return new AuxiliaryAuthenticationResolution(config, "canonical", 0, null);
-            authenticationKey = registration.Key;
-        }
-        else
-        {
-            if (registry is null)
-                throw new AgentRunConfigurationException(
-                    "AuthenticationRegistryRequired",
-                    $"Clients.{family}.AuthenticationKey",
-                    $"Authentication registration '{authenticationKey}' cannot be resolved because no registry is available.",
-                    config.ProviderKey);
-            registration = await registry.FindAsync(authenticationKey, context, cancellationToken)
-                .ConfigureAwait(false)
-                ?? throw new AgentRunConfigurationException(
-                    "AuthenticationRegistrationNotFound",
-                    $"Clients.{family}.AuthenticationKey",
-                    $"Authentication registration '{authenticationKey}' is missing or incompatible with provider '{config.ProviderKey}' and family '{family}'.",
-                    config.ProviderKey);
-        }
-
-        var credentialResolver = _serviceProvider?.GetService(typeof(IProviderCredentialResolver))
-            as IProviderCredentialResolver;
-        if (credentialResolver is null)
-        {
-            var secretResolver = _serviceProvider?.GetService(typeof(Secrets.ISecretResolver))
-                as Secrets.ISecretResolver
-                ?? throw new AgentRunConfigurationException(
-                    "CredentialResolverRequired",
-                    $"Clients.{family}.AuthenticationKey",
-                    $"Authentication registration '{authenticationKey}' cannot resolve its secret because no credential resolver is available.",
-                    config.ProviderKey);
-            credentialResolver = new SecretResolverProviderCredentialResolver(secretResolver);
-        }
-
-        var credentialLease = await credentialResolver.AcquireAsync(new ProviderCredentialRequest
-        {
-            ProviderKey = config.ProviderKey,
-            Family = family,
-            Identity = $"registration:{authenticationKey}",
-            SecretKey = registration!.SecretKey,
-            AuthorizationScope = scope
-        }, cancellationToken).ConfigureAwait(false);
-        var resolved = ProviderClientConfigResolver.Clone(config);
-        resolved.AuthenticationKey = authenticationKey;
-        resolved.ApiKey = credentialLease.Secret.ToString();
-        return new AuxiliaryAuthenticationResolution(
-            resolved,
-            credentialLease.Identity,
-            credentialLease.Generation,
-            credentialLease);
-    }
-
-    private string? GetAuxiliaryProviderConfigFingerprint(
-        ProviderClientConfig config,
-        ProviderClientFamily family)
-    {
-        if (config.ProviderConfig is null)
-            return null;
-        var composition = _chatClientResolver.Composition
-            ?? throw new AgentRunConfigurationException(
-                "ProviderCompositionNotInstalled",
-                $"Clients.{family}.ProviderConfig",
-                "Generated provider composition is required to fingerprint provider configuration.",
-                config.ProviderKey);
-        var canonical = composition.Descriptors.Canonicalize(config.ProviderKey);
-        if (!composition.Serialization.TryGet(
-                canonical,
-                family,
-                ProviderPayloadKind.Configuration,
-                out var contract) || contract is null)
-            throw new AgentRunConfigurationException(
-                "ProviderConfigTypeMismatch",
-                $"Clients.{family}.ProviderConfig",
-                $"Provider '{canonical}' does not declare a configuration payload for family '{family}'.",
-                canonical);
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(config.ProviderConfig, contract.JsonTypeInfo);
-        return Convert.ToHexString(SHA256.HashData(bytes));
-    }
-
-    private bool BindsModelToClient(string? providerKey, ProviderClientFamily family)
-    {
-        var composition = _chatClientResolver.Composition;
-        if (composition is null || string.IsNullOrWhiteSpace(providerKey) ||
-            !composition.Descriptors.TryGet(providerKey, out var descriptor) || descriptor is null ||
-            !descriptor.Families.TryGetValue(family, out var familyDescriptor))
-            return true;
-        return familyDescriptor.BindsModelToClient;
-    }
-
-    private sealed record AuxiliaryAuthenticationResolution(
-        ProviderClientConfig Config,
-        string? CacheIdentity,
-        long Generation,
-        IProviderCredentialLease? Credential);
 
     private static Middleware.AgentModelTransport ResolveModelTransport(AgentRunConfig runConfig)
         => runConfig.Clients.Transport switch
@@ -5812,6 +6382,7 @@ public sealed class Agent
         var maxAttempts = config!.MaxPollAttempts;
 
         ResponseContinuationToken? lastToken = null;
+        string? operationId = null;
         var startTime = DateTimeOffset.UtcNow;
         var attempts = 0;
         var isFirstRun = true;
@@ -5821,20 +6392,20 @@ public sealed class Agent
             // Check timeout
             if (timeout.HasValue && DateTimeOffset.UtcNow - startTime > timeout.Value)
             {
-                yield return new ModelBackgroundOperationStatusEvent(
-                    ContinuationToken: lastToken!,
-                    Status: OperationStatus.Failed,
-                    StatusMessage: $"Background operation timed out after {timeout.Value}");
+                if (operationId is not null)
+                    await FailProviderResponseOperationAsync(
+                        operationId, "provider_response_timeout",
+                        $"Model response timed out after {timeout.Value}.").ConfigureAwait(false);
                 yield break;
             }
 
             // Check max attempts (only after first run)
             if (!isFirstRun && attempts >= maxAttempts)
             {
-                yield return new ModelBackgroundOperationStatusEvent(
-                    ContinuationToken: lastToken!,
-                    Status: OperationStatus.Failed,
-                    StatusMessage: $"Background operation exceeded max poll attempts ({maxAttempts})");
+                if (operationId is not null)
+                    await FailProviderResponseOperationAsync(
+                        operationId, "provider_response_poll_limit",
+                        $"Model response exceeded {maxAttempts} poll attempts.").ConfigureAwait(false);
                 yield break;
             }
 
@@ -5844,11 +6415,12 @@ public sealed class Agent
                 options.BackgroundResponses!.ContinuationToken = lastToken;
                 attempts++;
 
-                // Emit polling status event
-                yield return new ModelBackgroundOperationStatusEvent(
-                    ContinuationToken: lastToken,
-                    Status: OperationStatus.InProgress,
-                    StatusMessage: $"Polling attempt {attempts}/{maxAttempts}");
+                if (operationId is not null)
+                    await _operationRegistry.TransitionAsync(operationId, new AgentOperationTransition
+                    {
+                        ProviderStatus = AgentOperationProviderStatus.Running,
+                        ProviderDeduplicationKey = $"model.response.poll:{attempts}"
+                    }, cancellationToken).ConfigureAwait(false);
             }
 
             // Run the agent
@@ -5859,27 +6431,86 @@ public sealed class Agent
             {
                 yield return evt;
 
-                // Capture continuation token from events
-                if (evt is ModelBackgroundOperationStartedEvent started)
-                {
-                    lastToken = started.ContinuationToken;
-                }
-                else if (evt is ModelBackgroundOperationStatusEvent status && status.ContinuationToken != null)
-                {
-                    lastToken = status.ContinuationToken;
-                }
+                if (evt is AgentOperationRegisteredEvent
+                    {
+                        Operation.SourceKind: AgentOperationSourceKind.ProviderOperation,
+                        Operation.Name: "model.response"
+                    } registered)
+                    operationId = registered.Operation.OperationId;
             }
+
+            if (operationId is null)
+                operationId = _operationRegistry.Snapshot()
+                    .Where(static candidate => candidate.SourceKind == AgentOperationSourceKind.ProviderOperation &&
+                        candidate.Name == "model.response" &&
+                        candidate.ProviderStatus is not AgentOperationProviderStatus.Completed and
+                            not AgentOperationProviderStatus.Failed and not AgentOperationProviderStatus.Cancelled)
+                    .OrderByDescending(static candidate => candidate.RegisteredAt)
+                    .Select(static candidate => candidate.OperationId)
+                    .FirstOrDefault();
+            lastToken = operationId is null ? null : GetProviderResponseContinuation(operationId);
 
             isFirstRun = false;
 
             // If no token, operation completed
             if (lastToken == null)
             {
+                if (operationId is not null && _operationRegistry.TryGet(operationId, out var completed) &&
+                    completed!.Snapshot.ProviderStatus is not AgentOperationProviderStatus.Completed and
+                        not AgentOperationProviderStatus.Failed and not AgentOperationProviderStatus.Cancelled)
+                {
+                    await _operationRegistry.TransitionAsync(operationId, new AgentOperationTransition
+                    {
+                        ProviderStatus = AgentOperationProviderStatus.Completed,
+                        Completion = new AgentOperationCompletion("Model response completed."),
+                        ProviderDeduplicationKey = $"model.response.completed:{operationId}"
+                    }, cancellationToken).ConfigureAwait(false);
+                }
                 yield break;
             }
 
             // Wait before next poll
             await Task.Delay(pollInterval, cancellationToken);
+        }
+    }
+
+    private AgentOperation? FindProviderResponseOperation(ResponseContinuationToken? continuationToken)
+    {
+        if (continuationToken is null)
+            return null;
+        return _operationRegistry.LiveOperations().FirstOrDefault(operation =>
+            operation.Observer is ProviderResponseObservation observation &&
+            observation.Matches(continuationToken));
+    }
+
+    private ResponseContinuationToken? GetProviderResponseContinuation(string operationId) =>
+        _operationRegistry.TryGet(operationId, out var operation) &&
+        operation!.Observer is ProviderResponseObservation observation
+            ? observation.ContinuationToken
+            : null;
+
+    private ValueTask<AgentOperationSnapshot> FailProviderResponseOperationAsync(
+        string operationId,
+        string code,
+        string message) =>
+        _operationRegistry.TransitionAsync(operationId, new AgentOperationTransition
+        {
+            ProviderStatus = AgentOperationProviderStatus.Failed,
+            Failure = new AgentOperationFailure(code, message),
+            ProviderDeduplicationKey = $"model.response.failed:{operationId}:{code}"
+        }, CancellationToken.None);
+
+    private sealed class ProviderResponseObservation(ResponseContinuationToken continuationToken) : IAsyncDisposable
+    {
+        internal ResponseContinuationToken? ContinuationToken { get; set; } = continuationToken;
+
+        internal bool Matches(ResponseContinuationToken candidate) =>
+            ContinuationToken is { } current && current.ToBytes().Span.SequenceEqual(candidate.ToBytes().Span);
+
+        public ValueTask DisposeAsync()
+        {
+            ContinuationToken = null;
+            return ValueTask.CompletedTask;
         }
     }
 
@@ -6056,6 +6687,17 @@ public sealed class Agent
 
         // Ensure back-reference is set on loaded threads
         thread.Session = session;
+
+        var events = await store.CollectThreadEventsAsync(
+            new ThreadKey(sessionId, threadId),
+            cancellationToken).ConfigureAwait(false);
+        if (events is not null)
+        {
+            await _operationRegistry.RehydrateAsync(events).ConfigureAwait(false);
+            await _capabilityCatalog.EnsureReadyAsync(cancellationToken).ConfigureAwait(false);
+            await _capabilityCatalog.ReconcileAsync(
+                _operationRegistry.LiveOperations(), cancellationToken).ConfigureAwait(false);
+        }
 
         return (session, thread);
     }
@@ -6286,6 +6928,9 @@ public sealed class Agent
         ArgumentNullException.ThrowIfNull(sourceThread);
         ArgumentNullException.ThrowIfNull(forkOptions);
         ArgumentException.ThrowIfNullOrWhiteSpace(newThreadId);
+        if (forkOptions.Metadata?.Keys.Any(static key => key is
+                "forkOperationId" or "forkSourceSessionId" or "forkSourceThreadId" or "forkRequestFingerprint") == true)
+            throw new InvalidOperationException("thread_fork_reserved_metadata_key");
         var store = Config.SessionStore
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
@@ -6323,6 +6968,7 @@ public sealed class Agent
         newThread.Ancestors = ancestors;
 
         int? copyThroughMessageIndex = null;
+        ThreadJournalCursor sourceForkBoundary;
 
         // Populate the in-memory read model up to and including fork point.
         // Root forks start from an empty read model.
@@ -6336,123 +6982,434 @@ public sealed class Agent
             newThread.Messages.AddRange(sourceThread.Messages.Take(copyThroughIndex + 1).Select(CloneMessageForThread));
         }
 
+        var sourceKey = new ThreadKey(sourceThread.SessionId, sourceThread.Id);
+        var sourceDescriptor = await store.GetThreadAsync(sourceKey, cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException($"Source thread '{sourceThread.Id}' no longer exists.");
+        if (copyThroughMessageIndex is int boundaryIndex)
+        {
+            var boundaryMessages = sourceThread.Messages.Take(boundaryIndex + 1).ToArray();
+            var messageIds = boundaryMessages
+                .Select(static message => message.MessageId)
+                .Where(static id => !string.IsNullOrWhiteSpace(id))
+                .Select(static id => id!)
+                .ToHashSet(StringComparer.Ordinal);
+            var turnIds = boundaryMessages
+                .Select(GetMessageTurnId)
+                .Where(static id => !string.IsNullOrWhiteSpace(id))
+                .Select(static id => id!)
+                .ToHashSet(StringComparer.Ordinal);
+            var sequence = await ResolveForkCopyThroughSequenceAsync(
+                store, sourceKey, messageIds, turnIds, cancellationToken).ConfigureAwait(false) ?? 0;
+            sourceForkBoundary = new ThreadJournalCursor(sourceDescriptor.Generation, sequence);
+        }
+        else
+        {
+            sourceForkBoundary = ThreadJournalCursor.Start(sourceDescriptor.Generation);
+        }
+
+        var forkOperationId = forkOptions.OperationId ?? Guid.NewGuid().ToString("N");
+        var effectiveSubAgentOptions = forkOptions.SubAgents ?? Config.DefaultSubAgentForkOptions;
+        var requestFingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('|',
+            sourceKey.SessionId,
+            sourceKey.ThreadId,
+            newThread.SessionId,
+            newThread.Id,
+            sourceForkBoundary.Generation,
+            sourceForkBoundary.SequenceNumber,
+            effectiveSubAgentOptions.Policy,
+            effectiveSubAgentOptions.DescendantPolicy,
+            CanonicalizeForkCompaction(forkOptions.Compaction),
+            CanonicalizeForkMetadata(forkOptions.Metadata)))));
+        var forkOperationStore = new JournalThreadForkOperationStore(store, sourceKey);
+        var forkOperation = await forkOperationStore.GetThreadForkOperationAsync(
+            forkOperationId, cancellationToken).ConfigureAwait(false);
+        if (forkOperation is null)
+        {
+            forkOperation = new ThreadForkOperationRecord
+            {
+                OperationId = forkOperationId,
+                Source = sourceKey,
+                Target = new ThreadKey(newThread.SessionId, newThread.Id),
+                SourceBoundary = sourceForkBoundary,
+                RequestFingerprint = requestFingerprint,
+                SubAgentPolicy = effectiveSubAgentOptions.Policy,
+                Status = ThreadForkOperationStatus.Prepared,
+                Revision = 1,
+                PreparedChildren = [],
+                ChildOutcomes = []
+            };
+            await forkOperationStore.WriteThreadForkOperationAsync(
+                forkOperation,
+                new ThreadForkOperationWriteCondition(0),
+                cancellationToken).ConfigureAwait(false);
+        }
+        else if (!string.Equals(forkOperation.RequestFingerprint, requestFingerprint, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("thread_fork_operation_payload_conflict");
+        }
+        else if (forkOperation.Status == ThreadForkOperationStatus.Aborted)
+        {
+            throw new InvalidOperationException($"thread_fork_operation_aborted:{forkOperation.Error}");
+        }
+        else if (forkOperation.Status is ThreadForkOperationStatus.Committed or ThreadForkOperationStatus.ReconciliationRequired)
+        {
+            var existing = await store.ProjectThreadAsync(
+                forkOperation.Target.SessionId,
+                forkOperation.Target.ThreadId,
+                ThreadProjectionPurpose.ForkConstruction,
+                cancellationToken).ConfigureAwait(false);
+            return existing ?? throw new InvalidOperationException("thread_fork_committed_target_missing");
+        }
+        else if ((forkOperation.Status is ThreadForkOperationStatus.ParentPreparing or ThreadForkOperationStatus.ReadyToCommit) &&
+                 await store.GetThreadEventHeadAsync(forkOperation.Target, cancellationToken).ConfigureAwait(false) is not null)
+        {
+            await ValidateForkTargetOwnershipAsync(
+                store, forkOperation.Target, forkOperation, cancellationToken).ConfigureAwait(false);
+            forkOperation = forkOperation with
+            {
+                Status = ThreadForkOperationStatus.Committed,
+                Revision = forkOperation.Revision + 1
+            };
+            await forkOperationStore.WriteThreadForkOperationAsync(
+                forkOperation,
+                new ThreadForkOperationWriteCondition(forkOperation.Revision - 1),
+                cancellationToken).ConfigureAwait(false);
+            return await store.ProjectThreadAsync(
+                forkOperation.Target.SessionId,
+                forkOperation.Target.ThreadId,
+                ThreadProjectionPurpose.ForkConstruction,
+                cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("thread_fork_committed_target_missing");
+        }
+        newThread.Metadata["forkOperationId"] = forkOperationId;
+        newThread.Metadata["forkSourceSessionId"] = sourceKey.SessionId;
+        newThread.Metadata["forkSourceThreadId"] = sourceKey.ThreadId;
+        newThread.Metadata["forkRequestFingerprint"] = requestFingerprint;
+
         // Copy thread-scoped middleware state (session-scoped state is shared via Session object)
         foreach (var kvp in sourceThread.MiddlewareState)
         {
             newThread.MiddlewareState[kvp.Key] = kvp.Value;
         }
 
-        if (forkOptions.Metadata != null)
+        try
         {
-            var extensionMetadata = new Dictionary<string, object>(forkOptions.Metadata, StringComparer.Ordinal);
-            newThread.ApplyRuntimeMetadata(extensionMetadata);
-            foreach (var kvp in extensionMetadata)
+            if (forkOptions.Metadata != null)
             {
-                newThread.Metadata[kvp.Key] = kvp.Value;
+                var extensionMetadata = new Dictionary<string, object>(forkOptions.Metadata, StringComparer.Ordinal);
+                newThread.ApplyRuntimeMetadata(extensionMetadata);
+                foreach (var kvp in extensionMetadata)
+                    newThread.Metadata[kvp.Key] = kvp.Value;
             }
+        }
+        catch (Exception exception)
+        {
+            await AbortForkOperationAsync(forkOperationStore, forkOperation, exception).ConfigureAwait(false);
+            throw;
         }
 
         IReadOnlyList<AgentEvent>? targetJournalEvents = null;
-        if (!_middlewarePipeline.IsEmpty)
+        try
         {
-            var forkEventCoordinator = GetActiveEventCoordinator();
-            var sessionState = MiddlewareState.LoadFromSession(sourceThread.Session, _stateFactories);
-            var threadState = MiddlewareState.LoadFromThread(newThread, _stateFactories);
-            var persistentState = sessionState.Merge(threadState);
-            var forkState = AgentLoopState.Initial(
-                newThread.Messages,
-                runId: Guid.NewGuid().ToString("N"),
-                conversationId: sourceThread.SessionId,
-                agentName: _name,
-                persistentState: persistentState);
-
-            var forkContext = new Middleware.AgentContext(
-                agentName: _name,
-                conversationId: sourceThread.SessionId,
-                initialState: forkState,
-                eventCoordinator: forkEventCoordinator,
-                threadEvents: Config?.SessionStore is { } forkStore
-                    ? new ThreadEventPublisher(forkStore, forkEventCoordinator)
-                    : null,
-                session: sourceThread.Session,
-                thread: newThread,
-                cancellationToken: cancellationToken,
-                effectiveChatClient: _defaultChatClientHandle,
-                chatClientResolver: _chatClientResolver,
-                services: _serviceProvider,
-                runtimeCapabilities: _runtimeContext?.RuntimeCapabilities,
-                agentId: AgentId,
-                parentAgentMetadata: AgentMetadata,
-                parentAgentStore: Config?.AgentStore,
-                config: Config,
-                clientSet: _clientSet,
-                contentStore: _contentStore,
-                structEvents: GetActiveStructEvents());
-
-            var beforeForkCommitContext = forkContext.AsBeforeThreadForkCommit(
-                sourceThread,
-                newThread,
-                fromMessageIndex,
-                string.IsNullOrWhiteSpace(fromMessageId) ? null : fromMessageId,
-                forkOptions);
-
-            await _middlewarePipeline.ExecuteBeforeThreadForkCommitAsync(
-                beforeForkCommitContext,
-                cancellationToken).ConfigureAwait(false);
-
-            targetJournalEvents = beforeForkCommitContext.TargetJournalEvents;
-
-            forkContext.State.MiddlewareState.SaveToThread(newThread, _stateFactories);
-            if (sourceThread.Session != null)
+            if (!_middlewarePipeline.IsEmpty)
             {
-                forkContext.State.MiddlewareState.SaveToSession(sourceThread.Session, _stateFactories);
+                var forkEventCoordinator = GetActiveEventCoordinator();
+                var sessionState = MiddlewareState.LoadFromSession(sourceThread.Session, _stateFactories);
+                var threadState = MiddlewareState.LoadFromThread(newThread, _stateFactories);
+                var persistentState = sessionState.Merge(threadState);
+                var forkState = AgentLoopState.Initial(
+                    newThread.Messages,
+                    runId: Guid.NewGuid().ToString("N"),
+                    conversationId: sourceThread.SessionId,
+                    agentName: _name,
+                    persistentState: persistentState);
+
+                var forkContext = new Middleware.AgentContext(
+                    agentName: _name,
+                    conversationId: sourceThread.SessionId,
+                    initialState: forkState,
+                    eventCoordinator: forkEventCoordinator,
+                    threadEvents: Config?.SessionStore is { } forkStore
+                        ? CreateEventPublisher(forkStore, forkEventCoordinator)
+                        : null,
+                    session: sourceThread.Session,
+                    thread: newThread,
+                    cancellationToken: cancellationToken,
+                    effectiveChatClient: _defaultChatClientHandle,
+                    chatClientResolver: _chatClientResolver,
+                    services: _serviceProvider,
+                    runtimeCapabilities: _runtimeContext?.RuntimeCapabilities,
+                    agentId: AgentId,
+                    parentAgentMetadata: AgentMetadata,
+                    parentAgentStore: Config?.AgentStore,
+                    config: Config,
+                    clientSet: _clientSet,
+                    contentStore: _contentStore,
+                    structEvents: GetActiveStructEvents());
+
+                var beforeForkCommitContext = forkContext.AsBeforeThreadForkCommit(
+                    sourceThread,
+                    newThread,
+                    fromMessageIndex,
+                    string.IsNullOrWhiteSpace(fromMessageId) ? null : fromMessageId,
+                    forkOptions);
+
+                await _middlewarePipeline.ExecuteBeforeThreadForkCommitAsync(
+                    beforeForkCommitContext,
+                    cancellationToken).ConfigureAwait(false);
+
+                targetJournalEvents = beforeForkCommitContext.HistoricalEvents;
+
+                forkContext.State.MiddlewareState.SaveToThread(newThread, _stateFactories);
+                if (sourceThread.Session != null)
+                    forkContext.State.MiddlewareState.SaveToSession(sourceThread.Session, _stateFactories);
             }
         }
+        catch (Exception exception)
+        {
+            await AbortForkOperationAsync(forkOperationStore, forkOperation, exception).ConfigureAwait(false);
+            throw;
+        }
 
+        var targetKey = new ThreadKey(newThread.SessionId, newThread.Id);
+        IReadOnlyList<AgentEvent> registryEvents;
+        try
+        {
+            if (forkOperation.Status == ThreadForkOperationStatus.Prepared)
+            {
+                forkOperation = forkOperation with
+                {
+                    Status = ThreadForkOperationStatus.ChildrenPreparing,
+                    Revision = forkOperation.Revision + 1
+                };
+                await forkOperationStore.WriteThreadForkOperationAsync(
+                    forkOperation,
+                    new ThreadForkOperationWriteCondition(forkOperation.Revision - 1),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            registryEvents = await PlanSubAgentRegistryForForkAsync(
+                store,
+                new ThreadKey(sourceThread.SessionId, sourceThread.Id),
+                targetKey,
+                sourceForkBoundary,
+                forkOperationId,
+                requestFingerprint,
+                forkOptions.SubAgents ?? Config.DefaultSubAgentForkOptions,
+                forkOperationStore,
+                cancellationToken).ConfigureAwait(false);
+            forkOperation = await forkOperationStore.GetThreadForkOperationAsync(
+                forkOperationId, cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("thread_fork_operation_missing");
+            if (forkOperation.Status == ThreadForkOperationStatus.Aborted)
+                throw new InvalidOperationException($"thread_fork_operation_aborted:{forkOperation.Error}");
+            if (forkOperation.Status is ThreadForkOperationStatus.Committed or ThreadForkOperationStatus.ReconciliationRequired)
+            {
+                await ValidateForkTargetOwnershipAsync(
+                    store, forkOperation.Target, forkOperation, cancellationToken).ConfigureAwait(false);
+                return await store.ProjectThreadAsync(
+                    forkOperation.Target.SessionId,
+                    forkOperation.Target.ThreadId,
+                    ThreadProjectionPurpose.ForkConstruction,
+                    cancellationToken).ConfigureAwait(false)
+                    ?? throw new InvalidOperationException("thread_fork_committed_target_missing");
+            }
+        }
+        catch (Exception exception)
+        {
+            await AbortForkOperationAsync(forkOperationStore, forkOperation, exception).ConfigureAwait(false);
+            throw;
+        }
+        List<AgentEvent> plannedTargetEvents;
+        try
+        {
+        var projectedEntries = registryEvents.OfType<SubAgentRegistrySeedEvent>()
+            .SelectMany(static evt => evt.Entries)
+            .ToArray();
+        var preparedChildren = forkOperation.PreparedChildren.Concat(projectedEntries
+            .OfType<SubAgentAvailableChild>()
+            .Select(static entry => entry.Child.ChildThread))
+            .Distinct()
+            .ToArray();
+        var sourceRegistryForOutcomes = await new SubAgentChildRegistry(store)
+            .ProjectAsync(sourceKey, sourceForkBoundary, cancellationToken).ConfigureAwait(false);
+        var outcomes = new List<SubAgentForkChildOutcome>();
+        foreach (var entry in projectedEntries)
+        {
+            var projectedChild = (entry as SubAgentAvailableChild)?.Child;
+            string? childSeed = null;
+            ThreadJournalCursor? childBoundary = null;
+            if (effectiveSubAgentOptions.Policy == SubAgentForkPolicy.ForkDirectChildren &&
+                projectedChild is { } executable)
+            {
+                var admittedChild = forkOperation.ChildOutcomes.FirstOrDefault(outcome =>
+                    outcome.OwningParent == sourceKey &&
+                    outcome.Target == executable.ChildThread &&
+                    string.Equals(outcome.LocalId, executable.LocalId.Value, StringComparison.Ordinal))
+                    ?? throw new InvalidOperationException("thread_fork_prepared_child_missing");
+                childSeed = admittedChild.TargetSeedFingerprint
+                    ?? throw new InvalidOperationException("thread_fork_prepared_child_seed_missing");
+                childBoundary = admittedChild.SourceBoundary
+                    ?? throw new InvalidOperationException("thread_fork_prepared_child_boundary_missing");
+            }
+            outcomes.Add(new SubAgentForkChildOutcome(
+                entry.LocalId.Value,
+                effectiveSubAgentOptions.Policy,
+                sourceRegistryForOutcomes.Entries.GetValueOrDefault(entry.LocalId) is SubAgentAvailableChild sourceAvailable
+                    ? sourceAvailable.Child.ChildThread
+                    : null,
+                projectedChild?.ChildThread,
+                entry.Availability,
+                childSeed,
+                childBoundary,
+                sourceKey,
+                targetKey));
+        }
+        foreach (var admittedOutcome in forkOperation.ChildOutcomes.Where(outcome =>
+                     sourceRegistryForOutcomes.Entries.Values.Any(entry =>
+                         outcome.OwningParent == sourceKey &&
+                         string.Equals(entry.LocalId.Value, outcome.LocalId, StringComparison.Ordinal))))
+        {
+            var plannedOutcome = outcomes.FirstOrDefault(outcome =>
+                outcome.OwningParent == admittedOutcome.OwningParent &&
+                string.Equals(outcome.LocalId, admittedOutcome.LocalId, StringComparison.Ordinal));
+            if (plannedOutcome is null || plannedOutcome != admittedOutcome)
+                throw new InvalidOperationException("thread_fork_child_seed_changed");
+        }
+        outcomes.InsertRange(0, forkOperation.ChildOutcomes.Where(admitted =>
+            outcomes.All(planned => planned.OwningParent != admitted.OwningParent ||
+                !string.Equals(planned.LocalId, admitted.LocalId, StringComparison.Ordinal))));
+        newThread.Preparation = new ThreadPreparationDescriptor(
+            forkOperationId, sourceKey, requestFingerprint);
         if (targetJournalEvents is not null)
         {
-            var events = targetJournalEvents.ToList();
+            if (targetJournalEvents.Any(IsThreadStructuralEvent))
+                throw new InvalidOperationException("thread_fork_middleware_structural_event_forbidden");
+            plannedTargetEvents = [ThreadEventFactory.ThreadCreated(newThread)];
+            plannedTargetEvents.AddRange(targetJournalEvents.Select(evt =>
+                CloneEventForThread(evt, newThread.SessionId, newThread.Id)));
             if (newThread.MiddlewareState.Count > 0)
             {
-                events.Add(ThreadEventFactory.ThreadMiddlewareStateCommitted(
+                plannedTargetEvents.Add(ThreadEventFactory.ThreadMiddlewareStateCommitted(
                     newThread.SessionId,
                     newThread.Id,
                     newThread.MiddlewareState));
             }
-            await store.AppendThreadEventsAsync(
-                new ThreadKey(newThread.SessionId, newThread.Id),
-                events,
-                new ThreadAppendCondition(ThreadJournalCursor.Start(1)),
-                cancellationToken).ConfigureAwait(false);
         }
         else if (copyThroughMessageIndex is int copiedIndex)
         {
-            await SaveForkedThreadFromSourceEventsAsync(
-                store,
-                sourceThread,
-                newThread,
-                copiedIndex,
-                cancellationToken).ConfigureAwait(false);
+            plannedTargetEvents = (await BuildForkedThreadEventsFromSourceAsync(
+                store, sourceThread, newThread, copiedIndex, cancellationToken).ConfigureAwait(false)).ToList();
         }
         else
         {
-            await store.SaveInitialThreadAsync(sourceThread.SessionId, newThread, cancellationToken)
-                .ConfigureAwait(false);
+            plannedTargetEvents = [ThreadEventFactory.ThreadCreated(newThread)];
+            if (newThread.MiddlewareState.Count > 0)
+            {
+                plannedTargetEvents.Add(ThreadEventFactory.ThreadMiddlewareStateCommitted(
+                    newThread.SessionId, newThread.Id, newThread.MiddlewareState));
+            }
         }
+        plannedTargetEvents.AddRange(registryEvents);
+        var targetSeedFingerprint = ComputeTargetSeedFingerprint(store.EventCodec, plannedTargetEvents);
+        if (forkOperation.TargetSeedFingerprint is { } admittedTargetSeed &&
+            !string.Equals(admittedTargetSeed, targetSeedFingerprint, StringComparison.Ordinal))
+            throw new InvalidOperationException("thread_fork_target_seed_changed");
+        if (forkOperation.Status == ThreadForkOperationStatus.ChildrenPreparing)
+        {
+            forkOperation = forkOperation with
+            {
+                Status = ThreadForkOperationStatus.ParentPreparing,
+                Revision = forkOperation.Revision + 1,
+                PreparedChildren = preparedChildren,
+                ChildOutcomes = outcomes.ToArray(),
+                TargetSeedFingerprint = targetSeedFingerprint
+            };
+            await forkOperationStore.WriteThreadForkOperationAsync(
+                forkOperation,
+                new ThreadForkOperationWriteCondition(forkOperation.Revision - 1),
+                cancellationToken).ConfigureAwait(false);
+        }
+        if (forkOperation.Status == ThreadForkOperationStatus.ParentPreparing)
+        {
+            forkOperation = forkOperation with
+            {
+                Status = ThreadForkOperationStatus.ReadyToCommit,
+                Revision = forkOperation.Revision + 1
+            };
+            await forkOperationStore.WriteThreadForkOperationAsync(
+                forkOperation,
+                new ThreadForkOperationWriteCondition(forkOperation.Revision - 1),
+                cancellationToken).ConfigureAwait(false);
+        }
+        newThread.Preparation = new ThreadPreparationDescriptor(
+            forkOperationId, sourceKey, requestFingerprint, forkOperation.TargetSeedFingerprint);
+        plannedTargetEvents[0] = ThreadEventFactory.ThreadCreated(newThread);
+        }
+        catch (Exception exception)
+        {
+            await AbortForkOperationAsync(forkOperationStore, forkOperation, exception).ConfigureAwait(false);
+            throw;
+        }
+
+        try
+        {
+            await store.AppendThreadEventsAsync(
+                targetKey,
+                plannedTargetEvents,
+                new ThreadAppendCondition(ThreadJournalCursor.Start(1)),
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            try
+            {
+                await ValidateForkTargetOwnershipAsync(
+                    store, targetKey, forkOperation, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch
+            {
+                await AbortForkOperationAsync(forkOperationStore, forkOperation, exception).ConfigureAwait(false);
+                throw;
+            }
+        }
+
+        forkOperation = forkOperation with
+        {
+            Status = ThreadForkOperationStatus.Committed,
+            Revision = forkOperation.Revision + 1
+        };
+        await forkOperationStore.WriteThreadForkOperationAsync(
+            forkOperation,
+            new ThreadForkOperationWriteCondition(forkOperation.Revision - 1),
+            CancellationToken.None).ConfigureAwait(false);
 
         // Update the direct lineage edge. Fork groups are projected from session graph state.
-        if (!sourceThread.ChildThreads.Contains(newThread.Id))
+        try
         {
-            sourceThread.ChildThreads.Add(newThread.Id);
-            sourceThread.LastActivity = now;
-            await store.AppendThreadUpdatedAsync(sourceThread, cancellationToken);
+            if (!sourceThread.ChildThreads.Contains(newThread.Id))
+            {
+                sourceThread.ChildThreads.Add(newThread.Id);
+                sourceThread.LastActivity = now;
+                await store.AppendThreadUpdatedAsync(sourceThread, cancellationToken);
+            }
+            if (sourceThread.Session != null)
+            {
+                sourceThread.Session.LastActivity = now;
+                await store.SaveSessionAsync(sourceThread.Session, cancellationToken);
+            }
         }
-
-        //  Update session's LastActivity
-        if (sourceThread.Session != null)
+        catch (Exception exception)
         {
-            sourceThread.Session.LastActivity = now;
-            await store.SaveSessionAsync(sourceThread.Session, cancellationToken);
+            forkOperation = forkOperation with
+            {
+                Status = ThreadForkOperationStatus.ReconciliationRequired,
+                Revision = forkOperation.Revision + 1,
+                Error = exception.Message
+            };
+            await forkOperationStore.WriteThreadForkOperationAsync(
+                forkOperation,
+                new ThreadForkOperationWriteCondition(forkOperation.Revision - 1),
+                CancellationToken.None).ConfigureAwait(false);
         }
 
         return newThread;
@@ -6461,15 +7418,15 @@ public sealed class Agent
     /// <summary>
     /// Fork a thread from its latest message (string-based API).
     /// Creates a new thread with the full current source thread history, plus thread-scoped middleware state.
-    /// Returns the new thread ID.
+    /// Returns the authoritative durable fork result.
     /// </summary>
     /// <param name="sessionId">Session identifier</param>
     /// <param name="sourceThreadId">Source thread to fork from</param>
     /// <param name="newThreadId">New thread identifier</param>
     /// <param name="metadata">Optional metadata to attach to the new thread.</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>The new thread ID (same as newThreadId parameter)</returns>
-    public async Task<string> ForkThreadAsync(
+    /// <returns>The durable operation identity, boundary, target, status, and child outcomes.</returns>
+    public async Task<ThreadForkResult> ForkThreadAsync(
         string sessionId,
         string sourceThreadId,
         string newThreadId,
@@ -6485,15 +7442,15 @@ public sealed class Agent
     /// <summary>
     /// Fork a thread from its latest message (string-based API).
     /// Creates a new thread with the full current source thread history, plus thread-scoped middleware state.
-    /// Returns the new thread ID.
+    /// Returns the authoritative durable fork result.
     /// </summary>
     /// <param name="sessionId">Session identifier</param>
     /// <param name="sourceThreadId">Source thread to fork from</param>
     /// <param name="newThreadId">New thread identifier</param>
     /// <param name="forkOptions">Options for the fork operation.</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>The new thread ID (same as newThreadId parameter)</returns>
-    public async Task<string> ForkThreadAsync(
+    /// <returns>The durable operation identity, boundary, target, status, and child outcomes.</returns>
+    public async Task<ThreadForkResult> ForkThreadAsync(
         string sessionId,
         string sourceThreadId,
         string newThreadId,
@@ -6535,7 +7492,7 @@ public sealed class Agent
     /// <summary>
     /// Fork a thread at a specific message id (string-based API).
     /// Creates a new thread with messages up to the fork point, plus thread-scoped middleware state.
-    /// Returns the new thread ID.
+    /// Returns the authoritative durable fork result.
     /// </summary>
     /// <param name="sessionId">Session identifier</param>
     /// <param name="sourceThreadId">Source thread to fork from</param>
@@ -6543,8 +7500,8 @@ public sealed class Agent
     /// <param name="fromMessageId">Message id to fork at (inclusive)</param>
     /// <param name="metadata">Optional metadata to attach to the new thread.</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>The new thread ID (same as newThreadId parameter)</returns>
-    public async Task<string> ForkThreadAsync(
+    /// <returns>The durable operation identity, boundary, target, status, and child outcomes.</returns>
+    public async Task<ThreadForkResult> ForkThreadAsync(
         string sessionId,
         string sourceThreadId,
         string newThreadId,
@@ -6559,7 +7516,7 @@ public sealed class Agent
             ThreadForkOptions.FromMetadata(metadata),
             cancellationToken).ConfigureAwait(false);
 
-    public async Task<string> ForkThreadAsync(
+    public async Task<ThreadForkResult> ForkThreadAsync(
         string sessionId,
         string sourceThreadId,
         string newThreadId,
@@ -6590,9 +7547,47 @@ public sealed class Agent
         sourceThread.Session = session;
 
         // Fork using the object-based method
-        var newThread = await ForkThreadAsync(sourceThread, newThreadId, fromMessageId, forkOptions, cancellationToken);
-
-        return newThread.Id;
+        var sourceDescriptor = await store.GetThreadAsync(
+            new ThreadKey(sessionId, sourceThreadId), cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException($"Thread '{sourceThreadId}' not found in session '{sessionId}'.");
+        var boundary = ThreadJournalCursor.Start(sourceDescriptor.Generation);
+        if (!string.IsNullOrWhiteSpace(fromMessageId))
+        {
+            var index = ResolveForkMessageIndex(sourceThread, fromMessageId);
+            var through = ExpandForkCopyThroughIndex(sourceThread.Messages, index);
+            var messages = sourceThread.Messages.Take(through + 1).ToArray();
+            var messageIds = messages.Select(static message => message.MessageId)
+                .Where(static id => !string.IsNullOrWhiteSpace(id)).Select(static id => id!)
+                .ToHashSet(StringComparer.Ordinal);
+            var turnIds = messages.Select(GetMessageTurnId)
+                .Where(static id => !string.IsNullOrWhiteSpace(id)).Select(static id => id!)
+                .ToHashSet(StringComparer.Ordinal);
+            var sequence = await ResolveForkCopyThroughSequenceAsync(
+                store,
+                new ThreadKey(sessionId, sourceThreadId),
+                messageIds,
+                turnIds,
+                cancellationToken).ConfigureAwait(false) ?? 0;
+            boundary = new ThreadJournalCursor(sourceDescriptor.Generation, sequence);
+        }
+        var operationId = forkOptions.OperationId ?? Guid.NewGuid().ToString("N");
+        forkOptions = forkOptions with { OperationId = operationId };
+        var newThread = await ForkThreadAsync(sourceThread, newThreadId, fromMessageId, forkOptions, cancellationToken)
+            .ConfigureAwait(false);
+        var operation = await new JournalThreadForkOperationStore(
+                store, new ThreadKey(sessionId, sourceThreadId))
+            .GetThreadForkOperationAsync(operationId, cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("thread_fork_operation_missing_after_commit");
+        return new ThreadForkResult
+        {
+            OperationId = operation.OperationId,
+            Source = operation.Source,
+            Target = operation.Target,
+            SourceBoundary = operation.SourceBoundary,
+            SubAgentPolicy = operation.SubAgentPolicy,
+            Status = operation.Status,
+            Children = operation.ChildOutcomes
+        };
     }
 
     private static int ResolveForkMessageIndex(
@@ -6628,7 +7623,7 @@ public sealed class Agent
         return clone;
     }
 
-    private static async Task SaveForkedThreadFromSourceEventsAsync(
+    private static async Task<IReadOnlyList<AgentEvent>> BuildForkedThreadEventsFromSourceAsync(
         ISessionStore store,
         Thread sourceThread,
         Thread newThread,
@@ -6660,11 +7655,7 @@ public sealed class Agent
             copiedTurnIds,
             cancellationToken).ConfigureAwait(false);
 
-        await store.AppendThreadEventAsync(
-            newThread.SessionId,
-            newThread.Id,
-            ThreadEventFactory.ThreadCreated(newThread),
-            cancellationToken: cancellationToken).ConfigureAwait(false);
+        var result = new List<AgentEvent> { ThreadEventFactory.ThreadCreated(newThread) };
 
         if (copyThroughSequence is long sequenceNumber)
         {
@@ -6681,13 +7672,7 @@ public sealed class Agent
                     .Where(evt => !IsThreadStructuralEvent(evt))
                     .Select(evt => CloneEventForThread(evt, newThread.SessionId, newThread.Id))
                     .ToArray();
-                if (copiedEvents.Length > 0)
-                {
-                    await store.AppendThreadEventsAsync(
-                        new ThreadKey(newThread.SessionId, newThread.Id),
-                        copiedEvents,
-                        cancellationToken: cancellationToken).ConfigureAwait(false);
-                }
+                if (copiedEvents.Length > 0) result.AddRange(copiedEvents);
             }
         }
 
@@ -6701,13 +7686,8 @@ public sealed class Agent
                 newThread.MiddlewareState));
         }
 
-        if (derivedEvents.Count > 0)
-        {
-            await store.AppendThreadEventsAsync(
-                new ThreadKey(newThread.SessionId, newThread.Id),
-                derivedEvents,
-                cancellationToken: cancellationToken).ConfigureAwait(false);
-        }
+        result.AddRange(derivedEvents);
+        return result;
     }
 
     private static AgentEvent CloneEventForThread(AgentEvent evt, string sessionId, string threadId) =>
@@ -6792,6 +7772,7 @@ public sealed class Agent
             TextMessageStartEvent data => copiedMessageIds.Contains(data.MessageId),
             TextDeltaEvent data => copiedMessageIds.Contains(data.MessageId),
             TextMessageEndEvent data => copiedMessageIds.Contains(data.MessageId),
+            ThreadMessageReplacedEvent data => copiedMessageIds.Contains(data.MessageId),
             UserMessageEvent data => copiedMessageIds.Contains(data.MessageId),
             ReasoningMessageStartEvent data => copiedMessageIds.Contains(data.MessageId),
             ReasoningDeltaEvent data => copiedMessageIds.Contains(data.MessageId),
@@ -6804,7 +7785,525 @@ public sealed class Agent
     }
 
     private static bool IsThreadStructuralEvent(AgentEvent evt) =>
-        evt is ThreadCreatedEvent or ThreadUpdatedEvent or ThreadMiddlewareStateCommittedEvent;
+        evt is ThreadCreatedEvent or ThreadUpdatedEvent or ThreadMiddlewareStateCommittedEvent or
+            SubAgentChildRegisteredEvent or SubAgentChildDetachedEvent or SubAgentChildRemappedEvent or
+            SubAgentChildUnavailableEvent or SubAgentRegistrySeedEvent or
+            SubAgentControllerGrantedEvent or SubAgentCreationReservedEvent or SubAgentCreationAdvancedEvent or
+            SubAgentChildControllerAuthorityEvent or
+            ThreadForkOperationChangedEvent;
+
+    private static string CanonicalizeForkCompaction(ThreadForkCompaction compaction) => compaction switch
+    {
+        InheritThreadForkCompaction => "inherit",
+        DisableThreadForkCompaction => "disabled",
+        ApplyThreadForkCompaction apply => "enabled:" + CanonicalizeJson(
+            JsonSerializer.SerializeToElement(apply.Compaction, SessionJsonContext.Combined.CompactionSpecification)),
+        _ => throw new InvalidOperationException("thread_fork_compaction_invalid")
+    };
+
+    private static string CanonicalizeForkMetadata(IReadOnlyDictionary<string, object>? metadata)
+    {
+        if (metadata is null || metadata.Count == 0) return "{}";
+        return "{" + string.Join(',', metadata.OrderBy(static pair => pair.Key, StringComparer.Ordinal)
+            .Select(pair => QuoteJson(pair.Key) + ":" + CanonicalizeMetadataValue(pair.Value))) + "}";
+    }
+
+    private static string CanonicalizeMetadataValue(object? value) => value switch
+    {
+        null => "null",
+        JsonElement element => CanonicalizeJson(element),
+        string text => QuoteJson(text),
+        bool flag => flag ? "true" : "false",
+        byte number => number.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        sbyte number => number.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        short number => number.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        ushort number => number.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        int number => number.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        uint number => number.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        long number => number.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        ulong number => number.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        float number => number.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+        double number => number.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+        decimal number => number.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        char character => QuoteJson(character.ToString()),
+        Guid guid => QuoteJson(guid.ToString("D")),
+        DateTime dateTime => QuoteJson(dateTime.ToUniversalTime().ToString("O", System.Globalization.CultureInfo.InvariantCulture)),
+        DateTimeOffset dateTimeOffset => QuoteJson(dateTimeOffset.ToUniversalTime().ToString("O", System.Globalization.CultureInfo.InvariantCulture)),
+        Enum enumValue => QuoteJson(enumValue.ToString()),
+        IReadOnlyDictionary<string, object> dictionary => CanonicalizeForkMetadata(dictionary),
+        IDictionary<string, object> dictionary => CanonicalizeForkMetadata(
+            new Dictionary<string, object>(dictionary, StringComparer.Ordinal)),
+        System.Collections.IDictionary dictionary => CanonicalizeUntypedMetadataDictionary(dictionary),
+        System.Collections.IEnumerable sequence => CanonicalizeUntypedMetadataSequence(sequence),
+        _ => throw new InvalidOperationException($"thread_fork_metadata_type_unsupported:{value.GetType().FullName}")
+    };
+
+    private static string CanonicalizeUntypedMetadataDictionary(System.Collections.IDictionary dictionary)
+    {
+        var entries = new List<KeyValuePair<string, object?>>();
+        foreach (System.Collections.DictionaryEntry entry in dictionary)
+        {
+            if (entry.Key is not string key)
+                throw new InvalidOperationException("thread_fork_metadata_dictionary_key_invalid");
+            entries.Add(new KeyValuePair<string, object?>(key, entry.Value));
+        }
+        return "{" + string.Join(',', entries.OrderBy(static entry => entry.Key, StringComparer.Ordinal)
+            .Select(entry => QuoteJson(entry.Key) + ":" + CanonicalizeMetadataValue(entry.Value))) + "}";
+    }
+
+    private static string CanonicalizeUntypedMetadataSequence(System.Collections.IEnumerable sequence)
+    {
+        var values = new List<string>();
+        foreach (var item in sequence)
+            values.Add(CanonicalizeMetadataValue(item));
+        return "[" + string.Join(',', values) + "]";
+    }
+
+    private static string QuoteJson(string value) => $"\"{JsonEncodedText.Encode(value)}\"";
+
+    private static string CanonicalizeJson(JsonElement value) => value.ValueKind switch
+    {
+        JsonValueKind.Object => "{" + string.Join(',', value.EnumerateObject()
+            .OrderBy(static property => property.Name, StringComparer.Ordinal)
+            .Select(property => QuoteJson(property.Name) + ":" + CanonicalizeJson(property.Value))) + "}",
+        JsonValueKind.Array => "[" + string.Join(',', value.EnumerateArray().Select(CanonicalizeJson)) + "]",
+        _ => value.GetRawText()
+    };
+
+    private static string ComputeTargetSeedFingerprint(
+        Serialization.AgentEventCodec codec,
+        IReadOnlyList<AgentEvent> events)
+    {
+        var canonical = events.Select(evt =>
+        {
+            AgentEvent normalized = evt with
+            {
+                EventId = string.Empty,
+                ThreadSequenceNumber = 0,
+                Timestamp = DateTimeOffset.UnixEpoch,
+                ExchangeTimestampNs = 0
+            };
+            if (normalized is ThreadCreatedEvent { Preparation: { } preparation } created)
+                normalized = created with
+                {
+                    EventId = string.Empty,
+                    ThreadSequenceNumber = 0,
+                    Timestamp = DateTimeOffset.UnixEpoch,
+                    ExchangeTimestampNs = 0,
+                    CreatedAt = DateTime.UnixEpoch,
+                    Preparation = preparation with
+                    {
+                        TargetSeedFingerprint = null,
+                        SourceBoundary = null
+                    }
+                };
+            return codec.Serialize(normalized);
+        });
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', canonical))));
+    }
+
+    private static async ValueTask ValidateForkTargetOwnershipAsync(
+        ISessionStore store,
+        ThreadKey target,
+        ThreadForkOperationRecord operation,
+        CancellationToken cancellationToken)
+    {
+        var head = await store.GetThreadEventHeadAsync(target, cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("thread_fork_target_missing");
+        var staged = new List<AgentEvent>();
+        await foreach (var batch in store.ReadThreadEventsAsync(
+            target,
+            new ThreadEventReadRequest(ThreadJournalCursor.Start(head.Generation), head.ThreadSequenceNumber),
+            cancellationToken).ConfigureAwait(false))
+        {
+            staged.AddRange(batch.Events);
+        }
+        var created = staged.OfType<ThreadCreatedEvent>().FirstOrDefault();
+        if (created?.Preparation is not { } preparation ||
+            !string.Equals(preparation.OperationId, operation.OperationId, StringComparison.Ordinal) ||
+            preparation.Source != operation.Source ||
+            !string.Equals(preparation.RequestFingerprint, operation.RequestFingerprint, StringComparison.Ordinal) ||
+            !string.Equals(preparation.TargetSeedFingerprint, operation.TargetSeedFingerprint, StringComparison.Ordinal))
+            throw new InvalidOperationException("thread_fork_target_collision");
+        if (!string.Equals(
+                ComputeTargetSeedFingerprint(store.EventCodec, staged),
+                operation.TargetSeedFingerprint,
+                StringComparison.Ordinal))
+            throw new InvalidOperationException("thread_fork_target_seed_mismatch");
+    }
+
+    private static async ValueTask AbortForkOperationAsync(
+        IThreadForkOperationStore store,
+        ThreadForkOperationRecord operation,
+        Exception exception)
+    {
+        for (var attempt = 0; attempt < 16; attempt++)
+        {
+            var latest = await store.GetThreadForkOperationAsync(operation.OperationId, CancellationToken.None)
+                .ConfigureAwait(false) ?? operation;
+            if (latest.Status is ThreadForkOperationStatus.Committed or
+                ThreadForkOperationStatus.ReconciliationRequired or
+                ThreadForkOperationStatus.Aborted)
+                return;
+            var aborted = latest with
+            {
+                Status = ThreadForkOperationStatus.Aborted,
+                Revision = latest.Revision + 1,
+                Error = exception.Message
+            };
+            try
+            {
+                await store.WriteThreadForkOperationAsync(
+                    aborted,
+                    new ThreadForkOperationWriteCondition(latest.Revision),
+                    CancellationToken.None).ConfigureAwait(false);
+                return;
+            }
+            catch (InvalidOperationException conflict) when (
+                conflict.Message == "thread_fork_operation_conflict" && attempt < 15) { }
+        }
+        throw new InvalidOperationException("thread_fork_abort_conflict", exception);
+    }
+
+    private static async ValueTask<IReadOnlyList<AgentEvent>> PlanSubAgentRegistryForForkAsync(
+        ISessionStore store,
+        ThreadKey source,
+        ThreadKey target,
+        ThreadJournalCursor sourceBoundary,
+        string forkOperationId,
+        string requestFingerprint,
+        SubAgentForkOptions options,
+        IThreadForkOperationStore operationStore,
+        CancellationToken cancellationToken)
+    {
+        var sourceRegistry = await new SubAgentChildRegistry(store)
+            .ProjectAsync(source, sourceBoundary, cancellationToken).ConfigureAwait(false);
+        if (sourceRegistry.Entries.Count == 0) return Array.Empty<AgentEvent>();
+        var entries = new List<SubAgentRegistryEntry>();
+        var grants = new List<AgentEvent>();
+        foreach (var sourceEntry in sourceRegistry.Entries.Values.OrderBy(static entry => entry.LocalId.Value, StringComparer.Ordinal))
+        {
+            if (sourceEntry is SubAgentChildTombstone existingTombstone)
+            {
+                entries.Add(existingTombstone with { });
+                continue;
+            }
+            var child = ((SubAgentAvailableChild)sourceEntry).Child;
+            SubAgentRegistryEntry projectedEntry;
+            SubAgentChildReference? projectedChild = null;
+            if (options.Policy == SubAgentForkPolicy.Detach)
+            {
+                projectedEntry = new SubAgentChildTombstone
+                {
+                    LocalId = child.LocalId,
+                    RoleName = child.RoleName,
+                    Availability = SubAgentChildAvailability.Detached,
+                    Reason = "This subagent was not carried into the current conversation branch. Start a new role action to continue independently.",
+                    CreatedAt = child.CreatedAt,
+                    ExecutionPolicyFingerprint = child.ExecutionPolicy.Fingerprint
+                };
+            }
+            else
+            {
+                projectedChild = options.Policy switch
+                {
+                    SubAgentForkPolicy.Share => child,
+                    SubAgentForkPolicy.ForkDirectChildren => await ForkDirectRuntimeChildAsync(
+                        store, child, target, source, forkOperationId, requestFingerprint, options, operationStore, cancellationToken).ConfigureAwait(false),
+                    _ => throw new ArgumentOutOfRangeException(nameof(options))
+                };
+                projectedEntry = new SubAgentAvailableChild { Child = projectedChild };
+            }
+            entries.Add(projectedEntry);
+            var rootOperation = await operationStore.GetThreadForkOperationAsync(forkOperationId, cancellationToken)
+                .ConfigureAwait(false) ?? throw new InvalidOperationException("thread_fork_operation_missing");
+            if (source != rootOperation.Source && options.Policy is not SubAgentForkPolicy.ForkDirectChildren)
+            {
+                await EnsureForkChildOutcomeAsync(
+                    operationStore,
+                    forkOperationId,
+                    new SubAgentForkChildOutcome(
+                        projectedEntry.LocalId.Value,
+                        options.Policy,
+                        child.ChildThread,
+                        projectedChild?.ChildThread,
+                        projectedEntry.Availability,
+                        OwningParent: source,
+                        Controller: target),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            if (options.Policy == SubAgentForkPolicy.Share && projectedChild is { } shared)
+            {
+                await SubAgentControllerAuthority.GrantAsync(
+                    store,
+                    shared.ChildThread,
+                    target,
+                    shared.LocalId,
+                    forkOperationId,
+                    rootOperation.Source,
+                    cancellationToken).ConfigureAwait(false);
+                grants.Add(new SubAgentControllerGrantedEvent(shared.LocalId, shared.ChildThread)
+                {
+                    SessionId = target.SessionId,
+                    ThreadId = target.ThreadId
+                });
+            }
+        }
+        var seed = new SubAgentRegistrySeedEvent(
+            entries,
+            [],
+            grants.OfType<SubAgentControllerGrantedEvent>().Select(static grant => grant.LocalId).ToArray())
+        {
+            SessionId = target.SessionId,
+            ThreadId = target.ThreadId
+        };
+        return [seed, .. grants];
+    }
+
+    private static async ValueTask<SubAgentChildReference> ForkDirectRuntimeChildAsync(
+        ISessionStore store,
+        SubAgentChildReference source,
+        ThreadKey targetParent,
+        ThreadKey sourceParent,
+        string forkOperationId,
+        string requestFingerprint,
+        SubAgentForkOptions options,
+        IThreadForkOperationStore operationStore,
+        CancellationToken cancellationToken)
+    {
+        var sourceKey = source.ChildThread;
+        var descriptor = await store.GetThreadAsync(sourceKey, cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("subagent_fork_boundary_unavailable");
+        var operationSuffix = forkOperationId[..Math.Min(12, forkOperationId.Length)];
+        var parentDigest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+            $"{targetParent.SessionId}\u001f{targetParent.ThreadId}")))[..16].ToLowerInvariant();
+        var targetSessionId = source.CreationContext == SubAgentCreationContext.Isolated
+            ? $"fork/{operationSuffix}/isolated/{parentDigest}/{source.LocalId.Value}"
+            : targetParent.SessionId;
+        var targetKey = new ThreadKey(
+            targetSessionId,
+            $"{targetParent.ThreadId}/subagent/{source.LocalId.Value}/{forkOperationId[..Math.Min(12, forkOperationId.Length)]}");
+        var targetAlreadyExists = await store.GetThreadEventHeadAsync(targetKey, cancellationToken)
+            .ConfigureAwait(false) is not null;
+        var admittedOperation = await operationStore.GetThreadForkOperationAsync(forkOperationId, cancellationToken)
+            .ConfigureAwait(false) ?? throw new InvalidOperationException("thread_fork_operation_missing");
+        var admittedOutcome = admittedOperation.ChildOutcomes.FirstOrDefault(outcome =>
+            outcome.OwningParent == sourceParent &&
+            string.Equals(outcome.LocalId, source.LocalId.Value, StringComparison.Ordinal));
+        var childMetadata = descriptor.Metadata.Count == 0
+            ? new Dictionary<string, object>(StringComparer.Ordinal)
+            : new Dictionary<string, object>(descriptor.Metadata, StringComparer.Ordinal);
+        childMetadata["forkOperationId"] = forkOperationId;
+        childMetadata["forkSourceSessionId"] = admittedOperation.Source.SessionId;
+        childMetadata["forkSourceThreadId"] = admittedOperation.Source.ThreadId;
+        childMetadata["forkRequestFingerprint"] = requestFingerprint;
+        var created = new ThreadCreatedEvent(
+            descriptor.DefaultAgent.AgentId,
+            descriptor.Name,
+            descriptor.Description,
+            descriptor.Tags.ToList(),
+            childMetadata,
+            DateTime.UtcNow,
+            ThreadKind.SubAgent,
+            ThreadVisibility.Hidden,
+            targetParent.SessionId,
+            targetParent.ThreadId,
+            source.RoleName,
+            InvocationId: source.CreationInvocationId,
+            ParentToolCallId: source.ParentToolCallId,
+            ContextPolicy: source.CreationContext.ToString(),
+            ForkedFrom: sourceKey.ThreadId)
+        {
+            SessionId = targetKey.SessionId,
+            ThreadId = targetKey.ThreadId,
+            Preparation = new ThreadPreparationDescriptor(
+                forkOperationId,
+                admittedOperation.Source,
+                childMetadata["forkRequestFingerprint"].ToString()!)
+        };
+        var sourceEvents = new List<AgentEvent>();
+        await foreach (var batch in store.ReadThreadEventsAsync(
+            sourceKey,
+            new ThreadEventReadRequest(
+                ThreadJournalCursor.Start(descriptor.Generation),
+                admittedOutcome?.SourceBoundary?.SequenceNumber),
+            cancellationToken).ConfigureAwait(false))
+        {
+            sourceEvents.AddRange(batch.Events);
+        }
+        var active = new HashSet<string>(StringComparer.Ordinal);
+        long? latestCompletedBoundary = null;
+        foreach (var evt in sourceEvents)
+        {
+            if (evt is ThreadExecutionStartedEvent started)
+                active.Add(started.ThreadExecutionId);
+            else if (evt is ThreadExecutionFinishedEvent finished)
+            {
+                active.Remove(finished.ThreadExecutionId);
+                latestCompletedBoundary = evt.ThreadSequenceNumber;
+            }
+        }
+        long? through = admittedOutcome?.SourceBoundary?.SequenceNumber;
+        if (admittedOutcome is null && active.Count > 0)
+            through = latestCompletedBoundary
+                ?? throw new InvalidOperationException("subagent_fork_boundary_unavailable");
+        var staged = new List<AgentEvent> { created };
+        staged.AddRange(sourceEvents
+            .Where(evt => through is null || evt.ThreadSequenceNumber <= through.Value)
+            .Where(static evt => !IsThreadStructuralEvent(evt))
+            .Select(evt => CloneEventForThread(evt, targetKey.SessionId, targetKey.ThreadId)));
+        var childBoundary = new ThreadJournalCursor(
+            descriptor.Generation,
+            through ?? sourceEvents.LastOrDefault()?.ThreadSequenceNumber ?? 0);
+        if (admittedOutcome?.SourceBoundary is { } admittedBoundary && admittedBoundary != childBoundary)
+            throw new InvalidOperationException("thread_fork_child_boundary_changed");
+        var descendantEvents = await PlanSubAgentRegistryForForkAsync(
+            store,
+            sourceKey,
+            targetKey,
+            childBoundary,
+            forkOperationId,
+            requestFingerprint,
+            new SubAgentForkOptions
+            {
+                Policy = options.DescendantPolicy,
+                DescendantPolicy = SubAgentForkPolicy.Detach
+            },
+            operationStore,
+            cancellationToken).ConfigureAwait(false);
+        staged.AddRange(descendantEvents);
+        var childSeedFingerprint = ComputeTargetSeedFingerprint(store.EventCodec, staged);
+        if (admittedOutcome?.TargetSeedFingerprint is { } admittedSeed &&
+            !string.Equals(admittedSeed, childSeedFingerprint, StringComparison.Ordinal))
+            throw new InvalidOperationException("thread_fork_child_seed_changed");
+        staged[0] = created with
+        {
+            Preparation = created.Preparation! with
+            {
+                TargetSeedFingerprint = childSeedFingerprint,
+                SourceBoundary = childBoundary
+            }
+        };
+        var childOutcome = new SubAgentForkChildOutcome(
+            source.LocalId.Value,
+            SubAgentForkPolicy.ForkDirectChildren,
+            sourceKey,
+            targetKey,
+            SubAgentChildAvailability.Available,
+            childSeedFingerprint,
+            childBoundary,
+            sourceParent,
+            targetParent);
+        await EnsureForkChildOutcomeAsync(
+            operationStore, forkOperationId, childOutcome, cancellationToken).ConfigureAwait(false);
+        if (targetAlreadyExists)
+        {
+            await ValidateForkChildTargetAsync(
+                store, targetKey, forkOperationId, childBoundary, childSeedFingerprint, CancellationToken.None)
+                .ConfigureAwait(false);
+            return source with { ChildThread = targetKey };
+        }
+        if (source.CreationContext == SubAgentCreationContext.Isolated)
+        {
+            var isolatedSession = new Session(targetSessionId)
+            {
+                Preparation = new SessionPreparationDescriptor(
+                    forkOperationId,
+                    admittedOperation.Source,
+                    childMetadata["forkRequestFingerprint"].ToString()!,
+                    childSeedFingerprint)
+            };
+            isolatedSession.Metadata["forkOperationId"] = forkOperationId;
+            isolatedSession.Metadata["forkSourceSessionId"] = admittedOperation.Source.SessionId;
+            isolatedSession.Metadata["forkSourceThreadId"] = admittedOperation.Source.ThreadId;
+            isolatedSession.Metadata["forkTargetSeedFingerprint"] = childSeedFingerprint;
+            var preparation = await store.TryPrepareSessionAsync(isolatedSession, cancellationToken).ConfigureAwait(false);
+            if (preparation == SessionPreparationResult.Conflict)
+                throw new InvalidOperationException("session_fork_target_collision");
+        }
+        try
+        {
+            await store.AppendThreadEventsAsync(
+                targetKey,
+                staged,
+                new ThreadAppendCondition(ThreadJournalCursor.Start(1)),
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            await ValidateForkChildTargetAsync(
+                store, targetKey, forkOperationId, childBoundary, childSeedFingerprint, CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        return source with { ChildThread = targetKey };
+    }
+
+    private static async ValueTask EnsureForkChildOutcomeAsync(
+        IThreadForkOperationStore operationStore,
+        string forkOperationId,
+        SubAgentForkChildOutcome childOutcome,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; attempt < 16; attempt++)
+        {
+            var operation = await operationStore.GetThreadForkOperationAsync(forkOperationId, cancellationToken)
+                .ConfigureAwait(false) ?? throw new InvalidOperationException("thread_fork_operation_missing");
+            var admitted = operation.ChildOutcomes.FirstOrDefault(outcome =>
+                outcome.OwningParent == childOutcome.OwningParent &&
+                string.Equals(outcome.LocalId, childOutcome.LocalId, StringComparison.Ordinal));
+            if (admitted is not null)
+            {
+                if (admitted != childOutcome)
+                    throw new InvalidOperationException("thread_fork_child_seed_changed");
+                return;
+            }
+            var advanced = operation with
+            {
+                Revision = operation.Revision + 1,
+                PreparedChildren = childOutcome.Target is { } target && !operation.PreparedChildren.Contains(target)
+                    ? operation.PreparedChildren.Append(target).ToArray()
+                    : operation.PreparedChildren,
+                ChildOutcomes = operation.ChildOutcomes.Append(childOutcome).ToArray()
+            };
+            try
+            {
+                await operationStore.WriteThreadForkOperationAsync(
+                    advanced,
+                    new ThreadForkOperationWriteCondition(operation.Revision),
+                    cancellationToken).ConfigureAwait(false);
+                return;
+            }
+            catch (InvalidOperationException conflict) when (
+                conflict.Message == "thread_fork_operation_conflict" && attempt < 15) { }
+        }
+        throw new InvalidOperationException("thread_fork_operation_conflict");
+    }
+
+    private static async ValueTask ValidateForkChildTargetAsync(
+        ISessionStore store,
+        ThreadKey target,
+        string forkOperationId,
+        ThreadJournalCursor sourceBoundary,
+        string targetSeedFingerprint,
+        CancellationToken cancellationToken)
+    {
+        var existingEvents = new List<AgentEvent>();
+        await foreach (var batch in store.ReadThreadEventsAsync(
+                           target,
+                           new ThreadEventReadRequest(ThreadJournalCursor.Start(1)),
+                           cancellationToken).ConfigureAwait(false))
+            existingEvents.AddRange(batch.Events);
+        var existingCreated = existingEvents.OfType<ThreadCreatedEvent>().FirstOrDefault();
+        if (existingCreated?.Preparation is not { } preparation ||
+            !string.Equals(preparation.OperationId, forkOperationId, StringComparison.Ordinal) ||
+            preparation.SourceBoundary != sourceBoundary ||
+            !string.Equals(preparation.TargetSeedFingerprint, targetSeedFingerprint, StringComparison.Ordinal) ||
+            !string.Equals(
+                ComputeTargetSeedFingerprint(store.EventCodec, existingEvents),
+                targetSeedFingerprint,
+                StringComparison.Ordinal))
+            throw new InvalidOperationException("thread_fork_target_collision");
+    }
 
     private static int ExpandForkCopyThroughIndex(IReadOnlyList<ChatMessage> messages, int requestedIndex)
     {
@@ -7435,7 +8934,7 @@ public sealed class Agent
                         "Skill" => ToolCallType.Skill,
                         "SubAgent" => ToolCallType.SubAgent,
                         "MultiAgent" => ToolCallType.MultiAgent,
-                        "MCPServer" => ToolCallType.MCPServer,
+                        "MCPServer" => ToolCallType.McpServer,
                         "OpenApi" => ToolCallType.OpenApi,
                         _ => null
                     };
@@ -7614,34 +9113,6 @@ internal sealed record AgentToolCallRequest(
 }
 
 /// <summary>
-/// Information about an active background operation being tracked by the agent loop.
-/// Used for crash recovery - allows resuming polling for in-flight background operations.
-/// </summary>
-public record BackgroundOperationInfo
-{
-    /// <summary>
-    /// Serialized continuation token (Base64 encoded).
-    /// Can be deserialized using ResponseContinuationToken.FromBytes().
-    /// </summary>
-    public required string TokenData { get; init; }
-
-    /// <summary>
-    /// Which iteration started this background operation.
-    /// </summary>
-    public required int Iteration { get; init; }
-
-    /// <summary>
-    /// When the background operation was started.
-    /// </summary>
-    public required DateTimeOffset StartedAt { get; init; }
-
-    /// <summary>
-    /// Last known status from the provider.
-    /// </summary>
-    public OperationStatus? LastKnownStatus { get; init; }
-}
-
-/// <summary>
 /// Immutable snapshot of agent execution loop state.
 /// Consolidates all 11 state variables that were scattered in RunAgenticLoopInternal.
 /// Thread-safe and testable - enables pure decision-making logic.
@@ -7736,9 +9207,9 @@ public sealed record AgentLoopState
     /// </summary>
     public string? TerminationReason { get; init; }
 
-    //      
+    //
     // FUNCTION TRACKING
-    //      
+    //
 
     /// <summary>
     /// Functions completed in this run (for telemetry and deduplication).
@@ -7746,9 +9217,9 @@ public sealed record AgentLoopState
     /// </summary>
     public required ImmutableHashSet<string> CompletedFunctions { get; init; }
 
-    //      
+    //
     // HISTORY OPTIMIZATION STATE
-    //      
+    //
 
     /// <summary>
     /// Whether the LLM service manages conversation history server-side.
@@ -7770,9 +9241,9 @@ public sealed record AgentLoopState
     /// </summary>
     public string? LastProviderResponseId { get; init; }
 
-    //      
+    //
     // STREAMING STATE
-    //      
+    //
 
     /// <summary>
     /// Last assistant message ID (for event correlation).
@@ -7796,17 +9267,6 @@ public sealed record AgentLoopState
     /// </summary>
     public MiddlewareState MiddlewareState { get; init; }
         = new MiddlewareState();
-
-    //
-    // BACKGROUND OPERATION TRACKING
-    //
-
-    /// <summary>
-    /// Active background operation being tracked (if any).
-    /// Used for crash recovery - allows resuming polling for in-flight background operations.
-    /// Null when no background operation is active.
-    /// </summary>
-    public BackgroundOperationInfo? ActiveBackgroundOperation { get; init; }
 
     //
     // USAGE TRACKING
@@ -7904,10 +9364,10 @@ public sealed record AgentLoopState
         MiddlewareState = persistentState ?? new MiddlewareState()
     };
 
-    //      
+    //
     // STATE TRANSITIONS (Immutable Updates)
     // All methods return NEW instances - never mutate existing state
-    //      
+    //
 
     /// <summary>
     /// Advances to the next iteration.
@@ -8007,11 +9467,6 @@ public sealed record AgentLoopState
         this with { ResponseUpdates = ImmutableList<ChatResponseUpdate>.Empty };
 
     /// <summary>
-    /// Sets or clears the active background operation.
-    /// Called when an LLM call returns a continuation token (backgrounded operation).
-    /// </summary>
-    /// <param name="operation">The background operation info, or null to clear.</param>
-    /// <summary>
     /// Records usage from a completed iteration:
     /// - Appends to <see cref="IterationUsage"/> (per-iteration breakdown)
     /// - Adds into <see cref="AccumulatedUsage"/> (running total across the turn)
@@ -8030,14 +9485,11 @@ public sealed record AgentLoopState
         return this with { AccumulatedUsage = total, IterationUsage = newIterationUsage };
     }
 
-    public AgentLoopState WithBackgroundOperation(BackgroundOperationInfo? operation) =>
-        this with { ActiveBackgroundOperation = operation };
-
     /// <summary>
     /// Serialized loop-state schema version.
     /// </summary>
     public int Version { get; init; } = 2;
-    
+
     /// <summary>
     /// Serializes this loop state to JSON.
     /// Uses Microsoft.Extensions.AI's built-in serialization for ChatMessage and AIContent.
@@ -8167,9 +9619,7 @@ internal static class ContentExtractor
                     break;
                 case FunctionCallContent fc:
                     sb.Append("|F:").Append(fc.Name).Append(":").Append(fc.CallId).Append(":");
-                    sb.Append(JsonSerializer.Serialize(
-                        fc.Arguments ?? new Dictionary<string, object?>(),
-                        HPDJsonContext.Default.DictionaryStringObject));
+                    sb.Append(FunctionCallArgumentSerializer.Serialize(fc));
                     break;
                 case FunctionResultContent fr:
                     sb.Append("|FR:").Append(fr.CallId).Append(":");
@@ -8348,8 +9798,6 @@ internal class FunctionCallProcessor
     private readonly FunctionExecutionCore _functionExecutionCore;
     private readonly string _agentName;
     private readonly IReadOnlyDictionary<string, MiddlewareStateFactory> _stateFactories;
-    private readonly Func<Middleware.IAgentBackgroundTaskRegistry?> _getBackgroundTaskRegistry;
-    private readonly Func<Middleware.IAgentBackgroundHandleRegistry?> _getBackgroundHandleRegistry;
 
     public FunctionCallProcessor(
         HPD.Events.IEventCoordinator eventCoordinator,
@@ -8360,9 +9808,7 @@ internal class FunctionCallProcessor
         IList<AITool>? serverConfiguredTools = null,
         AgenticLoopConfig? agenticLoopConfig = null,
         string agentName = "Agent",
-        IReadOnlyDictionary<string, MiddlewareStateFactory>? stateFactories = null,
-        Func<Middleware.IAgentBackgroundTaskRegistry?>? getBackgroundTaskRegistry = null,
-        Func<Middleware.IAgentBackgroundHandleRegistry?>? getBackgroundHandleRegistry = null)
+        IReadOnlyDictionary<string, MiddlewareStateFactory>? stateFactories = null)
     {
         _eventCoordinator = eventCoordinator ?? throw new ArgumentNullException(nameof(eventCoordinator));
         _middlewarePipeline = middlewarePipeline ?? throw new ArgumentNullException(nameof(middlewarePipeline));
@@ -8372,8 +9818,6 @@ internal class FunctionCallProcessor
         _agenticLoopConfig = agenticLoopConfig;
         _agentName = agentName;
         _stateFactories = stateFactories ?? ImmutableDictionary<string, MiddlewareStateFactory>.Empty;
-        _getBackgroundTaskRegistry = getBackgroundTaskRegistry ?? (() => null);
-        _getBackgroundHandleRegistry = getBackgroundHandleRegistry ?? (() => null);
     }
 
     // Helpers moved here from FunctionMapBuilder to keep lookup logic next to caller
@@ -8549,11 +9993,9 @@ internal class FunctionCallProcessor
         Middleware.AgentContext agentContext,
         CancellationToken cancellationToken)
     {
-        // Build function map and collect model-order invocation information once.
-        var functionMap = BuildMergedMap(_serverConfiguredTools, options?.Tools);
+        // Assign stable model-order invocation identities before authority preparation.
         var batchId = Guid.NewGuid().ToString("N");
         var invocationByCallId = new Dictionary<string, ToolInvocationInfo>(StringComparer.Ordinal);
-        var parallelFunctions = new List<ParallelFunctionInfo>();
 
         for (var i = 0; i < toolRequests.Count; i++)
         {
@@ -8568,16 +10010,36 @@ internal class FunctionCallProcessor
                 i);
             invocationByCallId[toolRequest.CallId] = invocation;
 
-            var function = FindFunction(toolRequest.Name, functionMap);
-            if (function == null)
-                continue;
-
-            parallelFunctions.Add(new ParallelFunctionInfo(
-                function,
-                toolRequest.CallId,
-                (IReadOnlyDictionary<string, object?>)(toolRequest.Arguments ?? new Dictionary<string, object?>()),
-                invocation));
         }
+
+        // Constructor-free authority preparation completes in model order before batch mediation.
+        var preparations = new List<FunctionExecutionPreparation>(toolRequests.Count);
+        foreach (var toolRequest in toolRequests)
+        {
+            var invocation = invocationByCallId.GetValueOrDefault(toolRequest.CallId)
+                ?? new ToolInvocationInfo(batchId, toolRequest.CallId, toolRequest.Name, preparations.Count);
+            var preparation = await _functionExecutionCore.PrepareFunctionAsync(
+                toolRequest,
+                options,
+                runConfig,
+                agentContext,
+                invocation,
+                cancellationToken,
+                admit: false).ConfigureAwait(false);
+            preparations.Add(preparation);
+            if (preparation.ImmediateOutcome?.ShouldTerminate == true)
+                break;
+        }
+
+        var parallelFunctions = preparations
+            .Where(static preparation => preparation.Function is not null && preparation.ImmediateOutcome is null)
+            .Select(static preparation => new ParallelFunctionInfo(
+                preparation.Function!,
+                preparation.FunctionCall.CallId,
+                preparation.Arguments,
+                preparation.Invocation,
+                preparation.ResolvedInvocation))
+            .ToArray();
 
         var batchContext = agentContext.AsBeforeParallelBatch(
             parallelFunctions,
@@ -8614,24 +10076,12 @@ internal class FunctionCallProcessor
 
         var beforeParallelExecutionState = agentLoopState.MiddlewareState;
 
-        // BeforeFunction runs serially in model order so middleware state remains deterministic.
-        var preparations = new List<FunctionExecutionPreparation>(toolRequests.Count);
-        foreach (var toolRequest in toolRequests)
+        // Admission reuses the exact authority-prepared facts and runs serially in model order.
+        for (var index = 0; index < preparations.Count; index++)
         {
-            var invocation = invocationByCallId.GetValueOrDefault(toolRequest.CallId)
-                ?? new ToolInvocationInfo(batchId, toolRequest.CallId, toolRequest.Name, preparations.Count);
-
-            var preparation = await _functionExecutionCore.PrepareFunctionAsync(
-                toolRequest,
-                options,
-                runConfig,
-                agentContext,
-                invocation,
-                cancellationToken).ConfigureAwait(false);
-
-            preparations.Add(preparation);
-
-            if (preparation.ImmediateOutcome?.ShouldTerminate == true)
+            preparations[index] = await _functionExecutionCore.AdmitPreparedFunctionAsync(
+                preparations[index], cancellationToken).ConfigureAwait(false);
+            if (preparations[index].ImmediateOutcome?.ShouldTerminate == true)
                 break;
         }
 
@@ -8833,7 +10283,7 @@ internal class FunctionCallProcessor
 internal record PreparedTurn
 {
     /// <summary>Gets the immutable capability-catalog lease pinned for this complete turn.</summary>
-    internal SkillCatalogLease? CatalogLease { get; init; }
+    internal AgentCapabilityLease? CatalogLease { get; init; }
 
     /// <summary>
     /// Prepared thread history and new input for the first iteration.

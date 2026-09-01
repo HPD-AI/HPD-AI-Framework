@@ -35,7 +35,7 @@ public sealed class AgentContext
     private volatile bool _middlewareExecuting = false;
     private int _stateGeneration = 0;
     private readonly IEventCoordinator _events;
-    private readonly IThreadEventPublisher? _threadEvents;
+    private readonly IAgentEventPublisher? _threadEvents;
     private readonly IStructEventHub _structEvents;
     private readonly CancellationToken _cancellationToken;
     private readonly AgentChatClientHandle? _effectiveChatClient;
@@ -50,6 +50,8 @@ public sealed class AgentContext
     private readonly Func<AgentInputEvent, CancellationToken, ValueTask>? _inputHandler;
     private readonly IServiceProvider? _services;
     private readonly IRuntimeCapabilityRegistry _runtimeCapabilities;
+    private readonly ToolHarnessExecutionScope? _toolHarnessExecutionScope;
+    private readonly IReadOnlyDictionary<Type, object> _agentResources;
 
     //
     // INTERNAL ACCESS (for adapters)
@@ -59,9 +61,13 @@ public sealed class AgentContext
     /// Event coordinator (internal access for adapters).
     /// </summary>
     internal IEventCoordinator EventCoordinator => _events;
-    internal IThreadEventPublisher? ThreadEvents => _threadEvents;
+    internal IAgentEventPublisher? ThreadEvents => _threadEvents;
 
     internal IStructEventHub StructEvents => _structEvents;
+    internal ToolHarnessPipelineRegistry? ToolHarnessPipelines => _toolHarnessExecutionScope?.Registry;
+    internal ToolHarnessExecutionScope? ToolHarnessExecutionScope => _toolHarnessExecutionScope;
+    internal string? CanonicalWorkspaceIdentity => _toolHarnessExecutionScope?.CanonicalWorkspaceIdentity;
+    internal IReadOnlyDictionary<Type, object> AgentResources => _agentResources;
 
     /// <summary>
     /// Effective chat-client handle for this invocation.
@@ -176,8 +182,8 @@ public sealed class AgentContext
     /// <para><b>Example - Audio Provider with HttpClient:</b></para>
     /// <code>
     /// var httpClient = context.Services?.GetService(typeof(HttpClient)) as HttpClient;
-    /// var provider = providerRegistry.GetProvider&lt;ITextToSpeechClientProvider&gt;("openai");
-    /// var ttsClient = provider?.CreateTextToSpeechClient(config, context.Services);
+    /// var runtime = context.Services?.GetService(typeof(ProviderFamilyClientRuntime));
+    /// // The family-neutral runtime constructs every provider family asynchronously.
     /// </code>
     /// </remarks>
     public IServiceProvider? Services => _services;
@@ -389,15 +395,30 @@ public sealed class AgentContext
             evt = ThreadEventValidation.PrepareForAppend(_thread.SessionId, _thread.Id, evt);
             if (_threadEvents is not null)
             {
-                return await _threadEvents.CommitAndPublishAsync(
+                return await _threadEvents.PublishAsync(
                     new ThreadKey(_thread.SessionId, _thread.Id),
                     evt,
                     cancellationToken).ConfigureAwait(false);
             }
         }
 
-        await _events.EmitAsync(evt, cancellationToken).ConfigureAwait(false);
-        return evt;
+        return await PublishLiveAsync(evt, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask<AgentEvent> PublishLiveAsync(
+        AgentEvent evt,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(evt);
+        if (_threadEvents is not null)
+            return await _threadEvents.PublishLiveAsync(evt, cancellationToken).ConfigureAwait(false);
+        var codec = _config?.EventComposition?.Codec
+            ?? throw new InvalidOperationException("Agent context has no event composition authority.");
+        if (!codec.TryGetByType(evt.GetType(), out _))
+            throw new InvalidOperationException($"Agent event type '{evt.GetType().FullName}' is not present in codec '{codec.Digest}'.");
+        var live = evt with { ThreadSequenceNumber = 0 };
+        await _events.EmitAsync(live, cancellationToken).ConfigureAwait(false);
+        return live;
     }
 
     /// <summary>
@@ -534,7 +555,7 @@ public sealed class AgentContext
         Session? session,
         Thread? thread,
         CancellationToken cancellationToken,
-        IThreadEventPublisher? threadEvents = null,
+        IAgentEventPublisher? threadEvents = null,
         AgentChatClientHandle? effectiveChatClient = null,
         AgentChatClientResolver? chatClientResolver = null,
         IServiceProvider? services = null,
@@ -548,7 +569,9 @@ public sealed class AgentContext
         AgentClientSet? clientSet = null,
         IContentStore? contentStore = null,
         IStructEventHub? structEvents = null,
-        Func<AgentInputEvent, CancellationToken, ValueTask>? inputHandler = null)
+        Func<AgentInputEvent, CancellationToken, ValueTask>? inputHandler = null,
+        ToolHarnessExecutionScope? toolHarnessExecutionScope = null,
+        IReadOnlyDictionary<Type, object>? agentResources = null)
     {
         AgentName = agentName ?? throw new ArgumentNullException(nameof(agentName));
         ConversationId = conversationId;
@@ -571,6 +594,8 @@ public sealed class AgentContext
         _parentAgentStore = parentAgentStore;
         _services = services;
         _runtimeCapabilities = runtimeCapabilities ?? new RuntimeCapabilityRegistry();
+        _toolHarnessExecutionScope = toolHarnessExecutionScope;
+        _agentResources = agentResources ?? new Dictionary<Type, object>();
     }
 
     private static AgentMetadata? CreateRootAgentMetadata(string agentName, string? agentId)
@@ -596,10 +621,10 @@ public sealed class AgentContext
     /// Creates a typed context for BeforeMessageTurn hook.
     /// </summary>
     internal BeforeMessageTurnContext AsBeforeMessageTurn(
-        ChatMessage? userMessage,
+        IReadOnlyList<ChatMessage> inputMessages,
         List<ChatMessage> conversationHistory,
         AgentRunConfig runConfig)
-        => new(this, userMessage, conversationHistory, runConfig);
+        => new(this, inputMessages, conversationHistory, runConfig);
 
     /// <summary>
     /// Creates a typed context for AfterMessageTurn hook.
@@ -607,8 +632,11 @@ public sealed class AgentContext
     internal AfterMessageTurnContext AsAfterMessageTurn(
         ChatResponse finalResponse,
         List<ChatMessage> turnHistory,
-        AgentRunConfig runConfig)
-        => new(this, finalResponse, turnHistory, runConfig);
+        AgentRunConfig runConfig,
+        AgentTurnTriggerSource triggerSource = AgentTurnTriggerSource.UserInput,
+        IReadOnlyList<ChatMessage>? userInputMessages = null,
+        IReadOnlyList<ChatMessage>? runtimeContextMessages = null)
+        => new(this, finalResponse, turnHistory, runConfig, triggerSource, userInputMessages, runtimeContextMessages);
 
     /// <summary>
     /// Creates a typed context for BeforeIteration hook.
@@ -657,9 +685,8 @@ public sealed class AgentContext
         string? toolharnessName = null,
         string? skillName = null,
         ToolInvocationInfo? invocation = null,
-        IAgentBackgroundTaskRegistry? backgroundTasks = null,
-        IAgentBackgroundHandleRegistry? backgroundHandles = null,
-        IClientToolBackgroundOperationRegistry? clientToolBackgroundOperations = null)
+        IClientToolOperationRegistry? clientToolOperations = null,
+        ResolvedFunctionInvocation? invocationMode = null)
         => new(
             this,
             function,
@@ -669,9 +696,8 @@ public sealed class AgentContext
             skillName,
             runConfig,
             invocation,
-            backgroundTasks,
-            backgroundHandles,
-            clientToolBackgroundOperations);
+            clientToolOperations,
+            invocationMode);
 
     /// <summary>
     /// Creates a typed context for AfterFunction hook.
@@ -685,8 +711,9 @@ public sealed class AgentContext
         string? toolharnessName = null,
         string? skillName = null,
         ToolInvocationInfo? invocation = null,
-        ToolResultMetadata? resultMetadata = null)
-        => new(this, function, callId, result, exception, runConfig, toolharnessName, skillName, invocation, resultMetadata);
+        ToolResultMetadata? resultMetadata = null,
+        ResolvedFunctionInvocation? invocationMode = null)
+        => new(this, function, callId, result, exception, runConfig, toolharnessName, skillName, invocation, resultMetadata, invocationMode);
 
     /// <summary>
     /// Creates a typed context for BeforeThreadForkCommit hook.

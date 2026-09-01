@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
+    "target": "ES2024",
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "strict": true,
@@ -9,7 +9,12 @@
     "verbatimModuleSyntax": true,
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
-    "lib": ["ES2023", "DOM", "DOM.Iterable"]
+    "paths": {
+      "@hpd/gateway-client": ["../../../hpd-gateway-client/src/index.ts"],
+      "@hpd/gateway-client/studio-host": ["../../../hpd-gateway-client/src/studio-host.ts"],
+      "@hpd-research/hpd-studio-core": ["../../../hpd-studio-core/src/index.ts"]
+    },
+    "lib": ["ES2024", "DOM", "DOM.Iterable"]
   },
-  "include": ["src/**/*.ts", "src/**/*.svelte", "test/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.svelte"]
 }

@@ -2,15 +2,14 @@ using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Collections.Generic;
 using System.Threading;
+using System.Text.Json;
 using GenerativeAI;
 using GenerativeAI.Core;
 using GenerativeAI.Microsoft;
 using HPD.Agent;
 using HPD.Agent.Providers;
 using HPD.Agent.ErrorHandling;
-using HPD.Agent.Secrets;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Agent.Providers.GoogleAI;
 
@@ -28,10 +27,11 @@ namespace HPD.Agent.Providers.GoogleAI;
 /// </para>
 /// </remarks>
 [HpdProvider("google-ai", "Google AI (Gemini)")]
+[HpdProviderBackend("platform", ProviderAuthenticationKind.ApiKey, IsDefaultBackend = true, IsDefaultAuthentication = true, DefaultSecretKey = "google-ai:ApiKey")]
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(GoogleAIProviderConfig), typeof(GoogleAIJsonContext))]
 [HpdProviderSecretAlias("google-ai:ApiKey", "GOOGLE_API_KEY", "GEMINI_API_KEY", "GOOGLE_AI_API_KEY")]
-internal class GoogleAIProvider : IChatClientProvider, IProviderSecretAliasProvider
+internal class GoogleAIProvider : IProvider, IProviderClientFactory<IChatClient>, IProviderSecretAliasProvider
 {
     public string ProviderKey => "google-ai";
     public string DisplayName => "Google AI (Gemini)";
@@ -47,21 +47,21 @@ internal class GoogleAIProvider : IChatClientProvider, IProviderSecretAliasProvi
         };
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
-    public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
+    public ProviderClientCredentialBinding ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor)
     {
-        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(descriptor);
+        return ProviderClientCredentialBinding.ConstructionTime;
+    }
 
-        // Get secret resolver from services
-        var secrets = services?.GetService<ISecretResolver>();
-        if (secrets == null)
-        {
-            throw new InvalidOperationException(
-                "ISecretResolver is required for provider initialization. " +
-                "Ensure the agent builder is properly configured with secret resolution.");
-        }
-
-        var googleConfig = config.ProviderConfig as GoogleAIProviderConfig ?? new GoogleAIProviderConfig();
-        var apiKey = ResolveApiKey(secrets, config, googleConfig);
+    public ValueTask<ProviderClientConstruction<IChatClient>> CreateAsync(
+        ProviderClientConstructionContext context,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
+        var config = context.EffectiveConfig;
+        var googleConfig = ReadConfig(config);
+        var apiKey = ProviderClientConstructionUtilities.GetRequiredApiKey(context.CredentialBinding);
 
         string? modelName = config.ModelName;
         if (string.IsNullOrEmpty(modelName))
@@ -70,64 +70,19 @@ internal class GoogleAIProvider : IChatClientProvider, IProviderSecretAliasProvi
         }
 
         var chatClient = new GenerativeAIChatClient(
-            CreatePlatformAdapter(apiKey, googleConfig),
+            new GoogleAIPlatformAdapter(
+                apiKey,
+                apiVersion: googleConfig.ApiVersion ?? ApiVersions.v1Beta,
+                validateAccessToken: googleConfig.ValidateAccessToken),
             modelName,
             autoCallFunction: true);
 
         IChatClient finalClient = chatClient;
-
-        return finalClient;
-    }
-
-    private static string? ResolveApiKey(
-        ISecretResolver secrets,
-        ProviderClientConfig config,
-        GoogleAIProviderConfig googleConfig)
-    {
-        if (RequiresApiKey(googleConfig))
+        return ValueTask.FromResult(new ProviderClientConstruction<IChatClient>
         {
-            var apiKeyTask = secrets.RequireAsync(
-                "google-ai:ApiKey",
-                "Google AI",
-                config.ApiKey,
-                CancellationToken.None);
-            return apiKeyTask.GetAwaiter().GetResult();
-        }
-
-        var optionalApiKeyTask = secrets.ResolveOrDefaultAsync(
-            "google-ai:ApiKey",
-            config.ApiKey,
-            CancellationToken.None);
-        return optionalApiKeyTask.GetAwaiter().GetResult();
-    }
-
-    private static bool RequiresApiKey(GoogleAIProviderConfig googleConfig)
-        => googleConfig.Platform == GoogleAIPlatform.GeminiDeveloperApi ||
-           googleConfig.ExpressMode;
-
-    private static IPlatformAdapter CreatePlatformAdapter(
-        string? apiKey,
-        GoogleAIProviderConfig googleConfig)
-    {
-        return googleConfig.Platform switch
-        {
-            GoogleAIPlatform.GeminiDeveloperApi => new GoogleAIPlatformAdapter(
-                apiKey,
-                apiVersion: googleConfig.ApiVersion ?? ApiVersions.v1Beta,
-                validateAccessToken: googleConfig.ValidateAccessToken),
-
-            GoogleAIPlatform.VertexAI => new VertextPlatformAdapter(
-                projectId: googleConfig.ProjectId,
-                region: googleConfig.Region,
-                expressMode: googleConfig.ExpressMode,
-                apiKey: apiKey,
-                apiVersion: googleConfig.ApiVersion ?? ApiVersions.v1Beta1,
-                credentialsFile: googleConfig.CredentialsFile,
-                validateAccessToken: googleConfig.ValidateAccessToken),
-
-            _ => throw new InvalidOperationException(
-                $"Unsupported Google AI platform '{googleConfig.Platform}'.")
-        };
+            Client = finalClient,
+            Owner = ProviderClientConstructionUtilities.Own(finalClient, chatClient)
+        });
     }
 
     public IProviderErrorHandler CreateErrorHandler()
@@ -159,22 +114,29 @@ internal class GoogleAIProvider : IChatClientProvider, IProviderSecretAliasProvi
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
-    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
+    public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
     {
         var errors = new List<string>();
-        var googleConfig = config.ProviderConfig as GoogleAIProviderConfig ?? new GoogleAIProviderConfig();
+        var googleConfig = ReadConfig(config);
 
-        // API key validation is deferred to CreateChatClient where ISecretResolver is available.
+        // Credential availability is validated by the authentication coordinator during acquisition.
         // This method only validates config structure, not secret resolution.
 
         if (string.IsNullOrEmpty(config.ModelName))
             errors.Add("Model name is required");
 
-        if (!Enum.IsDefined(googleConfig.Platform))
-            errors.Add($"Unsupported Google AI platform '{googleConfig.Platform}'.");
+        if (config.Family != ProviderClientFamily.Chat)
+            errors.Add("Google AI supports only chat.");
 
         return errors.Count > 0
             ? ProviderValidationResult.Failure(errors.ToArray())
             : ProviderValidationResult.Success();
     }
+
+    private static GoogleAIProviderConfig ReadConfig(EffectiveProviderClientConfig config) =>
+        config.ProviderConfiguration.CanonicalPayload.IsEmpty
+            ? new GoogleAIProviderConfig()
+            : JsonSerializer.Deserialize(
+                config.ProviderConfiguration.CanonicalPayload.AsSpan(),
+                GoogleAIJsonContext.Default.GoogleAIProviderConfig) ?? new GoogleAIProviderConfig();
 }

@@ -21,6 +21,9 @@ public sealed class UndefinedSupportTypeGuardTests
                     signature != "HPD.Base.BaseRegisteredModuleMutationAttribute.JsonContextType:System.Type" &&
                     signature != "HPD.Base.BaseRegisteredModuleMutationAttribute.RequestType:System.Type" &&
                     signature != "HPD.Base.BaseRegisteredModuleMutationAttribute.ResultType:System.Type" &&
+                    signature != "HPD.Base.BaseActivationDtoAuthorityAttribute.JsonContextType:System.Type" &&
+                    signature != "HPD.Base.BaseActivationDtoAuthorityAttribute.InputType:System.Type" &&
+                    signature != "HPD.Base.BaseActivationDtoAuthorityAttribute.ResultType:System.Type" &&
                     signature != "HPD.Base.BaseExportedSubjectAttribute.PrivateRecordType:System.Type" &&
                     signature != "HPD.Base.BaseSubjectReferenceAttribute.SubjectType:System.Type" ||
                 signature.Contains("System.Reflection.", StringComparison.Ordinal))

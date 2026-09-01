@@ -74,8 +74,9 @@ public class StructuredOutputFFITests
         );
 
         // Act
-        var json = JsonSerializer.Serialize(errorEvent, HPDFFIJsonContext.Default.StructuredOutputErrorEvent);
-        var deserialized = JsonSerializer.Deserialize<StructuredOutputErrorEvent>(json, HPDFFIJsonContext.Default.StructuredOutputErrorEvent);
+        var codec = CoreAgentEventComposition.Instance.Codec;
+        var json = codec.Serialize(errorEvent);
+        var deserialized = Assert.IsType<StructuredOutputErrorEvent>(codec.DeserializeEvent(json));
 
         // Assert
         Assert.NotNull(deserialized);

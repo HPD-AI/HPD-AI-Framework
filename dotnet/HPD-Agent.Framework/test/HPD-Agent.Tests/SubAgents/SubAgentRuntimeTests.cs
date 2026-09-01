@@ -2,6 +2,7 @@ using FluentAssertions;
 using HPD.Events;
 using HPD.Events.Core;
 using HPD.Agent.Middleware;
+using HPD.Agent.Providers;
 using HPD.Agent.Tests.Infrastructure;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,7 +16,7 @@ public class SubAgentRuntimeTests
     {
         Name = "SubAgentUnderTest",
         SystemInstructions = "Test sub-agent.",
-        Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" } }
+        Clients = new AgentClientsConfig { Chat = new ChatClientConfig { Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" }, ModelName = "test-model" } }
     };
 
     [Fact]
@@ -29,27 +30,25 @@ public class SubAgentRuntimeTests
             contextPolicy: SubAgentContextPolicy.Fork,
             metadata: null,
             invocationModePolicy: AgentInvocationModePolicy.BackgroundOnly,
-            backgroundNotification: null);
+            operationNotification: null);
 
         var result = await SubAgentRuntime.InvokeAsync(
             new SubAgentRuntime.SubAgentInvocationRequest
             {
                 Definition = subAgent,
                 Input = "review this",
-                TaskName = "review-current-change",
+                CapabilityId = CapabilityId.Create("test:reviewer"),
                 ParentContext = null
             },
             CancellationToken.None);
 
-        result.Mode.Should().Be(AgentInvocationMode.Background);
-        result.Background.Should().NotBeNull();
-        result.Background!.Status.Should().Be("background_unavailable");
-        result.Background.SourceKind.Should().Be(BackgroundTaskSourceKind.SubAgent);
-        result.Background.Name.Should().Be("review-current-change");
+        result.Mode.Should().Be(AgentInvocationMode.Synchronous);
+        result.Operation.Should().BeNull();
+        result.Text.Should().StartWith("background_unavailable:");
     }
 
     [Fact]
-    public async Task InvokeAsync_AllowsAgentAsTaskName()
+    public async Task InvokeAsync_UsesCapabilityIdentityWithoutModelAuthoredTaskName()
     {
         var subAgent = SubAgent.FromConfig(
             "test/reviewer",
@@ -59,23 +58,23 @@ public class SubAgentRuntimeTests
             contextPolicy: SubAgentContextPolicy.Fork,
             metadata: null,
             invocationModePolicy: AgentInvocationModePolicy.BackgroundOnly,
-            backgroundNotification: null);
+            operationNotification: null);
 
         var result = await SubAgentRuntime.InvokeAsync(
             new SubAgentRuntime.SubAgentInvocationRequest
             {
                 Definition = subAgent,
                 Input = "review this",
-                TaskName = "agent",
+                CapabilityId = CapabilityId.Create("test:reviewer"),
                 ParentContext = null
             },
             CancellationToken.None);
 
-        result.Background!.Name.Should().Be("agent");
+        result.Text.Should().StartWith("background_unavailable:");
     }
 
     [Fact]
-    public async Task InvokeAsync_RejectsTaskNameWithoutLettersOrNumbers()
+    public async Task InvokeAsync_DoesNotValidateRemovedTaskNameVocabulary()
     {
         var subAgent = SubAgent.FromConfig(
             "test/reviewer",
@@ -85,26 +84,25 @@ public class SubAgentRuntimeTests
             contextPolicy: SubAgentContextPolicy.Fork,
             metadata: null,
             invocationModePolicy: AgentInvocationModePolicy.BackgroundOnly,
-            backgroundNotification: null);
+            operationNotification: null);
 
-        Func<Task> act = async () => await SubAgentRuntime.InvokeAsync(
+        var result = await SubAgentRuntime.InvokeAsync(
             new SubAgentRuntime.SubAgentInvocationRequest
             {
                 Definition = subAgent,
                 Input = "review this",
-                TaskName = "---",
+                CapabilityId = CapabilityId.Create("test:reviewer"),
                 ParentContext = null
             },
             CancellationToken.None);
 
-        await act.Should().ThrowAsync<ArgumentException>()
-            .WithMessage("*at least one letter or number*");
+        result.Text.Should().StartWith("background_unavailable:");
     }
 
     [Fact]
     public async Task InvokeAsync_ReturnsOnlyThePersistedAssistantResponse()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var client = new FakeChatClient();
         client.EnqueueTextResponse("Review complete.");
         var agent = await BuildAgentAsync(store, client);
@@ -130,7 +128,7 @@ public class SubAgentRuntimeTests
             {
                 Definition = subAgent,
                 Input = "Review this input.",
-                TaskName = "review-output",
+                CapabilityId = CapabilityId.Create("test:reviewer"),
                 ParentContext = context
             },
             CancellationToken.None);
@@ -141,7 +139,7 @@ public class SubAgentRuntimeTests
     [Fact]
     public async Task InvokeAsync_WithoutAssistantResponse_FailsInsteadOfEchoingInput()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var client = new FakeChatClient();
         client.EnqueueTextResponse("");
         var agent = await BuildAgentAsync(store, client);
@@ -167,7 +165,7 @@ public class SubAgentRuntimeTests
             {
                 Definition = subAgent,
                 Input = "Do not echo this input.",
-                TaskName = "review-without-output",
+                CapabilityId = CapabilityId.Create("test:reviewer"),
                 ParentContext = context
             },
             CancellationToken.None);
@@ -179,7 +177,7 @@ public class SubAgentRuntimeTests
     [Fact]
     public async Task DefaultPolicy_ForksParentThread_WithSubAgentMetadata()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var agent = await BuildAgentAsync(store);
         await agent.CreateSessionAsync("parent-session");
 
@@ -208,7 +206,6 @@ public class SubAgentRuntimeTests
         childThread!.Messages.Should().HaveCount(parentThread.Messages.Count);
         childThread.Kind.Should().Be(ThreadKind.SubAgent);
         childThread.SubAgentName.Should().Be("Reviewer");
-        childThread.SubAgentTaskName.Should().Be("review-storage");
         childThread.ParentSessionId.Should().Be("parent-session");
         childThread.ParentThreadId.Should().Be("main");
         childThread.Visibility.Should().Be(ThreadVisibility.Hidden);
@@ -218,7 +215,6 @@ public class SubAgentRuntimeTests
 
         var descriptor = await store.GetThreadAsync(new ThreadKey(route.SessionId, route.ThreadId));
         descriptor!.RuntimeChild!.SubAgentName.Should().Be("Reviewer");
-        descriptor.RuntimeChild.SubAgentTaskName.Should().Be("review-storage");
 
         await store.AppendThreadEventsAsync(
             new ThreadKey(route.SessionId, route.ThreadId),
@@ -246,7 +242,7 @@ public class SubAgentRuntimeTests
     [Fact]
     public async Task FreshThread_CreatesEmptyThreadInParentSession()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var agent = await BuildAgentAsync(store);
         await agent.CreateSessionAsync("parent-session");
 
@@ -285,7 +281,9 @@ public class SubAgentRuntimeTests
         FakeChatClient client,
         params IAgentMiddleware[] middlewares)
     {
-        var builder = new AgentBuilder(MinimalConfig(), new TestProviderRegistry(client))
+        var config = MinimalConfig();
+        config.Clients.Chat!.Override = ClientOverride<IChatClient>.Borrow(client, "test", "local");
+        var builder = new AgentBuilder(config, new TestProviderRegistry(client))
             .WithSessionStore(store);
 
         foreach (var middleware in middlewares)

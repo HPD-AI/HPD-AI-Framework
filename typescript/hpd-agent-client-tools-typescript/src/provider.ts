@@ -1,6 +1,6 @@
 import type {
-  BackgroundHandleKind,
-  BackgroundHandleOperation,
+  AgentOperationCapabilities,
+  AgentOperationKind,
   ClientAppProviderDescriptor,
   ClientToolAugmentation,
   ClientToolBackgroundOperationState,
@@ -182,8 +182,8 @@ export interface ClientToolProviderToolContext {
   acceptBackground: (
     options?: {
       content?: ClientToolProviderToolResult;
-      handleKind?: BackgroundHandleKind;
-      supportedOperations?: BackgroundHandleOperation;
+      operationKind?: AgentOperationKind;
+      operationCapabilities?: AgentOperationCapabilities;
       augmentation?: ClientToolAugmentation;
     },
   ) => void;
@@ -784,8 +784,8 @@ export class ClientToolProvider {
           outcome: 'AcceptedBackground',
           clientOperationId: message.clientOperationId,
           content: normalizeContent(options?.content),
-          handleKind: options?.handleKind,
-          supportedOperations: options?.supportedOperations,
+          operationKind: options?.operationKind,
+          operationCapabilities: options?.operationCapabilities,
           augmentation: options?.augmentation,
         });
       },
@@ -1108,18 +1108,17 @@ class HarnessBuilder implements ClientToolProviderHarnessBuilder {
 const defaultPolicy: Required<Pick<ClientToolPolicy,
   'requiresPermission' | 'mutatesState' | 'requiresFreshContext' |
   'destructive' | 'idempotent' | 'invocationModePolicy' |
-  'backgroundNotification'>> = {
+  'operationNotification'>> = {
   requiresPermission: false,
   mutatesState: false,
   requiresFreshContext: false,
   destructive: false,
   idempotent: false,
   invocationModePolicy: 'SynchronousOnly',
-  backgroundNotification: {
-    kind: 'on_final_state',
-    completed: true,
-    faulted: true,
-    cancelled: false,
+  operationNotification: {
+    includeProgress: false,
+    includeTerminal: true,
+    minimumInterval: '00:00:00',
   },
 };
 

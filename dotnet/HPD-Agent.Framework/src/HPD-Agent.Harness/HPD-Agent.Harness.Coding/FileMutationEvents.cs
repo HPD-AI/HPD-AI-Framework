@@ -1,5 +1,6 @@
 using HPD.Agent;
 using HPD.Events;
+using HPD.Agent.Serialization;
 
 namespace HPDOS.ToolHarnesses.Middleware;
 
@@ -22,6 +23,8 @@ public abstract record FileMutationAppliedEvent : AgentEvent
     public IReadOnlyList<FileMutationNote> Notes { get; init; } = [];
 }
 
+[DurableEvent]
+[EventType("FILE_EDIT_APPLIED")]
 public sealed record FileEditAppliedEvent : FileMutationAppliedEvent
 {
     public required int EditCount { get; init; }
@@ -30,6 +33,8 @@ public sealed record FileEditAppliedEvent : FileMutationAppliedEvent
     public required IReadOnlyList<FileEditNormalizationNote> Normalizations { get; init; }
 }
 
+[DurableEvent]
+[EventType("FILE_WRITE_APPLIED")]
 public sealed record FileWriteAppliedEvent : FileMutationAppliedEvent
 {
     public required FileWriteMode Mode { get; init; }

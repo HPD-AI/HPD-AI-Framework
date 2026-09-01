@@ -119,8 +119,8 @@ public sealed class TracingObserver : IDisposable
                 AddEventToIteration(e.TraceId!, "permission.response",
                     [
                         "permission_id", e.PermissionId,
-                        "approved", e.Approved.ToString(),
-                        "reason", e.Reason ?? string.Empty
+                        "choice_id", e.ChoiceId,
+                        "feedback", e.Feedback ?? string.Empty
                     ]);
                 break;
 

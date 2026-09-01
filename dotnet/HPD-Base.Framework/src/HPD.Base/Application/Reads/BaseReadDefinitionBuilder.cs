@@ -73,6 +73,41 @@ public sealed class BaseReadOperand<TValue> : IBaseReadOperand
     }
 }
 
+/// <summary>Creates closed string predicates for registered-read operands.</summary>
+public static class BaseReadStringOperandExtensions
+{
+    /// <summary>Builds an ordinal contains predicate over a string source.</summary>
+    public static BaseReadPredicate Contains(
+        this BaseReadOperand<string> operand,
+        BaseReadOperand<string> value) => Compare(operand, value, FilterOperator.Contains);
+
+    /// <summary>Builds an ordinal prefix predicate over a string source.</summary>
+    public static BaseReadPredicate StartsWith(
+        this BaseReadOperand<string> operand,
+        BaseReadOperand<string> value) => Compare(operand, value, FilterOperator.StartsWith);
+
+    /// <summary>Builds an ordinal suffix predicate over a string source.</summary>
+    public static BaseReadPredicate EndsWith(
+        this BaseReadOperand<string> operand,
+        BaseReadOperand<string> value) => Compare(operand, value, FilterOperator.EndsWith);
+
+    private static BaseReadPredicate Compare(
+        BaseReadOperand<string> operand,
+        BaseReadOperand<string> value,
+        FilterOperator @operator)
+    {
+        ArgumentNullException.ThrowIfNull(operand);
+        ArgumentNullException.ThrowIfNull(value);
+        return new BaseReadPredicate(new BaseRelationalPredicate
+        {
+            Kind = FilterNodeKind.Compare,
+            Operator = @operator,
+            Left = operand.Operand,
+            Right = value.Operand,
+        });
+    }
+}
+
 /// <summary>Represents one typed registered read source.</summary>
 public sealed class BaseReadSource<TRecord>
 {
@@ -94,6 +129,15 @@ public sealed class BaseReadSource<TRecord>
             FieldId = field.Id,
         });
 
+    /// <summary>References an optional value field through its non-null scalar type for null-aware predicates.</summary>
+    public BaseReadOperand<TValue> OptionalField<TValue>(BaseField<TRecord, TValue?> field)
+        where TValue : struct => new(new BaseRelationalOperand
+        {
+            Kind = BaseRelationalOperandKind.SourceField,
+            SourceId = Id,
+            FieldId = field.Id,
+        });
+
     /// <summary>References the canonical record identifier.</summary>
     public BaseReadOperand<BaseRecordId<TRecord>> RecordId =>
         new(new BaseRelationalOperand
@@ -102,6 +146,14 @@ public sealed class BaseReadSource<TRecord>
             SourceId = Id,
             FieldId = "base.recordId",
         });
+
+    /// <summary>References the current authoritative record revision.</summary>
+    public BaseReadOperand<RevisionToken> Revision => new(new BaseRelationalOperand
+    {
+        Kind = BaseRelationalOperandKind.RecordRevision,
+        SourceId = Id,
+        FieldId = "base.revision",
+    });
 }
 
 /// <summary>Represents an output-only exported-subject reference projection.</summary>
@@ -190,20 +242,90 @@ public static class BaseFields
 /// <summary>Marks the target source's canonical typed record identifier.</summary>
 public sealed class BaseRecordIdField { internal BaseRecordIdField() { } }
 
+/// <summary>Builds one provenance-sealed independent count branch during host construction.</summary>
+public sealed class BaseReadCountBranchBuilder<TParameters, TRecord>
+{
+    private readonly BaseReadSource<TRecord> _source;
+    private readonly IReadOnlyDictionary<string, BaseRelationalReadParameter> _parameters;
+    private BaseRelationalPredicate? _predicate;
+
+    internal BaseReadCountBranchBuilder(BaseReadSource<TRecord> source, IReadOnlyDictionary<string, BaseRelationalReadParameter> parameters)
+    { _source = source; _parameters = parameters; }
+
+    /// <summary>References one field on this branch's sole source.</summary>
+    public BaseReadOperand<TValue> Field<TValue>(BaseField<TRecord, TValue> field) => _source.Field(field);
+    /// <summary>References one declared required request parameter.</summary>
+    public BaseReadOperand<TValue> Parameter<TValue>(BaseReadParameter<TParameters, TValue> parameter)
+    { ArgumentNullException.ThrowIfNull(parameter); Require(parameter.Id); return new(new() { Kind = BaseRelationalOperandKind.Parameter, ParameterId = parameter.Id }); }
+    /// <summary>References one declared nullable value parameter through its non-null scalar type.</summary>
+    public BaseReadOperand<TValue> OptionalParameter<TValue>(BaseReadParameter<TParameters, TValue?> parameter) where TValue : struct
+    { ArgumentNullException.ThrowIfNull(parameter); Require(parameter.Id); return new(new() { Kind = BaseRelationalOperandKind.Parameter, ParameterId = parameter.Id }); }
+    /// <summary>References one canonical GUID parameter as a typed record identifier for an exact target collection.</summary>
+    public BaseReadOperand<BaseRecordId<TTarget>> RecordIdParameter<TTarget>(BaseReadParameter<TParameters, Guid> parameter)
+    { ArgumentNullException.ThrowIfNull(parameter); Require(parameter.Id); return new(new() { Kind = BaseRelationalOperandKind.Parameter, ParameterId = parameter.Id }); }
+    /// <summary>Creates one exact closed-enum literal from source-generated wire authority.</summary>
+    public BaseReadOperand<TEnum> ClosedEnumLiteral<TEnum>(TEnum value) where TEnum : struct, Enum
+    {
+        BaseClosedEnumGeneratedAuthority<TEnum> authority = BaseClosedEnumGeneratedContract.Resolve<TEnum>();
+        if (!authority.ToWire.TryGetValue(value, out string? wire))
+            throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid);
+        return new(new BaseRelationalOperand { Kind = BaseRelationalOperandKind.Literal, Literal = new QueryValue { Kind = QueryValueKind.String, String = wire } });
+    }
+
+    /// <summary>References this branch's canonical record identifier.</summary>
+    public BaseReadOperand<BaseRecordId<TRecord>> RecordId => _source.RecordId;
+    /// <summary>Installs the branch's sole predicate.</summary>
+    public BaseReadCountBranchBuilder<TParameters, TRecord> Where(BaseReadPredicate predicate)
+    { if (_predicate is not null) throw new InvalidOperationException("base.relational.read.invalid"); _predicate = predicate?.Predicate ?? throw new ArgumentNullException(nameof(predicate)); return this; }
+    internal BaseRelationalPredicate? Build() { Validate(_predicate); return _predicate; }
+    private void Require(string id) { if (!_parameters.ContainsKey(id)) throw new InvalidOperationException("base.relational.read.invalid"); }
+    private void Validate(BaseRelationalPredicate? predicate)
+    {
+        if (predicate is null) return;
+        Validate(predicate.Left); Validate(predicate.Right);
+        foreach (BaseRelationalPredicate child in predicate.Children ?? []) Validate(child);
+    }
+    private void Validate(BaseRelationalOperand? operand)
+    {
+        if (operand is null) return;
+        if (operand.SourceId is not null && !string.Equals(operand.SourceId, _source.Id, StringComparison.Ordinal)
+            || operand.ParameterId is not null && !_parameters.ContainsKey(operand.ParameterId)
+            || operand.Kind is BaseRelationalOperandKind.Aggregate or BaseRelationalOperandKind.SubjectReference or BaseRelationalOperandKind.StoredSubjectReference)
+            throw new InvalidOperationException("base.relational.read.invalid");
+    }
+}
+
 /// <summary>Builds the closed canonical topology of one generated registered read.</summary>
 public sealed class BaseReadDefinitionBuilder<TParameters, TRow>
 {
     private readonly string _id;
     private readonly IReadOnlyDictionary<string, BaseRelationalReadParameter> _parameters;
+    private readonly Dictionary<string, (CollectionDefinition Definition, IReadOnlyDictionary<string, object> Fields)> _sourceContracts = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, BaseReadCanonicalJsonAuthority> _canonicalJsonBindings = new(StringComparer.Ordinal);
     private readonly List<BaseRelationalReadSource> _sources = [];
     private readonly List<BaseRelationalReadJoin> _joins = [];
     private readonly List<BaseRelationalReadProjection> _projection = [];
     private readonly List<BaseRelationalReadAggregate> _aggregates = [];
+    private readonly List<BaseRelationalCompoundCountBranch> _compoundBranches = [];
     private readonly List<BaseRelationalOperand> _groups = [];
     private BaseRelationalPredicate? _predicate;
     private BaseRelationalPredicate? _having;
     private readonly List<BaseRelationalReadSort> _sort = [];
     private bool _distinct;
+    private BaseRegisteredReadPaginationAuthority _pagination = new()
+    {
+        Mode = BaseRegisteredReadPaginationMode.PageOnly,
+        MaximumOffset = 0,
+    };
+    private BaseRelationalReadBudgets _budgets = new()
+    {
+        MaxResultRows = 1_000,
+        MaxResultBytes = 1_048_576,
+        MaxOperations = 64,
+        MaxExecutionMilliseconds = 2_000,
+        MaxCompoundBranches = 0,
+        MaxCompoundOperations = 0,
+    };
 
     internal BaseReadDefinitionBuilder(
         string id,
@@ -221,6 +343,36 @@ public sealed class BaseReadDefinitionBuilder<TParameters, TRow>
         out BaseReadSource<TRecord> source)
     {
         AddSource(collection, sourceId, out source);
+        return this;
+    }
+
+    /// <summary>Adds one independent record-ID count branch in installed discriminator order.</summary>
+    public BaseReadDefinitionBuilder<TParameters, TRow> CountBranch<TRecord>(
+        string branchId,
+        BaseReadField<TRow, string> discriminatorOutput,
+        string discriminator,
+        BaseCollection<TRecord> collection,
+        BaseReadField<TRow, long> countOutput,
+        Action<BaseReadCountBranchBuilder<TParameters, TRecord>> configure)
+    {
+        ArgumentNullException.ThrowIfNull(discriminatorOutput); ArgumentNullException.ThrowIfNull(collection);
+        ArgumentNullException.ThrowIfNull(countOutput); ArgumentNullException.ThrowIfNull(configure);
+        if (_sources.Count != _compoundBranches.Count || _projection.Count != 0 || _joins.Count != 0 || _aggregates.Count != 0 || _groups.Count != 0 || _sort.Count != 0 || _predicate is not null || _having is not null || _distinct)
+            throw new InvalidOperationException("base.relational.read.invalid");
+        ValidateCompoundText(branchId, 120); ValidateCompoundText(discriminator, 128);
+        if (_compoundBranches.Any(branch => string.Equals(branch.Id, branchId, StringComparison.Ordinal)
+                || string.Equals(branch.Discriminator, discriminator, StringComparison.Ordinal)))
+            throw new InvalidOperationException("base.relational.read.invalid");
+        string sourceId = branchId + ".source";
+        AddSource(collection, sourceId, out BaseReadSource<TRecord> source);
+        var branch = new BaseReadCountBranchBuilder<TParameters, TRecord>(source, _parameters);
+        configure(branch);
+        _compoundBranches.Add(new BaseRelationalCompoundCountBranch
+        {
+            Id = branchId, Source = _sources[^1], Predicate = branch.Build(), Discriminator = discriminator,
+            DiscriminatorOutputFieldId = discriminatorOutput.Id, CountOutputFieldId = countOutput.Id,
+            BranchChecksum = BaseSchemaAuthorityChecksum.Create(new byte[32]),
+        });
         return this;
     }
 
@@ -288,9 +440,79 @@ public sealed class BaseReadDefinitionBuilder<TParameters, TRow>
         });
     }
 
+    /// <summary>References one canonical GUID parameter as a typed record identifier for an exact target collection.</summary>
+    public BaseReadOperand<BaseRecordId<TTarget>> RecordIdParameter<TTarget>(
+        BaseReadParameter<TParameters, Guid> parameter)
+    {
+        ArgumentNullException.ThrowIfNull(parameter);
+        if (!_parameters.ContainsKey(parameter.Id))
+            throw new InvalidOperationException($"Read parameter '{parameter.Id}' is not declared.");
+        return new BaseReadOperand<BaseRecordId<TTarget>>(new BaseRelationalOperand
+        {
+            Kind = BaseRelationalOperandKind.Parameter,
+            ParameterId = parameter.Id,
+        });
+    }
+
+    /// <summary>Binds one required canonical-JSON parameter to an exact installed source field.</summary>
+    public BaseReadDefinitionBuilder<TParameters, TRow> BindCanonicalJsonParameter<TRecord>(
+        BaseReadParameter<TParameters, BaseCanonicalJson> parameter,
+        BaseField<TRecord, BaseCanonicalJson> field) => BindCanonicalJsonParameterCore(parameter?.Id, field);
+
+    /// <summary>Binds one required present canonical-JSON parameter to an optional or nullable source field.</summary>
+    public BaseReadDefinitionBuilder<TParameters, TRow> BindCanonicalJsonParameter<TRecord>(
+        BaseReadParameter<TParameters, BaseCanonicalJson> parameter,
+        BaseField<TRecord, BaseCanonicalJson?> field) => BindCanonicalJsonParameterCore(parameter?.Id, field);
+
+    /// <summary>Binds one nullable canonical-JSON parameter to an exact installed source field.</summary>
+    public BaseReadDefinitionBuilder<TParameters, TRow> BindCanonicalJsonParameter<TRecord>(
+        BaseReadParameter<TParameters, BaseCanonicalJson?> parameter,
+        BaseField<TRecord, BaseCanonicalJson?> field) => BindCanonicalJsonParameterCore(parameter?.Id, field);
+
+    private BaseReadDefinitionBuilder<TParameters, TRow> BindCanonicalJsonParameterCore(string? parameterId, object? field)
+    {
+        ArgumentNullException.ThrowIfNull(parameterId);
+        ArgumentNullException.ThrowIfNull(field);
+        if (!_parameters.TryGetValue(parameterId, out BaseRelationalReadParameter? parameter)
+            || parameter.Kind != QueryValueKind.CanonicalJson
+            || !_canonicalJsonBindings.TryAdd(parameterId, FindCanonicalJsonAuthority(field)))
+            throw new InvalidOperationException("base.relational.read.invalid");
+        return this;
+    }
+
+    /// <summary>References an optional value parameter through its non-null scalar type for null-aware predicates.</summary>
+    public BaseReadOperand<TValue> OptionalParameter<TValue>(BaseReadParameter<TParameters, TValue?> parameter)
+        where TValue : struct
+    {
+        ArgumentNullException.ThrowIfNull(parameter);
+        if (!_parameters.ContainsKey(parameter.Id))
+            throw new InvalidOperationException($"Read parameter '{parameter.Id}' is not declared.");
+        return new BaseReadOperand<TValue>(new BaseRelationalOperand
+        {
+            Kind = BaseRelationalOperandKind.Parameter,
+            ParameterId = parameter.Id,
+        });
+    }
+
     /// <summary>Creates a closed scalar or bounded-array literal operand.</summary>
     public BaseReadOperand<TValue> Literal<TValue>(TValue value) =>
         new(new BaseRelationalOperand { Kind = BaseRelationalOperandKind.Literal, Literal = BaseReadLiteral.Value(value) });
+
+    /// <summary>Creates one exact closed-enum literal from source-generated wire authority.</summary>
+    /// <typeparam name="TEnum">The closed enum type.</typeparam>
+    /// <param name="value">The declared enum value.</param>
+    /// <returns>A provenance-sealed literal operand containing the declared wire value.</returns>
+    public BaseReadOperand<TEnum> ClosedEnumLiteral<TEnum>(TEnum value) where TEnum : struct, Enum
+    {
+        BaseClosedEnumGeneratedAuthority<TEnum> authority = BaseClosedEnumGeneratedContract.Resolve<TEnum>();
+        if (!authority.ToWire.TryGetValue(value, out string? wire))
+            throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid);
+        return new BaseReadOperand<TEnum>(new BaseRelationalOperand
+        {
+            Kind = BaseRelationalOperandKind.Literal,
+            Literal = new QueryValue { Kind = QueryValueKind.String, String = wire },
+        });
+    }
 
     /// <summary>Creates a closed typed record-ID literal operand.</summary>
     public BaseReadOperand<BaseRecordId<TRecord>> Literal<TRecord>(BaseRecordId<TRecord> value) =>
@@ -331,6 +553,65 @@ public sealed class BaseReadDefinitionBuilder<TParameters, TRow>
             {
                 Kind = BaseRelationalOperandKind.SubjectReference,
                 SourceId = source.Id,
+                SubjectContractId = registration.Definition.Id,
+                SubjectContractVersion = registration.Definition.Version,
+            },
+        });
+        return this;
+    }
+
+    /// <summary>Projects one required exported-subject reference exactly as stored on a source record.</summary>
+    /// <typeparam name="TSubject">The exported-subject marker type.</typeparam>
+    /// <typeparam name="TRecord">The source record type.</typeparam>
+    /// <param name="output">The required result field.</param>
+    /// <param name="source">The registered-read source.</param>
+    /// <param name="storedField">The required stored subject-reference field.</param>
+    /// <param name="registration">The generated subject-contract authority.</param>
+    /// <returns>This builder.</returns>
+    public BaseReadDefinitionBuilder<TParameters, TRow> ProjectStoredSubjectReference<TSubject, TRecord>(
+        BaseReadField<TRow, BaseSubjectReference<TSubject>> output,
+        BaseReadSource<TRecord> source,
+        BaseField<TRecord, BaseSubjectReference<TSubject>> storedField,
+        BaseGeneratedSubjectRegistration registration) =>
+        ProjectStoredSubjectReferenceCore<TSubject, TRecord, BaseSubjectReference<TSubject>>(
+            output, source, storedField, registration);
+
+    /// <summary>Projects one optional or nullable exported-subject reference exactly as stored on a source record.</summary>
+    /// <typeparam name="TSubject">The exported-subject marker type.</typeparam>
+    /// <typeparam name="TRecord">The source record type.</typeparam>
+    /// <param name="output">The nullable result field.</param>
+    /// <param name="source">The registered-read source.</param>
+    /// <param name="storedField">The optional or nullable stored subject-reference field.</param>
+    /// <param name="registration">The generated subject-contract authority.</param>
+    /// <returns>This builder.</returns>
+    public BaseReadDefinitionBuilder<TParameters, TRow> ProjectStoredSubjectReference<TSubject, TRecord>(
+        BaseReadField<TRow, BaseSubjectReference<TSubject>?> output,
+        BaseReadSource<TRecord> source,
+        BaseField<TRecord, BaseSubjectReference<TSubject>?> storedField,
+        BaseGeneratedSubjectRegistration registration) =>
+        ProjectStoredSubjectReferenceCore<TSubject, TRecord, BaseSubjectReference<TSubject>?>(
+            output, source, storedField, registration);
+
+    private BaseReadDefinitionBuilder<TParameters, TRow> ProjectStoredSubjectReferenceCore<TSubject, TRecord, TValue>(
+        BaseReadField<TRow, TValue> output,
+        BaseReadSource<TRecord> source,
+        BaseField<TRecord, TValue> storedField,
+        BaseGeneratedSubjectRegistration registration)
+    {
+        ArgumentNullException.ThrowIfNull(output);
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(storedField);
+        ArgumentNullException.ThrowIfNull(registration);
+        if (registration.MarkerType != typeof(TSubject))
+            throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+        _projection.Add(new BaseRelationalReadProjection
+        {
+            FieldId = output.Id,
+            Operand = new BaseRelationalOperand
+            {
+                Kind = BaseRelationalOperandKind.StoredSubjectReference,
+                SourceId = source.Id,
+                FieldId = storedField.Id,
                 SubjectContractId = registration.Definition.Id,
                 SubjectContractVersion = registration.Definition.Version,
             },
@@ -380,30 +661,100 @@ public sealed class BaseReadDefinitionBuilder<TParameters, TRow>
     public BaseReadDefinitionBuilder<TParameters, TRow> Distinct()
     { _distinct = true; return this; }
 
+    /// <summary>Sets the exact immutable execution budgets for this registered read.</summary>
+    public BaseReadDefinitionBuilder<TParameters, TRow> Limits(
+        int maximumResultRows,
+        int maximumResultBytes,
+        int maximumOperations,
+        int maximumExecutionMilliseconds)
+    {
+        if (maximumResultRows < 1) throw new ArgumentOutOfRangeException(nameof(maximumResultRows));
+        if (maximumResultBytes < 1) throw new ArgumentOutOfRangeException(nameof(maximumResultBytes));
+        if (maximumOperations < 1) throw new ArgumentOutOfRangeException(nameof(maximumOperations));
+        if (maximumExecutionMilliseconds < 1) throw new ArgumentOutOfRangeException(nameof(maximumExecutionMilliseconds));
+        _budgets = new BaseRelationalReadBudgets
+        {
+            MaxResultRows = maximumResultRows,
+            MaxResultBytes = maximumResultBytes,
+            MaxOperations = maximumOperations,
+            MaxExecutionMilliseconds = maximumExecutionMilliseconds,
+            MaxCompoundBranches = _budgets.MaxCompoundBranches,
+            MaxCompoundOperations = _budgets.MaxCompoundOperations,
+        };
+        return this;
+    }
+
+    /// <summary>Allows bounded arbitrary-offset execution for this registered read.</summary>
+    /// <param name="maximumOffset">The maximum admitted zero-based offset.</param>
+    /// <returns>The same definition builder.</returns>
+    public BaseReadDefinitionBuilder<TParameters, TRow> AllowOffsetPagination(int maximumOffset)
+    {
+        if (maximumOffset is < 0 or > 1_000_000 || _pagination.Mode != BaseRegisteredReadPaginationMode.PageOnly)
+            throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid);
+        _pagination = new BaseRegisteredReadPaginationAuthority
+        {
+            Mode = BaseRegisteredReadPaginationMode.PageAndOffset,
+            MaximumOffset = maximumOffset,
+        };
+        return this;
+    }
+
+    /// <summary>Sets the exact immutable execution budgets for a compound count read.</summary>
+    public BaseReadDefinitionBuilder<TParameters, TRow> CompoundLimits(
+        int maximumResultBytes, int maximumOperations, int maximumExecutionMilliseconds,
+        int maximumBranches, int maximumCompoundOperations)
+    {
+        if (maximumBranches < 1 || maximumCompoundOperations < maximumBranches)
+            throw new ArgumentOutOfRangeException(nameof(maximumBranches));
+        Limits(maximumBranches, maximumResultBytes, maximumOperations, maximumExecutionMilliseconds);
+        _budgets = _budgets with { MaxCompoundBranches = maximumBranches, MaxCompoundOperations = maximumCompoundOperations };
+        return this;
+    }
+
     internal BaseRelationalReadPlan Build()
     {
-        if (_sources.Count == 0 || _projection.Count == 0)
+        bool compound = _compoundBranches.Count != 0;
+        if (_sources.Count == 0 || !compound && _projection.Count == 0)
             throw new InvalidOperationException("A registered read requires a root source and projection.");
+        if (compound && _pagination.Mode != BaseRegisteredReadPaginationMode.PageOnly)
+            throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid);
+        if (compound && (_budgets.MaxCompoundBranches < _compoundBranches.Count || _budgets.MaxCompoundOperations < _compoundBranches.Count))
+            throw new InvalidOperationException("base.relational.read.invalid");
+        BaseRelationalCompoundCountBranch[] compoundBranches = compound
+            ? _compoundBranches.OrderBy(static branch => branch.Discriminator, StringComparer.Ordinal).ToArray()
+            : [];
+        BaseRelationalReadSource[] sources = compound
+            ? compoundBranches.Select(static branch => branch.Source).ToArray()
+            : _sources.ToArray();
         return new BaseRelationalReadPlan
         {
             Id = _id,
-            Sources = _sources.ToArray(),
+            Topology = compound ? BaseRelationalReadTopology.CompoundCount : BaseRelationalReadTopology.Ordinary,
+            CompoundCountBranches = compoundBranches,
+            CompoundChecksum = compound ? BaseSchemaAuthorityChecksum.Create(new byte[32]) : null,
+            Sources = sources,
             Joins = _joins.ToArray(),
             Predicate = _predicate,
             GroupKeys = _groups.ToArray(),
             Aggregates = _aggregates.ToArray(),
             Having = _having,
-            Projection = _projection.ToArray(),
+            Projection = _projection.Select(BindProjectionAuthority).ToArray(),
             Distinct = _distinct,
             Sort = _sort.ToArray(),
-            Parameters = _parameters.Values.OrderBy(static parameter => parameter.Id, StringComparer.Ordinal).ToArray(),
-            Budgets = new BaseRelationalReadBudgets
-            {
-                MaxResultRows = 1_000,
-                MaxResultBytes = 1_048_576,
-                MaxOperations = 64,
-            },
+            Parameters = _parameters.Values.OrderBy(static parameter => parameter.Id, StringComparer.Ordinal)
+                .Select(parameter => parameter.Kind == QueryValueKind.CanonicalJson
+                    ? parameter with { CanonicalJsonAuthority = _canonicalJsonBindings.GetValueOrDefault(parameter.Id) }
+                    : parameter).ToArray(),
+            Budgets = _budgets with { },
+            Pagination = _pagination with { },
         };
+    }
+
+    private static void ValidateCompoundText(string value, int maximumUtf8Bytes)
+    {
+        if (string.IsNullOrWhiteSpace(value) || !value.IsNormalized(System.Text.NormalizationForm.FormC)
+            || System.Text.Encoding.UTF8.GetByteCount(value) > maximumUtf8Bytes)
+            throw new InvalidOperationException("base.relational.read.invalid");
     }
 
     private void AddSource<TRecord>(
@@ -416,7 +767,29 @@ public sealed class BaseReadDefinitionBuilder<TParameters, TRow>
         if (_sources.Any(item => string.Equals(item.Id, sourceId, StringComparison.Ordinal)))
             throw new InvalidOperationException($"Read source '{sourceId}' is already declared.");
         _sources.Add(new BaseRelationalReadSource { Id = sourceId, CollectionId = collection.Id });
+        _sourceContracts.Add(sourceId, (collection.Definition, collection.Fields));
         source = new BaseReadSource<TRecord>(sourceId, collection);
+    }
+
+    private BaseReadCanonicalJsonAuthority FindCanonicalJsonAuthority(object field)
+    {
+        var matches = _sourceContracts.Values.Where(source => source.Fields.Values.Any(candidate => ReferenceEquals(candidate, field))).ToArray();
+        if (matches.Length != 1) throw new InvalidOperationException("base.relational.read.invalid");
+        FieldDefinition definition = matches[0].Definition.Fields!.Single(item =>
+            matches[0].Fields.TryGetValue(item.Id, out object? candidate) && ReferenceEquals(candidate, field));
+        return BaseReadCanonicalJsonAuthorityContract.Create(matches[0].Definition.Id, definition);
+    }
+
+    private BaseRelationalReadProjection BindProjectionAuthority(BaseRelationalReadProjection projection)
+    {
+        BaseRelationalOperand operand = projection.Operand;
+        if (operand.Kind != BaseRelationalOperandKind.SourceField || operand.SourceId is null || operand.FieldId is null)
+            return projection;
+        (CollectionDefinition Definition, IReadOnlyDictionary<string, object> Fields) source = _sourceContracts[operand.SourceId];
+        FieldDefinition field = source.Definition.Fields!.Single(item => string.Equals(item.Id, operand.FieldId, StringComparison.Ordinal));
+        return field.ScalarKind == BaseScalarKind.CanonicalJson
+            ? projection with { CanonicalJsonAuthority = BaseReadCanonicalJsonAuthorityContract.Create(source.Definition.Id, field) }
+            : projection;
     }
 }
 
@@ -439,9 +812,16 @@ internal static class BaseReadLiteral
 {
     internal static QueryValue Value<TValue>(TValue value)
     {
+        Type declaredType = typeof(TValue);
+        Type? arrayElementType = declaredType.IsArray ? declaredType.GetElementType() : null;
+        if (declaredType.IsEnum || arrayElementType?.IsEnum == true || value is Enum)
+            throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid);
+
         if (value is Array values)
         {
             if (values.Length > 256) throw new ArgumentOutOfRangeException(nameof(value), "A literal array may contain at most 256 values.");
+            if (values.Cast<object?>().Any(static item => item is Enum))
+                throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid);
             return new QueryValue
             {
                 Kind = QueryValueKind.Array,

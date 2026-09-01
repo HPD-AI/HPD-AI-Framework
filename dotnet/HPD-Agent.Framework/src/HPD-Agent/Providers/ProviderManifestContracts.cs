@@ -54,6 +54,46 @@ public sealed class HpdProviderFamilyAttribute : Attribute
     public bool BindsModelToClient { get; set; } = true;
 }
 
+/// <summary>Declares one concrete backend and authentication mechanism exposed by a provider.</summary>
+[AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
+public sealed class HpdProviderBackendAttribute : Attribute
+{
+    /// <summary>Initializes a provider backend authentication declaration.</summary>
+    /// <param name="backendKey">The lowercase, URL-safe backend identity.</param>
+    /// <param name="authenticationKind">The supported authentication mechanism.</param>
+    public HpdProviderBackendAttribute(
+        string backendKey,
+        ProviderAuthenticationKind authenticationKind)
+    {
+        BackendKey = backendKey;
+        AuthenticationKind = authenticationKind;
+    }
+
+    /// <summary>Gets the backend identity.</summary>
+    public string BackendKey { get; }
+
+    /// <summary>Gets the supported authentication mechanism.</summary>
+    public ProviderAuthenticationKind AuthenticationKind { get; }
+
+    /// <summary>Gets or sets whether this is the provider's default backend.</summary>
+    public bool IsDefaultBackend { get; set; }
+
+    /// <summary>Gets or sets whether this is the backend's default authentication mechanism.</summary>
+    public bool IsDefaultAuthentication { get; set; }
+
+    /// <summary>Gets or sets whether acquisition can require host interaction.</summary>
+    public bool IsInteractive { get; set; }
+
+    /// <summary>Gets or sets whether the mechanism supports renewable credentials.</summary>
+    public bool SupportsRefresh { get; set; }
+
+    /// <summary>Gets or sets the default resolver key for API-key authentication.</summary>
+    public string? DefaultSecretKey { get; set; }
+
+    /// <summary>Gets or sets the client families supported by this declaration.</summary>
+    public ProviderClientFamily[] Families { get; set; } = [];
+}
+
 /// <summary>Declares an alternate key that canonicalizes to the provider key.</summary>
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
 public sealed class HpdProviderAliasAttribute : Attribute
@@ -256,6 +296,9 @@ public sealed class HpdProviderManifestAttribute : Attribute
 
     /// <summary>Gets or sets aliases contributed by the manifest.</summary>
     public string[] Aliases { get; set; } = Array.Empty<string>();
+
+    /// <summary>Gets or sets the concrete backend keys implemented by the manifest.</summary>
+    public string[] BackendKeys { get; set; } = Array.Empty<string>();
 }
 
 /// <summary>Describes one immutable provider contribution before same-key composition.</summary>
@@ -273,6 +316,9 @@ public interface IProviderDescriptor
     /// <summary>Gets the client-family contributions in this manifest.</summary>
     IReadOnlyDictionary<ProviderClientFamily, ProviderFamilyDescriptor> Families { get; }
 
+    /// <summary>Gets the provider's concrete backend descriptors.</summary>
+    IReadOnlyDictionary<string, ProviderBackendDescriptor> Backends { get; }
+
     /// <summary>Gets aliases that canonicalize to <see cref="ProviderKey"/>.</summary>
     IReadOnlyList<string> Aliases { get; }
 }
@@ -283,19 +329,25 @@ public sealed class ProviderRuntimeFactoryRegistration
     /// <summary>Initializes a closed provider factory registration.</summary>
     public ProviderRuntimeFactoryRegistration(
         string providerKey,
+        IReadOnlyList<string> backendKeys,
         IReadOnlyList<ProviderClientFamily> families,
         Func<IProvider> factory)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(providerKey);
+        ArgumentNullException.ThrowIfNull(backendKeys);
         ArgumentNullException.ThrowIfNull(families);
         ArgumentNullException.ThrowIfNull(factory);
         ProviderKey = providerKey;
+        BackendKeys = new List<string>(backendKeys).AsReadOnly();
         Families = new List<ProviderClientFamily>(families).AsReadOnly();
         Factory = factory;
     }
 
     /// <summary>Gets the canonical provider key.</summary>
     public string ProviderKey { get; }
+
+    /// <summary>Gets the canonical backend keys implemented by this factory.</summary>
+    public IReadOnlyList<string> BackendKeys { get; }
 
     /// <summary>Gets the client families created by this factory.</summary>
     public IReadOnlyList<ProviderClientFamily> Families { get; }

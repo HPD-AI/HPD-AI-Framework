@@ -57,7 +57,7 @@ public interface IAgentTuiThreadRuntime
         AgentTuiCreateThreadRequest request,
         CancellationToken cancellationToken = default);
 
-    Task<AgentTuiThreadInfo> ForkThreadAsync(
+    Task<AgentTuiThreadForkInfo> ForkThreadAsync(
         string agentId,
         string sessionId,
         string sourceThreadId,
@@ -72,6 +72,11 @@ public interface IAgentTuiThreadRuntime
 
     Task<AgentTuiThreadGraph> GetThreadGraphAsync(
         string sessionId,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<AgentTuiSubAgentInfo>> ListSubAgentsAsync(
+        string sessionId,
+        string threadId,
         CancellationToken cancellationToken = default);
 
     Task DeleteThreadAsync(
@@ -113,7 +118,29 @@ public sealed record AgentTuiForkThreadRequest(
     string? Name = null,
     string? Description = null,
     IReadOnlyList<string>? Tags = null,
-    IReadOnlyDictionary<string, object?>? Metadata = null);
+    IReadOnlyDictionary<string, object?>? Metadata = null,
+    SubAgentForkOptions? SubAgents = null,
+    string? OperationId = null);
+
+public sealed record AgentTuiThreadForkInfo(
+    string OperationId,
+    AgentTuiThreadInfo Target,
+    long SourceGeneration,
+    long SourceSequence,
+    SubAgentForkPolicy SubAgentPolicy,
+    ThreadForkOperationStatus Status,
+    IReadOnlyList<SubAgentForkChildOutcome> Children);
+
+public sealed record AgentTuiSubAgentInfo(
+    string LocalId,
+    string Role,
+    SubAgentChildAvailability Availability,
+    string? AgentId,
+    string? SessionId,
+    string? ThreadId,
+    string? Status,
+    int MessageCount,
+    string? Reason);
 
 public sealed record AgentTuiThreadUpdate(
     string? Name = null,
@@ -141,7 +168,6 @@ public sealed record AgentTuiThreadInfo(
     string? ParentSessionId = null,
     string? ParentThreadId = null,
     string? SubAgentName = null,
-    string? SubAgentTaskName = null,
     string? InvocationId = null,
     string? SubAgentSourceKind = null,
     string? ParentToolCallId = null,
@@ -182,7 +208,6 @@ public sealed record AgentTuiThreadRuntimeChild(
     ThreadKind Kind,
     ThreadVisibility Visibility,
     string? SubAgentName,
-    string? SubAgentTaskName,
     string? InvocationId,
     string? SubAgentSourceKind,
     string? ParentToolCallId,

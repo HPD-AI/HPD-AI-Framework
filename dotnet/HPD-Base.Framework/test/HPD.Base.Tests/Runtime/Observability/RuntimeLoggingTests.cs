@@ -180,7 +180,7 @@ public sealed class RuntimeLoggingTests
             RuntimeTestData.Operation(BaseOperationKind.List));
         var get = await runtime.GetAsync(
             "items",
-            new RecordId("__HPD_L23_RECORD_ID__"),
+            RecordId.Create("__HPD_L23_RECORD_ID__"),
             RuntimeTestData.AnonymousPrincipal,
             RuntimeTestData.Operation(BaseOperationKind.Get));
 

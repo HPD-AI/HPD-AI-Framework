@@ -1,4 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><IsTestProject>false</IsTestProject></PropertyGroup>
-  <ItemGroup><ProjectReference Include="../../src/HPD.Payments.Profiles.Embedded/HPD.Payments.Profiles.Embedded.csproj" /></ItemGroup>
+  <PropertyGroup>
+    <IsTestProject>false</IsTestProject><OutputType>Exe</OutputType><NoWarn>$(NoWarn);CA1303;CA2007</NoWarn>
+    <PublishAot>true</PublishAot><PublishTrimmed>true</PublishTrimmed><SelfContained>true</SelfContained><IsAotCompatible>true</IsAotCompatible>
+    <InvariantGlobalization>true</InvariantGlobalization><EnableTrimAnalyzer>true</EnableTrimAnalyzer><JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/HPD.Payments.Profiles.Embedded/HPD.Payments.Profiles.Embedded.csproj" />
+    <ProjectReference Include="../../../HPD-Base.Framework/src/HPD.Base.Testing/HPD.Base.Testing.csproj" />
+    <ProjectReference Include="../../../HPD-Base.Framework/src/HPD.Base.Sqlite/HPD.Base.Sqlite.csproj" />
+  </ItemGroup>
 </Project>

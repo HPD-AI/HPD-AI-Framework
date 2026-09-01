@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <HpdAgentEventPrecompileRequireAnalyzer>false</HpdAgentEventPrecompileRequireAnalyzer>
     <TargetFrameworks>net10.0;net9.0;net8.0</TargetFrameworks>
     <RootNamespace>HPD.Agent.LiveAudio.Contracts.Tests</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -17,7 +18,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/HPD-Agent/HPD-Agent.csproj" />
-    <ProjectReference Include="../../src/HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Audio/HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj"
                       ReferenceOutputAssembly="true" />
   </ItemGroup>

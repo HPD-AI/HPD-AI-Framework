@@ -5,10 +5,12 @@ namespace HPD.Agent.Hosting.Lifecycle;
 public sealed class AgentThreadExecutionService : IAgentThreadExecutionService
 {
     private readonly SessionManager _sessionManager;
+    private readonly AgentManager _agentManager;
 
-    public AgentThreadExecutionService(SessionManager sessionManager)
+    public AgentThreadExecutionService(SessionManager sessionManager, AgentManager agentManager)
     {
         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
+        _agentManager = agentManager ?? throw new ArgumentNullException(nameof(agentManager));
     }
 
     public async Task<AgentServiceResult<IReadOnlyList<ThreadExecutionDto>>> ListExecutionsAsync(
@@ -41,6 +43,105 @@ public sealed class AgentThreadExecutionService : IAgentThreadExecutionService
         return execution == null
             ? AgentServiceResult<ThreadExecutionDto>.NotFound
             : AgentServiceResult<ThreadExecutionDto>.Success(execution);
+    }
+
+    public async Task<AgentServiceResult<ThreadExecutionCancellationDto>> CancelExecutionAsync(
+        string agentId,
+        string sessionId,
+        string threadId,
+        string threadExecutionId,
+        CancellationToken cancellationToken = default)
+    {
+        var projected = await GetExecutionAsync(
+                agentId, sessionId, threadId, threadExecutionId, cancellationToken)
+            .ConfigureAwait(false);
+        if (projected.Status != AgentServiceStatus.Success)
+            return new AgentServiceResult<ThreadExecutionCancellationDto>(
+                projected.Status, default, projected.ErrorCode, projected.ErrorMessage, projected.ErrorMessages);
+
+        if (projected.Value!.Status != ThreadExecutionStatus.Active)
+        {
+            return AgentServiceResult<ThreadExecutionCancellationDto>.Success(
+                new ThreadExecutionCancellationDto(
+                    threadExecutionId,
+                    projected.Value.Status,
+                    CancellationApplied: false,
+                    _sessionManager.IsThreadPromotionPaused(sessionId, threadId)
+                        ? "pausedAfterCancellation"
+                        : "running"));
+        }
+
+        var active = _sessionManager.GetActiveThreadExecution(sessionId, threadId);
+        if (active is null ||
+            !string.Equals(active.AgentId, agentId, StringComparison.Ordinal) ||
+            !string.Equals(active.ThreadExecutionId, threadExecutionId, StringComparison.Ordinal))
+        {
+            return AgentServiceResult<ThreadExecutionCancellationDto>.ConflictWith(
+                "ThreadExecutionOwnershipMismatch",
+                "The execution is no longer owned by the addressed active runtime.");
+        }
+
+        var agent = _agentManager.GetRuntimeAgent(agentId, sessionId, threadId);
+        if (agent is null)
+        {
+            return AgentServiceResult<ThreadExecutionCancellationDto>.ConflictWith(
+                "ActiveRuntimeUnavailable",
+                "The addressed execution has no pinned active runtime.");
+        }
+
+        _sessionManager.PauseThreadPromotion(sessionId, threadId, threadExecutionId);
+        var control = agent.CancelRuntimeExecution(threadExecutionId);
+        if (control.Disposition != AgentInputDisposition.Accepted)
+        {
+            return AgentServiceResult<ThreadExecutionCancellationDto>.ConflictWith(
+                "ThreadExecutionCancellationRace",
+                $"Cancellation lost an ownership race: {control.Disposition}.");
+        }
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var observed = await GetExecutionAsync(
+                    agentId, sessionId, threadId, threadExecutionId, cancellationToken)
+                .ConfigureAwait(false);
+            if (observed.Status != AgentServiceStatus.Success)
+                return AgentServiceResult<ThreadExecutionCancellationDto>.NotFound;
+            if (observed.Value!.Status != ThreadExecutionStatus.Active)
+            {
+                return AgentServiceResult<ThreadExecutionCancellationDto>.Success(
+                    new ThreadExecutionCancellationDto(
+                        threadExecutionId,
+                        observed.Value.Status,
+                        CancellationApplied: observed.Value.Status == ThreadExecutionStatus.Cancelled,
+                        "pausedAfterCancellation"));
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(10), cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    public async Task<AgentServiceResult<ThreadExecutionDto>> StartQueuedWorkAsync(
+        string agentId,
+        string sessionId,
+        string threadId,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!_sessionManager.TryResumeThreadPromotion(sessionId, threadId))
+        {
+            return AgentServiceResult<ThreadExecutionDto>.ConflictWith(
+                "QueuePromotionNotPaused",
+                "The thread is not paused after cancellation.");
+        }
+
+        var executions = await LoadProjectedExecutionsAsync(agentId, sessionId, threadId, cancellationToken)
+            .ConfigureAwait(false);
+        if (executions is null)
+            return AgentServiceResult<ThreadExecutionDto>.NotFound;
+        var latest = executions.OrderByDescending(static execution => execution.StartedAt).FirstOrDefault();
+        return latest is null
+            ? AgentServiceResult<ThreadExecutionDto>.NotFound
+            : AgentServiceResult<ThreadExecutionDto>.Success(latest);
     }
 
     private async Task<IReadOnlyList<ThreadExecutionDto>?> LoadProjectedExecutionsAsync(
@@ -80,8 +181,6 @@ public sealed class AgentThreadExecutionService : IAgentThreadExecutionService
                 active.StartedAt,
                 null,
                 null,
-                null,
-                [],
                 []));
         }
 
@@ -98,37 +197,24 @@ public sealed class AgentThreadExecutionService : IAgentThreadExecutionService
             execution.StartedAt,
             execution.FinishedAt,
             execution.Error == null ? null : new ThreadExecutionErrorDto(execution.Error.Type, execution.Error.Message),
-            execution.ModelBackgroundOperation == null
-                ? null
-                : new ThreadExecutionModelBackgroundOperationDto(
-                    execution.ModelBackgroundOperation.Status,
-                    execution.ModelBackgroundOperation.OperationId,
-                    execution.ModelBackgroundOperation.StatusMessage,
-                    execution.ModelBackgroundOperation.ContinuationToken),
-            execution.BackgroundTasks.Select(task => new ThreadExecutionBackgroundTaskDto(
-                task.TaskId,
-                task.Name,
-                task.SourceKind,
-                task.SourceId,
-                new ThreadExecutionBackgroundTaskNotificationDto(
-                    task.Notification.Kind,
-                    task.Notification.StrategyName),
-                task.Status,
-                task.StartedAt,
-                task.CompletedAt,
-                task.CancelledAt,
-                task.FaultedAt,
-                task.ErrorType,
-                task.ErrorMessage)).ToList(),
-            execution.BackgroundHandles.Select(handle => new ThreadExecutionBackgroundHandleDto(
-                handle.HandleId,
-                handle.Name,
-                handle.HandleKind,
-                handle.SourceKind,
-                handle.SourceId,
-                handle.Status,
-                handle.SupportedOperations.ToString(),
-                handle.RegisteredAt,
-                handle.UpdatedAt,
-                handle.Metadata)).ToList());
+            execution.Operations.Select(operation => new ThreadExecutionOperationDto(
+                operation.OperationId,
+                operation.ProviderOperationId,
+                operation.Name,
+                operation.SourceKind.ToString().ToLowerInvariant(),
+                operation.ProviderStatus.ToString().ToLowerInvariant(),
+                operation.ObservationStatus.ToString().ToLowerInvariant(),
+                operation.Control.Kind.ToString().ToLowerInvariant(),
+                operation.Control.Capabilities.ToString().ToLowerInvariant(),
+                operation.Control.HandleId,
+                operation.Version,
+                operation.RegisteredAt,
+                operation.StartedAt,
+                operation.UpdatedAt,
+                operation.FinishedAt,
+                operation.Completion?.Summary,
+                operation.Completion?.ArtifactReferences,
+                operation.Failure?.Code,
+                operation.Failure?.Message,
+                operation.Metadata)).ToList());
 }

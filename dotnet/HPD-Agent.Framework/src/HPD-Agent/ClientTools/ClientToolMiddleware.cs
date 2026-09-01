@@ -577,7 +577,7 @@ public class ClientToolMiddleware : IAgentMiddleware
             {
                 Name = tool.Name,
                 Description = tool.Description,
-                RequiresPermission = defaultPolicy.RequiresPermission!.Value,
+                FunctionPermission = defaultPolicy.Permission,
                 Validator = (_, _) => new List<ValidationError>(),
                 SchemaProvider = () => AgentInvocationModes.CreateSchema(
                     tool.ParametersSchema,
@@ -638,7 +638,7 @@ public class ClientToolMiddleware : IAgentMiddleware
             {
                 Name = skill.Name,
                 Description = skill.Description,
-                RequiresPermission = false, // Skills are entry points
+                FunctionPermission = null, // Skills are entry points
                 Validator = (_, _) => new List<ValidationError>(),
                 SchemaProvider = () => CreateEmptySchema(),
                 AdditionalProperties = new Dictionary<string, object?>
@@ -691,7 +691,7 @@ public class ClientToolMiddleware : IAgentMiddleware
         var requestId = Guid.NewGuid().ToString();
         var toolName = context.Function.Name;
         var tool = ReadClientToolDefinition(context);
-        var sanitizedArguments = CreateSanitizedArgumentDictionary(context.Arguments, out var requestedMode);
+        var sanitizedArguments = AgentInvocationModes.CreateSanitizedArgumentDictionary(context.Arguments, out var requestedMode);
         ClientToolResolvedOperation? operation;
         try
         {
@@ -843,54 +843,6 @@ public class ClientToolMiddleware : IAgentMiddleware
             ct).ConfigureAwait(false);
     }
 
-    private static IReadOnlyDictionary<string, object?> CreateSanitizedArgumentDictionary(
-        IReadOnlyDictionary<string, object?> arguments,
-        out AgentInvocationMode? requestedMode)
-    {
-        requestedMode = null;
-        var sanitized = new Dictionary<string, object?>(StringComparer.Ordinal);
-        foreach (var (key, value) in arguments)
-        {
-            if (string.Equals(key, "invocationMode", StringComparison.Ordinal))
-            {
-                requestedMode = ParseRequestedMode(value);
-                continue;
-            }
-
-            sanitized[key] = value;
-        }
-
-        return sanitized;
-    }
-
-    private static AgentInvocationMode ParseRequestedMode(object? value)
-    {
-        if (value is AgentInvocationMode mode)
-            return mode;
-
-        if (value is string text)
-        {
-            if (string.Equals(text, "synchronous", StringComparison.OrdinalIgnoreCase))
-                return AgentInvocationMode.Synchronous;
-            if (string.Equals(text, "background", StringComparison.OrdinalIgnoreCase))
-                return AgentInvocationMode.Background;
-        }
-
-        if (value is JsonElement json)
-        {
-            if (json.ValueKind != JsonValueKind.String)
-                throw new InvalidOperationException("invocationMode must be either 'synchronous' or 'background'.");
-
-            var jsonText = json.GetString();
-            if (string.Equals(jsonText, "synchronous", StringComparison.OrdinalIgnoreCase))
-                return AgentInvocationMode.Synchronous;
-            if (string.Equals(jsonText, "background", StringComparison.OrdinalIgnoreCase))
-                return AgentInvocationMode.Background;
-        }
-
-        throw new InvalidOperationException("invocationMode must be either 'synchronous' or 'background'.");
-    }
-
     private static object? HandleCompletedOutcome(
         BeforeFunctionContext context,
         ClientToolInvokeOutcomeEvent outcome)
@@ -931,12 +883,14 @@ public class ClientToolMiddleware : IAgentMiddleware
         if (string.IsNullOrWhiteSpace(outcome.ClientOperationId))
             return "Client tool accepted background work without a clientOperationId.";
 
-        if (context.BackgroundTasks is null ||
-            (providerBinding is null && context.ClientToolBackgroundOperations is null))
+        if (!context.RuntimeCapabilities.TryGet<AgentOperationRegistry>(out var operations) ||
+            string.IsNullOrWhiteSpace(context.SessionId) ||
+            string.IsNullOrWhiteSpace(context.ThreadId) ||
+            (providerBinding is null && context.ClientToolOperations is null))
         {
-            return AgentInvocationModes.CreateReceiptResult(
+            return AgentInvocationModes.CreateFailureResult(
                 toolName,
-                BackgroundTaskSourceKind.ClientTool,
+                AgentOperationSourceKind.ProviderOperation,
                 "Client tool background work could not be started because no runtime background registry is available.")
                 .ToToolResult();
         }
@@ -953,44 +907,13 @@ public class ClientToolMiddleware : IAgentMiddleware
             ["clientTool.clientOperationId"] = clientOperationId
         };
 
-        ClientToolOperationHandle? handle = null;
-        BackgroundHandleRegistration? handleRegistration = null;
-        if (outcome.HandleKind is not null &&
-            context.BackgroundHandles is not null)
-        {
-            handle = new ClientToolOperationHandle(
-                clientOperationId,
-                toolName,
-                outcome.HandleKind.Value,
-                context.SessionId,
-                context.ThreadId,
-                metadata);
-            handleRegistration = await context.BackgroundHandles.RegisterHandleAsync(
-                new BackgroundHandleDescriptor
-                {
-                    HandleId = clientOperationId,
-                    Name = toolName,
-                    Kind = outcome.HandleKind.Value,
-                    SourceKind = BackgroundTaskSourceKind.ClientTool,
-                    SourceId = clientOperationId,
-                    SessionId = context.SessionId,
-                    ThreadId = context.ThreadId,
-                    SupportedOperations = outcome.SupportedOperations == BackgroundHandleOperation.None
-                        ? BackgroundHandleOperation.Status
-                        : outcome.SupportedOperations,
-                    Metadata = metadata
-                },
-                handle,
-                cancellationToken).ConfigureAwait(false);
-        }
-
-        ClientToolProviderBackgroundOperationRegistration? providerOperation = null;
+        ClientToolProviderOperationRegistration? providerOperation = null;
         if (providerBinding is not null)
         {
             var registry = context.Services?.GetService<IClientToolProviderRegistry>()
                 ?? throw new InvalidOperationException("Client app provider registry is not available.");
-            providerOperation = registry.RegisterBackgroundOperation(
-                new ClientToolProviderBackgroundOperationDescriptor
+            providerOperation = registry.RegisterOperation(
+                new ClientToolProviderOperationDescriptor
                 {
                     Binding = providerBinding,
                     ClientOperationId = clientOperationId,
@@ -1002,21 +925,16 @@ public class ClientToolMiddleware : IAgentMiddleware
                 });
         }
 
-        var taskRegistration = context.BackgroundTasks.RegisterBackgroundTask(
-            new BackgroundTaskDescriptor
-            {
-                Name = toolName,
-                SourceKind = BackgroundTaskSourceKind.ClientTool,
-                SourceId = clientOperationId,
-                SessionId = context.SessionId,
-                ThreadId = context.ThreadId,
-                Notification = effectivePolicy.BackgroundNotification ??
-                    new BackgroundTaskNotificationRule.OnFinalStateRule(
-                        Completed: true,
-                        Faulted: true),
-                Metadata = metadata
-            },
-            async (backgroundContext, runtimeToken) =>
+        var receipt = await AgentLocalOperationScheduler.StartAsync(
+            operations!,
+            AgentOperationSourceKind.ProviderOperation,
+            toolName,
+            new AgentExecutionAddress(context.AgentName, context.SessionId!, context.ThreadId!),
+            context.ThreadExecutionId,
+            invocation: null,
+            metadata: metadata,
+            notification: effectivePolicy.OperationNotification ?? new AgentOperationNotificationPolicy(),
+            work: async (operationId, runtimeToken) =>
             {
                 var result = await WaitForBackgroundOperationAsync(
                     context,
@@ -1024,35 +942,28 @@ public class ClientToolMiddleware : IAgentMiddleware
                     clientOperationId,
                     toolName,
                     requestId,
-                    backgroundContext.TaskId,
-                    handleRegistration?.HandleId,
+                    operationId,
+                    null,
                     providerOperation,
                     runtimeToken).ConfigureAwait(false);
                 switch (result.State)
                 {
-                    case ClientToolBackgroundOperationOutcomeState.Completed:
-                        handle?.SetStatus("completed");
-                        backgroundContext.SetCompletion(
-                            summary: ConvertContentToSummary(result.Content),
-                            metadata: result.Metadata);
-                        break;
+                    case ClientToolOperationOutcomeState.Completed:
+                        return new AgentOperationCompletion(ConvertContentToSummary(result.Content));
 
-                    case ClientToolBackgroundOperationOutcomeState.Cancelled:
-                        handle?.SetStatus("cancelled");
+                    case ClientToolOperationOutcomeState.Cancelled:
                         throw new OperationCanceledException(
                             result.CancellationReason ?? "Client tool background operation was cancelled.",
                             runtimeToken);
 
-                    case ClientToolBackgroundOperationOutcomeState.Faulted:
-                        handle?.SetStatus("faulted");
+                    case ClientToolOperationOutcomeState.Faulted:
                         throw new InvalidOperationException(
                             FormatError(
                                 result.Error,
                                 result.ErrorMessage,
                                 "Client tool background operation failed."));
 
-                    case ClientToolBackgroundOperationOutcomeState.Unknown:
-                        handle?.SetStatus("unknown");
+                    case ClientToolOperationOutcomeState.Unknown:
                         throw new InvalidOperationException(
                             FormatError(
                                 result.Error,
@@ -1060,35 +971,22 @@ public class ClientToolMiddleware : IAgentMiddleware
                                 "Client tool background operation has an unknown outcome and must not be replayed."));
 
                     default:
-                        handle?.SetStatus("faulted");
                         throw new InvalidOperationException(
                             FormatError(
                                 result.Error,
                                 result.ErrorMessage,
                                 "Client tool background operation failed."));
                 }
-            });
+            }).ConfigureAwait(false);
 
         return new AgentInvocationResult
         {
             Mode = AgentInvocationMode.Background,
-            Background = new AgentBackgroundInvocationReceipt
-            {
-                Status = "background_started",
-                TaskId = taskRegistration.TaskId,
-                HandleId = handleRegistration?.HandleId,
-                HandleKind = handleRegistration?.Kind,
-                SupportedOperations = outcome.SupportedOperations,
-                Name = toolName,
-                SourceKind = BackgroundTaskSourceKind.ClientTool,
-                SessionId = context.SessionId,
-                ThreadId = context.ThreadId,
-                Message = $"Client tool '{toolName}' started in the background."
-            }
+            Operation = receipt
         }.ToToolResult();
     }
 
-    private static async Task<ClientToolBackgroundOperationResult> WaitForBackgroundOperationAsync(
+    private static async Task<ClientToolOperationResult> WaitForBackgroundOperationAsync(
         BeforeFunctionContext context,
         ClientToolProviderToolBinding? providerBinding,
         string clientOperationId,
@@ -1096,7 +994,7 @@ public class ClientToolMiddleware : IAgentMiddleware
         string requestId,
         string taskId,
         string? handleId,
-        ClientToolProviderBackgroundOperationRegistration? providerOperation,
+        ClientToolProviderOperationRegistration? providerOperation,
         CancellationToken runtimeToken)
     {
         if (providerBinding is not null)
@@ -1107,8 +1005,8 @@ public class ClientToolMiddleware : IAgentMiddleware
             return await providerOperation.Completion.WaitAsync(runtimeToken).ConfigureAwait(false);
         }
 
-        var inlineOperation = context.ClientToolBackgroundOperations!.RegisterClientToolBackgroundOperation(
-            new ClientToolBackgroundOperationDescriptor
+        var inlineOperation = context.ClientToolOperations!.RegisterClientToolOperation(
+            new ClientToolOperationDescriptor
             {
                 ClientOperationId = clientOperationId,
                 ToolName = toolName,
@@ -1186,58 +1084,6 @@ public class ClientToolMiddleware : IAgentMiddleware
 
         // Multiple items or binary - return as structured list
         return content;
-    }
-
-    private sealed class ClientToolOperationHandle : IBackgroundHandle
-    {
-        private readonly string _handleId;
-        private readonly string _name;
-        private readonly BackgroundHandleKind _kind;
-        private readonly string? _sessionId;
-        private readonly string? _threadId;
-        private readonly IReadOnlyDictionary<string, string>? _metadata;
-        private readonly DateTimeOffset _startedAt = DateTimeOffset.UtcNow;
-        private string _status = "running";
-        private DateTimeOffset? _completedAt;
-
-        public ClientToolOperationHandle(
-            string handleId,
-            string name,
-            BackgroundHandleKind kind,
-            string? sessionId,
-            string? threadId,
-            IReadOnlyDictionary<string, string>? metadata)
-        {
-            _handleId = handleId;
-            _name = name;
-            _kind = kind;
-            _sessionId = sessionId;
-            _threadId = threadId;
-            _metadata = metadata;
-        }
-
-        public void SetStatus(string status)
-        {
-            _status = status;
-            if (status is "completed" or "cancelled" or "faulted")
-                _completedAt = DateTimeOffset.UtcNow;
-        }
-
-        public ValueTask<BackgroundHandleSnapshot> GetStatusAsync(CancellationToken cancellationToken)
-            => ValueTask.FromResult(new BackgroundHandleSnapshot
-            {
-                HandleId = _handleId,
-                Name = _name,
-                Kind = _kind,
-                SourceKind = BackgroundTaskSourceKind.ClientTool,
-                Status = _status,
-                SourceId = _handleId,
-                SessionId = _sessionId,
-                ThreadId = _threadId,
-                StartedAt = _startedAt,
-                CompletedAt = _completedAt,
-                Metadata = _metadata
-            });
     }
 
     private static void NormalizeClientCapabilityGraph(

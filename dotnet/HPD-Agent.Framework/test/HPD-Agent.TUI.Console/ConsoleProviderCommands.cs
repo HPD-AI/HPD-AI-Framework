@@ -71,7 +71,7 @@ internal static class ConsoleProviderCommands
             return;
         }
 
-        PageState.SelectProvider(selectedProvider.Provider.ProviderKey);
+        PageState.SelectProvider(selectedProvider.Provider.Key);
         context.Navigation.GoToPage(ProviderDetailPageId);
     }
 
@@ -232,7 +232,7 @@ internal static class ConsoleProviderCommands
     {
         var registered = status.Registered ? " registered" : "";
         var authenticated = status.Authenticated ? " authenticated" : "";
-        return $"{status.Provider.DisplayName} ({status.Provider.ProviderKey}){registered}{authenticated}";
+        return $"{status.Provider.DisplayName} ({status.Provider.Key}){registered}{authenticated}";
     }
 
     private static IComponent RenderProvidersPage(AgentTuiPageContext context)
@@ -266,7 +266,7 @@ internal static class ConsoleProviderCommands
             markdown.Append(i == snapshot.SelectedIndex ? "=> " : "   ")
                 .Append(EscapeMarkdown(status.Provider.DisplayName))
                 .Append(" `")
-                .Append(EscapeMarkdown(status.Provider.ProviderKey))
+                .Append(EscapeMarkdown(status.Provider.Key))
                 .Append('`');
 
             if (status.Registered)
@@ -409,7 +409,7 @@ internal static class ConsoleProviderCommands
             {
                 for (var i = 0; i < _providers.Count; i++)
                 {
-                    if (!string.Equals(_providers[i].Provider.ProviderKey, providerKey, StringComparison.OrdinalIgnoreCase))
+                    if (!string.Equals(_providers[i].Provider.Key, providerKey, StringComparison.OrdinalIgnoreCase))
                     {
                         continue;
                     }

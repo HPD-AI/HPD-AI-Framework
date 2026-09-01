@@ -243,13 +243,11 @@ internal sealed class MultiAgentConversationRuntime : IMultiAgentConversationRun
             return;
         }
 
-        var bootstrap = new Agent.Agent(new AgentConfig { Name = "MultiAgentConversationBootstrap" }, null, null);
-        bootstrap.Config!.SessionStore = _store;
-        bootstrap.Config.SessionStoreOptions = new SessionStoreOptions { PersistAfterTurn = true };
-        await bootstrap.CreateSessionAsync(
-            _sessionId,
-            BuildSessionMetadata(),
-            cancellationToken).ConfigureAwait(false);
+        var session = new Session(_sessionId) { Store = _store };
+        ApplySessionMetadata(session);
+        var main = session.CreateThread("MultiAgentConversationBootstrap", "main");
+        await _store.SaveSessionAsync(session, cancellationToken).ConfigureAwait(false);
+        await _store.SaveInitialThreadAsync(_sessionId, main, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<string> EnsureRootThreadAsync(CancellationToken cancellationToken)
@@ -260,10 +258,12 @@ internal sealed class MultiAgentConversationRuntime : IMultiAgentConversationRun
         var thread = await _store.ProjectThreadAsync(_sessionId, rootThreadId, ThreadProjectionPurpose.ModelContext, cancellationToken).ConfigureAwait(false);
         if (thread == null)
         {
-            var bootstrap = new Agent.Agent(new AgentConfig { Name = "MultiAgentConversationBootstrap" }, null, null);
-            bootstrap.Config!.SessionStore = _store;
-            bootstrap.Config.SessionStoreOptions = new SessionStoreOptions { PersistAfterTurn = true };
-            await bootstrap.CreateThreadAsync(_sessionId, rootThreadId, "Workflow", cancellationToken).ConfigureAwait(false);
+            var session = await _store.LoadSessionAsync(_sessionId, cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException($"Session '{_sessionId}' was not initialized.");
+            session.Store = _store;
+            var root = session.CreateThread("MultiAgentConversationBootstrap", rootThreadId);
+            root.Metadata["name"] = "Workflow";
+            await _store.SaveInitialThreadAsync(_sessionId, root, cancellationToken).ConfigureAwait(false);
             thread = await _store.ProjectThreadAsync(_sessionId, rootThreadId, ThreadProjectionPurpose.ModelContext, cancellationToken).ConfigureAwait(false);
         }
 

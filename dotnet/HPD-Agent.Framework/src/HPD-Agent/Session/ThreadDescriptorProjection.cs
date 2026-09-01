@@ -19,6 +19,7 @@ internal static class ThreadDescriptorProjection
         var visibility = current?.Visibility ?? ThreadVisibility.Visible;
         var fork = current?.Fork;
         var runtimeChild = current?.RuntimeChild;
+        var preparation = current?.Preparation;
         IReadOnlyDictionary<string, object> metadata = current?.Metadata
             ?? new Dictionary<string, object>(StringComparer.Ordinal);
 
@@ -35,8 +36,9 @@ internal static class ThreadDescriptorProjection
                 metadata = CopyMetadata(created.ThreadMetadata);
                 fork = CreateFork(created.ForkedFrom, created.ForkedAtMessageId, created.ForkedAtMessageIndex);
                 runtimeChild = CreateRuntimeChild(created.ParentSessionId, created.ParentThreadId, created.SubAgentName,
-                    created.SubAgentTaskName, created.InvocationId, created.SubAgentSourceKind, created.ParentToolCallId,
+                    created.InvocationId, created.SubAgentSourceKind, created.ParentToolCallId,
                     created.ContextPolicy);
+                preparation = created.Preparation;
                 break;
 
             case ThreadUpdatedEvent updated:
@@ -49,7 +51,7 @@ internal static class ThreadDescriptorProjection
                 metadata = CopyMetadata(updated.ThreadMetadata);
                 fork = CreateFork(updated.ForkedFrom, updated.ForkedAtMessageId, updated.ForkedAtMessageIndex);
                 runtimeChild = CreateRuntimeChild(updated.ParentSessionId, updated.ParentThreadId, updated.SubAgentName,
-                    updated.SubAgentTaskName, updated.InvocationId, updated.SubAgentSourceKind, updated.ParentToolCallId,
+                    updated.InvocationId, updated.SubAgentSourceKind, updated.ParentToolCallId,
                     updated.ContextPolicy);
                 break;
 
@@ -86,7 +88,10 @@ internal static class ThreadDescriptorProjection
             messageIds.Count,
             fork,
             runtimeChild,
-            metadata);
+            metadata)
+        {
+            Preparation = preparation
+        };
     }
 
     private static IReadOnlyDictionary<string, object> CopyMetadata(Dictionary<string, object>? metadata)
@@ -125,13 +130,12 @@ internal static class ThreadDescriptorProjection
         string? parentSessionId,
         string? parentThreadId,
         string? subAgentName,
-        string? subAgentTaskName,
         string? invocationId,
         string? subAgentSourceKind,
         string? parentToolCallId,
         string? contextPolicy)
         => parentSessionId is null && parentThreadId is null && subAgentName is null
             ? null
-            : new ThreadRuntimeChildDescriptor(parentSessionId, parentThreadId, subAgentName, subAgentTaskName, invocationId,
+            : new ThreadRuntimeChildDescriptor(parentSessionId, parentThreadId, subAgentName, invocationId,
                 subAgentSourceKind, parentToolCallId, contextPolicy, Status: null);
 }

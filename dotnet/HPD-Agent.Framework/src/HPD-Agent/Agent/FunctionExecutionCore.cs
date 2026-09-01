@@ -26,16 +26,28 @@ internal sealed record FunctionExecutionPreparation(
     ToolInvocationInfo? Invocation,
     AIFunction? Function,
     IReadOnlyDictionary<string, object?> Arguments,
+    ResolvedFunctionInvocation? ResolvedInvocation,
+    FunctionAuthorityStamp? AuthorityStamp,
     BeforeFunctionContext? BeforeFunctionContext,
     FunctionExecutionOutcome? ImmediateOutcome,
     string? ToolHarnessName,
     ToolCallType? CallType);
 
+internal sealed record FunctionAuthorityStamp(
+    AIFunction Function,
+    string ContractFingerprint,
+    string Action,
+    JsonElement CanonicalAction,
+    AgentInvocationMode Mode,
+    AgentInvocationModePolicy Policy,
+    AgentInvocationModeHandling Handling);
+
 internal sealed record FunctionBodyExecutionResult(
     FunctionExecutionPreparation Preparation,
     object? Result,
     ToolResultMetadata ResultMetadata,
-    Exception? Exception);
+    Exception? Exception,
+    CommittedToolBodyOperation? CommittedToolBodyOperation = null);
 
 internal interface IFunctionExecutionCore
 {
@@ -54,23 +66,17 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
     private readonly ErrorHandlingConfig? _errorHandlingConfig;
     private readonly IList<AITool>? _serverConfiguredTools;
     private readonly AgenticLoopConfig? _agenticLoopConfig;
-    private readonly Func<Middleware.IAgentBackgroundTaskRegistry?> _getBackgroundTaskRegistry;
-    private readonly Func<Middleware.IAgentBackgroundHandleRegistry?> _getBackgroundHandleRegistry;
 
     public FunctionExecutionCore(
         AgentMiddlewarePipeline middlewarePipeline,
         ErrorHandlingConfig? errorHandlingConfig = null,
         IList<AITool>? serverConfiguredTools = null,
-        AgenticLoopConfig? agenticLoopConfig = null,
-        Func<Middleware.IAgentBackgroundTaskRegistry?>? getBackgroundTaskRegistry = null,
-        Func<Middleware.IAgentBackgroundHandleRegistry?>? getBackgroundHandleRegistry = null)
+        AgenticLoopConfig? agenticLoopConfig = null)
     {
         _middlewarePipeline = middlewarePipeline ?? throw new ArgumentNullException(nameof(middlewarePipeline));
         _errorHandlingConfig = errorHandlingConfig;
         _serverConfiguredTools = serverConfiguredTools;
         _agenticLoopConfig = agenticLoopConfig;
-        _getBackgroundTaskRegistry = getBackgroundTaskRegistry ?? (() => null);
-        _getBackgroundHandleRegistry = getBackgroundHandleRegistry ?? (() => null);
     }
 
     public Dictionary<string, AIFunction>? BuildMergedMap(IList<AITool>? requestTools) =>
@@ -188,7 +194,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 HPDCapabilityKind.SkillActivation => ToolCallType.Skill,
                 HPDCapabilityKind.SubAgent => ToolCallType.SubAgent,
                 HPDCapabilityKind.MultiAgent => ToolCallType.MultiAgent,
-                HPDCapabilityKind.Mcp => ToolCallType.MCPServer,
+                HPDCapabilityKind.Mcp => ToolCallType.McpServer,
                 HPDCapabilityKind.OpenApi => ToolCallType.OpenApi,
                 HPDCapabilityKind.Function or
                 HPDCapabilityKind.SkillResource or
@@ -208,7 +214,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             "Skill"      => ToolCallType.Skill,
             "SubAgent"   => ToolCallType.SubAgent,
             "MultiAgent" => ToolCallType.MultiAgent,
-            "MCPServer"  => ToolCallType.MCPServer,
+            "MCPServer"  => ToolCallType.McpServer,
             "OpenApi"    => ToolCallType.OpenApi,
             _            => null,
         };
@@ -251,7 +257,8 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
         AgentRunConfig runConfig,
         AgentContext agentContext,
         ToolInvocationInfo? invocation,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool admit = true)
     {
         if (string.IsNullOrEmpty(functionCall.Name))
         {
@@ -276,6 +283,8 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 invocation,
                 Function: null,
                 Arguments: new Dictionary<string, object?>(),
+                ResolvedInvocation: null,
+                AuthorityStamp: null,
                 BeforeFunctionContext: null,
                 ImmediateOutcome: outcome,
                 ToolHarnessName: null,
@@ -310,6 +319,8 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 invocation,
                 function,
                 Arguments: new Dictionary<string, object?>(),
+                ResolvedInvocation: null,
+                AuthorityStamp: null,
                 BeforeFunctionContext: null,
                 ImmediateOutcome: outcome,
                 ToolHarnessName: toolharnessName,
@@ -341,26 +352,148 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 invocation,
                 Function: null,
                 Arguments: new Dictionary<string, object?>(),
+                ResolvedInvocation: null,
+                AuthorityStamp: null,
                 BeforeFunctionContext: null,
                 ImmediateOutcome: outcome,
                 ToolHarnessName: null,
                 CallType: null);
         }
 
-        var arguments = (IReadOnlyDictionary<string, object?>?)(functionCall.Arguments ?? new Dictionary<string, object?>())
+        IReadOnlyDictionary<string, object?> arguments = (IReadOnlyDictionary<string, object?>?)(functionCall.Arguments ?? new Dictionary<string, object?>())
             ?? new Dictionary<string, object?>();
+        ResolvedFunctionInvocation? resolvedInvocation = null;
+        FunctionAuthorityStamp? authorityStamp = null;
+        if (function is HPDAIFunctionFactory.HPDAIFunction hpdFunction)
+        {
+            var ingressProvenance = FunctionArgumentIngressProvenance.Original;
+            AIFunctionArguments source;
+            if (functionCall.Arguments is AIFunctionArguments supplied &&
+                supplied.GetJson().ValueKind != JsonValueKind.Undefined)
+            {
+                source = supplied;
+                ingressProvenance = supplied.GetIngressProvenance();
+            }
+            else
+            {
+                if (hpdFunction.HPDOptions.OperationContract is not null)
+                    return CreatePreparationRejection(functionCall, invocation, function, toolharnessName, callType,
+                        "raw_json_required",
+                        "Action-contracted functions require authoritative raw JSON arguments.");
+                source = CreateInvocationArguments(arguments);
+                ingressProvenance = FunctionArgumentIngressProvenance.Canonicalized;
+            }
+            if (hpdFunction.CanonicalInputContract is { } canonicalContract)
+            {
+                var validation = canonicalContract.Bind(source.GetJson());
+                if (validation.Errors.Count != 0)
+                {
+                    var error = validation.Errors[0];
+                    return CreatePreparationRejection(functionCall, invocation, function, toolharnessName, callType,
+                        error.ErrorCode, error.ErrorMessage, error.Property);
+                }
+                var canonical = new AIFunctionArguments(source);
+                canonical.SetJsonSerializerOptions(source.GetJsonSerializerOptions());
+                canonical.SetJson(validation.EffectiveJson);
+                source = canonical;
+            }
+            if (hpdFunction.HPDOptions.OperationContract is { } operationContract)
+            {
+                AIFunctionArguments sanitized;
+                try
+                {
+                    resolvedInvocation = AgentInvocationModes.ResolveAction(
+                        source, operationContract, out sanitized, ingressProvenance);
+                }
+                catch (InvalidOperationException exception)
+                {
+                    return CreatePreparationRejection(functionCall, invocation, function, toolharnessName, callType,
+                        "invalid_function_action", exception.Message);
+                }
+                arguments = sanitized
+                    .Where(pair => pair.Key != AIFunctionArgumentsExtensions.JsonKey &&
+                        pair.Key != AIFunctionArgumentsExtensions.JsonSerializerOptionsKey &&
+                        pair.Key != AIFunctionArgumentsExtensions.BoundArgumentsKey)
+                    .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+                authorityStamp = new FunctionAuthorityStamp(
+                    function,
+                    hpdFunction.ContractDescriptor?.CanonicalSchemaFingerprint
+                        ?? throw new InvalidOperationException("Action functions require a canonical contract fingerprint."),
+                    resolvedInvocation.Action!, resolvedInvocation.ValidatedAction!.CanonicalJson.Clone(),
+                    resolvedInvocation.Mode, resolvedInvocation.Policy, resolvedInvocation.Handling);
+            }
+            else
+            {
+                AIFunctionArguments sanitized;
+                AgentInvocationMode? requested;
+                AgentInvocationMode mode;
+                try
+                {
+                    sanitized = AgentInvocationModes.CreateSanitizedArguments(source, out requested);
+                    mode = AgentInvocationModes.Resolve(hpdFunction.HPDOptions.InvocationModePolicy, requested);
+                }
+                catch (InvalidOperationException exception)
+                {
+                    return CreatePreparationRejection(functionCall, invocation, function, toolharnessName, callType,
+                        "invalid_invocation_mode", exception.Message);
+                }
+                resolvedInvocation = new ResolvedFunctionInvocation
+                {
+                    RequestedMode = requested,
+                    Mode = mode,
+                    Policy = hpdFunction.HPDOptions.InvocationModePolicy,
+                    Handling = hpdFunction.HPDOptions.InvocationModeHandling,
+                    IngressProvenance = ingressProvenance
+                };
+                arguments = sanitized
+                    .Where(pair => pair.Key != AIFunctionArgumentsExtensions.JsonKey &&
+                        pair.Key != AIFunctionArgumentsExtensions.JsonSerializerOptionsKey &&
+                        pair.Key != AIFunctionArgumentsExtensions.BoundArgumentsKey)
+                    .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+            }
+        }
 
+        agentContext.RuntimeCapabilities.TryGet<IClientToolOperationRegistry>(
+            out var clientToolOperations);
         var beforeFunctionContext = agentContext.AsBeforeFunction(
             function: function!,
             callId: functionCall.CallId,
             arguments: arguments,
             runConfig: runConfig,
+            invocationMode: resolvedInvocation,
             toolharnessName: toolharnessName,
             skillName: null,
             invocation: invocation,
-            backgroundTasks: _getBackgroundTaskRegistry(),
-            backgroundHandles: _getBackgroundHandleRegistry(),
-            clientToolBackgroundOperations: _getBackgroundTaskRegistry() as IClientToolBackgroundOperationRegistry);
+            clientToolOperations: clientToolOperations);
+
+        var authorityPreparation = new FunctionExecutionPreparation(
+            functionCall,
+            invocation,
+            function,
+            arguments,
+            resolvedInvocation,
+            authorityStamp,
+            beforeFunctionContext,
+            ImmediateOutcome: null,
+            ToolHarnessName: toolharnessName,
+            CallType: callType);
+
+        if (!admit)
+            return authorityPreparation;
+
+        return await AdmitPreparedFunctionAsync(
+            authorityPreparation,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    internal async Task<FunctionExecutionPreparation> AdmitPreparedFunctionAsync(
+        FunctionExecutionPreparation preparation,
+        CancellationToken cancellationToken)
+    {
+        if (preparation.ImmediateOutcome is not null)
+            return preparation;
+        var beforeFunctionContext = preparation.BeforeFunctionContext
+            ?? throw new InvalidOperationException("Authority preparation is missing BeforeFunction context.");
 
         await _middlewarePipeline.ExecuteBeforeFunctionAsync(
             beforeFunctionContext, cancellationToken).ConfigureAwait(false);
@@ -368,41 +501,52 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
         if (beforeFunctionContext.BlockExecution)
         {
             var outcome = new FunctionExecutionOutcome(
-                functionCall.CallId,
-                functionCall.Name,
-                function,
+                preparation.FunctionCall.CallId,
+                preparation.FunctionCall.Name,
+                preparation.Function,
                 Result: beforeFunctionContext.OverrideResult ?? "Permission denied",
                 ResultPayload: ToolResultPayload.FromResult(beforeFunctionContext.OverrideResult ?? "Permission denied"),
                 Exception: null,
                 WasBlocked: true,
-                WasUnknown: function == null,
+                WasUnknown: preparation.Function == null,
                 WasOutputTool: false,
                 ShouldTerminate: false,
-                ToolHarnessName: toolharnessName,
-                CallType: callType,
+                ToolHarnessName: preparation.ToolHarnessName,
+                CallType: preparation.CallType,
                 ResultMetadata: new ToolResultMetadata(),
-                Invocation: invocation);
+                Invocation: preparation.Invocation);
 
-            return new FunctionExecutionPreparation(
-                functionCall,
-                invocation,
-                function,
-                arguments,
-                beforeFunctionContext,
-                ImmediateOutcome: outcome,
-                ToolHarnessName: toolharnessName,
-                CallType: callType);
+            return preparation with { ImmediateOutcome = outcome };
         }
 
+        return preparation;
+    }
+
+    private static FunctionExecutionPreparation CreatePreparationRejection(
+        FunctionCallContent functionCall,
+        ToolInvocationInfo? invocation,
+        AIFunction function,
+        string? toolharnessName,
+        ToolCallType? callType,
+        string errorCode,
+        string message,
+        string property = "")
+    {
+        var response = new ValidationErrorResponse();
+        response.Errors.Add(new ValidationError
+        {
+            Property = property,
+            ErrorCode = errorCode,
+            ErrorMessage = message
+        });
+        var result = JsonSerializer.SerializeToElement(response, HPDJsonContext.Default.ValidationErrorResponse);
+        var outcome = new FunctionExecutionOutcome(
+            functionCall.CallId, functionCall.Name, function, result, ToolResultPayload.FromResult(result),
+            Exception: null, WasBlocked: true, WasUnknown: false, WasOutputTool: false,
+            ShouldTerminate: false, toolharnessName, callType, new ToolResultMetadata(), invocation);
         return new FunctionExecutionPreparation(
-            functionCall,
-            invocation,
-            function,
-            arguments,
-            beforeFunctionContext,
-            ImmediateOutcome: null,
-            ToolHarnessName: toolharnessName,
-            CallType: callType);
+            functionCall, invocation, function, new Dictionary<string, object?>(), null, null, null,
+            outcome, toolharnessName, callType);
     }
 
     internal async Task<FunctionBodyExecutionResult> ExecuteFunctionBodyAsync(
@@ -422,6 +566,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
         var functionCall = preparation.FunctionCall;
         var beforeFunctionContext = preparation.BeforeFunctionContext
             ?? throw new InvalidOperationException("Function preparation is missing BeforeFunction context.");
+        FunctionOperationCommitGate? operationCommitGate = null;
 
         try
         {
@@ -437,41 +582,88 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             }
 
             var resultMetadata = new ToolResultMetadata();
+            operationCommitGate = preparation.ResolvedInvocation is
+                { Mode: AgentInvocationMode.Background, Handling: AgentInvocationModeHandling.ToolBody }
+                ? new FunctionOperationCommitGate()
+                : null;
             var functionRequest = new Middleware.FunctionRequest
             {
+                ExecutionContext = agentContext,
+                OperationCommitGate = operationCommitGate,
                 Function = preparation.Function,
                 CallId = functionCall.CallId,
                 Arguments = preparation.Arguments,
                 State = agentContext.State,
                 RunConfig = beforeFunctionContext.RunConfig,
                 Invocation = preparation.Invocation,
+                InvocationMode = preparation.ResolvedInvocation,
+                PermissionGrant = beforeFunctionContext.PermissionGrant,
+                PermissionRequired = beforeFunctionContext.PermissionRequired,
                 ResultMetadata = resultMetadata,
                 ToolHarnessName = preparation.ToolHarnessName,
                 SkillName = null,
                 EventCoordinator = agentContext.EventCoordinator,
                 EventPublisher = agentContext.PublishAsync,
-                StructEvents = agentContext.StructEvents,
-                BackgroundTasks = _getBackgroundTaskRegistry(),
-                BackgroundHandles = _getBackgroundHandleRegistry()
+                StructEvents = agentContext.StructEvents
             };
 
+            var backgroundGate = preparation.ResolvedInvocation?.Mode == AgentInvocationMode.Background
+                ? new SemaphoreSlim(1, 1)
+                : null;
+            object? committedBackgroundResult = null;
+            Exception? committedBackgroundException = null;
+            JsonElement committedBackgroundRequest = default;
+            var backgroundCommitted = false;
             var executionResult = await _middlewarePipeline.ExecuteFunctionCallAsync(
                 functionRequest,
                 coreHandler: async (req) =>
                 {
-                    var functionContext = new FunctionExecutionContext(
-                        beforeFunctionContext,
-                        req);
-
-                    var args = CreateInvocationArguments(
-                        req.Arguments,
-                        functionCall.Arguments as AIFunctionArguments);
-                    if (req.Function is HPDAIFunctionFactory.HPDAIFunction hpdFunction)
+                    VerifyPreparedAuthority(preparation, req);
+                    if (backgroundGate is null)
+                        return await InvokePreparedCoreAsync(req).ConfigureAwait(false);
+                    await backgroundGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                    try
                     {
-                        return await hpdFunction.InvokeAsync(args, functionContext, cancellationToken).ConfigureAwait(false);
+                        var canonicalRequest = JsonSerializer.SerializeToElement(
+                            req.Arguments, HPDToolArgumentBinder.DefaultSerializerOptions);
+                        if (backgroundCommitted)
+                        {
+                            if (!JsonElement.DeepEquals(committedBackgroundRequest, canonicalRequest))
+                                throw new InvalidOperationException("background_invocation_already_committed");
+                            if (committedBackgroundException is not null)
+                                throw committedBackgroundException;
+                            return committedBackgroundResult;
+                        }
+                        try
+                        {
+                            var result = await InvokePreparedCoreAsync(req).ConfigureAwait(false);
+                            committedBackgroundRequest = canonicalRequest.Clone();
+                            committedBackgroundResult = result;
+                            backgroundCommitted = true;
+                            return result;
+                        }
+                        catch (Exception exception) when (operationCommitGate?.CommittedReceipt is not null)
+                        {
+                            committedBackgroundRequest = canonicalRequest.Clone();
+                            committedBackgroundException = exception;
+                            backgroundCommitted = true;
+                            throw;
+                        }
                     }
+                    finally { backgroundGate.Release(); }
 
-                    return await req.Function.InvokeAsync(args, cancellationToken).ConfigureAwait(false);
+                    async Task<object?> InvokePreparedCoreAsync(Middleware.FunctionRequest effectiveRequest)
+                    {
+                        var functionContext = new FunctionExecutionContext(beforeFunctionContext, effectiveRequest);
+                        var args = CreateInvocationArguments(
+                            effectiveRequest.Arguments,
+                            preparation.ResolvedInvocation is null
+                                ? functionCall.Arguments as AIFunctionArguments
+                                : null);
+                        return effectiveRequest.Function is HPDAIFunctionFactory.HPDAIFunction hpdFunction
+                            ? await hpdFunction.InvokeAsync(args, functionContext, cancellationToken).ConfigureAwait(false)
+                            : await effectiveRequest.Function.InvokeAsync(args, cancellationToken).ConfigureAwait(false);
+                    }
                 },
                 cancellationToken).ConfigureAwait(false);
 
@@ -479,7 +671,15 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 preparation,
                 executionResult,
                 resultMetadata,
-                Exception: null);
+                Exception: null,
+                CommittedToolBodyOperation: operationCommitGate?.CommittedReceipt is { } committedReceipt
+                    ? new CommittedToolBodyOperation
+                    {
+                        Receipt = committedReceipt,
+                        FunctionName = preparation.Function.Name,
+                        FunctionCallId = functionCall.CallId
+                    }
+                    : null);
         }
         catch (Exception ex)
         {
@@ -488,9 +688,79 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 preparation,
                 errorResult,
                 new ToolResultMetadata(),
-                ex);
+                ex,
+                operationCommitGate?.CommittedReceipt is { } committedReceipt
+                    ? new CommittedToolBodyOperation
+                    {
+                        Receipt = committedReceipt,
+                        FunctionName = preparation.Function?.Name ?? functionCall.Name ?? "unknown",
+                        FunctionCallId = functionCall.CallId
+                    }
+                    : null);
         }
     }
+
+    private static void VerifyPreparedAuthority(
+        FunctionExecutionPreparation preparation,
+        Middleware.FunctionRequest request)
+    {
+        if (preparation.BeforeFunctionContext?.PermissionGrant is { } grant)
+        {
+            if (request.PermissionGrant != grant ||
+                !string.Equals(grant.FunctionCallId, preparation.FunctionCall.CallId, StringComparison.Ordinal) ||
+                !string.Equals(grant.FunctionName, request.Function.Name, StringComparison.Ordinal))
+                throw new InvalidOperationException("permission_authority_drift: wrapping middleware replaced the invocation grant.");
+            var actualArguments = JsonSerializer.SerializeToElement(
+                request.Arguments.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal),
+                HPDJsonContext.Default.DictionaryStringObject);
+            if (!JsonElement.DeepEquals(grant.Authority.CanonicalArguments, actualArguments))
+                throw new InvalidOperationException("permission_authority_drift: wrapping middleware changed protected arguments.");
+            if (request.Function is not HPDAIFunctionFactory.HPDAIFunction grantedFunction ||
+                !Equals(ResolvePermissionDeclaration(grantedFunction, grant.Action), grant.Authority.Declaration))
+                throw new InvalidOperationException("permission_authority_drift: the effective permission declaration changed after approval.");
+        }
+        if (preparation.BeforeFunctionContext is { } permissionContext &&
+            request.PermissionRequired != permissionContext.PermissionRequired)
+            throw new InvalidOperationException("permission_authority_drift: wrapping middleware changed the effective permission requirement.");
+
+        if (preparation.AuthorityStamp is not { } stamp ||
+            preparation.Function is not HPDAIFunctionFactory.HPDAIFunction prepared ||
+            prepared.HPDOptions.OperationContract is not { } contract)
+            return;
+        if (!ReferenceEquals(stamp.Function, request.Function) ||
+            !string.Equals(prepared.ContractDescriptor?.CanonicalSchemaFingerprint,
+                stamp.ContractFingerprint, StringComparison.Ordinal) ||
+            preparation.ResolvedInvocation is not { } invocation ||
+            invocation.Action != stamp.Action || invocation.Mode != stamp.Mode ||
+            invocation.Policy != stamp.Policy || invocation.Handling != stamp.Handling)
+            throw new InvalidOperationException("function_authority_drift: wrapping middleware replaced the authorized function.");
+        if (!preparation.Arguments.TryGetValue(contract.ActionArgumentName, out var expected) ||
+            !request.Arguments.TryGetValue(contract.ActionArgumentName, out var actual))
+            throw new InvalidOperationException("function_authority_drift: wrapping middleware removed the authorized action.");
+        var expectedJson = stamp.CanonicalAction;
+        var actualJson = ToCanonicalElement(actual);
+        if (!JsonElement.DeepEquals(expectedJson, actualJson) ||
+            ContainsExactProperty(actualJson, "invocationMode"))
+            throw new InvalidOperationException("function_authority_drift: wrapping middleware changed the authorized action.");
+    }
+
+    private static AIFunctionPermissionDeclaration? ResolvePermissionDeclaration(
+        HPDAIFunctionFactory.HPDAIFunction function,
+        string? action) =>
+        action is not null && function.HPDOptions.OperationContract?.Actions.TryGetValue(action, out var policy) == true
+            ? policy.Permission
+            : function.HPDOptions.FunctionPermission;
+
+    private static JsonElement ToCanonicalElement(object? value) => value switch
+    {
+        JsonElement element => element.Clone(),
+        JsonDocument document => document.RootElement.Clone(),
+        _ => JsonSerializer.SerializeToElement(value, HPDToolArgumentBinder.DefaultSerializerOptions)
+    };
+
+    private static bool ContainsExactProperty(JsonElement value, string name) =>
+        value.ValueKind == JsonValueKind.Object && value.EnumerateObject().Any(property =>
+            string.Equals(property.Name, name, StringComparison.Ordinal));
 
     internal static AIFunctionArguments CreateInvocationArguments(
         IReadOnlyDictionary<string, object?> arguments,
@@ -504,7 +774,36 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 arguments.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal),
                 HPDJsonContext.Default.DictionaryStringObject)
             : sourceJson.Clone());
+        invocationArguments.SetIngressProvenance(
+            sourceArguments?.GetIngressProvenance() ?? FunctionArgumentIngressProvenance.Canonicalized);
         return invocationArguments;
+    }
+
+    /// <summary>
+    /// Normalizes a function call received directly from a model provider into HPD's trusted
+    /// canonical invocation representation.
+    /// </summary>
+    /// <param name="providerCall">The function call emitted by the active model provider.</param>
+    /// <returns>
+    /// The original call when it already carries authoritative JSON; otherwise, a call whose parsed
+    /// arguments carry canonicalized provenance. Duplicate-property evidence cannot be recovered
+    /// after an upstream provider adapter has parsed the JSON object.
+    /// </returns>
+    internal static FunctionCallContent NormalizeProviderFunctionCall(FunctionCallContent providerCall)
+    {
+        ArgumentNullException.ThrowIfNull(providerCall);
+        if (providerCall.Arguments is AIFunctionArguments supplied &&
+            supplied.GetJson().ValueKind != JsonValueKind.Undefined)
+        {
+            return providerCall;
+        }
+
+        return new FunctionCallContent(
+            providerCall.CallId,
+            providerCall.Name,
+            CreateInvocationArguments(
+                (IReadOnlyDictionary<string, object?>?)(providerCall.Arguments ??
+                    new Dictionary<string, object?>())));
     }
 
     internal async Task<FunctionExecutionOutcome> CompleteFunctionAsync(
@@ -547,10 +846,12 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             result: bodyResult.Result,
             exception: bodyResult.Exception,
             runConfig: runConfig,
+            invocationMode: preparation.ResolvedInvocation,
             toolharnessName: preparation.ToolHarnessName,
             skillName: null,
             invocation: preparation.Invocation,
             resultMetadata: bodyResult.ResultMetadata);
+        afterFunctionContext.SetCommittedToolBodyOperation(bodyResult.CommittedToolBodyOperation);
 
         try
         {
@@ -562,6 +863,35 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             await agentContext.PublishAsync(new MiddlewareErrorEvent(
                 "AfterFunctionMiddleware",
                 $"Error in AfterFunction middleware: {afterEx.Message}") { Exception = afterEx });
+        }
+
+        if (preparation.ResolvedInvocation is { } resolved)
+        {
+            var audit = new FunctionInvocationAuditProjection
+            {
+                FunctionName = functionCall.Name,
+                FunctionCallId = functionCall.CallId,
+                Action = resolved.Action,
+                RequestedMode = resolved.RequestedMode,
+                ResolvedMode = resolved.Mode,
+                Policy = resolved.Policy,
+                Handling = resolved.Handling,
+                IngressProvenance = resolved.IngressProvenance
+            };
+            await agentContext.PublishAsync(new FunctionInvocationAuditedEvent
+            {
+                Invocation = audit
+            }).ConfigureAwait(false);
+            if (bodyResult.CommittedToolBodyOperation is { } committed &&
+                afterFunctionContext.Exception is { } committedFailure)
+            {
+                await agentContext.PublishAsync(new ToolBodyOperationCommittedFailureEvent
+                {
+                    Invocation = audit,
+                    CommittedOperation = committed,
+                    ErrorMessage = BoundDurableMessage(committedFailure.Message)
+                }).ConfigureAwait(false);
+            }
         }
 
         return new FunctionExecutionOutcome(
@@ -580,6 +910,9 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             ResultMetadata: afterFunctionContext.ResultMetadata,
             Invocation: preparation.Invocation);
     }
+
+    private static string BoundDurableMessage(string value) =>
+        value.Length <= 1024 ? value : value[..1024];
 
     public static FunctionResultContent ToFunctionResultContent(FunctionExecutionOutcome outcome)
     {

@@ -57,23 +57,78 @@ public sealed record BaseSemanticActivationNoCompaction : BaseSemanticActivation
 /// <summary>Permits bounded compaction after exact exported-subject retirement.</summary>
 public sealed record BaseSemanticActivationSubjectRetirementCompaction : BaseSemanticActivationCompactionContract
 {
+    [System.Text.Json.Serialization.JsonConstructor]
+    internal BaseSemanticActivationSubjectRetirementCompaction(
+        BaseSemanticActivationSubjectContractIdentity subjectContract,
+        string subjectReferenceRequestPropertyId,
+        string lifecycleRetirementGrantId)
+    {
+        SubjectContract = subjectContract;
+        SubjectReferenceRequestPropertyId = subjectReferenceRequestPropertyId;
+        LifecycleRetirementGrantId = lifecycleRetirementGrantId;
+    }
+
     /// <summary>Gets the exact exported-subject contract.</summary>
-    public required BaseSemanticActivationSubjectContractIdentity SubjectContract { get; init; }
+    public BaseSemanticActivationSubjectContractIdentity SubjectContract { get; }
     /// <summary>Gets the L44 request-property identity containing the subject reference.</summary>
-    public required string SubjectReferenceRequestPropertyId { get; init; }
+    public string SubjectReferenceRequestPropertyId { get; }
     /// <summary>Gets the exact lifecycle-retirement grant.</summary>
-    public required string LifecycleRetirementGrantId { get; init; }
+    public string LifecycleRetirementGrantId { get; }
+}
+
+/// <summary>Creates closed semantic-compaction authority from generated subject and request-property identities.</summary>
+public static class BaseGeneratedSemanticActivationCompactions
+{
+    /// <summary>Creates subject-retirement compaction without exposing raw contract checksums or property identifiers.</summary>
+    /// <typeparam name="TSubject">The exact exported-subject marker.</typeparam>
+    /// <typeparam name="TRequest">The exact installed module-operation request.</typeparam>
+    /// <param name="subject">The generator-owned exported-subject registration.</param>
+    /// <param name="subjectReference">The generated request property containing the subject reference.</param>
+    /// <param name="lifecycleRetirementGrantId">The exact lifecycle-retirement grant.</param>
+    /// <returns>A deeply owned subject-retirement compaction contract.</returns>
+    public static BaseSemanticActivationSubjectRetirementCompaction SubjectRetirement<TSubject, TRequest>(
+        BaseGeneratedSubjectRegistration subject,
+        BaseModuleRequestProperty<TRequest, BaseSubjectReference<TSubject>> subjectReference,
+        string lifecycleRetirementGrantId)
+    {
+        ArgumentNullException.ThrowIfNull(subject);
+        ArgumentNullException.ThrowIfNull(subjectReference);
+        BaseApplicationId.Validate(lifecycleRetirementGrantId, nameof(lifecycleRetirementGrantId));
+        BaseGeneratedModuleSubjectQualifier? qualifier = subjectReference.Authority.ValueType.SubjectQualifier;
+        if (subject.MarkerType != typeof(TSubject)
+            || qualifier is null
+            || qualifier.ContractId != subject.Definition.Id
+            || qualifier.ContractVersion != subject.Definition.Version
+            || !string.Equals(qualifier.ContractChecksum, subject.Checksum, StringComparison.Ordinal)
+            || subjectReference.Authority.StablePropertyPath.Length != 1)
+            throw new InvalidOperationException(BaseSemanticActivationErrorCodes.Invalid);
+        return new BaseSemanticActivationSubjectRetirementCompaction(
+            new BaseSemanticActivationSubjectContractIdentity(
+                new string(subject.Definition.Id.AsSpan()), subject.Definition.Version,
+                Convert.FromHexString(subject.Checksum).ToImmutableArray()),
+            new string(subjectReference.Authority.StablePropertyPath[0].AsSpan()),
+            new string(lifecycleRetirementGrantId.AsSpan()));
+    }
 }
 
 /// <summary>Identifies one exported-subject contract used by compaction.</summary>
 public sealed record BaseSemanticActivationSubjectContractIdentity
 {
+    [System.Text.Json.Serialization.JsonConstructor]
+    internal BaseSemanticActivationSubjectContractIdentity(
+        string contractId, int contractVersion, ImmutableArray<byte> contractChecksum)
+    {
+        ContractId = contractId;
+        ContractVersion = contractVersion;
+        ContractChecksum = contractChecksum;
+    }
+
     /// <summary>Gets the stable contract identifier.</summary>
-    public required string ContractId { get; init; }
+    public string ContractId { get; }
     /// <summary>Gets the positive contract version.</summary>
-    public required int ContractVersion { get; init; }
+    public int ContractVersion { get; }
     /// <summary>Gets the exact contract checksum.</summary>
-    public required ImmutableArray<byte> ContractChecksum { get; init; }
+    public ImmutableArray<byte> ContractChecksum { get; }
 }
 
 /// <summary>Defines installed semantic-slot and execution bounds.</summary>
@@ -211,6 +266,7 @@ public abstract record BaseSemanticActivationKeyExpression;
 /// <summary>Concatenates an ordered, nonempty list of semantic-key elements.</summary>
 public sealed record BaseSemanticActivationKeyTupleExpression : BaseSemanticActivationKeyExpression
 {
+    internal BaseSemanticActivationKeyTupleExpression() { }
     /// <summary>Gets ordered key elements.</summary>
     public required ImmutableArray<BaseSemanticActivationKeyExpression> Elements { get; init; }
 }
@@ -218,6 +274,7 @@ public sealed record BaseSemanticActivationKeyTupleExpression : BaseSemanticActi
 /// <summary>Reads one L44-bound request property into a semantic key.</summary>
 public sealed record BaseSemanticActivationKeyPropertyExpression : BaseSemanticActivationKeyExpression
 {
+    internal BaseSemanticActivationKeyPropertyExpression() { }
     /// <summary>Gets the exact stable request-property path.</summary>
     public required BaseModuleRequestPropertyReference Property { get; init; }
     /// <summary>Gets the closed scalar encoding.</summary>
@@ -231,6 +288,7 @@ public sealed record BaseSemanticActivationKeyPropertyExpression : BaseSemanticA
 /// <summary>Adds one graph-owned canonical constant to a semantic key.</summary>
 public sealed record BaseSemanticActivationKeyConstantExpression : BaseSemanticActivationKeyExpression
 {
+    internal BaseSemanticActivationKeyConstantExpression() { }
     /// <summary>Gets the closed scalar encoding.</summary>
     public required BaseSemanticActivationKeyScalarKind ScalarKind { get; init; }
     /// <summary>Gets strict base-json-v1 scalar bytes.</summary>
@@ -400,6 +458,140 @@ public static class BaseSemanticActivations
             requestAuthority, expression);
 }
 
+/// <summary>Builds closed semantic-key expressions from generated request authority.</summary>
+public static class BaseSemanticActivationKeyBuilder
+{
+    /// <summary>Creates one typed request-property key leaf.</summary>
+    /// <typeparam name="TRequest">The exact generated request type.</typeparam>
+    /// <typeparam name="TValue">The exact generated property type.</typeparam>
+    /// <param name="property">The generated request property.</param>
+    /// <param name="maximumValueBytes">The exact maximum encoded value bytes.</param>
+    /// <returns>The closed semantic-key expression.</returns>
+    public static BaseSemanticActivationKeyExpression Property<TRequest, TValue>(
+        BaseModuleRequestProperty<TRequest, TValue> property, int maximumValueBytes)
+    {
+        ArgumentNullException.ThrowIfNull(property);
+        BaseModuleValueType authority = property.Authority.ValueType;
+        return new BaseSemanticActivationKeyPropertyExpression
+        {
+            Property = new BaseModuleRequestPropertyReference
+            {
+                StablePropertyPath = property.Authority.StablePropertyPath,
+                Authority = property.Authority,
+            },
+            ScalarKind = authority.Kind switch
+            {
+                BaseModuleValueKind.String => BaseSemanticActivationKeyScalarKind.String,
+                BaseModuleValueKind.Int64 => BaseSemanticActivationKeyScalarKind.Int64,
+                BaseModuleValueKind.Guid => BaseSemanticActivationKeyScalarKind.Guid,
+                BaseModuleValueKind.Binary => BaseSemanticActivationKeyScalarKind.Binary,
+                BaseModuleValueKind.RecordId => BaseSemanticActivationKeyScalarKind.RecordId,
+                BaseModuleValueKind.SubjectIncarnation => BaseSemanticActivationKeyScalarKind.SubjectIncarnation,
+                BaseModuleValueKind.ClosedEnum => BaseSemanticActivationKeyScalarKind.Enum,
+                _ => throw new InvalidOperationException("base.semanticActivation.contractInvalid"),
+            },
+            MaximumValueBytes = maximumValueBytes,
+            AllowNull = authority.Nullability == BaseFieldNullability.Nullable,
+        };
+    }
+
+    /// <summary>Creates one graph-owned canonical string constant key leaf.</summary>
+    /// <param name="value">The non-null string value.</param>
+    /// <param name="maximumValueBytes">The exact maximum encoded value bytes.</param>
+    /// <returns>The closed semantic-key expression.</returns>
+    public static BaseSemanticActivationKeyExpression String(string value, int maximumValueBytes)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        return new BaseSemanticActivationKeyConstantExpression
+        {
+            ScalarKind = BaseSemanticActivationKeyScalarKind.String,
+            CanonicalBaseJson = JsonSerializer.SerializeToUtf8Bytes(
+                value, HPDBaseRuntimeJsonSerializerContext.Default.String).ToImmutableArray(),
+            MaximumValueBytes = maximumValueBytes,
+        };
+    }
+
+    /// <summary>Creates one ordered, nonempty semantic-key tuple.</summary>
+    /// <param name="elements">The ordered closed key elements.</param>
+    /// <returns>The closed semantic-key expression.</returns>
+    public static BaseSemanticActivationKeyExpression Tuple(params BaseSemanticActivationKeyExpression[] elements)
+    {
+        ArgumentNullException.ThrowIfNull(elements);
+        if (elements.Length is < 1 or > 16 || elements.Any(static element => element is null))
+            throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+        return new BaseSemanticActivationKeyTupleExpression { Elements = [.. elements] };
+    }
+}
+
+/// <summary>Seals semantic definitions using generated ensure and retirement operation authority.</summary>
+public static class BaseSemanticActivationDeclarationBuilder
+{
+    /// <summary>Creates one closed semantic activation registration.</summary>
+    /// <typeparam name="TRequest">The shared generated operation request type.</typeparam>
+    /// <typeparam name="TEnsureResult">The ensure result type.</typeparam>
+    /// <typeparam name="TRetirementResult">The retirement result type.</typeparam>
+    /// <typeparam name="TDefinition">The compile-time semantic definition marker.</typeparam>
+    /// <param name="definition">The definition draft with empty derived checksums.</param>
+    /// <param name="ensureOperation">The generated ensure operation identity.</param>
+    /// <param name="retirementOperation">The generated retirement operation identity.</param>
+    /// <param name="requestTypeInfo">The source-generated request metadata under locked BASE options.</param>
+    /// <param name="keyExpression">The closed semantic-key expression.</param>
+    /// <returns>The sealed registration.</returns>
+    public static BaseSemanticActivationRegistration<TRequest, TDefinition> Create<
+        TRequest, TEnsureResult, TRetirementResult, TDefinition>(
+        BaseSemanticActivationKeyDefinition definition,
+        BaseGeneratedModuleMutationIdentity<TRequest, TEnsureResult> ensureOperation,
+        BaseGeneratedModuleMutationIdentity<TRequest, TRetirementResult> retirementOperation,
+        System.Text.Json.Serialization.Metadata.JsonTypeInfo<TRequest> requestTypeInfo,
+        BaseSemanticActivationKeyExpression keyExpression)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(ensureOperation);
+        ArgumentNullException.ThrowIfNull(retirementOperation);
+        ArgumentNullException.ThrowIfNull(requestTypeInfo);
+        ArgumentNullException.ThrowIfNull(keyExpression);
+        if (!definition.Checksum.IsDefaultOrEmpty || !definition.RequestSerializerChecksum.IsDefaultOrEmpty
+            || !definition.KeyExpressionChecksum.IsDefaultOrEmpty
+            || !Matches(definition.EnsureOperation, ensureOperation)
+            || !Matches(definition.RetirementOperation, retirementOperation))
+            throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+
+        BaseSerializerOptionsContract.Validate(requestTypeInfo.Options);
+        ImmutableArray<byte> requestChecksum = ensureOperation.ComputeRequestSerializerChecksum().ToImmutableArray();
+        byte[] retirementChecksum = retirementOperation.ComputeRequestSerializerChecksum();
+        if (!CryptographicOperations.FixedTimeEquals(requestChecksum.AsSpan(), retirementChecksum))
+            throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+        ImmutableArray<byte> keyChecksum = BaseSemanticActivationKeyCompiler
+            .ValidateAndChecksum(keyExpression, ensureOperation.RequestBindings).ToImmutableArray();
+        BaseSemanticActivationKeyDefinition sealedDefinition = BaseSemanticActivationDefinitionContract.Seal(
+            definition with
+            {
+                RequestSerializerChecksum = requestChecksum,
+                KeyExpressionChecksum = keyChecksum,
+                Checksum = [],
+            });
+        BaseSemanticActivationKeyIdentity<TRequest, TDefinition> identity =
+            BaseSemanticActivations.CreateKeyIdentity<TRequest, TEnsureResult, TDefinition>(
+                sealedDefinition.Id, sealedDefinition.Version, sealedDefinition.OwningApplicationId,
+                sealedDefinition.OwningModuleId, sealedDefinition.Checksum.AsSpan(),
+                sealedDefinition.Limits.MaximumCanonicalKeyBytes, ensureOperation, keyExpression);
+        return new BaseSemanticActivationRegistration<TRequest, TDefinition>
+        {
+            Definition = sealedDefinition,
+            RequestTypeId = sealedDefinition.RequestTypeId,
+            RequestSerializerChecksum = requestChecksum,
+            KeyIdentity = identity,
+        };
+    }
+
+    private static bool Matches<TRequest, TResult>(
+        BaseSemanticActivationModuleOperationIdentity expected,
+        BaseGeneratedModuleMutationIdentity<TRequest, TResult> actual) =>
+        string.Equals(expected.OperationId, actual.Id, StringComparison.Ordinal)
+        && expected.OperationVersion == actual.Version
+        && string.Equals(expected.OperationChecksum, Convert.ToHexStringLower(actual.Checksum), StringComparison.Ordinal);
+}
+
 internal static class BaseSemanticActivationKeyCompiler
 {
     internal static BaseSemanticActivationKeyIdentity<TRequest, TDefinition> Create<TRequest, TResult, TDefinition>(
@@ -415,10 +607,10 @@ internal static class BaseSemanticActivationKeyCompiler
         ArgumentNullException.ThrowIfNull(requestAuthority);
         BaseSemanticActivationKeyExpression frozen = FreezeAndValidate(expression, requestAuthority.RequestBindings, 1);
         byte[] expressionChecksum = ExpressionChecksum(frozen);
+        byte[] requestSerializerChecksum = requestAuthority.ComputeRequestSerializerChecksum();
         return new(applicationId, moduleId, definitionId, definitionVersion, definitionChecksum,
             expressionChecksum, maximumCanonicalKeyBytes,
-            () => Convert.FromHexString(BaseSerializerContract.GraphFingerprint(
-                requestAuthority.RequestTypeInfo, requestAuthority.SerializerDeclarations)),
+            () => requestSerializerChecksum.ToArray(),
             request => Encode(request, requestAuthority, frozen));
     }
 
@@ -437,13 +629,18 @@ internal static class BaseSemanticActivationKeyCompiler
                     hash.AppendData([1]); Int(tuple.Elements.Length); foreach (BaseSemanticActivationKeyExpression item in tuple.Elements) Add(item); break;
                 case BaseSemanticActivationKeyPropertyExpression property:
                     hash.AppendData([2]); Int(property.Property.StablePropertyPath.Length); foreach (string edge in property.Property.StablePropertyPath) Text(edge);
-                    Text(property.Property.DeclaredTypeId); Int((int)property.ScalarKind); Int(property.MaximumValueBytes); hash.AppendData([property.AllowNull ? (byte)1 : (byte)0]); break;
+                    hash.AppendData(property.Property.Authority.AuthorityChecksum.ToArray()); Int((int)property.ScalarKind); Int(property.MaximumValueBytes); hash.AppendData([property.AllowNull ? (byte)1 : (byte)0]); break;
                 case BaseSemanticActivationKeyConstantExpression constant:
                     hash.AppendData([3]); Int((int)constant.ScalarKind); Int(constant.MaximumValueBytes); Int(constant.CanonicalBaseJson.Length); hash.AppendData(constant.CanonicalBaseJson.AsSpan()); break;
                 default: throw new InvalidOperationException("base.semanticActivation.contractInvalid");
             }
         }
     }
+
+    internal static byte[] ValidateAndChecksum(
+        BaseSemanticActivationKeyExpression expression,
+        IReadOnlyDictionary<string, BaseModuleDtoPropertyBinding> bindings) =>
+        ExpressionChecksum(FreezeAndValidate(expression, bindings, 1));
 
     private static BaseSemanticActivationKeyExpression FreezeAndValidate(
         BaseSemanticActivationKeyExpression expression,
@@ -473,14 +670,17 @@ internal static class BaseSemanticActivationKeyCompiler
             throw new InvalidOperationException("base.semanticActivation.contractInvalid");
         string path = string.Join('\0', value.Property.StablePropertyPath);
         if (!bindings.TryGetValue(path, out BaseModuleDtoPropertyBinding? binding)
-            || value.AllowNull && !binding.Nullable || !ScalarMatches(binding.PropertyType, value.ScalarKind))
+            || value.AllowNull && binding.Nullability != BaseFieldNullability.Nullable || !ScalarMatches(binding.PropertyType, value.ScalarKind))
             throw new InvalidOperationException("base.semanticActivation.contractInvalid");
         return value with
         {
             Property = value.Property with
             {
                 StablePropertyPath = value.Property.StablePropertyPath.Select(static edge => new string(edge.AsSpan())).ToImmutableArray(),
-                DeclaredTypeId = new string(value.Property.DeclaredTypeId.AsSpan()),
+                Authority = new BaseModuleDtoScalarAuthority(
+                    value.Property.Authority.StablePropertyPath,
+                    value.Property.Authority.ValueType,
+                    value.Property.Authority.AuthorityChecksum),
             },
         };
     }
@@ -515,13 +715,12 @@ internal static class BaseSemanticActivationKeyCompiler
                 foreach (BaseSemanticActivationKeyExpression child in tuple.Elements) Write(child, root, authority, output);
                 break;
             case BaseSemanticActivationKeyPropertyExpression property:
-                JsonElement current = root; var path = new List<string>();
-                foreach (string stableId in property.Property.StablePropertyPath)
+                JsonElement current = root;
+                string path = string.Join('\0', property.Property.StablePropertyPath);
+                if (!authority.RequestBindings.TryGetValue(path, out BaseModuleDtoPropertyBinding? binding))
+                    throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+                foreach (string wireName in binding.WirePropertyPath)
                 {
-                    path.Add(stableId);
-                    if (!authority.RequestBindings.TryGetValue(string.Join('\0', path), out BaseModuleDtoPropertyBinding? binding))
-                        throw new InvalidOperationException("base.semanticActivation.contractInvalid");
-                    string wireName = binding.WirePropertyPath[path.Count - 1];
                     if (current.ValueKind != JsonValueKind.Object || !current.TryGetProperty(wireName, out current))
                         throw new InvalidOperationException("base.semanticActivation.keyInvalid");
                 }
@@ -739,10 +938,14 @@ internal static class BaseSemanticActivationDefinitionContract
     private static BaseSemanticActivationCompactionContract SealCompaction(BaseSemanticActivationCompactionContract value) => value switch
     {
         BaseSemanticActivationNoCompaction => new BaseSemanticActivationNoCompaction(),
-        BaseSemanticActivationSubjectRetirementCompaction subject when subject.SubjectContract.ContractVersion > 0 && subject.SubjectContract.ContractChecksum.Length == 32 => subject with
-        {
-            SubjectContract = subject.SubjectContract with { ContractChecksum = subject.SubjectContract.ContractChecksum.ToArray().ToImmutableArray() },
-        },
+        BaseSemanticActivationSubjectRetirementCompaction subject when subject.SubjectContract.ContractVersion > 0 && subject.SubjectContract.ContractChecksum.Length == 32 =>
+            new BaseSemanticActivationSubjectRetirementCompaction(
+                new BaseSemanticActivationSubjectContractIdentity(
+                    new string(subject.SubjectContract.ContractId.AsSpan()),
+                    subject.SubjectContract.ContractVersion,
+                    subject.SubjectContract.ContractChecksum.ToArray().ToImmutableArray()),
+                new string(subject.SubjectReferenceRequestPropertyId.AsSpan()),
+                new string(subject.LifecycleRetirementGrantId.AsSpan())),
         _ => throw new InvalidOperationException("base.semanticActivation.contractInvalid"),
     };
 

@@ -115,7 +115,7 @@ public sealed class VectorEndpointTests
                 Record = new RecordEnvelope
                 {
                     CollectionId = HttpVectorDocument.Collection.Id,
-                    Id = new RecordId("one"),
+                    Id = RecordId.Create("one"),
                     Payload = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = new Dictionary<string, JsonElement> { [nameof(HttpVectorDocument.Label)] = JsonSerializer.SerializeToElement("one"), [nameof(HttpVectorDocument.Embedding)] = JsonSerializer.SerializeToElement(new[] { 1f, 0f }) } },
                     Metadata = new RecordMetadata { Revision = new RevisionToken("test:1") },
                 },

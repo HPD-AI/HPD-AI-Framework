@@ -90,6 +90,10 @@ public sealed partial class SqliteRecordStore
     }
     private readonly BaseSemanticActivationCapability _semanticActivationCapability;
     /// <inheritdoc />
+    public ImmutableArray<byte> ProviderIncarnation => SHA256.HashData(
+        Encoding.UTF8.GetBytes($"hpd.base.sqlite.semantic.incarnation.v1\0{_options.StoreId}"))
+        .ToImmutableArray();
+    /// <inheritdoc />
     public BaseSemanticActivationCapability SemanticActivationCapability =>
         BaseSemanticActivationCapabilityContract.Clone(_semanticActivationCapability);
 
@@ -224,6 +228,8 @@ public sealed partial class SqliteRecordStore
         if (request is null || string.IsNullOrWhiteSpace(request.ApplicationId) || string.IsNullOrWhiteSpace(request.LogicalStoreId)
             || string.IsNullOrWhiteSpace(request.Definition.Id) || request.Definition.Version <= 0 || request.Definition.Checksum.Length != 32
             || request.ApplicationId != _options.SemanticActivationApplicationId || request.LogicalStoreId != _options.StoreId
+            || request.ProviderIncarnation.Length != 32
+            || !CryptographicOperations.FixedTimeEquals(request.ProviderIncarnation.AsSpan(), ProviderIncarnation.AsSpan())
             || request.RestoreEpoch < 0 || request.SemanticAuthorityGeneration <= 0 || request.MaximumRows < 0
             || request.MaximumBytes < 0 || request.RuntimeRequestChecksum.Length != 32
             || !CryptographicOperations.FixedTimeEquals(request.RuntimeRequestChecksum.AsSpan(),
@@ -331,6 +337,8 @@ public sealed partial class SqliteRecordStore
                 restore.CommandText = $"SELECT CAST(value AS INTEGER) FROM {_names.ProviderState} WHERE key='restore_epoch';";
                 currentRestoreEpoch = Convert.ToInt64(await restore.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
                 if (request.ApplicationId != _options.SemanticActivationApplicationId || request.LogicalStoreId != _options.StoreId
+                    || request.ProviderIncarnation.Length != 32
+                    || !CryptographicOperations.FixedTimeEquals(request.ProviderIncarnation.AsSpan(), ProviderIncarnation.AsSpan())
                     || request.RestoreEpoch != currentRestoreEpoch
                     || !CryptographicOperations.FixedTimeEquals(request.RuntimeRequestAuthorityChecksum.AsSpan(),
                         BaseSemanticActivationInspectionContract.RequestChecksum(request).AsSpan()))
@@ -398,9 +406,11 @@ LIMIT $take;
                 }
                 var boundary = new BaseSemanticActivationProviderInspectionBoundary
                 {
-                    DefinitionId = request.Definition.Id, ScopeBindingId = binding.ToImmutableArray(), Key = key,
+                    DefinitionId = request.Definition.Id, ProviderIncarnation = request.ProviderIncarnation,
+                    ScopeBindingId = binding.ToImmutableArray(), Key = key,
                     CapturedAuthorityGeneration = generation,
-                    RuntimeBoundaryChecksum = InspectionBoundaryChecksum(request, binding, keyBytes, generation),
+                    RuntimeBoundaryChecksum = BaseSemanticActivationInspectionContract.BoundaryChecksum(
+                        request, binding, BaseSemanticActivationKeyDigest.Create(keyBytes), generation),
                 };
                 items.Add(new BaseSemanticActivationProviderInspectionItem
                 {
@@ -525,7 +535,8 @@ LIMIT $take;
             return SemanticFailure<BaseSemanticActivationMaintenanceResult>(OperationStatus.StoreError,
                 BaseSemanticActivationErrorCodes.Quarantined, ErrorCategory.Store,
                 "Semantic activation authority is quarantined pending recovery.");
-        if (!ValidMaintenance(request)) return SemanticFailure<BaseSemanticActivationMaintenanceResult>(
+        if (!ValidMaintenance(request) || request.ProviderIncarnation.Length != 32
+            || !CryptographicOperations.FixedTimeEquals(request.ProviderIncarnation.AsSpan(), ProviderIncarnation.AsSpan())) return SemanticFailure<BaseSemanticActivationMaintenanceResult>(
             OperationStatus.ValidationFailed, BaseSemanticActivationErrorCodes.Invalid, ErrorCategory.Validation,
             "The semantic activation request is invalid.");
         if (!MaintenanceWithinInstalledAuthority(request)) return SemanticFailure<BaseSemanticActivationMaintenanceResult>(
@@ -573,7 +584,8 @@ LIMIT $take;
                 BaseSemanticActivationRemoveRequest removeRequest => await RemoveSemanticAsync(connection, transaction, removeRequest, operationToken).ConfigureAwait(false),
                 _ => throw new InvalidDataException(BaseSemanticActivationErrorCodes.ProviderContractInvalid),
             };
-            if (result.Disposition == BaseSemanticActivationMaintenanceDisposition.Completed)
+            if (result.Disposition == BaseSemanticActivationMaintenanceDisposition.Completed
+                && result.ResultingAuthorityGeneration != result.PreviousAuthorityGeneration)
                 await PublishSemanticAuthorityGenerationAsync(connection, transaction,
                     result.PreviousAuthorityGeneration, result.ResultingAuthorityGeneration, operationToken).ConfigureAwait(false);
             if (result.Disposition == BaseSemanticActivationMaintenanceDisposition.Completed
@@ -615,6 +627,8 @@ LIMIT $take;
         BaseSemanticActivationMaintenanceResolutionRequest request, CancellationToken cancellationToken)
     {
         if (request.Identity is null || !ValidDefinition(request.Definition) || string.IsNullOrWhiteSpace(request.MaintenanceId)
+            || request.ProviderIncarnation.Length != 32
+            || !CryptographicOperations.FixedTimeEquals(request.ProviderIncarnation.AsSpan(), ProviderIncarnation.AsSpan())
             || request.RequestFingerprint.Length != 32 || request.Deadline <= TimeSpan.Zero)
             return SemanticFailure<BaseSemanticActivationMaintenanceResult>(OperationStatus.ValidationFailed,
                 BaseSemanticActivationErrorCodes.Invalid, ErrorCategory.Validation,
@@ -713,12 +727,12 @@ LIMIT $take;
 
     private static bool ValidInspection(BaseSemanticActivationProviderInspectionRequest request) =>
         !string.IsNullOrWhiteSpace(request.ApplicationId) && !string.IsNullOrWhiteSpace(request.LogicalStoreId)
-        && request.RestoreEpoch >= 0 && ValidDefinition(request.Definition) && request.Take is >= 1 and <= 256
+        && request.ProviderIncarnation.Length == 32 && request.RestoreEpoch >= 0 && ValidDefinition(request.Definition) && request.Take is >= 1 and <= 256
         && request.RuntimeRequestAuthorityChecksum.Length == 32
         && (request.State is null || Enum.IsDefined(request.State.Value));
 
     private static bool ValidMaintenance(BaseSemanticActivationMaintenanceRequest request) =>
-        request.Identity is not null && ValidDefinition(request.Definition)
+        request.Identity is not null && request.ProviderIncarnation.Length == 32 && ValidDefinition(request.Definition)
         && request.ExpectedSemanticAuthorityGeneration > 0 && request.Limits.PageSize is >= 1 and <= 256
         && request.Limits.MaximumPages > 0 && request.Limits.MaximumRows > 0
         && request.Limits.MaximumBytes > 0 && request.Limits.Deadline > TimeSpan.Zero;
@@ -745,8 +759,10 @@ LIMIT $take;
             || request.Limits.MaximumRows > installedRows
             || request.Limits.MaximumBytes > capability.MaximumTransientBytes)
             return false;
-        long maximumPages = checked((request.Limits.MaximumRows + request.Limits.PageSize - 1) / request.Limits.PageSize);
-        return request.Limits.MaximumPages <= maximumPages;
+        // Maintenance can consist of multiple independently paged phases (for
+        // example, compaction staging followed by authority rebinding). Every
+        // non-empty page consumes at least one row from the aggregate row budget.
+        return request.Limits.MaximumPages <= request.Limits.MaximumRows;
     }
 
     private static bool ValidDefinition(BaseSemanticActivationDefinitionKey value) =>
@@ -798,11 +814,6 @@ LIMIT $take;
 
     private static byte[] KeyBytes(BaseSemanticActivationKeyDigest key) { byte[] value = new byte[32]; key.CopyTo(value); return value; }
 
-    private static ImmutableArray<byte> InspectionBoundaryChecksum(BaseSemanticActivationProviderInspectionRequest request,
-        byte[] binding, byte[] key, long generation) => SemanticAdminHash("base.semanticActivation.inspectionBoundary.v1\0",
-            request.RuntimeRequestAuthorityChecksum.ToArray(), Encoding.UTF8.GetBytes(request.Definition.Id), binding, key,
-            ToInt64(generation));
-
     private async ValueTask<BaseSemanticActivationMaintenanceResult> RemoveSemanticAsync(SqliteConnection connection,
         SqliteTransaction transaction, BaseSemanticActivationRemoveRequest request, CancellationToken token)
     {
@@ -843,8 +854,8 @@ LIMIT $take;
         }
         (long reboundRows, long reboundBytes) = await RebindAllSemanticAuthoritiesAsync(
             connection, transaction, request, null, 0, 0, token).ConfigureAwait(false);
-        return MaintenanceResult(request.ExpectedSemanticAuthorityGeneration, checked(request.ExpectedSemanticAuthorityGeneration + 1),
-            reboundRows, reboundRows, reboundBytes, checksum);
+        return MaintenanceResult(request.ProviderIncarnation, request.ExpectedSemanticAuthorityGeneration,
+            checked(request.ExpectedSemanticAuthorityGeneration + 1), reboundRows, reboundRows, reboundBytes, checksum);
     }
 
     private async ValueTask<bool> RemovalDependenciesSatisfiedAsync(SqliteConnection connection, SqliteTransaction transaction,
@@ -885,7 +896,7 @@ SELECT
             binding = value;
         }
         await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction;
-        command.CommandText = $"SELECT 1 FROM {_names.SubjectTerminalLifetimes} WHERE scope_kind=$kind AND scope_index_digest=$scope AND contract_id=$contract AND contract_version=$version AND subject_id=$subject AND retired_authority_epoch=$epoch AND retired_incarnation=$incarnation AND retired_lifetime_generation=$generation AND retired_position<=$position LIMIT 1;";
+        command.CommandText = $"SELECT 1 FROM {_names.SubjectTerminalLifetimes} WHERE scope_kind=$kind AND scope_index_digest=$scope AND contract_id=$contract AND contract_version=$version AND subject_id=$subject AND retired_authority_epoch=$epoch AND retired_incarnation=$incarnation AND retired_lifetime_generation=$generation AND retired_position>=$position LIMIT 1;";
         command.Parameters.AddWithValue("$kind", (int)binding.Kind); command.Parameters.Add("$scope", SqliteType.Blob).Value = binding.SeekDigest.ToArray();
         command.Parameters.AddWithValue("$contract", lifetime.ContractId); command.Parameters.AddWithValue("$version", lifetime.ContractVersion);
         command.Parameters.AddWithValue("$subject", lifetime.SubjectId.Value); command.Parameters.Add("$epoch", SqliteType.Blob).Value = lifetime.AuthorityEpoch.ToArray();
@@ -897,8 +908,12 @@ SELECT
     private async ValueTask<bool> TerminalActivationAndFloorMatchAsync(SqliteConnection connection, SqliteTransaction transaction,
         string definitionId, byte[] binding, byte[] key, BaseSemanticActivationRetirementAuthority retired, CancellationToken token)
     {
-        if (retired.TerminalState != BaseActivationState.Disposed || retired.SubjectLifetime is null) return false;
-        BaseSemanticActivationKeyDefinition semanticDefinition = _options.SemanticActivations.Single(value => value.Id == definitionId);
+        if (retired.SubjectLifetime is null) return false;
+        BaseSemanticActivationKeyDefinition semanticDefinition = _options.SemanticActivations.Single(value =>
+            value.Id == definitionId
+            && value.Version == retired.Definition.Version
+            && CryptographicOperations.FixedTimeEquals(
+                value.Checksum.AsSpan(), retired.Definition.Checksum.AsSpan()));
         await using (SqliteCommand activation = connection.CreateCommand())
         {
             activation.Transaction = transaction;
@@ -908,9 +923,7 @@ SELECT
             if (!await reader.ReadAsync(token).ConfigureAwait(false)
                 || reader.GetString(0) != semanticDefinition.Activation.Id || reader.GetInt32(1) != semanticDefinition.Activation.Version
                 || !CryptographicOperations.FixedTimeEquals((byte[])reader[2], semanticDefinition.Activation.Checksum.AsSpan())
-                || reader.GetInt64(3) != retired.TerminalActivationGeneration
-                || !CryptographicOperations.FixedTimeEquals((byte[])reader[4], retired.TerminalActivationChecksum.AsSpan())
-                || !CryptographicOperations.FixedTimeEquals((byte[])reader[5], retired.CompletionReceiptChecksum.AsSpan())) return false;
+                ) return false;
             var evidence = new BaseActivationPruneEvidence
             {
                 ActivationId = retired.ActivationId,
@@ -923,7 +936,8 @@ SELECT
                 StoreInstanceId = reader.GetString(11), RestoreEpoch = reader.GetInt64(12),
                 PublicationAuthorityChecksum = ((byte[])reader[13]).ToImmutableArray(), Checksum = ((byte[])reader[14]).ToImmutableArray(),
             };
-            if (!BaseActivationPruneEvidenceContract.IsValid(evidence)) return false;
+            if (!BaseActivationPruneEvidenceContract.IsValid(evidence)
+                || !BaseSemanticActivationEvidenceContract.PruneEvidenceDominatesRetirement(evidence, retired)) return false;
             await reader.DisposeAsync().ConfigureAwait(false);
             await using SqliteCommand store = connection.CreateCommand(); store.Transaction = transaction;
             store.CommandText = $"SELECT COALESCE((SELECT CAST(value AS INTEGER) FROM {_names.ProviderState} WHERE key='restore_epoch'),0);";
@@ -1101,11 +1115,13 @@ WHERE m.contract_id=$contract AND m.contract_version=$version AND m.scope_kind=$
         return hash.GetHashAndReset();
     }
 
-    private static BaseSemanticActivationMaintenanceResult MaintenanceResult(long previous, long resulting,
+    private static BaseSemanticActivationMaintenanceResult MaintenanceResult(ImmutableArray<byte> providerIncarnation,
+        long previous, long resulting,
         long examined, long changed, long bytes, byte[] authority)
     {
         var value = new BaseSemanticActivationMaintenanceResult
         {
+            ProviderIncarnation = providerIncarnation.ToArray().ToImmutableArray(),
             Disposition = BaseSemanticActivationMaintenanceDisposition.Completed, PreviousAuthorityGeneration = previous,
             ResultingAuthorityGeneration = resulting, ExaminedRows = examined, ChangedRows = changed, CanonicalBytes = bytes,
             AuthorityChecksum = authority.ToImmutableArray(), ResultChecksum = [], Checkpoint = null,
@@ -1148,7 +1164,10 @@ WHERE m.contract_id=$contract AND m.contract_version=$version AND m.scope_kind=$
             };
             checkpoint = new BaseSemanticActivationMaintenanceCheckpoint
             {
-                MaintenanceId = reader.GetString(9), OperationKind = reader.GetInt32(10) switch { 1 => "compact", 2 => "migrate", 3 => "remove", _ => "invalid" },
+                MaintenanceId = reader.GetString(9), ProviderIncarnation = ProviderIncarnation,
+                CapturedStoreGeneration = reader.GetInt64(2), CapturedDefinitionGeneration = reader.GetInt64(2),
+                FenceToken = SHA256.HashData((byte[])reader[0]).ToImmutableArray(),
+                OperationKind = reader.GetInt32(10) switch { 1 => "compact", 2 => "migrate", 3 => "remove", _ => "invalid" },
                 Definition = new BaseSemanticActivationDefinitionKey { Id = reader.GetString(11), Version = reader.GetInt32(12), Checksum = ((byte[])reader[13]).ToImmutableArray() },
                 ExpectedAuthorityGeneration = reader.GetInt64(2), After = after, CompletedPages = reader.GetInt32(16),
                 CompletedRows = reader.GetInt64(4), CompletedBytes = reader.GetInt64(6), RollingChecksum = ((byte[])reader[17]).ToImmutableArray(),
@@ -1157,6 +1176,7 @@ WHERE m.contract_id=$contract AND m.contract_version=$version AND m.scope_kind=$
         }
         return new BaseSemanticActivationMaintenanceResult
         {
+            ProviderIncarnation = ProviderIncarnation,
             Disposition = disposition, PreviousAuthorityGeneration = reader.GetInt64(2),
             ResultingAuthorityGeneration = reader.GetInt64(3), ExaminedRows = reader.GetInt64(4), ChangedRows = reader.GetInt64(5),
             CanonicalBytes = reader.GetInt64(6), AuthorityChecksum = ((byte[])reader[17]).ToImmutableArray(),

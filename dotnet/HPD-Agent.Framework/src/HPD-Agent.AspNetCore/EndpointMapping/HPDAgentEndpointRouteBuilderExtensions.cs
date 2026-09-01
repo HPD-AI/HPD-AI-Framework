@@ -2,7 +2,10 @@ using HPD.Agent.AspNetCore.DependencyInjection;
 using HPD.Agent.AspNetCore.EndpointMapping.Endpoints;
 using HPD.Agent.ClientTools;
 using HPD.Agent.Hosting.Lifecycle;
+using HPD.Agent.AspNetCore.Serialization;
+using HPD.Agent.Serialization;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -67,8 +70,13 @@ public static class HPDAgentEndpointRouteBuilderExtensions
 
         var routeGroup = endpoints.MapGroup(options.RoutePrefix);
 
-        var servicesProvider = endpoints.ServiceProvider.GetRequiredService<IHPDAgentHostingServicesProvider>();
-        var hostingServices = servicesProvider.Get(name);
+        var pair = endpoints.ServiceProvider.GetRequiredService<HPDAgentRegistry>().Get(name);
+        var hostingServices = pair.HostingServices;
+        var eventComposition = pair.EventComposition;
+
+        routeGroup.MapGet("/event-catalog", () => Results.Json(
+            eventComposition.Catalog,
+            HPDAgentAspNetCoreJsonSerializerContext.Default.AgentEventCatalog));
 
         // Map all endpoint groups
         if (options.MapSessions)
@@ -84,9 +92,10 @@ public static class HPDAgentEndpointRouteBuilderExtensions
             StreamingEndpoints.Map(
                 routeGroup,
                 hostingServices.Streaming,
-                endpoints.ServiceProvider.GetService<HPD.Agent.Providers.ProviderComposition>());
+                new HPD.Agent.Serialization.AgentInputCodec(
+                    endpoints.ServiceProvider.GetRequiredService<HPD.Agent.Providers.ProviderComposition>()));
         if (options.MapMiddlewareResponses)
-            MiddlewareResponseEndpoints.Map(routeGroup, hostingServices.MiddlewareResponses);
+            MiddlewareResponseEndpoints.Map(routeGroup, hostingServices.MiddlewareResponses, eventComposition.Codec);
         if (options.MapClientToolProviders)
             ClientToolProviderEndpoints.Map(
                 routeGroup,

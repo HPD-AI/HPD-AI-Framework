@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Text.Json;
 using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
+using ModelContextProtocol.Client;
 
 namespace HPD.Agent.MCP;
 
@@ -19,7 +20,7 @@ internal static class McpToolInvocationRuntime
         /// <summary>
         /// Gets the MCP server configuration that owns the tool.
         /// </summary>
-        public required MCPServerConfig ServerConfig { get; init; }
+        public required McpServerConfig ServerConfig { get; init; }
 
         /// <summary>
         /// Gets the MCP tool name.
@@ -35,6 +36,12 @@ internal static class McpToolInvocationRuntime
         /// Gets the parent function execution context.
         /// </summary>
         public FunctionExecutionContext? ParentContext { get; init; }
+
+        /// <summary>Gets the owning SDK client for Tasks-enabled calls.</summary>
+        public required McpClient Client { get; init; }
+
+        /// <summary>Gets final invocation policy.</summary>
+        public required McpInvocationOptions InvocationOptions { get; init; }
 
         /// <summary>
         /// Invokes the underlying MCP tool synchronously.
@@ -70,15 +77,23 @@ internal static class McpToolInvocationRuntime
         }
         catch (InvalidOperationException ex)
         {
-            return AgentInvocationModes.CreateReceiptResult(
+            return AgentInvocationModes.CreateFailureResult(
                 request.ToolName,
-                BackgroundTaskSourceKind.McpTool,
+                AgentOperationSourceKind.McpTask,
                 ex.Message,
                 "invalid_invocation_mode");
         }
 
         if (mode == AgentInvocationMode.Background)
-            return RegisterBackgroundInvocation(request, sanitizedArguments);
+        {
+            var operationResult = await RegisterRemoteTaskInvocationAsync(
+                request,
+                sanitizedArguments,
+                cancellationToken).ConfigureAwait(false);
+            if (operationResult is not null)
+                return operationResult;
+            return await RegisterBackgroundInvocationAsync(request, sanitizedArguments).ConfigureAwait(false);
+        }
 
         var result = await request.InvokeToolAsync(
             sanitizedArguments,
@@ -90,69 +105,63 @@ internal static class McpToolInvocationRuntime
             Mode = AgentInvocationMode.Synchronous,
             Text = ToolResultText.FromResult(result),
             ToolResult = result,
-            Background = null
+            Operation = null
         };
     }
 
-    private static AgentInvocationResult RegisterBackgroundInvocation(
+    private static async ValueTask<AgentInvocationResult?> RegisterRemoteTaskInvocationAsync(
+        McpToolInvocationRequest request,
+        AIFunctionArguments arguments,
+        CancellationToken cancellationToken)
+    {
+        if (!request.InvocationOptions.EnableRemoteTasks ||
+            request.InvocationOptions.RemoteTaskAdapter is not { } adapter)
+            return null;
+        return await adapter.TryStartAsync(request, arguments, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<AgentInvocationResult> RegisterBackgroundInvocationAsync(
         McpToolInvocationRequest request,
         AIFunctionArguments sanitizedArguments)
     {
         var parentContext = request.ParentContext;
-        if (parentContext is null || !parentContext.CanRegisterBackgroundTasks)
+        if (parentContext?.OperationRegistry is not { } operations ||
+            parentContext.SessionId is null || parentContext.ThreadId is null)
         {
-            return AgentInvocationModes.CreateReceiptResult(
+            return AgentInvocationModes.CreateFailureResult(
                 request.ToolName,
-                BackgroundTaskSourceKind.McpTool,
+                AgentOperationSourceKind.McpTask,
                 "Background invocation requires an active agent runtime.");
         }
 
-        var registration = parentContext.RegisterBackgroundTask(
-            new BackgroundTaskDescriptor
-            {
-                Name = request.ToolName,
-                SourceKind = BackgroundTaskSourceKind.McpTool,
-                SourceId = parentContext.FunctionCallId,
-                SessionId = parentContext.SessionId,
-                ThreadId = parentContext.ThreadId,
-                Invocation = parentContext.InvocationSnapshot,
-                Notification = request.ServerConfig.BackgroundNotification,
-                Metadata = CreateDescriptorMetadata(request.ServerConfig, request.ToolName)
-            },
-            async (backgroundContext, runtimeToken) =>
+        var receipt = await AgentLocalOperationScheduler.StartAsync(
+            operations,
+            AgentOperationSourceKind.LocalTool,
+            request.ToolName,
+            new AgentExecutionAddress(parentContext.AgentName, parentContext.SessionId, parentContext.ThreadId),
+            parentContext.ThreadExecutionId,
+            parentContext.InvocationSnapshot,
+            CreateDescriptorMetadata(request.ServerConfig, request.ToolName),
+            new AgentOperationNotificationPolicy(),
+            async (_, runtimeToken) =>
             {
                 var result = await request.InvokeToolAsync(
                     sanitizedArguments,
                     parentContext,
                     runtimeToken).ConfigureAwait(false);
 
-                backgroundContext.SetCompletion(
-                    summary: ToolResultText.FromResult(result),
-                    metadata: new Dictionary<string, string>(StringComparer.Ordinal)
-                    {
-                        ["mcp.serverName"] = request.ServerConfig.Name,
-                        ["mcp.toolName"] = request.ToolName
-                    });
-            });
+                return new AgentOperationCompletion(ToolResultText.FromResult(result));
+            }).ConfigureAwait(false);
 
         return new AgentInvocationResult
         {
             Mode = AgentInvocationMode.Background,
-            Background = new AgentBackgroundInvocationReceipt
-            {
-                Status = "background_started",
-                TaskId = registration.TaskId,
-                Name = registration.Name,
-                SourceKind = registration.SourceKind,
-                SessionId = parentContext.SessionId,
-                ThreadId = parentContext.ThreadId,
-                Message = $"Started MCP tool {request.ToolName} in the background."
-            }
+            Operation = receipt
         };
     }
 
     private static IReadOnlyDictionary<string, string> CreateDescriptorMetadata(
-        MCPServerConfig serverConfig,
+        McpServerConfig serverConfig,
         string toolName)
         => new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -163,7 +172,7 @@ internal static class McpToolInvocationRuntime
         };
 
     internal static AgentInvocationModePolicy ResolveInvocationModePolicy(
-        MCPServerConfig serverConfig,
+        McpServerConfig serverConfig,
         string toolName)
     {
         ArgumentNullException.ThrowIfNull(serverConfig);

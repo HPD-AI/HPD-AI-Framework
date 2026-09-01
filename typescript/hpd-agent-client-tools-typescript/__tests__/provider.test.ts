@@ -200,8 +200,8 @@ describe('ClientToolProvider', () => {
         handler: (_args, context) => {
           context.acceptBackground({
             content: 'Export started.',
-            handleKind: 'ClientToolOperation',
-            supportedOperations: 'Cancel',
+            operationKind: 'Provider',
+            operationCapabilities: 'Cancel',
           });
         },
       });
@@ -220,8 +220,8 @@ describe('ClientToolProvider', () => {
       bindingId: 'bind_1',
       outcome: 'AcceptedBackground',
       clientOperationId: 'op_1',
-      handleKind: 'ClientToolOperation',
-      supportedOperations: 'Cancel',
+      operationKind: 'Provider',
+      operationCapabilities: 'Cancel',
       content: [{ type: 'text', text: 'Export started.' }],
     });
   });

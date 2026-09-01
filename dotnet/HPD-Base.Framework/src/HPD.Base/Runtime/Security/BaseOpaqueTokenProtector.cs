@@ -14,14 +14,17 @@ internal sealed class BaseOpaqueTokenProtector : IDisposable
     private readonly byte _activeId;
     private readonly Dictionary<byte, KeyState> _keys;
     private readonly TimeProvider _timeProvider;
+    private readonly Func<int, byte[]>? _nonceFactory;
     internal bool HasEncodedKeyId(string tokenText,byte expected){try{byte[] token=Decode(tokenText);return token.Length>=2&&token[0]==expected;}catch(FormatException){return false;}}
 
     public BaseOpaqueTokenProtector(
         IOptions<HPDBaseTokenProtectionOptions> options,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        Func<int, byte[]>? nonceFactory = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _nonceFactory = nonceFactory;
         BaseOpaqueTokenKey active = options.Value.ActiveKey ?? throw new ArgumentException("An active token key is required.", nameof(options));
         _activeId = active.Id;
         _keys = new Dictionary<byte, KeyState>();
@@ -45,7 +48,15 @@ internal sealed class BaseOpaqueTokenProtector : IDisposable
         byte[] key = Derive(active.Key, purpose, version);
         byte[] token = new byte[2 + NonceLength + plaintext.Length + TagLength];
         token[0] = keyId; token[1] = version;
-        RandomNumberGenerator.Fill(token.AsSpan(2, NonceLength));
+        if (_nonceFactory is null)
+            RandomNumberGenerator.Fill(token.AsSpan(2, NonceLength));
+        else
+        {
+            byte[] nonce = _nonceFactory(NonceLength);
+            if (nonce.Length != NonceLength)
+                throw new InvalidOperationException("The token nonce factory returned an invalid nonce.");
+            nonce.CopyTo(token, 2);
+        }
         byte[] associated = Associated(purpose, version, scopeDigest);
         try
         {

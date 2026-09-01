@@ -17,8 +17,10 @@ public sealed class L43SelectionMutationTests
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
         var session = provider.GetRequiredService<IBaseSessionFactory>().For(Admin());
         BaseCollectionSession<GeneratedProject> collection = session.Collection(GeneratedProject.Collection);
-        await collection.CreateAsync(new RecordId("one"), new GeneratedProject { OrganizationId = "org", Name = "a" });
-        await collection.CreateAsync(new RecordId("two"), new GeneratedProject { OrganizationId = "org", Name = "b" });
+        BaseResult<BaseRecord<GeneratedProject>> createdOne = await collection.CreateAsync(RecordId.Create("one"), new GeneratedProject { OrganizationId = "org", Name = "a" });
+        BaseResult<BaseRecord<GeneratedProject>> createdTwo = await collection.CreateAsync(RecordId.Create("two"), new GeneratedProject { OrganizationId = "org", Name = "b" });
+        createdOne.Should().BeOfType<BaseSuccess<BaseRecord<GeneratedProject>>>(createdOne is BaseFailure<BaseRecord<GeneratedProject>> firstFailure ? firstFailure.Error.Code : string.Empty);
+        createdTwo.Should().BeOfType<BaseSuccess<BaseRecord<GeneratedProject>>>(createdTwo is BaseFailure<BaseRecord<GeneratedProject>> secondFailure ? secondFailure.Error.Code : string.Empty);
         BaseMergePatchSelectionProfile<GeneratedProject> profile = collection.GetMergePatchSelectionProfile(PatchIdentity());
 
         BaseResult<BaseSelectionMutationResult> result = await collection.Query()
@@ -47,7 +49,7 @@ public sealed class L43SelectionMutationTests
             (await schemas.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = plan.ProtectedArtifact })).IsSuccess().Should().BeTrue();
             (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
             BaseCollectionSession<GeneratedProject> collection = provider.GetRequiredService<IBaseSessionFactory>().For(Admin()).Collection(GeneratedProject.Collection);
-            await collection.CreateAsync(new RecordId("sqlite-one"), new GeneratedProject { OrganizationId = "org", Name = "ready" });
+            await collection.CreateAsync(RecordId.Create("sqlite-one"), new GeneratedProject { OrganizationId = "org", Name = "ready" });
             BaseResult<BaseSelectionMutationResult> selected = await collection.Query().Where(GeneratedProject.Fields.OrganizationId.Equal("org"))
                 .OrderBy(GeneratedProject.Fields.Name).ThenByRecordId().Take(1)
                 .PatchSelectedAsync(collection.GetMergePatchSelectionProfile(PatchIdentity()), Patch("sqlite-claimed"), BasePreviousStateRequirement.None);
@@ -55,7 +57,41 @@ public sealed class L43SelectionMutationTests
                 selected is BaseFailure<BaseSelectionMutationResult> failure ? failure.Error.Code : string.Empty);
             BaseSelectionMutationResult result = selected.RequireValue();
             result.MutatedCount.Should().Be(1);
-            (await collection.GetAsync(new RecordId("sqlite-one"))).RequireValue().Value.Name.Should().Be("sqlite-claimed");
+            (await collection.GetAsync(RecordId.Create("sqlite-one"))).RequireValue().Value.Name.Should().Be("sqlite-claimed");
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task SqliteDeleteSelectionOwnsPartialAndZeroCohortsWithoutCapacityAssumptions()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-l43-partial-{Guid.NewGuid():N}.db");
+        try
+        {
+            await using ServiceProvider provider = Build(path);
+            IBaseSchemaManager schemas = provider.GetRequiredService<IBaseSchemaManager>();
+            BaseSchemaPlan plan = (await schemas.PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite-l43" })).Value!;
+            (await schemas.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = plan.ProtectedArtifact })).IsSuccess().Should().BeTrue();
+            (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+            BaseCollectionSession<GeneratedProject> collection = provider.GetRequiredService<IBaseSessionFactory>()
+                .For(Admin()).Collection(GeneratedProject.Collection);
+            for (int index = 0; index < 2; index++)
+                (await collection.CreateAsync(RecordId.Create($"partial-{index}"),
+                    new GeneratedProject { OrganizationId = "partial", Name = $"item-{index}" })).RequireValue();
+            BaseDeleteSelectionProfile<GeneratedProject> profile = collection.GetDeleteSelectionProfile(DeleteIdentity());
+            BaseSelectionMutationResult partial = (await collection.Query()
+                .Where(GeneratedProject.Fields.OrganizationId.Equal("partial"))
+                .OrderBy(GeneratedProject.Fields.Name).ThenByRecordId().Take(8)
+                .DeleteSelectedAsync(profile, BasePreviousStateRequirement.None, Identity("partial"))).RequireValue();
+            partial.SelectedCount.Should().Be(2);
+            partial.MutatedCount.Should().Be(2);
+
+            BaseSelectionMutationResult zero = (await collection.Query()
+                .Where(GeneratedProject.Fields.OrganizationId.Equal("absent"))
+                .OrderBy(GeneratedProject.Fields.Name).ThenByRecordId().Take(8)
+                .DeleteSelectedAsync(profile, BasePreviousStateRequirement.None, Identity("zero-sqlite"))).RequireValue();
+            zero.SelectedCount.Should().Be(0);
+            zero.MutatedCount.Should().Be(0);
         }
         finally { if (File.Exists(path)) File.Delete(path); }
     }
@@ -73,7 +109,7 @@ public sealed class L43SelectionMutationTests
             (await schemas.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = planned.Value!.ProtectedArtifact })).IsSuccess().Should().BeTrue();
             (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
             BaseCollectionSession<GeneratedProject> collection = provider.GetRequiredService<IBaseSessionFactory>().For(Admin()).Collection(GeneratedProject.Collection);
-            await collection.CreateAsync(new RecordId("contended"), new GeneratedProject { OrganizationId = "org", Name = "ready" });
+            await collection.CreateAsync(RecordId.Create("contended"), new GeneratedProject { OrganizationId = "org", Name = "ready" });
             BaseMergePatchSelectionProfile<GeneratedProject> profile = collection.GetMergePatchSelectionProfile(PatchIdentity());
             BasePreviousStateRequirement previous = new()
             {
@@ -88,15 +124,15 @@ public sealed class L43SelectionMutationTests
             BaseResult<BaseSelectionMutationResult>[] results = await Task.WhenAll(First(), Second());
             results.Count(result => result is BaseSuccess<BaseSelectionMutationResult>).Should().Be(1);
             results.Count(result => result is BaseFailure<BaseSelectionMutationResult>).Should().Be(1);
-            (await collection.GetAsync(new RecordId("contended"))).RequireValue().Value.Name.Should().BeOneOf("first", "second");
+            (await collection.GetAsync(RecordId.Create("contended"))).RequireValue().Value.Name.Should().BeOneOf("first", "second");
         }
         finally { if (File.Exists(path)) File.Delete(path); }
     }
 
     [Theory]
-    [InlineData(false, "base.constraint.unique")]
-    [InlineData(true, "base.constraint.attributionUnavailable")]
-    public async Task SqliteConstraintAttributionIsLogicalAndAmbiguitySafe(bool ambiguous, string expectedCode)
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SqliteConstraintAttributionUsesTheStableNonEnumeratingL54Failure(bool ambiguous)
     {
         string path = Path.Combine(Path.GetTempPath(), $"hpd-l43-constraint-{Guid.NewGuid():N}.db");
         try
@@ -107,8 +143,8 @@ public sealed class L43SelectionMutationTests
             (await schemas.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = planned.Value!.ProtectedArtifact })).IsSuccess().Should().BeTrue();
             (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
             BaseCollectionSession<L43UniqueItem> collection = provider.GetRequiredService<IBaseSessionFactory>().For(Admin()).Collection(L43UniqueItem.Collection);
-            await collection.CreateAsync(new RecordId("existing"), new L43UniqueItem { Group = "keep", Name = "taken", Code = "used" });
-            await collection.CreateAsync(new RecordId("selected"), new L43UniqueItem { Group = "change", Name = "free", Code = "unused" });
+            (await collection.CreateAsync(RecordId.Create("existing"), new L43UniqueItem { Group = "keep", Name = "taken", Code = "used" })).RequireValue();
+            (await collection.CreateAsync(RecordId.Create("selected"), new L43UniqueItem { Group = "change", Name = "free", Code = "unused" })).RequireValue();
             BaseSelectionOperationProfile installed = Profile("unique-patch", BaseSelectionMutationKind.MergePatch) with { CollectionId = "l43-unique" };
             BaseMergePatchSelectionProfile<L43UniqueItem> profile = collection.GetMergePatchSelectionProfile(Identity(installed));
             string nameWire = L43UniqueItem.Collection.Definition.Fields!.Single(field => field.Id == "unique-name").WireName;
@@ -117,11 +153,113 @@ public sealed class L43SelectionMutationTests
             if (ambiguous) fields[codeWire] = JsonSerializer.SerializeToElement("used");
             BaseResult<BaseSelectionMutationResult> result = await collection.Query().Where(L43UniqueItem.Fields.Group.Equal("change"))
                 .OrderBy(L43UniqueItem.Fields.Name).ThenByRecordId().Take(1)
-                .PatchSelectedAsync(profile, new RecordPatchRequest { Patch = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = fields } }, BasePreviousStateRequirement.None);
+                .PatchSelectedAsync(profile, new RecordPatchRequest { Patch = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = fields }, RemovedFieldIds = [] }, BasePreviousStateRequirement.None);
 
             BaseFailure<BaseSelectionMutationResult> failure = result.Should().BeOfType<BaseFailure<BaseSelectionMutationResult>>().Subject;
-            failure.Error.Code.Should().Be(expectedCode);
-            (await collection.GetAsync(new RecordId("selected"))).RequireValue().Value.Name.Should().Be("free");
+            failure.Error.Code.Should().Be(BaseSchemaErrorCodes.UniqueConstraintViolated);
+            (await collection.GetAsync(RecordId.Create("selected"))).RequireValue().Value.Name.Should().Be("free");
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task SqliteRequiredIndexPointExecutesThroughTheCompleteTypedL43Runtime()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-l43-required-point-{Guid.NewGuid():N}-constraint.db");
+        try
+        {
+            await using ServiceProvider provider = Build(path);
+            IBaseSchemaManager schemas = provider.GetRequiredService<IBaseSchemaManager>();
+            BaseSchemaPlan plan = (await schemas.PlanAsync(
+                new BaseSchemaPlanRequest { StoreId = "sqlite-l43" })).Value!;
+            (await schemas.ApplyAsync(new BaseSchemaApplyRequest
+            {
+                ProtectedArtifact = plan.ProtectedArtifact,
+            })).IsSuccess().Should().BeTrue();
+            (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync())
+                .IsSuccess().Should().BeTrue();
+            BaseCollectionSession<L43UniqueItem> collection = provider
+                .GetRequiredService<IBaseSessionFactory>().For(Admin()).Collection(L43UniqueItem.Collection);
+            (await collection.CreateAsync(RecordId.Create("point-item"), new L43UniqueItem
+            {
+                Group = "point", Name = "ready", Code = "point-code",
+            })).RequireValue();
+            BaseSelectionOperationProfile installed = Profile(
+                "unique-patch", BaseSelectionMutationKind.MergePatch) with { CollectionId = "l43-unique" };
+            string nameWire = L43UniqueItem.Collection.Definition.Fields!
+                .Single(field => field.Id == "unique-name").WireName;
+
+            BaseResult<BaseSelectionMutationResult> selected = await collection.Query()
+                .Where(L43UniqueItem.Fields.Name.Equal("ready"))
+                .OrderBy(L43UniqueItem.Fields.Name).ThenByRecordId().Take(1)
+                .PatchSelectedAsync(
+                    collection.GetMergePatchSelectionProfile(Identity(installed)),
+                    new RecordPatchRequest
+                    {
+                        Patch = new RecordPayload
+                        {
+                            Kind = RecordPayloadKind.FieldMap,
+                            Fields = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+                            {
+                                [nameWire] = JsonSerializer.SerializeToElement("claimed"),
+                            },
+                        },
+                        RemovedFieldIds = [],
+                    },
+                    BasePreviousStateRequirement.None,
+                    Identity("required-point"));
+
+            selected.Should().BeOfType<BaseSuccess<BaseSelectionMutationResult>>(
+                selected is BaseFailure<BaseSelectionMutationResult> failure ? failure.Error.Code : string.Empty);
+            selected.RequireValue().MutatedCount.Should().Be(1);
+            (await collection.GetAsync(RecordId.Create("point-item"))).RequireValue().Value.Name
+                .Should().Be("claimed");
+
+            BaseSelectionMutationResult oldKey = (await collection.Query()
+                .Where(L43UniqueItem.Fields.Name.Equal("ready"))
+                .OrderBy(L43UniqueItem.Fields.Name).ThenByRecordId().Take(1)
+                .PatchSelectedAsync(
+                    collection.GetMergePatchSelectionProfile(Identity(installed)),
+                    new RecordPatchRequest
+                    {
+                        Patch = new RecordPayload
+                        {
+                            Kind = RecordPayloadKind.FieldMap,
+                            Fields = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+                            {
+                                [nameWire] = JsonSerializer.SerializeToElement("incorrect"),
+                            },
+                        },
+                        RemovedFieldIds = [],
+                    },
+                    BasePreviousStateRequirement.None,
+                    Identity("required-point-old-key"))).RequireValue();
+            oldKey.SelectedCount.Should().Be(0);
+            oldKey.MutatedCount.Should().Be(0);
+
+            BaseSelectionMutationResult newKey = (await collection.Query()
+                .Where(L43UniqueItem.Fields.Name.Equal("claimed"))
+                .OrderBy(L43UniqueItem.Fields.Name).ThenByRecordId().Take(1)
+                .PatchSelectedAsync(
+                    collection.GetMergePatchSelectionProfile(Identity(installed)),
+                    new RecordPatchRequest
+                    {
+                        Patch = new RecordPayload
+                        {
+                            Kind = RecordPayloadKind.FieldMap,
+                            Fields = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+                            {
+                                [nameWire] = JsonSerializer.SerializeToElement("final"),
+                            },
+                        },
+                        RemovedFieldIds = [],
+                    },
+                    BasePreviousStateRequirement.None,
+                    Identity("required-point-new-key"))).RequireValue();
+            newKey.SelectedCount.Should().Be(1);
+            newKey.MutatedCount.Should().Be(1);
+            (await collection.GetAsync(RecordId.Create("point-item"))).RequireValue().Value.Name
+                .Should().Be("final");
         }
         finally { if (File.Exists(path)) File.Delete(path); }
     }
@@ -142,12 +280,12 @@ public sealed class L43SelectionMutationTests
         first.Should().BeOfType<BaseSuccess<BaseSelectionMutationResult>>(
             first is BaseFailure<BaseSelectionMutationResult> failed ? failed.Error.Code : string.Empty);
         first.RequireValue().SelectedCount.Should().Be(0);
-        await collection.CreateAsync(new RecordId("later"), new GeneratedProject { OrganizationId = "later", Name = "later" });
+        await collection.CreateAsync(RecordId.Create("later"), new GeneratedProject { OrganizationId = "later", Name = "later" });
         BaseSelectionMutationResult duplicate = (await query.DeleteSelectedAsync(profile, BasePreviousStateRequirement.None, identity)).RequireValue();
 
         duplicate.RequestDisposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
         duplicate.SelectedCount.Should().Be(0);
-        (await collection.GetAsync(new RecordId("later"))).TryGetValue(out _).Should().BeTrue();
+        (await collection.GetAsync(RecordId.Create("later"))).TryGetValue(out _).Should().BeTrue();
     }
 
     [Fact]
@@ -177,7 +315,7 @@ public sealed class L43SelectionMutationTests
         var fields = new Dictionary<string, JsonElement> { ["name"] = JsonSerializer.SerializeToElement(new[] { "a", "b" }) };
         var envelope = new RecordEnvelope
         {
-            CollectionId = "projects", Id = new RecordId("one"),
+            CollectionId = "projects", Id = RecordId.Create("one"),
             Payload = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = fields },
             Metadata = new RecordMetadata { Revision = new RevisionToken("mem:1") },
         };
@@ -204,6 +342,7 @@ public sealed class L43SelectionMutationTests
             StoreInstanceId = "authority",
             RestoreEpoch = 0,
             SchemaGeneration = 1,
+            LogicalSchemaChecksum = BaseSchemaAuthorityChecksum.Create(new byte[32]),
             Collections = [new BaseCollectionGenerationRequirement { CollectionId = collection.Id, CollectionGeneration = 0 }],
         };
         RecordQuery query = new()
@@ -229,11 +368,48 @@ public sealed class L43SelectionMutationTests
         }];
         if (defect == "missing-interval") intervals = [];
         byte[] reportedBoundary = defect == "invalid-boundary" ? [0x7f] : boundary;
+        BaseAtomicMutationAuthorityEvidence capturedAuthority = new()
+        {
+            ApplicationId = profile.ApplicationId,
+            StoreInstanceId = "authority",
+            RestoreEpoch = 0,
+            SchemaGeneration = 1,
+            LogicalSchemaChecksum = authority.LogicalSchemaChecksum,
+            Collections = [new BaseCollectionGenerationRequirement { CollectionId = collection.Id, CollectionGeneration = 0 }],
+            Isolation = BaseAtomicSelectionIsolationClass.WriteOwningSerializable,
+            TransactionEvidenceToken = [1],
+        };
+        BaseCapturedAtomicExecution capture = new()
+        {
+            Kind = BaseAtomicMutationExecutionKind.SelectionMutation,
+            IntentDigest = "hostile-selection-intent",
+            CaptureDigest = new string('a', 64),
+            Authority = capturedAuthority,
+            Selection = null,
+            Items = [],
+            ModuleRecords = [],
+            ModuleRelationTargets = [],
+            Generations = [],
+            ReadIntervals = intervals,
+            Accounting = new BaseAtomicCaptureAccounting
+            {
+                Records = 2, RelationTargetReads = 0, GenerationReads = 0,
+                SelectedBytes = first.CanonicalBytes + second.CanonicalBytes,
+                RelationTargetBytes = 0, GenerationBytes = 0,
+                ReadIntervals = intervals.Length,
+                EvidenceBytes = intervals.Sum(interval => (long)interval.CanonicalLowerBound.Length + interval.CanonicalUpperBound.Length),
+                TransientBytes = first.CanonicalBytes + second.CanonicalBytes,
+                RetirementBarrierReads = 0, RetirementAcknowledgementReads = 0,
+                RetirementProjections = 0, RetirementPublications = 0,
+                RetirementEvidenceBytes = 0, RetirementPublicationBytes = 0,
+            },
+        };
         BaseValidatedSelection baseline = new()
         {
-            MutationCapture = null!,
-            Authority = new BaseAtomicMutationAuthorityEvidence { ApplicationId = profile.ApplicationId, StoreInstanceId = "authority", RestoreEpoch = 0, SchemaGeneration = 1, Collections = [new BaseCollectionGenerationRequirement { CollectionId = collection.Id, CollectionGeneration = 0 }], Isolation = BaseAtomicSelectionIsolationClass.WriteOwningSerializable, TransactionEvidenceToken = [1] },
+            MutationCapture = capture,
+            Authority = capturedAuthority,
             Records = [first, second], ReadIntervals = intervals, CanonicalOrderBoundary = reportedBoundary.ToImmutableArray(),
+            LogicalIndexEvidence = null,
             Accounting = new BaseAtomicSelectionAccounting { SelectedRecords = 2, SelectedBytes = first.CanonicalBytes + second.CanonicalBytes, ReadIntervals = intervals.Length, EvidenceBytes = intervals.Sum(interval => (long)interval.CanonicalLowerBound.Length + interval.CanonicalUpperBound.Length) },
         };
 
@@ -246,8 +422,8 @@ public sealed class L43SelectionMutationTests
         await using ServiceProvider provider = Build();
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
         BaseCollectionSession<GeneratedProject> collection = provider.GetRequiredService<IBaseSessionFactory>().For(Admin()).Collection(GeneratedProject.Collection);
-        await collection.CreateAsync(new RecordId("one"), new GeneratedProject { OrganizationId = "org", Name = "ready" });
-        await collection.CreateAsync(new RecordId("two"), new GeneratedProject { OrganizationId = "org", Name = "blocked" });
+        await collection.CreateAsync(RecordId.Create("one"), new GeneratedProject { OrganizationId = "org", Name = "ready" });
+        await collection.CreateAsync(RecordId.Create("two"), new GeneratedProject { OrganizationId = "org", Name = "blocked" });
 
         BaseResult<BaseSelectionMutationResult> result = await collection.Query()
             .Where(GeneratedProject.Fields.OrganizationId.Equal("org"))
@@ -380,10 +556,11 @@ public sealed class L43SelectionMutationTests
     private static RecordPatchRequest Patch(string name) => new()
     {
         Patch = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = new Dictionary<string, JsonElement> { ["name"] = JsonSerializer.SerializeToElement(name) } },
+        RemovedFieldIds = [],
     };
     private static RecordEnvelope Envelope(string id, string organization, string name) => new()
     {
-        Id = new RecordId(id), CollectionId = "projects",
+        Id = RecordId.Create(id), CollectionId = "projects",
         Payload = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = new Dictionary<string, JsonElement> { ["organizationId"] = JsonSerializer.SerializeToElement(organization), ["name"] = JsonSerializer.SerializeToElement(name) } },
         Metadata = new RecordMetadata { Revision = new RevisionToken("test:1"), CreatedAt = DateTimeOffset.UnixEpoch, UpdatedAt = DateTimeOffset.UnixEpoch },
     };
@@ -406,8 +583,10 @@ public sealed class L43SelectionMutationTests
 }
 
 [BaseCollection("l43-unique", typeof(L43SelectionJsonContext))]
-[BaseIndex("unique-name", nameof(L43UniqueItem.Name), Unique = true)]
-[BaseIndex("unique-code", nameof(L43UniqueItem.Code), Unique = true)]
+[BaseIndex("unique-name", Unique = true)]
+[BaseIndexPart("unique-name", 0, nameof(L43UniqueItem.Name))]
+[BaseIndex("unique-code", Unique = true)]
+[BaseIndexPart("unique-code", 0, nameof(L43UniqueItem.Code))]
 internal sealed partial record L43UniqueItem
 {
     [BaseField("unique-group", Operators = BaseFieldOperator.Equal)] public required string Group { get; init; }

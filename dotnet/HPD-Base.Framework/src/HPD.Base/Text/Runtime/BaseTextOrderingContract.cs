@@ -85,7 +85,7 @@ internal static class BaseTextOrderingContract
             builder.Add(new() { StableFieldId = field, Missing = missing, Null = nil, CanonicalJsonUtf8 = json });
         }
         if (!ReadString(source, ref offset, out string? recordId) || offset != source.Length || string.IsNullOrWhiteSpace(recordId)) return false;
-        score = new BaseTextScore { Units = ulong.MaxValue - inverse }; values = builder.MoveToImmutable(); id = new RecordId(recordId);
+        score = new BaseTextScore { Units = ulong.MaxValue - inverse }; values = builder.MoveToImmutable(); id = RecordId.Create(recordId);
         return ValuesValid(new BaseTextCandidate { RecordId = id, Revision = new RevisionToken("boundary"), IndexedPosition = new BaseMutationJournalPosition(0), Score = score, SecondaryOrdering = values, CanonicalOrderingBoundary = [], ScoreProof = new BaseTextCandidateScoreProof { Features = [], Fields = [], ProofDigest = ImmutableArray.Create(new byte[32]) } }, order);
     }
 

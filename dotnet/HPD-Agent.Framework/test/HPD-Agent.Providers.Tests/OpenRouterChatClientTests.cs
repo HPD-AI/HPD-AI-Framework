@@ -1,13 +1,43 @@
 using FluentAssertions;
 using HPD.Agent.Providers.OpenRouter;
+using HPD.Agent.Providers;
 using Microsoft.Extensions.AI;
 using System.Net.Http;
+using System.Net;
 using System.Reflection;
+using System.Text;
 
 namespace HPD.Agent.Tests.Providers;
 
 public sealed class OpenRouterChatClientTests
 {
+    [Fact]
+    public async Task Streaming_adapter_emits_one_terminal_usage_snapshot()
+    {
+        var sse = string.Join("\n", new[]
+        {
+            """data: {"id":"r1","model":"fixture","created":1,"choices":[{"index":0,"delta":{"role":"assistant","content":"ok"},"finish_reason":null}]}""",
+            """data: {"id":"r1","model":"fixture","created":1,"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}}""",
+            "data: [DONE]"
+        });
+        using var http = new HttpClient(new SseHandler(sse))
+        {
+            BaseAddress = new Uri("https://openrouter.ai/api/v1/")
+        };
+        using var client = new OpenRouterChatClient(http, "fixture");
+
+        var updates = new List<ChatResponseUpdate>();
+        await foreach (var update in client.GetStreamingResponseAsync([new(ChatRole.User, "fixture")]))
+            updates.Add(update);
+
+        var usage = updates.SelectMany(static update => update.Contents).OfType<UsageContent>()
+            .Should().ContainSingle().Subject.Details;
+        usage.InputTokenCount.Should().Be(11);
+        usage.OutputTokenCount.Should().Be(7);
+        ProviderStreamingUsageSemanticsCatalog.Resolve("openrouter", ProviderClientFamily.Chat)
+            .Should().Be(UsageUpdateSemantics.FinalOnly);
+    }
+
     [Fact]
     public void SerializeFunctionArguments_WithNullArguments_ReturnsEmptyJsonObject()
     {
@@ -139,5 +169,15 @@ public sealed class OpenRouterChatClientTests
 
         method.Should().NotBeNull();
         return (OpenRouterChatRequest)method!.Invoke(client, [messages, options, true])!;
+    }
+
+    private sealed class SseHandler(string payload) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(payload, Encoding.UTF8, "text/event-stream")
+        });
     }
 }

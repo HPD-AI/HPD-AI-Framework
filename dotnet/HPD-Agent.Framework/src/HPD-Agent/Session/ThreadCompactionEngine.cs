@@ -17,6 +17,8 @@ public enum CompactionOrigin
     Fork
 }
 
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("COMPACTION")]
 public sealed record CompactionEvent(
     string AgentName,
     int Iteration,
@@ -42,7 +44,7 @@ public sealed record CompactionEvent(
 public sealed record ThreadCompactionContext(
     Thread Thread,
     IReadOnlyList<ChatMessage> ModelHistory,
-    IThreadEventPublisher? Publisher,
+    IAgentEventPublisher? Publisher,
     IChatClient? SummarizerClient,
     IThreadJournalRebaseSeedProvider? RebaseSeedProvider = null,
     ChatOptions? SummarizerOptions = null);
@@ -55,6 +57,141 @@ public interface IThreadJournalRebaseSeedProvider
     ValueTask<IReadOnlyList<AgentEvent>> CreateSeedEventsAsync(
         ThreadKey thread,
         CancellationToken cancellationToken = default);
+}
+
+/// <summary>Combines structural seed contributors in deterministic framework order.</summary>
+public sealed class CompositeThreadJournalRebaseSeedProvider(
+    IReadOnlyList<IThreadJournalRebaseSeedProvider> providers) : IThreadJournalRebaseSeedProvider
+{
+    private readonly IReadOnlyList<IThreadJournalRebaseSeedProvider> _providers =
+        providers ?? throw new ArgumentNullException(nameof(providers));
+
+    /// <summary>Creates the framework registry contributor plus an optional host contributor.</summary>
+    public static IThreadJournalRebaseSeedProvider Create(
+        ISessionStore store,
+        IThreadJournalRebaseSeedProvider? hostProvider = null)
+    {
+        var registry = new SubAgentRegistryRebaseSeedProvider(new SubAgentChildRegistry(store));
+        var forks = new ThreadForkOperationRebaseSeedProvider(store);
+        var continuations = new SubAgentContinuationRebaseSeedProvider(store);
+        var controllerAuthorities = new SubAgentControllerAuthorityRebaseSeedProvider(store);
+        return hostProvider is null
+            ? new CompositeThreadJournalRebaseSeedProvider([registry, forks, continuations, controllerAuthorities])
+            : new CompositeThreadJournalRebaseSeedProvider([hostProvider, registry, forks, continuations, controllerAuthorities]);
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<IReadOnlyList<AgentEvent>> CreateSeedEventsAsync(
+        ThreadKey thread,
+        CancellationToken cancellationToken = default)
+    {
+        var events = new List<AgentEvent>();
+        foreach (var provider in _providers)
+            events.AddRange(await provider.CreateSeedEventsAsync(thread, cancellationToken).ConfigureAwait(false));
+        return events;
+    }
+}
+
+/// <summary>Preserves the latest exact child/controller authority through journal rebase.</summary>
+public sealed class SubAgentControllerAuthorityRebaseSeedProvider(ISessionStore store)
+    : IThreadJournalRebaseSeedProvider
+{
+    private readonly ISessionStore _store = store ?? throw new ArgumentNullException(nameof(store));
+
+    /// <inheritdoc />
+    public async ValueTask<IReadOnlyList<AgentEvent>> CreateSeedEventsAsync(
+        ThreadKey thread,
+        CancellationToken cancellationToken = default)
+    {
+        var head = await _store.GetThreadEventHeadAsync(thread, cancellationToken).ConfigureAwait(false);
+        if (head is null) return [];
+        var latest = new Dictionary<(ThreadKey Controller, SubAgentLocalId LocalId), SubAgentChildControllerAuthorityEvent>();
+        await foreach (var batch in _store.ReadThreadEventsAsync(
+                           thread,
+                           new ThreadEventReadRequest(ThreadJournalCursor.Start(head.Generation), head.ThreadSequenceNumber),
+                           cancellationToken).ConfigureAwait(false))
+            foreach (var evt in batch.Events)
+                if (evt is SubAgentChildControllerAuthorityEvent authority)
+                    latest[(authority.Controller, authority.LocalId)] = authority;
+        return latest.Values
+            .OrderBy(static authority => authority.Controller.SessionId, StringComparer.Ordinal)
+            .ThenBy(static authority => authority.Controller.ThreadId, StringComparer.Ordinal)
+            .ThenBy(static authority => authority.LocalId.Value, StringComparer.Ordinal)
+            .Select(authority => (AgentEvent)(authority with
+            {
+                SessionId = thread.SessionId,
+                ThreadId = thread.ThreadId,
+                ThreadSequenceNumber = 0
+            }))
+            .ToArray();
+    }
+}
+
+/// <summary>
+/// Preserves deterministic subagent-continuation admission and terminal receipts across a destructive rebase.
+/// </summary>
+public sealed class SubAgentContinuationRebaseSeedProvider(ISessionStore store)
+    : IThreadJournalRebaseSeedProvider
+{
+    private readonly ISessionStore _store = store ?? throw new ArgumentNullException(nameof(store));
+
+    /// <inheritdoc />
+    public async ValueTask<IReadOnlyList<AgentEvent>> CreateSeedEventsAsync(
+        ThreadKey thread,
+        CancellationToken cancellationToken = default)
+    {
+        var head = await _store.GetThreadEventHeadAsync(thread, cancellationToken).ConfigureAwait(false);
+        if (head is null) return [];
+        var starts = new Dictionary<string, ThreadExecutionStartedEvent>(StringComparer.Ordinal);
+        var terminals = new Dictionary<string, ThreadExecutionFinishedEvent>(StringComparer.Ordinal);
+        var receipts = new Dictionary<string, SubAgentContinuationReceiptEvent>(StringComparer.Ordinal);
+        await foreach (var batch in _store.ReadThreadEventsAsync(
+                           thread,
+                           new ThreadEventReadRequest(ThreadJournalCursor.Start(head.Generation), head.ThreadSequenceNumber),
+                           cancellationToken).ConfigureAwait(false))
+        {
+            foreach (var evt in batch.Events)
+            {
+                if (evt is ThreadExecutionStartedEvent started &&
+                    started.ThreadExecutionId.StartsWith("continue-", StringComparison.Ordinal))
+                    starts[started.ThreadExecutionId] = started;
+                else if (evt is ThreadExecutionFinishedEvent finished &&
+                         finished.ThreadExecutionId.StartsWith("continue-", StringComparison.Ordinal))
+                    terminals[finished.ThreadExecutionId] = finished;
+                else if (evt is SubAgentContinuationReceiptEvent receipt)
+                    receipts[receipt.ContinuationExecutionId] = receipt;
+            }
+        }
+        var seed = new List<AgentEvent>(starts.Count * 2);
+        foreach (var (executionId, started) in starts.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
+        {
+            seed.Add(started with
+            {
+                SessionId = thread.SessionId,
+                ThreadId = thread.ThreadId,
+                ThreadSequenceNumber = 0
+            });
+            if (terminals.TryGetValue(executionId, out var terminal))
+            {
+                if (receipts.TryGetValue(executionId, out var receipt))
+                {
+                    seed.Add(receipt with
+                    {
+                        SessionId = thread.SessionId,
+                        ThreadId = thread.ThreadId,
+                        ThreadSequenceNumber = 0
+                    });
+                }
+                seed.Add(terminal with
+                {
+                    SessionId = thread.SessionId,
+                    ThreadId = thread.ThreadId,
+                    ThreadSequenceNumber = 0
+                });
+            }
+        }
+        return seed;
+    }
 }
 
 public sealed record PreparedThreadCompaction(

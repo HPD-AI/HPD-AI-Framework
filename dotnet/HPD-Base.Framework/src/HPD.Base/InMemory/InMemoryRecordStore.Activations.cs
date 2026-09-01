@@ -9,6 +9,7 @@ namespace HPD.Base;
 
 internal sealed partial class InMemoryRecordStore
 {
+    private const long MaximumYieldReceiptSlots = 1_000_000_000_000;
     private static readonly BaseActivationAccounting EmptyActivationAccounting = new()
     {
         Candidates = 0,
@@ -28,6 +29,7 @@ internal sealed partial class InMemoryRecordStore
             {
                 case BaseActivationState.Pending:
                 case BaseActivationState.RetryPending:
+                case BaseActivationState.YieldPending:
                     pending = checked(pending + 1);
                     break;
                 case BaseActivationState.Claimed:
@@ -44,8 +46,94 @@ internal sealed partial class InMemoryRecordStore
             && terminal <= Descriptor.Capability.MaximumTerminalRows;
     }
 
+    private static bool TryReserveYieldReceiptSlots(InMemoryStoreState state, long maximumYields)
+    {
+        if (maximumYields == 0) return true;
+        long slots = checked(maximumYields + 1);
+        long reserved = checked(state.ActivationYieldReservedUnusedSlots + slots);
+        if (checked(reserved + state.ActivationYieldRetainedUsedSlots) > MaximumYieldReceiptSlots) return false;
+        state.ActivationYieldReservedUnusedSlots = reserved;
+        state.ActivationYieldReservationGeneration = checked(state.ActivationYieldReservationGeneration + 1);
+        return true;
+    }
+
+    private static void ApplyYieldReceiptReservationTransition(
+        InMemoryStoreState state,
+        InMemoryActivationRow row,
+        BaseActivationState resultingState,
+        BaseActivationYieldDisposition? yieldDisposition)
+    {
+        if (row.MaximumYields == 0) return;
+        if (yieldDisposition is BaseActivationYieldDisposition.Yielded or BaseActivationYieldDisposition.LimitExceeded)
+        {
+            state.ActivationYieldReservedUnusedSlots = checked(state.ActivationYieldReservedUnusedSlots - 1);
+            state.ActivationYieldRetainedUsedSlots = checked(state.ActivationYieldRetainedUsedSlots + 1);
+            state.ActivationYieldReservationGeneration = checked(state.ActivationYieldReservationGeneration + 1);
+            return;
+        }
+        if (resultingState is not (BaseActivationState.Succeeded or BaseActivationState.Exhausted or
+            BaseActivationState.Cancelled or BaseActivationState.Disposed or BaseActivationState.Migrated)) return;
+        if (row.State is BaseActivationState.Succeeded or BaseActivationState.Exhausted or
+            BaseActivationState.Cancelled or BaseActivationState.Disposed or BaseActivationState.Migrated) return;
+        long remaining = checked(row.MaximumYields + 1 - row.YieldCount);
+        if (remaining == 0) return;
+        state.ActivationYieldReservedUnusedSlots = checked(state.ActivationYieldReservedUnusedSlots - remaining);
+        state.ActivationYieldReservationGeneration = checked(state.ActivationYieldReservationGeneration + 1);
+    }
+
     /// <inheritdoc />
     public BaseActivationProviderDescriptor Descriptor { get; private set; } = null!;
+
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseActivationYieldReservationState>> ReadYieldReservationStateAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            InMemoryStoreState state = Volatile.Read(ref _publishedState);
+            return OperationResults.Ok(BaseActivationYieldReservationContract.Create(
+                state.ActivationYieldReservationGeneration,
+                MaximumYieldReceiptSlots,
+                state.ActivationYieldReservedUnusedSlots,
+                state.ActivationYieldRetainedUsedSlots));
+        }
+        finally
+        {
+            _stateGate.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseActivationReceiptCompactionAuthority>> CaptureReceiptCompactionAuthorityAsync(
+        BaseActivationReceiptCompactionAuthorityRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.ApplicationId != _options.SemanticActivationApplicationId
+            || request.Definition.Version < 1 || request.Definition.Checksum.Length != 32
+            || request.Scope.ProtectedIndexDigest.Length != 32
+            || request.ReceiptRetention.ProtectedBackupCoverage != BaseActivationProtectedBackupCoverage.NotRequired
+            || !ValidateLimits(request.Limits))
+            return ActivationFailure<BaseActivationReceiptCompactionAuthority>(
+                "base.activation.capabilityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
+        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            InMemoryStoreState state = Volatile.Read(ref _publishedState);
+            return OperationResults.Ok(new BaseActivationReceiptCompactionAuthority
+            {
+                Reservation = BaseActivationYieldReservationContract.Create(
+                    state.ActivationYieldReservationGeneration, MaximumYieldReceiptSlots,
+                    state.ActivationYieldReservedUnusedSlots, state.ActivationYieldRetainedUsedSlots),
+                BackupFloor = new BaseActivationReceiptBackupFloor
+                {
+                    Kind = BaseActivationReceiptBackupFloorKind.NotApplicable,
+                },
+            });
+        }
+        finally { _stateGate.Release(); }
+    }
 
     private static BaseActivationProviderDescriptor CreateActivationDescriptor(HPDBaseInMemoryStoreOptions options) =>
         BaseActivationCertificationReceiptContract.FromSuccessfulReport(
@@ -58,6 +146,7 @@ internal sealed partial class InMemoryRecordStore
             SelectionTargetSupported = true,
             ModuleTargetSupported = true,
             GuardedChildrenSupported = true,
+            DurableYieldSupported = true,
             RestoreFencingSupported = true,
             DueInvalidation = BaseDueInvalidationClass.Native,
             ScheduleKinds = [BaseScheduleKind.Once, BaseScheduleKind.Interval, BaseScheduleKind.Cron, BaseScheduleKind.Calendar],
@@ -75,8 +164,10 @@ internal sealed partial class InMemoryRecordStore
             MaximumClaimedRows = options.MaxClaimedActivationRows,
             MaximumTerminalRows = options.MaxTerminalActivationRows,
             MaximumAttempts = 1024,
-            MaximumRenewalsPerAttempt = 4096,
-            MaximumChildrenPerAttempt = 4096,
+            MaximumYieldsPerActivation = 1_000_000,
+            MaximumReservedYieldReceiptSlots = 1_000_000_000_000,
+            MaximumRenewalsPerSlice = 4096,
+            MaximumChildrenPerSlice = 4096,
             MaximumLineageDepth = 256,
             MaximumOccurrencePage = 256,
             MaximumPriorityAgingBoost = 32,
@@ -170,7 +261,7 @@ internal sealed partial class InMemoryRecordStore
             InMemoryStoreState state = Volatile.Read(ref _publishedState);
             if (!state.Activations.TryGetValue(request.ActivationId, out InMemoryActivationRow? row)
                 || row.Generation != request.ExpectedGeneration || !DefinitionMatches(row.Payload.Definition, request.SourceDefinition)
-                || !ScopeMatches(row.Payload.Scope, request.Scope) || !MigrationSourceState(row.State))
+                || !ScopeMatches(row.Payload.Scope, request.Scope) || !MigrationSourceState(row.State) || row.MaximumYields > 0)
                 return ActivationFailure<BaseActivationMigrationCandidate>("base.activation.migrationConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
             long bytes = row.Payload.CanonicalInput.Length + row.Payload.InputChecksum.Length + row.ControlChecksum.Length;
             if (bytes > request.Limits.MaximumEvidenceBytes || bytes > request.Limits.MaximumTransientBytes)
@@ -180,6 +271,11 @@ internal sealed partial class InMemoryRecordStore
                 ActivationId = new string(row.Payload.ActivationId.AsSpan()),
                 SourceDefinition = row.Payload.Definition with { Checksum = row.Payload.Definition.Checksum.ToArray().ToImmutableArray() },
                 Generation = row.Generation, State = row.State,
+                EffectiveDueAt = row.EffectiveDueAt, YieldCount = row.YieldCount,
+                MaximumYields = row.MaximumYields, ExecutionSliceOrdinal = row.ExecutionSliceOrdinal,
+                AttemptStartedAt = row.AttemptStartedAt, SliceStartedAt = row.SliceStartedAt,
+                TerminalYieldDisposition = row.YieldTerminalDisposition,
+                TerminalYieldFailureCode = row.YieldTerminalFailureCode,
                 CanonicalInput = row.Payload.CanonicalInput.ToArray().ToImmutableArray(),
                 InputChecksum = row.Payload.InputChecksum.ToArray().ToImmutableArray(),
                 ControlChecksum = row.ControlChecksum.ToImmutableArray(),
@@ -203,12 +299,18 @@ internal sealed partial class InMemoryRecordStore
         try
         {
             InMemoryStoreState current = Volatile.Read(ref _publishedState);
-            if (TryReadActivationReceipt(current, request.Identity, "activation-migrated",
+            if (SemanticMaintenanceFencesAnyActivation(
+                    current, [request.SourceDefinition, request.Replacement.Definition]))
+                return ActivationFailure<BaseActivationMigrationResult>(
+                    BaseSemanticActivationErrorCodes.GraphChanged,
+                    OperationStatus.Conflict, ErrorCategory.Conflict);
+            if (TryReadControlReceipt(current, request.Identity, "activation-migrated",
                 HPDBaseJsonSerializerContext.Default.BaseActivationMigrationResult,
                 static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, out OperationResult<BaseActivationMigrationResult> replay))
                 return replay;
             if (!current.Activations.TryGetValue(request.SourceActivationId, out InMemoryActivationRow? source)
                 || source.Generation != request.ExpectedSourceGeneration || !MigrationSourceState(source.State)
+                || source.MaximumYields > 0
                 || !DefinitionMatches(source.Payload.Definition, request.SourceDefinition)
                 || !ScopeMatches(source.Payload.Scope, request.Scope)
                 || !CryptographicOperations.FixedTimeEquals(source.Payload.InputChecksum.AsSpan(), request.ExpectedSourceInputChecksum.AsSpan())
@@ -218,13 +320,16 @@ internal sealed partial class InMemoryRecordStore
                 return ActivationFailure<BaseActivationMigrationResult>("base.activation.migrationConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
 
             long sourceGeneration = checked(source.Generation + 1);
-            byte[] sourceChecksum = ControlChecksum(source.Payload.ActivationId, sourceGeneration, BaseActivationState.Migrated);
+            byte[] sourceChecksum = ControlChecksum(source.Payload.ActivationId, sourceGeneration,
+                BaseActivationState.Migrated, source.EffectiveDueAt, source.YieldCount, source.MaximumYields,
+                source.ExecutionSliceOrdinal, source.AttemptStartedAt, source.SliceStartedAt, null, null);
             byte[] replacementFingerprint = SHA256.HashData(Encoding.UTF8.GetBytes(
                 $"base.activation.migration.create.v1\0{request.MigrationId}\n{request.MigrationVersion}\n{Convert.ToHexString(request.MigrationChecksum.AsSpan())}\n{request.SourceActivationId}\n{request.ReplacementActivationId}\n{Convert.ToHexString(request.Replacement.InputChecksum.AsSpan())}"));
             var replacementPayload = new BaseActivationPayload
             {
                 ActivationId = request.ReplacementActivationId,
                 Definition = request.Replacement.Definition with { Checksum = request.Replacement.Definition.Checksum.ToArray().ToImmutableArray() },
+                ReceiptRetention = request.Replacement.ReceiptRetention with { },
                 CanonicalInput = request.Replacement.CanonicalInput.ToArray().ToImmutableArray(),
                 InputChecksum = request.Replacement.InputChecksum.ToArray().ToImmutableArray(),
                 Scope = request.Replacement.Scope with { }, OccurrenceId = request.Replacement.OccurrenceId,
@@ -232,8 +337,12 @@ internal sealed partial class InMemoryRecordStore
                 EffectiveDueAt = request.Replacement.EffectiveDueAt ?? request.Replacement.RequestedDueAt,
                 Checksum = SHA256.HashData(request.Replacement.CanonicalInput.AsSpan()).ToImmutableArray(),
             };
-            byte[] replacementChecksum = ControlChecksum(replacementPayload.ActivationId, 1, BaseActivationState.Pending);
+            byte[] replacementChecksum = ControlChecksum(replacementPayload.ActivationId, 1,
+                BaseActivationState.Pending, replacementPayload.EffectiveDueAt, 0,
+                request.Replacement.MaximumYields, 0, null, null, null, null);
             var next = current.Clone();
+            if (!TryReserveYieldReceiptSlots(next, request.Replacement.MaximumYields))
+                return ActivationFailure<BaseActivationMigrationResult>("base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
             next.Activations[source.Payload.ActivationId] = source with
             {
                 State = BaseActivationState.Migrated, Generation = sourceGeneration, Claim = null, Lease = null,
@@ -244,20 +353,30 @@ internal sealed partial class InMemoryRecordStore
                 replacementPayload.EffectiveDueAt, replacementFingerprint, replacementChecksum,
                 request.Replacement.OccurrenceId, request.Replacement.Priority,
                 request.Replacement.OverlapKey.IsDefaultOrEmpty ? null : request.Replacement.OverlapKey.ToArray(),
-                request.Replacement.OverlapPolicy));
+                request.Replacement.OverlapPolicy,
+                MaximumYields: request.Replacement.MaximumYields));
             IndexActivation(next, replacementPayload);
             next.ActivationIndexGeneration = checked(next.ActivationIndexGeneration + 2);
             var result = new BaseActivationMigrationResult
             {
                 SourceActivationId = source.Payload.ActivationId, SourceGeneration = sourceGeneration,
+                SourceDefinition = source.Payload.Definition with
+                { Checksum = source.Payload.Definition.Checksum.ToArray().ToImmutableArray() },
                 SourceControlChecksum = sourceChecksum.ToImmutableArray(),
                 ReplacementActivationId = replacementPayload.ActivationId, ReplacementGeneration = 1,
+                ReplacementDefinition = replacementPayload.Definition with
+                { Checksum = replacementPayload.Definition.Checksum.ToArray().ToImmutableArray() },
                 ReplacementControlChecksum = replacementChecksum.ToImmutableArray(),
+                MigrationId = new string(request.MigrationId.AsSpan()),
+                MigrationVersion = request.MigrationVersion,
+                MigrationChecksum = request.MigrationChecksum.ToArray().ToImmutableArray(),
                 Accounting = EmptyActivationAccounting with { Candidates = 1, Comparisons = 8, IndexOperations = 2 },
                 Disposition = BaseMutationRequestDisposition.Committed,
             };
-            WriteActivationReceipt(next, request.Identity, "activation-migrated", result,
+            byte[] terminalReceiptChecksum = WriteControlReceipt(next, request.Identity, "activation-migrated", result,
                 HPDBaseJsonSerializerContext.Default.BaseActivationMigrationResult);
+            next.Activations[source.Payload.ActivationId] = next.Activations[source.Payload.ActivationId] with
+            { TerminalReceiptChecksum = terminalReceiptChecksum };
             if (!ActivationRowCapacityAllows(next))
                 return ActivationFailure<BaseActivationMigrationResult>("base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
             Volatile.Write(ref _publishedState, next);
@@ -278,7 +397,11 @@ internal sealed partial class InMemoryRecordStore
         try
         {
             InMemoryStoreState current = Volatile.Read(ref _publishedState); InMemoryStoreState next = current.Clone();
-            if (TryReadActivationReceipt(current, request.Identity, "activation-maintenance",
+            if (SemanticMaintenanceFencesActivation(current, request.Definition))
+                return ActivationFailure<BaseActivationMaintenancePage>(
+                    BaseSemanticActivationErrorCodes.GraphChanged,
+                    OperationStatus.Conflict, ErrorCategory.Conflict);
+            if (TryReadControlReceipt(current, request.Identity, "activation-maintenance",
                 HPDBaseJsonSerializerContext.Default.BaseActivationMaintenancePage,
                 static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate },
                 out OperationResult<BaseActivationMaintenancePage>? replay)) return replay;
@@ -302,12 +425,16 @@ internal sealed partial class InMemoryRecordStore
             {
                 BaseActivationState state = request.Kind == BaseActivationMaintenanceKind.RecoverExpiredClaims
                     ? BaseActivationState.RetryPending : BaseActivationState.OutcomeUnknown;
-                long generation = checked(row.Generation + 1); byte[] checksum = ControlChecksum(row.Payload.ActivationId, generation, state);
+                long generation = checked(row.Generation + 1);
+                long effectiveDueAt = request.Kind == BaseActivationMaintenanceKind.RecoverExpiredClaims
+                    ? request.AcceptedTime.CapturedUtc : row.EffectiveDueAt;
+                byte[] checksum = ControlChecksum(row.Payload.ActivationId, generation, state,
+                    effectiveDueAt, row.YieldCount, row.MaximumYields, row.ExecutionSliceOrdinal,
+                    row.AttemptStartedAt, row.SliceStartedAt, null, null);
                 next.Activations[row.Payload.ActivationId] = row with
                 {
                     State = state, Generation = generation, ControlChecksum = checksum,
-                    EffectiveDueAt = request.Kind == BaseActivationMaintenanceKind.RecoverExpiredClaims
-                        ? request.AcceptedTime.CapturedUtc : row.EffectiveDueAt,
+                    EffectiveDueAt = effectiveDueAt,
                     Claim = null, Lease = null,
                 };
                 items.Add(new BaseActivationMaintenanceItem
@@ -325,7 +452,7 @@ internal sealed partial class InMemoryRecordStore
                 { Candidates = candidates.Length, Comparisons = candidates.Length, IndexOperations = page.Length },
                 Disposition = BaseMutationRequestDisposition.Committed,
             };
-            WriteActivationReceipt(next, request.Identity, "activation-maintenance", result,
+            WriteControlReceipt(next, request.Identity, "activation-maintenance", result,
                 HPDBaseJsonSerializerContext.Default.BaseActivationMaintenancePage);
             if (!ActivationRowCapacityAllows(next))
                 return ActivationFailure<BaseActivationMaintenancePage>("base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
@@ -347,25 +474,61 @@ internal sealed partial class InMemoryRecordStore
         try
         {
             InMemoryStoreState current = Volatile.Read(ref _publishedState); InMemoryStoreState next = current.Clone();
-            if (TryReadActivationReceipt(current, request.Identity, "activation-pruned",
+            if (SemanticMaintenanceFencesActivation(current, request.Definition))
+                return ActivationFailure<BaseActivationPrunePage>(
+                    BaseSemanticActivationErrorCodes.GraphChanged,
+                    OperationStatus.Conflict, ErrorCategory.Conflict);
+            if (TryReadControlReceipt(current, request.Identity, "activation-pruned",
                 HPDBaseJsonSerializerContext.Default.BaseActivationPrunePage,
                 static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate },
                 out OperationResult<BaseActivationPrunePage>? replay)) return replay;
-            string[] candidates = current.Activations.Values.Where(row => row.State == BaseActivationState.Disposed
-                && row.Payload.Definition.Id == request.Definition.Id && row.Payload.Definition.Version == request.Definition.Version
-                && CryptographicOperations.FixedTimeEquals(row.Payload.Definition.Checksum.AsSpan(), request.Definition.Checksum.AsSpan())
-                && ScopeMatches(row.Payload.Scope, request.Scope)
-                && (request.AfterActivationId is null || string.CompareOrdinal(row.Payload.ActivationId, request.AfterActivationId) > 0))
-                .Select(static row => row.Payload.ActivationId).Order(StringComparer.Ordinal).Take(request.Take + 1).ToArray();
-            bool completed = candidates.Length <= request.Take; string[] page = candidates.Take(request.Take).ToArray();
+            string authorityKey = DisposedActivationAuthorityKey(request.Scope, request.Definition);
+            var pageBuilder = new List<string>(request.Take);
+            bool hasBoundaryCandidate = false;
+            if (current.DisposedActivationsByAuthority.TryGetValue(
+                authorityKey, out SortedSet<string>? activationIds))
+            {
+                foreach (string id in activationIds)
+                {
+                    if (request.AfterActivationId is not null
+                        && string.CompareOrdinal(id, request.AfterActivationId) <= 0)
+                        continue;
+                    if (pageBuilder.Count == request.Take)
+                    {
+                        hasBoundaryCandidate = true;
+                        break;
+                    }
+                    pageBuilder.Add(id);
+                }
+            }
+            string[] page = [.. pageBuilder];
+            bool completed = !hasBoundaryCandidate;
             long resultingGeneration = page.Length == 0 ? next.ActivationIndexGeneration : checked(next.ActivationIndexGeneration + 1);
             var evidence = ImmutableArray.CreateBuilder<BaseActivationPruneEvidence>(page.Length);
+            BaseActivationInstanceReceiptChainState priorChain = next.ActivationInstanceReceiptChain;
+            BaseActivationYieldReservationState priorReservation = BaseActivationYieldReservationContract.Create(
+                next.ActivationYieldReservationGeneration, MaximumYieldReceiptSlots,
+                next.ActivationYieldReservedUnusedSlots, next.ActivationYieldRetainedUsedSlots);
+            int deletedReceiptCount = 0;
+            int deletedYieldReceiptCount = 0;
+            string pruneReceiptKey = ActivationReceiptKey(request.Identity);
             foreach (string id in page)
             {
                 InMemoryActivationRow row = next.Activations[id];
+                KeyValuePair<string, InMemoryActivationInstanceReceiptRow>[] receipts = next.ActivationInstanceReceipts
+                    .Where(pair => pair.Value.ActivationId == id)
+                    .OrderBy(static pair => pair.Value.ReceiptSequence).ToArray();
+                if (receipts.Any(receipt =>
+                    receipt.Value.DuplicateResolveUntil > request.AcceptedTime.CapturedUtc
+                    || receipt.Value.Retention.ProtectedBackupCoverage != BaseActivationProtectedBackupCoverage.NotRequired))
+                    return ActivationFailure<BaseActivationPrunePage>(
+                        "base.activation.removalBlocked", OperationStatus.Conflict, ErrorCategory.Conflict);
                 if (row.Effect is not null || row.Claim is not null || row.TerminalReceiptChecksum is not { Length: 32 }
                     || !CryptographicOperations.FixedTimeEquals(row.ControlChecksum,
-                        ControlChecksum(id, row.Generation, BaseActivationState.Disposed)))
+                        ControlChecksum(id, row.Generation, BaseActivationState.Disposed,
+                            row.EffectiveDueAt, row.YieldCount, row.MaximumYields,
+                            row.ExecutionSliceOrdinal, row.AttemptStartedAt, row.SliceStartedAt,
+                            row.YieldTerminalDisposition, row.YieldTerminalFailureCode)))
                     return ActivationFailure<BaseActivationPrunePage>("base.activation.removalBlocked", OperationStatus.Conflict, ErrorCategory.Conflict);
                 ImmutableArray<byte>? occurrence = row.OccurrenceId is not null && next.ScheduleOccurrences.TryGetValue(row.OccurrenceId, out BaseScheduleOccurrenceFact? fact)
                     ? fact.Checksum.ToArray().ToImmutableArray() : null;
@@ -382,26 +545,61 @@ internal sealed partial class InMemoryRecordStore
                 };
                 item = item with { Checksum = BaseActivationPruneEvidenceContract.Checksum(item) };
                 next.ActivationPruneFloors.Add(id, item); evidence.Add(item);
-                next.Activations.Remove(id); foreach (SortedSet<string> index in next.ActivationsByProtectedScope.Values) index.Remove(id);
+                foreach (KeyValuePair<string, InMemoryActivationInstanceReceiptRow> receipt in receipts)
+                {
+                    BaseActivationCompactedReceiptFact compactedFact = BaseActivationCompactedReceiptFactContract.Create(
+                        receipt.Value.ReceiptSequence, receipt.Key, receipt.Value.AuthorityChecksum,
+                        receipt.Value.PriorOrderedChecksum, receipt.Value.OrderedChecksum, pruneReceiptKey);
+                    next.ActivationInstanceReceiptCompactionFacts.Add(compactedFact.ReceiptSequence, compactedFact);
+                    next.ActivationInstanceReceipts.Remove(receipt.Key);
+                    deletedReceiptCount = checked(deletedReceiptCount + 1);
+                    if (receipt.Value.Kind == "activation-yielded-v1")
+                        deletedYieldReceiptCount = checked(deletedYieldReceiptCount + 1);
+                }
+                next.Activations.Remove(id);
+                foreach (SortedSet<string> index in next.ActivationsByProtectedScope.Values) index.Remove(id);
+                RemoveDisposedActivation(next, row.Payload);
             }
+            if (deletedYieldReceiptCount > next.ActivationYieldRetainedUsedSlots)
+                return ActivationFailure<BaseActivationPrunePage>(
+                    "base.activation.receiptCorrupt", OperationStatus.StoreError, ErrorCategory.Store);
+            if (deletedYieldReceiptCount > 0)
+            {
+                next.ActivationYieldRetainedUsedSlots -= deletedYieldReceiptCount;
+                next.ActivationYieldReservationGeneration = checked(next.ActivationYieldReservationGeneration + 1);
+            }
+            if (deletedReceiptCount > 0)
+                next.ActivationInstanceReceiptChain = BaseActivationInstanceReceiptChainContract.Create(
+                    priorChain.CurrentSequence, priorChain.OrderedChecksum.AsSpan(), checked(priorChain.Generation + 1));
             next.ActivationIndexGeneration = resultingGeneration;
             long evidenceBytes = 0;
             foreach (BaseActivationPruneEvidence item in evidence) evidenceBytes = checked(evidenceBytes + BaseActivationPruneEvidenceContract.MeasureCanonicalBytes(item));
-            long transientBytes = checked(evidenceBytes + candidates.Sum(static id => 4L + Encoding.UTF8.GetByteCount(id)));
-            int indexOperations = checked(1 + page.Length * 2);
-            if (candidates.Length > request.Limits.MaximumCandidates || evidenceBytes > request.Limits.MaximumEvidenceBytes
+            long transientBytes = checked(evidenceBytes + page.Sum(static id => 4L + Encoding.UTF8.GetByteCount(id)));
+            int readIntervals = hasBoundaryCandidate ? 2 : 1;
+            int boundaryProbe = hasBoundaryCandidate ? 1 : 0;
+            int indexOperations = checked(1 + boundaryProbe + page.Length * 2 + deletedReceiptCount * 2);
+            if (page.Length > request.Limits.MaximumCandidates || evidenceBytes > request.Limits.MaximumEvidenceBytes
                 || transientBytes > request.Limits.MaximumTransientBytes || indexOperations > request.Limits.MaximumIndexOperations
-                || request.Limits.MaximumReadIntervals < 1)
+                || readIntervals > request.Limits.MaximumReadIntervals)
                 return ActivationFailure<BaseActivationPrunePage>("base.activation.budgetExceeded", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+            BaseActivationYieldReservationState resultingReservation = BaseActivationYieldReservationContract.Create(
+                next.ActivationYieldReservationGeneration, MaximumYieldReceiptSlots,
+                next.ActivationYieldReservedUnusedSlots, next.ActivationYieldRetainedUsedSlots);
             var result = new BaseActivationPrunePage
             {
                 Items = evidence.MoveToImmutable(), NextActivationId = completed || page.Length == 0 ? null : page[^1],
+                DeletedReceiptCount = deletedReceiptCount,
+                DeletedYieldReceiptCount = deletedYieldReceiptCount,
+                PriorChain = priorChain,
+                ResultingChain = next.ActivationInstanceReceiptChain,
+                PriorReservation = priorReservation,
+                ResultingReservation = resultingReservation,
                 Completed = completed, Accounting = EmptyActivationAccounting with
-                { Candidates = candidates.Length, Comparisons = candidates.Length, IndexOperations = indexOperations,
-                    ReadIntervals = 1, EvidenceBytes = evidenceBytes, TransientBytes = transientBytes },
+                { Candidates = page.Length, Comparisons = page.Length + boundaryProbe, IndexOperations = indexOperations,
+                    ReadIntervals = readIntervals, EvidenceBytes = evidenceBytes, TransientBytes = transientBytes },
                 Disposition = BaseMutationRequestDisposition.Committed,
             };
-            WriteActivationReceipt(next, request.Identity, "activation-pruned", result,
+            WriteControlReceipt(next, request.Identity, "activation-pruned", result,
                 HPDBaseJsonSerializerContext.Default.BaseActivationPrunePage);
             Volatile.Write(ref _publishedState, next);
             return OperationResults.Ok(result);
@@ -522,7 +720,11 @@ internal sealed partial class InMemoryRecordStore
         try
         {
             InMemoryStoreState current = Volatile.Read(ref _publishedState);
-            if (TryReadActivationReceipt(current, request.Identity, "activation-claimed",
+            if (SemanticMaintenanceFencesAnyActivation(current, request.Worker.Definitions))
+                return ActivationFailure<BaseActivationClaimResult>(
+                    BaseSemanticActivationErrorCodes.GraphChanged,
+                    OperationStatus.Conflict, ErrorCategory.Conflict);
+            if (TryReadInstanceReceipt(current, request.Identity, "activation-claimed", request.AcceptedTime.CapturedUtc,
                 HPDBaseJsonSerializerContext.Default.BaseActivationClaimResult, static value => value,
                 out OperationResult<BaseActivationClaimResult>? replay))
                 return ResolveClaimReplay(current, replay, request.AcceptedTime.CapturedUtc);
@@ -553,27 +755,44 @@ internal sealed partial class InMemoryRecordStore
                     Claim = null,
                     Lease = null,
                     EffectiveDueAt = request.AcceptedTime.CapturedUtc,
-                    ControlChecksum = ControlChecksum(row.Payload.ActivationId, recoveredGeneration, BaseActivationState.RetryPending),
+                    ControlChecksum = ControlChecksum(row.Payload.ActivationId, recoveredGeneration,
+                        BaseActivationState.RetryPending, request.AcceptedTime.CapturedUtc,
+                        row.YieldCount, row.MaximumYields, row.ExecutionSliceOrdinal,
+                        row.AttemptStartedAt, row.SliceStartedAt, null, null),
                 };
                 next.ActivationIndexGeneration = checked(next.ActivationIndexGeneration + 1);
                 if (!ActivationRowCapacityAllows(next))
                     return ActivationFailure<BaseActivationClaimResult>("base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
                 BaseActivationClaimResult recoveredResult = new BaseActivationRecoveredClaimResult(
                     row.Payload.ActivationId, recoveredGeneration);
-                WriteActivationReceipt(next, request.Identity, "activation-claimed", recoveredResult,
+                WriteInstanceReceipt(next, request.Identity, "activation-claimed", mutable, request.AcceptedTime.CapturedUtc, recoveredResult,
                     HPDBaseJsonSerializerContext.Default.BaseActivationClaimResult);
                 Volatile.Write(ref _publishedState, next);
                 return OperationResults.Ok(recoveredResult);
             }
 
-            int attemptNumber = checked(mutable.AttemptNumber + 1);
+            bool resumedYield = mutable.State == BaseActivationState.YieldPending;
+            int attemptNumber = resumedYield ? mutable.AttemptNumber : checked(mutable.AttemptNumber + 1);
+            long executionSliceOrdinal = checked(mutable.ExecutionSliceOrdinal + 1);
+            long attemptStartedAt = resumedYield
+                ? mutable.AttemptStartedAt ?? throw new InvalidOperationException("base.activation.providerContractInvalid")
+                : request.AcceptedTime.CapturedUtc;
+            long sliceStartedAt = request.AcceptedTime.CapturedUtc;
             long claimEpoch = checked(mutable.ClaimEpoch + 1);
             long generation = checked(mutable.Generation + 1);
-            byte[] fence = Hash($"base.activation.claim.v2\0{mutable.Payload.ActivationId}\n{attemptNumber}\n{claimEpoch}\n{request.Worker.WorkerIdentity}");
+            byte[] fence = BaseActivationClaimChecksumContract.Create(mutable.Payload.ActivationId,
+                attemptNumber, claimEpoch, executionSliceOrdinal, attemptStartedAt, sliceStartedAt,
+                mutable.YieldCount, mutable.MaximumYields, request.Worker.WorkerIdentity).ToArray();
             var claim = new BaseActivationClaimAuthority
             {
                 ActivationId = mutable.Payload.ActivationId,
                 AttemptNumber = attemptNumber,
+                ActivationGeneration = generation,
+                ExecutionSliceOrdinal = executionSliceOrdinal,
+                AttemptStartedAt = attemptStartedAt,
+                SliceStartedAt = sliceStartedAt,
+                YieldCount = mutable.YieldCount,
+                MaximumYields = mutable.MaximumYields,
                 ClaimEpoch = claimEpoch,
                 FencingToken = fence.ToImmutableArray(),
                 WorkerIdentity = request.Worker.WorkerIdentity,
@@ -589,12 +808,17 @@ internal sealed partial class InMemoryRecordStore
                 LeaseExpiresAt = expiresAt,
                 Checksum = Hash($"base.activation.lease.v2\0{mutable.Payload.ActivationId}\n1\n{expiresAt}").ToImmutableArray(),
             };
-            byte[] controlChecksum = ControlChecksum(mutable.Payload.ActivationId, generation, BaseActivationState.Claimed);
+            byte[] controlChecksum = ControlChecksum(mutable.Payload.ActivationId, generation,
+                BaseActivationState.Claimed, mutable.EffectiveDueAt, mutable.YieldCount,
+                mutable.MaximumYields, executionSliceOrdinal, attemptStartedAt, sliceStartedAt, null, null);
             next.Activations[mutable.Payload.ActivationId] = mutable with
             {
                 State = BaseActivationState.Claimed,
                 Generation = generation,
                 AttemptNumber = attemptNumber,
+                ExecutionSliceOrdinal = executionSliceOrdinal,
+                AttemptStartedAt = attemptStartedAt,
+                SliceStartedAt = sliceStartedAt,
                 ClaimEpoch = claimEpoch,
                 Claim = claim,
                 Lease = lease,
@@ -615,7 +839,7 @@ internal sealed partial class InMemoryRecordStore
                 attempt,
                 [DueInterval(request.Worker.Scope, request.AcceptedTime.CapturedUtc, null, Boundary(mutable, request.AcceptedTime.CapturedUtc))],
                 EmptyActivationAccounting with { Candidates = 1, Comparisons = 1 });
-            WriteActivationReceipt(next, request.Identity, "activation-claimed", claimedResult,
+            WriteInstanceReceipt(next, request.Identity, "activation-claimed", mutable, request.AcceptedTime.CapturedUtc, claimedResult,
                 HPDBaseJsonSerializerContext.Default.BaseActivationClaimResult);
             if (!ActivationRowCapacityAllows(next))
                 return ActivationFailure<BaseActivationClaimResult>("base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
@@ -696,7 +920,7 @@ internal sealed partial class InMemoryRecordStore
         try
         {
             InMemoryStoreState current = Volatile.Read(ref _publishedState);
-            if (TryReadActivationReceipt(current, request.Identity, "activation-renewed",
+            if (TryReadInstanceReceipt(current, request.Identity, "activation-renewed", request.AcceptedTime.CapturedUtc,
                 HPDBaseJsonSerializerContext.Default.BaseActivationRenewResult,
                 static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, out OperationResult<BaseActivationRenewResult>? replay))
                 return replay;
@@ -704,6 +928,10 @@ internal sealed partial class InMemoryRecordStore
                 !ClaimMatches(row, request.Claim) || row.Lease?.LeaseRevision != request.ExpectedLeaseRevision ||
                 row.Lease.LeaseExpiresAt <= request.AcceptedTime.CapturedUtc)
                 return ActivationFailure<BaseActivationRenewResult>("base.activation.claimLost", OperationStatus.Conflict, ErrorCategory.Conflict);
+            if (SemanticMaintenanceFencesActivation(current, row.Payload.Definition))
+                return ActivationFailure<BaseActivationRenewResult>(
+                    BaseSemanticActivationErrorCodes.GraphChanged,
+                    OperationStatus.Conflict, ErrorCategory.Conflict);
             long revision = checked(request.ExpectedLeaseRevision + 1);
             long expiresAt = checked(request.AcceptedTime.CapturedUtc + request.ExtensionMilliseconds);
             var lease = new BaseActivationLeaseObservation
@@ -718,10 +946,11 @@ internal sealed partial class InMemoryRecordStore
             {
                 Claim = request.Claim,
                 Lease = lease,
-                Accounting = EmptyActivationAccounting with { ReadIntervals = 0, IndexOperations = 1 },
+                Accounting = EmptyActivationAccounting with
+                { Candidates = 1, Comparisons = 1, ReadIntervals = 0, IndexOperations = 1 },
                 Disposition = BaseMutationRequestDisposition.Committed,
             };
-            WriteActivationReceipt(next, request.Identity, "activation-renewed", result, HPDBaseJsonSerializerContext.Default.BaseActivationRenewResult);
+            WriteInstanceReceipt(next, request.Identity, "activation-renewed", row, request.AcceptedTime.CapturedUtc, result, HPDBaseJsonSerializerContext.Default.BaseActivationRenewResult);
             Volatile.Write(ref _publishedState, next);
             return OperationResults.Ok(result);
         }
@@ -744,12 +973,23 @@ internal sealed partial class InMemoryRecordStore
         {
             InMemoryStoreState current = Volatile.Read(ref _publishedState);
             string receiptKind = ActivationTransitionReceiptKind(request);
-            if (TryReadActivationReceipt(current, request.Identity, receiptKind,
+            if (request is BaseActivationYieldRequest && TryReadInstanceReceipt(current,
+                request.Identity, receiptKind, request.AcceptedTime.CapturedUtc, HPDBaseJsonSerializerContext.Default.BaseActivationYieldReceipt,
+                static value => value, out OperationResult<BaseActivationYieldReceipt>? yieldReplay))
+                return yieldReplay.IsSuccess() && yieldReplay.Value is { } storedYield
+                    ? OperationResults.Ok(storedYield.ToTransitionResult(BaseMutationRequestDisposition.Duplicate))
+                    : new OperationResult<BaseActivationTransitionResult>
+                    { Status = yieldReplay.Status, Error = yieldReplay.Error };
+            if (TryReadInstanceReceipt(current, request.Identity, receiptKind, request.AcceptedTime.CapturedUtc,
                 HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult,
                 static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, out OperationResult<BaseActivationTransitionResult>? replay))
                 return replay;
             if (!current.Activations.TryGetValue(request.ActivationId, out InMemoryActivationRow? row))
                 return ActivationFailure<BaseActivationTransitionResult>("base.activation.notFound", OperationStatus.NotFound, ErrorCategory.NotFound);
+            if (SemanticMaintenanceFencesActivation(current, row.Payload.Definition))
+                return ActivationFailure<BaseActivationTransitionResult>(
+                    BaseSemanticActivationErrorCodes.GraphChanged,
+                    OperationStatus.Conflict, ErrorCategory.Conflict);
 
             if (request is BaseActivationEffectHeartbeatRequest effectHeartbeat)
             {
@@ -769,7 +1009,7 @@ internal sealed partial class InMemoryRecordStore
                     Accounting = EmptyActivationAccounting with { IndexOperations = 1 }, Disposition = BaseMutationRequestDisposition.Committed,
                     Effect = replacement,
                 };
-                WriteActivationReceipt(heartbeatState, request.Identity, receiptKind, heartbeatResult,
+                WriteInstanceReceipt(heartbeatState, request.Identity, receiptKind, row, request.AcceptedTime.CapturedUtc, heartbeatResult,
                     HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult);
                 Volatile.Write(ref _publishedState, heartbeatState);
                 return OperationResults.Ok(heartbeatResult);
@@ -778,6 +1018,9 @@ internal sealed partial class InMemoryRecordStore
             BaseActivationState resultingState;
             byte[]? result = null;
             BaseEffectExecutionAuthority? resultingEffect = null;
+            BaseActivationYieldRequest? yieldRequest = null;
+            BaseActivationYieldDisposition? yieldDisposition = null;
+            long resultingYieldCount = row.YieldCount;
             switch (request)
             {
                 case BaseActivationCompleteRequest complete when ClaimMatches(row, complete.Claim):
@@ -794,6 +1037,28 @@ internal sealed partial class InMemoryRecordStore
                     resultingState = failed.Disposition == BaseActivationFailureDisposition.Retry
                         ? BaseActivationState.RetryPending
                         : BaseActivationState.Exhausted;
+                    break;
+                case BaseActivationYieldRequest yielded when ClaimMatches(row, yielded.Claim):
+                    long? requestedResumeAt = CanonicalYieldResumeAt(yielded.RequestedResumeAt);
+                    long expectedEffectiveDueAt = requestedResumeAt.HasValue
+                        ? Math.Max(requestedResumeAt.Value, request.AcceptedTime.CapturedUtc)
+                        : request.AcceptedTime.CapturedUtc;
+                    if (yielded.ProgressFingerprint.Length != 32 || yielded.ExpectedYieldCount != row.YieldCount
+                        || yielded.MaximumYields != row.MaximumYields || yielded.MaximumYields <= 0
+                        || expectedEffectiveDueAt < 0 || yielded.EffectiveDueAt != expectedEffectiveDueAt)
+                        return ActivationFailure<BaseActivationTransitionResult>("base.activation.yieldInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+                    yieldRequest = yielded;
+                    if (row.YieldCount == row.MaximumYields)
+                    {
+                        resultingState = BaseActivationState.Exhausted;
+                        yieldDisposition = BaseActivationYieldDisposition.LimitExceeded;
+                    }
+                    else
+                    {
+                        resultingState = BaseActivationState.YieldPending;
+                        yieldDisposition = BaseActivationYieldDisposition.Yielded;
+                        resultingYieldCount = checked(row.YieldCount + 1);
+                    }
                     break;
                 case BaseActivationCancelRequest cancel when row.Generation == cancel.ExpectedGeneration:
                     resultingState = row.State == BaseActivationState.EffectStarted
@@ -856,8 +1121,26 @@ internal sealed partial class InMemoryRecordStore
             }
 
             long generation = checked(row.Generation + 1);
-            byte[] checksum = ControlChecksum(row.Payload.ActivationId, generation, resultingState);
+            long resultingEffectiveDueAt = yieldRequest is not null
+                ? yieldRequest.EffectiveDueAt
+                : resultingState == BaseActivationState.RetryPending
+                ? request switch
+                {
+                    BaseActivationFailRequest failed => failed.RetryDueAt!.Value,
+                    BaseActivationOperatorRetryRequest retry => retry.RetryDueAt,
+                    _ => row.EffectiveDueAt,
+                }
+                : row.EffectiveDueAt;
+            BaseActivationYieldDisposition? terminalYieldDisposition = yieldDisposition == BaseActivationYieldDisposition.LimitExceeded
+                ? BaseActivationYieldDisposition.LimitExceeded : null;
+            string? terminalYieldFailureCode = terminalYieldDisposition.HasValue
+                ? "base.activation.yieldLimitExceeded" : null;
+            byte[] checksum = ControlChecksum(row.Payload.ActivationId, generation, resultingState,
+                resultingEffectiveDueAt, resultingYieldCount, row.MaximumYields,
+                row.ExecutionSliceOrdinal, row.AttemptStartedAt, row.SliceStartedAt,
+                terminalYieldDisposition, terminalYieldFailureCode);
             var next = current.Clone();
+            ApplyYieldReceiptReservationTransition(next, row, resultingState, yieldDisposition);
             next.Activations[row.Payload.ActivationId] = next.Activations[row.Payload.ActivationId] with
             {
                 State = resultingState,
@@ -868,40 +1151,64 @@ internal sealed partial class InMemoryRecordStore
                 Effect = resultingState is BaseActivationState.EffectStarted or BaseActivationState.OutcomeUnknown
                     ? resultingEffect
                     : null,
-                EffectiveDueAt = resultingState == BaseActivationState.RetryPending
-                    ? request switch
-                    {
-                        BaseActivationFailRequest failed => failed.RetryDueAt!.Value,
-                        BaseActivationOperatorRetryRequest retry => retry.RetryDueAt,
-                        _ => row.EffectiveDueAt,
-                    }
-                    : row.EffectiveDueAt,
+                EffectiveDueAt = resultingEffectiveDueAt,
+                YieldCount = resultingYieldCount,
+                YieldTerminalDisposition = terminalYieldDisposition,
+                YieldTerminalFailureCode = terminalYieldFailureCode,
                 ControlChecksum = checksum,
             };
+            if (resultingState == BaseActivationState.Disposed)
+                IndexDisposedActivation(next, row.Payload);
             next.ActivationIndexGeneration = checked(next.ActivationIndexGeneration + 1);
             var transitionResult = new BaseActivationTransitionResult
             {
                 State = resultingState,
                 Generation = generation,
                 ControlChecksum = checksum.ToImmutableArray(),
-                Accounting = EmptyActivationAccounting with { ReadIntervals = 0, IndexOperations = 1 },
+                Accounting = EmptyActivationAccounting with
+                { Candidates = 1, Comparisons = 1, ReadIntervals = 0, IndexOperations = 1 },
                 Disposition = BaseMutationRequestDisposition.Committed,
                 Effect = resultingEffect,
                 CanonicalResult = result?.ToImmutableArray() ?? ImmutableArray<byte>.Empty,
+                YieldCount = resultingYieldCount,
+                ExecutionSliceOrdinal = row.ExecutionSliceOrdinal,
+                EffectiveDueAt = yieldRequest?.EffectiveDueAt,
+                YieldDisposition = yieldDisposition,
+                YieldTerminalFailureCode = yieldDisposition == BaseActivationYieldDisposition.LimitExceeded
+                    ? "base.activation.yieldLimitExceeded" : null,
             };
-            byte[] terminalReceiptChecksum = SHA256.HashData(
-                Encoding.UTF8.GetBytes(receiptKind)
-                    .Concat(request.Identity.Fingerprint.ToArray())
-                    .Concat(JsonSerializer.SerializeToUtf8Bytes(transitionResult, HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult))
-                    .ToArray());
+            BaseActivationYieldReceipt? yieldReceipt = yieldRequest is null ? null : new()
+            {
+                Definition = row.Payload.Definition with
+                { Checksum = row.Payload.Definition.Checksum.ToArray().ToImmutableArray() },
+                ActivationId = row.Payload.ActivationId,
+                PriorGeneration = row.Generation,
+                ResultingGeneration = generation,
+                AttemptNumber = row.AttemptNumber,
+                ExecutionSliceOrdinal = row.ExecutionSliceOrdinal,
+                AttemptStartedAt = row.AttemptStartedAt!.Value,
+                SliceStartedAt = row.SliceStartedAt!.Value,
+                PriorYieldCount = row.YieldCount,
+                ResultingYieldCount = resultingYieldCount,
+                EffectiveDueAt = resultingEffectiveDueAt,
+                ProgressFingerprint = yieldRequest.ProgressFingerprint.ToArray().ToImmutableArray(),
+                ResultingState = resultingState,
+                Disposition = yieldDisposition!.Value,
+                FailureCode = terminalYieldFailureCode,
+                ControlChecksum = checksum.ToImmutableArray(),
+                Accounting = transitionResult.Accounting with { },
+            };
+            byte[] instanceReceiptAuthority = yieldReceipt is null
+                ? WriteInstanceReceipt(next, request.Identity, receiptKind, row, request.AcceptedTime.CapturedUtc, transitionResult,
+                    HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult)
+                : WriteInstanceReceipt(next, request.Identity, receiptKind, row, request.AcceptedTime.CapturedUtc, yieldReceipt,
+                    HPDBaseJsonSerializerContext.Default.BaseActivationYieldReceipt);
             next.Activations[row.Payload.ActivationId] = next.Activations[row.Payload.ActivationId] with
             {
                 TerminalReceiptChecksum = resultingState is BaseActivationState.Succeeded or BaseActivationState.Exhausted
                     or BaseActivationState.Cancelled or BaseActivationState.Migrated or BaseActivationState.Disposed
-                    ? terminalReceiptChecksum : null,
+                    ? instanceReceiptAuthority : null,
             };
-            WriteActivationReceipt(next, request.Identity, receiptKind, transitionResult,
-                HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult);
             if (!ActivationRowCapacityAllows(next))
                 return ActivationFailure<BaseActivationTransitionResult>("base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
             Volatile.Write(ref _publishedState, next);
@@ -929,7 +1236,7 @@ internal sealed partial class InMemoryRecordStore
         try
         {
             InMemoryStoreState current = Volatile.Read(ref _publishedState);
-            if (TryReadActivationReceipt(current, request.Identity, "executor-registered",
+            if (TryReadControlReceipt(current, request.Identity, "executor-registered",
                 HPDBaseJsonSerializerContext.Default.BaseExecutorRegistrationResult,
                 static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, out OperationResult<BaseExecutorRegistrationResult>? replay))
                 return replay;
@@ -955,7 +1262,7 @@ internal sealed partial class InMemoryRecordStore
                 Executor = authority, Heartbeat = heartbeat, Accounting = EmptyActivationAccounting with { IndexOperations = 1 },
                 Disposition = BaseMutationRequestDisposition.Committed,
             };
-            WriteActivationReceipt(next, request.Identity, "executor-registered", result, HPDBaseJsonSerializerContext.Default.BaseExecutorRegistrationResult);
+            WriteControlReceipt(next, request.Identity, "executor-registered", result, HPDBaseJsonSerializerContext.Default.BaseExecutorRegistrationResult);
             Volatile.Write(ref _publishedState, next);
             return OperationResults.Ok(result);
         }
@@ -976,7 +1283,7 @@ internal sealed partial class InMemoryRecordStore
         try
         {
             InMemoryStoreState current = Volatile.Read(ref _publishedState);
-            if (TryReadActivationReceipt(current, request.Identity, "executor-heartbeat",
+            if (TryReadControlReceipt(current, request.Identity, "executor-heartbeat",
                 HPDBaseJsonSerializerContext.Default.BaseExecutorHeartbeatResult,
                 static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, out OperationResult<BaseExecutorHeartbeatResult>? replay))
                 return replay;
@@ -995,7 +1302,7 @@ internal sealed partial class InMemoryRecordStore
                 Executor = row.Authority, Heartbeat = heartbeat, Accounting = EmptyActivationAccounting with { IndexOperations = 1 },
                 Disposition = BaseMutationRequestDisposition.Committed,
             };
-            WriteActivationReceipt(next, request.Identity, "executor-heartbeat", result, HPDBaseJsonSerializerContext.Default.BaseExecutorHeartbeatResult);
+            WriteControlReceipt(next, request.Identity, "executor-heartbeat", result, HPDBaseJsonSerializerContext.Default.BaseExecutorHeartbeatResult);
             Volatile.Write(ref _publishedState, next);
             return OperationResults.Ok(result);
         }
@@ -1014,7 +1321,7 @@ internal sealed partial class InMemoryRecordStore
         try
         {
             InMemoryStoreState current = Volatile.Read(ref _publishedState);
-            if (TryReadActivationReceipt(current, request.Identity, "executor-retired",
+            if (TryReadControlReceipt(current, request.Identity, "executor-retired",
                 HPDBaseJsonSerializerContext.Default.BaseExecutorRetirementResult,
                 static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, out OperationResult<BaseExecutorRetirementResult>? replay))
                 return replay;
@@ -1031,7 +1338,7 @@ internal sealed partial class InMemoryRecordStore
                 RetirementChecksum = checksum.ToImmutableArray(), Accounting = EmptyActivationAccounting with { IndexOperations = 1 },
                 Disposition = BaseMutationRequestDisposition.Committed,
             };
-            WriteActivationReceipt(next, request.Identity, "executor-retired", result, HPDBaseJsonSerializerContext.Default.BaseExecutorRetirementResult);
+            WriteControlReceipt(next, request.Identity, "executor-retired", result, HPDBaseJsonSerializerContext.Default.BaseExecutorRetirementResult);
             Volatile.Write(ref _publishedState, next);
             return OperationResults.Ok(result);
         }
@@ -1063,7 +1370,7 @@ internal sealed partial class InMemoryRecordStore
         try
         {
             InMemoryStoreState current = Volatile.Read(ref _publishedState); var next = current.Clone();
-            if (TryReadActivationReceipt(current, request.Identity, "schedule-mutated",
+            if (TryReadControlReceipt(current, request.Identity, "schedule-mutated",
                 HPDBaseJsonSerializerContext.Default.BaseScheduleMutationResult,
                 static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, out OperationResult<BaseScheduleMutationResult>? replay))
                 return replay;
@@ -1076,7 +1383,7 @@ internal sealed partial class InMemoryRecordStore
             {
                 next.Schedules.Remove(key);
                 var removed = new BaseScheduleMutationResult { Authority = null, Accounting = EmptyActivationAccounting with { IndexOperations = 1 }, Disposition = BaseMutationRequestDisposition.Committed };
-                WriteActivationReceipt(next, request.Identity, "schedule-mutated", removed, HPDBaseJsonSerializerContext.Default.BaseScheduleMutationResult);
+                WriteControlReceipt(next, request.Identity, "schedule-mutated", removed, HPDBaseJsonSerializerContext.Default.BaseScheduleMutationResult);
                 Volatile.Write(ref _publishedState, next);
                 return OperationResults.Ok(removed);
             }
@@ -1090,7 +1397,7 @@ internal sealed partial class InMemoryRecordStore
             BaseScheduleAuthority authority = ScheduleAuthority(definition, generation, enabled, epoch, last, following);
             next.Schedules[key] = authority;
             var result = new BaseScheduleMutationResult { Authority = authority, Accounting = EmptyActivationAccounting with { IndexOperations = 1 }, Disposition = BaseMutationRequestDisposition.Committed };
-            WriteActivationReceipt(next, request.Identity, "schedule-mutated", result, HPDBaseJsonSerializerContext.Default.BaseScheduleMutationResult);
+            WriteControlReceipt(next, request.Identity, "schedule-mutated", result, HPDBaseJsonSerializerContext.Default.BaseScheduleMutationResult);
             Volatile.Write(ref _publishedState, next);
             return OperationResults.Ok(result);
         }
@@ -1110,7 +1417,7 @@ internal sealed partial class InMemoryRecordStore
         try
         {
             InMemoryStoreState current = Volatile.Read(ref _publishedState); var next = current.Clone();
-            if (TryReadActivationReceipt(current, request.Identity, "occurrence-page",
+            if (TryReadControlReceipt(current, request.Identity, "occurrence-page",
                 HPDBaseJsonSerializerContext.Default.BaseScheduleMaintenancePage,
                 static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, out OperationResult<BaseScheduleMaintenancePage>? replay))
                 return replay;
@@ -1146,17 +1453,23 @@ internal sealed partial class InMemoryRecordStore
                         return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.fingerprintConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
                     if (existing is null)
                     {
+                        if (!TryReserveYieldReceiptSlots(next, activation.MaximumYields))
+                            return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
                         byte[] payloadChecksum = SHA256.HashData(activation.CanonicalInput.AsSpan());
                         var payload = new BaseActivationPayload { ActivationId = activationId, Definition = activation.Definition,
+                            ReceiptRetention = activation.ReceiptRetention with { },
                             CanonicalInput = activation.CanonicalInput, InputChecksum = activation.InputChecksum, Scope = activation.Scope,
                             OccurrenceId = activation.OccurrenceId, RequestedDueAt = activation.RequestedDueAt,
                             EffectiveDueAt = activation.EffectiveDueAt ?? activation.RequestedDueAt,
                             Checksum = payloadChecksum.ToImmutableArray() };
                         next.Activations.Add(activationId, new InMemoryActivationRow(payload, BaseActivationState.Pending, 1,
                             activation.RequestedDueAt, activation.EffectiveDueAt ?? activation.RequestedDueAt, fingerprint,
-                            ControlChecksum(activationId, 1, BaseActivationState.Pending), activation.OccurrenceId,
+                            ControlChecksum(activationId, 1, BaseActivationState.Pending,
+                                activation.EffectiveDueAt ?? activation.RequestedDueAt, 0,
+                                activation.MaximumYields, 0, null, null, null, null), activation.OccurrenceId,
                             activation.Priority, activation.OverlapKey.IsDefaultOrEmpty ? null : activation.OverlapKey.ToArray(),
-                            activation.OverlapPolicy, cancellationBlockers.Length == 0));
+                            activation.OverlapPolicy, cancellationBlockers.Length == 0,
+                            MaximumYields: activation.MaximumYields));
                         IndexActivation(next, payload);
                         next.ActivationIndexGeneration = checked(next.ActivationIndexGeneration + 1);
                     }
@@ -1190,7 +1503,7 @@ internal sealed partial class InMemoryRecordStore
                 Accounting = EmptyActivationAccounting with { Candidates = request.Occurrences.Length, IndexOperations = request.Occurrences.Length * 2 },
                 Disposition = BaseMutationRequestDisposition.Committed,
             };
-            WriteActivationReceipt(next, request.Identity, "occurrence-page", result, HPDBaseJsonSerializerContext.Default.BaseScheduleMaintenancePage);
+            WriteControlReceipt(next, request.Identity, "occurrence-page", result, HPDBaseJsonSerializerContext.Default.BaseScheduleMaintenancePage);
             if (!ActivationRowCapacityAllows(next))
                 return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
             Volatile.Write(ref _publishedState, next);
@@ -1218,7 +1531,7 @@ internal sealed partial class InMemoryRecordStore
     private static IOrderedEnumerable<InMemoryActivationRow> ActiveOverlapRows(
         InMemoryStoreState state, ImmutableArray<byte> overlapKey) => state.Activations.Values.Where(row =>
             row.OverlapKey is not null && CryptographicOperations.FixedTimeEquals(row.OverlapKey, overlapKey.AsSpan()) &&
-            row.State is BaseActivationState.Pending or BaseActivationState.RetryPending or BaseActivationState.Claimed or BaseActivationState.EffectStarted)
+            row.State is BaseActivationState.Pending or BaseActivationState.RetryPending or BaseActivationState.YieldPending or BaseActivationState.Claimed or BaseActivationState.EffectStarted)
         .OrderBy(static row => row.EffectiveDueAt).ThenBy(static row => row.Payload.ActivationId, StringComparer.Ordinal);
 
     /// <inheritdoc />
@@ -1233,7 +1546,7 @@ internal sealed partial class InMemoryRecordStore
         try
         {
             InMemoryStoreState current = Volatile.Read(ref _publishedState);
-            if (TryReadActivationReceipt(current, request.Identity, "cancellation-maintenance",
+            if (TryReadControlReceipt(current, request.Identity, "cancellation-maintenance",
                 HPDBaseJsonSerializerContext.Default.BaseScheduleCancellationMaintenancePage,
                 static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, out OperationResult<BaseScheduleCancellationMaintenancePage>? replay))
                 return replay;
@@ -1249,11 +1562,15 @@ internal sealed partial class InMemoryRecordStore
                 .Take(Math.Min(256, request.Limits.MaximumCandidates)).ToArray();
             foreach (InMemoryActivationRow blocker in page)
             {
+                ApplyYieldReceiptReservationTransition(next, blocker, BaseActivationState.Cancelled, null);
                 long generation = checked(blocker.Generation + 1);
                 next.Activations[blocker.Payload.ActivationId] = blocker with
                 {
                     State = BaseActivationState.Cancelled, Generation = generation, Claim = null, Lease = null, Eligible = false,
-                    ControlChecksum = ControlChecksum(blocker.Payload.ActivationId, generation, BaseActivationState.Cancelled),
+                    ControlChecksum = ControlChecksum(blocker.Payload.ActivationId, generation,
+                        BaseActivationState.Cancelled, blocker.EffectiveDueAt, blocker.YieldCount,
+                        blocker.MaximumYields, blocker.ExecutionSliceOrdinal, blocker.AttemptStartedAt,
+                        blocker.SliceStartedAt, null, null),
                 };
             }
             BaseScheduleCancellationBoundary? boundary = page.Length == 0 ? request.After : new()
@@ -1276,7 +1593,7 @@ internal sealed partial class InMemoryRecordStore
                 { Candidates = page.Length, Comparisons = page.Length, IndexOperations = page.Length + 1 },
                 Disposition = BaseMutationRequestDisposition.Committed,
             };
-            WriteActivationReceipt(next, request.Identity, "cancellation-maintenance", result,
+            WriteControlReceipt(next, request.Identity, "cancellation-maintenance", result,
                 HPDBaseJsonSerializerContext.Default.BaseScheduleCancellationMaintenancePage);
             if (!ActivationRowCapacityAllows(next))
                 return ActivationFailure<BaseScheduleCancellationMaintenancePage>("base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
@@ -1339,6 +1656,13 @@ internal sealed partial class InMemoryRecordStore
                 EffectiveDueAt = row.EffectiveDueAt,
                 OccurrenceId = row.OccurrenceId,
                 AttemptNumber = row.AttemptNumber,
+                ExecutionSliceOrdinal = row.ExecutionSliceOrdinal,
+                AttemptStartedAt = row.AttemptStartedAt,
+                SliceStartedAt = row.SliceStartedAt,
+                YieldCount = row.YieldCount,
+                MaximumYields = row.MaximumYields,
+                TerminalYieldDisposition = row.YieldTerminalDisposition,
+                TerminalYieldFailureCode = row.YieldTerminalFailureCode,
                 ResultRetained = row.CanonicalResult is not null,
                 EffectAuthorityRetained = row.Effect is not null,
                 ControlChecksum = row.ControlChecksum.ToImmutableArray(),
@@ -1348,7 +1672,8 @@ internal sealed partial class InMemoryRecordStore
             BaseAtomicReadIntervalEvidence interval = AdministrationInterval(request, next);
             long evidenceBytes = checked(IntervalBytes(interval) + items.Sum(static item =>
                 Encoding.UTF8.GetByteCount(item.ActivationId) + Encoding.UTF8.GetByteCount(item.Definition.Id)
-                + item.Definition.Checksum.Length + item.ControlChecksum.Length + 48L));
+                + item.Definition.Checksum.Length + item.ControlChecksum.Length
+                + (item.TerminalYieldFailureCode is null ? 0 : Encoding.UTF8.GetByteCount(item.TerminalYieldFailureCode)) + 80L));
             if (items.Length > request.Limits.MaximumCandidates
                 || evidenceBytes > request.Limits.MaximumEvidenceBytes
                 || evidenceBytes > request.Limits.MaximumTransientBytes)
@@ -1375,7 +1700,7 @@ internal sealed partial class InMemoryRecordStore
     private static bool StateSelected(BaseActivationState state, BaseActivationStateSelector selector) => selector switch
     {
         BaseActivationStateSelector.All => true,
-        BaseActivationStateSelector.Runnable => state is BaseActivationState.Pending or BaseActivationState.RetryPending,
+        BaseActivationStateSelector.Runnable => state is BaseActivationState.Pending or BaseActivationState.RetryPending or BaseActivationState.YieldPending,
         BaseActivationStateSelector.Active => state is BaseActivationState.Claimed or BaseActivationState.EffectStarted,
         BaseActivationStateSelector.Terminal => state is BaseActivationState.Succeeded or BaseActivationState.Exhausted
             or BaseActivationState.Cancelled or BaseActivationState.Disposed or BaseActivationState.Migrated,
@@ -1426,16 +1751,35 @@ internal sealed partial class InMemoryRecordStore
         try
         {
             InMemoryStoreState state = Volatile.Read(ref _publishedState);
-            if (!state.ActivationReceipts.TryGetValue(
-                    ActivationReceiptKey(request.Identity), out InMemoryActivationReceiptRow? receipt))
+            string receiptKey = ActivationReceiptKey(request.Identity);
+            InMemoryActivationInstanceReceiptRow? instanceReceipt = state.ActivationInstanceReceipts.GetValueOrDefault(receiptKey);
+            InMemoryActivationControlReceiptRow? controlReceipt = state.ActivationControlReceipts.GetValueOrDefault(receiptKey);
+            if ((instanceReceipt is null) == (controlReceipt is null))
                 return ActivationFailure<BaseActivationReceiptResolution>(
-                    "base.activation.receiptNotFound", OperationStatus.NotFound, ErrorCategory.NotFound);
+                    instanceReceipt is null ? "base.activation.receiptNotFound" : "base.activation.receiptCorrupt",
+                    instanceReceipt is null ? OperationStatus.NotFound : OperationStatus.StoreError,
+                    instanceReceipt is null ? ErrorCategory.NotFound : ErrorCategory.Store);
+            string kind = instanceReceipt?.Kind ?? controlReceipt!.Kind;
+            byte[] fingerprint = instanceReceipt?.Fingerprint ?? controlReceipt!.Fingerprint;
+            byte[] storedResult = instanceReceipt?.Result ?? controlReceipt!.Result;
+            if (instanceReceipt is not null && (request.AcceptedTime.CapturedUtc >= instanceReceipt.DuplicateResolveUntil
+                || !InstanceReceiptValid(instanceReceipt, receiptKey)))
+                return ActivationFailure<BaseActivationReceiptResolution>(
+                    request.AcceptedTime.CapturedUtc >= instanceReceipt.DuplicateResolveUntil
+                        ? "base.activation.receiptNotFound" : "base.activation.receiptCorrupt",
+                    request.AcceptedTime.CapturedUtc >= instanceReceipt.DuplicateResolveUntil
+                        ? OperationStatus.NotFound : OperationStatus.StoreError,
+                    request.AcceptedTime.CapturedUtc >= instanceReceipt.DuplicateResolveUntil
+                        ? ErrorCategory.NotFound : ErrorCategory.Store);
+            if (controlReceipt is not null && !ControlReceiptValid(controlReceipt, receiptKey))
+                return ActivationFailure<BaseActivationReceiptResolution>(
+                    "base.activation.receiptCorrupt", OperationStatus.StoreError, ErrorCategory.Store);
             if (!CryptographicOperations.FixedTimeEquals(
-                    receipt.Fingerprint, request.Identity.Fingerprint.ToArray()))
+                    fingerprint, request.Identity.Fingerprint.ToArray()))
                 return ActivationFailure<BaseActivationReceiptResolution>(
                     "base.activation.fingerprintConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
-            byte[] bytes = receipt.Result.ToArray();
-            if (receipt.Kind == "activation-claimed")
+            byte[] bytes = storedResult.ToArray();
+            if (kind == "activation-claimed")
             {
                 BaseActivationClaimResult? stored = JsonSerializer.Deserialize(
                     bytes, HPDBaseJsonSerializerContext.Default.BaseActivationClaimResult);
@@ -1458,8 +1802,8 @@ internal sealed partial class InMemoryRecordStore
                     "base.activation.budgetExceeded", OperationStatus.ValidationFailed, ErrorCategory.Validation);
             return OperationResults.Ok(new BaseActivationReceiptResolution
             {
-                OperationKind = new string(receipt.Kind.AsSpan()),
-                Fingerprint = receipt.Fingerprint.ToArray().ToImmutableArray(),
+                OperationKind = new string(kind.AsSpan()),
+                Fingerprint = fingerprint.ToArray().ToImmutableArray(),
                 CanonicalResult = bytes.ToImmutableArray(),
                 Accounting = EmptyActivationAccounting with
                 {
@@ -1471,24 +1815,297 @@ internal sealed partial class InMemoryRecordStore
         finally { _stateGate.Release(); }
     }
 
-    private static bool TryReadActivationReceipt<T>(InMemoryStoreState state, BaseMutationRequestIdentity identity,
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseActivationReceiptCompactionResult>> CompactActivationReceiptsAsync(
+        BaseActivationReceiptCompactionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.ApplicationId != _options.SemanticActivationApplicationId
+            || request.AcceptedTime.ApplicationId != request.ApplicationId
+            || request.Definition.Version < 1 || request.Definition.Checksum.Length != 32
+            || request.Take is < 1 or > 256 || request.After is { ReceiptSequence: < 1 }
+            || request.Take > request.Limits.MaximumCandidates
+            || request.ExpectedReservation is null || !BaseActivationYieldReservationContract.IsValid(request.ExpectedReservation)
+            || !Enum.IsDefined(request.BackupFloor.Kind)
+            || request.BackupFloor.Kind == BaseActivationReceiptBackupFloorKind.NotApplicable
+                && (request.BackupFloor.Checkpoint is not null
+                    || request.ReceiptRetention.ProtectedBackupCoverage != BaseActivationProtectedBackupCoverage.NotRequired)
+            || request.BackupFloor.Kind == BaseActivationReceiptBackupFloorKind.Checkpoint
+                && request.BackupFloor.Checkpoint is null
+            || !ValidateLimits(request.Limits) || !AcceptActivationTime(request.AcceptedTime))
+            return ActivationFailure<BaseActivationReceiptCompactionResult>(
+                "base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+        if (request.BackupFloor.Kind == BaseActivationReceiptBackupFloorKind.Checkpoint)
+            return ActivationFailure<BaseActivationReceiptCompactionResult>(
+                "base.activation.capabilityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
+        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            InMemoryStoreState current = Volatile.Read(ref _publishedState);
+            if (SemanticMaintenanceFencesActivation(current, request.Definition))
+                return ActivationFailure<BaseActivationReceiptCompactionResult>(
+                    BaseSemanticActivationErrorCodes.GraphChanged,
+                    OperationStatus.Conflict, ErrorCategory.Conflict);
+            if (TryReadControlReceipt(current, request.Identity, "activation-receipts-compacted",
+                HPDBaseJsonSerializerContext.Default.BaseActivationReceiptCompactionResult,
+                static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate },
+                out OperationResult<BaseActivationReceiptCompactionResult> replay)) return replay;
+            BaseActivationYieldReservationState priorReservation = BaseActivationYieldReservationContract.Create(
+                current.ActivationYieldReservationGeneration, MaximumYieldReceiptSlots,
+                current.ActivationYieldReservedUnusedSlots, current.ActivationYieldRetainedUsedSlots);
+            if (!ReservationMatches(request.ExpectedReservation, priorReservation))
+                return ActivationFailure<BaseActivationReceiptCompactionResult>(
+                    "base.activation.maintenanceConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+            BaseActivationInstanceReceiptChainState priorChain = current.ActivationInstanceReceiptChain;
+            var candidates = current.ActivationInstanceReceipts
+                .Where(pair => pair.Value.Kind == "activation-yielded-v1"
+                    && DefinitionMatches(pair.Value.Definition, request.Definition)
+                    && pair.Value.Retention == request.ReceiptRetention
+                    && current.Activations.TryGetValue(pair.Value.ActivationId, out InMemoryActivationRow? row)
+                    && ScopeMatches(row.Payload.Scope, request.Scope))
+                .OrderBy(static pair => pair.Value.ActivationId, StringComparer.Ordinal)
+                .ThenBy(static pair => pair.Value.ReceiptSequence)
+                .Where(pair => request.After is null
+                    || string.CompareOrdinal(pair.Value.ActivationId, request.After.ActivationId) > 0
+                    || pair.Value.ActivationId == request.After.ActivationId
+                        && pair.Value.ReceiptSequence > request.After.ReceiptSequence)
+                .Take(request.Take).ToArray();
+            KeyValuePair<string, InMemoryActivationInstanceReceiptRow>[] examined = candidates;
+            bool hasMore = examined.Length == request.Take && current.ActivationInstanceReceipts
+                .Where(pair => pair.Value.Kind == "activation-yielded-v1"
+                    && DefinitionMatches(pair.Value.Definition, request.Definition)
+                    && pair.Value.Retention == request.ReceiptRetention
+                    && current.Activations.TryGetValue(pair.Value.ActivationId, out InMemoryActivationRow? row)
+                    && ScopeMatches(row.Payload.Scope, request.Scope))
+                .OrderBy(static pair => pair.Value.ActivationId, StringComparer.Ordinal)
+                .ThenBy(static pair => pair.Value.ReceiptSequence)
+                .Any(pair => string.CompareOrdinal(pair.Value.ActivationId, examined[^1].Value.ActivationId) > 0
+                    || pair.Value.ActivationId == examined[^1].Value.ActivationId
+                        && pair.Value.ReceiptSequence > examined[^1].Value.ReceiptSequence);
+            var deleted = new List<KeyValuePair<string, InMemoryActivationInstanceReceiptRow>>();
+            foreach (KeyValuePair<string, InMemoryActivationInstanceReceiptRow> candidate in examined)
+            {
+                InMemoryActivationInstanceReceiptRow receipt = candidate.Value;
+                if (receipt.DuplicateResolveUntil > request.AcceptedTime.CapturedUtc
+                    || !current.Activations.TryGetValue(receipt.ActivationId, out InMemoryActivationRow? row)) continue;
+                BaseActivationYieldReceipt? yielded = JsonSerializer.Deserialize(
+                    receipt.Result, HPDBaseJsonSerializerContext.Default.BaseActivationYieldReceipt);
+                if (yielded is null || row.ExecutionSliceOrdinal <= yielded.ExecutionSliceOrdinal
+                    || row.State == BaseActivationState.YieldPending
+                        && row.Generation == yielded.ResultingGeneration
+                        && row.YieldCount == yielded.ResultingYieldCount) continue;
+                deleted.Add(candidate);
+            }
+            string compactionReceiptKey = ActivationReceiptKey(request.Identity);
+            var next = current.Clone();
+            foreach (KeyValuePair<string, InMemoryActivationInstanceReceiptRow> item in deleted)
+            {
+                InMemoryActivationInstanceReceiptRow receipt = item.Value;
+                BaseActivationCompactedReceiptFact fact = BaseActivationCompactedReceiptFactContract.Create(
+                    receipt.ReceiptSequence, item.Key, receipt.AuthorityChecksum,
+                    receipt.PriorOrderedChecksum, receipt.OrderedChecksum, compactionReceiptKey);
+                next.ActivationInstanceReceiptCompactionFacts.Add(fact.ReceiptSequence, fact);
+                next.ActivationInstanceReceipts.Remove(item.Key);
+            }
+            BaseActivationInstanceReceiptChainState resultingChain = deleted.Count == 0 ? priorChain
+                : BaseActivationInstanceReceiptChainContract.Create(
+                    priorChain.CurrentSequence, priorChain.OrderedChecksum.AsSpan(), checked(priorChain.Generation + 1));
+            next.ActivationInstanceReceiptChain = resultingChain;
+            if (deleted.Count > next.ActivationYieldRetainedUsedSlots)
+                return ActivationFailure<BaseActivationReceiptCompactionResult>(
+                    "base.activation.receiptCorrupt", OperationStatus.StoreError, ErrorCategory.Store);
+            if (deleted.Count > 0)
+            {
+                next.ActivationYieldRetainedUsedSlots -= deleted.Count;
+                next.ActivationYieldReservationGeneration = checked(next.ActivationYieldReservationGeneration + 1);
+            }
+            BaseActivationYieldReservationState resultingReservation = BaseActivationYieldReservationContract.Create(
+                next.ActivationYieldReservationGeneration, MaximumYieldReceiptSlots,
+                next.ActivationYieldReservedUnusedSlots, next.ActivationYieldRetainedUsedSlots);
+            BaseActivationReceiptCompactionCursor? cursor = examined.Length == 0 ? request.After
+                : new BaseActivationReceiptCompactionCursor
+                {
+                    ActivationId = examined[^1].Value.ActivationId,
+                    ReceiptSequence = examined[^1].Value.ReceiptSequence,
+                };
+            var result = new BaseActivationReceiptCompactionResult
+            {
+                ExaminedCount = examined.Length, DeletedCount = deleted.Count,
+                DeletedYieldReceiptCount = deleted.Count, Next = hasMore ? cursor : null,
+                PriorChain = priorChain, ResultingChain = resultingChain,
+                PriorReservation = priorReservation, ResultingReservation = resultingReservation,
+                DeletedAuthorityOrderedDigest = DeletedReceiptAuthorityDigest(deleted.Select(static item => item.Value.AuthorityChecksum)),
+                Completed = !hasMore,
+                Accounting = EmptyActivationAccounting with
+                {
+                    Candidates = candidates.Length, Comparisons = candidates.Length,
+                    IndexOperations = deleted.Count * 2,
+                    EvidenceBytes = deleted.Count * 32L, TransientBytes = candidates.Sum(static item => (long)item.Value.Result.Length),
+                },
+                Disposition = BaseMutationRequestDisposition.Committed,
+            };
+            WriteControlReceipt(next, request.Identity, "activation-receipts-compacted", result,
+                HPDBaseJsonSerializerContext.Default.BaseActivationReceiptCompactionResult);
+            Volatile.Write(ref _publishedState, next);
+            return OperationResults.Ok(result);
+        }
+        finally { _stateGate.Release(); }
+    }
+
+    private static bool ReservationMatches(
+        BaseActivationYieldReservationState expected,
+        BaseActivationYieldReservationState actual) =>
+        expected.FormatVersion == actual.FormatVersion && expected.Generation == actual.Generation
+        && expected.MaximumSlots == actual.MaximumSlots && expected.ReservedUnusedSlots == actual.ReservedUnusedSlots
+        && expected.RetainedUsedSlots == actual.RetainedUsedSlots
+        && CryptographicOperations.FixedTimeEquals(expected.Checksum.AsSpan(), actual.Checksum.AsSpan());
+
+    private static ImmutableArray<byte> DeletedReceiptAuthorityDigest(IEnumerable<byte[]> authorities)
+    {
+        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData("base.activation.receiptCompaction.deleted.v1\0"u8);
+        Span<byte> length = stackalloc byte[4];
+        foreach (byte[] authority in authorities)
+        {
+            BinaryPrimitives.WriteInt32BigEndian(length, authority.Length);
+            hash.AppendData(length); hash.AppendData(authority);
+        }
+        return hash.GetHashAndReset().ToImmutableArray();
+    }
+
+    private static bool TryReadControlReceipt<T>(InMemoryStoreState state, BaseMutationRequestIdentity identity,
         string kind, JsonTypeInfo<T> typeInfo, Func<T, T> duplicate, out OperationResult<T> result)
     {
         string key = ActivationReceiptKey(identity);
-        if (!state.ActivationReceipts.TryGetValue(key, out InMemoryActivationReceiptRow? receipt))
+        if (state.ActivationInstanceReceipts.ContainsKey(key))
+        {
+            result = ActivationFailure<T>("base.activation.fingerprintConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+            return true;
+        }
+        if (!state.ActivationControlReceipts.TryGetValue(key, out InMemoryActivationControlReceiptRow? receipt))
         { result = default!; return false; }
         if (receipt.Kind != kind || !CryptographicOperations.FixedTimeEquals(receipt.Fingerprint, identity.Fingerprint.ToArray()))
         {
             result = ActivationFailure<T>("base.activation.fingerprintConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
             return true;
         }
+        if (!ControlReceiptValid(receipt, key))
+        {
+            result = ActivationFailure<T>("base.activation.receiptCorrupt", OperationStatus.StoreError, ErrorCategory.Store);
+            return true;
+        }
         T value = JsonSerializer.Deserialize(receipt.Result, typeInfo) ?? throw new InvalidOperationException("base.activation.receiptCorrupt");
         result = OperationResults.Ok(duplicate(value)); return true;
     }
 
-    private static void WriteActivationReceipt<T>(InMemoryStoreState state, BaseMutationRequestIdentity identity,
-        string kind, T result, JsonTypeInfo<T> typeInfo) => state.ActivationReceipts.Add(
-            ActivationReceiptKey(identity), new InMemoryActivationReceiptRow(kind, identity.Fingerprint.ToArray(), JsonSerializer.SerializeToUtf8Bytes(result, typeInfo)));
+    private static bool TryReadInstanceReceipt<T>(InMemoryStoreState state, BaseMutationRequestIdentity identity,
+        string kind, long acceptedAt, JsonTypeInfo<T> typeInfo, Func<T, T> duplicate, out OperationResult<T> result)
+    {
+        string key = ActivationReceiptKey(identity);
+        if (state.ActivationControlReceipts.ContainsKey(key))
+        {
+            result = ActivationFailure<T>("base.activation.fingerprintConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+            return true;
+        }
+        if (!state.ActivationInstanceReceipts.TryGetValue(key, out InMemoryActivationInstanceReceiptRow? receipt))
+        { result = default!; return false; }
+        if (receipt.Kind != kind || !CryptographicOperations.FixedTimeEquals(receipt.Fingerprint, identity.Fingerprint.ToArray()))
+        {
+            result = ActivationFailure<T>("base.activation.fingerprintConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+            return true;
+        }
+        if (acceptedAt >= receipt.DuplicateResolveUntil)
+        {
+            result = ActivationFailure<T>("base.activation.receiptNotFound", OperationStatus.NotFound, ErrorCategory.NotFound);
+            return true;
+        }
+        if (!InstanceReceiptValid(receipt, key))
+        {
+            result = ActivationFailure<T>("base.activation.receiptCorrupt", OperationStatus.StoreError, ErrorCategory.Store);
+            return true;
+        }
+        T value = JsonSerializer.Deserialize(receipt.Result, typeInfo) ?? throw new InvalidOperationException("base.activation.receiptCorrupt");
+        result = OperationResults.Ok(duplicate(value));
+        return true;
+    }
+
+    private static byte[] WriteControlReceipt<T>(InMemoryStoreState state, BaseMutationRequestIdentity identity,
+        string kind, T result, JsonTypeInfo<T> typeInfo)
+    {
+        string key = ActivationReceiptKey(identity);
+        if (state.ActivationInstanceReceipts.ContainsKey(key)) throw new InvalidOperationException("base.activation.fingerprintConflict");
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(result, typeInfo);
+        byte[] resultChecksum = SHA256.HashData(bytes);
+        byte[] authorityChecksum = BaseActivationControlReceiptContract.AuthorityChecksum(
+            key, kind, identity.Fingerprint.ToArray(), resultChecksum).ToArray();
+        state.ActivationControlReceipts.Add(key, new InMemoryActivationControlReceiptRow(
+            kind, identity.Fingerprint.ToArray(), bytes, resultChecksum, authorityChecksum));
+        return authorityChecksum;
+    }
+
+    private static bool ControlReceiptValid(InMemoryActivationControlReceiptRow receipt, string receiptKey)
+    {
+        byte[] actualResultChecksum = SHA256.HashData(receipt.Result);
+        if (!CryptographicOperations.FixedTimeEquals(actualResultChecksum, receipt.ResultChecksum))
+            return false;
+        ImmutableArray<byte> expectedAuthority = BaseActivationControlReceiptContract.AuthorityChecksum(
+            receiptKey, receipt.Kind, receipt.Fingerprint, receipt.ResultChecksum);
+        return CryptographicOperations.FixedTimeEquals(expectedAuthority.AsSpan(), receipt.AuthorityChecksum);
+    }
+
+    private static byte[] WriteInstanceReceipt<T>(InMemoryStoreState state, BaseMutationRequestIdentity identity,
+        string kind, InMemoryActivationRow activation, long committedAt, T result, JsonTypeInfo<T> typeInfo)
+    {
+        string key = ActivationReceiptKey(identity);
+        if (state.ActivationControlReceipts.ContainsKey(key)) throw new InvalidOperationException("base.activation.fingerprintConflict");
+        BaseActivationInstanceReceiptChainState priorState = state.ActivationInstanceReceiptChain;
+        if (!BaseActivationInstanceReceiptChainContract.IsValid(priorState))
+            throw new InvalidOperationException("base.activation.receiptCorrupt");
+        long sequence = checked(priorState.CurrentSequence + 1);
+        long lifetimeMilliseconds = activation.Payload.ReceiptRetention.DuplicateResolutionLifetime.Ticks / TimeSpan.TicksPerMillisecond;
+        long duplicateResolveUntil = checked(committedAt + lifetimeMilliseconds);
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(result, typeInfo);
+        byte[] resultChecksum = SHA256.HashData(bytes);
+        byte[] authorityChecksum = BaseActivationInstanceReceiptChainContract.ReceiptAuthorityChecksum(
+            key, kind, activation.Payload.ActivationId, activation.Payload.Definition,
+            activation.Payload.ReceiptRetention, identity.Fingerprint.ToArray(), resultChecksum,
+            committedAt, duplicateResolveUntil, sequence, priorState.OrderedChecksum.AsSpan()).ToArray();
+        byte[] orderedChecksum = BaseActivationInstanceReceiptChainContract.Append(
+            sequence, priorState.OrderedChecksum.AsSpan(), authorityChecksum, key).ToArray();
+        state.ActivationInstanceReceipts.Add(key, new InMemoryActivationInstanceReceiptRow(
+            kind, activation.Payload.ActivationId,
+            activation.Payload.Definition with { Checksum = activation.Payload.Definition.Checksum.ToArray().ToImmutableArray() },
+            activation.Payload.ReceiptRetention with { }, identity.Fingerprint.ToArray(), bytes,
+            resultChecksum, authorityChecksum, committedAt, duplicateResolveUntil, sequence,
+            priorState.OrderedChecksum.ToArray(), orderedChecksum));
+        state.ActivationInstanceReceiptChain = BaseActivationInstanceReceiptChainContract.Create(
+            sequence, orderedChecksum, checked(priorState.Generation + 1));
+        return authorityChecksum;
+    }
+
+    private static bool InstanceReceiptValid(InMemoryActivationInstanceReceiptRow value, string key)
+    {
+        if (value.ResultChecksum.Length != 32 || value.AuthorityChecksum.Length != 32
+            || value.PriorOrderedChecksum.Length != 32 || value.OrderedChecksum.Length != 32
+            || value.Definition.Checksum.Length != 32 || value.ReceiptSequence <= 0
+            || value.CommittedAt < 0 || value.DuplicateResolveUntil <= value.CommittedAt
+            || value.Retention.FormatVersion != 1
+            || !Enum.IsDefined(value.Retention.ProtectedBackupCoverage)
+            || value.Retention.DuplicateResolutionLifetime.Ticks % TimeSpan.TicksPerMillisecond != 0
+            || value.DuplicateResolveUntil - value.CommittedAt
+                != value.Retention.DuplicateResolutionLifetime.Ticks / TimeSpan.TicksPerMillisecond
+            || !CryptographicOperations.FixedTimeEquals(SHA256.HashData(value.Result), value.ResultChecksum))
+            return false;
+        ImmutableArray<byte> authority = BaseActivationInstanceReceiptChainContract.ReceiptAuthorityChecksum(
+            key, value.Kind, value.ActivationId, value.Definition, value.Retention,
+            value.Fingerprint, value.ResultChecksum, value.CommittedAt, value.DuplicateResolveUntil,
+            value.ReceiptSequence, value.PriorOrderedChecksum);
+        if (!CryptographicOperations.FixedTimeEquals(authority.AsSpan(), value.AuthorityChecksum)) return false;
+        ImmutableArray<byte> ordered = BaseActivationInstanceReceiptChainContract.Append(
+            value.ReceiptSequence, value.PriorOrderedChecksum, value.AuthorityChecksum, key);
+        return CryptographicOperations.FixedTimeEquals(ordered.AsSpan(), value.OrderedChecksum);
+    }
 
     private static string ActivationReceiptKey(BaseMutationRequestIdentity identity) =>
         $"{identity.Scope}\n{identity.Operation}\n{identity.IdempotencyKey}";
@@ -1515,6 +2132,7 @@ internal sealed partial class InMemoryRecordStore
         BaseActivationCompleteRequest => "activation-completed",
         BaseActivationFailRequest failed when failed.Disposition == BaseActivationFailureDisposition.Retry => "activation-retried",
         BaseActivationFailRequest => "activation-failed-terminal",
+        BaseActivationYieldRequest => "activation-yielded-v1",
         BaseActivationCancelRequest => "activation-cancelled",
         BaseActivationBeginEffectRequest => "effect-started",
         BaseActivationEffectHeartbeatRequest => "effect-heartbeat",
@@ -1548,7 +2166,7 @@ internal sealed partial class InMemoryRecordStore
     };
 
     private static byte[] ScheduleActivationFingerprint(BaseActivationCreateIntent activation, string occurrenceId) =>
-        Hash($"base.activation.schedule.create.v2\0{occurrenceId}\n{activation.Definition.Id}\n{activation.Definition.Version}\n{Convert.ToHexString(activation.InputChecksum.AsSpan())}\n{activation.RequestedDueAt}\n{activation.EffectiveDueAt ?? activation.RequestedDueAt}");
+        Hash($"base.activation.schedule.create.v3\0{occurrenceId}\n{activation.Definition.Id}\n{activation.Definition.Version}\n{activation.MaximumYields}\n{Convert.ToHexString(activation.InputChecksum.AsSpan())}\n{activation.RequestedDueAt}\n{activation.EffectiveDueAt ?? activation.RequestedDueAt}");
 
     private bool AcceptActivationTime(BaseAcceptedTimeReceipt receipt)
     {
@@ -1557,7 +2175,7 @@ internal sealed partial class InMemoryRecordStore
         while (true)
         {
             long observed = Volatile.Read(ref _acceptedActivationUtc);
-            if (receipt.CapturedUtc < observed) return true;
+            if (receipt.CapturedUtc < observed) return false;
             if (Interlocked.CompareExchange(ref _acceptedActivationUtc, receipt.CapturedUtc, observed) == observed) return true;
         }
     }
@@ -1641,7 +2259,7 @@ internal sealed partial class InMemoryRecordStore
             .Where(row => ScopeMatches(row.Payload.Scope, scope))
             .Where(static row => row.Eligible)
             .Where(row => row.OverlapPolicy != BaseScheduleOverlapPolicy.Queue || !HasEarlierActiveOverlap(state, row))
-            .Where(row => (row.State is BaseActivationState.Pending or BaseActivationState.RetryPending) ||
+            .Where(row => (row.State is BaseActivationState.Pending or BaseActivationState.RetryPending or BaseActivationState.YieldPending) ||
                 (row.State == BaseActivationState.Claimed && row.Lease is not null && row.Lease.LeaseExpiresAt <= acceptedNow))
             .Where(row => row.EffectiveDueAt <= acceptedNow)
             .OrderBy(row => Boundary(row, acceptedNow), Comparer<BaseActivationDueBoundary>.Create(Compare))
@@ -1654,7 +2272,7 @@ internal sealed partial class InMemoryRecordStore
         if (row.OverlapKey is null) return false;
         return state.Activations.Values.Any(other => !ReferenceEquals(other, row) && other.OverlapKey is not null &&
             CryptographicOperations.FixedTimeEquals(other.OverlapKey, row.OverlapKey) &&
-            (other.State is BaseActivationState.Pending or BaseActivationState.RetryPending or BaseActivationState.Claimed) &&
+            (other.State is BaseActivationState.Pending or BaseActivationState.RetryPending or BaseActivationState.YieldPending or BaseActivationState.Claimed) &&
             (other.EffectiveDueAt < row.EffectiveDueAt || other.EffectiveDueAt == row.EffectiveDueAt &&
                 string.Compare(other.Payload.ActivationId, row.Payload.ActivationId, StringComparison.Ordinal) < 0));
     }
@@ -1667,7 +2285,7 @@ internal sealed partial class InMemoryRecordStore
         && CryptographicOperations.FixedTimeEquals(left.Checksum.AsSpan(), right.Checksum.AsSpan());
 
     private static bool MigrationSourceState(BaseActivationState state) => state is
-        BaseActivationState.Pending or BaseActivationState.RetryPending or BaseActivationState.Exhausted
+        BaseActivationState.Pending or BaseActivationState.RetryPending or BaseActivationState.YieldPending or BaseActivationState.Exhausted
         or BaseActivationState.Cancelled;
 
     private static byte[] ScopeDigest(BaseOwnedSubjectScopeEvidence scope) =>
@@ -1682,6 +2300,38 @@ internal sealed partial class InMemoryRecordStore
             state.ActivationsByProtectedScope.Add(key, values);
         }
         values.Add(payload.ActivationId);
+    }
+
+    private static string DisposedActivationAuthorityKey(
+        BaseOwnedScopeSeekAuthority scope,
+        BaseActivationDefinitionKey definition) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+            $"base.activation.disposed.index.v1\0{Convert.ToHexString(scope.ProtectedIndexDigest.AsSpan())}\n" +
+            $"{definition.Id}\n{definition.Version}\n{Convert.ToHexString(definition.Checksum.AsSpan())}")));
+
+    private static string DisposedActivationAuthorityKey(BaseActivationPayload payload) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+            $"base.activation.disposed.index.v1\0{Convert.ToHexString(ScopeDigest(payload.Scope))}\n" +
+            $"{payload.Definition.Id}\n{payload.Definition.Version}\n" +
+            $"{Convert.ToHexString(payload.Definition.Checksum.AsSpan())}")));
+
+    private static void IndexDisposedActivation(InMemoryStoreState state, BaseActivationPayload payload)
+    {
+        string key = DisposedActivationAuthorityKey(payload);
+        if (!state.DisposedActivationsByAuthority.TryGetValue(key, out SortedSet<string>? values))
+        {
+            values = new SortedSet<string>(StringComparer.Ordinal);
+            state.DisposedActivationsByAuthority.Add(key, values);
+        }
+        values.Add(payload.ActivationId);
+    }
+
+    private static void RemoveDisposedActivation(InMemoryStoreState state, BaseActivationPayload payload)
+    {
+        string key = DisposedActivationAuthorityKey(payload);
+        if (!state.DisposedActivationsByAuthority.TryGetValue(key, out SortedSet<string>? values)) return;
+        values.Remove(payload.ActivationId);
+        if (values.Count == 0) state.DisposedActivationsByAuthority.Remove(key);
     }
 
     private static BaseActivationDueBoundary Boundary(InMemoryActivationRow row, long acceptedNow) => new()
@@ -1754,6 +2404,7 @@ internal sealed partial class InMemoryRecordStore
         row.State == BaseActivationState.Claimed && row.Claim is not null && row.Lease is not null &&
         row.Claim.ActivationId == claim.ActivationId &&
         row.Claim.AttemptNumber == claim.AttemptNumber &&
+        row.Claim.ActivationGeneration == claim.ActivationGeneration &&
         row.Claim.ClaimEpoch == claim.ClaimEpoch &&
         row.Claim.CancellationGeneration == claim.CancellationGeneration &&
         CryptographicOperations.FixedTimeEquals(row.Claim.FencingToken.AsSpan(), claim.FencingToken.AsSpan());
@@ -1766,8 +2417,23 @@ internal sealed partial class InMemoryRecordStore
         limits.MaximumTransientBytes is > 0 and <= 16L * 1024 * 1024 &&
         limits.MaximumReadIntervals > 0 && limits.MaximumIndexOperations > 0;
 
-    private static byte[] ControlChecksum(string activationId, long generation, BaseActivationState state) =>
-        Hash($"base.activation.control.v2\0{activationId}\n{generation}\n{(int)state}");
+    private static byte[] ControlChecksum(
+        string activationId, long generation, BaseActivationState state, long effectiveDueAt,
+        long yieldCount, long maximumYields, long executionSliceOrdinal,
+        long? attemptStartedAt, long? sliceStartedAt,
+        BaseActivationYieldDisposition? terminalYieldDisposition, string? terminalYieldFailureCode) =>
+        BaseActivationControlChecksumContract.Create(activationId, generation, state, effectiveDueAt,
+            yieldCount, maximumYields, executionSliceOrdinal, attemptStartedAt, sliceStartedAt,
+            terminalYieldDisposition, terminalYieldFailureCode).ToArray();
+
+    private static long? CanonicalYieldResumeAt(DateTimeOffset? value)
+    {
+        if (value is null) return null;
+        if (value.Value.Offset != TimeSpan.Zero || value.Value.Ticks % TimeSpan.TicksPerMillisecond != 0)
+            return -1;
+        try { return value.Value.ToUnixTimeMilliseconds(); }
+        catch (ArgumentOutOfRangeException) { return -1; }
+    }
 
     private static byte[] Hash(string value) => SHA256.HashData(Encoding.UTF8.GetBytes(value));
 

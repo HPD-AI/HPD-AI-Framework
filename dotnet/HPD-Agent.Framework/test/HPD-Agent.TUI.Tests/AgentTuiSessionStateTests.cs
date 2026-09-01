@@ -63,6 +63,22 @@ public sealed class AgentTuiSessionStateTests
     }
 
     [Fact]
+    public async Task ApplyEventAsync_ProvidesHostRenderRequestToAsynchronousProjections()
+    {
+        var renders = 0;
+        var state = new AgentTuiSessionState(
+            new AgentTuiRuntimeScope("agent", "session", "main"),
+            new HpdAgentTuiBuilder()
+                .AddEventHandler("test.render", new RenderRequestingEventHandler())
+                .Build(),
+            () => Interlocked.Increment(ref renders));
+
+        await state.ApplyEventAsync(new InterruptionHandledEvent("flow", "stopped", InterruptionSource.User));
+
+        renders.Should().Be(1);
+    }
+
+    [Fact]
     public async Task AddAgentTuiDefaults_DoesNotHandleHpdCoreEvents()
     {
         var state = new AgentTuiSessionState(
@@ -228,6 +244,20 @@ public sealed class AgentTuiSessionStateTests
             string messageId,
             string markdown)
             => context.Shell.Transcript.FinalizeLive($"assistant:{messageId}", AssistantEntry(context, messageId, markdown));
+    }
+
+    private sealed class RenderRequestingEventHandler : IAgentTuiEventHandler
+    {
+        public bool CanHandle(AgentEvent evt) => true;
+
+        public ValueTask HandleAsync(
+            AgentEvent evt,
+            AgentTuiEventContext context,
+            CancellationToken cancellationToken)
+        {
+            context.RequestRender();
+            return ValueTask.CompletedTask;
+        }
     }
 
     private sealed class TestToolHandler : IAgentTuiEventHandler

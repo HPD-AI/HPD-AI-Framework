@@ -228,7 +228,7 @@ public class OpenApiFunctionFactoryTests
         var functions = OpenApiFunctionFactory.CreateFunctions(spec, config, MakeRunner());
 
         var hpdFn = (HPDAIFunctionFactory.HPDAIFunction)functions[0];
-        hpdFn.HPDOptions.RequiresPermission.Should().BeTrue();
+        hpdFn.PermissionDeclaration?.RequiresPermission.Should().BeTrue();
     }
 
     // ────────────────────────────────────────────────────────────

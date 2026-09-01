@@ -70,7 +70,7 @@ internal static class DescriptorViewFilter
                 .Where(field => FieldVisible(field, view))
                 .Select(field => Field(field, view))
                 .ToArray(),
-            Indexes = view == VisibilityLevel.Public ? PublicIndexes(collection.Indexes) : collection.Indexes
+            Indexes = view == VisibilityLevel.Public ? null : collection.Indexes?.Select(BaseSchemaContract.Clone).ToArray()
         };
 
     /// <summary>Executes the capabilities operation.</summary>
@@ -195,36 +195,8 @@ internal static class DescriptorViewFilter
                 Extensions = null,
                 Generated = field.Generated?.PublicSafe == true ? field.Generated : null,
                 Default = field.Default?.PublicSafe == true ? field.Default : null,
-                Validation = PublicValidation(field.Validation)
             }
             : field;
-
-    private static ValidationAnnotations? PublicValidation(ValidationAnnotations? validation)
-    {
-        if (validation is null)
-        {
-            return null;
-        }
-
-        var rules = validation.Rules?.Where(rule => rule.PublicSafe).ToArray();
-        return validation with
-        {
-            Rules = rules is { Length: > 0 } ? rules : null,
-            CustomValidators = null,
-            Diagnostics = null
-        };
-    }
-
-    private static IndexDefinition[]? PublicIndexes(IndexDefinition[]? indexes) =>
-        indexes?
-            .Select(index => index with
-            {
-                NativePredicate = null,
-                NativeDefinition = null,
-                AccessMethod = null,
-                Extensions = null
-            })
-            .ToArray();
 
     private static bool FieldVisible(FieldDefinition field, VisibilityLevel view)
     {

@@ -4,17 +4,16 @@
 namespace HPD.Agent.Middleware;
 
 /// <summary>
-/// Optional marker interface for middleware designed to be used as toolharness-scoped middleware
+/// Required marker interface for middleware designed to be used as toolharness-scoped middleware
 /// (declared via <c>[Collapse(Middlewares = [typeof(YourMiddleware)])]</c>).
 /// </summary>
 /// <remarks>
 /// <para>
-/// Implementing this interface has no runtime effect — it is documentation and tooling support only.
-/// Any <see cref="IAgentMiddleware"/> can be registered as toolharness-scoped middleware.
-/// This marker exists to signal authorial intent in a toolharness's public API.
+/// This marker is a compile-time and runtime contract. Only middleware implementing it may be
+/// declared by a ToolHarness or supplied through an exact-type activation override.
 /// </para>
 /// <para>
-/// The <c>HPDToolSourceGenerator</c> emits a warning when a type listed in
+/// The <c>HPDToolSourceGenerator</c> emits an error when a type listed in
 /// <c>[Collapse(Middlewares = ...)]</c> does not implement <c>IToolHarnessMiddleware</c>, guiding
 /// authors toward clear intent.
 /// </para>

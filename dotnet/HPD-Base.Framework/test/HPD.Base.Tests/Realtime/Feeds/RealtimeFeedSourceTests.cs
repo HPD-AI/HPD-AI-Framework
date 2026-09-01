@@ -439,7 +439,7 @@ public sealed class RealtimeFeedSourceTests
             After = new RecordSnapshot
             {
                 CollectionId = "items",
-                Id = new RecordId("one"),
+                Id = RecordId.Create("one"),
                 Payload = TestServices.Payload(("title", "hello"), ("secret", "shh")),
                 Metadata = new RecordMetadata()
             }
@@ -474,7 +474,7 @@ public sealed class RealtimeFeedSourceTests
             Before = new RecordSnapshot
             {
                 CollectionId = "items",
-                Id = new RecordId("one"),
+                Id = RecordId.Create("one"),
                 Payload = TestServices.Payload(("title", "old")),
                 Metadata = new RecordMetadata()
             }
@@ -511,7 +511,7 @@ public sealed class RealtimeFeedSourceTests
             Before = new RecordSnapshot
             {
                 CollectionId = "items",
-                Id = new RecordId("one"),
+                Id = RecordId.Create("one"),
                 Payload = TestServices.Payload(
                     ("title", "old"),
                     ("secret", "before-admin-visible"),
@@ -521,7 +521,7 @@ public sealed class RealtimeFeedSourceTests
             After = new RecordSnapshot
             {
                 CollectionId = "items",
-                Id = new RecordId("one"),
+                Id = RecordId.Create("one"),
                 Payload = TestServices.Payload(
                     ("title", "new"),
                     ("secret", "after-admin-visible"),
@@ -570,7 +570,7 @@ public sealed class RealtimeFeedSourceTests
             {
                 Kind = EventResourceKind.Record,
                 CollectionId = "items",
-                RecordId = new RecordId("one"),
+                RecordId = RecordId.Create("one"),
                 ResourcePath = "resource-path-forbidden"
             },
             Principal = new EventPrincipalSummary
@@ -588,7 +588,7 @@ public sealed class RealtimeFeedSourceTests
             After = new RecordSnapshot
             {
                 CollectionId = "items",
-                Id = new RecordId("one"),
+                Id = RecordId.Create("one"),
                 Payload = TestServices.Payload(("title", "safe")),
                 Metadata = new RecordMetadata
                 {
@@ -853,7 +853,7 @@ public sealed class RealtimeFeedSourceTests
             RecordMutation = visible.RecordMutation! with { After = new RecordSnapshot
             {
                 CollectionId = "items",
-                Id = new RecordId("visible"),
+                Id = RecordId.Create("visible"),
                 Payload = TestServices.Payload(("title", "after-safe"), ("writeOnly", "after-forbidden")),
                 Metadata = new RecordMetadata()
             } }
@@ -906,13 +906,13 @@ public sealed class RealtimeFeedSourceTests
                 Type = BaseEventTypes.RecordPatched,
                 Before = new RecordSnapshot
                 {
-                    CollectionId = "items", Id = new RecordId("updated"),
+                    CollectionId = "items", Id = RecordId.Create("updated"),
                     Payload = TestServices.Payload(("title", "before-safe"), ("writeOnly", "before-forbidden")),
                     Metadata = new RecordMetadata()
                 },
                 After = new RecordSnapshot
                 {
-                    CollectionId = "items", Id = new RecordId("updated"),
+                    CollectionId = "items", Id = RecordId.Create("updated"),
                     Payload = TestServices.Payload(("title", "after-safe"), ("writeOnly", "after-forbidden")),
                     Metadata = new RecordMetadata()
                 }

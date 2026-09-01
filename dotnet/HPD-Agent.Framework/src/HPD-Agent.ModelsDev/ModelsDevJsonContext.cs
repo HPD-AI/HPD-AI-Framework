@@ -9,4 +9,8 @@ namespace HPD.Agent.ModelsDev;
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(Dictionary<string, ModelsDevProvider>))]
 [JsonSerializable(typeof(ModelsDevCachedData))]
-public sealed partial class ModelsDevJsonContext : JsonSerializerContext;
+[JsonSerializable(typeof(ProviderUsageValuation))]
+[JsonSerializable(typeof(ModelsDevValuationProvenance))]
+[JsonSerializable(typeof(ModelsDevValuationDetails))]
+[JsonSerializable(typeof(ModelsDevRateSelection))]
+internal sealed partial class ModelsDevJsonContext : JsonSerializerContext;

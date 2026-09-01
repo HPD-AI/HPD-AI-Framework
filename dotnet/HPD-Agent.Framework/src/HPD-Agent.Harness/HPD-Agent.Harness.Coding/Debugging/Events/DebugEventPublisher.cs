@@ -84,12 +84,11 @@ internal sealed class DebugScopedEventPublisher(
 /// <summary>Background-safe debugger publisher retaining no invocation or event-flow state.</summary>
 public sealed class DebugEventPublisher : IDebugEventPublisher
 {
-    private readonly IEventCoordinator _events;
-    private readonly IThreadEventPublisher? _threadEvents;
+    private readonly IAgentEventPublisher? _threadEvents;
 
-    public DebugEventPublisher(IEventCoordinator events, IThreadEventPublisher? threadEvents = null)
+    public DebugEventPublisher(IEventCoordinator events, IAgentEventPublisher? threadEvents = null)
     {
-        _events = events ?? throw new ArgumentNullException(nameof(events));
+        ArgumentNullException.ThrowIfNull(events);
         _threadEvents = threadEvents;
     }
 
@@ -104,19 +103,21 @@ public sealed class DebugEventPublisher : IDebugEventPublisher
         ArgumentNullException.ThrowIfNull(scope);
         ArgumentNullException.ThrowIfNull(@event);
         if (_threadEvents is null)
-            throw new InvalidOperationException("Durable debugger publication requires an IThreadEventPublisher.");
+            throw new InvalidOperationException("Durable debugger publication requires an IAgentEventPublisher.");
         return await _threadEvents.CommitAndPublishAsync(
             new(scope.SessionId, scope.ThreadId), Scope(scope, @event), cancellationToken).ConfigureAwait(false);
     }
 
-    public ValueTask PublishLiveAsync(
+    public async ValueTask PublishLiveAsync(
         DebugEventScope scope,
         AgentEvent @event,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(scope);
         ArgumentNullException.ThrowIfNull(@event);
-        return _events.EmitAsync(Scope(scope, @event), cancellationToken);
+        if (_threadEvents is null)
+            throw new InvalidOperationException("Live debugger publication requires an IAgentEventPublisher.");
+        _ = await _threadEvents.PublishLiveAsync(Scope(scope, @event), cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask PublishAsync(

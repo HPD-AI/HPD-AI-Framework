@@ -5,11 +5,42 @@ using FluentAssertions;
 using HPD.Base;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
+using HPD.Base.Tests.Subjects;
 
 namespace HPD.Base.Tests.Application.Serialization;
 
 public sealed partial class SerializerContractTests
 {
+    [Theory]
+    [InlineData("\"AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA\"")]
+    [InlineData("\"{aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa}\"")]
+    [InlineData("\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"")]
+    [InlineData("\" aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\"")]
+    [InlineData("1")]
+    public void Canonical_guid_converter_rejects_every_noncanonical_wire_form(string json)
+    {
+        var options = new JsonSerializerOptions();
+        options.Converters.Add(new BaseCanonicalGuidJsonConverter());
+
+        Action deserialize = () => JsonSerializer.Deserialize<Guid>(json, options);
+
+        deserialize.Should().Throw<JsonException>();
+    }
+
+    [Fact]
+    public void Canonical_guid_converters_round_trip_value_and_nullable_null()
+    {
+        Guid value = Guid.ParseExact("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "D");
+        var options = new JsonSerializerOptions();
+        options.Converters.Add(new BaseCanonicalGuidJsonConverter());
+        options.Converters.Add(new BaseCanonicalNullableGuidJsonConverter());
+
+        JsonSerializer.Serialize(value, options).Should().Be("\"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\"");
+        JsonSerializer.Deserialize<Guid>("\"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\"", options).Should().Be(value);
+        JsonSerializer.Deserialize<Guid?>("null", options).Should().BeNull();
+        JsonSerializer.Serialize<Guid?>(null, options).Should().Be("null");
+    }
+
     [Fact]
     public void ManualMetadataMustUseTheLockedOptionReceipt()
     {
@@ -67,6 +98,21 @@ public sealed partial class SerializerContractTests
     {
         typeof(BaseCollection<>).GetProperty("JsonTypeInfo", BindingFlags.Public | BindingFlags.Instance)
             .Should().BeNull();
+    }
+
+    [Fact]
+    public void Subject_authority_values_are_closed_serializer_scalars()
+    {
+        _ = L45SqliteUserSubject.HPDBaseSubjectRegistration;
+        _ = SerializerAlternateSubject.HPDBaseSubjectRegistration;
+        var context = new SubjectContext(BaseSerializerGeneratedContract.CreateOptions(JsonNamingPolicy.CamelCase));
+
+        string first = BaseSerializerContract.GraphFingerprint(context.SubjectRequest);
+        string second = BaseSerializerContract.GraphFingerprint(context.SubjectRequest);
+
+        first.Should().Be(second).And.Be("46fdc99e8d99231c39c10e75717424cb3d786cbb44e568fe54459e7ecb6ea7d0");
+        BaseSerializerContract.GraphFingerprint(context.AlternateSubjectRequest).Should().NotBe(first);
+        BaseSerializerContract.GraphFingerprint(context.IncarnationOnlyRequest).Should().NotBe(first);
     }
 
     [Fact]
@@ -155,6 +201,13 @@ public sealed partial class SerializerContractTests
     internal sealed record RootB(SharedDetails Details);
     internal sealed record TwoFields(string Left, string Right);
     internal sealed record DomRoot(JsonElement Dom);
+    internal sealed record SubjectRequest(
+        BaseSubjectReference<L45SqliteUserSubject> Subject,
+        BaseSubjectIncarnation Incarnation);
+    internal sealed record AlternateSubjectRequest(
+        BaseSubjectReference<SerializerAlternateSubject> Subject,
+        BaseSubjectIncarnation Incarnation);
+    internal sealed record IncarnationOnlyRequest(BaseSubjectIncarnation Incarnation);
 
     [JsonSerializable(typeof(RootA))]
     [JsonSerializable(typeof(RootB))]
@@ -169,6 +222,13 @@ public sealed partial class SerializerContractTests
     [JsonSerializable(typeof(DomRoot))]
     [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
     internal sealed partial class DomContext : JsonSerializerContext;
+
+    [JsonSerializable(typeof(SubjectRequest))]
+    [JsonSerializable(typeof(AlternateSubjectRequest))]
+    [JsonSerializable(typeof(IncarnationOnlyRequest))]
+    [JsonSerializable(typeof(SerializerAlternatePrivateSubject))]
+    [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+    internal sealed partial class SubjectContext : JsonSerializerContext;
 }
 
 [BaseCollection("serializer-owner-a", typeof(OwnerJsonContext))]
@@ -187,3 +247,21 @@ internal sealed partial record OwnerRecordB
 [JsonSerializable(typeof(OwnerRecordB))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class OwnerJsonContext : JsonSerializerContext;
+
+[BaseCollection("serializer-alternate-private-subjects", typeof(SerializerContractTests.SubjectContext),
+    SystemOwnerModuleId = "serializer.tests")]
+internal sealed partial record SerializerAlternatePrivateSubject
+{
+    [BaseField("serializer.alternate.active")] public required bool Active { get; init; }
+    [BaseField("serializer.alternate.tombstoned")] public required bool Tombstoned { get; init; }
+}
+
+[BaseExportedSubject("serializer.alternate-subject", OwningModuleId = "serializer.tests",
+    PrivateRecordType = typeof(SerializerAlternatePrivateSubject),
+    AcquisitionGrantId = "serializer.alternate.acquire",
+    ValidationGrantId = "serializer.alternate.validate",
+    AdministrationGrantId = "serializer.alternate.admin",
+    ValidationPlanId = "serializer.alternate.validate.v1",
+    ActiveFieldId = "serializer.alternate.active",
+    TombstoneFieldId = "serializer.alternate.tombstoned")]
+internal sealed partial class SerializerAlternateSubject;

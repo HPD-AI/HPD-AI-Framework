@@ -7,6 +7,7 @@ using System.Collections.Generic;
 namespace HPD.Agent.Providers.DeepSeek;
 
 [HpdProvider("deepseek", "DeepSeek", DocumentationUrl = "https://api-docs.deepseek.com/")]
+[HpdProviderBackend("platform", ProviderAuthenticationKind.ApiKey, IsDefaultBackend = true, IsDefaultAuthentication = true, DefaultSecretKey = "deepseek:ApiKey")]
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(DeepSeekProviderConfig), typeof(DeepSeekJsonContext))]
 [HpdProviderSecretAlias("deepseek:ApiKey", "DEEPSEEK_API_KEY")]
@@ -57,6 +58,7 @@ internal sealed class DeepSeekProvider : OpenAICompatibleChatProviderBase<DeepSe
     };
 
     protected override OpenAICompatibleProviderDefinition Definition => ProviderDefinition;
+    protected override System.Text.Json.Serialization.Metadata.JsonTypeInfo<DeepSeekProviderConfig> ConfigurationTypeInfo => DeepSeekJsonContext.Default.DeepSeekProviderConfig;
 
     public override IProviderErrorHandler CreateErrorHandler()
         => new OpenAICompatibleErrorHandler(DisplayName);

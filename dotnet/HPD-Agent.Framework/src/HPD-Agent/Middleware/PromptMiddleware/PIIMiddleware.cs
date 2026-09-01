@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Runtime.CompilerServices;
 using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
 
@@ -69,11 +70,11 @@ public class PIIMiddleware : IAgentMiddleware
     //     
 
     private static readonly Regex EmailRegex = new(
-        @"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
+        @"\b[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,253}\.[A-Za-z]{2,63}\b",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private static readonly Regex CreditCardRegex = new(
-        @"\b(?:\d[ -]*?){13,19}\b",
+        @"\b(?:\d[ -]?){12,18}\d\b",
         RegexOptions.Compiled);
 
     private static readonly Regex SSNRegex = new(
@@ -109,8 +110,100 @@ public class PIIMiddleware : IAgentMiddleware
             cancellationToken).ConfigureAwait(false);
     }
 
+    public IAsyncEnumerable<AgentModelUpdate>? WrapModelTurnStreamingAsync(
+        AgentModelTurnRequest request,
+        Func<AgentModelTurnRequest, IAsyncEnumerable<AgentModelUpdate>> next,
+        CancellationToken cancellationToken)
+        => ApplyToOutput ? RedactModelOutputAsync(request, next, cancellationToken) : null;
+
+    private async IAsyncEnumerable<AgentModelUpdate> RedactModelOutputAsync(
+        AgentModelTurnRequest request,
+        Func<AgentModelTurnRequest, IAsyncEnumerable<AgentModelUpdate>> next,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        // The built-in expressions are deliberately bounded. Custom regular expressions and
+        // external detectors have no enforceable maximum match length, so they fail closed by
+        // retaining the complete response until the provider marks it final.
+        const int maximumBuiltInMatchCharacters = 384;
+        var requiresCompleteResponse = CustomDetectors.Count > 0 || ExternalDetector is not null;
+        var pending = string.Empty;
+        async Task<string> RedactAsync(string text)
+            => await ProcessTextCoreAsync(
+                text,
+                cancellationToken,
+                async (piiType, strategy, count) =>
+                {
+                    if (request.EventPublisher is not null)
+                        await request.EventPublisher(new PIIDetectedEvent(
+                            request.State.AgentName,
+                            piiType,
+                            strategy,
+                            count), cancellationToken).ConfigureAwait(false);
+                }).ConfigureAwait(false);
+
+        await foreach (var update in next(request).WithCancellation(cancellationToken).ConfigureAwait(false))
+        {
+            var chunk = update switch
+            {
+                AgentTextDeltaUpdate text => text.Text,
+                AgentChatModelUpdate chat => string.Concat(chat.Update.Contents.OfType<TextContent>().Select(content => content.Text)),
+                _ => string.Empty
+            };
+            pending += chunk;
+            var isFinal = update is AgentTextDeltaUpdate { IsFinal: true } ||
+                          update is AgentChatModelUpdate { Update.FinishReason: not null };
+            if (chunk.Length == 0 && !isFinal)
+            {
+                yield return update;
+                continue;
+            }
+
+            var flushLength = isFinal
+                ? pending.Length
+                : requiresCompleteResponse ? 0 : FindSafeStreamingFlushLength(pending, maximumBuiltInMatchCharacters);
+            if (flushLength == 0)
+            {
+                yield return ReplaceModelUpdateText(update, string.Empty);
+                continue;
+            }
+
+            var safePrefix = pending[..flushLength];
+            pending = pending[flushLength..];
+            var redacted = await RedactAsync(safePrefix).ConfigureAwait(false);
+            yield return ReplaceModelUpdateText(update, redacted);
+        }
+
+        if (pending.Length > 0)
+        {
+            var redacted = await RedactAsync(pending).ConfigureAwait(false);
+            yield return new AgentTextDeltaUpdate(redacted, IsFinal: true);
+        }
+    }
+
+    private static int FindSafeStreamingFlushLength(string pending, int maximumPendingCharacters)
+        => Math.Max(0, pending.Length - maximumPendingCharacters);
+
+    private static AgentModelUpdate ReplaceModelUpdateText(AgentModelUpdate update, string text)
+    {
+        if (update is AgentTextDeltaUpdate normalized)
+            return normalized with { Text = text };
+        if (update is AgentChatModelUpdate chat)
+        {
+            var textContents = chat.Update.Contents.OfType<TextContent>().ToList();
+            if (textContents.Count == 0)
+                chat.Update.Contents.Add(new TextContent(text));
+            else
+            {
+                textContents[0].Text = text;
+                foreach (var content in textContents.Skip(1)) content.Text = string.Empty;
+            }
+        }
+        return update;
+    }
+
     /// <summary>
-    /// Optionally scans output messages for PII after the agent responds.
+    /// Optionally rewrites the durable assistant-history snapshot after the response.
+    /// The already-published final response is inspect-only at this boundary.
     /// </summary>
     public async Task AfterMessageTurnAsync(
         AfterMessageTurnContext context,
@@ -118,12 +211,6 @@ public class PIIMiddleware : IAgentMiddleware
     {
         if (!ApplyToOutput)
             return;
-
-        await ProcessMessagesAsync(
-            context.FinalResponse.Messages,
-            ChatRole.Assistant,
-            context,
-            cancellationToken).ConfigureAwait(false);
 
         await ProcessMessagesAsync(
             context.TurnHistory,
@@ -190,7 +277,18 @@ public class PIIMiddleware : IAgentMiddleware
         HookContext context,
         CancellationToken cancellationToken)
     {
-        var allMatches = await DetectPIIAsync(text, cancellationToken);
+        return await ProcessTextCoreAsync(
+            text,
+            cancellationToken,
+            (piiType, strategy, count) => EmitPIIDetectedEventAsync(context, piiType, strategy, count)).ConfigureAwait(false);
+    }
+
+    private async Task<string> ProcessTextCoreAsync(
+        string text,
+        CancellationToken cancellationToken,
+        Func<string, PIIStrategy, int, Task> emitAsync)
+    {
+        var allMatches = await DetectPIIAsync(text, cancellationToken).ConfigureAwait(false);
 
         if (allMatches.Count == 0)
             return text;
@@ -199,7 +297,7 @@ public class PIIMiddleware : IAgentMiddleware
         var blockedMatch = allMatches.FirstOrDefault(m => m.Strategy == PIIStrategy.Block);
         if (blockedMatch != null)
         {
-            await EmitPIIDetectedEventAsync(context, blockedMatch.PIIType, PIIStrategy.Block, 1);
+            await emitAsync(blockedMatch.PIIType, PIIStrategy.Block, 1).ConfigureAwait(false);
             throw new PIIBlockedException(
                 $"PII of type '{blockedMatch.PIIType}' detected. Message blocked for security.",
                 blockedMatch.PIIType);
@@ -230,7 +328,7 @@ public class PIIMiddleware : IAgentMiddleware
         // Emit events for each PII type detected
         foreach (var (piiType, (strategy, count)) in emittedTypes)
         {
-            await EmitPIIDetectedEventAsync(context, piiType, strategy, count);
+            await emitAsync(piiType, strategy, count).ConfigureAwait(false);
         }
 
         return processedText;
@@ -443,6 +541,8 @@ public class CustomPIIDetector
 /// <summary>
 /// Event emitted when PII is detected.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("PII_DETECTED")]
 public record PIIDetectedEvent(
     string AgentName,
     string PIIType,

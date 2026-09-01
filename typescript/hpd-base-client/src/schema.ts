@@ -88,17 +88,19 @@ export interface BaseGeneratedSchema<
 export interface BaseSemanticActivationDefinition { readonly id: string; readonly version: number; readonly checksum: string; readonly compactable: boolean; readonly removable: boolean; }
 export function semanticActivationDefinition<const T extends BaseSemanticActivationDefinition>(definition: T): T { return deepFreeze(definition); }
 
-export interface BaseReadDefinition<TParameters = unknown, TRow = unknown, TWatchable extends boolean = boolean> {
+export interface BaseReadDefinition<TParameters = unknown, TRow = unknown, TWatchable extends boolean = boolean, TFixedCompleteResult extends boolean = boolean, TFixedDiscriminator extends string = string> {
   readonly id: string;
   readonly parameterTypeId?: string;
   readonly rowTypeId?: string;
   readonly maxPageSize: number;
+  readonly fixedCompleteResult: TFixedCompleteResult;
+  readonly fixedDiscriminators: readonly TFixedDiscriminator[];
   readonly watchable: TWatchable;
   readonly __parameters?: TParameters;
   readonly __row?: TRow;
 }
 
-export function read<TParameters, TRow, const TWatchable extends boolean>(definition: BaseReadDefinition<TParameters, TRow, TWatchable>): BaseReadDefinition<TParameters, TRow, TWatchable> { return deepFreeze(definition); }
+export function read<TParameters, TRow, const TWatchable extends boolean, const TFixedCompleteResult extends boolean, const TFixedDiscriminator extends string>(definition: BaseReadDefinition<TParameters, TRow, TWatchable, TFixedCompleteResult, TFixedDiscriminator>): BaseReadDefinition<TParameters, TRow, TWatchable, TFixedCompleteResult, TFixedDiscriminator> { return deepFreeze(definition); }
 
 export function collection<TRecord, TCreate, TReplace, TPatch, TFields extends Readonly<Record<string, BaseFieldDefinition>>, const TOperations extends readonly BaseCollectionOperation[], const TTextIndexes extends Readonly<Record<string, BaseTextIndexDefinition>> = Readonly<Record<string, BaseTextIndexDefinition>>>(
   definition: BaseCollectionDefinition<TRecord, TCreate, TReplace, TPatch, TFields, TOperations, TTextIndexes>

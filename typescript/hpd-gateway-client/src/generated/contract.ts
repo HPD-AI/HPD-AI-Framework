@@ -2,6 +2,7 @@
 // source-sha256: bdf94e3d892892ba66592505b09d97d435e7d993c75feb1f87fa48d4bf262862
 // output-plan-sha256: 02c406f8c49752d24278f14e4db91694c8e84bf8ff2ef37b2e3feed81cdb21f7
 
+export const gatewayOperationInventoryChecksum = "b577087395ac45ad1cd9ce74ca577ab6797591c5e7d5a564f31b826878f3b8bc" as const;
 export const gatewayOperations = [
   {
     "operation": "activate",

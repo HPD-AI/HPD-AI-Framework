@@ -112,14 +112,25 @@ export type BaseBatchOperation<TSchema extends BaseGeneratedSchema> = { [K in Co
 export interface BaseBatchResult { readonly outcome: string; readonly items: readonly unknown[]; }
 export interface BaseBatchClient<TSchema extends BaseGeneratedSchema> { execute(mode: "orderedIndependent" | "orderedStopOnFailure" | "atomic", operations: readonly BaseBatchOperation<TSchema>[], options?: { readonly mutationId?: MutationId; readonly signal?: AbortSignal }): Promise<BaseResult<BaseBatchResult>>; }
 
-type ReadParameters<T> = T extends BaseReadDefinition<infer TParameters, unknown, boolean> ? TParameters : never;
-type ReadRow<T> = T extends BaseReadDefinition<unknown, infer TRow, boolean> ? TRow : never;
-interface BaseReadClientSurface<T extends BaseReadDefinition> {
+type ReadParameters<T> = T extends BaseReadDefinition<infer TParameters, unknown, boolean, boolean, string> ? TParameters : never;
+type ReadRow<T> = T extends BaseReadDefinition<unknown, infer TRow, boolean, boolean, string> ? TRow : never;
+type ReadExecutionOptions<T> = T extends BaseReadDefinition<unknown, unknown, boolean, true, string>
+  ? { readonly signal?: AbortSignal }
+  : { readonly page?: number; readonly perPage?: number; readonly signal?: AbortSignal };
+interface BasePagedReadClientSurface<T extends BaseReadDefinition> {
   readonly id: string;
-  execute(parameters: ReadParameters<T>, page?: { readonly page?: number; readonly perPage?: number; readonly signal?: AbortSignal }): Promise<BaseResult<BaseRecordPage<ReadRow<T>>>>;
+  execute(parameters: ReadParameters<T>, page?: ReadExecutionOptions<T>): Promise<BaseResult<BaseRecordPage<ReadRow<T>>>>;
   watch(parameters: ReadParameters<T>, observer: (snapshot: BaseQuerySnapshot<ReadRow<T>>) => void): BaseSubscription;
 }
-export type BaseReadClient<T extends BaseReadDefinition> = T extends BaseReadDefinition<unknown, unknown, true> ? BaseReadClientSurface<T> : Pick<BaseReadClientSurface<T>, "id" | "execute">;
+interface BaseFixedReadClientSurface<T extends BaseReadDefinition> {
+  readonly id: string;
+  readonly discriminators: T["fixedDiscriminators"];
+  execute(parameters: ReadParameters<T>, options?: { readonly signal?: AbortSignal }): Promise<readonly ReadRow<T>[]>;
+  watch(parameters: ReadParameters<T>, observer: (snapshot: BaseQuerySnapshot<ReadRow<T>>) => void): BaseSubscription;
+}
+export type BaseReadClient<T extends BaseReadDefinition> = T extends BaseReadDefinition<unknown, unknown, boolean, true, string>
+  ? (T extends BaseReadDefinition<unknown, unknown, true, true, string> ? BaseFixedReadClientSurface<T> : Pick<BaseFixedReadClientSurface<T>, "id" | "discriminators" | "execute">)
+  : (T extends BaseReadDefinition<unknown, unknown, true, false, string> ? BasePagedReadClientSurface<T> : Pick<BasePagedReadClientSurface<T>, "id" | "execute">);
 
 export interface BaseClientOptions<TSchema extends BaseGeneratedSchema> extends BaseTransportOptions {
   readonly schema: TSchema;
@@ -159,7 +170,7 @@ class BaseClientRuntime implements BaseQueryExecutor<unknown> {
     const webSocketFactory = options.webSocketFactory ?? (options.accessToken === undefined && typeof globalThis.WebSocket === "function" ? ((url: URL) => new globalThis.WebSocket(url)) : undefined);
     this.#realtime = webSocketFactory === undefined ? undefined : new BaseRealtimeManager(options.url, webSocketFactory, options.accessToken, () => this.#indeterminate.clear(), options.schema.typeGraph, options.schema.collections);
     this.connectivity = this.#realtime?.connectivity ?? { getSnapshot: () => ({ kind: "offline" }), subscribe: () => () => undefined };
-    this.reads = Object.freeze(Object.fromEntries(Object.entries(options.schema.reads).map(([name, definition]) => [name, new ReadClient(this, definition)])));
+    this.reads = Object.freeze(Object.fromEntries(Object.entries(options.schema.reads).map(([name, definition]) => [name, new ReadClient(this, definition)]))) as Readonly<Record<string, BaseReadClient<BaseReadDefinition>>>;
   }
 
   public collection<T extends BaseCollectionDefinition>(definition: T): BaseCollectionClient<T> {
@@ -285,13 +296,23 @@ class BaseClientRuntime implements BaseQueryExecutor<unknown> {
   }
 }
 
-class ReadClient<T extends BaseReadDefinition> implements BaseReadClientSurface<T> {
+class ReadClient<T extends BaseReadDefinition> {
   public readonly id: string;
+  public readonly discriminators: T["fixedDiscriminators"];
   private readonly maximum: number;
+  private readonly fixedCompleteResult: boolean;
   private readonly rowTypeId: string | undefined;
   private readonly parameterTypeId: string | undefined;
-  public constructor(private readonly owner: BaseClientRuntime, definition: T) { this.id = definition.id; this.maximum = definition.maxPageSize; this.rowTypeId = definition.rowTypeId; this.parameterTypeId = definition.parameterTypeId; }
-  public execute(parameters: ReadParameters<T>, page?: { readonly page?: number; readonly perPage?: number; readonly signal?: AbortSignal }): Promise<BaseResult<BaseRecordPage<ReadRow<T>>>> { if (page?.perPage !== undefined && (!Number.isInteger(page.perPage) || page.perPage < 1 || page.perPage > this.maximum)) throw new RangeError("base.query.limitInvalid"); return this.owner.executeRead(this.id, parameters, this.parameterTypeId, this.rowTypeId, page); }
+  public constructor(private readonly owner: BaseClientRuntime, definition: T) { this.id = definition.id; this.discriminators = definition.fixedDiscriminators; this.maximum = definition.maxPageSize; this.fixedCompleteResult = definition.fixedCompleteResult; this.rowTypeId = definition.rowTypeId; this.parameterTypeId = definition.parameterTypeId; }
+  public async execute(parameters: ReadParameters<T>, page?: ReadExecutionOptions<T>): Promise<BaseResult<BaseRecordPage<ReadRow<T>>> | readonly ReadRow<T>[]> {
+    const input = page as { readonly page?: number; readonly perPage?: number; readonly signal?: AbortSignal } | undefined;
+    if (this.fixedCompleteResult && (input?.page !== undefined || input?.perPage !== undefined)) throw new TypeError("base.query.invalid");
+    if (input?.perPage !== undefined && (!Number.isInteger(input.perPage) || input.perPage < 1 || input.perPage > this.maximum)) throw new RangeError("base.query.limitInvalid");
+    const result = await this.owner.executeRead<ReadRow<T>>(this.id, parameters, this.parameterTypeId, this.rowTypeId, input);
+    if (!this.fixedCompleteResult) return result;
+    if (!result.ok) throw Object.assign(new Error(result.error.message), { code: result.error.code, category: result.error.category, correlationId: result.correlationId });
+    return Object.freeze([...result.value.items]);
+  }
   public watch(parameters: ReadParameters<T>, observer: (snapshot: BaseQuerySnapshot<ReadRow<T>>) => void): BaseSubscription { return this.owner.watchRead(this.id, parameters, this.parameterTypeId, this.rowTypeId, observer); }
 }
 

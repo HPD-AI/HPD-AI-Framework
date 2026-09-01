@@ -7,7 +7,9 @@ namespace HPD.Agent;
 public enum ThreadKind
 {
     MainAgent,
-    SubAgent
+    SubAgent,
+    /// <summary>Framework-owned journal excluded from conversation and runtime surfaces.</summary>
+    FrameworkInternal
 }
 
 public enum ThreadVisibility
@@ -52,6 +54,9 @@ public class Thread
 
     /// <summary>Parent session ID</summary>
     public string SessionId { get; init; }
+
+    /// <summary>Gets typed preparation authority while this thread is a staged fork target.</summary>
+    public ThreadPreparationDescriptor? Preparation { get; internal set; }
 
     /// <summary>
     /// Back-reference to the parent Session.
@@ -137,8 +142,6 @@ public class Thread
 
     /// <summary>Name of the subagent associated with this thread, when Kind is SubAgent.</summary>
     public string? SubAgentName { get; set; }
-
-    public string? SubAgentTaskName { get; set; }
 
     public string? SubAgentStatus { get; set; }
 
@@ -288,7 +291,6 @@ public class Thread
         string? parentSessionId = null,
         string? parentThreadId = null,
         string? subAgentName = null,
-        string? subAgentTaskName = null,
         string? subAgentStatus = null,
         string? invocationId = null,
         string? subAgentSourceKind = null,
@@ -313,7 +315,6 @@ public class Thread
         ParentSessionId = parentSessionId;
         ParentThreadId = parentThreadId;
         SubAgentName = subAgentName;
-        SubAgentTaskName = subAgentTaskName;
         SubAgentStatus = subAgentStatus;
         InvocationId = invocationId;
         SubAgentSourceKind = subAgentSourceKind;
@@ -382,8 +383,6 @@ public class Thread
             ParentThreadId = parentThreadId;
         if (TryRemoveString(metadata, "subAgentName", out var subAgentName))
             SubAgentName = subAgentName;
-        if (TryRemoveString(metadata, "subAgentTaskName", out var subAgentTaskName))
-            SubAgentTaskName = subAgentTaskName;
         if (TryRemoveString(metadata, "invocationId", out var invocationId))
             InvocationId = invocationId;
         if (TryRemoveString(metadata, "defaultAgentId", out var defaultAgentId))

@@ -1,4 +1,16 @@
 export * from './contracts.ts';
+export * from './observation.ts';
+export * from './page.ts';
+export * from './command.ts';
+export * from './route.ts';
+export * from './activity.ts';
+export * from './preference.ts';
+export * from './navigation-draft.ts';
+export * from './module-abi.ts';
+export * from './resource.ts';
+export * from './bootstrap.ts';
+export * from './runtime-map.ts';
+export * from './canonical.ts';
 export { composeStudio, StudioCompositionError } from './runtime.ts';
 export { useStudioModuleContext } from './module-context.svelte.ts';
 export { useStudioShell, provideStudioShell } from './shell-context.svelte.ts';

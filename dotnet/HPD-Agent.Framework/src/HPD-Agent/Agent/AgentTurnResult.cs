@@ -1,5 +1,5 @@
-using Microsoft.Extensions.AI;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace HPD.Agent;
 
@@ -39,9 +39,9 @@ public sealed record AgentTurnResult
     public MessageTurnFinishedEvent? Finished { get; init; }
 
     /// <summary>
-    /// Gets usage details reported by the model turn, when available.
+    /// Gets the heterogeneous usage summary for every provider operation in the message turn.
     /// </summary>
-    public UsageDetails? Usage => Finished?.Usage;
+    public MessageTurnUsageSummary? Usage => Finished?.Usage;
 
     /// <summary>
     /// Gets the duration reported by the completed turn, when available.
@@ -52,9 +52,9 @@ public sealed record AgentTurnResult
 /// <summary>Describes how a semantic agent input was admitted or completed.</summary>
 public enum AgentInputDisposition
 {
-    /// <summary>The input completed synchronously.</summary>
+    /// <summary>Compatibility projection for a completed transport submission.</summary>
     Completed,
-    /// <summary>The input was admitted to the runtime work queue.</summary>
+    /// <summary>Compatibility projection for admitted detached hosted work.</summary>
     Queued,
     /// <summary>The active execution accepted the control input.</summary>
     Accepted,
@@ -69,31 +69,48 @@ public enum AgentInputDisposition
 }
 
 /// <summary>Represents the result of submitting a semantic <see cref="AgentInputEvent"/>.</summary>
-public sealed record AgentInputResult
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
+[JsonDerivedType(typeof(AgentInputResult.Completed), "completed")]
+[JsonDerivedType(typeof(AgentInputResult.Steered), "steered")]
+[JsonDerivedType(typeof(AgentInputResult.Control), "control")]
+[JsonDerivedType(typeof(AgentInputResult.AudioSession), "audioSession")]
+public abstract record AgentInputResult
 {
-    /// <summary>Gets how the input was admitted or completed.</summary>
-    public required AgentInputDisposition Disposition { get; init; }
+    private AgentInputResult() { }
 
-    /// <summary>Gets the completed turn result when the input ran synchronously.</summary>
-    public AgentTurnResult TurnResult { get; init; } = AgentTurnResult.Empty;
+    /// <summary>One distinct work item reached terminal completion.</summary>
+    public sealed record Completed(
+        AgentTurnResult TurnResult,
+        string? ThreadExecutionId) : AgentInputResult;
 
-    /// <summary>Gets the execution assigned to or targeted by the input.</summary>
-    public string? ThreadExecutionId { get; init; }
+    /// <summary>Guidance was atomically accepted by the targeted active execution.</summary>
+    public sealed record Steered(string? ThreadExecutionId) : AgentInputResult;
+
+    /// <summary>An immediate control was accepted or an expected race was rejected.</summary>
+    public sealed record Control(
+        AgentInputDisposition Disposition,
+        string? ThreadExecutionId) : AgentInputResult;
+
+    /// <summary>One exact Audio-session command reached a closed terminal result.</summary>
+    public sealed record AudioSession(AudioSessionInputResult Result) : AgentInputResult;
 }
 
-/// <summary>
-/// Receipt returned when input is accepted by a running agent runtime.
-/// </summary>
-public sealed record AgentRuntimeInputSubmission(
+/// <summary>Internal receipt for one tracked runtime submission.</summary>
+internal sealed record RuntimeInputReceipt(
     AgentInputEvent Input,
-    Task<AgentRuntimeInputOutcome> Completion);
+    Task<AgentRuntimeInputOutcome> Completion,
+    CancellationToken CallerToken,
+    CancellationTokenRegistration CancellationRegistration) : IDisposable
+{
+    public void Dispose() => CancellationRegistration.Dispose();
+}
 
 /// <summary>
 /// Execution outcome reported by the runtime queue. Hosted lifecycle controllers use this
 /// result to commit their terminal thread-run fact; the core runtime does not create one.
 /// </summary>
 public sealed record AgentRuntimeInputOutcome(
-    AgentTurnResult Result,
+    AgentInputResult Result,
     bool Cancelled,
     Exception? Error);
 

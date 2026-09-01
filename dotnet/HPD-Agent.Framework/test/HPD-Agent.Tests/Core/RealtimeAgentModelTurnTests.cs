@@ -32,7 +32,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         finally
         {
             capture.Dispose();
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var resultMessages = SentContents<FunctionResultContent>(session).ToList();
@@ -66,7 +66,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                     TextDone("resp-final")
                 ]
             ]);
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
         config.SessionStore = store;
         var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
@@ -85,7 +85,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         finally
         {
             capture.Dispose();
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var capturedEvents = capture.Snapshot();
@@ -118,7 +118,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                     TextDone("resp-final")
                 ]
             ]);
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
         config.SessionStore = store;
         var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
@@ -148,7 +148,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         finally
         {
             capture.Dispose();
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         Assert.Equal("whisper-1", session.Options?.TranscriptionOptions?.ModelId);
@@ -188,7 +188,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                     ResponseDone("resp-final")
                 ]
             ]);
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
         config.SessionStore = store;
         var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
@@ -218,7 +218,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         finally
         {
             capture.Dispose();
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var capturedEvents = capture.Snapshot();
@@ -251,7 +251,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                     ResponseDone("resp-final")
                 ]
             ]);
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
         config.SessionStore = store;
         var agent = TestAgentFactory.CreateWithMiddlewares(
@@ -281,7 +281,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         finally
         {
             capture.Dispose();
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var thread = await store.ProjectThreadAsync(
@@ -312,7 +312,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                     }
                 ]
             ]);
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
         config.SessionStore = store;
         var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
@@ -329,7 +329,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         }
         finally
         {
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var thread = await store.ProjectThreadAsync("session-dup", "main", ThreadProjectionPurpose.ThreadHistory, TestCancellationToken);
@@ -345,7 +345,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                 [ToolCallDone("resp-add", "call-add", "Add", new Dictionary<string, object?> { ["left"] = 2, ["right"] = 3 })],
                 [TextDelta("resp-final", "The answer is 5."), TextDone("resp-final")]
             ]);
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
         config.SessionStore = store;
         var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
@@ -362,7 +362,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         }
         finally
         {
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var thread = await store.ProjectThreadAsync("session-tools", "main", ThreadProjectionPurpose.ThreadHistory, TestCancellationToken);
@@ -390,7 +390,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                 [ToolCallDone("resp-add", "call-add", "Add", new Dictionary<string, object?> { ["left"] = 10, ["right"] = 7 })],
                 [TextDelta("resp-2", "The answer is 17."), TextDone("resp-2")]
             ]);
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
         config.SessionStore = store;
         var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
@@ -413,7 +413,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         }
         finally
         {
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var sentUserTexts = session.Sent
@@ -447,7 +447,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                     }
                 ]
             ]);
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
         config.SessionStore = store;
         var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
@@ -460,7 +460,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                 "main",
                 runConfig: CreateRealtimeMathRunConfig(session),
                 cancellationToken: TestCancellationToken));
-        agent.Dispose();
+        await agent.DisposeAsync();
 
         Assert.Contains("provider.error", ex.Message);
 
@@ -491,7 +491,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                 ],
                 [TextDelta("resp-final", "The answers are 5 and 20."), TextDone("resp-final")]
             ]);
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
         config.SessionStore = store;
         var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
@@ -508,7 +508,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         }
         finally
         {
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var resultMessages = SentContents<FunctionResultContent>(session).ToList();
@@ -557,7 +557,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         finally
         {
             capture.Dispose();
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var deltas = capture.Snapshot().OfType<TextDeltaEvent>().Select(evt => evt.Text).ToArray();
@@ -585,7 +585,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         }
         finally
         {
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         Assert.True(middleware.WasCalled);
@@ -616,7 +616,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         finally
         {
             capture.Dispose();
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var capturedEvents = capture.Snapshot();
@@ -667,7 +667,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         finally
         {
             capture.Dispose();
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var result = Assert.Single(SentContents<FunctionResultContent>(session));
@@ -706,7 +706,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         finally
         {
             capture.Dispose();
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var capturedEvents = capture.Snapshot();
@@ -748,7 +748,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         finally
         {
             capture.Dispose();
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var capturedEvents = capture.Snapshot();
@@ -776,7 +776,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         }
         finally
         {
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var result = Assert.Single(SentContents<FunctionResultContent>(session));
@@ -808,7 +808,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         finally
         {
             capture.Dispose();
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var capturedEvents = capture.Snapshot();
@@ -845,7 +845,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         }
         finally
         {
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var result = Assert.Single(SentContents<FunctionResultContent>(session));
@@ -871,7 +871,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                 Transport = AgentModelTransportMode.Realtime,
                 Realtime = new RealtimeClientConfig
                 {
-                    Override = new ClientOverride<IRealtimeClient> { Client = new FakeRealtimeClient(session) },
+                    Override = ClientOverride<IRealtimeClient>.Borrow(new FakeRealtimeClient(session)),
                     Transcription = realtimeTranscriptionOptions is null
                         ? null
                         : new RealtimeTranscriptionRunConfig
@@ -1107,9 +1107,9 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
             BeforeMessageTurnContext context,
             CancellationToken cancellationToken)
         {
-            if (context.UserMessage is { } message)
+            if (context.UserInputMessages[0] is { } message)
             {
-                context.UserMessage = new ChatMessage(message.Role, message.Contents.ToArray())
+                context.UserInputMessages[0] = new ChatMessage(message.Role, message.Contents.ToArray())
                 {
                     AdditionalProperties = message.AdditionalProperties,
                     AuthorName = message.AuthorName,

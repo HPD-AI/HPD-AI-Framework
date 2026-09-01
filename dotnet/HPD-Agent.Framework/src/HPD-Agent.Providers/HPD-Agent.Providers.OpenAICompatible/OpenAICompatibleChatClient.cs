@@ -704,14 +704,14 @@ public class OpenAICompatibleChatClient : IChatClient
             OutputTokenCount = outputTokens,
             TotalTokenCount = usage.TotalTokens ?? NullableSum(inputTokens, outputTokens),
             CachedInputTokenCount = usage.PromptTokenDetails?.CachedTokens ?? usage.InputTokenDetails?.CachedTokens,
-            ReasoningTokenCount = usage.CompletionTokenDetails?.ReasoningTokens ?? usage.OutputTokenDetails?.ReasoningTokens
+            ReasoningTokenCount = usage.CompletionTokenDetails?.ReasoningTokens ?? usage.OutputTokenDetails?.ReasoningTokens,
+#pragma warning disable MEAI001
+            InputAudioTokenCount = usage.PromptTokenDetails?.AudioTokens ?? usage.InputTokenDetails?.AudioTokens,
+            OutputAudioTokenCount = usage.CompletionTokenDetails?.AudioTokens ?? usage.OutputTokenDetails?.AudioTokens
+#pragma warning restore MEAI001
         };
 
-        AddUsageCounts(usageDetails, usage.ExtraCounts, null);
-        AddTokenDetailCounts(usageDetails, "prompt_tokens_details", usage.PromptTokenDetails);
-        AddTokenDetailCounts(usageDetails, "completion_tokens_details", usage.CompletionTokenDetails);
-        AddTokenDetailCounts(usageDetails, "input_tokens_details", usage.InputTokenDetails);
-        AddTokenDetailCounts(usageDetails, "output_tokens_details", usage.OutputTokenDetails);
+        AddPredictionCounts(usageDetails, usage.CompletionTokenDetails ?? usage.OutputTokenDetails);
 
         return usageDetails;
     }
@@ -719,9 +719,8 @@ public class OpenAICompatibleChatClient : IChatClient
     private static long? NullableSum(long? left, long? right)
         => left.HasValue || right.HasValue ? (left ?? 0) + (right ?? 0) : null;
 
-    private static void AddTokenDetailCounts(
+    private static void AddPredictionCounts(
         UsageDetails usage,
-        string prefix,
         OpenAICompatibleTokenUsageDetails? details)
     {
         if (details is null)
@@ -729,29 +728,8 @@ public class OpenAICompatibleChatClient : IChatClient
             return;
         }
 
-        AddUsageCount(usage, $"{prefix}.audio_tokens", details.AudioTokens);
-        AddUsageCount(usage, $"{prefix}.accepted_prediction_tokens", details.AcceptedPredictionTokens);
-        AddUsageCount(usage, $"{prefix}.rejected_prediction_tokens", details.RejectedPredictionTokens);
-        AddUsageCounts(usage, details.ExtraCounts, prefix);
-    }
-
-    private static void AddUsageCounts(
-        UsageDetails usage,
-        Dictionary<string, JsonElement>? counts,
-        string? prefix)
-    {
-        if (counts is null)
-        {
-            return;
-        }
-
-        foreach (var (name, value) in counts)
-        {
-            if (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var count))
-            {
-                AddUsageCount(usage, string.IsNullOrEmpty(prefix) ? name : $"{prefix}.{name}", count);
-            }
-        }
+        AddUsageCount(usage, AgentUsageCountKeys.AcceptedPredictionTokens, details.AcceptedPredictionTokens);
+        AddUsageCount(usage, AgentUsageCountKeys.RejectedPredictionTokens, details.RejectedPredictionTokens);
     }
 
     private static void AddUsageCount(UsageDetails usage, string name, long? count)

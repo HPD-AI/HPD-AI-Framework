@@ -44,6 +44,7 @@ using OperationStatusConverter = LowerCamelJsonStringEnumConverter<OperationStat
 [JsonSerializable(typeof(QueryExtension))]
 [JsonSerializable(typeof(FilterExpression))]
 [JsonSerializable(typeof(QueryValue))]
+[JsonSerializable(typeof(BaseRelationalPredicate))]
 [JsonSerializable(typeof(VisibilityLevel))]
 [JsonSerializable(typeof(CapabilityStatus))]
 [JsonSerializable(typeof(RelationalObjectKind))]

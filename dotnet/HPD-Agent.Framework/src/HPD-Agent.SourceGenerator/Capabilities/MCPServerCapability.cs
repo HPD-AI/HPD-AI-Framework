@@ -4,9 +4,9 @@ using System.Text;
 namespace HPD.Agent.SourceGenerator.Capabilities;
 
 /// <summary>
-/// Represents an MCP server capability — a method that returns MCPServerConfig
+/// Represents an MCP server capability — a method that returns McpServerConfig
 /// to register an MCP server connection when the toolharness is loaded.
-/// Decorated with [MCPServer] attribute.
+/// Decorated with [McpServer] attribute.
 /// </summary>
 internal class MCPServerCapability : BaseCapability
 {
@@ -55,42 +55,20 @@ internal class MCPServerCapability : BaseCapability
 
     /// <summary>
     /// Generates the registration code for this MCP server.
-    /// Unlike other capabilities, this emits an MCPServerRegistration object
-    /// (not an HPDAIFunctionFactory.Create call) because MCP tools are loaded at runtime.
+    /// Unlike ordinary functions, this emits a protocol-neutral MCP source descriptor.
     /// </summary>
     public override string GenerateRegistrationCode(object parent)
     {
         var toolharness = (ToolHarnessInfo)parent;
-        var sb = new StringBuilder();
-
-        sb.AppendLine("new HPD.Agent.MCP.MCPServerRegistration");
-        sb.AppendLine("{");
-        sb.AppendLine($"    Name = \"{EscapeString(Name)}\",");
-        sb.AppendLine($"    Description = \"{EscapeString(Description)}\",");
-        sb.AppendLine($"    ParentToolHarness = \"{toolharness.EffectiveName}\",");
-        sb.AppendLine($"    CollapseWithinToolHarness = {CollapseWithinToolHarness.ToString().ToLower()},");
-
-        if (FromManifest != null)
-        {
-            sb.AppendLine($"    FromManifest = \"{EscapeString(FromManifest)}\",");
-            sb.AppendLine($"    ManifestServerName = \"{EscapeString(ManifestServerName ?? Name)}\",");
-        }
-
-        if (RequiresPermission)
-            sb.AppendLine($"    RequiresPermissionOverride = true,");
-
-        if (IsStatic)
-        {
-            sb.AppendLine($"    StaticConfigProvider = () => {toolharness.ClassName}.{MethodName}()");
-        }
-        else
-        {
-            sb.AppendLine($"    InstanceConfigProvider = (instance) => (({toolharness.ClassName})instance).{MethodName}()");
-        }
-
-        sb.AppendLine("}");
-
-        return sb.ToString();
+        var provider = IsStatic
+            ? $"{toolharness.ClassName}.{MethodName}()"
+            : $"(({toolharness.ClassName})instance!).{MethodName}()";
+        var sourceId = $"mcp.toolharness:{toolharness.EffectiveName}:{Name}";
+        var permission = RequiresPermission ? "true" : "null";
+        var factory = FromManifest is null
+            ? $"static {(IsStatic ? "_" : "instance")} => HPD.Agent.MCP.McpCapabilitySourceFactory.FromServer(\"{EscapeString(sourceId)}\", {provider}!, \"{EscapeString(toolharness.EffectiveName)}\", {CollapseWithinToolHarness.ToString().ToLower()}, {permission})"
+            : $"static _ => HPD.Agent.MCP.McpCapabilitySourceFactory.FromManifestServer(\"{EscapeString(sourceId)}\", \"{EscapeString(FromManifest)}\", \"{EscapeString(ManifestServerName ?? Name)}\", \"{EscapeString(toolharness.EffectiveName)}\", {CollapseWithinToolHarness.ToString().ToLower()}, {permission})";
+        return $"new HPD.Agent.McpServerSource(\"{EscapeString(Name)}\", \"{EscapeString(Description)}\", \"{EscapeString(toolharness.EffectiveName)}\", {CollapseWithinToolHarness.ToString().ToLower()}, {(FromManifest is null ? "null" : $"\"{EscapeString(FromManifest)}\"")}, {(FromManifest is null ? "null" : $"\"{EscapeString(ManifestServerName ?? Name)}\"")}, {permission}, {factory})";
     }
 
     /// <summary>
@@ -100,8 +78,13 @@ internal class MCPServerCapability : BaseCapability
     {
         var toolharness = (ToolHarnessInfo)parent;
         var provider = IsStatic
-            ? $"static _ => {toolharness.ClassName}.{MethodName}()"
-            : $"static instance => (({toolharness.ClassName})instance!).{MethodName}()";
+            ? $"{toolharness.ClassName}.{MethodName}()"
+            : $"(({toolharness.ClassName})instance!).{MethodName}()";
+        var sourceId = $"mcp.toolharness:{toolharness.EffectiveName}:{Name}";
+        var permission = RequiresPermission ? "true" : "null";
+        var factoryProvider = FromManifest is null
+            ? $"static {(IsStatic ? "_" : "instance")} => HPD.Agent.MCP.McpCapabilitySourceFactory.FromServer(\"{EscapeString(sourceId)}\", {provider}!, \"{EscapeString(toolharness.EffectiveName)}\", {CollapseWithinToolHarness.ToString().ToLower()}, {permission})"
+            : $"static _ => HPD.Agent.MCP.McpCapabilitySourceFactory.FromManifestServer(\"{EscapeString(sourceId)}\", \"{EscapeString(FromManifest)}\", \"{EscapeString(ManifestServerName ?? Name)}\", \"{EscapeString(toolharness.EffectiveName)}\", {CollapseWithinToolHarness.ToString().ToLower()}, {permission})";
 
         return
             "            __mcpCollector(new HPD.Agent.McpServerSource(\n" +
@@ -112,7 +95,7 @@ internal class MCPServerCapability : BaseCapability
             $"                FromManifest: {(FromManifest is null ? "null" : $"\"{EscapeString(FromManifest)}\"")},\n" +
             $"                ManifestServerName: {(FromManifest is null ? "null" : $"\"{EscapeString(ManifestServerName ?? Name)}\"")},\n" +
             $"                RequiresPermissionOverride: {(RequiresPermission ? "true" : "null")},\n" +
-            $"                ConfigProvider: {provider}));";
+            $"                FactoryProvider: {factoryProvider}));";
     }
 
     /// <summary>

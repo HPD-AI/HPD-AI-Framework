@@ -24,6 +24,8 @@ public sealed record AgentCapabilityResource
 }
 
 /// <summary>Requests authority to cross an enforced agent sandbox boundary.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("AGENT_CAPABILITY_REQUEST")]
 public sealed record AgentCapabilityRequestEvent(
     string RequestId,
     string SourceName,
@@ -38,6 +40,8 @@ public sealed record AgentCapabilityRequestEvent(
 }
 
 /// <summary>Returns the host decision for an agent capability request.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("AGENT_CAPABILITY_RESPONSE")]
 public sealed record AgentCapabilityResponseEvent(
     string RequestId,
     string SourceName,

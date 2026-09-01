@@ -205,7 +205,7 @@ public class StructuredOutputToolModeTests
             SystemInstructions = "You are a helpful test agent.",
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig
             {
-                ProviderKey = "test",
+                Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" },
                 ModelName = "test-model"
             } },
             ServerConfiguredTools = [regularTool]

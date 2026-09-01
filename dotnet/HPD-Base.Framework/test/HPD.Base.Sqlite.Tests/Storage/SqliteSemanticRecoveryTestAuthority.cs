@@ -146,7 +146,7 @@ internal sealed class SqliteSemanticRecoveryTestAuthority : IBaseSemanticActivat
         { LogicalStoreId = "module-store", EnabledRestoreMode = BaseActivationRestoreMode.NewDisasterDomain,
             SelectionGeneration = 1, Identity = identity, Checksum = [] };
         selection = selection with { Checksum = BaseSemanticRecoveryAuthorityRegistry.SelectionChecksum(selection) };
-        BaseSemanticActivationCapability provider = BaseSemanticActivationCapabilityContract.BuiltIn(true) with
+        BaseSemanticActivationCapability provider = BaseSemanticActivationCapabilityContract.BuiltIn(true, true) with
         { RestoreModes = [BaseActivationRestoreMode.InPlaceRecovery, BaseActivationRestoreMode.NewDisasterDomain], Checksum = [] };
         provider = provider with { Checksum = BaseSemanticActivationCapabilityContract.Checksum(provider) };
         var registry = new BaseSemanticRecoveryAuthorityRegistry([selection], [registration], provider, 1, TimeProvider.System);

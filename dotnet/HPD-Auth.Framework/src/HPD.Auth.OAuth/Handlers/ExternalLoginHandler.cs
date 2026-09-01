@@ -4,11 +4,9 @@ using HPD.Auth.Core.Entities;
 using HPD.Auth.Core.Events;
 using HPD.Auth.Core.Interfaces;
 using HPD.Auth.Core.Options;
-using HPD.Auth.Infrastructure.Data;
 using HPD.Events;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace HPD.Auth.OAuth.Handlers;
@@ -20,25 +18,28 @@ public sealed class ExternalLoginHandler
 {
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly SignInManager<ApplicationUser> _signInManager;
-    private readonly HPDAuthDbContext _context;
+    private readonly IAuthExternalIdentityProfileStore _profiles;
     private readonly IEventCoordinator _eventCoordinator;
     private readonly HPDAuthOptions _options;
     private readonly ILogger<ExternalLoginHandler> _logger;
+    private readonly TimeProvider _timeProvider;
 
     public ExternalLoginHandler(
         UserManager<ApplicationUser> userManager,
         SignInManager<ApplicationUser> signInManager,
-        HPDAuthDbContext context,
+        IAuthExternalIdentityProfileStore profiles,
         IEventCoordinator eventCoordinator,
         HPDAuthOptions options,
-        ILogger<ExternalLoginHandler> logger)
+        ILogger<ExternalLoginHandler> logger,
+        TimeProvider? timeProvider = null)
     {
         _userManager      = userManager      ?? throw new ArgumentNullException(nameof(userManager));
         _signInManager    = signInManager    ?? throw new ArgumentNullException(nameof(signInManager));
-        _context          = context          ?? throw new ArgumentNullException(nameof(context));
+        _profiles         = profiles         ?? throw new ArgumentNullException(nameof(profiles));
         _eventCoordinator = eventCoordinator ?? throw new ArgumentNullException(nameof(eventCoordinator));
         _options          = options          ?? throw new ArgumentNullException(nameof(options));
         _logger           = logger           ?? throw new ArgumentNullException(nameof(logger));
+        _timeProvider     = timeProvider ?? TimeProvider.System;
     }
 
     public async Task<ExternalLoginResult> HandleCallbackAsync(
@@ -94,9 +95,10 @@ public sealed class ExternalLoginHandler
             return ExternalLoginResult.Failed("User not found");
         }
 
-        user.LastLoginAt = DateTime.UtcNow;
+        DateTimeOffset now = _timeProvider.GetUtcNow();
+        user.LastLoginAt = now.UtcDateTime;
         user.LastLoginIp = ipAddress is not null ? ipAddress[..Math.Min(ipAddress.Length, 45)] : null;
-        user.Updated = DateTime.UtcNow;
+        user.Updated = now.UtcDateTime;
         await _userManager.UpdateAsync(user);
 
         await UpsertUserIdentityAsync(user, info, ct);
@@ -152,15 +154,15 @@ public sealed class ExternalLoginHandler
             UserName         = email,
             Email            = email,
             EmailConfirmed   = true,
-            EmailConfirmedAt = DateTime.UtcNow,
+            EmailConfirmedAt = _timeProvider.GetUtcNow().UtcDateTime,
             FirstName        = info.Principal.FindFirstValue(ClaimTypes.GivenName)
                             ?? info.Principal.FindFirstValue("first_name"),
             LastName         = info.Principal.FindFirstValue(ClaimTypes.Surname)
                             ?? info.Principal.FindFirstValue("last_name"),
             DisplayName      = displayName,
             AvatarUrl        = avatarUrl,
-            Created          = DateTime.UtcNow,
-            Updated          = DateTime.UtcNow,
+            Created          = _timeProvider.GetUtcNow().UtcDateTime,
+            Updated          = _timeProvider.GetUtcNow().UtcDateTime,
         };
 
         var createResult = await _userManager.CreateAsync(user);
@@ -196,35 +198,38 @@ public sealed class ExternalLoginHandler
     {
         if (!_options.OAuth.StoreRawProfileData) return;
 
-        var identityData = JsonSerializer.Serialize(
-            info.Principal.Claims
-                .GroupBy(c => c.Type)
-                .ToDictionary(g => g.Key, g => g.Select(c => c.Value).ToArray()));
-
-        var existing = await _context.UserIdentities
-            .FirstOrDefaultAsync(i => i.UserId == user.Id && i.Provider == info.LoginProvider, ct);
-
-        if (existing is not null)
+        string identityData = CanonicalIdentityClaims(info.Principal.Claims);
+        DateTimeOffset now = _timeProvider.GetUtcNow();
+        await _profiles.UpsertAsync(new AuthExternalIdentityProfileUpdate
         {
-            existing.LastSignInAt = DateTime.UtcNow;
-            existing.IdentityData = identityData;
-            existing.UpdatedAt    = DateTime.UtcNow;
-        }
-        else
+            UserId = user.Id,
+            Provider = info.LoginProvider,
+            ProviderId = info.ProviderKey,
+            CanonicalIdentityJson = identityData,
+            SignedInAt = now,
+        }, ct);
+    }
+
+    private static string CanonicalIdentityClaims(IEnumerable<Claim> claims)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
         {
-            _context.UserIdentities.Add(new UserIdentity
+            writer.WriteStartObject();
+            foreach (IGrouping<string, Claim> group in claims
+                .GroupBy(static claim => claim.Type, StringComparer.Ordinal)
+                .OrderBy(static group => group.Key, StringComparer.Ordinal))
             {
-                UserId       = user.Id,
-                InstanceId   = user.InstanceId,
-                Provider     = info.LoginProvider,
-                ProviderId   = info.ProviderKey,
-                IdentityData = identityData,
-                LastSignInAt = DateTime.UtcNow,
-                CreatedAt    = DateTime.UtcNow,
-            });
+                writer.WritePropertyName(group.Key);
+                writer.WriteStartArray();
+                foreach (string value in group.Select(static claim => claim.Value)
+                    .Order(StringComparer.Ordinal))
+                    writer.WriteStringValue(value);
+                writer.WriteEndArray();
+            }
+            writer.WriteEndObject();
         }
-
-        await _context.SaveChangesAsync(ct);
+        return System.Text.Encoding.UTF8.GetString(stream.GetBuffer().AsSpan(0, checked((int)stream.Length)));
     }
 }
 

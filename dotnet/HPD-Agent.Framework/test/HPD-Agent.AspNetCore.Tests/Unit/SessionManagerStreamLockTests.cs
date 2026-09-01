@@ -15,7 +15,7 @@ public class SessionManagerThreadOperationLockTests : IDisposable
 
     public SessionManagerThreadOperationLockTests()
     {
-        _store = new InMemorySessionStore();
+        _store = new InMemorySessionStore(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec);
         _manager = new TestSessionManagerImpl(_store);
     }
 

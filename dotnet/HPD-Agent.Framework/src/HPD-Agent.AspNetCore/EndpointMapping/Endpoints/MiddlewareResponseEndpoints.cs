@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Agent.AspNetCore.EndpointMapping.Endpoints;
 
@@ -18,10 +19,11 @@ internal static class MiddlewareResponseEndpoints
     /// </summary>
     internal static void Map(
         IEndpointRouteBuilder endpoints,
-        IAgentMiddlewareResponseService responses)
+        IAgentMiddlewareResponseService responses,
+        AgentEventCodec codec)
     {
         endpoints.MapPost("/agents/{agentId}/sessions/{sid}/threads/{bid}/responses", (string agentId, string sid, string bid, HttpRequest request, CancellationToken ct) =>
-                Respond(RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid), request, responses, ct))
+                Respond(RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid), request, responses, codec, ct))
             .WithName("RespondToAgentRequest")
             .WithSummary("Respond to a request from the agent");
     }
@@ -32,6 +34,7 @@ internal static class MiddlewareResponseEndpoints
         string bid,
         HttpRequest request,
         IAgentMiddlewareResponseService responses,
+        AgentEventCodec codec,
         CancellationToken ct = default)
     {
         try
@@ -46,7 +49,12 @@ internal static class MiddlewareResponseEndpoints
                 });
             }
 
-            if (AgentEventSerializer.FromJson(json) is not AgentEvent evt)
+            AgentEvent evt;
+            try
+            {
+                evt = codec.DeserializeEvent(json);
+            }
+            catch
             {
                 return TypedResults.ValidationProblem(new Dictionary<string, string[]>
                 {

@@ -15,7 +15,7 @@ public sealed class GatewayManagementOptions
     public string ManagementAuthorityId { get; set; } = "local";
     public GatewayAuthorityDurability RequiredDurability { get; set; } = GatewayAuthorityDurability.ProcessLocal;
     public int MaximumTargets { get; set; } = 4_096;
-    public int MaximumCommandUtf8Bytes { get; set; } = 4 * 1024 * 1024;
+    public int MaximumCommandUtf8Bytes { get; set; } = 1_048_576;
     public int MaximumDeliveryAttempts { get; set; } = 8;
     public TimeSpan DeliveryClaimLease { get; set; } = TimeSpan.FromSeconds(30);
     public TimeSpan AdministrativeClaimLease { get; set; } = TimeSpan.FromSeconds(30);
@@ -134,14 +134,13 @@ public sealed class GatewayControlPlaneBuilder
         return this;
     }
 
-    public GatewayControlPlaneBuilder AddStudio(Action<GatewayStudioEndpointOptions>? configure = null)
+    /// <summary>Adds Gateway's immutable Studio contribution to the shared HPD Studio graph.</summary>
+    public GatewayControlPlaneBuilder AddStudio()
     {
-        if (Registration.StudioOptions is not null)
+        if (Registration.StudioConfigured)
             throw new InvalidOperationException("Gateway Studio is already configured.");
-        var options = new GatewayStudioEndpointOptions();
-        configure?.Invoke(options);
         GatewayStudioComposition.AddGatewayStudioCore(Services.AddHPDAIPlatform());
-        Registration.StudioOptions = options.Snapshot();
+        Registration.StudioConfigured = true;
         return this;
     }
 }
@@ -173,16 +172,10 @@ public static class GatewayControlPlaneServiceCollectionExtensions
     {
         if (!registration.AuthorityConfigured)
             throw new InvalidOperationException("Select exactly one explicit Gateway control-plane authority.");
-        if (registration.StudioOptions is not { } studio)
+        if (!registration.StudioConfigured)
             return;
         if (registration.AdminOptions is not { } admin)
             throw new InvalidOperationException("Gateway Studio requires the Gateway Admin API.");
-        if (!StringComparer.Ordinal.Equals(admin.RoutePrefix, studio.ApiBasePath))
-            throw new InvalidOperationException("Gateway Studio ApiBasePath must exactly match the Gateway Admin RoutePrefix.");
-        if (!StringComparer.Ordinal.Equals(admin.EndpointSurfaceId, studio.EndpointSurfaceId))
-            throw new InvalidOperationException("Gateway Studio and the Gateway Admin API must use the same endpoint surface ID.");
-        if (admin.RequireManagementListener != studio.RequireManagementListener)
-            throw new InvalidOperationException("Gateway Studio and the Gateway Admin API must use the same management-listener requirement.");
     }
 
     private static void Commit(IServiceCollection destination, IServiceCollection staged)
@@ -228,12 +221,20 @@ public static class GatewayControlPlaneServiceCollectionExtensions
                     schema.PlanProtectionKey = RandomNumberGenerator.GetBytes(32);
             });
             GatewayAuthoritySchema.AddTo(builder);
+            builder.AddPolicyAuthority(new BasePolicyAuthorityDefinition
+            {
+                Id = "hpd.gateway.management.internal",
+                Version = 1,
+                OwningModuleId = "hpd.gateway",
+                EvaluatorContractId = "hpd.gateway.management.internal-policy",
+                EvaluatorContractVersion = 1,
+                CompositionOrder = 0,
+            }, new GatewayManagementBasePolicy());
             if (configureBase is null)
                 builder.ConfigureInMemoryStore(store => store.AllowClientRequestedIds = true);
             else
                 configureBase(builder);
         });
-        services.Replace(ServiceDescriptor.Singleton<IPolicyEvaluator>(new GatewayManagementBasePolicy()));
         services.AddSingleton(new GatewayManagementRuntimeOptions(options));
         services.TryAddSingleton<GatewayAuthorityRuntime>();
         services.TryAddSingleton<IGatewayAuthorityRuntime>(static provider =>
@@ -265,7 +266,7 @@ public static class GatewayControlPlaneServiceCollectionExtensions
             throw new ArgumentOutOfRangeException(nameof(options));
         if (options.MaximumTargets is < 1 or > 65_536)
             throw new ArgumentOutOfRangeException(nameof(options.MaximumTargets));
-        if (options.MaximumCommandUtf8Bytes is < 1_024 or > 16 * 1024 * 1024)
+        if (options.MaximumCommandUtf8Bytes is < 1_024 or > 1_048_576)
             throw new ArgumentOutOfRangeException(nameof(options.MaximumCommandUtf8Bytes));
         if (options.MaximumDeliveryAttempts is < 1 or > 64)
             throw new ArgumentOutOfRangeException(nameof(options.MaximumDeliveryAttempts));

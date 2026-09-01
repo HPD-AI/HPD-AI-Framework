@@ -61,6 +61,7 @@ dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.AppleInte
 dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.AppleIntelligence/native/apple/maccatalyst/
 dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.AppleIntelligence/native/apple/HPDIntelligence/.build/
 .claude/
+**/.svelte-check/
 
 # Apple Virtualization real-acceptance local artifacts
 **/.hpd-real-acceptance-scratch/

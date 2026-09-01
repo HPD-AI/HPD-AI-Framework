@@ -1,0 +1,140 @@
+{
+  "formatVersion": 1,
+  "applicationId": "hpd.auth.base.consumer-proof",
+  "evidence": {
+    "inMemory": "l3b.managed.inmemory.2026-08-26",
+    "sqlite": "l3b.managed.sqlite.2026-08-26",
+    "inMemoryAot": "l3b.native-aot.inmemory.osx-arm64.2026-08-26",
+    "sqliteAot": "l3b.native-aot.sqlite.osx-arm64.2026-08-26"
+  },
+  "rows": [
+    {
+      "rowId": "l50-typed-crud-generations",
+      "construct": "L50 typed CRUD and generations",
+      "source": "IdentityAndGenerationProof.cs:6",
+      "handleId": "proof.identity-and-generation.v1@1",
+      "handleChecksum": "d1b8ecb018c039bb0e7951a126fcc86b6b0f8a8bb5c85fdae615b6b6f3c068ad",
+      "terminal": "BaseInstalledModuleMutationHandle<IdentityAndGenerationRequest, IdentityAndGenerationResult>.ExecuteAsync"
+    },
+    {
+      "rowId": "request-predicates-guarded-captures",
+      "construct": "request predicates and guarded captures",
+      "source": "RequestControlProof.cs:5",
+      "handleId": "proof.request-control.v1@1",
+      "handleChecksum": "4605f0d3d057cbfd4ed3d6e0476185b1a2e698cabf815af8cec478ad38c65ae3",
+      "terminal": "BaseInstalledModuleMutationHandle<RequestControlRequest, RequestControlResult>.ExecuteAsync"
+    },
+    {
+      "rowId": "bounded-static-sets",
+      "construct": "bounded static sets",
+      "source": "StaticSetProof.cs:5",
+      "handleId": "proof.static-set.v1@1",
+      "handleChecksum": "867fe4889acc29661dd433d1484b8460d6e0f8c2d80bff3362ebbe7080e45668",
+      "terminal": "BaseInstalledModuleMutationHandle<StaticSetRequest, StaticSetResult>.ExecuteAsync"
+    },
+    {
+      "rowId": "missing-removal-receipt-replay",
+      "construct": "missing removal and receipt replay",
+      "source": "PresenceAndRemovalProof.cs:5",
+      "handleId": "proof.presence-and-removal.v1@1",
+      "handleChecksum": "d5c26f90cae719b394bef5a5707b9c953b412df6ba849cc87e84c7b5a9c37ebe",
+      "terminal": "BaseInstalledModuleMutationHandle<PresenceAndRemovalRequest, PresenceAndRemovalResult>.ExecuteAsync"
+    },
+    {
+      "rowId": "l53-ensure",
+      "construct": "L53 ensure from activation context",
+      "source": "SemanticProof.cs:35",
+      "handleId": "proof.semantic.ensure.v1@1",
+      "handleChecksum": "900eb89109e37f92b2e209fcb233eb891be23eebd9de8ab962bf9a6a539162ac",
+      "terminal": "BaseActivationContext.ExecuteModuleMutationAsync<SemanticProofRequest, SemanticEnsureProofResult>"
+    },
+    {
+      "rowId": "l53-retirement",
+      "construct": "L53 retirement from activation context",
+      "source": "SemanticProof.cs:115",
+      "handleId": "proof.semantic.retire.v1@1",
+      "handleChecksum": "fb675772b8af447998cf9c8254a3ac9bba74fcd01f3dcfb86e651d320ecd6eb6",
+      "terminal": "BaseActivationContext.ExecuteModuleMutationAsync<SemanticProofRequest, SemanticRetireProofResult>"
+    },
+    {
+      "rowId": "guarded-l43",
+      "construct": "guarded L43 positive and zero cohorts",
+      "source": "SelectionProof.cs:9",
+      "handleId": "proof.selection.delete.v1@1",
+      "handleChecksum": "5f359193311db16274001b76e6ad35b3a197bc3c0d6eb2ef522bea4f3d3caaf7",
+      "terminal": "BaseActivationContext.GuardSelectionMutation"
+    },
+    {
+      "rowId": "guarded-l47",
+      "construct": "guarded L47 checkpoint and delivery",
+      "source": "LifecycleProof.cs:33",
+      "handleId": "proof.lifecycle.consumer.v1@1",
+      "handleChecksum": "ca1a8c73e6f851a6318cb46d87cfc8d62870f4e8315afddf47fbffbca3173f61",
+      "terminal": "BaseActivationContext.GuardSubjectLifecycleCheckpoint"
+    },
+    {
+      "rowId": "guarded-l48",
+      "construct": "guarded L48 acknowledgement",
+      "source": "LifecycleProof.cs:56",
+      "handleId": "proof.retirement.profile.v1@1",
+      "handleChecksum": "ee6675af2ddbe9862429419ff6e97fe29f46489db96b26d3674e5a603b667e22",
+      "terminal": "BaseActivationContext.GuardSubjectRetirementAcknowledgement"
+    },
+    {
+      "rowId": "guarded-l50-child",
+      "construct": "guarded L50 child and fingerprint conflict",
+      "source": "ProofActivation.cs:200",
+      "handleId": "proof.request-control.v1@1",
+      "handleChecksum": "4605f0d3d057cbfd4ed3d6e0476185b1a2e698cabf815af8cec478ad38c65ae3",
+      "terminal": "BaseActivationContext.ExecuteModuleMutationAsync<RequestControlRequest, RequestControlResult>"
+    },
+    {
+      "rowId": "l51-retry-stable-continuation",
+      "construct": "L51 retry-stable continuation",
+      "source": "ProofActivation.cs:185",
+      "handleId": "proof.activation.v1@1",
+      "handleChecksum": "ae91b2670ba3e3993ee88147ef1a83c99bc4977767913ee0cabf58cbbe80623f",
+      "terminal": "BaseActivationContext.GuardModuleMutationAndCreateActivation"
+    },
+    {
+      "rowId": "l76-durable-yield",
+      "construct": "L76 same-activation durable yield beyond lineage depth",
+      "source": "ProofActivation.cs:135",
+      "handleId": "proof.yield.v1@1",
+      "handleChecksum": "3cda3762552fadaf0b61052863c332e96714114dacd15e7040a7485446caea71",
+      "terminal": "BaseActivationYielded<ProofActivationResult>"
+    },
+    {
+      "rowId": "l51-claim-fence-rejection",
+      "construct": "L51 claim and hostile fence rejection",
+      "source": "ProofHost.cs:76",
+      "handleId": "proof.activation.v1@1",
+      "handleChecksum": "ae91b2670ba3e3993ee88147ef1a83c99bc4977767913ee0cabf58cbbe80623f",
+      "terminal": "BaseInstalledActivationWorkerHandle<ProofActivationInput, ProofActivationResult>.CompleteAsync"
+    },
+    {
+      "rowId": "l51-schedule-materialization",
+      "construct": "L51 schedule materialization and static input",
+      "source": "ProofActivation.cs:68",
+      "handleId": "proof.schedule.v1@1",
+      "handleChecksum": "b9e30b67daa1701122c763b3bba31c62be9e75206b75236ca113aeaf8566798e",
+      "terminal": "BaseInstalledScheduleHandle.CreateAsync"
+    },
+    {
+      "rowId": "l62-canonical-json-read",
+      "construct": "L62 canonical JSON read",
+      "source": "ReadProof.cs:22",
+      "handleId": "proof.json.read",
+      "handleChecksum": "ba5bb7e2d1773cb0d64f83aff62edabcb925ea4b552fb2c4f756af7a128632e3",
+      "terminal": "BaseReadSession.ToArrayAsync<ProofJsonRead, ProofJsonRead.Row>"
+    },
+    {
+      "rowId": "l63-compound-count-read",
+      "construct": "L63 compound count read",
+      "source": "ReadProof.cs:55",
+      "handleId": "proof.count.summary",
+      "handleChecksum": "91df6247f85eb53047ca768718a7ef782c972618c427fa96b3773554fe023c7c",
+      "terminal": "BaseReadSession.ToArrayAsync<ProofCountSummary, ProofCountSummary.Row>"
+    }
+  ]
+}

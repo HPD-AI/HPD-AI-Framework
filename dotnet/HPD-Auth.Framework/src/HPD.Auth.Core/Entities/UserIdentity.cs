@@ -4,7 +4,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace HPD.Auth.Core.Entities;
 
 /// <summary>
-/// v2.2: Rich external identity storage ( pattern).
+/// v2.2: Rich external identity storage.
 /// Replaces reliance on AspNetUserLogins for OAuth provider data.
 /// Stores full provider profile including avatar, name, and raw claims as JSONB.
 /// v2.3: Added federation tracking fields for LDAP/SCIM sync.

@@ -5,11 +5,15 @@ namespace HPD.Base;
 internal sealed class InMemoryHealthContributor : IBaseHealthContributor
 {
     private readonly HPDBaseInMemoryStoreOptions _options;
+    private readonly InMemoryRecordStore _store;
 
     /// <summary>Initializes a new instance.</summary>
-    public InMemoryHealthContributor(IOptions<HPDBaseInMemoryStoreOptions> options)
+    public InMemoryHealthContributor(
+        IOptions<HPDBaseInMemoryStoreOptions> options,
+        InMemoryRecordStore store)
     {
         _options = options.Value;
+        _store = store;
     }
 
     /// <summary>Gets the ID.</summary>
@@ -19,6 +23,7 @@ internal sealed class InMemoryHealthContributor : IBaseHealthContributor
     public ValueTask<HealthDescriptor[]> GetHealthAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        bool logicalIndexesQuarantined = _store.LogicalIndexStoreIsQuarantined;
         return ValueTask.FromResult(new[]
         {
             new HealthDescriptor
@@ -26,11 +31,30 @@ internal sealed class InMemoryHealthContributor : IBaseHealthContributor
                 Id = _options.HealthRefId,
                 Scope = HealthScope.Store,
                 TargetRef = _options.StoreId,
-                Status = HealthStatus.Healthy,
+                Status = logicalIndexesQuarantined ? HealthStatus.Unhealthy : HealthStatus.Healthy,
                 CheckedAt = DateTimeOffset.UtcNow,
-                Summary = "InMemory store is registered.",
+                Summary = logicalIndexesQuarantined
+                    ? "InMemory logical-index authority is quarantined."
+                    : "InMemory store is registered.",
                 PublicSafe = false,
-                Visibility = VisibilityLevel.Admin
+                Visibility = VisibilityLevel.Admin,
+                Metrics =
+                [
+                    new HealthMetric
+                    {
+                        Name = "logicalIndexQuarantined",
+                        Kind = HealthMetricValueKind.Boolean,
+                        BooleanValue = logicalIndexesQuarantined,
+                    },
+                    new HealthMetric
+                    {
+                        Name = "logicalIndexReasonCode",
+                        Kind = HealthMetricValueKind.Text,
+                        TextValue = logicalIndexesQuarantined
+                            ? BaseSchemaErrorCodes.ProviderEvidenceInvalid
+                            : null,
+                    },
+                ],
             }
         });
     }

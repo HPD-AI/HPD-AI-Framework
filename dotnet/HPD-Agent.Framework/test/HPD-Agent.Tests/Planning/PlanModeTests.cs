@@ -453,7 +453,7 @@ public class PlanModeTests
         var eventCoordinator = new HPD.Events.Core.EventCoordinator();
         var agentContext = new AgentContext("TestAgent", ConvId, state, eventCoordinator, null, null, CancellationToken.None);
         return agentContext.AsBeforeMessageTurn(
-            new ChatMessage(ChatRole.User, "hello"),
+            [new ChatMessage(ChatRole.User, "hello")],
             new List<ChatMessage>(),
             new AgentRunConfig());
     }
@@ -470,7 +470,7 @@ public class PlanModeTests
         var eventCoordinator = new HPD.Events.Core.EventCoordinator();
         var agentContext = new AgentContext("TestAgent", ConvId, stateWithPlan, eventCoordinator, null, null, CancellationToken.None);
         return agentContext.AsBeforeMessageTurn(
-            new ChatMessage(ChatRole.User, "hello"),
+            [new ChatMessage(ChatRole.User, "hello")],
             new List<ChatMessage>(),
             new AgentRunConfig());
     }

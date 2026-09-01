@@ -4,7 +4,6 @@ using HPD.Auth.Core.Entities;
 using HPD.Auth.Core.Audit;
 using HPD.Auth.Core.Interfaces;
 using HPD.Auth.Extensions;
-using HPD.Auth.Infrastructure.Data;
 using HPD.Auth.TwoFactor.Extensions;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
@@ -65,7 +64,7 @@ public class TwoFactorWebFactory : IAsyncLifetime
                 o.Password.RequiredLength = 6;
                 o.Jwt.Secret = "test-secret-32-chars-minimum-len!!";
             })
-            .UseInMemorySqliteForTests()
+            .UseBaseTestHost()
             .AddAudit()
             .AddAuthentication()
             .AddTwoFactor();
@@ -83,7 +82,7 @@ public class TwoFactorWebFactory : IAsyncLifetime
         builder.Services.AddAuthorization();
 
         var app = builder.Build();
-        app.Services.InitializeHPDAuthDevelopmentDatabaseAsync().GetAwaiter().GetResult();
+        app.Services.InitializeHPDAuthBaseTestHostAsync().GetAwaiter().GetResult();
 
         app.UseAuthentication();
         app.UseAuthorization();

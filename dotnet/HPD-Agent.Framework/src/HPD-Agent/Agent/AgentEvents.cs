@@ -4,6 +4,8 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Agent.Middleware;
 using HPD.Agent.Planning;
+using HPD.Agent.Permissions;
+using HPD.Agent.Providers;
 using HPD.Agent.Serialization;
 using Microsoft.Extensions.AI;
 using EventChannel = HPD.Events.EventChannel;
@@ -77,28 +79,10 @@ public enum InterruptionSource
 }
 
 /// <summary>
-/// Requests interruption of active streams or operations.
-/// </summary>
-public record InterruptionRequestEvent : AgentInputEvent
-{
-    public InterruptionRequestEvent(
-        string? eventFlowId,
-        string Reason,
-        InterruptionSource Source)
-    {
-        EventFlowId = eventFlowId;
-        this.Reason = Reason;
-        this.Source = Source;
-    }
-
-    public string Reason { get; init; }
-    public InterruptionSource Source { get; init; }
-    public string? EventFlowId { get; init; }
-}
-
-/// <summary>
 /// Emitted after an interruption request has been applied to active streams or turns.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("INTERRUPTION_HANDLED")]
 public sealed record InterruptionHandledEvent : AgentEvent
 {
     public InterruptionHandledEvent(
@@ -121,60 +105,6 @@ public sealed record InterruptionHandledEvent : AgentEvent
 
 #endregion
 
-#region Background Operation Types
-
-/// <summary>
-/// Status of a long-running background operation.
-/// Used with AllowBackgroundResponses feature for tracking LLM operations
-/// that run asynchronously on provider infrastructure.
-/// </summary>
-public readonly struct OperationStatus : IEquatable<OperationStatus>
-{
-    /// <summary>Operation has been accepted but not yet started.</summary>
-    public static OperationStatus Queued { get; } = new("Queued");
-
-    /// <summary>Operation is actively running.</summary>
-    public static OperationStatus InProgress { get; } = new("InProgress");
-
-    /// <summary>Operation completed successfully.</summary>
-    public static OperationStatus Completed { get; } = new("Completed");
-
-    /// <summary>Operation failed with an error.</summary>
-    public static OperationStatus Failed { get; } = new("Failed");
-
-    /// <summary>Operation was cancelled.</summary>
-    public static OperationStatus Cancelled { get; } = new("Cancelled");
-
-    /// <summary>The status value as a string.</summary>
-    public string Value { get; }
-
-    /// <summary>Creates a new OperationStatus with the specified value.</summary>
-    public OperationStatus(string value) => Value = value ?? throw new ArgumentNullException(nameof(value));
-
-    /// <summary>Whether this status represents a terminal state (no further updates expected).</summary>
-    public bool IsTerminal => this == Completed || this == Failed || this == Cancelled;
-
-    /// <inheritdoc />
-    public bool Equals(OperationStatus other) => Value == other.Value;
-
-    /// <inheritdoc />
-    public override bool Equals(object? obj) => obj is OperationStatus other && Equals(other);
-
-    /// <inheritdoc />
-    public override int GetHashCode() => Value?.GetHashCode() ?? 0;
-
-    /// <inheritdoc />
-    public override string ToString() => Value;
-
-    /// <summary>Equality operator.</summary>
-    public static bool operator ==(OperationStatus left, OperationStatus right) => left.Equals(right);
-
-    /// <summary>Inequality operator.</summary>
-    public static bool operator !=(OperationStatus left, OperationStatus right) => !left.Equals(right);
-}
-
-#endregion
-
 /// <summary>
 /// Protocol-agnostic internal events emitted by the agent core.
 /// These events represent what actually happened during agent execution,
@@ -189,7 +119,6 @@ public readonly struct OperationStatus : IEquatable<OperationStatus>
 /// Inherits from HPD.Events.Event to participate in unified cross-domain event streaming.
 /// Adapters convert these to protocol-specific formats as needed.
 /// </summary>
-[JsonConverter(typeof(AgentEventJsonConverter))]
 public abstract record AgentEvent : HPD.Events.Event
 {
     /// <summary>
@@ -198,8 +127,9 @@ public abstract record AgentEvent : HPD.Events.Event
     public string EventId { get; init; } = Guid.NewGuid().ToString("N");
 
     /// <summary>
-    /// Authoritative position in a committed thread journal. Zero means the event is stateless
-    /// or has not yet been committed. HPD-Events never assigns or changes this value.
+    /// Authoritative position in a committed thread journal. Zero means the event is staged or
+    /// has not yet been committed. Runs without a configured session store use the agent-owned
+    /// ephemeral journal, so accounted terminal events still receive a canonical position.
     /// </summary>
     public long ThreadSequenceNumber { get; init; }
 
@@ -244,11 +174,6 @@ public abstract record AgentEvent : HPD.Events.Event
     /// </summary>
     public string? ParentSpanId { get; init; }
 
-    /// <summary>
-    /// Optional content-store persistence policy for this event type.
-    /// This is event type policy, not serialized event payload.
-    /// </summary>
-    public virtual ContentPersistenceRequest? GetContentPersistenceRequest() => null;
 }
 
 /// <summary>
@@ -256,6 +181,9 @@ public abstract record AgentEvent : HPD.Events.Event
 /// </summary>
 public abstract record AgentInputEvent
 {
+    internal AgentWorkIdentityAuthority WorkIdentityAuthority { get; init; }
+    internal object? WorkIdentityReservation { get; init; }
+    internal bool WorkIdentityValidated { get; init; }
     /// <summary>Client-owned correlation identifier for reconciling submitted input with admitted transcript messages.</summary>
     public string? ClientInputId { get; init; }
 
@@ -275,16 +203,69 @@ public abstract record AgentInputEvent
     public string? ThreadExecutionId { get; init; }
 }
 
-/// <summary>Adds user guidance to the matching active message execution.</summary>
-public sealed record SteeringInputEvent : AgentInputEvent
+internal enum AgentWorkIdentityAuthority
 {
-    /// <summary>Gets the messages to expose before the active execution's next model request.</summary>
-    public IReadOnlyList<ChatMessage> Messages { get; init; } = Array.Empty<ChatMessage>();
+    FrameworkAllocate,
+    CoordinatorAssigned
+}
+
+internal sealed record CoordinatorWorkReservation(
+    string AgentId,
+    string SessionId,
+    string ThreadId,
+    string ThreadExecutionId)
+{
+    private Func<CancellationToken, ValueTask>? _promote;
+    private Func<ThreadExecutionOutcome, Exception?, CancellationToken, ValueTask>? _finish;
+
+    internal void BindPromotion(
+        Func<CancellationToken, ValueTask> promote,
+        Func<ThreadExecutionOutcome, Exception?, CancellationToken, ValueTask> finish)
+    {
+        ArgumentNullException.ThrowIfNull(promote);
+        ArgumentNullException.ThrowIfNull(finish);
+        if (Interlocked.CompareExchange(ref _promote, promote, null) is not null)
+            throw new InvalidOperationException("Coordinator work reservation is already bound.");
+        _finish = finish;
+    }
+
+    internal ValueTask PromoteAsync(CancellationToken cancellationToken) =>
+        (_promote ?? throw new InvalidOperationException("Coordinator work reservation is not bound."))(cancellationToken);
+
+    internal ValueTask FinishAsync(
+        ThreadExecutionOutcome outcome,
+        Exception? error,
+        CancellationToken cancellationToken) =>
+        (_finish ?? throw new InvalidOperationException("Coordinator work reservation is not bound."))(
+            outcome, error, cancellationToken);
+
+    internal bool Matches(AgentInputEvent input) =>
+        string.Equals(AgentId, input.AgentId, StringComparison.Ordinal) &&
+        string.Equals(SessionId, input.SessionId, StringComparison.Ordinal) &&
+        string.Equals(ThreadId, input.ThreadId, StringComparison.Ordinal) &&
+        string.Equals(ThreadExecutionId, input.ThreadExecutionId, StringComparison.Ordinal);
+}
+
+/// <summary>
+/// Selects how one conversational input is delivered. This policy belongs only
+/// to <see cref="UserMessagesInputEvent"/>; fixed-routing semantic commands do
+/// not acquire conversation delivery semantics.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<AgentInputDelivery>))]
+public enum AgentInputDelivery
+{
+    /// <summary>Admit one distinct conversation turn.</summary>
+    Queue = 0,
+
+    /// <summary>Guide the matching active execution at its next safe model boundary.</summary>
+    Steer = 1
 }
 
 /// <summary>
 /// Emitted after a coordinating runtime durably accepts an input execution for a thread.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("THREAD_EXECUTION_STARTED")]
 public sealed record ThreadExecutionStartedEvent : AgentEvent
 {
     /// <summary>Creates a validated execution-start fact.</summary>
@@ -349,6 +330,8 @@ public sealed record ThreadExecutionError
 /// <summary>
 /// Emitted after a submitted input has reached a terminal outcome and leaves its execution slot.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("THREAD_EXECUTION_FINISHED")]
 public sealed record ThreadExecutionFinishedEvent : AgentEvent
 {
     /// <summary>Creates a validated terminal execution fact.</summary>
@@ -401,6 +384,8 @@ public sealed record ThreadExecutionFinishedEvent : AgentEvent
 /// Records a parent delegation to a durable child thread, including its resolved context
 /// and invocation-mode decisions.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("SUBAGENT_INVOCATION_STARTED")]
 public sealed record SubAgentInvocationStartedEvent(
     string InvocationId,
     string ParentToolCallId,
@@ -408,7 +393,6 @@ public sealed record SubAgentInvocationStartedEvent(
     string ChildSessionId,
     string ChildThreadId,
     string RoleName,
-    string TaskName,
     SubAgentContextPolicy ContextPolicy,
     AgentInvocationMode Mode) : AgentEvent
 {
@@ -417,6 +401,8 @@ public sealed record SubAgentInvocationStartedEvent(
 }
 
 /// <summary>Records successful completion of one parent-to-child delegation.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("SUBAGENT_INVOCATION_COMPLETED")]
 public sealed record SubAgentInvocationCompletedEvent(string InvocationId, string? Summary) : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
@@ -424,6 +410,8 @@ public sealed record SubAgentInvocationCompletedEvent(string InvocationId, strin
 }
 
 /// <summary>Records failure of one parent-to-child delegation.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("SUBAGENT_INVOCATION_FAILED")]
 public sealed record SubAgentInvocationFailedEvent(string InvocationId, string ErrorType, string Message) : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
@@ -431,6 +419,8 @@ public sealed record SubAgentInvocationFailedEvent(string InvocationId, string E
 }
 
 /// <summary>Records cancellation of one parent-to-child delegation.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("SUBAGENT_INVOCATION_CANCELLED")]
 public sealed record SubAgentInvocationCancelledEvent(string InvocationId, string? Reason) : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
@@ -445,6 +435,12 @@ public sealed record UserMessagesInputEvent : AgentInputEvent
 {
     /// <summary>Messages to add for this turn. Empty means resume the scoped thread.</summary>
     public IReadOnlyList<ChatMessage> Messages { get; init; } = Array.Empty<ChatMessage>();
+
+    /// <summary>
+    /// Gets the explicit conversation-delivery policy. Queue is the safe wire and
+    /// CLR default so older payloads never steer active work implicitly.
+    /// </summary>
+    public AgentInputDelivery Delivery { get; init; } = AgentInputDelivery.Queue;
 
     /// <summary>Process-local session scope for in-memory integrations.</summary>
     [JsonIgnore]
@@ -473,27 +469,14 @@ public sealed record CompactThreadInputEvent : AgentInputEvent
     public Thread? Thread { get; init; }
 }
 
-/// <summary>
-/// Runtime-generated input that wakes the model with one or more background task notifications.
-/// </summary>
-public sealed record BackgroundTaskNotificationInputEvent(
-    IReadOnlyList<BackgroundTaskNotification> Notifications) : AgentInputEvent;
-
-/// <summary>
-/// Model-visible summary of background task facts selected by notification policy.
-/// </summary>
-public sealed record BackgroundTaskNotification(
-    string NotificationId,
-    IReadOnlyList<string> TaskIds,
-    string Summary,
-    IReadOnlyDictionary<string, string>? Metadata = null);
-
 #region Message Turn Events (Entire User Interaction)
 
 /// <summary>
 /// Emitted when a message turn starts (user sends message, agent begins processing)
 /// This represents the START of the entire multi-step agent execution.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("MESSAGE_TURN_STARTED")]
 public record MessageTurnStartedEvent : AgentEvent
 {
     [JsonConstructor]
@@ -532,6 +515,8 @@ public record MessageTurnStartedEvent : AgentEvent
 /// Emitted when a message turn completes successfully
 /// This represents the END of the entire agent execution for this user message.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("MESSAGE_TURN_FINISHED")]
 public record MessageTurnFinishedEvent : AgentEvent
 {
     [JsonConstructor]
@@ -541,7 +526,7 @@ public record MessageTurnFinishedEvent : AgentEvent
         string AgentId,
         string AgentName,
         TimeSpan Duration,
-        UsageDetails? Usage = null)
+        MessageTurnUsageSummary Usage)
     {
         this.MessageTurnId = MessageTurnId;
         this.ConversationId = ConversationId;
@@ -551,22 +536,12 @@ public record MessageTurnFinishedEvent : AgentEvent
         this.Usage = Usage;
     }
 
-    public MessageTurnFinishedEvent(
-        string MessageTurnId,
-        string ConversationId,
-        string AgentName,
-        TimeSpan Duration,
-        UsageDetails? Usage = null)
-        : this(MessageTurnId, ConversationId, AgentName, AgentName, Duration, Usage)
-    {
-    }
-
     public string MessageTurnId { get; init; }
     public string ConversationId { get; init; }
     public string AgentId { get; init; }
     public string AgentName { get; init; }
     public TimeSpan Duration { get; init; }
-    public UsageDetails? Usage { get; init; }
+    public MessageTurnUsageSummary Usage { get; init; }
 
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
 
@@ -579,13 +554,16 @@ public record MessageTurnFinishedEvent : AgentEvent
 /// Emitted when an error occurs during message turn execution.
 /// Error category is lazily computed from the exception using GenericErrorHandler.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("MESSAGE_TURN_ERROR")]
 public record MessageTurnErrorEvent(
+    string MessageTurnId,
     string ErrorMessage,
+    MessageTurnUsageSummary Usage,
     [property: System.Text.Json.Serialization.JsonIgnore] Exception? Exception = null) : AgentEvent, IErrorEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
 
-    public string? MessageTurnId { get; init; }
     public string? ConversationId { get; init; }
     public string? AgentId { get; init; }
     public string? AgentName { get; init; }
@@ -643,31 +621,80 @@ public record MessageTurnErrorEvent(
 /// An agent turn represents one iteration where the LLM processes messages and responds.
 /// Multiple agent turns may occur in one message turn when tools are called.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("AGENT_TURN_STARTED")]
 public record AgentTurnStartedEvent(int Iteration) : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
 }
 
 /// <summary>
-/// Emitted when an agent turn completes
+/// Emitted when an agent turn completes.
+/// An agent turn represents one completed model call within the enclosing message turn.
 /// </summary>
-public record AgentTurnFinishedEvent(int Iteration) : AgentEvent
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("AGENT_TURN_FINISHED")]
+public record AgentTurnFinishedEvent(
+    string MessageTurnId,
+    int Iteration,
+    string OperationId,
+    string? LogicalOperationId,
+    int Attempt,
+    ProviderClientFamily Family,
+    ProviderOperationOutcome Outcome,
+    UsageDetails? Usage,
+    string? ProviderKey,
+    string? ModelId,
+    string? ResponseId) : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
 }
 
-/// <summary>Emitted before runtime skill sources are reconciled.</summary>
-public sealed record SkillReloadStartedEvent(long CurrentEpoch, string Reason) : AgentEvent;
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("PROVIDER_OPERATION_USAGE")]
+public sealed record ProviderOperationUsageEvent(
+    string MessageTurnId,
+    string OperationId,
+    string? LogicalOperationId,
+    int Attempt,
+    ProviderOperationKind OperationKind,
+    ProviderClientFamily Family,
+    ProviderOperationOutcome Outcome,
+    UsageDetails? Usage,
+    string? ProviderKey,
+    string? ModelId,
+    string? ResponseId) : AgentEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+}
 
-/// <summary>Emitted after a validated immutable skill catalog epoch is published.</summary>
-public sealed record SkillReloadPublishedEvent(
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("PROVIDER_VALUATION_OBSERVATION")]
+public sealed record ProviderValuationObservationEvent(
+    string MessageTurnId,
+    string SourceEventId,
+    ProviderValuationObservation Observation) : AgentEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
+
+/// <summary>Emitted before all dynamic capability sources are reconciled.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("AGENT_CAPABILITY_REFRESH_STARTED")]
+public sealed record AgentCapabilityRefreshStartedEvent(long CurrentEpoch, string Reason) : AgentEvent;
+
+/// <summary>Emitted after a complete validated capability epoch is published.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("AGENT_CAPABILITY_REFRESH_PUBLISHED")]
+public sealed record AgentCapabilityRefreshPublishedEvent(
     long PreviousEpoch,
     long NewEpoch,
-    IReadOnlyList<string> ChangedSkillIds,
     string Reason) : AgentEvent;
 
-/// <summary>Emitted when a replacement skill catalog is rejected and the prior epoch remains active.</summary>
-public sealed record SkillReloadRejectedEvent(
+/// <summary>Emitted when a complete capability candidate is rejected and the prior epoch remains active.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("AGENT_CAPABILITY_REFRESH_REJECTED")]
+public sealed record AgentCapabilityRefreshRejectedEvent(
     long RetainedEpoch,
     string Error,
     string Reason) : AgentEvent, IErrorEvent
@@ -680,10 +707,23 @@ public sealed record SkillReloadRejectedEvent(
     public Exception? Exception => null;
 }
 
+/// <summary>Emitted when one immutable effective capability surface is pinned for a turn.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("AGENT_TURN_CAPABILITIES_PINNED")]
+public sealed record AgentTurnCapabilitiesPinnedEvent : AgentEvent
+{
+    /// <summary>Gets the complete stable identity of the effective surface.</summary>
+    public required AgentTurnCapabilityIdentity Identity { get; init; }
+}
+
 /// <summary>Emitted before a skill resolves its authoritative instructions.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("SKILL_ACTIVATION_STARTED")]
 public sealed record SkillActivationStartedEvent(CapabilityId CapabilityId, string Name) : AgentEvent;
 
 /// <summary>Emitted after skill instructions resolve successfully.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("SKILL_ACTIVATED")]
 public sealed record SkillActivatedEvent(
     CapabilityId CapabilityId,
     string Name,
@@ -691,6 +731,8 @@ public sealed record SkillActivatedEvent(
     SkillActivationLifetime Lifetime) : AgentEvent;
 
 /// <summary>Emitted when skill instruction resolution fails.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("SKILL_ACTIVATION_FAILED")]
 public sealed record SkillActivationFailedEvent(
     CapabilityId CapabilityId,
     string Name,
@@ -705,12 +747,18 @@ public sealed record SkillActivationFailedEvent(
 }
 
 /// <summary>Emitted before a model-visible skill resource is read.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("SKILL_RESOURCE_READ_STARTED")]
 public sealed record SkillResourceReadStartedEvent(CapabilityId CapabilityId, string Name) : AgentEvent;
 
 /// <summary>Emitted after a model-visible skill resource is read.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("SKILL_RESOURCE_READ_COMPLETED")]
 public sealed record SkillResourceReadCompletedEvent(CapabilityId CapabilityId, string Name) : AgentEvent;
 
 /// <summary>Emitted when a skill resource read fails.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("SKILL_RESOURCE_READ_FAILED")]
 public sealed record SkillResourceReadFailedEvent(
     CapabilityId CapabilityId,
     string Name,
@@ -725,15 +773,21 @@ public sealed record SkillResourceReadFailedEvent(
 }
 
 /// <summary>Emitted before an external skill script runner starts.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("SKILL_SCRIPT_STARTED")]
 public sealed record SkillScriptStartedEvent(
     CapabilityId CapabilityId,
     string Name,
     string Runner) : AgentEvent;
 
 /// <summary>Emitted after an external skill script runner completes.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("SKILL_SCRIPT_COMPLETED")]
 public sealed record SkillScriptCompletedEvent(CapabilityId CapabilityId, string Name) : AgentEvent;
 
 /// <summary>Emitted when external skill script execution fails.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("SKILL_SCRIPT_FAILED")]
 public sealed record SkillScriptFailedEvent(
     CapabilityId CapabilityId,
     string Name,
@@ -748,6 +802,8 @@ public sealed record SkillScriptFailedEvent(
 }
 
 /// <summary>Emitted when an external skill script exceeds its configured timeout.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("SKILL_SCRIPT_TIMED_OUT")]
 public sealed record SkillScriptTimedOutEvent(CapabilityId CapabilityId, string Name) : AgentEvent, IErrorEvent
 {
     /// <inheritdoc />
@@ -762,6 +818,8 @@ public sealed record SkillScriptTimedOutEvent(CapabilityId CapabilityId, string 
 /// Emitted during agent execution to expose internal state for testing/debugging.
 /// NOT intended for production use - only for characterization tests and debugging.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("STATE_SNAPSHOT")]
 public record StateSnapshotEvent(
     int CurrentIteration,
     int MaxIterations,
@@ -781,6 +839,8 @@ public record StateSnapshotEvent(
 /// <summary>
 /// Emitted when the agent starts producing text content
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("TEXT_MESSAGE_START")]
 public record TextMessageStartEvent(
     string MessageId,
     string Role,
@@ -798,6 +858,8 @@ public record TextMessageStartEvent(
 /// <summary>
 /// Emitted when the agent produces text content (streaming delta)
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("TEXT_DELTA")]
 public record TextDeltaEvent(string Text, string MessageId) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
@@ -806,10 +868,20 @@ public record TextDeltaEvent(string Text, string MessageId) : AgentEvent
 /// <summary>
 /// Emitted when the agent finishes producing text content
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("TEXT_MESSAGE_END")]
 public record TextMessageEndEvent(string MessageId) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
 }
+
+/// <summary>Durably replaces the complete snapshot of an existing thread message.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("THREAD_MESSAGE_REPLACED")]
+public sealed record ThreadMessageReplacedEvent(
+    string MessageId,
+    ChatMessage Replacement,
+    string Reason) : AgentEvent;
 
 /// <summary>
 /// Outbound, lean projection of a user input into the transcript stream.
@@ -818,6 +890,8 @@ public record TextMessageEndEvent(string MessageId) : AgentEvent
 /// ClientInputId, etc.). Consumers that render a user bubble MUST handle this
 /// type; consumers that only render agent output may ignore it.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("USER_MESSAGE")]
 public sealed record UserMessageEvent(string Text, string MessageId) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
@@ -826,6 +900,8 @@ public sealed record UserMessageEvent(string Text, string MessageId) : AgentEven
 /// <summary>
 /// Emitted when a realtime provider produces a user input transcript update.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("USER_AUDIO_TRANSCRIPT_DELTA")]
 public sealed record UserAudioTranscriptDeltaEvent(
     string Text,
     string MessageId,
@@ -838,6 +914,8 @@ public sealed record UserAudioTranscriptDeltaEvent(
 /// <summary>
 /// Emitted when a realtime provider finalizes a user input transcript.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("USER_AUDIO_TRANSCRIPT_COMPLETED")]
 public sealed record UserAudioTranscriptCompletedEvent(
     string Text,
     string MessageId,
@@ -850,6 +928,8 @@ public sealed record UserAudioTranscriptCompletedEvent(
 /// <summary>
 /// Emitted when realtime user input transcription fails.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("USER_AUDIO_TRANSCRIPT_FAILED")]
 public sealed record UserAudioTranscriptFailedEvent(
     string MessageId,
     string ErrorMessage,
@@ -871,6 +951,8 @@ public sealed record UserAudioTranscriptFailedEvent(
 /// Emitted when the agent starts producing reasoning content.
 /// Reasoning is extended thinking used by models like o1, DeepSeek-R1.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("REASONING_MESSAGE_START")]
 public record ReasoningMessageStartEvent(string MessageId, string Role) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
@@ -879,6 +961,8 @@ public record ReasoningMessageStartEvent(string MessageId, string Role) : AgentE
 /// <summary>
 /// Emitted when the agent produces reasoning content (streaming delta).
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("REASONING_DELTA")]
 public record ReasoningDeltaEvent(string Text, string MessageId, string? ProtectedData = null) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
@@ -887,6 +971,8 @@ public record ReasoningDeltaEvent(string Text, string MessageId, string? Protect
 /// <summary>
 /// Emitted when the agent finishes producing reasoning content.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("REASONING_MESSAGE_END")]
 public record ReasoningMessageEndEvent(string MessageId) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
@@ -910,8 +996,8 @@ public enum ToolCallType
     SubAgent,
     /// <summary>A [MultiAgent] workflow that orchestrates multiple agents.</summary>
     MultiAgent,
-    /// <summary>A tool exposed by an [MCPServer].</summary>
-    MCPServer,
+    /// <summary>A tool exposed by an [McpServer].</summary>
+    McpServer,
     /// <summary>A function generated from an [OpenApi] spec.</summary>
     OpenApi,
 }
@@ -919,6 +1005,8 @@ public enum ToolCallType
 /// <summary>
 /// Emitted when the agent requests a tool call
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("TOOL_CALL_START")]
 public record ToolCallStartEvent(
     string CallId,
     string Name,
@@ -932,6 +1020,8 @@ public record ToolCallStartEvent(
 /// <summary>
 /// Emitted when a tool call's arguments are fully available
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("TOOL_CALL_ARGS")]
 public record ToolCallArgsEvent(string CallId, string ArgsJson) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
@@ -940,6 +1030,8 @@ public record ToolCallArgsEvent(string CallId, string ArgsJson) : AgentEvent
 /// <summary>
 /// Emitted when a tool call completes execution and the assistant function call is complete.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("TOOL_CALL_END")]
 public record ToolCallEndEvent(
     string CallId,
     string MessageId,
@@ -952,6 +1044,8 @@ public record ToolCallEndEvent(
 /// <summary>
 /// Emitted when a tool call result is available
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("TOOL_CALL_RESULT")]
 public record ToolCallResultEvent(
     string CallId,
     ToolResultPayload Result,
@@ -1074,186 +1168,88 @@ public sealed record ToolResultPayload(
     }
 }
 
-/// <summary>
-/// Source category for runtime-owned background work.
-/// </summary>
-[JsonConverter(typeof(JsonStringEnumConverter<BackgroundTaskSourceKind>))]
-public enum BackgroundTaskSourceKind
+ /// <summary>Emitted exactly once when an operation becomes authoritative in its owning thread.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("AGENT_OPERATION_REGISTERED")]
+public sealed record AgentOperationRegisteredEvent : AgentEvent
 {
-    ToolCall,
-    Function,
-    Command,
-    ClientTool,
-    SubAgent,
-    MultiAgent,
-    McpTool,
-    Runtime,
-    Maintenance,
-    Other
-}
-
-/// <summary>
-/// Base event for runtime-owned background work.
-/// </summary>
-public abstract record BackgroundTaskEvent : AgentEvent
-{
+    /// <inheritdoc />
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
 
-    public required string TaskId { get; init; }
-
-    public required string Name { get; init; }
-
-    public required BackgroundTaskSourceKind SourceKind { get; init; }
-
-    public required BackgroundTaskNotificationRule Notification { get; init; }
-
-    public string? SourceId { get; init; }
-
-    public string? OriginatingThreadExecutionId { get; init; }
-
-    public FunctionInvocationSnapshot? Invocation { get; init; }
-
-    public IReadOnlyDictionary<string, string>? Metadata { get; init; }
+    /// <summary>Gets the complete initial operation snapshot.</summary>
+    public required AgentOperationSnapshot Operation { get; init; }
 }
 
-/// <summary>
-/// Emitted when runtime-owned background work begins.
-/// </summary>
-public sealed record BackgroundTaskStartedEvent : BackgroundTaskEvent
+/// <summary>Emitted once for each committed, version-checked operation transition.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("AGENT_OPERATION_TRANSITIONED")]
+public sealed record AgentOperationTransitionedEvent : AgentEvent
 {
-    public required DateTimeOffset StartedAt { get; init; }
+    /// <inheritdoc />
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+
+    /// <summary>Gets the operation identifier.</summary>
+    public required string OperationId { get; init; }
+
+    /// <summary>Gets the version replaced by this transition.</summary>
+    public required long PreviousVersion { get; init; }
+
+    /// <summary>Gets the complete snapshot after the transition.</summary>
+    public required AgentOperationSnapshot Operation { get; init; }
+
+    /// <summary>Gets the provider deduplication key when supplied.</summary>
+    public string? ProviderDeduplicationKey { get; init; }
 }
 
-/// <summary>
-/// Emitted when runtime-owned background work completes.
-/// </summary>
-public sealed record BackgroundTaskCompletedEvent : BackgroundTaskEvent
+/// <summary>Durably records the bounded semantic facts used to execute a function call.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("FUNCTION_INVOCATION_AUDITED")]
+public sealed record FunctionInvocationAuditedEvent : AgentEvent
 {
-    public required DateTimeOffset CompletedAt { get; init; }
-
-    public required long DurationMilliseconds { get; init; }
-
-    public string? Summary { get; init; }
-}
-
-/// <summary>
-/// Emitted when runtime-owned background work observes cancellation.
-/// </summary>
-public sealed record BackgroundTaskCancelledEvent : BackgroundTaskEvent
-{
-    public required DateTimeOffset CancelledAt { get; init; }
-
-    public string? Reason { get; init; }
-}
-
-/// <summary>
-/// Emitted when runtime-owned background work faults.
-/// </summary>
-public sealed record BackgroundTaskFaultedEvent : BackgroundTaskEvent, IErrorEvent
-{
+    /// <inheritdoc />
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 
-    public required DateTimeOffset FaultedAt { get; init; }
+    /// <summary>Gets the immutable bounded invocation projection.</summary>
+    public required FunctionInvocationAuditProjection Invocation { get; init; }
+}
 
-    public required string ExceptionType { get; init; }
+/// <summary>Records a ToolBody failure that occurred after an operation registration committed.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("TOOL_BODY_OPERATION_COMMITTED_FAILURE")]
+public sealed record ToolBodyOperationCommittedFailureEvent : AgentEvent
+{
+    /// <inheritdoc />
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
 
+    /// <summary>Gets the bounded invocation projection.</summary>
+    public required FunctionInvocationAuditProjection Invocation { get; init; }
+
+    /// <summary>Gets the single committed operation receipt and call identity.</summary>
+    public required CommittedToolBodyOperation CommittedOperation { get; init; }
+
+    /// <summary>Gets the safe failure description.</summary>
     public required string ErrorMessage { get; init; }
-
-    [JsonIgnore]
-    public Exception? Exception => null;
 }
 
-/// <summary>
-/// Emitted when a controllable background handle is registered with the runtime.
-/// </summary>
-public sealed record BackgroundHandleRegisteredEvent : AgentEvent
+/// <summary>Records a non-throwing failure while releasing an operation execution owner.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("OPERATION_EXECUTION_OWNER_CLEANUP_FAILED")]
+public sealed record OperationExecutionOwnerCleanupFailedEvent : AgentEvent
 {
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+    /// <inheritdoc />
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 
-    public required string HandleId { get; init; }
+    /// <summary>Gets the operation whose execution owner was being released.</summary>
+    public required string OperationId { get; init; }
 
-    public required string Name { get; init; }
+    /// <summary>Gets the bounded operation name.</summary>
+    public required string OperationName { get; init; }
 
-    public required BackgroundHandleKind HandleKind { get; init; }
-
-    public required BackgroundTaskSourceKind SourceKind { get; init; }
-
-    public string? SourceId { get; init; }
-
-    public FunctionInvocationSnapshot? Invocation { get; init; }
-
-    public required BackgroundHandleOperation SupportedOperations { get; init; }
-
-    public IReadOnlyDictionary<string, string>? Metadata { get; init; }
-
-    public required DateTimeOffset RegisteredAt { get; init; }
+    /// <summary>Gets the bounded safe cleanup failure description.</summary>
+    public required string ErrorMessage { get; init; }
 }
 
-/// <summary>
-/// Emitted when a controllable background handle reports a status change.
-/// </summary>
-public sealed record BackgroundHandleStatusChangedEvent : AgentEvent
-{
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-
-    public required string HandleId { get; init; }
-
-    public required string Status { get; init; }
-
-    public required DateTimeOffset ObservedAt { get; init; }
-
-    public IReadOnlyDictionary<string, string>? Metadata { get; init; }
-}
-
-/// <summary>
-/// Emitted when background task notification rules select one or more final-state task facts for model delivery.
-/// </summary>
-public sealed record BackgroundTaskNotificationQueuedEvent : AgentEvent
-{
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override EventChannel Channel { get; init; } = EventChannel.Control;
-
-    public required string NotificationId { get; init; }
-
-    public required IReadOnlyList<string> TaskIds { get; init; }
-
-    public required DateTimeOffset QueuedAt { get; init; }
-
-    public required string Reason { get; init; }
-}
-
-/// <summary>
-/// Emitted after a queued background task notification has been delivered to a model turn.
-/// </summary>
-public sealed record BackgroundTaskNotificationDeliveredEvent : AgentEvent
-{
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override EventChannel Channel { get; init; } = EventChannel.Control;
-
-    public required string NotificationId { get; init; }
-
-    public required DateTimeOffset DeliveredAt { get; init; }
-
-}
-
-/// <summary>
-/// Emitted when background task notification rules explicitly decide not to wake the model.
-/// </summary>
-public sealed record BackgroundTaskNotificationSuppressedEvent : AgentEvent
-{
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override EventChannel Channel { get; init; } = EventChannel.Control;
-
-    public required string NotificationId { get; init; }
-
-    public required IReadOnlyList<string> TaskIds { get; init; }
-
-    public required DateTimeOffset SuppressedAt { get; init; }
-
-    public required string Reason { get; init; }
-}
-
-#endregion
+ #endregion
 
 #region Middleware Events
 
@@ -1261,13 +1257,15 @@ public sealed record BackgroundTaskNotificationSuppressedEvent : AgentEvent
 /// Middleware requests permission to execute a function.
 /// Handler should prompt user and send PermissionResponseEvent.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("PERMISSION_REQUEST")]
 public record PermissionRequestEvent(
     string PermissionId,
     string SourceName,
     string FunctionName,
-    string? Description,
+    string? Action,
     string CallId,
-    IDictionary<string, object?>? Arguments) : AgentEvent, IAgentRequestEvent<PermissionResponseEvent>
+    PermissionEvaluationEnvelope Evaluation) : AgentEvent, IAgentRequestEvent<PermissionResponseEvent>
 {
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
@@ -1280,13 +1278,13 @@ public record PermissionRequestEvent(
 /// Response to permission request.
 /// Sent by external handler back to waiting Middleware.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("PERMISSION_RESPONSE")]
 public record PermissionResponseEvent(
     string PermissionId,
     string SourceName,
-    bool Approved,
-    string? Reason = null,
-    PermissionChoice Choice = PermissionChoice.Ask,
-    PermissionDeniedBehavior DeniedBehavior = PermissionDeniedBehavior.InterruptTurn) : AgentEvent, IAgentResponseEvent
+    string ChoiceId,
+    string? Feedback = null) : AgentEvent, IAgentResponseEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
@@ -1296,9 +1294,69 @@ public record PermissionResponseEvent(
     public string RequestId => PermissionId;
 }
 
+/// <summary>Records an atomically committed session permission-preference change.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("PERMISSION_PREFERENCE_CHANGED")]
+public sealed record PermissionPreferenceChangedEvent(
+    string PreferenceId,
+    PermissionKey Key,
+    PermissionDecisionKind Decision,
+    PermissionPersistenceKind Persistence) : AgentEvent
+{
+    /// <inheritdoc />
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
+
+/// <summary>Records the bounded result of evaluating one protected invocation.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("PERMISSION_EVALUATED")]
+public sealed record PermissionEvaluatedEvent(string FunctionCallId, PermissionKey Key, PermissionRisk Risk, string? RequestFingerprint) : AgentEvent
+{
+    /// <inheritdoc />
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
+
+/// <summary>Records that an interaction was opened for one evaluated invocation.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("PERMISSION_REQUESTED")]
+public sealed record PermissionRequestedAuditEvent(string PermissionId, string FunctionCallId, PermissionKey Key) : AgentEvent
+{
+    /// <inheritdoc />
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
+
+/// <summary>Records the normalized server-validated permission decision.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("PERMISSION_DECIDED")]
+public sealed record PermissionDecidedEvent(string? PermissionId, string FunctionCallId, PermissionKey Key, PermissionDecisionKind Decision, string ChoiceId) : AgentEvent
+{
+    /// <inheritdoc />
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
+
+/// <summary>Records issuance of an invocation-bound permission grant.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("PERMISSION_GRANT_ISSUED")]
+public sealed record PermissionGrantIssuedEvent(string FunctionCallId, PermissionKey Key, PermissionGrantSource Source, string ChoiceId) : AgentEvent
+{
+    /// <inheritdoc />
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
+
+/// <summary>Records rejection of one protected invocation.</summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("PERMISSION_DENIED")]
+public sealed record PermissionDeniedEvent(string FunctionCallId, PermissionKey Key, string ChoiceId, string ReasonCode) : AgentEvent
+{
+    /// <inheritdoc />
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
+
 /// <summary>
 /// Middleware requests permission to continue beyond max iterations.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("CONTINUATION_REQUEST")]
 public record ContinuationRequestEvent(
     string ContinuationId,
     string SourceName,
@@ -1315,6 +1373,8 @@ public record ContinuationRequestEvent(
 /// <summary>
 /// Response to continuation request.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("CONTINUATION_RESPONSE")]
 public record ContinuationResponseEvent(
     string ContinuationId,
     string SourceName,
@@ -1333,6 +1393,8 @@ public record ContinuationResponseEvent(
 /// Agent/ToolHarness requests user clarification or additional input.
 /// Handler should prompt user and send ClarificationResponseEvent.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("CLARIFICATION_REQUEST")]
 public record ClarificationRequestEvent(
     string RequestId,
     string SourceName,
@@ -1348,6 +1410,8 @@ public record ClarificationRequestEvent(
 /// Response to clarification request.
 /// Sent by external handler back to waiting agent/ToolHarness.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("CLARIFICATION_RESPONSE")]
 public record ClarificationResponseEvent(
     string RequestId,
     string SourceName,
@@ -1363,6 +1427,8 @@ public record ClarificationResponseEvent(
 /// Middleware reports an error (one-way, no response needed).
 /// This is not a request event - it's just informational.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("MIDDLEWARE_ERROR")]
 public record MiddlewareErrorEvent(
     string SourceName,
     string ErrorMessage) : AgentEvent, IErrorEvent
@@ -1418,6 +1484,8 @@ public interface IErrorEvent
 /// Emitted when Collapsed tools visibility is determined for an iteration.
 /// Contains full snapshot of what tools the LLM can see.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("COLLAPSED_TOOLS_VISIBLE")]
 public record CollapsedToolsVisibleEvent(
     string AgentName,
     int Iteration,
@@ -1434,9 +1502,11 @@ public record CollapsedToolsVisibleEvent(
 /// <summary>
 /// Emitted when a ToolHarness or skill container is expanded.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("CONTAINER_EXPANDED")]
 public record ContainerExpandedEvent(
     string ContainerName,
-    ContainerType Type,
+    ContainerType ContainerType,
     IReadOnlyList<string> UnlockedFunctions,
     int Iteration,
     DateTimeOffset Timestamp
@@ -1451,6 +1521,8 @@ public enum ContainerType { ToolHarness, Skill }
 /// <summary>
 /// Emitted when a permission check occurs.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("PERMISSION_CHECK")]
 public record PermissionCheckEvent(
     string FunctionName,
     bool IsApproved,
@@ -1467,6 +1539,8 @@ public record PermissionCheckEvent(
 /// <summary>
 /// Emitted when an iteration starts with full state snapshot.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("ITERATION_START")]
 public record IterationStartEvent(
     string AgentName,
     int Iteration,
@@ -1483,6 +1557,8 @@ public record IterationStartEvent(
 /// <summary>
 /// Emitted when circuit breaker is triggered.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("CIRCUIT_BREAKER_TRIGGERED")]
 public record CircuitBreakerTriggeredEvent(
     string AgentName,
     string FunctionName,
@@ -1495,43 +1571,11 @@ public record CircuitBreakerTriggeredEvent(
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
 }
 
-#region Background Operation Events
-
-/// <summary>
-/// Emitted when an LLM operation has been backgrounded by the provider.
-/// Contains the continuation token needed for polling for completion.
-/// </summary>
-/// <remarks>
-/// This event is emitted when AllowBackgroundResponses is true and the provider
-/// supports background mode. The client should use the ContinuationToken to poll
-/// for the operation's completion.
-/// </remarks>
-public record ModelBackgroundOperationStartedEvent(
-    ResponseContinuationToken ContinuationToken,
-    OperationStatus Status,
-    string? OperationId = null
-) : AgentEvent
-{
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-}
-
-/// <summary>
-/// Emitted during polling with status updates for a background operation.
-/// </summary>
-public record ModelBackgroundOperationStatusEvent(
-    ResponseContinuationToken ContinuationToken,
-    OperationStatus Status,
-    string? StatusMessage = null
-) : AgentEvent
-{
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-}
-
-#endregion
-
 /// <summary>
 /// Emitted when parallel tool execution starts.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("INTERNAL_PARALLEL_TOOL_EXECUTION")]
 public record InternalParallelToolExecutionEvent(
     string AgentName,
     int Iteration,
@@ -1560,6 +1604,8 @@ public record InternalParallelToolExecutionEvent(
 /// <param name="Delay">Time to wait before retrying</param>
 /// <param name="ExceptionType">The type name of the exception</param>
 /// <param name="ErrorMessage">The error message from the exception</param>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("FUNCTION_RETRY")]
 public record FunctionRetryEvent(
     string FunctionName,
     int Attempt,
@@ -1651,6 +1697,8 @@ public record FunctionRetryEvent(
 /// <param name="Delay">Time to wait before retrying</param>
 /// <param name="ExceptionType">The type name of the exception</param>
 /// <param name="ErrorMessage">The error message from the exception</param>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("MODEL_CALL_RETRY")]
 public record ModelCallRetryEvent(
     int Attempt,
     int MaxRetries,
@@ -1706,6 +1754,8 @@ public record ModelCallRetryEvent(
 /// <summary>
 /// Emitted when delta sending is activated.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("DELTA_SENDING_ACTIVATED")]
 public record DeltaSendingActivatedEvent(
     string AgentName,
     int MessageCountSent,
@@ -1755,6 +1805,8 @@ public enum PlanUpdateType
 /// always having access to the complete plan state for UI synchronization.
 /// </para>
 /// </remarks>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("PLAN_UPDATED")]
 public record PlanUpdatedEvent(
     string PlanId,
     string ConversationId,
@@ -1772,6 +1824,8 @@ public record PlanUpdatedEvent(
 /// <summary>
 /// Emitted when a nested agent is invoked.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("NESTED_AGENT_INVOKED")]
 public record NestedAgentInvokedEvent(
     string OrchestratorName,
     string ChildAgentName,
@@ -1785,6 +1839,8 @@ public record NestedAgentInvokedEvent(
 /// <summary>
 /// Emitted when document processing occurs.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("DOCUMENT_PROCESSED")]
 public record DocumentProcessedEvent(
     string AgentName,
     string DocumentPath,
@@ -1799,6 +1855,8 @@ public record DocumentProcessedEvent(
 /// <summary>
 /// Emitted when message preparation completes.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("INTERNAL_MESSAGE_PREPARED")]
 public record InternalMessagePreparedEvent(
     string AgentName,
     int Iteration,
@@ -1812,6 +1870,8 @@ public record InternalMessagePreparedEvent(
 /// <summary>
 /// Emitted when a request event is processed.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("REQUEST_EVENT_PROCESSED")]
 public record RequestEventProcessedEvent(
     string AgentName,
     string EventType,
@@ -1825,6 +1885,8 @@ public record RequestEventProcessedEvent(
 /// <summary>
 /// Emitted when agent makes a decision.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("AGENT_DECISION")]
 public record AgentDecisionEvent(
     string AgentName,
     string DecisionType,
@@ -1839,6 +1901,8 @@ public record AgentDecisionEvent(
 /// <summary>
 /// Emitted when agent completes successfully.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("AGENT_COMPLETION")]
 public record AgentCompletionEvent(
     string AgentName,
     int TotalIterations,
@@ -1873,6 +1937,8 @@ public sealed record ToolContextSnapshot(
 /// Emitted immediately before an LLM call with the non-history context being fed to the model.
 /// Excludes normal chat history; includes instructions, visible tool context, and middleware-injected context messages.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("ITERATION_CONTEXT_SNAPSHOT")]
 public record IterationContextSnapshotEvent(
     string AgentName,
     int Iteration,
@@ -1906,6 +1972,8 @@ public sealed record MiddlewareStateEntrySnapshot(
 /// <summary>
 /// Emitted at stable lifecycle phases with the current internal middleware state.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("MIDDLEWARE_STATE_SNAPSHOT")]
 public record MiddlewareStateSnapshotEvent(
     string AgentName,
     string? SessionId,
@@ -1943,6 +2011,8 @@ public sealed record MiddlewareStateChange(
 /// <summary>
 /// Emitted when middleware state changes across a stable lifecycle phase.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("MIDDLEWARE_STATE_CHANGED")]
 public record MiddlewareStateChangedEvent(
     string AgentName,
     string? SessionId,
@@ -1964,6 +2034,8 @@ public record MiddlewareStateChangedEvent(
 /// Emitted by ToolCollapsingMiddleware at iteration start to report Collapsing state.
 /// Tracks how many ToolHarnesses and skills have been expanded.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("COLLAPSING_STATE")]
 public record CollapsingStateEvent(
     string AgentName,
     int Iteration,
@@ -2007,6 +2079,8 @@ public sealed record StructuredResultEvent<T>(
 /// <param name="ErrorMessage">Description of the error</param>
 /// <param name="ExpectedTypeName">The type we attempted to deserialize to</param>
 /// <param name="Exception">The underlying exception (if any)</param>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("STRUCTURED_OUTPUT_ERROR")]
 public sealed record StructuredOutputErrorEvent(
     string RawJson,
     string ErrorMessage,
@@ -2027,6 +2101,8 @@ public sealed record StructuredOutputErrorEvent(
 /// <param name="MessageId">Unique identifier for this structured output operation</param>
 /// <param name="OutputTypeName">The name of the output type (e.g., "WeatherReport")</param>
 /// <param name="OutputMode">The output mode: "native" or "tool"</param>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("STRUCTURED_OUTPUT_START")]
 public sealed record StructuredOutputStartEvent(
     string MessageId,
     string OutputTypeName,
@@ -2044,6 +2120,8 @@ public sealed record StructuredOutputStartEvent(
 /// <param name="OutputTypeName">The name of the output type</param>
 /// <param name="ParseAttempt">The number of parse attempts so far</param>
 /// <param name="AccumulatedJsonLength">Current length of accumulated JSON</param>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("STRUCTURED_OUTPUT_PARTIAL")]
 public sealed record StructuredOutputPartialEvent(
     string MessageId,
     string OutputTypeName,
@@ -2063,6 +2141,8 @@ public sealed record StructuredOutputPartialEvent(
 /// <param name="TotalParseAttempts">Total number of partial parse attempts</param>
 /// <param name="FinalJsonLength">Length of the final JSON</param>
 /// <param name="Duration">Total duration of structured output processing</param>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("STRUCTURED_OUTPUT_COMPLETE")]
 public sealed record StructuredOutputCompleteEvent(
     string MessageId,
     string OutputTypeName,
@@ -2078,6 +2158,8 @@ public sealed record StructuredOutputCompleteEvent(
 /// Emitted when an event is dropped due to stream interruption.
 /// Provides observability into dropped events.
 /// </summary>
+[HPD.Agent.Serialization.DurableEvent]
+[HPD.Agent.Serialization.EventType("EVENT_DROPPED")]
 public record EventDroppedEvent(
     string DroppedEventFlowId,
     string DroppedEventType,

@@ -10,6 +10,17 @@ public sealed class StaticCommandLanguageServerProvider(
     private readonly IReadOnlyList<string> _markers = markers;
     private readonly IReadOnlyList<string> _excludeMarkers = excludeMarkers ?? [];
 
+    public string ConfigurationIdentity => string.Join("|", new[]
+    {
+        Encode(_markers),
+        Encode([executable]),
+        Encode(arguments ?? []),
+        Encode(excludeMarkers ?? []),
+        Encode((environment ?? new Dictionary<string, string>())
+            .OrderBy(static pair => pair.Key, StringComparer.Ordinal)
+            .Select(static pair => $"{pair.Key.Length}:{pair.Key}{pair.Value.Length}:{pair.Value}"))
+    });
+
     public ValueTask<string?> ResolveRootAsync(
         LanguageServerRootContext context,
         CancellationToken cancellationToken = default)
@@ -79,6 +90,9 @@ public sealed class StaticCommandLanguageServerProvider(
 
         return File.Exists(Path.Combine(directory, marker)) || Directory.Exists(Path.Combine(directory, marker));
     }
+
+    private static string Encode(IEnumerable<string> values) =>
+        string.Concat(values.Select(static value => $"{value.Length}:{value}"));
 }
 
 public sealed class LanguageServerToolResolver : ILanguageServerToolResolver

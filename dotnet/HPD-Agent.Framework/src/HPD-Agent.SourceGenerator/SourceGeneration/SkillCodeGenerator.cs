@@ -234,7 +234,8 @@ internal static class SkillCodeGenerator
         sb.AppendLine("                {");
         sb.AppendLine($"                    Name = \"{skill.Name}\",");
         sb.AppendLine($"                    Description = {descriptionCode},");
-        sb.AppendLine($"                    RequiresPermission = {skill.RequiresPermission.ToString().ToLower()},");
+        if (skill.RequiresPermission)
+            sb.AppendLine($"                    FunctionPermission = new global::HPD.Agent.AIFunctionPermissionDeclaration {{ RequiresPermission = true, Authority = \"function/{Uri.EscapeDataString(skill.Name)}\", Source = global::HPD.Agent.PermissionDeclarationSource.FrameworkDefault }},");
         sb.AppendLine("                    SchemaProvider = () => CreateEmptyContainerSchema(),");
         sb.AppendLine("                    SerializerOptions = serialization?.SerializerOptions,");
         sb.AppendLine("                    ResultType = typeof(string),");

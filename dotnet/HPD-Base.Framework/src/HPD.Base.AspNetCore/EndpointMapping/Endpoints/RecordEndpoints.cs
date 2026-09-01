@@ -380,7 +380,7 @@ internal static class RecordEndpoints
             return false;
         }
 
-        recordId = new RecordId(id);
+        recordId = RecordId.Create(id);
         return true;
     }
 

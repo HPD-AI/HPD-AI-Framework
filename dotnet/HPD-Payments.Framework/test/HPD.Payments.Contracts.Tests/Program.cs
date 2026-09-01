@@ -4,6 +4,7 @@ using HPD.Payments.Contracts.Tests.EntitlementGrantRemovalFact;
 using HPD.Payments.Contracts.Tests.EffectiveCommercialFact;
 using HPD.Payments.Contracts.Tests.ExternalEffect;
 using HPD.Payments.Contracts.Tests.HeldPosition;
+using HPD.Payments.Contracts.Tests.HeldPosition.QuotaWallet;
 using HPD.Payments.Contracts.Tests.IssuanceFact;
 using HPD.Payments.Contracts.Tests.MeasuredFact;
 using HPD.Payments.Contracts.Tests.MeasurementGeneration;
@@ -34,10 +35,11 @@ var partitions = new (string Name, Action Run)[]
     ("WorkRequirement", WorkRequirementContractTests.Run),
     ("PublicationObligation", PublicationObligationContractTests.Run),
     ("HeldPosition", HeldPositionContractTests.Run),
+    ("QuotaWallet", QuotaWalletContractTests.Run),
     ("ValueMovement", ValueMovementContractTests.Run),
 };
 
-if (partitions.Length != 17 ||
+if (partitions.Length != 18 ||
     partitions.Select(static partition => partition.Name).Distinct(StringComparer.Ordinal).Count() != partitions.Length)
 {
     throw new InvalidOperationException("Contracts test partition registration is missing or duplicated.");

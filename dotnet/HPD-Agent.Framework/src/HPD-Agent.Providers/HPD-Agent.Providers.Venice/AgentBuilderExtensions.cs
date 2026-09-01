@@ -9,7 +9,7 @@ public static class VeniceAgentBuilderExtensions
     public static AgentBuilder WithVenice(
         this AgentBuilder builder,
         string model = VeniceProvider.DefaultChatModel,
-        string? apiKey = null,
+        ProviderAuthentication? authentication = null,
         string? endpoint = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -21,8 +21,11 @@ public static class VeniceAgentBuilderExtensions
 
         var chatConfig = new ChatClientConfig
         {
-            ProviderKey = "venice",
-            ApiKey = apiKey,
+            Provider = new ProviderReference
+            {
+                Key = "venice",
+                Authentication = authentication ?? new ApiKeyProviderAuthentication { SecretKey = "venice:ApiKey" }
+            },
             Endpoint = endpoint,
             ModelName = model
         };
@@ -32,4 +35,6 @@ public static class VeniceAgentBuilderExtensions
 
         return builder;
     }
+    /// <summary>Configures Venice with a literal runtime-only API key.</summary>
+    public static AgentBuilder WithVenice(this AgentBuilder builder, string model, ReadOnlySpan<char> apiKey, string? endpoint = null) => builder.WithVenice(model, builder.RegisterExplicitApiKey(apiKey), endpoint);
 }

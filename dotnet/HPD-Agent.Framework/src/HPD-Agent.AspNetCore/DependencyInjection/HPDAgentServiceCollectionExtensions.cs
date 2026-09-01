@@ -171,7 +171,6 @@ internal class HPDAgentApiJsonOptionsSetup(IServiceProvider services) : IConfigu
 {
     public void Configure(JsonOptions options)
     {
-        options.SerializerOptions.Converters.Add(new HPD.Agent.Serialization.AgentEventJsonConverter());
         if (services.GetService<ProviderComposition>() is { } composition)
             options.SerializerOptions.Converters.Add(new AgentRunConfigJsonConverter(composition));
 

@@ -10,6 +10,7 @@ using HPD.Agent.Audio;
 using HPD.Agent.Audio.Output;
 using Microsoft.Extensions.AI;
 using HPD.Agent.Middleware;
+using HPD.Agent.Permissions;
 using HPD.Agent.Providers;
 using HPD.Agent.StructuredOutput;
 
@@ -91,7 +92,7 @@ public sealed record AgentSecurityRunConfig
     public AgentSandboxRunConfig Sandbox { get; init; } = new();
 
     /// <summary>Gets per-tool permission decisions for this run.</summary>
-    public IReadOnlyDictionary<string, bool>? PermissionOverrides { get; init; }
+    public IReadOnlyList<PermissionOverride>? PermissionOverrides { get; init; }
 }
 
 /// <summary>Sandbox policy and host capabilities applied to one agent run.</summary>
@@ -133,6 +134,12 @@ public sealed record AgentSandboxRunConfig
 public class AgentRunConfig
 {
     /// <summary>
+    /// Gets or sets capability-targeted subagent policy overrides for this invocation.
+    /// These overrides are controller-relative and are never inherited into the child's own run.
+    /// </summary>
+    public SubAgentRunOverrides SubAgents { get; set; } = new();
+
+    /// <summary>
     /// Security controls for this run.
     /// </summary>
     public AgentSecurityRunConfig Security { get; set; } = new();
@@ -141,6 +148,12 @@ public class AgentRunConfig
     /// Provider-created client-family overrides for this run.
     /// </summary>
     public AgentClientsConfig Clients { get; set; } = new();
+
+    [JsonIgnore]
+    internal SubAgentClientInheritanceSource? SubAgentClientInheritance { get; set; }
+
+    [JsonIgnore]
+    internal SubAgentDeclarationCatalogPin? SubAgentCatalogPin { get; set; }
 
     /// <summary>Gets or sets per-run system-instruction behavior.</summary>
     public SystemInstructionsRunConfig? SystemInstructions { get; set; }
@@ -221,6 +234,16 @@ public class AgentRunConfig
     /// Per-run compaction policy. Null means use the agent's configured compaction defaults.
     /// </summary>
     public CompactionRunPolicy? Compaction { get; set; }
+
+    #endregion
+
+    #region Collapsing
+
+    /// <summary>
+    /// Gets or sets per-run overrides for container recovery and model-visible history behavior.
+    /// Null means use the agent's configured collapsing defaults.
+    /// </summary>
+    public CollapsingRunPolicy? Collapsing { get; set; }
 
     #endregion
 

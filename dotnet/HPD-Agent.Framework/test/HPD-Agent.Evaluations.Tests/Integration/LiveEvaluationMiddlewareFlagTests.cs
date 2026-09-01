@@ -40,7 +40,7 @@ public sealed class LiveEvaluationMiddlewareFlagTests
         Name = name,
         SystemInstructions = "You are a test agent.",
         MaxAgenticIterations = 3,
-        Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" } },
+        Clients = new AgentClientsConfig { Chat = new ChatClientConfig { Provider = TestProviderSelections.Anonymous(), ModelName = "test-model" } },
         AgenticLoop = new AgenticLoopConfig { MaxTurnDuration = TimeSpan.FromSeconds(10) },
     };
 
@@ -53,7 +53,7 @@ public sealed class LiveEvaluationMiddlewareFlagTests
         client.EnqueueText("Done.");
         var evaluator = new StubDeterministicEvaluator("FlagTest");
 
-        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client));
+        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client)).WithChatClient(client);
         builder.AddEvaluator(evaluator);
         var agent = await builder.BuildAsync(CancellationToken.None);
 
@@ -75,7 +75,7 @@ public sealed class LiveEvaluationMiddlewareFlagTests
         client.EnqueueText("Done.");
         var evaluator = new StubDeterministicEvaluator("FlagTest");
 
-        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client));
+        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client)).WithChatClient(client);
         builder.AddEvaluator(evaluator);
         var agent = await builder.BuildAsync(CancellationToken.None);
 
@@ -95,7 +95,7 @@ public sealed class LiveEvaluationMiddlewareFlagTests
         var registered = new StubDeterministicEvaluator("Registered");
         var additional = new StubDeterministicEvaluator("Additional");
 
-        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client));
+        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client)).WithChatClient(client);
         builder.AddEvaluator(registered, samplingRate: 0.0);
         var agent = await builder.BuildAsync(CancellationToken.None);
 
@@ -119,7 +119,7 @@ public sealed class LiveEvaluationMiddlewareFlagTests
         var registered = new StubDeterministicEvaluator("Registered");
         var additional = new StubDeterministicEvaluator("Additional");
 
-        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client));
+        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client)).WithChatClient(client);
         builder.AddEvaluator(registered, samplingRate: 1.0);
         var agent = await builder.BuildAsync(CancellationToken.None);
 
@@ -142,7 +142,7 @@ public sealed class LiveEvaluationMiddlewareFlagTests
         client.EnqueueText("Done.");
         var evaluator = new StubDeterministicEvaluator("SamplingOverride");
 
-        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client));
+        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client)).WithChatClient(client);
         builder.AddEvaluator(evaluator, samplingRate: 0.0);
         var agent = await builder.BuildAsync(CancellationToken.None);
 
@@ -164,7 +164,7 @@ public sealed class LiveEvaluationMiddlewareFlagTests
         client.EnqueueText("Done.");
         var evaluator = new StubDeterministicEvaluator("SamplingOverride");
 
-        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client));
+        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client)).WithChatClient(client);
         builder.AddEvaluator(evaluator, samplingRate: 1.0);
         var agent = await builder.BuildAsync(CancellationToken.None);
 
@@ -187,7 +187,7 @@ public sealed class LiveEvaluationMiddlewareFlagTests
         var registered = new StubDeterministicEvaluator("Registered");
         var additional = new StubDeterministicEvaluator("Additional");
 
-        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client));
+        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client)).WithChatClient(client);
         builder.AddEvaluator(registered, samplingRate: 1.0);
         var agent = await builder.BuildAsync(CancellationToken.None);
 
@@ -216,19 +216,19 @@ public sealed class LiveEvaluationMiddlewareFlagTests
         var runJudge = new FakeJudgeChatClient();
         runJudge.EnqueueResponse("<S0>ok</S0><S1>run override</S1><S2>true</S2>");
 
-        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client));
+        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client)).WithChatClient(client);
         builder
             .AddEvaluator(
                 new AspectCriticEvaluator("passes"),
                 policy: EvalPolicy.TrackTrend,
-                judgeConfig: new EvaluationJudgeRunConfig { Chat = new ChatClientConfig { Override = new ClientOverride<IChatClient> { Client = globalJudge } } });
+                judgeConfig: new EvaluationJudgeRunConfig { Chat = new ChatClientConfig { Override = ClientOverride<IChatClient>.Borrow(globalJudge) } });
         var agent = await builder.BuildAsync(CancellationToken.None);
 
         var runConfig = new AgentRunConfig
         {
             Evaluations = new EvaluationRunConfig
             {
-                Judge = new EvaluationJudgeRunConfig { Chat = new ChatClientConfig { Override = new ClientOverride<IChatClient> { Client = runJudge } } }
+                Judge = new EvaluationJudgeRunConfig { Chat = new ChatClientConfig { Override = ClientOverride<IChatClient>.Borrow(runJudge) } }
             }
         };
 
@@ -249,19 +249,19 @@ public sealed class LiveEvaluationMiddlewareFlagTests
         var globalJudge = new FakeJudgeChatClient();
         perEvaluatorJudge.EnqueueResponse("<S0>ok</S0><S1>per evaluator</S1><S2>true</S2>");
 
-        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client));
+        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client)).WithChatClient(client);
         builder
             .AddEvaluator(
                 new AspectCriticEvaluator("passes"),
                 policy: EvalPolicy.TrackTrend,
-                judgeConfig: new EvaluationJudgeRunConfig { Chat = new ChatClientConfig { Override = new ClientOverride<IChatClient> { Client = perEvaluatorJudge } } });
+                judgeConfig: new EvaluationJudgeRunConfig { Chat = new ChatClientConfig { Override = ClientOverride<IChatClient>.Borrow(perEvaluatorJudge) } });
         var agent = await builder.BuildAsync(CancellationToken.None);
 
         var runConfig = new AgentRunConfig
         {
             Evaluations = new EvaluationRunConfig
             {
-                Judge = new EvaluationJudgeRunConfig { Chat = new ChatClientConfig { Override = new ClientOverride<IChatClient> { Client = runJudge } } }
+                Judge = new EvaluationJudgeRunConfig { Chat = new ChatClientConfig { Override = ClientOverride<IChatClient>.Borrow(runJudge) } }
             }
         };
 
@@ -282,13 +282,13 @@ public sealed class LiveEvaluationMiddlewareFlagTests
         var judge = new FakeJudgeChatClient();
         judge.EnqueueResponse("<S0>ok</S0><S1>online captured</S1><S2>true</S2>");
 
-        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client));
+        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client)).WithChatClient(client);
         builder
             .UseScoreStore(store)
             .AddEvaluator(
                 new AspectCriticEvaluator("passes"),
                 policy: EvalPolicy.TrackTrend,
-                judgeConfig: new EvaluationJudgeRunConfig { Chat = new ChatClientConfig { Override = new ClientOverride<IChatClient> { Client = judge } } });
+                judgeConfig: new EvaluationJudgeRunConfig { Chat = new ChatClientConfig { Override = ClientOverride<IChatClient>.Borrow(judge) } });
         var agent = await builder.BuildAsync(CancellationToken.None);
 
         await RunAgentAsync(agent, "Hello");

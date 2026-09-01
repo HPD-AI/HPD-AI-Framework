@@ -27,4 +27,12 @@ public sealed class OpenAISttOptions : global::HPD.Agent.ISpeechToTextProviderOp
     /// <summary>Gets or sets whether token log probabilities are requested.</summary>
     [JsonPropertyName("includeLogprobs")]
     public bool? IncludeLogprobs { get; set; }
+
+    /// <summary>Gets or sets literal vocabulary hints for retained realtime transcription.</summary>
+    [JsonPropertyName("keywords")]
+    public string[]? Keywords { get; set; }
+
+    /// <summary>Gets or sets the retained transcription delay: minimal, low, medium, high, or xhigh.</summary>
+    [JsonPropertyName("realtimeDelay")]
+    public string? RealtimeDelay { get; set; }
 }

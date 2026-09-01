@@ -54,18 +54,24 @@ public sealed class DynamicExtensionRequest
     public ContractVersion ContractVersion { get; }
     /// <summary>Gets the configuration revision expected by the caller.</summary>
     public Revision ConfigurationRevision { get; }
+    /// <summary>Gets the code revision expected by the caller.</summary>
+    public Revision CodeRevision { get; }
+    /// <summary>Gets the exact authenticated artifact digest expected by the caller.</summary>
+    public CanonicalDigest ArtifactDigest { get; }
     /// <summary>Gets the copied payload length.</summary>
     public int PayloadLength => _payload.Length;
 
     /// <summary>Copies a bounded request payload.</summary>
     public DynamicExtensionRequest(SemanticId invocationId, SemanticId extensionId, ContractVersion contractVersion,
-        Revision configurationRevision, ReadOnlySpan<byte> payload)
+        Revision codeRevision, Revision configurationRevision, CanonicalDigest artifactDigest, ReadOnlySpan<byte> payload)
     {
+        ArgumentNullException.ThrowIfNull(artifactDigest);
         if (!invocationId.IsValid || !extensionId.IsValid || invocationId.Scope != extensionId.Scope ||
-            !contractVersion.IsValid || !configurationRevision.IsValid || payload.Length > MaximumPayloadBytes)
+            !contractVersion.IsValid || !codeRevision.IsValid || !configurationRevision.IsValid || payload.Length > MaximumPayloadBytes)
             throw new ArgumentException("Dynamic request requires same-scope identities, versions, and bounded payload.");
         InvocationId = invocationId; ExtensionId = extensionId; ContractVersion = contractVersion;
-        ConfigurationRevision = configurationRevision; _payload = payload.ToArray();
+        CodeRevision = codeRevision; ConfigurationRevision = configurationRevision; ArtifactDigest = artifactDigest;
+        _payload = payload.ToArray();
     }
 
     /// <summary>Returns a new payload copy.</summary>
@@ -112,15 +118,17 @@ public interface IDynamicPaymentExtension
 public sealed class DynamicExtensionLane
 {
     private readonly Dictionary<SemanticId, IDynamicPaymentExtension> _extensions;
+    private readonly HashSet<CanonicalDigest> _revokedArtifacts;
 
     /// <summary>Copies and validates an explicit extension set.</summary>
-    public DynamicExtensionLane(IEnumerable<IDynamicPaymentExtension> extensions)
+    public DynamicExtensionLane(IEnumerable<IDynamicPaymentExtension> extensions, IEnumerable<CanonicalDigest>? revokedArtifacts = null)
     {
         ArgumentNullException.ThrowIfNull(extensions);
         var items = extensions.ToArray();
         if (items.Any(x => x is null) || items.Select(x => x.Manifest.ExtensionId).Distinct().Count() != items.Length)
             throw new ArgumentException("Dynamic extension set must be non-null and uniquely identified.", nameof(extensions));
         _extensions = items.ToDictionary(x => x.Manifest.ExtensionId);
+        _revokedArtifacts = revokedArtifacts?.ToHashSet() ?? [];
     }
 
     /// <summary>Validates manifest pins and invokes one extension cooperatively.</summary>
@@ -133,10 +141,16 @@ public sealed class DynamicExtensionLane
         var manifest = extension.Manifest;
         if (!manifest.SignatureVerified)
             return new(false, "signature-unverified", DynamicResourceClaim.Unavailable, []);
+        if (_revokedArtifacts.Contains(manifest.ArtifactDigest))
+            return new(false, "artifact-revoked", DynamicResourceClaim.Unavailable, []);
         if (manifest.ContractVersion != request.ContractVersion)
             return new(false, "contract-skew", DynamicResourceClaim.Unavailable, []);
+        if (manifest.CodeRevision != request.CodeRevision || !manifest.ArtifactDigest.Equals(request.ArtifactDigest))
+            return new(false, "artifact-skew", DynamicResourceClaim.Unavailable, []);
         if (manifest.ConfigurationRevision != request.ConfigurationRevision)
             return new(false, "configuration-stale", DynamicResourceClaim.Unavailable, []);
-        return await extension.InvokeAsync(request, cancellationToken).ConfigureAwait(false);
+        try { return await extension.InvokeAsync(request, cancellationToken).ConfigureAwait(false); }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (InvalidOperationException) { return new(false, "extension-error", DynamicResourceClaim.Unavailable, []); }
     }
 }

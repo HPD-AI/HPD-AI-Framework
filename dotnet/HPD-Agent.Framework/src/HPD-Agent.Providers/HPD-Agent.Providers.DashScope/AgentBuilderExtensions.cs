@@ -16,7 +16,7 @@ public static class AgentBuilderExtensions
     public static AgentBuilder WithDashScope(
         this AgentBuilder builder,
         string model = "qwen-plus",
-        string? apiKey = null,
+        ProviderAuthentication? authentication = null,
         string? endpoint = null,
         Action<DashScopeProviderConfig>? configure = null)
     {
@@ -31,8 +31,11 @@ public static class AgentBuilderExtensions
 
         var chatConfig = new ChatClientConfig
         {
-            ProviderKey = "dashscope",
-            ApiKey = apiKey,
+            Provider = new ProviderReference
+            {
+                Key = "dashscope",
+                Authentication = authentication ?? new ApiKeyProviderAuthentication { SecretKey = "dashscope:ApiKey" }
+            },
             Endpoint = endpoint,
             ModelName = model
         };
@@ -43,6 +46,8 @@ public static class AgentBuilderExtensions
 
         return builder;
     }
+    /// <summary>Configures DashScope chat with a literal runtime-only API key.</summary>
+    public static AgentBuilder WithDashScope(this AgentBuilder builder, string model, ReadOnlySpan<char> apiKey, string? endpoint = null, Action<DashScopeProviderConfig>? configure = null) => builder.WithDashScope(model, builder.RegisterExplicitApiKey(apiKey), endpoint, configure);
 
     /// <summary>
     /// Configures the agent to use DashScope as the embedding provider.
@@ -50,7 +55,7 @@ public static class AgentBuilderExtensions
     public static AgentBuilder WithDashScopeEmbeddings(
         this AgentBuilder builder,
         string model = "text-embedding-v4",
-        string? apiKey = null,
+        ProviderAuthentication? authentication = null,
         string? endpoint = null,
         int? dimensions = null,
         Action<DashScopeProviderConfig>? configure = null)
@@ -69,8 +74,11 @@ public static class AgentBuilderExtensions
 
         var embeddingConfig = new EmbeddingsClientConfig
         {
-            ProviderKey = "dashscope",
-            ApiKey = apiKey,
+            Provider = new ProviderReference
+            {
+                Key = "dashscope",
+                Authentication = authentication ?? new ApiKeyProviderAuthentication { SecretKey = "dashscope:ApiKey" }
+            },
             Endpoint = endpoint,
             ModelName = model,
             Dimensions = dimensions
@@ -82,6 +90,8 @@ public static class AgentBuilderExtensions
 
         return builder;
     }
+    /// <summary>Configures DashScope embeddings with a literal runtime-only API key.</summary>
+    public static AgentBuilder WithDashScopeEmbeddings(this AgentBuilder builder, string model, ReadOnlySpan<char> apiKey, string? endpoint = null, int? dimensions = null, Action<DashScopeProviderConfig>? configure = null) => builder.WithDashScopeEmbeddings(model, builder.RegisterExplicitApiKey(apiKey), endpoint, dimensions, configure);
 
     /// <summary>
     /// Adds DashScope-specific runtime chat request options to the chat defaults.

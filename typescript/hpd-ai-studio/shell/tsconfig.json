@@ -18,7 +18,6 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "allowImportingTsExtensions": true,
-    "baseUrl": ".",
     "paths": {
       "@hpd-research/hpd-studio-core": ["../../hpd-studio-core/src/index.ts"],
       "@hpd-research/hpd-studio-core/boundary": ["../../hpd-studio-core/src/StudioModuleBoundary.svelte"]

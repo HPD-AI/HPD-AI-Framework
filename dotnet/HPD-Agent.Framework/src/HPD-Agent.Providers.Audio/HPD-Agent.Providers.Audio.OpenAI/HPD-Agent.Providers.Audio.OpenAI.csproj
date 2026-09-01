@@ -13,10 +13,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="HPD.Agent.Audio.V2.Tests" />
     <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.7.0" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.7.0" />
     <PackageReference Include="OpenAI" Version="2.11.0" />
-    <ProjectReference Include="../../HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
+    <ProjectReference Include="../../HPD-Agent.Audio/HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
     <ProjectReference Include="../../HPD-Agent/HPD-Agent.csproj" />
   </ItemGroup>
 

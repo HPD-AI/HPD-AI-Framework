@@ -8,6 +8,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using HPD.Agent.Audio.Providers;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Providers.Audio.ElevenLabs;
@@ -178,6 +179,9 @@ public sealed class ElevenLabsSpeechToTextClient : ISpeechToTextClient
                 new Uri("https://elevenlabs.io/docs/api-reference/speech-to-text/convert"),
                 _defaultModelId);
 
+        if (serviceKey is null && serviceType == typeof(IStreamingSpeechToTextParticipantFactory))
+            return new ElevenLabsRealtimeSpeechToTextParticipantFactory(_apiKey, _providerConfig);
+
         return null;
     }
 
@@ -197,41 +201,7 @@ public sealed class ElevenLabsSpeechToTextClient : ISpeechToTextClient
         => new($"{_baseUri.ToString().TrimEnd('/')}/speech-to-text", UriKind.Absolute);
 
     private Uri BuildRealtimeSpeechToTextUri(ElevenLabsRealtimeSpeechToTextRequest request)
-    {
-        var baseUri = ResolveWebSocketBaseUri(_providerConfig);
-        var builder = new UriBuilder(baseUri)
-        {
-            Path = $"{baseUri.AbsolutePath.TrimEnd('/')}/speech-to-text/realtime"
-        };
-
-        var query = new List<string>
-        {
-            $"model_id={Uri.EscapeDataString(request.ModelId!)}"
-        };
-
-        AddQuery(query, "include_timestamps", request.IncludeTimestamps);
-        AddQuery(query, "include_language_detection", request.IncludeLanguageDetection);
-        AddQuery(query, "audio_format", request.AudioFormat);
-        AddQuery(query, "language_code", request.LanguageCode);
-        AddQuery(query, "commit_strategy", request.CommitStrategy);
-        AddQuery(query, "no_verbatim", request.NoVerbatim);
-        AddQuery(query, "vad_silence_threshold_secs", request.VadSilenceThresholdSeconds);
-        AddQuery(query, "vad_threshold", request.VadThreshold);
-        AddQuery(query, "min_speech_duration_ms", request.MinSpeechDurationMilliseconds);
-        AddQuery(query, "min_silence_duration_ms", request.MinSilenceDurationMilliseconds);
-        AddQuery(query, "enable_logging", request.EnableLogging);
-
-        if (request.Keyterms is { Length: > 0 })
-        {
-            foreach (var keyterm in request.Keyterms.Where(static value => !string.IsNullOrWhiteSpace(value)))
-            {
-                query.Add($"keyterms={Uri.EscapeDataString(keyterm)}");
-            }
-        }
-
-        builder.Query = string.Join('&', query);
-        return builder.Uri;
-    }
+        => ElevenLabsRealtimeSpeechToTextProtocol.BuildUri(_providerConfig, request);
 
     private ElevenLabsSpeechToTextRequest CreateRequestModel(
         string modelId,

@@ -1,4 +1,5 @@
 using HPD.Agent;
+using HPD.Agent.Serialization;
 
 namespace HPD.Agent.Hosting.Configuration;
 
@@ -8,6 +9,9 @@ namespace HPD.Agent.Hosting.Configuration;
 /// </summary>
 public class HPDAgentConfig
 {
+    /// <summary>Optional explicit output-event composition; otherwise Hosting requires one from DI.</summary>
+    public AgentEventComposition? EventComposition { get; set; }
+
     /// <summary>
     /// The session store to use for this agent.
     /// Owns session lifecycle (list, create, delete) and is shared with the agent for thread persistence.

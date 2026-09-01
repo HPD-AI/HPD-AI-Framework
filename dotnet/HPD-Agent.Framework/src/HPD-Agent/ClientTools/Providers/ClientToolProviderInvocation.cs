@@ -88,7 +88,7 @@ public interface IClientToolProviderConnection
 /// <summary>
 /// Provider-owned background operation accepted by a provider-backed client tool.
 /// </summary>
-public sealed record ClientToolProviderBackgroundOperationDescriptor
+public sealed record ClientToolProviderOperationDescriptor
 {
     /// <summary>Gets the provider tool binding that owns the operation.</summary>
     public required ClientToolProviderToolBinding Binding { get; init; }
@@ -115,6 +115,6 @@ public sealed record ClientToolProviderBackgroundOperationDescriptor
 /// <summary>
 /// Registration returned when provider-owned background work is tracked by the registry.
 /// </summary>
-public sealed record ClientToolProviderBackgroundOperationRegistration(
+public sealed record ClientToolProviderOperationRegistration(
     string ClientOperationId,
-    Task<ClientToolBackgroundOperationResult> Completion);
+    Task<ClientToolOperationResult> Completion);

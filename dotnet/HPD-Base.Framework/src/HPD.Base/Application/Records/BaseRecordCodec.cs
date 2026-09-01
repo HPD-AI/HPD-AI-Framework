@@ -27,6 +27,20 @@ internal static class BaseRecordCodec
         };
     }
 
+    /// <summary>Encodes one source-generated object as a portable top-level field-map patch.</summary>
+    public static RecordPayload EncodePatch<T>(T value, JsonTypeInfo<T> jsonTypeInfo)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        ArgumentNullException.ThrowIfNull(jsonTypeInfo);
+        JsonElement encoded = JsonSerializer.SerializeToElement(value, jsonTypeInfo);
+        if (encoded.ValueKind != JsonValueKind.Object)
+            throw new ArgumentException("A typed patch must serialize as a JSON object.", nameof(value));
+        var fields = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        foreach (JsonProperty property in encoded.EnumerateObject())
+            fields.Add(property.Name, property.Value.Clone());
+        return new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = fields };
+    }
+
     /// <summary>Executes the decode operation.</summary>
     public static BaseRecord<T> Decode<T>(
         BaseCollection<T> collection,

@@ -45,7 +45,7 @@ public sealed class TextEndpointTests
             baseBuilder.AddCollection(HttpTextDocument.Collection);
         });
         builder.Services.AddHPDBaseAspNetCore(); builder.Services.Replace(ServiceDescriptor.Singleton<IBaseHttpPrincipalMapper, HeaderPrincipalMapper>()); WebApplication app = builder.Build(); app.UseAuthorization(); RouteGroupBuilder group = app.MapHPDBaseApplicationApi(new() { AuthorizationPolicy = "application", MapRecords = true, MapClientGeneration = true }); group.MapHPDBaseTextApplicationApi(); await app.StartAsync(); (await app.Services.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
-        BaseCollectionSession<HttpTextDocument> collection = app.Services.GetRequiredService<IBaseSessionFactory>().For(new() { AuthenticationState = PrincipalAuthenticationState.Admin }).Collection(HttpTextDocument.Collection); (await collection.CreateAsync(new("one"), new() { Title = "Portable search", State = "published" })).RequireValue(); return app;
+        BaseCollectionSession<HttpTextDocument> collection = app.Services.GetRequiredService<IBaseSessionFactory>().For(new() { AuthenticationState = PrincipalAuthenticationState.Admin }).Collection(HttpTextDocument.Collection); (await collection.CreateAsync(RecordId.Create("one"), new() { Title = "Portable search", State = "published" })).RequireValue(); return app;
     }
     private sealed class HeaderPrincipalMapper : IBaseHttpPrincipalMapper
     {

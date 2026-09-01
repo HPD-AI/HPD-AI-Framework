@@ -40,32 +40,35 @@ No scaffolding. Explicit storage. No middleware ordering to think about.
 ```bash
 dotnet add package HPD.Auth
 dotnet add package HPD.Auth.Authentication
+dotnet add package HPD.Auth.Base
+dotnet add package HPD.Base.Sqlite
 ```
 
 ```csharp
 // Program.cs
-builder.Services
-    .AddHPDAuth(options =>
+builder.Services.AddHPDBase(baseBuilder =>
+{
+    // Configure the host-owned provider, storage-protection authority, token
+    // protection, and selection limits, then install the closed Auth graph.
+    baseBuilder.UseStore(SqliteStore.Configure(options =>
+    {
+        options.StoreId = "auth";
+        options.DataSource = builder.Configuration.GetConnectionString("auth-db")!;
+    }));
+    AuthBaseModule.Install(baseBuilder, authBaseOptions);
+});
+
+builder.Services.AddHPDAuth(options =>
     {
         options.AppName = "MyApp";
         options.Jwt.Secret = builder.Configuration["Auth:Jwt:Secret"];
     })
-    .UseSqlite(builder.Configuration.GetConnectionString("auth-db")!)
     .AddAuthentication()
     .AddAudit()
     .AddTwoFactor()
     .AddAdmin();
 
 var app = builder.Build();
-
-if (app.Environment.IsDevelopment())
-{
-    await app.Services.InitializeHPDAuthDevelopmentDatabaseAsync();
-}
-else
-{
-    await app.Services.MigrateHPDAuthDatabaseAsync();
-}
 
 app.UseHPDAuth();
 app.MapHPDAuthEndpoints();
@@ -83,19 +86,29 @@ cookie-only hosts.
 
 ### Storage and Data Protection
 
-HPD.Auth requires an explicit storage provider. The configured auth database stores identity data, sessions, refresh tokens, audit state, and the ASP.NET Core Data Protection key ring.
+HPD.Auth requires a finalized HPD Base application graph and an explicit certified
+Base storage provider. The Auth-owned system collections store identity data,
+sessions, refresh tokens, audit state, and the ASP.NET Core Data Protection key ring.
 
 Use durable storage for any real host:
 
 ```csharp
-builder.Services
-    .AddHPDAuth(options => options.AppName = "MyApp")
-    .UseSqlite(builder.Configuration.GetConnectionString("auth-db")!);
+builder.Services.AddHPDBase(baseBuilder =>
+{
+    baseBuilder.UseStore(SqliteStore.Configure(options =>
+    {
+        options.StoreId = "auth";
+        options.DataSource = builder.Configuration.GetConnectionString("auth-db")!;
+    }));
+    AuthBaseModule.Install(baseBuilder, authBaseOptions);
+});
 ```
 
-All instances of the same app must share the same durable auth database, or the host must intentionally override Data Protection with another shared key provider. Process-local storage from `UseInMemorySqliteForTests()` is only for tests and is not restart-safe.
-
-`InitializeHPDAuthDevelopmentDatabaseAsync()` is a development/test initializer. Production hosts should use `MigrateHPDAuthDatabaseAsync()` or an equivalent deployment migration step for their selected provider.
+All instances of the same app must share the same durable Base authority and exact
+Auth graph. Schema plan/apply is an explicit deployment or control-plane operation;
+Auth does not run migrations opportunistically during application startup. The host
+must also provide the required storage-protection capability, refresh/recovery digest
+key rings, and protected token-delivery authority.
 
 ```bash
 # Sign up
@@ -116,6 +129,7 @@ Install only what you need:
 | Package | Purpose |
 |---|---|
 | `HPD.Auth` | Core endpoints: signup, login, logout, sessions, password reset |
+| `HPD.Auth.Base` | Closed Auth collections, reads, operations, subjects, and lifecycle graph |
 | `HPD.Auth.Authentication` | JWT + Cookie + dual-auth PolicyScheme |
 | `HPD.Auth.TwoFactor` | TOTP (authenticator apps) + passkeys (FIDO2/WebAuthn) |
 | `HPD.Auth.OAuth` | Google, GitHub, Microsoft social login |
@@ -185,7 +199,8 @@ Full documentation at **[hpd-ai.github.io/HPD.Auth](https://hpd-ai.github.io/HPD
 ```
 src/
 ├── HPD.Auth.Core/           Entities, interfaces, options, events
-├── HPD.Auth.Infrastructure/ DbContext, explicit storage, migrations, 3 stores
+├── HPD.Auth.Base/           Closed HPD Base schema and operation authority
+├── HPD.Auth.Infrastructure/ Base-backed Identity, token, session, audit, and Data Protection adapters
 ├── HPD.Auth/                Core endpoints + DI registration
 ├── HPD.Auth.Authentication/ JWT + Cookie + PolicyScheme
 ├── HPD.Auth.Admin/          Admin endpoints (10 groups, 25+ endpoints)

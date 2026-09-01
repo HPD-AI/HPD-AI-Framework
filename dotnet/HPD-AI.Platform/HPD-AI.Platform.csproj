@@ -25,7 +25,10 @@
 
   <ItemGroup>
     <EmbeddedResource Include="wwwroot\**\*" Exclude="wwwroot\studio-config.js" LogicalName="HPD.AI.Platform.wwwroot.%(RecursiveDir)%(Filename)%(Extension)" />
-    <None Include="$(StudioClientAppRoot)**\*" Exclude="$(StudioClientAppRoot)node_modules\**\*;$(StudioClientAppRoot)dist\**\*" Pack="true" PackagePath="clientapp\%(RecursiveDir)%(Filename)%(Extension)" />
+    <EmbeddedResource Include="$(StudioClientAppRoot)prebuilt\index.html" LogicalName="HPD.AI.Platform.StudioShell.index.html" />
+    <EmbeddedResource Include="$(StudioClientAppRoot)prebuilt\assets\hpd-studio-shell.js" LogicalName="HPD.AI.Platform.StudioShell.assets.hpd-studio-shell.js" />
+    <EmbeddedResource Include="$(StudioClientAppRoot)prebuilt\assets\hpd-studio-shell.css" LogicalName="HPD.AI.Platform.StudioShell.assets.hpd-studio-shell.css" />
+    <None Include="$(StudioClientAppRoot)**\*" Exclude="$(StudioClientAppRoot)node_modules\**\*;$(StudioClientAppRoot)dist\**\*;$(StudioClientAppRoot)prebuilt\**\*" Pack="true" PackagePath="clientapp\%(RecursiveDir)%(Filename)%(Extension)" />
     <None Include="$(StudioDesignRoot)**\*" Exclude="$(StudioDesignRoot)node_modules\**\*;$(StudioDesignRoot)dist\**\*" Pack="true" PackagePath="clientapp-packages\hpd-studio-design\%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 

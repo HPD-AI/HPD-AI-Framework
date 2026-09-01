@@ -26,14 +26,15 @@ public sealed class ProviderManifestSourceGeneratorTests
             [HpdProviderFamily(ProviderClientFamily.Chat, DefaultModelName = "sample-model", BindsModelToClient = false)]
             [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(ProviderClientConfig), typeof(HPDJsonContext))]
             [HpdProviderSecretAlias("sample:ApiKey", "SAMPLE_API_KEY")]
-            internal sealed class SampleProvider : IChatClientProvider
+            internal sealed class SampleProvider : IProvider, IProviderClientFactory<IChatClient>
             {
                 public string ProviderKey => "sample";
                 public string DisplayName => "Sample";
                 public IProviderErrorHandler CreateErrorHandler() => throw new NotSupportedException();
                 public ProviderMetadata GetMetadata() => new();
-                public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family) => ProviderValidationResult.Success();
-                public ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+                public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config) => ProviderValidationResult.Success();
+                public ProviderClientCredentialBinding ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor) => ProviderClientCredentialBinding.RequestTime;
+                public ValueTask<ProviderClientConstruction<IChatClient>> CreateAsync(ProviderClientConstructionContext context, CancellationToken cancellationToken = default) => throw new NotSupportedException();
             }
             """;
 
@@ -71,6 +72,50 @@ public sealed class ProviderManifestSourceGeneratorTests
         var (_, diagnostics) = Run(source);
 
         Assert.Contains(diagnostics, static diagnostic => diagnostic.Id == "HPDP002");
+    }
+
+    [Fact]
+    public void SameProviderBackendImplementations_EmitBackendScopedFactories()
+    {
+        const string source = """
+            using System;
+            using HPD.Agent.ErrorHandling;
+            using HPD.Agent.Providers;
+
+            namespace GeneratedProviders;
+
+            [HpdProvider("openai", "OpenAI")]
+            [HpdProviderFamily(ProviderClientFamily.Chat)]
+            [HpdProviderBackend("platform", ProviderAuthenticationKind.ApiKey, Families = new[] { ProviderClientFamily.Chat })]
+            internal sealed class OpenAIPlatformProvider : IProvider
+            {
+                public string ProviderKey => "openai";
+                public string DisplayName => "OpenAI";
+                public IProviderErrorHandler CreateErrorHandler() => throw new NotSupportedException();
+                public ProviderMetadata GetMetadata() => new();
+                public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config) => ProviderValidationResult.Success();
+            }
+
+            [HpdProvider("openai", "OpenAI")]
+            [HpdProviderFamily(ProviderClientFamily.Chat)]
+            [HpdProviderBackend("codex", ProviderAuthenticationKind.OAuth, Families = new[] { ProviderClientFamily.Chat })]
+            internal sealed class OpenAICodexProvider : IProvider
+            {
+                public string ProviderKey => "openai";
+                public string DisplayName => "OpenAI";
+                public IProviderErrorHandler CreateErrorHandler() => throw new NotSupportedException();
+                public ProviderMetadata GetMetadata() => new();
+                public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config) => ProviderValidationResult.Success();
+            }
+            """;
+
+        var (generated, diagnostics) = Run(source);
+
+        Assert.Empty(diagnostics.Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Contains("new string[] { \"platform\" }", generated);
+        Assert.Contains("new string[] { \"codex\" }", generated);
+        Assert.Contains("static () => new global::GeneratedProviders.OpenAIPlatformProvider()", generated);
+        Assert.Contains("static () => new global::GeneratedProviders.OpenAICodexProvider()", generated);
     }
 
     [Fact]

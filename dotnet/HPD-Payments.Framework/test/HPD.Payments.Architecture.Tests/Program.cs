@@ -31,18 +31,18 @@ static class ArchitectureGraph
         ["Supporting"] = ["Primitives", "Contracts"],
         ["Serialization"] = ["Primitives", "Contracts", "Supporting"],
         ["Persistence"] = ["Primitives", "Contracts", "Supporting"],
-        ["Runtime"] = ["Primitives", "Contracts", "Supporting", "Persistence"],
+        ["Runtime"] = ["Primitives", "Contracts", "Supporting", "Persistence", "HPD.Base", "HPD.Base.Generators"],
         ["Generators"] = [],
         ["Analyzers"] = [],
-        ["Adapters.InMemory"] = ["Primitives", "Contracts", "Supporting", "Persistence"],
-        ["Adapters.Sqlite"] = ["Primitives", "Contracts", "Supporting", "Persistence"],
+        ["Adapters.InMemory"] = ["Primitives", "Contracts", "Supporting", "Persistence", "Runtime"],
+        ["Adapters.Sqlite"] = ["Primitives", "Contracts", "Supporting", "Persistence", "Runtime"],
         ["Adapters.Postgres"] = ["Primitives", "Contracts", "Supporting", "Persistence"],
         ["Connectors.Simulator"] = ["Primitives", "Contracts", "Supporting", "Runtime"],
         ["Connectors.Stripe"] = ["Primitives", "Contracts", "Supporting", "Runtime"],
         ["Extensions.Dynamic"] = ["Primitives", "Contracts", "Supporting", "Runtime"],
         ["Extensions.OutOfProcess"] = ["Primitives", "Contracts", "Supporting", "Serialization"],
         ["Profiles.Embedded"] = ["Runtime", "Serialization", "Adapters.InMemory", "Adapters.Sqlite", "Connectors.Simulator"],
-        ["Profiles.Distributed"] = ["Runtime", "Serialization", "Adapters.Postgres", "Connectors.Simulator"],
+        ["Profiles.Distributed"] = ["Runtime", "Serialization", "Connectors.Simulator"],
         ["Tools.Conformance"] = ["Primitives", "Contracts", "Supporting", "Serialization", "Persistence", "Runtime", "Generators", "Analyzers", "Adapters.InMemory", "Adapters.Sqlite", "Adapters.Postgres", "Connectors.Simulator", "Connectors.Stripe", "Extensions.Dynamic", "Extensions.OutOfProcess", "Profiles.Embedded", "Profiles.Distributed"],
         ["Host.Api"] = ["Profiles.Embedded", "Serialization"],
         ["Worker"] = ["Profiles.Embedded", "Serialization"],
@@ -51,7 +51,7 @@ static class ArchitectureGraph
     public static bool HasCycle(IReadOnlyDictionary<string,string[]> graph)
     {
         var active = new HashSet<string>(StringComparer.Ordinal); var done = new HashSet<string>(StringComparer.Ordinal);
-        bool Visit(string n) { if (active.Contains(n)) return true; if (!done.Add(n)) return false; active.Add(n); foreach (var d in graph[n]) if (Visit(d)) return true; active.Remove(n); return false; }
+        bool Visit(string n) { if (active.Contains(n)) return true; if (!done.Add(n)) return false; if (!graph.TryGetValue(n, out var dependencies)) return false; active.Add(n); foreach (var d in dependencies) if (Visit(d)) return true; active.Remove(n); return false; }
         return graph.Keys.Any(Visit);
     }
 }

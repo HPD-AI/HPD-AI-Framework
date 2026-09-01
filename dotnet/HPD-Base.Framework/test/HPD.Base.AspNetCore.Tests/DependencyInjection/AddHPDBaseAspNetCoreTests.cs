@@ -6,6 +6,19 @@ namespace HPD.Base.AspNetCore.Tests.DependencyInjection;
 public sealed class AddHPDBaseAspNetCoreTests
 {
     [Fact]
+    public void ClientGenerationSnapshotBuilderUsesTheRequestScope()
+    {
+        var services = new ServiceCollection();
+
+        services.AddHPDBaseRuntime();
+        services.AddHPDBaseAspNetCore();
+
+        ServiceDescriptor descriptor = services.Single(service =>
+            service.ServiceType == typeof(BaseClientGenerationSnapshotBuilder));
+        descriptor.Lifetime.Should().Be(ServiceLifetime.Scoped);
+    }
+
+    [Fact]
     public void RegistersProjectionServicesWithoutStoreDependency()
     {
         var services = new ServiceCollection();

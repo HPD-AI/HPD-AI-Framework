@@ -6,13 +6,24 @@ namespace HPD.Agent.Tests.Content;
 
 public class AgentEventContentPersistenceTests
 {
-    static AgentEventContentPersistenceTests()
-    {
-        AgentEventSerializer.RegisterEventType(
-            typeof(PersistableContentTestEvent),
-            "PERSISTABLE_CONTENT_TEST",
-            AgentEventContentPersistenceTestJsonContext.Default.PersistableContentTestEvent);
-    }
+    private static readonly AgentEventCodec Codec = AgentEventComposition.Create([
+        new AgentEventModuleFragment
+        {
+            ModuleId = "hpd.agent.tests.content",
+            Events = [new AgentEventDescriptor
+            {
+                Discriminator = "PERSISTABLE_CONTENT_TEST",
+                EventType = typeof(PersistableContentTestEvent),
+                JsonTypeInfo = AgentEventContentPersistenceTestJsonContext.Default.PersistableContentTestEvent,
+                Durability = AgentEventDurability.Durable,
+                ModuleId = "hpd.agent.tests.content",
+                ContentPolicy = new AgentEventContentPolicy(
+                    "memory-event",
+                    "application/json",
+                    ContentSource.Agent)
+            }]
+        }
+    ]).Codec;
 
     [Fact]
     public async Task PersistAsync_WhenEventRequestsContentPersistence_WritesSerializedEvent()
@@ -32,13 +43,17 @@ public class AgentEventContentPersistenceTests
             }
         };
 
-        var info = await AgentEventContentPersistence.PersistAsync(
-            store,
-            evt,
-            "default-scope");
+        var publisher = new AgentEventPublisher(
+            new InMemorySessionStore(Codec),
+            new HPD.Events.Core.EventCoordinator(),
+            new AgentEventContentArchiver(store));
+        await publisher.PublishLiveAsync(evt);
+        await publisher.PublishLiveAsync(evt);
+        var items = await store.QueryAsync(ContentScope.Create("session-1"));
+        var info = Assert.Single(items);
 
         Assert.NotNull(info);
-        Assert.Equal("event-1.json", info.Name);
+        Assert.Equal("events/PERSISTABLE_CONTENT_TEST/event-1.json", info.Name);
         Assert.Equal("application/json", info.ContentType);
         Assert.Equal(ContentSource.Agent, info.Origin);
         Assert.Equal("memory-event", info.Tags?["kind"]);
@@ -50,7 +65,6 @@ public class AgentEventContentPersistenceTests
         Assert.Equal("span-1", info.Tags?["span"]);
         Assert.Equal("TestAgent", info.Tags?["agent.name"]);
         Assert.Equal("agent-1", info.Tags?["agent.id"]);
-        Assert.Equal("test", info.Tags?["test-tag"]);
 
         await using var opened = await store.OpenReadAsync(info.Address);
         Assert.NotNull(opened);
@@ -66,30 +80,72 @@ public class AgentEventContentPersistenceTests
     {
         var store = new InMemoryContentStore();
 
-        var info = await AgentEventContentPersistence.PersistAsync(
-            store,
-            new TextDeltaEvent("hello", "message-1"),
-            "default-scope");
+        await new AgentEventContentArchiver(store).ArchiveAsync(
+            HPD.Agent.Tests.TestEventApplication.Codec,
+            new TextDeltaEvent("hello", "message-1") { SessionId = "default-scope" });
 
-        Assert.Null(info);
         Assert.Empty(await store.QueryAsync(ContentScope.Create("default-scope")));
+    }
+
+    [Fact]
+    public async Task ArchiveFailure_IsObservableAndDoesNotEscapePublication()
+    {
+        AgentEventArchiveDiagnostic? observed = null;
+        var archiver = new AgentEventContentArchiver(
+            new ThrowingContentStore(),
+            diagnostic => observed = diagnostic);
+
+        await archiver.ArchiveAsync(Codec, new PersistableContentTestEvent("hello")
+        {
+            EventId = "event-failure",
+            SessionId = "session-1"
+        });
+
+        Assert.True(observed.HasValue);
+        Assert.Equal(typeof(PersistableContentTestEvent), observed.Value.EventType);
+        Assert.Equal("Content archival failed.", observed.Value.Reason);
+        Assert.IsType<InvalidOperationException>(observed.Value.Exception);
+        Assert.Equal(HPD.Events.EventKind.Diagnostic, observed.Value.Kind);
+    }
+
+    [Fact]
+    public async Task ConcurrentRetries_ConvergeWithoutFailureDiagnostics()
+    {
+        var store = new InMemoryContentStore();
+        var diagnostics = new System.Collections.Concurrent.ConcurrentQueue<AgentEventArchiveDiagnostic>();
+        var archiver = new AgentEventContentArchiver(store, diagnostics.Enqueue);
+        var evt = new PersistableContentTestEvent("same")
+        {
+            EventId = "event-concurrent",
+            SessionId = "session-concurrent"
+        };
+
+        await Task.WhenAll(Enumerable.Range(0, 32)
+            .Select(_ => archiver.ArchiveAsync(Codec, evt).AsTask()));
+
+        Assert.Single(await store.QueryAsync(ContentScope.Create("session-concurrent")));
+        Assert.Empty(diagnostics);
+    }
+
+    private sealed class ThrowingContentStore : IContentStore
+    {
+        public ValueTask<ContentInfo> WriteAsync(ContentScope scope, Stream data, ContentMetadata metadata,
+            ContentWriteOptions options, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("write failed");
+
+        public ValueTask<ContentReadResult?> OpenReadAsync(ContentAddress address, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<ContentReadResult?>(null);
+        public ValueTask<Uri?> CreateReadUriAsync(ContentAddress address, TimeSpan expiresIn, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<Uri?>(null);
+        public ValueTask<ContentInfo?> StatAsync(ContentAddress address, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<ContentInfo?>(null);
+        public ValueTask DeleteAsync(ContentAddress address, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+        public ValueTask<IReadOnlyList<ContentInfo>> QueryAsync(ContentScope scope, ContentQuery? query = null,
+            CancellationToken cancellationToken = default) => ValueTask.FromResult<IReadOnlyList<ContentInfo>>([]);
     }
 }
 
-internal sealed record PersistableContentTestEvent(string Value) : AgentEvent
-{
-    public override ContentPersistenceRequest? GetContentPersistenceRequest() => new()
-    {
-        Kind = "memory-event",
-        Name = "event-1.json",
-        Description = "Persisted test event",
-        Origin = ContentSource.Agent,
-        Tags = new Dictionary<string, string>
-        {
-            ["test-tag"] = "test"
-        }
-    };
-}
+internal sealed record PersistableContentTestEvent(string Value) : AgentEvent;
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

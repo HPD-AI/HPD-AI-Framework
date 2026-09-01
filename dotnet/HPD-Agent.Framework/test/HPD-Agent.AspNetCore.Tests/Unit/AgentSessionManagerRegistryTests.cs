@@ -20,10 +20,11 @@ public class AgentSessionManagerRegistryTests
     {
         // Arrange
         var services = new ServiceCollection();
+        services.AddTestApplicationCompositions();
         services.AddOptions();
         services.Configure<HPDAgentConfig>(Options.DefaultName, opts =>
         {
-            opts.SessionStore = new InMemorySessionStore();
+            opts.SessionStore = new InMemorySessionStore(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec);
         });
         var provider = services.BuildServiceProvider();
         var registry = new HPDAgentRegistry(provider);
@@ -42,10 +43,11 @@ public class AgentSessionManagerRegistryTests
     {
         // Arrange
         var services = new ServiceCollection();
+        services.AddTestApplicationCompositions();
         services.AddOptions();
         services.Configure<HPDAgentConfig>(Options.DefaultName, opts =>
         {
-            opts.SessionStore = new InMemorySessionStore();
+            opts.SessionStore = new InMemorySessionStore(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec);
         });
         var provider = services.BuildServiceProvider();
         var registry = new HPDAgentRegistry(provider);
@@ -64,14 +66,15 @@ public class AgentSessionManagerRegistryTests
     {
         // Arrange
         var services = new ServiceCollection();
+        services.AddTestApplicationCompositions();
         services.AddOptions();
         services.Configure<HPDAgentConfig>("agent1", opts =>
         {
-            opts.SessionStore = new InMemorySessionStore();
+            opts.SessionStore = new InMemorySessionStore(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec);
         });
         services.Configure<HPDAgentConfig>("agent2", opts =>
         {
-            opts.SessionStore = new InMemorySessionStore();
+            opts.SessionStore = new InMemorySessionStore(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec);
         });
         var provider = services.BuildServiceProvider();
         var registry = new HPDAgentRegistry(provider);
@@ -89,10 +92,11 @@ public class AgentSessionManagerRegistryTests
     {
         // Arrange
         var services = new ServiceCollection();
+        services.AddTestApplicationCompositions();
         services.AddOptions();
         services.Configure<HPDAgentConfig>("test-agent", opts =>
         {
-            opts.SessionStore = new InMemorySessionStore();
+            opts.SessionStore = new InMemorySessionStore(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec);
             opts.AgentIdleTimeout = TimeSpan.FromMinutes(60);
         });
         var provider = services.BuildServiceProvider();
@@ -110,11 +114,12 @@ public class AgentSessionManagerRegistryTests
     {
         // Arrange
         var services = new ServiceCollection();
+        services.AddTestApplicationCompositions();
         services.AddOptions();
         services.AddSingleton<IAgentFactory, TestAgentFactory>();
         services.Configure<HPDAgentConfig>(Options.DefaultName, opts =>
         {
-            opts.SessionStore = new InMemorySessionStore();
+            opts.SessionStore = new InMemorySessionStore(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec);
         });
         var provider = services.BuildServiceProvider();
         var registry = new HPDAgentRegistry(provider);
@@ -132,6 +137,7 @@ public class AgentSessionManagerRegistryTests
         // Arrange
         var tempPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         var services = new ServiceCollection();
+        services.AddTestApplicationCompositions();
         services.AddOptions();
         services.Configure<HPDAgentConfig>(Options.DefaultName, opts =>
         {
@@ -157,6 +163,7 @@ public class AgentSessionManagerRegistryTests
     {
         // Arrange
         var services = new ServiceCollection();
+        services.AddTestApplicationCompositions();
         services.AddOptions();
         services.Configure<HPDAgentConfig>(Options.DefaultName, opts => { });
         var provider = services.BuildServiceProvider();
@@ -174,8 +181,9 @@ public class AgentSessionManagerRegistryTests
     public void CreatePair_UsesProvidedStore_WhenAvailable()
     {
         // Arrange
-        var customStore = new InMemorySessionStore();
+        var customStore = new InMemorySessionStore(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec);
         var services = new ServiceCollection();
+        services.AddTestApplicationCompositions();
         services.AddOptions();
         services.Configure<HPDAgentConfig>(Options.DefaultName, opts =>
         {
@@ -206,7 +214,7 @@ public class AgentSessionManagerRegistryTests
             {
                 Name = "TestAgent",
                 Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
-                    ProviderKey = "test",
+                    Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" },
                     ModelName = "test-model"
                 } }
             };

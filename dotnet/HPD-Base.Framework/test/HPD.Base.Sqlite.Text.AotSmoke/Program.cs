@@ -21,7 +21,7 @@ internal static class Program
             });
             await using ServiceProvider provider = services.BuildServiceProvider(); IBaseSchemaManager schemas = provider.GetRequiredService<IBaseSchemaManager>(); BaseSchemaPlan plan = (await schemas.PlanAsync(new() { StoreId = "sqlite" })).Value!; if (!(await schemas.ApplyAsync(new() { ProtectedArtifact = plan.ProtectedArtifact })).IsSuccess() || !(await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess()) return 2;
             BaseCollectionSession<AotSqliteTextRecord> collection = provider.GetRequiredService<IBaseSessionFactory>().For(new() { AuthenticationState = PrincipalAuthenticationState.Admin, SubjectKind = AccessSubjectKind.User, SubjectId = "aot" }).Collection(AotSqliteTextRecord.Collection);
-            (await collection.CreateAsync(new("one"), new() { Body = "SQLite portable phrase", State = "published" })).RequireValue(); BaseTextResult<AotSqliteTextRecord> result = (await collection.Text(AotSqliteTextRecord.TextIndexes.Content, BaseTextQuery.StartsWith("port")).Take(4).ExecuteAsync()).RequireValue(); return result.Matches is [{ Record.Id.Value: "one" }] ? 0 : 3;
+            (await collection.CreateAsync(RecordId.Create("one"), new() { Body = "SQLite portable phrase", State = "published" })).RequireValue(); BaseTextResult<AotSqliteTextRecord> result = (await collection.Text(AotSqliteTextRecord.TextIndexes.Content, BaseTextQuery.StartsWith("port")).Take(4).ExecuteAsync()).RequireValue(); return result.Matches is [{ Record.Id.Value: "one" }] ? 0 : 3;
         }
         finally { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); foreach (string file in new[] { path, path + "-wal", path + "-shm" }) if (File.Exists(file)) File.Delete(file); }
     }

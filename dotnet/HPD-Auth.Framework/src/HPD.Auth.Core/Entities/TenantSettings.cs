@@ -57,7 +57,7 @@ public class TenantSettings
     public string? AccentColor { get; set; }
 
     // ─────────────────────────────────────────────────────────────
-    // Email Sender Configuration ( pattern)
+    // Email Sender Configuration
     // ─────────────────────────────────────────────────────────────
 
     /// <summary>

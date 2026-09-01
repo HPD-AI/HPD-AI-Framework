@@ -70,6 +70,8 @@ public sealed record BaseAtomicMutationIntentItem
     public required ImmutableArray<BaseAtomicRelationTargetIntent> RelationTargets { get; init; }
     /// <summary>Gets the principal-bound operation context.</summary>
     public required OperationContext Operation { get; init; }
+    /// <summary>Gets the generated exporter lifecycle CAS precondition.</summary>
+    public BaseSubjectLifecycleTransitionPrecondition? SubjectLifecycleTransition { get; init; }
 }
 
 /// <summary>Identifies one relation target whose state must be captured before Runtime finalization.</summary>
@@ -128,6 +130,8 @@ public sealed record BaseAtomicExecutionRequest
     public BaseActivationGuard? ActivationGuard { get; init; }
     /// <summary>Gets the optional L53 semantic activation operation.</summary>
     public BaseAtomicSemanticActivationExtension? SemanticActivation { get; init; }
+    /// <summary>Gets the graph-owned L54 schema capture extension when schema authority applies.</summary>
+    public BaseAtomicSchemaCaptureRequest? Schema { get; init; }
     /// <summary>Gets the sole complete safety envelope.</summary>
     public required BaseAtomicMutationExecutionLimits Limits { get; init; }
 }
@@ -239,6 +243,29 @@ public sealed record BaseCapturedMutationItem
     public RecordEnvelope? Current { get; init; }
     /// <summary>Gets deeply owned state for every possible relation target declared by the matching intent.</summary>
     public required ImmutableArray<BaseCapturedRelationTarget> RelationTargets { get; init; }
+    /// <summary>Gets transaction-owned lifecycle authority for a generated exporter transition.</summary>
+    public BaseCapturedSubjectLifecycleTransitionAuthority? SubjectLifecycleTransition { get; init; }
+}
+
+/// <summary>Contains transaction-owned current lifetime authority for one generated exporter transition.</summary>
+public sealed record BaseCapturedSubjectLifecycleTransitionAuthority
+{
+    /// <summary>Gets the exported contract ID.</summary>
+    public required string ContractId { get; init; }
+    /// <summary>Gets the exported contract version.</summary>
+    public required int ContractVersion { get; init; }
+    /// <summary>Gets the installed contract checksum.</summary>
+    public required string ContractChecksum { get; init; }
+    /// <summary>Gets the exact public subject ID.</summary>
+    public required BaseSubjectId SubjectId { get; init; }
+    /// <summary>Gets the current restore-aware authority epoch.</summary>
+    public required BaseSubjectAuthorityEpoch AuthorityEpoch { get; init; }
+    /// <summary>Gets the exact current subject incarnation.</summary>
+    public required BaseSubjectIncarnation Incarnation { get; init; }
+    /// <summary>Gets the current lifecycle state.</summary>
+    public required BaseSubjectLifecycleState CurrentState { get; init; }
+    /// <summary>Gets the current nonnegative lifecycle sequence.</summary>
+    public required long CurrentSubjectSequence { get; init; }
 }
 
 /// <summary>Contains transaction-bound state for one possible relation target.</summary>
@@ -320,6 +347,8 @@ public sealed record BaseCapturedAtomicExecution
     public BaseCapturedActivationGuardEvidence? ActivationGuard { get; init; }
     /// <summary>Gets captured L53 semantic activation authority.</summary>
     public BaseCapturedSemanticActivationEvidence? SemanticActivation { get; init; }
+    /// <summary>Gets captured L54 schema authority and originals.</summary>
+    public BaseAtomicSchemaCaptureExtension? Schema { get; init; }
     /// <summary>Gets normalized transaction read intervals.</summary>
     public required ImmutableArray<BaseAtomicReadIntervalEvidence> ReadIntervals { get; init; }
     /// <summary>Gets exact capture accounting.</summary>
@@ -372,6 +401,43 @@ public sealed record BaseCapturedSelectionEvidence
     public required ImmutableArray<byte> CanonicalOrderBoundary { get; init; }
     /// <summary>Gets exact selection accounting.</summary>
     public required BaseAtomicSelectionAccounting Accounting { get; init; }
+    /// <summary>Gets required logical-index execution evidence when point access was requested.</summary>
+    public required BaseLogicalIndexSelectionEvidence? LogicalIndexEvidence { get; init; }
+}
+
+/// <summary>Contains exact provider evidence for one required logical-index selection.</summary>
+public sealed record BaseLogicalIndexSelectionEvidence
+{
+    /// <summary>Gets the stable logical-index identity.</summary>
+    public required BaseLogicalIndexId IndexId { get; init; }
+    /// <summary>Gets the positive logical-index version.</summary>
+    public required long IndexVersion { get; init; }
+    /// <summary>Gets the exact logical-index checksum.</summary>
+    public required BaseLogicalIndexChecksum IndexChecksum { get; init; }
+    /// <summary>Gets the certified access shape.</summary>
+    public required BaseIndexAccessShape AccessShape { get; init; }
+    /// <summary>Gets the captured directory generation.</summary>
+    public required long DirectoryGeneration { get; init; }
+    /// <summary>Gets the exact directory-publication checksum.</summary>
+    public required ImmutableArray<byte> DirectoryPublicationChecksum { get; init; }
+    /// <summary>Gets the exact member-set checksum.</summary>
+    public required ImmutableArray<byte> MemberSetChecksum { get; init; }
+    /// <summary>Gets the exact equality-key checksum.</summary>
+    public required ImmutableArray<byte> EqualityKeyChecksum { get; init; }
+    /// <summary>Gets the matched membership-predicate proof checksum.</summary>
+    public required ImmutableArray<byte> MatchedPredicateChecksum { get; init; }
+    /// <summary>Gets the normalized point read interval.</summary>
+    public required BaseAtomicReadIntervalEvidence ReadInterval { get; init; }
+    /// <summary>Gets examined posting memberships.</summary>
+    public required int ExaminedPostings { get; init; }
+    /// <summary>Gets retained candidate records.</summary>
+    public required int Candidates { get; init; }
+    /// <summary>Gets provider comparator operations.</summary>
+    public required int Comparisons { get; init; }
+    /// <summary>Gets exact canonical evidence bytes before the trailing checksum.</summary>
+    public required long EvidenceBytes { get; init; }
+    /// <summary>Gets the canonical evidence checksum.</summary>
+    public required ImmutableArray<byte> Checksum { get; init; }
 }
 
 /// <summary>Contains one captured L50 record.</summary>
@@ -448,6 +514,8 @@ public sealed record BaseAtomicMutationPlanItem
     public bool RuntimeAssignedRecordId { get; init; }
     /// <summary>Gets the canonical proposed record payload for create/update.</summary>
     public RecordPayload? ProposedPayload { get; init; }
+    /// <summary>Gets the owned ordinal stable field identifiers removed by a patch.</summary>
+    public required ImmutableArray<string> RemovedFieldIds { get; init; }
     /// <summary>Gets the canonical delete request for delete.</summary>
     public RecordDeleteRequest? Delete { get; init; }
     /// <summary>Gets the transaction-bound current record when required.</summary>
@@ -569,6 +637,8 @@ public sealed record BaseFinalizedAtomicExecutionPlan
     public BaseActivationGuard? ActivationGuard { get; init; }
     /// <summary>Gets the Runtime-finalized L53 semantic activation operation.</summary>
     public BaseAtomicSemanticActivationExtension? SemanticActivation { get; init; }
+    /// <summary>Gets the Runtime-finalized L54 schema evidence.</summary>
+    public BaseAtomicSchemaFinalizedExtension? Schema { get; init; }
     /// <summary>Gets the complete immutable execution limits.</summary>
     public required BaseAtomicMutationExecutionLimits Limits { get; init; }
 }
@@ -696,6 +766,8 @@ public sealed record BaseModuleGenerationIncrement
 /// <summary>Contains the complete L45 transaction execution safety envelope.</summary>
 public sealed record BaseAtomicMutationExecutionLimits
 {
+    /// <summary>Gets the sole effective L54 schema limits when schema authority applies.</summary>
+    public BaseSchemaExecutionLimits? Schema { get; init; }
     /// <summary>Gets the maximum mutation item count.</summary>
     public required int MaximumItems { get; init; }
     /// <summary>Gets the maximum canonical query-node count.</summary>
@@ -902,6 +974,8 @@ public sealed record BasePreparedAtomicExecution
     public BaseCapturedActivationGuardEvidence? ActivationGuard { get; init; }
     /// <summary>Gets prepared L53 semantic activation evidence.</summary>
     public BasePreparedSemanticActivation? SemanticActivation { get; init; }
+    /// <summary>Gets the session-bound L54 schema preparation.</summary>
+    public BaseAtomicSchemaPreparedExtension? Schema { get; init; }
     /// <summary>Gets provider-prepared retirement evidence.</summary>
     public BaseSubjectRetirementPreparedEvidence? SubjectRetirement { get; init; }
     /// <summary>Gets provider-prepared text projection evidence.</summary>
@@ -1002,6 +1076,8 @@ public sealed record BaseProvisionalAtomicExecution
     public BaseCapturedActivationGuardEvidence? ActivationGuard { get; init; }
     /// <summary>Gets provisional L53 semantic activation evidence.</summary>
     public BaseProvisionalSemanticActivation? SemanticActivation { get; init; }
+    /// <summary>Gets provisional L54 schema evidence.</summary>
+    public BaseAtomicSchemaProvisionalExtension? Schema { get; init; }
     /// <summary>Gets applied retirement evidence.</summary>
     public BaseSubjectRetirementProvisionalEvidence? SubjectRetirement { get; init; }
     /// <summary>Gets applied text projection evidence.</summary>
@@ -1021,6 +1097,8 @@ public sealed record BaseAtomicMutationCommitFinalization
     public required ImmutableArray<byte> CanonicalResultBytes { get; init; }
     /// <summary>Gets exact final aggregate accounting.</summary>
     public required BaseAtomicCommitAccounting Accounting { get; init; }
+    /// <summary>Gets Runtime-owned committed L54 schema evidence.</summary>
+    public BaseAtomicSchemaCommittedEvidence? Schema { get; init; }
 }
 
 /// <summary>Contains exact accounting after Runtime adds result and receipt artifacts.</summary>

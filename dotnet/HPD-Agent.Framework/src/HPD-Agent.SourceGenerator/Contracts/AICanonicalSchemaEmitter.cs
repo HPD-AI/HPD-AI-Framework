@@ -108,7 +108,9 @@ internal static class AICanonicalSchemaEmitter
             builder.Append(",\"description\":");
             AppendString(builder, node.Description!);
         }
-        if (hasDefault)
+        // An omitted optional parameter may bind to a CLR null default even when explicit JSON null
+        // is outside its wire contract. Do not publish an invalid schema default in that case.
+        if (hasDefault && (defaultValue is not null || node.AllowsNull))
         {
             builder.Append(",\"default\":");
             AppendDefault(builder, node, defaultValue);
@@ -152,6 +154,12 @@ internal static class AICanonicalSchemaEmitter
                 hasDefault,
                 hasDefault ? binding.ConstructorParameter!.ExplicitDefaultValue : null);
             wroteProperty = true;
+        }
+        if (!contract.AcceptedFrameworkProperties.IsDefaultOrEmpty &&
+            contract.AcceptedFrameworkProperties.Contains("invocationMode", StringComparer.Ordinal))
+        {
+            if (wroteProperty) builder.Append(',');
+            builder.Append("\"invocationMode\":{\"type\":\"string\",\"enum\":[\"synchronous\",\"background\"],\"description\":\"Whether this action completes now or runs in the background.\"}");
         }
         builder.Append('}');
 
@@ -201,11 +209,15 @@ internal static class AICanonicalSchemaEmitter
                 builder.Append(',');
             }
             builder.Append('{');
+            var unionCase = union.Cases[index];
+            var caseContract = string.Equals(unionCase.InvocationModePolicy, "ModelChoice", StringComparison.Ordinal)
+                ? unionCase.Contract with { AcceptedFrameworkProperties = ["invocationMode"] }
+                : unionCase.Contract;
             AppendObject(
                 builder,
-                union.Cases[index].Contract,
+                caseContract,
                 union.DiscriminatorPropertyName,
-                union.Cases[index].Discriminator);
+                unionCase.Discriminator);
             builder.Append('}');
         }
         builder.Append(']');

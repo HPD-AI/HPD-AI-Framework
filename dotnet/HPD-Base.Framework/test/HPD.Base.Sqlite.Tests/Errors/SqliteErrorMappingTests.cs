@@ -12,7 +12,7 @@ public sealed class SqliteErrorMappingTests
     {
         var path = Path.Combine(Path.GetTempPath(), "hpd-base-sqlite-errors-" + Guid.NewGuid().ToString("N") + ".db");
         var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path });
-        var request = new RecordCreateRequest { RequestedId = new RecordId("dup"), Payload = Payload() };
+        var request = new RecordCreateRequest { RequestedId = RecordId.Create("dup"), Payload = Payload() };
         (await store.CreateAsync(Collection(), request, Operation(BaseOperationKind.Create))).Status.Should().Be(OperationStatus.Created);
 
         var duplicate = await store.CreateAsync(Collection(), request, Operation(BaseOperationKind.Create));

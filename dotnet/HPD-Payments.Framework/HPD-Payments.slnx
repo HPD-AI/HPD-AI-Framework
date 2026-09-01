@@ -28,10 +28,13 @@
   <Project Path="test/HPD.Payments.Serialization.Tests/HPD.Payments.Serialization.Tests.csproj" />
   <Project Path="test/HPD.Payments.Persistence.Tests/HPD.Payments.Persistence.Tests.csproj" />
   <Project Path="test/HPD.Payments.Runtime.Tests/HPD.Payments.Runtime.Tests.csproj" />
+  <Project Path="test/HPD.Payments.Runtime.Persistence.Tests/HPD.Payments.Runtime.Persistence.Tests.csproj" />
   <Project Path="test/HPD.Payments.BaseIntegration.Tests/HPD.Payments.BaseIntegration.Tests.csproj" />
   <Project Path="test/HPD.Payments.Generators.Tests/HPD.Payments.Generators.Tests.csproj" />
   <Project Path="test/HPD.Payments.Analyzers.Tests/HPD.Payments.Analyzers.Tests.csproj" />
   <Project Path="test/HPD.Payments.Adapters.InMemory.Tests/HPD.Payments.Adapters.InMemory.Tests.csproj" />
+  <Project Path="test/HPD.Payments.AdapterCertification.Tests/HPD.Payments.AdapterCertification.Tests.csproj" />
+  <Project Path="test/HPD.Payments.AdapterCertification.Tests/Sqlite/HPD.Payments.AdapterCertification.Sqlite.Tests.csproj" />
   <Project Path="test/HPD.Payments.Adapters.Sqlite.Tests/HPD.Payments.Adapters.Sqlite.Tests.csproj" />
   <Project Path="test/HPD.Payments.Adapters.Postgres.Tests/HPD.Payments.Adapters.Postgres.Tests.csproj" />
   <Project Path="test/HPD.Payments.Connectors.Simulator.Tests/HPD.Payments.Connectors.Simulator.Tests.csproj" />
@@ -49,6 +52,11 @@
   <Project Path="test/HPD.Payments.OutOfProcess.Client.AotSmoke/HPD.Payments.OutOfProcess.Client.AotSmoke.csproj" />
   <Project Path="test/HPD.Payments.Host.Api.AotSmoke/HPD.Payments.Host.Api.AotSmoke.csproj" />
   <Project Path="test/HPD.Payments.Worker.AotSmoke/HPD.Payments.Worker.AotSmoke.csproj" />
+  <Project Path="test/HPD.Payments.CardLifecycle.AotSmoke/HPD.Payments.CardLifecycle.AotSmoke.csproj" />
+  <Project Path="test/HPD.Payments.QuotaWallet.AotSmoke/HPD.Payments.QuotaWallet.AotSmoke.csproj" />
+  <Project Path="test/HPD.Payments.EntitlementRestriction.AotSmoke/HPD.Payments.EntitlementRestriction.AotSmoke.csproj" />
+  <Project Path="test/HPD.Payments.WorkRepair.AotSmoke/HPD.Payments.WorkRepair.AotSmoke.csproj" />
+  <Project Path="test/HPD.Payments.SettlementAccounting.AotSmoke/HPD.Payments.SettlementAccounting.AotSmoke.csproj" />
   <Project Path="perf/HPD.Payments.StaticLane.Performance/HPD.Payments.StaticLane.Performance.csproj" />
   <Project Path="perf/HPD.Payments.Conformance.Performance/HPD.Payments.Conformance.Performance.csproj" />
   <Project Path="perf/HPD.Payments.Extensions.Dynamic.Performance/HPD.Payments.Extensions.Dynamic.Performance.csproj" />

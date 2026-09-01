@@ -33,7 +33,7 @@ public sealed class AgentRunConfigSnapshotTests
             {
                 Chat = new ChatClientConfig
                 {
-                    ProviderKey = "test",
+                    Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" },
                     ModelName = "model",
                     StopSequences = ["stop"]
                 }
@@ -43,6 +43,22 @@ public sealed class AgentRunConfigSnapshotTests
                 Properties = new Dictionary<string, object> { ["opaque"] = opaque }
             },
             StructuredOutput = new StructuredOutputOptions { UnionTypes = [typeof(string)] },
+            Collapsing = new CollapsingRunPolicy
+            {
+                EnableErrorRecovery = true,
+                RecoveryHistoryMode = ContainerRecoveryHistoryMode.Preserve
+            },
+            SubAgents = new SubAgentRunOverrides
+            {
+                Capabilities = [new SubAgentRunPolicyOverride
+                {
+                    CapabilityId = CapabilityId.Create("test:worker"),
+                    Clients = new AgentClientInheritancePatch
+                    {
+                        Chat = ClientFamilyInheritanceMode.UseOwn
+                    }
+                }]
+            },
             Evaluations = evaluations
         };
 
@@ -55,6 +71,13 @@ public sealed class AgentRunConfigSnapshotTests
         Assert.NotSame(source.Context!.Properties, snapshot.Context!.Properties);
         Assert.Same(opaque, snapshot.Context.Properties!["opaque"]);
         Assert.NotSame(source.StructuredOutput!.UnionTypes, snapshot.StructuredOutput!.UnionTypes);
+        Assert.NotSame(source.Collapsing, snapshot.Collapsing);
+        Assert.NotSame(source.SubAgents, snapshot.SubAgents);
+        Assert.NotSame(source.SubAgents.Capabilities, snapshot.SubAgents.Capabilities);
+        Assert.NotSame(source.SubAgents.Capabilities[0].Clients, snapshot.SubAgents.Capabilities[0].Clients);
+        Assert.Equal(ClientFamilyInheritanceMode.UseOwn,
+            snapshot.SubAgents.Capabilities[0].Clients!.Chat);
+        Assert.Equal(ContainerRecoveryHistoryMode.Preserve, snapshot.Collapsing!.RecoveryHistoryMode);
         Assert.NotSame(evaluations, snapshot.Evaluations);
     }
 

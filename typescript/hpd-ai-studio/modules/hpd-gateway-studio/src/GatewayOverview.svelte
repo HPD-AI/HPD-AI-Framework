@@ -1,14 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { useStudioModuleContext, useStudioShell } from '@hpd-research/hpd-studio-core';
+  import { requireGatewayRuntimeContext } from './runtime-context.ts';
   import type { GatewayStudioController, GatewayStudioSnapshot } from './state.ts';
   import type { GatewayOperationsController } from './operations.ts';
   import { projectGatewayDiscovery, summarizeGatewayDiscovery } from './discovery-projection.ts';
 
-  const moduleContext = useStudioModuleContext();
-  const shell = useStudioShell();
-  const controller = requireController(moduleContext.get<GatewayStudioController>('gateway-controller'));
-  const operations = moduleContext.get<GatewayOperationsController>('gateway-operations-controller');
+  const moduleContext = requireGatewayRuntimeContext();
+  const controller = moduleContext.controller;
+  const operations: GatewayOperationsController = moduleContext.operations;
   let snapshot: GatewayStudioSnapshot = $state(controller.snapshot());
   let namespaceId = $state('');
   let targetId = $state('');
@@ -91,7 +90,6 @@
       <section class="studio-panel grid gap-3 p-6">
         <h2 class="text-xl font-bold">Authentication required</h2>
         <p class="text-sm text-studio-muted">Gateway Studio does not own credentials. Use the host authentication flow to continue.</p>
-        {#if shell.authentication.beginSignIn}<button class="studio-button w-fit" type="button" onclick={() => shell.authentication.beginSignIn?.()}>Sign in</button>{/if}
       </section>
     {:else if snapshot.phase === 'context-required'}
       <section class="studio-panel p-6"><h2 class="text-xl font-bold">Choose a target context</h2><p class="mt-2 text-sm text-studio-muted">Overview remains idle until both identifiers are supplied explicitly.</p></section>

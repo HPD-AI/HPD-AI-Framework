@@ -77,80 +77,50 @@ public static partial class BaseGraphCheckpointMutation
 
     private static BaseModuleMutationTemplate Template()
     {
-        BaseModuleRequestPropertyExpression Request(string id, string edge) => new()
-        {
-            Id = id,
-            ResultTypeId = "string",
-            Property = new BaseModuleRequestPropertyReference
-            {
-                StablePropertyPath = [edge],
-                DeclaredTypeId = "string",
-            },
-        };
-        BaseModuleObjectExpression Payload(string id) => new()
-        {
-            Id = id,
-            ResultTypeId = "hpd.graph.checkpoint.record",
-            Properties =
-            [
-                new() { StablePropertyId = "hpd.graph.checkpoint.execution-id", Value = Request(id + ".execution", "hpd.graph.checkpoint.persist.execution-id") },
-                new() { StablePropertyId = "hpd.graph.checkpoint.graph-checksum", Value = Request(id + ".checksum", "hpd.graph.checkpoint.persist.graph-checksum") },
-                new() { StablePropertyId = "hpd.graph.checkpoint.graph-id", Value = Request(id + ".graph", "hpd.graph.checkpoint.persist.graph-id") },
-                new() { StablePropertyId = "hpd.graph.checkpoint.graph-version", Value = Request(id + ".version", "hpd.graph.checkpoint.persist.graph-version") },
-                new() { StablePropertyId = "hpd.graph.checkpoint.id", Value = Request(id + ".id", "hpd.graph.checkpoint.persist.checkpoint-id") },
-                new() { StablePropertyId = "hpd.graph.checkpoint.payload", Value = Request(id + ".payload", "hpd.graph.checkpoint.persist.payload") },
-            ],
-        };
+        BaseModuleValue<string> CheckpointId(string id) => BaseModuleMutationTemplateBuilder.Request(id, RequestProperties.CheckpointId);
+        BaseModuleValue<BaseRecordId<BaseGraphCheckpointRecord>> RecordId(string id) =>
+            BaseModuleMutationTemplateBuilder.RecordIdFromString<BaseGraphCheckpointRecord>(id + ".record", CheckpointId(id + ".value"));
+        BaseModuleRecordObject<BaseGraphCheckpointRecord> Payload(string id) =>
+            BaseModuleMutationTemplateBuilder.Object<BaseGraphCheckpointRecord>(id,
+                BaseModuleMutationTemplateBuilder.Field(BaseGraphCheckpointRecord.Fields.ExecutionId,
+                    BaseModuleMutationTemplateBuilder.Request(id + ".execution", RequestProperties.ExecutionId)),
+                BaseModuleMutationTemplateBuilder.Field(BaseGraphCheckpointRecord.Fields.GraphChecksum,
+                    BaseModuleMutationTemplateBuilder.Request(id + ".checksum", RequestProperties.GraphChecksum)),
+                BaseModuleMutationTemplateBuilder.Field(BaseGraphCheckpointRecord.Fields.GraphId,
+                    BaseModuleMutationTemplateBuilder.Request(id + ".graph", RequestProperties.GraphId)),
+                BaseModuleMutationTemplateBuilder.Field(BaseGraphCheckpointRecord.Fields.GraphVersion,
+                    BaseModuleMutationTemplateBuilder.Request(id + ".version", RequestProperties.GraphVersion)),
+                BaseModuleMutationTemplateBuilder.Field(BaseGraphCheckpointRecord.Fields.CheckpointId, CheckpointId(id + ".id")),
+                BaseModuleMutationTemplateBuilder.Field(BaseGraphCheckpointRecord.Fields.CanonicalCheckpoint,
+                    BaseModuleMutationTemplateBuilder.Request(id + ".payload", RequestProperties.CanonicalCheckpoint)));
         return new BaseModuleMutationTemplate
         {
             Captures =
             [
-                new BaseModuleRecordCapture
-                {
-                    Id = "checkpoint",
-                    CollectionId = BaseGraphCheckpointRecord.Collection.Id,
-                    RecordId = Request("capture.id", "hpd.graph.checkpoint.persist.checkpoint-id"),
-                    Presence = BaseModuleCapturePresence.AllowEither,
-                },
+                BaseModuleMutationTemplateBuilder.CaptureRecord(
+                    "checkpoint", RecordId("capture.id"), BaseModuleCapturePresence.AllowEither),
             ],
             Guards = [],
+            Preconditions = [],
             Body = new BaseModuleMutationBlock
             {
                 Statements =
                 [
-                    new BaseModuleUpsertStatement
-                    {
-                        Id = "persist",
-                        CollectionId = BaseGraphCheckpointRecord.Collection.Id,
-                        RecordId = Request("write.id", "hpd.graph.checkpoint.persist.checkpoint-id"),
-                        Create = Payload("create"),
-                        Update = Payload("update"),
-                        UpdateMode = RecordUpsertUpdateMode.Replace,
-                    },
+                    BaseModuleMutationTemplateBuilder.Upsert(
+                        "persist", RecordId("write.id"), Payload("create"), Payload("update"), RecordUpsertUpdateMode.Replace),
                 ],
             },
-            Result = new BaseModuleResultProjection
-            {
-                Value = new BaseModuleObjectExpression
-                {
-                    Id = "result",
-                    ResultTypeId = "hpd.graph.checkpoint.persist.result",
-                    Properties =
-                    [
-                        new()
-                        {
-                            StablePropertyId = "hpd.graph.checkpoint.persist.result.checkpoint-id",
-                            Value = Request("result.id", "hpd.graph.checkpoint.persist.checkpoint-id"),
-                        },
-                    ],
-                },
-            },
+            Result = BaseModuleMutationTemplateBuilder.Result(
+                BaseModuleMutationTemplateBuilder.ResultObject(
+                    "result",
+                    BaseModuleMutationTemplateBuilder.Property(ResultProperties.CheckpointId, CheckpointId("result.id")))),
         };
     }
 
     private static BaseModuleMutationLimits Limits() => new()
     {
         MaximumCaptures = 1,
+        MaximumDisabledCaptures = 0,
         MaximumRecordCaptures = 1,
         MaximumRelationTargetCaptures = 1,
         MaximumGenerationCaptures = 1,
@@ -160,8 +130,13 @@ public static partial class BaseGraphCheckpointMutation
         MaximumGenerationIncrements = 1,
         MaximumGuardNodes = 1,
         MaximumGuardDepth = 8,
+        MaximumPreconditions = 0,
+        MaximumRequestGuardEvaluations = 0,
+        MaximumStaticSetMembers = 0,
+        MaximumStaticSetComparisons = 0,
         MaximumStatements = 1,
         MaximumBranches = 1,
+        MaximumRemovedFields = 0,
         MaximumExpressionNodes = 32,
         MaximumReadIntervals = 4,
         MaximumSubjectValidations = 1,

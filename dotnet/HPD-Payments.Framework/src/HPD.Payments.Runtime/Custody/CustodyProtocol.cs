@@ -28,6 +28,11 @@ public sealed record CustodyProtocol
             return Reject("instance-mismatch");
         if (next.InventoryGeneration.Value != checked(Current.InventoryGeneration.Value + 1))
             return Reject("inventory-generation-conflict");
+        if (next.ObservedAt.Value <= Current.ObservedAt.Value)
+            return Reject("custody-observation-not-monotone");
+        if ((next.PolicyRevision != Current.PolicyRevision || next.HoldRevision != Current.HoldRevision) &&
+            next.State is CustodyState.Requested or CustodyState.VerifiedAbsent)
+            return Reject("custody-policy-drift");
         if (Current.State is CustodyState.Held or CustodyState.RetentionRequired &&
             next.State is CustodyState.Requested or CustodyState.VerifiedAbsent)
             return Reject("hold-or-retention-blocks-disposition");

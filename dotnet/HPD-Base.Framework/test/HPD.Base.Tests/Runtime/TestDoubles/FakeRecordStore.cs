@@ -87,6 +87,16 @@ internal class FakeRecordStore : IAtomicRecordStore
                 MaxReceiptBytes = 1_048_576, MinReceiptLifetime = TimeSpan.FromSeconds(1),
                 MaxReceiptLifetime = TimeSpan.FromDays(365),
             } : null,
+            ModuleMutation = new BaseModuleMutationCapability
+            {
+                Supported = true,
+                SerializableExecution = true,
+                DurableReceipts = true,
+                GenerationCells = true,
+                AtomicRecordAndGenerationCommit = true,
+                MaximumRemovedFieldsPerMutation = 256,
+                MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
+            },
         };
     }
 
@@ -104,6 +114,8 @@ internal class FakeRecordStore : IAtomicRecordStore
     public RecordMutationExecutionOutcome? ForcedOutcomeAfterProcessing { get; set; }
     public BaseError? ForcedOutcomeError { get; set; }
     public Func<BaseRecordMutationFact, BaseRecordMutationFact>? MutationFactTransform { get; set; }
+    public Func<BaseCapturedAtomicExecution, BaseCapturedAtomicExecution>? AtomicCaptureTransform { get; set; }
+    public Func<BaseProvisionalAtomicExecution, BaseProvisionalAtomicExecution>? AtomicProvisionalTransform { get; set; }
     public List<OperationContext> MutationContexts { get; } = [];
     public RecordCreateRequest? LastCreateRequest { get; private set; }
     public RecordPatchRequest? LastPatchRequest { get; protected set; }
@@ -132,6 +144,7 @@ internal class FakeRecordStore : IAtomicRecordStore
             StoreInstanceId = Capabilities.StoreId,
             RestoreEpoch = 0,
             SchemaGeneration = 1,
+            LogicalSchemaChecksum = BaseSchemaAuthorityChecksum.Create(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(HPDBaseStoreInstallationContext.ComputeSchemaDigest(collections)))),
             Collections = collections.OrderBy(static value => value.Id, StringComparer.Ordinal)
                 .Select(static value => new BaseCollectionGenerationRequirement
                 {
@@ -406,8 +419,93 @@ internal class FakeRecordStore : IAtomicRecordStore
                 }
                 intervalBuilder.Add(Interval($"collection:{item.CollectionId}:record", item.RecordId));
             }
+            var moduleRecords = ImmutableArray.CreateBuilder<BaseCapturedModuleRecord>(request.Module?.Records.Length ?? 0);
+            var moduleGenerations = ImmutableArray.CreateBuilder<BaseCapturedModuleGeneration>(
+                request.Module?.Generations.Length ?? 0);
+            long generationBytes = 0;
+            if (request.Module is { } module)
+            {
+                foreach (BaseModuleRecordCaptureRequest capture in module.Records)
+                {
+                    overlay.TryGetValue(capture.RecordId.Value, out RecordEnvelope? current);
+                    if (capture.Presence == BaseModuleCapturePresence.RequirePresent && current is null
+                        || capture.Presence == BaseModuleCapturePresence.RequireMissing && current is not null)
+                        return ValueTask.FromResult(OperationResults.StoreError<BaseCapturedAtomicExecution>(new BaseError
+                        {
+                            Code = "base.moduleMutation.captureEvidenceInvalid",
+                            Message = "The requested module capture presence did not match.",
+                            Category = ErrorCategory.Store,
+                        }));
+                    intervalBuilder.Add(Interval($"collection:{capture.Collection.Id}:record", capture.RecordId));
+                    if (current is not null)
+                    {
+                        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(
+                            current, HPDBaseJsonSerializerContext.Default.RecordEnvelope);
+                        digest.AppendData(bytes);
+                        selected = checked(selected + bytes.LongLength);
+                    }
+                    moduleRecords.Add(new BaseCapturedModuleRecord
+                    {
+                        Ordinal = capture.Ordinal,
+                        CaptureId = capture.CaptureId,
+                        CollectionId = capture.Collection.Id,
+                        RecordId = capture.RecordId,
+                        Exists = current is not null,
+                        Current = current is null ? null : RecordCloneHelpers.CloneEnvelope(current),
+                    });
+                }
+                foreach (BaseModuleGenerationCaptureRequest capture in module.Generations)
+                {
+                    byte[] key = Encoding.UTF8.GetBytes(string.Join('\0',
+                        capture.Cell.Id, capture.Cell.Version.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        ((int)capture.Scope.Kind).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        capture.Scope.Tenant ?? string.Empty, capture.Scope.Project ?? string.Empty,
+                        Convert.ToHexStringLower(capture.KeyUtf8.AsSpan())));
+                    intervalBuilder.Add(new BaseAtomicReadIntervalEvidence
+                    {
+                        LogicalAccessPathId = "module-generation",
+                        CanonicalLowerBound = key.ToImmutableArray(), LowerInclusive = true,
+                        CanonicalUpperBound = key.ToImmutableArray(), UpperInclusive = true,
+                    });
+                    digest.AppendData(key);
+                    generationBytes = checked(generationBytes + key.LongLength + 1);
+                    moduleGenerations.Add(new BaseCapturedModuleGeneration
+                    {
+                        Ordinal = capture.Ordinal, CaptureId = capture.CaptureId,
+                        CellId = capture.Cell.Id, CellVersion = capture.Cell.Version,
+                        CanonicalKeyDigest = Convert.ToHexStringLower(SHA256.HashData(key)),
+                        Exists = false, Generation = null,
+                    });
+                }
+            }
+            ImmutableArray<BaseCapturedSubjectLifecycleConsumerProjection> lifecycleProjections =
+                [.. request.LifecycleConsumerProjections.Select(projection =>
+                {
+                    byte[] key = Encoding.UTF8.GetBytes($"{projection.ConsumerId}\0{projection.ConsumerVersion}");
+                    intervalBuilder.Add(new BaseAtomicReadIntervalEvidence
+                    {
+                        LogicalAccessPathId = "subject-lifecycle:consumer-projection",
+                        CanonicalLowerBound = key.ToImmutableArray(),
+                        LowerInclusive = true,
+                        CanonicalUpperBound = key.ToImmutableArray(),
+                        UpperInclusive = true,
+                    });
+                    digest.AppendData(key);
+                    return new BaseCapturedSubjectLifecycleConsumerProjection
+                    {
+                        ConsumerId = projection.ConsumerId,
+                        ConsumerVersion = projection.ConsumerVersion,
+                        ConsumerChecksum = projection.ConsumerChecksum,
+                        ContractId = projection.ContractId,
+                        ContractVersion = projection.ContractVersion,
+                        ProjectionGeneration = 1,
+                        PublishedGraphGeneration = 1,
+                    };
+                })];
             ImmutableArray<BaseAtomicReadIntervalEvidence> intervals = intervalBuilder.ToImmutable();
             long evidence = BaseSubjectCanonicalRetainedWork.MeasureIntervals(intervals);
+            long lifecycleProjectionBytes =
+                BaseSubjectCanonicalRetainedWork.MeasureLifecycleConsumerProjections(lifecycleProjections);
             _captured = new BaseCapturedAtomicExecution
             {
                 Kind = request.Kind,
@@ -419,25 +517,40 @@ internal class FakeRecordStore : IAtomicRecordStore
                     StoreInstanceId = owner.Capabilities.StoreId,
                     RestoreEpoch = intent.Authority.RestoreEpoch,
                     SchemaGeneration = 1,
+                    LogicalSchemaChecksum = intent.Authority.LogicalSchemaChecksum,
                     Collections = intent.Authority.Collections,
                     Isolation = BaseAtomicSelectionIsolationClass.WriteOwningSerializable,
                     TransactionEvidenceToken = [1],
                 },
                 Items = items,
-                ModuleRecords = [], ModuleRelationTargets = [], Generations = [],
+                ModuleRecords = moduleRecords.ToImmutable(), ModuleRelationTargets = [],
+                Generations = moduleGenerations.ToImmutable(),
+                LifecycleConsumerProjections = lifecycleProjections,
                 ReadIntervals = intervals,
                 Accounting = new BaseAtomicCaptureAccounting
                 {
-                    Records = checked(items.Length + items.Sum(static item => item.RelationTargets.Length)),
-                    RelationTargetReads = items.Sum(static item => item.RelationTargets.Length), GenerationReads = 0,
+                    Records = checked(items.Length + items.Sum(static item => item.RelationTargets.Length)
+                        + moduleRecords.Count),
+                    RelationTargetReads = items.Sum(static item => item.RelationTargets.Length),
+                    GenerationReads = moduleGenerations.Count,
                     SelectedBytes = selected,
-                    RelationTargetBytes = 0, GenerationBytes = 0,
+                    RelationTargetBytes = 0, GenerationBytes = generationBytes,
                     ReadIntervals = intervals.Length,
                     EvidenceBytes = evidence,
-                    TransientBytes = selected + evidence,
+                    TransientBytes = selected + evidence + generationBytes + lifecycleProjectionBytes,
                     RetirementBarrierReads=0,RetirementAcknowledgementReads=0,RetirementProjections=0,RetirementPublications=0,RetirementEvidenceBytes=0,RetirementPublicationBytes=0,
                 },
             };
+            _captured = owner.AtomicCaptureTransform?.Invoke(_captured) ?? _captured;
+            if ((request.Schema is null) != (request.Limits.Schema is null))
+                return ValueTask.FromResult(OperationResults.StoreError<BaseCapturedAtomicExecution>(new BaseError { Code = BaseSchemaErrorCodes.ProviderEvidenceInvalid, Message = "Invalid schema capture request.", Category = ErrorCategory.Store }));
+            if (request.Schema is not null)
+            {
+                CollectionDefinition[] collections = intent.Items.Select(static item => item.Collection)
+                    .Concat(intent.Items.SelectMany(static item => item.RelationTargets).Select(static relation => relation.TargetCollection))
+                    .DistinctBy(static collection => collection.Id).ToArray();
+                _captured = _captured with { Schema = BaseAtomicSchemaContract.Capture(request.Schema, _captured.Authority, collections, items) };
+            }
             return ValueTask.FromResult(OperationResults.Ok(_captured));
 
             static BaseAtomicReadIntervalEvidence Interval(string path, RecordId id)
@@ -461,16 +574,25 @@ internal class FakeRecordStore : IAtomicRecordStore
             if (!ReferenceEquals(captured, _captured) || _prepared is not null)
                 return ValueTask.FromResult(OperationResults.StoreError<BasePreparedAtomicExecution>(new BaseError { Code = BaseSubjectErrorCodes.ProviderContractInvalid, Message = "Invalid preparation.", Category = ErrorCategory.Store }));
             _plan = plan;
+            BaseAtomicSchemaPreparedExtension? preparedSchema;
+            try { preparedSchema = BaseAtomicSchemaContract.Prepare(this, captured.Schema, plan.Schema, plan.Items); }
+            catch (InvalidOperationException exception) { return ValueTask.FromResult(OperationResults.StoreError<BasePreparedAtomicExecution>(new BaseError { Code = exception.Message, Message = "Invalid schema preparation.", Category = ErrorCategory.Store })); }
             _prepared = new BasePreparedAtomicExecution
             {
                 Kind = plan.Kind,
                 PlanDigest = plan.PlanDigest,
                 Authority = captured.Authority,
                 SubjectAuthorities = [],
-                Dispositions = captured.Items.Select(static item => item.Disposition).ToImmutableArray(),
+                Dispositions = plan.Items.Select(static item => item.Kind switch
+                {
+                    BaseCommittedRecordMutationKind.Create => BaseCapturedMutationDisposition.Create,
+                    BaseCommittedRecordMutationKind.Delete => BaseCapturedMutationDisposition.Delete,
+                    _ => BaseCapturedMutationDisposition.Update,
+                }).ToImmutableArray(),
                 Generations = [],
                 SubjectOverlay = [],
                 SubjectValidations = [],
+                Schema = preparedSchema,
                 ReadIntervals = captured.ReadIntervals,
                 Accounting = new BasePreparedAtomicMutationAccounting
                 {
@@ -496,6 +618,9 @@ internal class FakeRecordStore : IAtomicRecordStore
             EnsureActive();
             if (!ReferenceEquals(prepared, _prepared) || _plan is null)
                 return OperationResults.StoreError<BaseProvisionalAtomicExecution>(new BaseError { Code = BaseSubjectErrorCodes.ProviderContractInvalid, Message = "Invalid apply.", Category = ErrorCategory.Store });
+            BaseAtomicSchemaProvisionalExtension? provisionalSchema;
+            try { provisionalSchema = BaseAtomicSchemaContract.Apply(this, prepared.Schema, _plan.Schema); }
+            catch (InvalidOperationException exception) { return OperationResults.StoreError<BaseProvisionalAtomicExecution>(new BaseError { Code = exception.Message, Message = "Invalid schema application.", Category = ErrorCategory.Store }); }
             _prepared = null;
             var facts = ImmutableArray.CreateBuilder<BaseOwnedMutationFact>(_plan.Items.Length);
             foreach (BaseAtomicMutationPlanItem item in _plan.Items)
@@ -511,41 +636,61 @@ internal class FakeRecordStore : IAtomicRecordStore
                 OperationResult<RecordMutationSessionResult> result = item.Kind switch
                 {
                     BaseCommittedRecordMutationKind.Create => await CreateAsync(item.Collection, new RecordCreateRequest { RequestedId = item.RecordId, Payload = item.ProposedPayload! }, context, cancellationToken),
-                    BaseCommittedRecordMutationKind.Patch => await PatchAsync(item.Collection, item.RecordId, new RecordPatchRequest { Patch = PatchDelta(item), ExpectedRevision = item.Current?.Metadata.Revision }, context, cancellationToken),
+                    BaseCommittedRecordMutationKind.Patch => await PatchAsync(item.Collection, item.RecordId, new RecordPatchRequest { Patch = PatchDelta(item), RemovedFieldIds = item.RemovedFieldIds, ExpectedRevision = item.Current?.Metadata.Revision }, context, cancellationToken),
                     BaseCommittedRecordMutationKind.Replace => await ReplaceAsync(item.Collection, item.RecordId, new RecordReplaceRequest { Payload = item.ProposedPayload!, ExpectedRevision = item.Current?.Metadata.Revision }, context, cancellationToken),
                     BaseCommittedRecordMutationKind.Delete => await DeleteAsync(item.Collection, item.RecordId, item.Delete!, context, cancellationToken),
                     _ => throw new InvalidOperationException(),
                 };
                 if (!result.IsSuccess() || result.Value is null)
                     return new OperationResult<BaseProvisionalAtomicExecution> { Status = result.Status, Error = result.Error };
-                facts.Add(BaseOwnedMutationFact.Freeze(result.Value.Mutation, 1));
+                BaseRecordMutationFact mutation = result.Value.Mutation;
+                BaseRecordMutationFact journaled = mutation with
+                {
+                    Event = mutation.Event with
+                    {
+                        PublishedAt = item.Operation.Now,
+                        Stream = "base.mutations",
+                        Guarantee = EventDeliveryGuarantee.Transactional,
+                    },
+                    JournalPosition = new BaseMutationJournalPosition(checked(item.Ordinal + 1L)),
+                };
+                facts.Add(BaseOwnedMutationFact.Freeze(journaled, 1));
             }
             BaseRecordMutationFact[] materialized = facts.Select(static fact => fact.MaterializeOwned()).ToArray();
             await ApplyMutationProjectionsAsync(BaseAtomicMutationProjectionFactory.Create(materialized), cancellationToken);
-            long bytes = facts.Sum(static fact => (long)fact.EncodedLength);
-            return OperationResults.Ok(new BaseProvisionalAtomicExecution
+            long factBytes = facts.Sum(static fact => (long)fact.EncodedLength);
+            long journalBytes = materialized.Sum(static fact => (long)JsonSerializer.SerializeToUtf8Bytes(
+                fact, HPDBaseJsonSerializerContext.Default.BaseRecordMutationFact).LongLength);
+            long writtenBytes = materialized.Sum(static fact => fact.After is null
+                ? Encoding.UTF8.GetByteCount(fact.Before!.Id.Value) + sizeof(long)
+                : (long)JsonSerializer.SerializeToUtf8Bytes(
+                    fact.After, HPDBaseJsonSerializerContext.Default.RecordEnvelope).LongLength);
+            var provisional = new BaseProvisionalAtomicExecution
             {
                 Kind = _plan.Kind,
                 PlanDigest = _plan.PlanDigest,
                 Authority = prepared.Authority,
                 Facts = facts.MoveToImmutable(),
                 Generations = [],
+                Schema = provisionalSchema,
                 Accounting = new BaseProvisionalAtomicMutationAccounting
                 {
-                    WrittenBytes = bytes,
-                    GenerationBytes = 0,
-                    FactBytes = bytes,
-                    JournalBytes = bytes,
+                    WrittenBytes = writtenBytes,
+                    GenerationBytes = prepared.Accounting.GenerationBytes,
+                    FactBytes = factBytes,
+                    JournalBytes = journalBytes,
                     RelationChecks = 0,
                     UniqueConstraintChecks = 0,
-                    AuthorityReads = 0,
-                    ReadIntervals = 0,
-                    SelectedBytes = 0,
-                    EvidenceBytes = 0,
-                    TransientBytes = bytes * 3,
+                    AuthorityReads = prepared.Accounting.AuthorityReads,
+                    ReadIntervals = prepared.ReadIntervals.Length,
+                    SelectedBytes = prepared.Accounting.SelectedBytes,
+                    EvidenceBytes = prepared.Accounting.EvidenceBytes,
+                    TransientBytes = checked(prepared.Accounting.TransientBytes
+                        + writtenBytes + factBytes + journalBytes),
                     RetirementBarrierReads=0,RetirementAcknowledgementReads=0,RetirementProjections=0,RetirementPublications=0,RetirementEvidenceBytes=0,RetirementPublicationBytes=0,
                 },
-            });
+            };
+            return OperationResults.Ok(owner.AtomicProvisionalTransform?.Invoke(provisional) ?? provisional);
         }
 
         private static RecordPayload PatchDelta(BaseAtomicMutationPlanItem item)
@@ -576,7 +721,7 @@ internal class FakeRecordStore : IAtomicRecordStore
             EnsureActive();
             owner.CreateCalls++;
             owner.LastCreateRequest = request;
-            var id = request.RequestedId ?? new RecordId($"rec_{owner.CreateCalls}");
+            var id = request.RequestedId ?? RecordId.Create($"rec_{owner.CreateCalls}");
             if (records.ContainsKey(id.Value))
                 return ValueTask.FromResult(Conflict());
             var record = Envelope(collection, id, request.Payload);
@@ -588,7 +733,7 @@ internal class FakeRecordStore : IAtomicRecordStore
                 BaseCommittedRecordMutationKind.Create,
                 null,
                 record,
-                null));
+                context.ChangedFields));
         }
 
         public ValueTask<OperationResult<RecordMutationSessionResult>> PatchAsync(
@@ -615,7 +760,7 @@ internal class FakeRecordStore : IAtomicRecordStore
                 BaseCommittedRecordMutationKind.Patch,
                 before,
                 after,
-                request.Patch.Fields?.Keys.ToArray()));
+                context.ChangedFields));
         }
 
         public ValueTask<OperationResult<RecordMutationSessionResult>> ReplaceAsync(
@@ -641,7 +786,7 @@ internal class FakeRecordStore : IAtomicRecordStore
                 BaseCommittedRecordMutationKind.Replace,
                 before,
                 after,
-                null));
+                context.ChangedFields));
         }
 
         public ValueTask<OperationResult<RecordMutationSessionResult>> DeleteAsync(
@@ -673,7 +818,7 @@ internal class FakeRecordStore : IAtomicRecordStore
                 BaseCommittedRecordMutationKind.Delete,
                 before,
                 null,
-                null);
+                context.ChangedFields);
             return ValueTask.FromResult(result with
             {
                 Value = result.Value! with

@@ -6,6 +6,7 @@ using HPD.Agent.Hosting.Lifecycle;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using HostingAgentFactory = HPD.Agent.Hosting.Configuration.IAgentFactory;
+using HPD.Agent.Serialization;
 
 namespace HPD.Agent.AspNetCore.DependencyInjection;
 
@@ -34,9 +35,18 @@ internal sealed class HPDAgentRegistry
     {
         var optionsMonitor = _serviceProvider.GetRequiredService<IOptionsMonitor<HPDAgentConfig>>();
         var options = optionsMonitor.Get(name);
+        var eventComposition = options.EventComposition
+            ?? _serviceProvider.GetService<AgentEventComposition>()
+            ?? throw new InvalidOperationException(
+                "HPD Agent Hosting requires an explicit or generated AgentEventComposition before activation.");
 
         ISessionStore sessionStore = options.SessionStore
-            ?? (options.SessionStorePath != null ? new FileSessionStore(options.SessionStorePath) : new InMemorySessionStore());
+            ?? (options.SessionStorePath != null
+                ? new FileSessionStore(options.SessionStorePath, eventComposition.Codec)
+                : new InMemorySessionStore(eventComposition.Codec));
+        if (!ReferenceEquals(sessionStore.EventCodec, eventComposition.Codec))
+            throw new InvalidOperationException(
+                $"Hosted store codec '{sessionStore.EventCodec.Digest}' differs from application codec '{eventComposition.Digest}'.");
         IAgentStore agentStore = options.AgentStore ?? new InMemoryAgentStore();
         IContentStore contentStore = options.ContentStore ??= new InMemoryContentStore();
 
@@ -50,12 +60,13 @@ internal sealed class HPDAgentRegistry
             _serviceProvider,
             name,
             contentStore,
-            agentFactory);
+            agentFactory,
+            eventComposition);
 
         var hostingServices = new HPDAgentHostingServices(
             new AgentSessionService(sessionManager, string.IsNullOrWhiteSpace(name) ? "default" : name),
             new AgentThreadService(sessionManager, agentManager),
-            new AgentThreadExecutionService(sessionManager),
+            new AgentThreadExecutionService(sessionManager, agentManager),
             new AgentContentService(sessionManager, contentStore),
             new AgentDefinitionService(agentManager),
             new AgentMiddlewareResponseService(sessionManager, agentManager),
@@ -64,7 +75,8 @@ internal sealed class HPDAgentRegistry
         return new HPDAgentPair(
             agentManager,
             sessionManager,
-            hostingServices);
+            hostingServices,
+            eventComposition);
     }
 }
 
@@ -72,4 +84,5 @@ internal sealed class HPDAgentRegistry
 internal record HPDAgentPair(
     AspNetCoreAgentManager AgentManager,
     AspNetCoreSessionManager SessionManager,
-    HPDAgentHostingServices HostingServices);
+    HPDAgentHostingServices HostingServices,
+    AgentEventComposition EventComposition);

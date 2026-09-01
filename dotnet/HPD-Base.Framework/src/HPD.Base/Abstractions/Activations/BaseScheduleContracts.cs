@@ -179,11 +179,44 @@ public sealed record BaseScheduleDefinition
     public required ImmutableArray<byte> Checksum { get; init; }
 }
 
+/// <summary>Contains only application-authored schedule policy and timing fields.</summary>
+public sealed record BaseScheduleDefinitionDraft
+{
+    /// <summary>Gets the stable schedule identity.</summary>
+    public required string Id { get; init; }
+    /// <summary>Gets the positive schedule version.</summary>
+    public required int Version { get; init; }
+    /// <summary>Gets the owning module identity.</summary>
+    public required string OwningModuleId { get; init; }
+    /// <summary>Gets the schedule-administration grant.</summary>
+    public required string ManageGrantId { get; init; }
+    /// <summary>Gets the occurrence-materialization grant.</summary>
+    public required string MaterializeGrantId { get; init; }
+    /// <summary>Gets the schedule expression.</summary>
+    public required BaseScheduleExpression Expression { get; init; }
+    /// <summary>Gets the local-time gap policy.</summary>
+    public required BaseTimeGapPolicy GapPolicy { get; init; }
+    /// <summary>Gets the local-time overlap policy.</summary>
+    public required BaseTimeOverlapPolicy TimeOverlapPolicy { get; init; }
+    /// <summary>Gets the misfire policy.</summary>
+    public required BaseScheduleMisfirePolicy MisfirePolicy { get; init; }
+    /// <summary>Gets the activation-overlap policy.</summary>
+    public required BaseScheduleOverlapPolicy ActivationOverlapPolicy { get; init; }
+    /// <summary>Gets the overlap-key kind.</summary>
+    public required BaseScheduleOverlapKeyKind OverlapKeyKind { get; init; }
+    /// <summary>Gets the optional canonical concurrency key.</summary>
+    public ImmutableArray<byte> ConcurrencyKey { get; init; }
+    /// <summary>Gets priority in the closed -32..32 range.</summary>
+    public required int Priority { get; init; }
+    /// <summary>Gets deterministic maximum splay milliseconds.</summary>
+    public required long MaximumSplayMilliseconds { get; init; }
+}
+
 /// <summary>Contains an inert graph-installed durable schedule identity.</summary>
 public sealed class BaseScheduleRegistrationIdentity
 {
     /// <summary>Initializes one inert schedule identity.</summary>
-    public BaseScheduleRegistrationIdentity(string id, int version, ReadOnlyMemory<byte> checksum)
+    internal BaseScheduleRegistrationIdentity(string id, int version, ReadOnlyMemory<byte> checksum)
     {
         Id = new string(id.AsSpan());
         Version = version;
@@ -196,6 +229,23 @@ public sealed class BaseScheduleRegistrationIdentity
     public int Version { get; }
     /// <summary>Gets canonical installed checksum.</summary>
     public ReadOnlyMemory<byte> Checksum { get; }
+}
+
+/// <summary>Contains one generated, graph-installable durable schedule and its opaque identity.</summary>
+public sealed class BaseGeneratedScheduleRegistration
+{
+    internal BaseGeneratedScheduleRegistration(BaseScheduleDefinition definition)
+    {
+        Definition = definition;
+        Identity = new BaseScheduleRegistrationIdentity(
+            definition.Id, definition.Version, definition.Checksum.AsMemory());
+    }
+
+    /// <summary>Gets the sealed durable schedule definition.</summary>
+    public BaseScheduleDefinition Definition { get; }
+
+    /// <summary>Gets the opaque identity used to retrieve the installed schedule.</summary>
+    public BaseScheduleRegistrationIdentity Identity { get; }
 }
 
 /// <summary>Contains current durable schedule authority.</summary>
@@ -288,7 +338,7 @@ public sealed record BaseScheduleMutationRequest
     public required BaseScheduleDefinition Definition { get; init; }
     /// <summary>Gets expected definition generation when replacing current authority.</summary>
     public long? ExpectedDefinitionGeneration { get; init; }
-    /// <summary>Gets the Runtime-computed first nominal instant for create or update.</summary>
+    /// <summary>Gets the Runtime-computed first nominal instant strictly after the accepted create or update boundary.</summary>
     public long? InitialNextNominal { get; init; }
     /// <summary>Gets trusted accepted time.</summary>
     public required BaseAcceptedTimeReceipt AcceptedTime { get; init; }

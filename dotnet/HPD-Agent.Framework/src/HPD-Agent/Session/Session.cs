@@ -43,6 +43,9 @@ public class Session
     /// <summary>Session-level metadata (not thread-specific)</summary>
     public Dictionary<string, object> Metadata { get; init; }
 
+    /// <summary>Gets typed preparation authority while this isolated session belongs to a staged fork.</summary>
+    public SessionPreparationDescriptor? Preparation { get; init; }
+
     /// <summary>
     /// Session-scoped middleware persistent state.
     /// Stores state that applies across all threads (e.g., permission choices, user preferences).
@@ -52,7 +55,7 @@ public class Session
     /// <remarks>
     /// <para><b>Examples of session-scoped persistent state:</b></para>
     /// <list type="bullet">
-    /// <item>PermissionPersistentState: "Always Allow Bash" applies to all threads</item>
+    /// <item>Versioned permission preferences may apply across threads in this session.</item>
     /// <item>User preferences: Theme, language, etc.</item>
     /// </list>
     /// </remarks>

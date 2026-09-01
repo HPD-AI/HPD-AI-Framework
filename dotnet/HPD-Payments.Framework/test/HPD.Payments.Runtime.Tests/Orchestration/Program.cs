@@ -13,6 +13,11 @@ using HPD.Payments.Runtime.Tests.Publication;
 using HPD.Payments.Runtime.Tests.Repair;
 using HPD.Payments.Runtime.Tests.Custody;
 using HPD.Payments.Runtime.Tests.History;
+using HPD.Payments.Runtime.Tests.QuotaWallet;
+using HPD.Payments.Runtime.Tests.Entitlement;
+using HPD.Payments.Runtime.Tests.Settlement;
+using HPD.Payments.Runtime.Tests.Billing;
+using HPD.Payments.Runtime.Tests.Card;
 using HPD.Payments.Runtime.Orchestration;
 using HPD.Payments.Supporting.Ownership;
 
@@ -25,6 +30,7 @@ public static class RuntimeBaselineFixture
 /// <returns>Zero when every check passes; otherwise one.</returns>
 public static async Task<int> Main()
 {
+if (!ReleaseCellBinding.ValidateAndExecute("test-runtime-baseline")) return 1;
 var failures = new List<string>();
 void Check(bool condition, string message) { if (!condition) failures.Add(message); }
 WorkProtocolProofs.Run(failures);
@@ -34,6 +40,11 @@ GovernedRepairProtocolProofs.Run(failures);
 CustodyProtocolProofs.Run(failures);
 ProviderEvidencePrecedenceProofs.Run(failures);
 RuntimeHistoryTraceProofs.Run(failures);
+QuotaWalletProtocolProofs.Run(failures);
+EntitlementRestrictionProofs.Run(failures);
+SettlementAccountingProofs.Run(failures);
+BillingInvoiceProofs.Run(failures);
+CardLifecycleProofs.Run(failures);
 
 var scope = ScopeId.Create("tenant", "live", "work");
 SemanticId Id(string kind, string local) => SemanticId.Create(scope, "runtime", kind, local);
@@ -86,7 +97,7 @@ if (failures.Count != 0)
     return 1;
 }
 
-Console.WriteLine($"Runtime proofs passed: {17} closed ports, current-action admission, work/publication/effect/repair/custody protocols, provider precedence, 11 complete H0-H13 histories, fake-port orchestration, and inward dependencies.");
+Console.WriteLine($"Runtime proofs passed: {17} closed ports, current-action admission, work/publication/effect/repair/custody/billing/card protocols, provider precedence, 11 complete H0-H13 histories, fake-port orchestration, and inward dependencies.");
 return 0;
 }
 

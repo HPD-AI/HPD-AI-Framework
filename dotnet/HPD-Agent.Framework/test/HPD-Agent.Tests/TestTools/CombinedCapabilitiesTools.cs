@@ -67,7 +67,7 @@ public partial class CombinedCapabilitiesTools
                 SystemInstructions = "You are an expert in data analysis. Help users understand their data.",
                 MaxAgenticIterations = 10,
                 Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
-                    ProviderKey = "test",
+                    Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" },
                     ModelName = "test-model"
                 } }
             });
@@ -86,7 +86,7 @@ public partial class CombinedCapabilitiesTools
                 SystemInstructions = "You process large amounts of data efficiently.",
                 MaxAgenticIterations = 20,
                 Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
-                    ProviderKey = "test",
+                    Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" },
                     ModelName = "test-model"
                 } }
             });
@@ -119,7 +119,7 @@ public partial class FunctionsAndSubAgentsToolHarness
                 SystemInstructions = "You help users find information efficiently.",
                 MaxAgenticIterations = 5,
                 Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
-                    ProviderKey = "test",
+                    Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" },
                     ModelName = "test-model"
                 } }
             });
@@ -158,7 +158,7 @@ public partial class SkillsAndSubAgentsToolHarness
                 SystemInstructions = "You help users manage their files.",
                 MaxAgenticIterations = 8,
                 Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
-                    ProviderKey = "test",
+                    Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" },
                     ModelName = "test-model"
                 } }
             });

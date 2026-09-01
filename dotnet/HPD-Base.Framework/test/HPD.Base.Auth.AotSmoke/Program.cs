@@ -111,10 +111,10 @@ try
         "auth-aot", "create-item", "request-1",
         BaseMutationRequestFingerprint.Create(SHA256.HashData("auth-aot-request"u8)));
     BaseBatchBuilder first = app.Services.GetRequiredService<IBaseSessionFactory>().For(writer).Atomic(identity);
-    first.Create(items, new RecordId("item-1"), Json("value"));
+    first.Create(items, RecordId.Create("item-1"), Json("value"));
     Require((await first.CommitAsync()) is BaseSuccess<BaseBatchResult>, "Authorized atomic request failed.");
     BaseBatchBuilder replay = app.Services.GetRequiredService<IBaseSessionFactory>().For(denied).Atomic(identity);
-    replay.Create(items, new RecordId("item-1"), Json("value"));
+    replay.Create(items, RecordId.Create("item-1"), Json("value"));
     Require((await replay.CommitAsync()) is BaseFailure<BaseBatchResult> { Status: OperationStatus.PolicyDenied },
         "Current policy did not gate duplicate receipt disclosure.");
     Require(!JsonSerializer.IsReflectionEnabledByDefault, "JSON reflection fallback must be disabled.");

@@ -65,6 +65,7 @@ public sealed class EndpointIntegrationTests
         var patch = await client.PatchAsync($"/base/collections/items/records/{created.Id.Value}", JsonContent.Create(new RecordPatchRequest
         {
             Patch = TestBaseApp.Patch("title", "patched"),
+            RemovedFieldIds = [],
             ExpectedRevision = created.Metadata.Revision
         }, HPDBaseJsonSerializerContext.Default.RecordPatchRequest));
         patch.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -110,7 +111,7 @@ public sealed class EndpointIntegrationTests
                 new BaseRecordBatchItem
                 {
                     ItemId = "create-1", CollectionId = "items", Kind = BaseRecordMutationKind.Create,
-                    Create = new RecordCreateRequest { RequestedId = new RecordId("atomic-http-1"), Payload = TestBaseApp.Payload(("title", "once")) },
+                    Create = new RecordCreateRequest { RequestedId = RecordId.Create("atomic-http-1"), Payload = TestBaseApp.Payload(("title", "once")) },
                 }
             ],
         };
@@ -438,6 +439,7 @@ public sealed class EndpointIntegrationTests
         public ValueTask<BaseResult<BaseActivationTransitionResult>> DisposeActivationAsync(BaseActivationAdministrationDisposeRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseActivationMaintenancePage>> AdvanceActivationMaintenanceAsync(BaseActivationAdministrationMaintenanceRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseActivationPrunePage>> PruneActivationsAsync(BaseActivationAdministrationPruneRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<BaseResult<BaseActivationReceiptCompactionResult>> CompactActivationReceiptsAsync(BaseActivationAdministrationReceiptCompactionRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseActivationMigrationResult>> MigrateActivationAsync(BaseActivationAdministrationMigrationRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseActivationQuarantinePage>> ExecuteActivationRepairAsync(BaseActivationAdministrationRepairRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseActivationAdministrationPage>> ReadActivationsAsync(BaseActivationAdministrationReadRequest request, CancellationToken cancellationToken = default)

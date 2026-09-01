@@ -113,13 +113,27 @@ internal sealed class DefaultBaseSelectionMutationRuntime(
                 [collection],
                 captureLimits,
                 cancellationToken).ConfigureAwait(false);
-        if (!authority.IsSuccess() || authority.Value is null
-            || string.IsNullOrWhiteSpace(authority.Value.StoreInstanceId))
+        if (!authority.IsSuccess())
+        {
+            return (authority.Status, authority.Error?.Code, authority.Error?.Category) switch
+            {
+                (OperationStatus.Conflict, "base.provider.selection.transactionConflict", ErrorCategory.Conflict) =>
+                    Failure(OperationStatus.Conflict, BaseSelectionErrorCodes.TransactionConflict, ErrorCategory.Conflict),
+                (OperationStatus.Conflict, "base.provider.selection.authorityChanged", ErrorCategory.Conflict) =>
+                    Failure(OperationStatus.Conflict, BaseSelectionErrorCodes.SchemaGenerationChanged, ErrorCategory.Conflict),
+                _ => Failure(OperationStatus.StoreError, "base.runtime.store.error", ErrorCategory.Store),
+            };
+        }
+        if (authority.Value is null || string.IsNullOrWhiteSpace(authority.Value.StoreInstanceId))
             return Failure(OperationStatus.Conflict, BaseSelectionErrorCodes.SchemaGenerationChanged, ErrorCategory.Conflict);
 
         RecordQuery providerQuery = BaseQueryFieldResolver.ToStoredNames(collection, constrained);
+        BaseLogicalIndexPointSelection? logicalIndexPoint = capability.SupportedIndexShapes.Contains(
+            BaseIndexAccessShape.LogicalIndexPoint)
+            ? BaseLogicalIndexPointPlanContract.Derive(collection, constrained.Filter)
+            : null;
         var processor = new BaseSelectionMutationProcessor(
-            session.Principal, operation, collection, profile, providerQuery, patch, normalizedPreviousState, policy,
+            session.Principal, operation, collection, profile, providerQuery, logicalIndexPoint, patch, normalizedPreviousState, policy,
             authorization.Value, resolved.Value, authority.Value, subjects, lifecycleConsumers,
             transactionalActivation, options?.ActivationGuard);
         var executionRequest = new RecordMutationExecutionRequest
@@ -150,6 +164,8 @@ internal sealed class DefaultBaseSelectionMutationRuntime(
         }
         if (execution.Outcome == RecordMutationExecutionOutcome.Indeterminate)
             return Failure(OperationStatus.StoreError, BaseSelectionErrorCodes.CommitIndeterminate, ErrorCategory.Store);
+        if (execution.Outcome == RecordMutationExecutionOutcome.ConflictRollbackConfirmed)
+            return Failure(OperationStatus.Conflict, BaseSelectionErrorCodes.TransactionConflict, ErrorCategory.Conflict);
         BaseSelectionMutationResult? completed = processor.Result;
         if (execution.RequestDisposition == BaseMutationRequestDisposition.Duplicate
             && execution.Processing?.Receipt.SelectionMutation is { } stored)
@@ -454,6 +470,7 @@ internal sealed record BaseValidatedSelection
     public required ImmutableArray<BaseAtomicReadIntervalEvidence> ReadIntervals { get; init; }
     public required ImmutableArray<byte> CanonicalOrderBoundary { get; init; }
     public required BaseAtomicSelectionAccounting Accounting { get; init; }
+    public required BaseLogicalIndexSelectionEvidence? LogicalIndexEvidence { get; init; }
 }
 
 internal sealed class BaseSelectionMutationProcessor(
@@ -462,6 +479,7 @@ internal sealed class BaseSelectionMutationProcessor(
     CollectionDefinition collection,
     BaseSelectionOperationProfile profile,
     RecordQuery query,
+    BaseLogicalIndexPointSelection? logicalIndexPoint,
     RecordPatchRequest? patch,
     BasePreviousStateRequirement previousState,
     IBasePolicyOrchestrator policy,
@@ -488,7 +506,9 @@ internal sealed class BaseSelectionMutationProcessor(
             || !string.Equals(stored.CollectionId, collection.Id, StringComparison.Ordinal)
             || !string.Equals(stored.OperationProfileId, profile.Id, StringComparison.Ordinal)
             || stored.OperationProfileVersion != profile.Version
-            || !string.Equals(stored.ReceiptScope, principal.CurrentTenantId ?? string.Empty, StringComparison.Ordinal))
+            || !string.Equals(stored.ReceiptScope, principal.CurrentTenantId ?? string.Empty, StringComparison.Ordinal)
+            || (stored.LogicalIndexEvidenceChecksum is null) != (logicalIndexPoint is null)
+            || stored.LogicalIndexEvidenceChecksum is { Length: not 32 })
             return Failed(BaseMutationRequestErrorCodes.ReceiptUnavailable, ErrorCategory.Authorization);
         OperationResult<BasePolicyEvaluation> disclosure = await policy.EvaluateWriteAsync(new BasePolicyRequest
         {
@@ -534,7 +554,8 @@ internal sealed class BaseSelectionMutationProcessor(
         IAtomicRecordSession session,
         CancellationToken cancellationToken = default)
     {
-        BaseAtomicMutationExecutionLimits captureLimits = DefaultBaseSelectionMutationRuntime.CreateExecutionLimits(profile.Limits);
+        BaseAtomicMutationExecutionLimits captureLimits = BaseAtomicSchemaContract.AttachLimits(
+            DefaultBaseSelectionMutationRuntime.CreateExecutionLimits(profile.Limits), [collection]);
         string intentDigest = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
             System.Text.Encoding.UTF8.GetBytes($"base.selection.capture.v1\0{profile.ApplicationId}\0{profile.Id}\0{profile.Version}\0{BaseSelectionProfileChecksum.Compute(profile)}")));
         OperationResult<BaseCapturedAtomicExecution> capture = await session.CaptureAtomicExecutionAsync(new BaseAtomicExecutionRequest
@@ -556,9 +577,12 @@ internal sealed class BaseSelectionMutationProcessor(
                     Collection = collection,
                     Query = query,
                     CanonicalRecordCodecVersion = 1,
+                    LogicalIndexPoint = logicalIndexPoint is null
+                        ? null : BaseLogicalIndexPointPlanContract.Clone(logicalIndexPoint),
                 },
             },
             Limits = captureLimits,
+            Schema = BaseAtomicSchemaContract.CaptureRequest(authority, [collection], captureLimits),
             ActivationGuard = activationGuard,
         }, cancellationToken).ConfigureAwait(false);
         if (!capture.IsSuccess() || capture.Value?.Selection is null)
@@ -573,11 +597,17 @@ internal sealed class BaseSelectionMutationProcessor(
             ReadIntervals = captured.ReadIntervals,
             CanonicalOrderBoundary = captured.Selection.CanonicalOrderBoundary,
             Accounting = captured.Selection.Accounting,
+            LogicalIndexEvidence = captured.Selection.LogicalIndexEvidence is null
+                ? null : BaseLogicalIndexSelectionEvidenceContract.Clone(captured.Selection.LogicalIndexEvidence),
         };
         if (!ValidateSelection(selected))
             return Failed("base.runtime.store.error", ErrorCategory.Store);
         if (!SelectionCaptureMatches(selected, captured))
             return Failed(BaseSubjectErrorCodes.ProviderContractInvalid, ErrorCategory.Store);
+        if (!BaseAtomicSchemaContract.CapturedMatches(
+            BaseAtomicSchemaContract.CaptureRequest(authority, [collection], captureLimits), captured.Schema,
+            captured.Authority, [collection], captured.Items))
+            return Failed(BaseSchemaErrorCodes.ProviderEvidenceInvalid, ErrorCategory.Store);
         var planItems = ImmutableArray.CreateBuilder<BaseAtomicMutationPlanItem>(selected.Records.Length);
         var policies = new List<BasePolicyEvaluation>(selected.Records.Length + 1) { operationPolicy };
         foreach (BaseOwnedSelectedRecord owned in selected.Records)
@@ -614,6 +644,7 @@ internal sealed class BaseSelectionMutationProcessor(
                     ? BaseRecordMutationKind.Patch : BaseRecordMutationKind.Delete,
                 RecordId = record.Id,
                 ProposedPayload = proposed,
+                RemovedFieldIds = patch?.RemovedFieldIds ?? [],
                 Delete = profile.MutationKind == BaseSelectionMutationKind.Delete
                     ? new RecordDeleteRequest { ReturnPrevious = true, ExpectedRevision = record.Metadata.Revision }
                     : null,
@@ -719,6 +750,7 @@ internal sealed class BaseSelectionMutationProcessor(
                 ReceiptResolutionTimeout = executionTimeout,
             },
         };
+        limits = BaseAtomicSchemaContract.AttachLimits(limits, [collection]);
         if (!BaseAtomicPolicyAuthority.IsAdmissible(policies))
             return Failed(new BaseError
             {
@@ -729,6 +761,9 @@ internal sealed class BaseSelectionMutationProcessor(
         BaseAtomicPolicyAuthorityDigest policyDigest = BaseAtomicPolicyAuthority.Compute(
             authority.ApplicationId, $"{profile.Id}:{profile.Version}", policies);
         BaseFinalizedTextMutationExtension? textPlan = BaseTextAtomicMutationContract.Finalize(finalized);
+        BaseAtomicSchemaFinalizedExtension? schemaPlan;
+        try { schemaPlan = BaseAtomicSchemaContract.Finalize(captured.Schema, finalized); }
+        catch (InvalidOperationException exception) { return Failed(exception.Message, exception.Message == BaseSchemaErrorCodes.ScalarConstraintViolated ? ErrorCategory.Validation : ErrorCategory.Store); }
         string selectionPlanDigest = BaseAtomicPolicyAuthority.BindPlanDigest(
             SelectionPlanDigest(captured, finalized, subjectPlan.Value.Validations), policyDigest);
         if (textPlan is not null)
@@ -745,12 +780,14 @@ internal sealed class BaseSelectionMutationProcessor(
                 StoreInstanceId = authority.StoreInstanceId,
                 RestoreEpoch = authority.RestoreEpoch,
                 SchemaGeneration = authority.SchemaGeneration,
+                LogicalSchemaChecksum = authority.LogicalSchemaChecksum,
                 Collections = authority.Collections,
             },
             Items = finalized,
             SubjectValidations = subjectPlan.Value.Validations,
             Text = textPlan,
             ActivationGuard = activationGuard,
+            Schema = schemaPlan,
             Limits = limits,
             PlanDigest = selectionPlanDigest,
         };
@@ -833,6 +870,8 @@ internal sealed class BaseSelectionMutationProcessor(
                     SelectedCount = selected.Records.Length,
                     MutatedCount = facts.Length,
                     Outcome = BaseRecordBatchOutcome.Committed,
+                    LogicalIndexEvidenceChecksum = selected.MutationCapture.Selection?.LogicalIndexEvidence?.Checksum
+                        .ToArray().ToImmutableArray(),
                 },
             } : new BaseAtomicReceiptResult
             {
@@ -849,6 +888,8 @@ internal sealed class BaseSelectionMutationProcessor(
                     Generations = [],
                     CanonicalResultBytes = resultBytes,
                     ActivationControlChecksum = activationCommit.ControlChecksum,
+                    SelectionLogicalIndexEvidenceChecksum = selected.MutationCapture.Selection?.LogicalIndexEvidence?.Checksum
+                        .ToArray().ToImmutableArray(),
                 },
             };
         OperationResult<BaseSelectionMutationCommitAccounting> measured = await session.MeasureSelectionMutationAsync(receipt, Result, cancellationToken).ConfigureAwait(false);
@@ -869,6 +910,7 @@ internal sealed class BaseSelectionMutationProcessor(
             PlanDigest = retainedPlan.PlanDigest,
             Receipt = receipt,
             CanonicalResultBytes = resultBytes,
+            Schema = BaseAtomicSchemaContract.Commit(retainedPlan.Schema, applied.Value.Schema),
             Accounting = new BaseAtomicCommitAccounting
             {
                 WrittenBytes = prior.WrittenBytes,
@@ -902,6 +944,7 @@ internal sealed class BaseSelectionMutationProcessor(
             || !string.Equals(captured.Authority.StoreInstanceId, selection.Authority.StoreInstanceId, StringComparison.Ordinal)
             || captured.Authority.RestoreEpoch != selection.Authority.RestoreEpoch
             || captured.Authority.SchemaGeneration != selection.Authority.SchemaGeneration
+            || captured.Authority.LogicalSchemaChecksum != selection.Authority.LogicalSchemaChecksum
             || captured.Authority.Collections.Length != 1
             || selection.Authority.Collections.Length != 1
             || captured.Authority.Collections[0].CollectionGeneration != selection.Authority.Collections[0].CollectionGeneration)
@@ -1146,8 +1189,10 @@ internal sealed class BaseSelectionMutationProcessor(
         && prepared.Authority.StoreInstanceId == captured.Authority.StoreInstanceId
         && prepared.Authority.RestoreEpoch == captured.Authority.RestoreEpoch
         && prepared.Authority.SchemaGeneration == captured.Authority.SchemaGeneration
+        && prepared.Authority.LogicalSchemaChecksum == captured.Authority.LogicalSchemaChecksum
         && prepared.Authority.Collections.SequenceEqual(captured.Authority.Collections)
         && BaseTextAtomicMutationContract.PreparedMatches(plan.Text, prepared.Text)
+        && BaseAtomicSchemaContract.PreparedMatches(plan.Schema, prepared.Schema)
         && (!HasSubjectWork(plan) || prepared.Authority.Isolation == captured.Authority.Isolation
             && prepared.Authority.TransactionEvidenceToken.AsSpan().SequenceEqual(captured.Authority.TransactionEvidenceToken.AsSpan())
             && captured.ReadIntervals.All(expected => prepared.ReadIntervals.Any(actual => IntervalEquals(expected, actual))))
@@ -1265,7 +1310,8 @@ internal sealed class BaseSelectionMutationProcessor(
     {
         bool strict = HasSubjectWork(plan);
         if (!string.Equals(plan.PlanDigest, applied.PlanDigest, StringComparison.Ordinal) || applied.Facts.Length != plan.Items.Length
-            || !BaseTextAtomicMutationContract.AppliedMatches(plan.Text, prepared.Text, applied.Text, applied.Facts))
+            || !BaseTextAtomicMutationContract.AppliedMatches(plan.Text, prepared.Text, applied.Text, applied.Facts)
+            || !BaseAtomicSchemaContract.ProvisionalMatches(plan.Schema, applied.Schema))
             return false;
         for (int index = 0; index < plan.Items.Length; index++)
         {
@@ -1376,14 +1422,15 @@ internal sealed class BaseSelectionMutationProcessor(
         && value.TransientBytes is >= 0 && value.TransientBytes <= limits.MaximumTransientBytes;
 
     private bool ValidateSelection(BaseValidatedSelection selected) =>
-        ValidateSelectionEvidence(selected, profile, authority, collection, query);
+        ValidateSelectionEvidence(selected, profile, authority, collection, query, logicalIndexPoint);
 
     internal static bool ValidateSelectionEvidence(
         BaseValidatedSelection selected,
         BaseSelectionOperationProfile profile,
         BaseAtomicMutationAuthorityRequirement authority,
         CollectionDefinition collection,
-        RecordQuery query)
+        RecordQuery query,
+        BaseLogicalIndexPointSelection? logicalIndexPoint = null)
     {
         if (selected.MutationCapture is null
             || !string.Equals(selected.Authority.ApplicationId, profile.ApplicationId, StringComparison.Ordinal)
@@ -1400,7 +1447,8 @@ internal sealed class BaseSelectionMutationProcessor(
             || selected.Accounting.SelectedBytes > profile.Limits.MaximumSelectedBytes
             || selected.Accounting.ReadIntervals != selected.ReadIntervals.Length
             || selected.ReadIntervals.Length == 0
-            || selected.ReadIntervals.Length > profile.Limits.MaximumReadIntervals)
+            || selected.ReadIntervals.Length > profile.Limits.MaximumReadIntervals
+            || !LogicalIndexEvidenceMatches(selected, logicalIndexPoint))
             return false;
         var ids = new HashSet<string>(StringComparer.Ordinal);
         long canonicalBytes = 0;
@@ -1427,9 +1475,14 @@ internal sealed class BaseSelectionMutationProcessor(
         }
         byte[] boundary = selected.Records.Length == 0 ? [] : BaseSelectionOrderTuple.Encode(selected.Records[^1].MaterializeOwned(), query.Sort!);
         if (canonicalBytes != selected.Accounting.SelectedBytes
-            || !selected.CanonicalOrderBoundary.AsSpan().SequenceEqual(boundary)
-            || selected.Accounting.EvidenceBytes != selected.ReadIntervals.Sum(static interval =>
-                checked((long)interval.CanonicalLowerBound.Length + interval.CanonicalUpperBound.Length))) return false;
+            || !selected.CanonicalOrderBoundary.AsSpan().SequenceEqual(boundary)) return false;
+        if (logicalIndexPoint is not null)
+            return selected.LogicalIndexEvidence is { } point
+                && selected.Accounting.EvidenceBytes == point.EvidenceBytes
+                && selected.ReadIntervals.Length == 1
+                && SelectionIntervalEquals(selected.ReadIntervals[0], point.ReadInterval);
+        if (selected.Accounting.EvidenceBytes != selected.ReadIntervals.Sum(static interval =>
+            checked((long)interval.CanonicalLowerBound.Length + interval.CanonicalUpperBound.Length))) return false;
         string path = $"collection:{collection.Id}";
         ReadOnlySpan<byte> priorUpper = default;
         bool boundaryCovered = false;
@@ -1449,6 +1502,34 @@ internal sealed class BaseSelectionMutationProcessor(
         }
         return boundaryCovered;
     }
+
+    private static bool LogicalIndexEvidenceMatches(
+        BaseValidatedSelection selected,
+        BaseLogicalIndexPointSelection? expected)
+    {
+        BaseLogicalIndexSelectionEvidence? evidence = selected.LogicalIndexEvidence;
+        if ((expected is null) != (evidence is null)) return false;
+        if (expected is null) return true;
+        return evidence is not null
+            && BaseLogicalIndexSelectionEvidenceContract.Validate(evidence)
+            && evidence.IndexId == expected.IndexId
+            && evidence.IndexVersion == expected.IndexVersion
+            && evidence.IndexChecksum == expected.IndexChecksum
+            && evidence.AccessShape == BaseIndexAccessShape.LogicalIndexPoint
+            && evidence.EqualityKeyChecksum.AsSpan().SequenceEqual(
+                System.Security.Cryptography.SHA256.HashData(expected.EqualityKey.AsSpan()))
+            && evidence.MatchedPredicateChecksum.AsSpan().SequenceEqual(
+                expected.PredicateConjunctChecksum.AsSpan())
+            && evidence.ReadInterval.CanonicalLowerBound.AsSpan().SequenceEqual(expected.EqualityKey.AsSpan())
+            && evidence.ReadInterval.CanonicalUpperBound.AsSpan().SequenceEqual(expected.EqualityKey.AsSpan());
+    }
+
+    private static bool SelectionIntervalEquals(BaseAtomicReadIntervalEvidence left, BaseAtomicReadIntervalEvidence right) =>
+        string.Equals(left.LogicalAccessPathId, right.LogicalAccessPathId, StringComparison.Ordinal)
+        && left.LowerInclusive == right.LowerInclusive
+        && left.UpperInclusive == right.UpperInclusive
+        && left.CanonicalLowerBound.AsSpan().SequenceEqual(right.CanonicalLowerBound.AsSpan())
+        && left.CanonicalUpperBound.AsSpan().SequenceEqual(right.CanonicalUpperBound.AsSpan());
 
     private static int CompareSelected(RecordEnvelope left, RecordEnvelope right, QuerySort[] sort)
     {
@@ -1510,6 +1591,8 @@ internal sealed class BaseSelectionMutationProcessor(
         (OperationStatus.Conflict, "base.provider.selection.transactionConflict", ErrorCategory.Conflict) => Error(BaseSelectionErrorCodes.TransactionConflict, ErrorCategory.Conflict),
         (OperationStatus.StoreError, "base.provider.selection.timeout", ErrorCategory.Store) => Error(BaseSelectionErrorCodes.Timeout, ErrorCategory.Store),
         (OperationStatus.StoreError, "base.provider.selection.cancelled", ErrorCategory.Store) => Error(BaseSelectionErrorCodes.Cancelled, ErrorCategory.Store),
+        (OperationStatus.StoreError, BaseSchemaErrorCodes.ProviderEvidenceInvalid, ErrorCategory.Store) =>
+            Error(BaseSchemaErrorCodes.ProviderEvidenceInvalid, ErrorCategory.Store),
         (OperationStatus.ValidationFailed, "base.provider.selection.authorityInvalid", ErrorCategory.Validation) => Error(BaseSelectionErrorCodes.ContractInvalid, ErrorCategory.Validation),
         _ => Error("base.runtime.store.error", ErrorCategory.Store),
     };

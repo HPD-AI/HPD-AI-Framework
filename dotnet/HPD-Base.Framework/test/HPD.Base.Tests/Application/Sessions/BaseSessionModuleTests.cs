@@ -64,10 +64,10 @@ public sealed class BaseSessionModuleTests
             BaseTestPrincipal.User("dependency-user", "tenant-a"));
         BaseDependencyReference expected = session.Dependencies.Record(
             GeneratedProject.Collection,
-            new RecordId("project_1"));
+            RecordId.Create("project_1"));
 
         await session.Collection(GeneratedProject.Collection).CreateAsync(
-            new RecordId("project_1"),
+            RecordId.Create("project_1"),
             new GeneratedProject { OrganizationId = "org_1", Name = "dependency" });
 
         host.Probe.Invalidations.Should().ContainSingle();
@@ -95,7 +95,7 @@ public sealed class BaseSessionModuleTests
                     session.Dependencies.Set(
                         session.Dependencies.Record(
                             GeneratedProject.Collection,
-                            new RecordId("project_1"))))));
+                            RecordId.Create("project_1"))))));
         await using var transitions =
             subscription.Transitions.GetAsyncEnumerator();
 
@@ -104,7 +104,7 @@ public sealed class BaseSessionModuleTests
             .Which.Value.Should().Be(1);
 
         await session.Collection(GeneratedProject.Collection).CreateAsync(
-            new RecordId("project_1"),
+            RecordId.Create("project_1"),
             new GeneratedProject { OrganizationId = "org_1", Name = "rerun" });
 
         (await NextAsync(transitions)).Should()
@@ -130,12 +130,12 @@ public sealed class BaseSessionModuleTests
         Task<bool> pendingEvent = events.MoveNextAsync().AsTask();
 
         await session.Collection(GeneratedProject.Collection).CreateAsync(
-            new RecordId("project_1"),
+            RecordId.Create("project_1"),
             new GeneratedProject { OrganizationId = "org_1", Name = "live" });
 
         (await pendingEvent.WaitAsync(TimeSpan.FromSeconds(5))).Should().BeTrue();
         var mutation = events.Current;
-        mutation.Resource.RecordId.Should().Be(new RecordId("project_1"));
+        mutation.Resource.RecordId.Should().Be(RecordId.Create("project_1"));
         mutation.After.Should().NotBeNull();
         mutation.Cursor.Should().BeNull();
     }

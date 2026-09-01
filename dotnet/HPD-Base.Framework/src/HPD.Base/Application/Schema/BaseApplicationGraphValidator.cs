@@ -5,6 +5,7 @@ internal static class BaseApplicationGraphValidator
     internal static void Validate(
         CollectionDefinition[] collections,
         IEnumerable<IBaseReadRegistration> readRegistrations,
+        BaseSubjectContractRegistry subjects,
         HPDBaseRelationalOptions relational,
         HPDBaseSchemaOptions schema)
     {
@@ -37,9 +38,13 @@ internal static class BaseApplicationGraphValidator
                 try { disclosure = BaseConfidentialityPolicy.Normalize(field.Confidentiality, field.Disclosure); }
                 catch (InvalidOperationException) { throw Invalid($"Field '{field.Id}' has an invalid confidentiality contract."); }
                 bool binary = string.Equals(field.Format, "base64", StringComparison.Ordinal);
-                if (binary != (field.MaximumBytes is not null) || binary && field.MaximumBytes is < 1 or > 1_048_576)
+                if (binary != (field.MaximumBytes is not null)
+                    || binary && (field.MinimumBytes is null or < 0 || field.MaximumBytes is < 1 or > 1_048_576
+                        || field.MinimumBytes > field.MaximumBytes)
+                    || !binary && field.MinimumBytes is not null)
                     throw Invalid($"Field '{field.Id}' has an invalid binary contract.");
-                if (disclosure.Indexing == BaseIndexDisclosure.Forbidden && (collection.Indexes ?? []).Any(index => (index.Parts ?? []).Any(part => part.FieldId == field.Id)))
+                int fieldOrdinal = Array.FindIndex(fields, candidate => string.Equals(candidate.Id, field.Id, StringComparison.Ordinal));
+                if (disclosure.Indexing == BaseIndexDisclosure.Forbidden && (collection.Indexes ?? []).Any(index => index.Parts.Any(part => part.FieldOrdinal == fieldOrdinal)))
                     throw Invalid($"Field '{field.Id}' cannot influence an index.");
                 if (!globalFieldIds.Add(field.Id))
                     throw Invalid($"Stable field identifier '{field.Id}' is duplicated across the application graph.");
@@ -49,14 +54,12 @@ internal static class BaseApplicationGraphValidator
                     ValidateRelation(collection, field, relation, collectionById, globalRelationIds);
             }
 
-            foreach (IndexDefinition index in collection.Indexes ?? [])
+            foreach (BaseLogicalIndexDefinition index in collection.Indexes ?? [])
             {
-                if (!globalIndexIds.Add(index.Id))
+                if (!globalIndexIds.Add(index.Id.ToString()))
                     throw Invalid($"Stable index identifier '{index.Id}' is duplicated across the application graph.");
                 if (!string.Equals(index.CollectionId, collection.Id, StringComparison.Ordinal) ||
-                    index.Parts is null || index.Parts.Length == 0 ||
-                    index.Parts.Any(component => component.Kind != IndexPartKind.Field ||
-                        component.FieldId is null || !fieldById.ContainsKey(component.FieldId)))
+                    index.Parts.IsDefaultOrEmpty || index.Parts.Any(component => component.FieldOrdinal < 0 || component.FieldOrdinal >= fields.Length))
                     throw Invalid($"Index '{index.Id}' has an invalid collection or field reference.");
             }
         }
@@ -64,7 +67,7 @@ internal static class BaseApplicationGraphValidator
         if (globalRelationIds.Count > schema.MaxRelations || globalIndexIds.Count > schema.MaxIndexes)
             throw Invalid("The BASE application graph exceeds its configured relation or index limit.");
         foreach (IBaseReadRegistration read in reads)
-            ValidateRead(read, collectionById, relational);
+            ValidateRead(read, collectionById, subjects, relational);
     }
 
     private static void ValidateRelation(
@@ -83,7 +86,7 @@ internal static class BaseApplicationGraphValidator
             relation.DeleteBehavior != BaseRelationDeleteBehavior.Restrict ||
             relation.ExistenceEnforcement != EnforcementOwner.Runtime)
             throw Invalid($"Relation '{relation.Id}' is not a valid executable L35 relation.");
-        if (relation.Required != field.Required || (relation.Required && field.Nullable) ||
+        if (relation.Required != (field.Presence == BaseFieldPresence.Required) || (relation.Required && field.Nullability == BaseFieldNullability.Nullable) ||
             relation.LocalMultiplicity == BaseRelationMultiplicity.ExactlyOne && !relation.Required ||
             relation.LocalMultiplicity == BaseRelationMultiplicity.ZeroOrOne && relation.Required ||
             relation.LocalMultiplicity != BaseRelationMultiplicity.Many && (relation.MinimumCount is not null || relation.MaximumCount is not null) ||
@@ -97,20 +100,34 @@ internal static class BaseApplicationGraphValidator
     private static void ValidateRead(
         IBaseReadRegistration registration,
         IReadOnlyDictionary<string, CollectionDefinition> collections,
+        BaseSubjectContractRegistry subjects,
         HPDBaseRelationalOptions options)
     {
         BaseRelationalReadPlan plan = registration.Plan;
         ValidateReadConfidentiality(registration, collections);
-        if (!string.Equals(registration.Id, plan.Id, StringComparison.Ordinal) ||
+        bool compound = plan.Topology == BaseRelationalReadTopology.CompoundCount;
+        bool paginationValid = plan.Window is null && plan.Pagination is not null && plan.Pagination.Mode switch
+        {
+            BaseRegisteredReadPaginationMode.PageOnly => plan.Pagination.MaximumOffset == 0,
+            BaseRegisteredReadPaginationMode.PageAndOffset => !compound && plan.Pagination.MaximumOffset is >= 0 and <= 1_000_000,
+            _ => false,
+        };
+        bool topologyValid = compound
+            ? ValidCompoundTopology(registration, plan, collections, options)
+            : plan.Topology == BaseRelationalReadTopology.Ordinary && plan.CompoundCountBranches.Length == 0
+                && plan.CompoundChecksum is null && plan.Budgets.MaxCompoundBranches == 0 && plan.Budgets.MaxCompoundOperations == 0
+                && plan.Joins.Length == plan.Sources.Length - 1;
+        if (!topologyValid || !paginationValid || !string.Equals(registration.Id, plan.Id, StringComparison.Ordinal) ||
             plan.Sources.Length == 0 || plan.Sources.Length > options.MaxSources ||
-            plan.Joins.Length != plan.Sources.Length - 1 || plan.Joins.Length > options.MaxJoins || plan.Parameters.Length > options.MaxParameters ||
+            plan.Joins.Length > options.MaxJoins || plan.Parameters.Length > options.MaxParameters ||
             plan.GroupKeys.Length > options.MaxGroupKeys || plan.Aggregates.Length > options.MaxAggregates ||
-            plan.Projection.Length == 0 || plan.Projection.Length > options.MaxProjectionFields ||
+            (!compound && plan.Projection.Length == 0) || plan.Projection.Length > options.MaxProjectionFields ||
             plan.Sort.Length > options.MaxSortFields ||
             plan.Sources.Any(source => !collections.ContainsKey(source.CollectionId)) ||
             plan.Consistency != BaseReadConsistency.Snapshot || plan.DependencyMode != BaseReadDependencyMode.Complete ||
             plan.Budgets.MaxResultRows < 1 || plan.Budgets.MaxResultRows > options.MaxResultRows ||
-            plan.Budgets.MaxResultBytes < 1 || plan.Budgets.MaxResultBytes > options.MaxResultBytes || plan.Budgets.MaxOperations < 1)
+            plan.Budgets.MaxResultBytes < 1 || plan.Budgets.MaxResultBytes > options.MaxRegisteredReadResultBytes || plan.Budgets.MaxOperations < 1 ||
+            plan.Budgets.MaxExecutionMilliseconds < 1 || plan.Budgets.MaxExecutionMilliseconds > options.MaxExecutionDuration.TotalMilliseconds)
             throw Invalid($"Read '{registration.Id}' has an invalid or over-limit topology.");
         Dictionary<string, BaseRelationalReadSource> sources = Unique(plan.Sources, static source => source.Id, "read source");
         Unique(plan.Projection, static projection => projection.FieldId, "read projection");
@@ -118,9 +135,18 @@ internal static class BaseApplicationGraphValidator
         Dictionary<string, BaseRelationalReadParameter> parameters = Unique(plan.Parameters, static parameter => parameter.Id, "read parameter");
         if (parameters.Values.Any(parameter => !ValidParameter(parameter, options)))
             throw Invalid($"Read '{registration.Id}' contains an invalid parameter definition.");
-        int nodes = Count(plan.Predicate) + Count(plan.Having);
+        ValidateBinaryReadContracts(registration, plan, sources, collections, parameters);
+        int nodes = Count(plan.Predicate) + Count(plan.Having) + plan.CompoundCountBranches.Sum(static branch => Count(branch.Predicate));
         if (nodes > options.MaxPredicateNodes || Depth(plan.Predicate) > options.MaxPredicateDepth || Depth(plan.Having) > options.MaxPredicateDepth)
             throw Invalid($"Read '{registration.Id}' exceeds predicate limits.");
+        foreach (BaseRelationalCompoundCountBranch branch in plan.CompoundCountBranches)
+        {
+            if (Depth(branch.Predicate) > options.MaxPredicateDepth)
+                throw Invalid($"Read '{registration.Id}' exceeds predicate limits.");
+            ValidatePredicate(branch.Predicate,
+                new Dictionary<string, BaseRelationalReadSource>(StringComparer.Ordinal) { [branch.Source.Id] = branch.Source },
+                collections, parameters, aggregates, allowAggregate: false);
+        }
         for (int index = 0; index < plan.Joins.Length; index++)
         {
             BaseRelationalReadJoin join = plan.Joins[index];
@@ -149,17 +175,94 @@ internal static class BaseApplicationGraphValidator
         ValidatePredicate(plan.Having, sources, collections, parameters, aggregates, allowAggregate: true);
         HashSet<BaseRelationalOperand> groupKeys = plan.GroupKeys.ToHashSet();
         if (PredicateOperands(plan.Having).Any(operand =>
-                operand.Kind is BaseRelationalOperandKind.SourceField or BaseRelationalOperandKind.RecordId &&
+                operand.Kind is BaseRelationalOperandKind.SourceField or BaseRelationalOperandKind.RecordId or BaseRelationalOperandKind.RecordRevision &&
                 !groupKeys.Contains(operand)))
             throw Invalid($"Read '{registration.Id}' has a having operand that is not a group key or aggregate.");
         foreach (BaseRelationalReadProjection projection in plan.Projection)
         {
             if (projection.Operand.Kind == BaseRelationalOperandKind.SubjectReference)
                 ValidateSubjectReferenceProjection(projection.Operand, sources);
+            else if (projection.Operand.Kind == BaseRelationalOperandKind.StoredSubjectReference)
+                ValidateStoredSubjectReferenceProjection(registration, projection, sources, collections, subjects);
             else
                 ValidateOperand(projection.Operand, sources, collections, parameters, aggregates, allowAggregate: true);
         }
+        ValidateCanonicalJsonReadContracts(registration, plan, sources, collections, parameters);
         foreach (BaseRelationalReadSort sort in plan.Sort) ValidateOperand(sort.Operand, sources, collections, parameters, aggregates, allowAggregate: true);
+    }
+
+    private static bool ValidCompoundTopology(
+        IBaseReadRegistration registration,
+        BaseRelationalReadPlan plan,
+        IReadOnlyDictionary<string, CollectionDefinition> collections,
+        HPDBaseRelationalOptions options)
+    {
+        BaseRelationalCompoundCountBranch[] branches = plan.CompoundCountBranches;
+        int compoundOperations = branches.Length + branches.Sum(static branch => Count(branch.Predicate));
+        if (branches.Length is < 1 or > 32 || branches.Length > options.MaxCompoundReadBranches
+            || plan.CompoundChecksum is not { IsValid: true }
+            || plan.Budgets.MaxCompoundBranches < branches.Length || plan.Budgets.MaxCompoundBranches > options.MaxCompoundReadBranches
+            || plan.Budgets.MaxCompoundOperations < branches.Length || plan.Budgets.MaxCompoundOperations > options.MaxCompoundReadOperations
+            || compoundOperations > plan.Budgets.MaxCompoundOperations || compoundOperations > plan.Budgets.MaxOperations
+            || branches.Length > options.MaxAggregates
+            || plan.Budgets.MaxResultRows != branches.Length
+            || plan.Joins.Length != 0 || plan.Predicate is not null || plan.GroupKeys.Length != 0 || plan.Aggregates.Length != 0
+            || plan.Having is not null || plan.Projection.Length != 0 || plan.Distinct || plan.Sort.Length != 0
+            || plan.Sources.Length != branches.Length || registration.ClientContract.Row.Count != 2)
+            return false;
+        string discriminatorField = branches[0].DiscriminatorOutputFieldId;
+        string countField = branches[0].CountOutputFieldId;
+        if (registration.ClientContract.Row.Count(field => string.Equals(field.Id, discriminatorField, StringComparison.Ordinal)
+                && field.Kind == QueryValueKind.String && !field.Array && !field.Nullable) != 1
+            || registration.ClientContract.Row.Count(field => string.Equals(field.Id, countField, StringComparison.Ordinal)
+                && field.Kind == QueryValueKind.Integer && !field.Array && !field.Nullable) != 1)
+            return false;
+        var ids = new HashSet<string>(StringComparer.Ordinal); var discriminators = new HashSet<string>(StringComparer.Ordinal);
+        string? previous = null;
+        for (int index = 0; index < branches.Length; index++)
+        {
+            BaseRelationalCompoundCountBranch branch = branches[index];
+            if (!branch.BranchChecksum.IsValid || !ids.Add(branch.Id) || !discriminators.Add(branch.Discriminator)
+                || !string.Equals(branch.Source.Id, branch.Id + ".source", StringComparison.Ordinal)
+                || !string.Equals(plan.Sources[index].Id, branch.Source.Id, StringComparison.Ordinal)
+                || !string.Equals(plan.Sources[index].CollectionId, branch.Source.CollectionId, StringComparison.Ordinal)
+                || !collections.ContainsKey(branch.Source.CollectionId)
+                || !string.Equals(branch.DiscriminatorOutputFieldId, discriminatorField, StringComparison.Ordinal)
+                || !string.Equals(branch.CountOutputFieldId, countField, StringComparison.Ordinal)
+                || previous is not null && StringComparer.Ordinal.Compare(previous, branch.Discriminator) >= 0
+                || string.Equals(branch.Discriminator, branch.Id, StringComparison.Ordinal)
+                || string.Equals(branch.Discriminator, branch.Source.Id, StringComparison.Ordinal)
+                || collections.ContainsKey(branch.Discriminator)) return false;
+            previous = branch.Discriminator;
+        }
+        return true;
+    }
+
+    private static void ValidateStoredSubjectReferenceProjection(
+        IBaseReadRegistration registration,
+        BaseRelationalReadProjection projection,
+        IReadOnlyDictionary<string, BaseRelationalReadSource> sources,
+        IReadOnlyDictionary<string, CollectionDefinition> collections,
+        BaseSubjectContractRegistry subjects)
+    {
+        BaseRelationalOperand operand = projection.Operand;
+        if (operand.SourceId is not { } sourceId || !sources.TryGetValue(sourceId, out BaseRelationalReadSource? source)
+            || operand.FieldId is not { } fieldId || operand.SubjectContractId is not { } contractId
+            || operand.SubjectContractVersion is not > 0
+            || operand.ParameterId is not null || operand.AggregateId is not null || operand.Literal is not null)
+            throw Invalid("A stored subject-reference projection is invalid.");
+        FieldDefinition? field = (collections[source.CollectionId].Fields ?? [])
+            .SingleOrDefault(candidate => string.Equals(candidate.Id, fieldId, StringComparison.Ordinal));
+        BaseSubjectReferenceDefinition? reference = field?.SubjectReference;
+        BaseReadClientProperty? output = registration.ClientContract.Row
+            .SingleOrDefault(candidate => string.Equals(candidate.Id, projection.FieldId, StringComparison.Ordinal));
+        if (reference is null || output is null || output.Kind != QueryValueKind.SubjectReference
+            || !string.Equals(reference.ContractId, contractId, StringComparison.Ordinal)
+            || reference.ContractVersion != operand.SubjectContractVersion
+            || subjects.Find(contractId, operand.SubjectContractVersion.Value) is null
+            || field!.Presence == BaseFieldPresence.Optional && !output.Nullable
+            || field.Nullability == BaseFieldNullability.Nullable && !output.Nullable)
+            throw Invalid("A stored subject-reference projection does not match its finalized field and output authority.");
     }
 
     private static void ValidateSubjectReferenceProjection(
@@ -178,7 +281,8 @@ internal static class BaseApplicationGraphValidator
         IReadOnlyDictionary<string, CollectionDefinition> collections)
     {
         BaseRelationalReadPlan plan = registration.Plan;
-        string[] sources = plan.Sources.Select(static source => source.CollectionId).OrderBy(static id => id, StringComparer.Ordinal).ToArray();
+        string[] sources = plan.Sources.Select(static source => source.CollectionId).Distinct(StringComparer.Ordinal)
+            .OrderBy(static id => id, StringComparer.Ordinal).ToArray();
         string[] system = sources.Where(id => collections[id].System).ToArray();
         string[] declaredSystem = registration.SystemSourceIds.OrderBy(static id => id, StringComparer.Ordinal).ToArray();
         if (registration.SourceAuthority == BaseRegisteredReadSourceAuthority.Ordinary && system.Length != 0 ||
@@ -198,7 +302,8 @@ internal static class BaseApplicationGraphValidator
         Dictionary<string, string> sourceCollections = plan.Sources.ToDictionary(static source => source.Id, static source => source.CollectionId, StringComparer.Ordinal);
         foreach (BaseRelationalReadProjection output in plan.Projection)
         {
-            if (output.Operand.Kind != BaseRelationalOperandKind.SourceField || output.Operand.SourceId is null || output.Operand.FieldId is null)
+            if (output.Operand.Kind is not (BaseRelationalOperandKind.SourceField or BaseRelationalOperandKind.StoredSubjectReference)
+                || output.Operand.SourceId is null || output.Operand.FieldId is null)
                 continue;
             FieldDefinition? field = collections[sourceCollections[output.Operand.SourceId]].Fields?.SingleOrDefault(item => item.Id == output.Operand.FieldId);
             if (field?.Confidentiality == BaseFieldConfidentiality.Confidential && !confidential.Contains(output.FieldId) ||
@@ -235,7 +340,7 @@ internal static class BaseApplicationGraphValidator
                 (!Compatible(left, right) || predicate.Operator is not (FilterOperator.Equal or FilterOperator.NotEqual) && (!Ordered(left) || !Ordered(right))) ||
             predicate.Kind is FilterNodeKind.In or FilterNodeKind.Between && right is not (null or QueryValueKind.Array) ||
             predicate.Kind == FilterNodeKind.Between && !Ordered(left))
-            throw Invalid("A registered read contains an unsupported predicate/type combination.");
+            throw Invalid($"A registered read contains an unsupported predicate/type combination ({predicate.Kind}, {predicate.Operator}, {left}, {right}).");
     }
 
     private static void ValidateOperand(
@@ -250,6 +355,8 @@ internal static class BaseApplicationGraphValidator
         {
             BaseRelationalOperandKind.RecordId => operand.SourceId is { } sourceId && sources.ContainsKey(sourceId) &&
                 operand.FieldId is null or "base.recordId" && operand.ParameterId is null && operand.AggregateId is null && operand.Literal is null,
+            BaseRelationalOperandKind.RecordRevision => operand.SourceId is { } sourceId && sources.ContainsKey(sourceId) &&
+                operand.FieldId is null or "base.revision" && operand.ParameterId is null && operand.AggregateId is null && operand.Literal is null,
             BaseRelationalOperandKind.SourceField => operand.SourceId is { } sourceId && sources.TryGetValue(sourceId, out BaseRelationalReadSource? source) &&
                 operand.FieldId is { } fieldId && (collections[source.CollectionId].Fields ?? []).Any(field => field.Id == fieldId) &&
                 operand.ParameterId is null && operand.AggregateId is null && operand.Literal is null,
@@ -264,7 +371,7 @@ internal static class BaseApplicationGraphValidator
         if (!valid) throw Invalid("A registered read contains an invalid operand reference.");
         if (operand.Kind == BaseRelationalOperandKind.SourceField &&
             OperandKind(operand, sources, collections, parameters, aggregates) is null)
-            throw Invalid("A registered read references a non-scalar source field.");
+            throw Invalid($"A registered read references non-scalar source field '{operand.FieldId}'.");
     }
 
     private static bool ReferencesSource(BaseRelationalOperand operand, string sourceId) =>
@@ -278,6 +385,7 @@ internal static class BaseApplicationGraphValidator
         IReadOnlyDictionary<string, BaseRelationalReadAggregate> aggregates) => operand.Kind switch
     {
         BaseRelationalOperandKind.RecordId => QueryValueKind.Id,
+        BaseRelationalOperandKind.RecordRevision => QueryValueKind.String,
         BaseRelationalOperandKind.SourceField => FieldKind((collections[sources[operand.SourceId!].CollectionId].Fields ?? [])
             .Single(field => field.Id == operand.FieldId)),
         BaseRelationalOperandKind.Parameter when parameters.TryGetValue(operand.ParameterId!, out BaseRelationalReadParameter? parameter) =>
@@ -307,7 +415,13 @@ internal static class BaseApplicationGraphValidator
         _ => OperandKind(aggregate.Operand!, sources, collections, parameters, aggregates),
     };
 
-    private static QueryValueKind? FieldKind(FieldDefinition field) => field.Format == "date-time"
+    private static QueryValueKind? FieldKind(FieldDefinition field) => field.ScalarKind is BaseScalarKind.Guid or BaseScalarKind.RecordId
+        ? QueryValueKind.Id
+        : field.ScalarKind == BaseScalarKind.CanonicalJson
+        ? QueryValueKind.CanonicalJson
+        : field.ScalarKind == BaseScalarKind.ModuleGeneration
+        ? QueryValueKind.String
+        : field.Format == "date-time"
         ? QueryValueKind.DateTime
         : field.Type switch
     {
@@ -328,16 +442,148 @@ internal static class BaseApplicationGraphValidator
     private static bool ValidParameter(BaseRelationalReadParameter parameter, HPDBaseRelationalOptions options)
     {
         if (string.IsNullOrWhiteSpace(parameter.Id) || parameter.Id.Length > 128) return false;
+        bool binary = parameter.MaximumBinaryBytes is not null;
+        if (binary
+            ? parameter.MinimumBinaryBytes is < 0 || parameter.MaximumBinaryBytes is < 1 or > 1_048_576 ||
+                parameter.MinimumBinaryBytes > parameter.MaximumBinaryBytes || parameter.MaxLength is not null ||
+                parameter.Kind != QueryValueKind.String &&
+                (parameter.Kind != QueryValueKind.Array || parameter.ElementKind != QueryValueKind.String)
+            : parameter.MinimumBinaryBytes is not null)
+            return false;
         if (parameter.Kind == QueryValueKind.Array)
             return parameter.ElementKind is not null and not QueryValueKind.Array and not QueryValueKind.Null &&
                 parameter.MaxItems is > 0 && parameter.MaxItems <= options.MaxParameterArrayItems &&
                 (parameter.ElementKind is QueryValueKind.String or QueryValueKind.Id
-                    ? parameter.MaxLength is > 0 && parameter.MaxLength <= options.MaxParameterStringLength
+                    ? binary || parameter.MaxLength is > 0 && parameter.MaxLength <= options.MaxParameterStringLength
                     : parameter.MaxLength is null);
         return parameter.ElementKind is null && parameter.MaxItems is null &&
             (parameter.Kind is QueryValueKind.String or QueryValueKind.Id
-                ? parameter.MaxLength is > 0 && parameter.MaxLength <= options.MaxParameterStringLength
-                : parameter.MaxLength is null);
+                ? binary || parameter.MaxLength is > 0 && parameter.MaxLength <= options.MaxParameterStringLength
+                : parameter.MaxLength is null) &&
+            (parameter.Kind == QueryValueKind.CanonicalJson
+                ? parameter.CanonicalJsonAuthority is { } authority && BaseReadCanonicalJsonAuthorityContract.Valid(authority)
+                : parameter.CanonicalJsonAuthority is null);
+    }
+
+    private static void ValidateBinaryReadContracts(
+        IBaseReadRegistration registration,
+        BaseRelationalReadPlan plan,
+        IReadOnlyDictionary<string, BaseRelationalReadSource> sources,
+        IReadOnlyDictionary<string, CollectionDefinition> collections,
+        IReadOnlyDictionary<string, BaseRelationalReadParameter> parameters)
+    {
+        IReadOnlyDictionary<string, BaseReadClientProperty> parameterProperties = registration.ClientContract.Parameters
+            .ToDictionary(static value => value.Id, StringComparer.Ordinal);
+        if (parameterProperties.Count != parameters.Count || parameters.Any(pair =>
+                !parameterProperties.TryGetValue(pair.Key, out BaseReadClientProperty? property) ||
+                property.MinimumBinaryBytes != pair.Value.MinimumBinaryBytes ||
+                property.MaximumBinaryBytes != pair.Value.MaximumBinaryBytes))
+            throw Invalid("A registered-read parameter scalar contract does not match its generated client contract.");
+
+        IReadOnlyDictionary<string, BaseReadClientProperty> rowProperties = registration.ClientContract.Row
+            .ToDictionary(static value => value.Id, StringComparer.Ordinal);
+        foreach (BaseReadClientProperty property in rowProperties.Values)
+        {
+            bool binary = property.MaximumBinaryBytes is not null;
+            if (binary
+                ? property.Kind != QueryValueKind.String || property.Array || property.MinimumBinaryBytes is < 0 ||
+                    property.MaximumBinaryBytes is < 1 or > 1_048_576 || property.MinimumBinaryBytes > property.MaximumBinaryBytes
+                : property.MinimumBinaryBytes is not null)
+                throw Invalid("A registered-read result scalar contract is invalid.");
+        }
+        foreach (BaseRelationalReadProjection projection in plan.Projection)
+        {
+            if (!rowProperties.TryGetValue(projection.FieldId, out BaseReadClientProperty? output))
+                throw Invalid("A registered-read projection is absent from its generated client contract.");
+            if (output.MaximumBinaryBytes is null) continue;
+            if (projection.Operand.Kind != BaseRelationalOperandKind.SourceField ||
+                !sources.TryGetValue(projection.Operand.SourceId!, out BaseRelationalReadSource? source))
+                throw Invalid("A binary registered-read result must be an exact source-field projection.");
+            FieldDefinition field = collections[source.CollectionId].Fields!.Single(candidate =>
+                string.Equals(candidate.Id, projection.Operand.FieldId, StringComparison.Ordinal));
+            if (field.ScalarKind != BaseScalarKind.Binary ||
+                field.ScalarConstraints?.MinimumBinaryBytes != output.MinimumBinaryBytes ||
+                field.ScalarConstraints?.MaximumBinaryBytes != output.MaximumBinaryBytes)
+                throw Invalid("A binary registered-read result does not match its installed source-field bounds.");
+        }
+    }
+
+    private static void ValidateCanonicalJsonReadContracts(
+        IBaseReadRegistration registration,
+        BaseRelationalReadPlan plan,
+        IReadOnlyDictionary<string, BaseRelationalReadSource> sources,
+        IReadOnlyDictionary<string, CollectionDefinition> collections,
+        IReadOnlyDictionary<string, BaseRelationalReadParameter> parameters)
+    {
+        foreach (BaseRelationalReadParameter parameter in parameters.Values.Where(static value => value.Kind == QueryValueKind.CanonicalJson))
+        {
+            BaseReadCanonicalJsonAuthority authority = parameter.CanonicalJsonAuthority!;
+            BaseRelationalReadSource[] matchingSources = sources.Values.Where(source =>
+                string.Equals(source.CollectionId, authority.CollectionId, StringComparison.Ordinal)).ToArray();
+            FieldDefinition? field = (collections.GetValueOrDefault(authority.CollectionId)?.Fields ?? [])
+                .SingleOrDefault(candidate => string.Equals(candidate.Id, authority.FieldId, StringComparison.Ordinal));
+            if (matchingSources.Length == 0 || field is null ||
+                BaseReadCanonicalJsonAuthorityContract.Create(authority.CollectionId, field) != authority ||
+                parameter.Nullable && field.Presence == BaseFieldPresence.Required && field.Nullability == BaseFieldNullability.NonNullable)
+                throw Invalid("A canonical-JSON parameter authority does not match its installed source field.");
+
+            BaseRelationalPredicate[] occurrences = PredicateNodes(plan.Predicate)
+                .Where(node => node.Left?.Kind == BaseRelationalOperandKind.SourceField
+                    && node.Right?.Kind == BaseRelationalOperandKind.Parameter
+                    && string.Equals(node.Right.ParameterId, parameter.Id, StringComparison.Ordinal)).ToArray();
+            if (occurrences.Length == 0 || occurrences.Any(node =>
+                node.Kind != FilterNodeKind.Compare || node.Operator is not (FilterOperator.Equal or FilterOperator.NotEqual)
+                || !matchingSources.Any(source => string.Equals(source.Id, node.Left!.SourceId, StringComparison.Ordinal))
+                || !string.Equals(node.Left!.FieldId, authority.FieldId, StringComparison.Ordinal))
+                || Operands(plan).Count(operand => operand.Kind == BaseRelationalOperandKind.Parameter
+                    && string.Equals(operand.ParameterId, parameter.Id, StringComparison.Ordinal)) != occurrences.Length)
+                throw Invalid("A canonical-JSON parameter is used outside its exact source-bound equality contract.");
+        }
+
+        foreach (BaseRelationalReadProjection projection in plan.Projection)
+        {
+            QueryValueKind? kind = OperandKind(projection.Operand, sources, collections, parameters,
+                plan.Aggregates.ToDictionary(static value => value.Id, StringComparer.Ordinal));
+            if (kind != QueryValueKind.CanonicalJson)
+            {
+                if (projection.CanonicalJsonAuthority is not null) throw Invalid("A non-JSON projection carries canonical-JSON authority.");
+                continue;
+            }
+            if (projection.Operand.Kind != BaseRelationalOperandKind.SourceField || projection.CanonicalJsonAuthority is not { } authority
+                || !BaseReadCanonicalJsonAuthorityContract.Valid(authority)
+                || !sources.TryGetValue(projection.Operand.SourceId!, out BaseRelationalReadSource? source)
+                || !string.Equals(source.CollectionId, authority.CollectionId, StringComparison.Ordinal)
+                || !string.Equals(projection.Operand.FieldId, authority.FieldId, StringComparison.Ordinal))
+                throw Invalid("A canonical-JSON projection is not an exact source-field projection.");
+            FieldDefinition field = collections[source.CollectionId].Fields!.Single(candidate =>
+                string.Equals(candidate.Id, authority.FieldId, StringComparison.Ordinal));
+            BaseReadClientProperty output = registration.ClientContract.Row.Single(candidate =>
+                string.Equals(candidate.Id, projection.FieldId, StringComparison.Ordinal));
+            bool sourceNullable = field.Presence == BaseFieldPresence.Optional || field.Nullability == BaseFieldNullability.Nullable;
+            if (sourceNullable != output.Nullable)
+                throw Invalid("A canonical-JSON projection nullability does not match its source field.");
+        }
+    }
+
+    private static IEnumerable<BaseRelationalPredicate> PredicateNodes(BaseRelationalPredicate? predicate)
+    {
+        if (predicate is null) yield break;
+        yield return predicate;
+        foreach (BaseRelationalPredicate child in predicate.Children ?? [])
+            foreach (BaseRelationalPredicate descendant in PredicateNodes(child)) yield return descendant;
+    }
+
+    private static IEnumerable<BaseRelationalOperand> Operands(BaseRelationalReadPlan plan)
+    {
+        foreach (BaseRelationalReadJoin join in plan.Joins) { yield return join.Left; yield return join.Right; }
+        foreach (BaseRelationalPredicate node in PredicateNodes(plan.Predicate))
+        { if (node.Left is not null) yield return node.Left; if (node.Right is not null) yield return node.Right; }
+        foreach (BaseRelationalOperand operand in plan.GroupKeys) yield return operand;
+        foreach (BaseRelationalReadAggregate aggregate in plan.Aggregates) if (aggregate.Operand is not null) yield return aggregate.Operand;
+        foreach (BaseRelationalPredicate node in PredicateNodes(plan.Having))
+        { if (node.Left is not null) yield return node.Left; if (node.Right is not null) yield return node.Right; }
+        foreach (BaseRelationalReadProjection projection in plan.Projection) yield return projection.Operand;
+        foreach (BaseRelationalReadSort sort in plan.Sort) yield return sort.Operand;
     }
 
     private static IEnumerable<BaseRelationalOperand> PredicateOperands(BaseRelationalPredicate? predicate)

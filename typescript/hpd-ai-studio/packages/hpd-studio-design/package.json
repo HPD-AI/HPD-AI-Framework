@@ -5,6 +5,10 @@
   "description": "Shared design tokens and CSS utilities for HPD AI Platform modules.",
   "type": "module",
   "exports": {
+    ".": {
+      "svelte": "./src/index.ts",
+      "import": "./src/index.ts"
+    },
     "./theme.css": "./src/theme.css",
     "./base.css": "./src/base.css",
     "./utilities.css": "./src/utilities.css",
@@ -15,6 +19,9 @@
     "DESIGN.md",
     "README.md"
   ],
+  "dependencies": {
+    "svelte": "5.56.10"
+  },
   "keywords": [
     "hpd",
     "studio",

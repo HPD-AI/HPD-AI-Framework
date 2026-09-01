@@ -1,6 +1,7 @@
 using HPD.Agent;
 using HPD.Agent.ToolHarness.Coding.Debugging;
 using HPD.Events;
+using HPD.Agent.Serialization;
 
 namespace HPDOS.ToolHarnesses.Middleware;
 
@@ -22,6 +23,8 @@ public abstract record DebugLifecycleEvent : AgentEvent
     public string? ToolCallId { get; init; }
 }
 
+[DurableEvent]
+[EventType("DEBUG_TREE_STARTED")]
 public sealed record DebugTreeStartedEvent : DebugLifecycleEvent
 {
     public required string EnvironmentId { get; init; }
@@ -31,6 +34,8 @@ public sealed record DebugTreeStartedEvent : DebugLifecycleEvent
 }
 
 /// <summary>Durable evidence that an inert semantic execution plan was selected.</summary>
+[DurableEvent]
+[EventType("DEBUG_EXECUTION_PLANNED")]
 public sealed record DebugExecutionPlannedEvent : DebugLifecycleEvent
 {
     public required DebugSemanticStartKind SemanticStartKind { get; init; }
@@ -39,6 +44,8 @@ public sealed record DebugExecutionPlannedEvent : DebugLifecycleEvent
 }
 
 /// <summary>Durable evidence that tree-scoped activation has begun.</summary>
+[DurableEvent]
+[EventType("DEBUG_EXECUTION_ACTIVATING")]
 public sealed record DebugExecutionActivatingEvent : DebugLifecycleEvent
 {
     public required DebugSemanticStartKind SemanticStartKind { get; init; }
@@ -47,18 +54,24 @@ public sealed record DebugExecutionActivatingEvent : DebugLifecycleEvent
 }
 
 /// <summary>Durable evidence that an HPD-owned prerequisite host started.</summary>
+[DurableEvent]
+[EventType("DEBUG_HOST_PROCESS_STARTED")]
 public sealed record DebugHostProcessStartedEvent : DebugLifecycleEvent
 {
     public required string SafeProcessRole { get; init; }
 }
 
 /// <summary>Durable evidence that a hosted debuggee reported trusted readiness.</summary>
+[DurableEvent]
+[EventType("DEBUG_HOST_READY")]
 public sealed record DebugHostReadyEvent : DebugLifecycleEvent
 {
     public required string SafeProcessRole { get; init; }
 }
 
 /// <summary>Durable evidence that an owned host exited before or after readiness.</summary>
+[DurableEvent]
+[EventType("DEBUG_HOST_PROCESS_EXITED")]
 public sealed record DebugHostProcessExitedEvent : DebugLifecycleEvent
 {
     public required string SafeProcessRole { get; init; }
@@ -66,6 +79,8 @@ public sealed record DebugHostProcessExitedEvent : DebugLifecycleEvent
 }
 
 /// <summary>Durable classified failure from tree-scoped execution activation.</summary>
+[DurableEvent]
+[EventType("DEBUG_EXECUTION_ACTIVATION_FAILED")]
 public sealed record DebugExecutionActivationFailedEvent : DebugLifecycleEvent
 {
     public DebugExecutionActivationFailedEvent() => CanInterrupt = false;
@@ -74,6 +89,8 @@ public sealed record DebugExecutionActivationFailedEvent : DebugLifecycleEvent
 }
 
 /// <summary>Durable safe diagnostic for a failed owned-resource cleanup.</summary>
+[DurableEvent]
+[EventType("DEBUG_OWNED_RESOURCE_CLEANUP_FAILED")]
 public sealed record DebugOwnedResourceCleanupFailedEvent : DebugLifecycleEvent
 {
     public DebugOwnedResourceCleanupFailedEvent() => CanInterrupt = false;
@@ -82,6 +99,8 @@ public sealed record DebugOwnedResourceCleanupFailedEvent : DebugLifecycleEvent
 }
 
 /// <summary>Durable evidence that bounded terminal-tree state was retained.</summary>
+[DurableEvent]
+[EventType("DEBUG_TERMINAL_RECORD_RETAINED")]
 public sealed record DebugTerminalRecordRetainedEvent : DebugLifecycleEvent
 {
     public DebugTerminalRecordRetainedEvent() => CanInterrupt = false;
@@ -89,12 +108,16 @@ public sealed record DebugTerminalRecordRetainedEvent : DebugLifecycleEvent
 }
 
 /// <summary>Durable evidence that a bounded terminal record was evicted.</summary>
+[DurableEvent]
+[EventType("DEBUG_TERMINAL_RECORD_EVICTED")]
 public sealed record DebugTerminalRecordEvictedEvent : DebugLifecycleEvent
 {
     public DebugTerminalRecordEvictedEvent() => CanInterrupt = false;
     public required string SafeReasonCode { get; init; }
 }
 
+[DurableEvent]
+[EventType("DEBUG_SESSION_STATE_CHANGED")]
 public sealed record DebugSessionStateChangedEvent : DebugLifecycleEvent
 {
     public required string Status { get; init; }
@@ -103,36 +126,48 @@ public sealed record DebugSessionStateChangedEvent : DebugLifecycleEvent
     public long? SuspensionEpoch { get; init; }
 }
 
+[DurableEvent]
+[EventType("DEBUG_SESSION_EXITED")]
 public sealed record DebugSessionExitedEvent : DebugLifecycleEvent
 {
     public DebugSessionExitedEvent() => CanInterrupt = false;
     public required int ExitCode { get; init; }
 }
 
+[DurableEvent]
+[EventType("DEBUG_SESSION_TERMINATED")]
 public sealed record DebugSessionTerminatedEvent : DebugLifecycleEvent
 {
     public DebugSessionTerminatedEvent() => CanInterrupt = false;
     public bool RestartRequested { get; init; }
 }
 
+[DurableEvent]
+[EventType("DEBUG_TREE_FAULTED")]
 public sealed record DebugTreeFaultedEvent : DebugLifecycleEvent
 {
     public DebugTreeFaultedEvent() => CanInterrupt = false;
     public required string SafeReasonCode { get; init; }
 }
 
+[DurableEvent]
+[EventType("DEBUG_SESSION_FAILED")]
 public sealed record DebugSessionFailedEvent : DebugLifecycleEvent
 {
     public DebugSessionFailedEvent() => CanInterrupt = false;
     public required string SafeReasonCode { get; init; }
 }
 
+[DurableEvent]
+[EventType("DEBUG_TREE_TERMINATED")]
 public sealed record DebugTreeTerminatedEvent : DebugLifecycleEvent
 {
     public DebugTreeTerminatedEvent() => CanInterrupt = false;
     public required string SafeReasonCode { get; init; }
 }
 
+[DurableEvent]
+[EventType("DEBUG_TREE_COMPLETED")]
 public sealed record DebugTreeCompletedEvent : DebugLifecycleEvent
 {
     public DebugTreeCompletedEvent() => CanInterrupt = false;
@@ -150,11 +185,15 @@ public sealed record DebugTreeCompletedEvent : DebugLifecycleEvent
     public string? SafeReasonCode { get; init; }
 }
 
+[DurableEvent]
+[EventType("DEBUG_RESTART_TRANSITION")]
 public sealed record DebugRestartTransitionEvent : DebugLifecycleEvent
 {
     public required bool InPlace { get; init; }
 }
 
+[DurableEvent]
+[EventType("DEBUG_CHILD_SESSION_STARTED")]
 public sealed record DebugChildSessionStartedEvent : DebugLifecycleEvent
 {
     public required string ParentDebugSessionId { get; init; }
@@ -162,6 +201,8 @@ public sealed record DebugChildSessionStartedEvent : DebugLifecycleEvent
     public string? OutputPresentation { get; init; }
 }
 
+[DurableEvent]
+[EventType("DEBUG_BREAKPOINT_CHANGED")]
 public sealed record DebugBreakpointChangedEvent : DebugLifecycleEvent
 {
     public required string ClientBreakpointId { get; init; }
@@ -180,6 +221,8 @@ public sealed record DebugBreakpointChangedEvent : DebugLifecycleEvent
 /// Durable semantic evidence that one model-facing operation committed a
 /// breakpoint selection.
 /// </summary>
+[DurableEvent]
+[EventType("DEBUG_BREAKPOINT_SELECTION_APPLIED")]
 public sealed record DebugBreakpointSelectionAppliedEvent : DebugLifecycleEvent
 {
     public required string ToolCallId { get; init; }
@@ -248,6 +291,8 @@ public sealed record DebugSourcePreviewHunk(
     int StartLine,
     IReadOnlyList<string> Lines);
 
+[DurableEvent]
+[EventType("DEBUG_SESSION_STOPPED")]
 public sealed record DebugSessionStoppedEvent : DebugLifecycleEvent
 {
     public int? AdapterThreadId { get; init; }
@@ -257,6 +302,8 @@ public sealed record DebugSessionStoppedEvent : DebugLifecycleEvent
 }
 
 /// <summary>Bounded semantic projection of the one primary stop for a suspension.</summary>
+[DurableEvent]
+[EventType("DEBUG_PRIMARY_STOP_AVAILABLE")]
 public sealed record DebugPrimaryStopAvailableEvent : DebugLifecycleEvent
 {
     public required int AdapterThreadId { get; init; }
@@ -274,6 +321,8 @@ public sealed record DebugPrimaryStopAvailableEvent : DebugLifecycleEvent
     public required bool HitBreakpointIdentityUnknown { get; init; }
 }
 
+[DurableEvent]
+[EventType("DEBUG_SESSION_CONTINUED")]
 public sealed record DebugSessionContinuedEvent : DebugLifecycleEvent
 {
     public required int AdapterThreadId { get; init; }
@@ -281,6 +330,8 @@ public sealed record DebugSessionContinuedEvent : DebugLifecycleEvent
 }
 
 /// <summary>One successfully applied model-facing execution command.</summary>
+[DurableEvent]
+[EventType("DEBUG_EXECUTION_COMMAND_APPLIED")]
 public sealed record DebugExecutionCommandAppliedEvent : DebugLifecycleEvent
 {
     public required DebugExecutionCommand Command { get; init; }
@@ -302,6 +353,8 @@ public enum DebugExecutionCommand
 }
 
 /// <summary>One successfully applied model-facing mutation of debuggee state.</summary>
+[DurableEvent]
+[EventType("DEBUG_STATE_MUTATION_APPLIED")]
 public sealed record DebugStateMutationAppliedEvent : DebugLifecycleEvent
 {
     public required DebugStateMutationKind MutationKind { get; init; }
@@ -323,6 +376,8 @@ public abstract record DebugProjectionEvent : DebugLifecycleEvent
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
 }
 
+[DurableEvent]
+[EventType("DEBUG_PROCESS_CHANGED")]
 public sealed record DebugProcessChangedEvent : DebugProjectionEvent
 {
     public required string Name { get; init; }
@@ -331,12 +386,16 @@ public sealed record DebugProcessChangedEvent : DebugProjectionEvent
     public string? StartMethod { get; init; }
 }
 
+[DurableEvent]
+[EventType("DEBUG_THREAD_CHANGED")]
 public sealed record DebugThreadChangedEvent : DebugProjectionEvent
 {
     public required string Reason { get; init; }
     public required int AdapterThreadId { get; init; }
 }
 
+[DurableEvent]
+[EventType("DEBUG_MODULE_CHANGED")]
 public sealed record DebugModuleChangedEvent : DebugProjectionEvent
 {
     public required string Reason { get; init; }
@@ -345,6 +404,8 @@ public sealed record DebugModuleChangedEvent : DebugProjectionEvent
     public string? Path { get; init; }
 }
 
+[DurableEvent]
+[EventType("DEBUG_LOADED_SOURCE_CHANGED")]
 public sealed record DebugLoadedSourceChangedEvent : DebugProjectionEvent
 {
     public required string Reason { get; init; }
@@ -353,12 +414,16 @@ public sealed record DebugLoadedSourceChangedEvent : DebugProjectionEvent
     public int? SourceReference { get; init; }
 }
 
+[DurableEvent]
+[EventType("DEBUG_CAPABILITIES_CHANGED")]
 public sealed record DebugCapabilitiesChangedEvent : DebugProjectionEvent
 {
     public required IReadOnlyList<string> Enabled { get; init; }
     public required IReadOnlyList<string> Disabled { get; init; }
 }
 
+[DurableEvent]
+[EventType("DEBUG_STATE_INVALIDATED")]
 public sealed record DebugStateInvalidatedEvent : DebugProjectionEvent
 {
     public required IReadOnlyList<string> Areas { get; init; }
@@ -366,6 +431,8 @@ public sealed record DebugStateInvalidatedEvent : DebugProjectionEvent
     public int? StackFrameId { get; init; }
 }
 
+[DurableEvent]
+[EventType("DEBUG_MEMORY_CHANGED")]
 public sealed record DebugMemoryChangedEvent : DebugProjectionEvent
 {
     public required string MemoryReferenceToken { get; init; }
@@ -374,6 +441,8 @@ public sealed record DebugMemoryChangedEvent : DebugProjectionEvent
     public int InvalidatedRanges { get; init; }
 }
 
+[DurableEvent]
+[EventType("DEBUG_OUTPUT_AVAILABLE")]
 public sealed record DebugOutputAvailableEvent : DebugProjectionEvent
 {
     public override EventKind Kind { get; init; } = EventKind.Content;
@@ -395,12 +464,18 @@ public abstract record DebugProgressEvent : DebugProjectionEvent
     public double? Percentage { get; init; }
 }
 
+[DurableEvent]
+[EventType("DEBUG_PROGRESS_STARTED")]
 public sealed record DebugProgressStartedEvent : DebugProgressEvent
 {
     public required string Title { get; init; }
     public bool Cancellable { get; init; }
 }
 
+[DurableEvent]
+[EventType("DEBUG_PROGRESS_UPDATED")]
 public sealed record DebugProgressUpdatedEvent : DebugProgressEvent;
 
+[DurableEvent]
+[EventType("DEBUG_PROGRESS_COMPLETED")]
 public sealed record DebugProgressCompletedEvent : DebugProgressEvent;

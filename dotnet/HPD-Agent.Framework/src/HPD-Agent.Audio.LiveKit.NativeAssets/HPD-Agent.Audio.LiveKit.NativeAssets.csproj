@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <IncludeBuildOutput>true</IncludeBuildOutput>
+    <PackageId>HPD-Agent.Audio.LiveKit.NativeAssets</PackageId>
+    <Description>Pinned, execution-qualified native LiveKit FFI asset for HPD Agent Audio.</Description>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <LiveKitNativeSha256>CF034115FB3B94B5682151D2D36CB5EA351E97B881CD5AC0B97D0873B2A2B1DA</LiveKitNativeSha256>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Livekit.Rtc.Dotnet" Version="0.1.3"
+                      PrivateAssets="all" GeneratePathProperty="true" />
+    <_LiveKitNativeAsset Include="$(PkgLivekit_Rtc_Dotnet)/runtimes/osx-arm64/native/liblivekit_ffi.dylib" />
+    <None Include="@(_LiveKitNativeAsset)" Pack="true"
+          PackagePath="runtimes/osx-arm64/native/"
+          CopyToOutputDirectory="PreserveNewest"
+          Link="runtimes/osx-arm64/native/liblivekit_ffi.dylib" />
+    <None Include="THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="" />
+  </ItemGroup>
+
+  <Target Name="VerifyLiveKitNativeAsset" BeforeTargets="Pack;Build">
+    <Error Condition="!Exists('@(_LiveKitNativeAsset)')"
+           Text="HPD LiveKit native asset is missing for osx-arm64." />
+    <GetFileHash Files="@(_LiveKitNativeAsset)" Algorithm="SHA256">
+      <Output TaskParameter="Items" ItemName="_HashedLiveKitNativeAsset" />
+    </GetFileHash>
+    <Error Condition="'%(_HashedLiveKitNativeAsset.FileHash)' != '$(LiveKitNativeSha256)'"
+           Text="HPD LiveKit native asset hash mismatch. Expected $(LiveKitNativeSha256), found %(_HashedLiveKitNativeAsset.FileHash)." />
+  </Target>
+</Project>

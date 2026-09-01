@@ -36,7 +36,7 @@ BaseSession session = sessions.For(principal);
 var created = (await session
     .Collection(Project.Collection)
     .CreateAsync(
-        new RecordId("project_1"),
+        RecordId.Create("project_1"),
         new Project("org_1", "First project")))
     .RequireValue();
 
@@ -55,3 +55,7 @@ queries, and realtime feeds use the same session identity.
 
 The package includes its incremental generator. It uses source-generated
 `System.Text.Json` metadata and has no runtime reflection registration path.
+
+For generated query declarations, immutable execution budgets, Base-owned
+scalar codecs, exact closed enums, null semantics, and provider validation, see
+[Registered reads](../RegisteredReads.md).

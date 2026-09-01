@@ -14,7 +14,7 @@ public static class AgentBuilderExtensions
     public static AgentBuilder WithFireworks(
         this AgentBuilder builder,
         string model = "accounts/fireworks/models/llama-v3p1-8b-instruct",
-        string? apiKey = null,
+        ProviderAuthentication? authentication = null,
         string? endpoint = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -24,8 +24,11 @@ public static class AgentBuilderExtensions
 
         var chatConfig = new ChatClientConfig
         {
-            ProviderKey = "fireworks",
-            ApiKey = apiKey,
+            Provider = new ProviderReference
+            {
+                Key = "fireworks",
+                Authentication = authentication ?? new ApiKeyProviderAuthentication { SecretKey = "fireworks:ApiKey" }
+            },
             Endpoint = endpoint,
             ModelName = model
         };
@@ -35,4 +38,8 @@ public static class AgentBuilderExtensions
 
         return builder;
     }
+
+    /// <summary>Configures Fireworks with a literal runtime-only API key.</summary>
+    public static AgentBuilder WithFireworks(this AgentBuilder builder, string model, ReadOnlySpan<char> apiKey, string? endpoint = null) =>
+        builder.WithFireworks(model, builder.RegisterExplicitApiKey(apiKey), endpoint);
 }

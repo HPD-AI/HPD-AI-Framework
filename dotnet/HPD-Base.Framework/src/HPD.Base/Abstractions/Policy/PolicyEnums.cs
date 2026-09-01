@@ -39,7 +39,9 @@ AdminMetadata,
     /// <summary>Identifies one graph-installed durable activation definition.</summary>
     ActivationDefinition,
     /// <summary>Identifies one graph-installed durable schedule definition.</summary>
-    ScheduleDefinition
+    ScheduleDefinition,
+    /// <summary>Identifies one graph-owned Studio resource.</summary>
+    Studio
 }
 
 /// <summary>Defines policy Effect.</summary>

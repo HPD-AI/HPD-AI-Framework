@@ -36,6 +36,8 @@
     <PackageReference Include="HPD.Base" Version="$(HPDBaseVersion)" />
   </ItemGroup>
   <ItemGroup>
+    <EmbeddedResource Include="$(StudioGatewayModuleRoot)dist\gateway.js"
+                      LogicalName="HPD.Gateway.ControlPlane.Studio.Assets.gateway.js" />
     <InternalsVisibleTo Include="HPD.Gateway.Tests" />
     <InternalsVisibleTo Include="HPD.Gateway.AotSmoke" />
     <InternalsVisibleTo Include="HPD.Gateway.ControlPlane.Sqlite" />

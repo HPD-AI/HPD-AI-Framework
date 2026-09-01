@@ -1,7 +1,4 @@
-@source "../../../../modules/hpd-agent-studio/src";
 @source "../../../../modules/hpd-graph-studio/src";
-@source "../../../../modules/hpd-rag-studio/src";
-@source "../../../../modules/hpd-auth-studio/src";
-@source "../../../../modules/hpd-ml-studio/src";
 @source "../../../../modules/hpd-base-studio/src";
 @source "../../../../modules/hpd-gateway-studio/src";
+@source "../../../../packages/hpd-studio-design/src";

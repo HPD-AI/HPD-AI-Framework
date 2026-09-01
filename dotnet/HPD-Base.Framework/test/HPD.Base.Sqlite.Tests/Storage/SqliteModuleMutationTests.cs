@@ -182,6 +182,209 @@ public sealed partial class SqliteModuleMutationTests
     }
 
     [Fact]
+    public async Task Durable_yield_reclaims_the_same_attempt_with_a_new_slice()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-l76-yield-{Guid.NewGuid():N}.db");
+        try
+        {
+            BaseAtomicMutationExecutionLimits mutationLimits = ExecutionLimits();
+            BaseActivationExecutionLimits limits = ActivationLimits();
+            BaseOwnedScopeSeekAuthority scope = ActivationScope();
+            BaseActivationDefinitionKey definition = ActivationDefinition();
+            await using SqliteRecordStore store = Store(path);
+            BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync(
+                "activation.application", [], mutationLimits, default)).Value!;
+            (await store.ExecuteAtomicAsync(new ActivationCreationProbe(authority, mutationLimits, maximumYields: 2), ExecutionRequest()))
+                .Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+            BaseActivationYieldReservationState reserved = (await store.ReadYieldReservationStateAsync()).Value!;
+            reserved.Generation.Should().Be(1);
+            reserved.ReservedUnusedSlots.Should().Be(3);
+            reserved.RetainedUsedSlots.Should().Be(0);
+            BaseActivationWorkerAuthority worker = new()
+            {
+                ApplicationId = "activation-test", ModuleId = "test", WorkerIdentity = "yield-worker",
+                Definitions = [definition], Scope = scope, Checksum = new byte[32].ToImmutableArray(),
+            };
+            BaseActivationDueObservation firstObservation = (await store.ObserveDueAsync(new()
+            {
+                ApplicationId = "activation-test", WorkerModuleId = "test", Definitions = [definition], Scope = scope,
+                AcceptedTime = AcceptedTime(10), MaximumCandidates = 8, Limits = limits,
+            })).Value!;
+            var first = (BaseActivationClaimedResult)(await store.TryClaimNextAsync(new()
+            {
+                Observation = firstObservation.Token, Worker = worker, AcceptedTime = AcceptedTime(10), LeaseMilliseconds = 1_000,
+                Identity = ActivationIdentity("yield-claim-1"), Limits = limits,
+            })).Value!;
+            BaseActivationTransitionResult yielded = (await store.TransitionAsync(new BaseActivationYieldRequest
+            {
+                ActivationId = first.Claim.ActivationId, Claim = first.Claim, RequestedResumeAt = DateTimeOffset.FromUnixTimeMilliseconds(12),
+                EffectiveDueAt = 12, ProgressFingerprint = SHA256.HashData("progress-1"u8).ToImmutableArray(),
+                ExpectedYieldCount = 0, MaximumYields = 2, AcceptedTime = AcceptedTime(11),
+                Identity = ActivationIdentity("yield-1"), Limits = limits,
+            })).Value!;
+            yielded.State.Should().Be(BaseActivationState.YieldPending);
+            yielded.YieldCount.Should().Be(1);
+            BaseActivationYieldReservationState converted = (await store.ReadYieldReservationStateAsync()).Value!;
+            converted.Generation.Should().Be(2);
+            converted.ReservedUnusedSlots.Should().Be(2);
+            converted.RetainedUsedSlots.Should().Be(1);
+
+            BaseActivationDueObservation secondObservation = (await store.ObserveDueAsync(new()
+            {
+                ApplicationId = "activation-test", WorkerModuleId = "test", Definitions = [definition], Scope = scope,
+                AcceptedTime = AcceptedTime(12), MaximumCandidates = 8, Limits = limits,
+            })).Value!;
+            var second = (BaseActivationClaimedResult)(await store.TryClaimNextAsync(new()
+            {
+                Observation = secondObservation.Token, Worker = worker, AcceptedTime = AcceptedTime(12), LeaseMilliseconds = 1_000,
+                Identity = ActivationIdentity("yield-claim-2"), Limits = limits,
+            })).Value!;
+            second.Claim.AttemptNumber.Should().Be(first.Claim.AttemptNumber);
+            second.Claim.ExecutionSliceOrdinal.Should().Be(first.Claim.ExecutionSliceOrdinal + 1);
+            second.Claim.AttemptStartedAt.Should().Be(first.Claim.AttemptStartedAt);
+            second.Claim.SliceStartedAt.Should().Be(12);
+            second.Claim.YieldCount.Should().Be(1);
+            second.Claim.MaximumYields.Should().Be(2);
+            byte[] resultBytes = "done"u8.ToArray();
+            (await store.TransitionAsync(new BaseActivationCompleteRequest
+            {
+                ActivationId = second.Claim.ActivationId, Claim = second.Claim,
+                CanonicalResult = resultBytes.ToImmutableArray(), ResultChecksum = SHA256.HashData(resultBytes).ToImmutableArray(),
+                AcceptedTime = AcceptedTime(13), Identity = ActivationIdentity("yield-complete"), Limits = limits,
+            })).IsSuccess().Should().BeTrue();
+            BaseActivationYieldReservationState released = (await store.ReadYieldReservationStateAsync()).Value!;
+            released.Generation.Should().Be(3);
+            released.ReservedUnusedSlots.Should().Be(0);
+            released.RetainedUsedSlots.Should().Be(1);
+        }
+        finally
+        {
+            foreach (string suffix in new[] { "", "-wal", "-shm" })
+                if (File.Exists(path + suffix)) File.Delete(path + suffix);
+        }
+    }
+
+    [Fact]
+    public async Task Expired_nonterminal_yield_receipt_compacts_only_after_a_later_slice()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-l76-compact-yield-{Guid.NewGuid():N}.db");
+        try
+        {
+            BaseAtomicMutationExecutionLimits mutationLimits = ExecutionLimits();
+            BaseActivationExecutionLimits limits = ActivationLimits();
+            BaseOwnedScopeSeekAuthority scope = ActivationScope();
+            BaseActivationDefinitionKey definition = ActivationDefinition();
+            await using SqliteRecordStore store = Store(path, semanticApplicationId: "activation-test");
+            BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync(
+                "activation.application", [], mutationLimits, default)).Value!;
+            (await store.ExecuteAtomicAsync(
+                new ActivationCreationProbe(authority, mutationLimits, maximumYields: 2), ExecutionRequest()))
+                .Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+            BaseActivationWorkerAuthority worker = new()
+            {
+                ApplicationId = "activation-test", ModuleId = "test", WorkerIdentity = "compaction-worker",
+                Definitions = [definition], Scope = scope, Checksum = new byte[32].ToImmutableArray(),
+            };
+            BaseActivationDueObservation firstObservation = (await store.ObserveDueAsync(new()
+            {
+                ApplicationId = "activation-test", WorkerModuleId = "test", Definitions = [definition], Scope = scope,
+                AcceptedTime = AcceptedTime(10), MaximumCandidates = 8, Limits = limits,
+            })).Value!;
+            var first = (BaseActivationClaimedResult)(await store.TryClaimNextAsync(new()
+            {
+                Observation = firstObservation.Token, Worker = worker, AcceptedTime = AcceptedTime(10),
+                LeaseMilliseconds = 1_000, Identity = ActivationIdentity("compact-claim-1"), Limits = limits,
+            })).Value!;
+            (await store.TransitionAsync(new BaseActivationYieldRequest
+            {
+                ActivationId = first.Claim.ActivationId, Claim = first.Claim,
+                RequestedResumeAt = DateTimeOffset.FromUnixTimeMilliseconds(12), EffectiveDueAt = 12,
+                ProgressFingerprint = SHA256.HashData("compact-progress"u8).ToImmutableArray(),
+                ExpectedYieldCount = 0, MaximumYields = 2, AcceptedTime = AcceptedTime(11),
+                Identity = ActivationIdentity("compact-yield"), Limits = limits,
+            })).IsSuccess().Should().BeTrue();
+
+            BaseActivationYieldReservationState pending = (await store.ReadYieldReservationStateAsync()).Value!;
+            OperationResult<BaseActivationReceiptCompactionResult> protectedCurrent =
+                await store.CompactActivationReceiptsAsync(CompactionRequest(
+                    definition, scope, pending, 86_400_020, "compact-current"));
+            protectedCurrent.IsSuccess().Should().BeTrue(protectedCurrent.Error?.Code);
+            protectedCurrent.Value!.ExaminedCount.Should().Be(1);
+            protectedCurrent.Value.DeletedCount.Should().Be(0);
+            protectedCurrent.Value.ResultingReservation.Should().BeEquivalentTo(pending);
+
+            BaseActivationDueObservation secondObservation = (await store.ObserveDueAsync(new()
+            {
+                ApplicationId = "activation-test", WorkerModuleId = "test", Definitions = [definition], Scope = scope,
+                AcceptedTime = AcceptedTime(86_400_021), MaximumCandidates = 8, Limits = limits,
+            })).Value!;
+            var second = (BaseActivationClaimedResult)(await store.TryClaimNextAsync(new()
+            {
+                Observation = secondObservation.Token, Worker = worker, AcceptedTime = AcceptedTime(86_400_021),
+                LeaseMilliseconds = 1_000, Identity = ActivationIdentity("compact-claim-2"), Limits = limits,
+            })).Value!;
+            byte[] terminal = "compacted"u8.ToArray();
+            BaseActivationTransitionResult completed = (await store.TransitionAsync(new BaseActivationCompleteRequest
+            {
+                ActivationId = second.Claim.ActivationId, Claim = second.Claim,
+                CanonicalResult = terminal.ToImmutableArray(), ResultChecksum = SHA256.HashData(terminal).ToImmutableArray(),
+                AcceptedTime = AcceptedTime(86_400_022), Identity = ActivationIdentity("compact-complete"), Limits = limits,
+            })).Value!;
+            BaseActivationYieldReservationState retained = (await store.ReadYieldReservationStateAsync()).Value!;
+            retained.RetainedUsedSlots.Should().Be(1);
+
+            BaseActivationReceiptCompactionRequest request = CompactionRequest(
+                definition, scope, retained, 86_400_023, "compact-expired");
+            OperationResult<BaseActivationReceiptCompactionResult> compacted =
+                await store.CompactActivationReceiptsAsync(request);
+            compacted.IsSuccess().Should().BeTrue(compacted.Error?.Code);
+            compacted.Value!.ExaminedCount.Should().Be(1);
+            compacted.Value.DeletedCount.Should().Be(1);
+            compacted.Value.Completed.Should().BeTrue();
+            compacted.Value.ResultingReservation.RetainedUsedSlots.Should().Be(0);
+            compacted.Value.ResultingReservation.Generation.Should().Be(retained.Generation + 1);
+            compacted.Value.ResultingChain.CurrentSequence.Should().Be(compacted.Value.PriorChain.CurrentSequence);
+            compacted.Value.ResultingChain.OrderedChecksum.Should().Equal(compacted.Value.PriorChain.OrderedChecksum);
+            compacted.Value.ResultingChain.Generation.Should().Be(compacted.Value.PriorChain.Generation + 1);
+
+            OperationResult<BaseActivationReceiptCompactionResult> duplicate =
+                await store.CompactActivationReceiptsAsync(request);
+            duplicate.IsSuccess().Should().BeTrue(duplicate.Error?.Code);
+            duplicate.Value!.Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
+            duplicate.Value.DeletedCount.Should().Be(1);
+
+            (await store.TransitionAsync(new BaseActivationDisposeRequest
+            {
+                ActivationId = second.Claim.ActivationId, ExpectedGeneration = completed.Generation,
+                AcceptedTime = AcceptedTime(86_400_024), Identity = ActivationIdentity("compact-dispose"), Limits = limits,
+            })).IsSuccess().Should().BeTrue();
+            BaseActivationPruneRequest prune = new()
+            {
+                ApplicationId = "activation-test", Scope = scope, Definition = definition, Take = 1,
+                AcceptedTime = AcceptedTime(86_400_025), Identity = ActivationIdentity("compact-prune-early"), Limits = limits,
+            };
+            OperationResult<BaseActivationPrunePage> earlyPrune = await store.PruneAsync(prune);
+            earlyPrune.Status.Should().Be(OperationStatus.Conflict);
+            earlyPrune.Error!.Code.Should().Be("base.activation.removalBlocked");
+            OperationResult<BaseActivationPrunePage> pruned = await store.PruneAsync(prune with
+            {
+                AcceptedTime = AcceptedTime(172_800_030), Identity = ActivationIdentity("compact-prune-expired"),
+            });
+            pruned.IsSuccess().Should().BeTrue(pruned.Error?.Code);
+            pruned.Value!.Items.Should().ContainSingle();
+            await using SqliteRecordStore reopened = Store(path, semanticApplicationId: "activation-test");
+            BaseActivationYieldReservationState reopenedReservation =
+                (await reopened.ReadYieldReservationStateAsync()).Value!;
+            reopenedReservation.Should().BeEquivalentTo(compacted.Value.ResultingReservation);
+        }
+        finally
+        {
+            foreach (string suffix in new[] { "", "-wal", "-shm" })
+                if (File.Exists(path + suffix)) File.Delete(path + suffix);
+        }
+    }
+
+    [Fact]
     public async Task Expired_claim_maintenance_is_bounded_and_fenced()
     {
         string path = Path.Combine(Path.GetTempPath(), $"hpd-base-l51-maintenance-{Guid.NewGuid():N}.db");
@@ -444,10 +647,12 @@ public sealed partial class SqliteModuleMutationTests
                 Replacement = new BaseActivationCreateIntent
                 {
                     Ordinal = 0, Definition = target, CanonicalInput = replacementInput.ToImmutableArray(),
+                    ReceiptRetention = DefaultReceiptRetention(),
                     InputChecksum = SHA256.HashData(replacementInput).ToImmutableArray(),
                     Scope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Global },
                     RequestedDueAt = 12, EffectiveDueAt = 12, Priority = 0, OverlapKey = [],
                     OverlapPolicy = BaseScheduleOverlapPolicy.Allow, InitiallyEligible = true,
+                    MaximumYields = 0,
                     Identity = ActivationIdentity("migration-replacement"),
                 },
                 MigrationId = "activation.migration", MigrationVersion = 1,
@@ -517,8 +722,9 @@ public sealed partial class SqliteModuleMutationTests
             BaseScheduleMutationRequest createFirst = ScheduleMutation(first, 100, "create-1");
             (await store.MutateScheduleAsync(createFirst)).IsSuccess().Should().BeTrue();
             BaseScheduleMutationResult replayedCreate = (await store.MutateScheduleAsync(createFirst with
-            { AcceptedTime = AcceptedTime(101) })).Value!;
+            { AcceptedTime = AcceptedTime(101), InitialNextNominal = createFirst.InitialNextNominal + 50_000 })).Value!;
             replayedCreate.Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
+            replayedCreate.Authority!.NextNominal.Should().Be(createFirst.InitialNextNominal);
             OperationResult<BaseScheduleMutationResult> collision = await store.MutateScheduleAsync(createFirst with
             {
                 AcceptedTime = AcceptedTime(102),
@@ -554,6 +760,61 @@ public sealed partial class SqliteModuleMutationTests
         finally
         {
             foreach (string suffix in new[] { "", "-wal", "-shm" }) if (File.Exists(path + suffix)) File.Delete(path + suffix);
+        }
+    }
+
+    [Fact]
+    public async Task Schedule_update_response_loss_replays_the_original_runtime_boundary()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-schedule-update-replay-{Guid.NewGuid():N}.db");
+        try
+        {
+            await using SqliteRecordStore store = Store(path);
+            BaseScheduleDefinition schedule = Schedule(
+                31, BaseScheduleOverlapPolicy.Allow,
+                System.Security.Cryptography.SHA256.HashData("update-replay"u8));
+            BaseScheduleMutationRequest create = ScheduleMutation(schedule, 100, "update-replay-create");
+            BaseScheduleMutationResult created = (await store.MutateScheduleAsync(create)).Value!;
+            BaseMutationRequestIdentity updateIdentity = ActivationIdentity("update-replay");
+            var update = new BaseScheduleMutationRequest
+            {
+                Kind = BaseScheduleMutationKind.Update,
+                Definition = schedule,
+                ExpectedDefinitionGeneration = created.Authority!.DefinitionGeneration,
+                InitialNextNominal = 10_000,
+                AcceptedTime = AcceptedTime(101),
+                Identity = updateIdentity,
+                Limits = ActivationLimits(),
+            };
+
+            BaseScheduleMutationResult committed = (await store.MutateScheduleAsync(update)).Value!;
+            BaseScheduleMutationResult duplicate = (await store.MutateScheduleAsync(update with
+            {
+                AcceptedTime = AcceptedTime(102),
+                InitialNextNominal = 20_000,
+            })).Value!;
+
+            committed.Authority!.NextNominal.Should().Be(10_000);
+            duplicate.Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
+            duplicate.Authority!.NextNominal.Should().Be(10_000);
+
+            OperationResult<BaseScheduleMutationResult> collision = await store.MutateScheduleAsync(update with
+            {
+                AcceptedTime = AcceptedTime(103),
+                InitialNextNominal = 30_000,
+                Identity = updateIdentity with
+                {
+                    Fingerprint = BaseMutationRequestFingerprint.Create(
+                        Enumerable.Repeat((byte)0x5A, 32).ToArray()),
+                },
+            });
+            collision.IsSuccess().Should().BeFalse();
+            collision.Error!.Code.Should().Be("base.activation.fingerprintConflict");
+        }
+        finally
+        {
+            foreach (string suffix in new[] { "", "-wal", "-shm" })
+                if (File.Exists(path + suffix)) File.Delete(path + suffix);
         }
     }
 
@@ -657,18 +918,55 @@ public sealed partial class SqliteModuleMutationTests
 
     private static BaseScheduleDefinition Schedule(int version, BaseScheduleOverlapPolicy policy, byte[] overlap)
     {
-        byte[] input = "scheduled"u8.ToArray();
-        return BaseScheduleDefinitionBuilder.Create(new BaseScheduleDefinition
+        return BaseScheduleDefinitionBuilder.CreateGenerated(new BaseScheduleDefinitionDraft
         {
             Id = "test.schedule", Version = version, OwningModuleId = "test", ManageGrantId = "schedule.manage",
-            MaterializeGrantId = "schedule.materialize", Activation = ActivationDefinition(), CanonicalInput = input.ToImmutableArray(),
-            InputChecksum = System.Security.Cryptography.SHA256.HashData(input).ToImmutableArray(), Expression = new BaseOnceSchedule(version),
+            MaterializeGrantId = "schedule.materialize", Expression = new BaseOnceSchedule(version),
             GapPolicy = BaseTimeGapPolicy.Skip, TimeOverlapPolicy = BaseTimeOverlapPolicy.EarlierOffset,
             MisfirePolicy = BaseScheduleMisfirePolicy.RunAll, ActivationOverlapPolicy = policy,
             OverlapKeyKind = BaseScheduleOverlapKeyKind.CanonicalConcurrencyKey, ConcurrencyKey = overlap.ToImmutableArray(),
-            Priority = 0, MaximumSplayMilliseconds = 0, Checksum = [],
-        });
+            Priority = 0, MaximumSplayMilliseconds = 0,
+        }, ScheduleTarget, SqliteActivationDtos.HPDBaseActivationDtoAuthority, new Request()).Definition;
     }
+
+    private static BaseActivationHandlerRegistration<Request, Result> ScheduleTarget { get; } =
+        BaseActivationDefinitionBuilder.CreateGenerated(new BaseActivationDefinitionDraft
+        {
+            Id = "test.activation", Version = 1, OwningModuleId = "module",
+            ExecutionClass = BaseActivationExecutionClass.AtLeastOnceWorker,
+            Grants = new BaseActivationGrantSet
+            {
+                Enqueue = "activation.enqueue", Observe = "activation.observe", Claim = "activation.claim",
+                Execute = "activation.execute", Renew = "activation.renew", Complete = "activation.complete",
+                Fail = "activation.fail", Yield = "activation.yield", Cancel = "activation.cancel", Inspect = "activation.inspect",
+                Replay = "activation.replay", Migrate = "activation.migrate", Reconcile = "activation.reconcile",
+                Retry = "activation.retry", Dispose = "activation.dispose", Remove = "activation.remove", Repair = "activation.repair",
+            },
+            SourceGrantIds = [],
+            Retry = new BaseActivationRetryProfile
+            {
+                MaximumAttempts = 1, InitialDelayMilliseconds = 1, MaximumDelayMilliseconds = 1,
+                MultiplierNumerator = 1, MultiplierDenominator = 1, JitterBasisPoints = 0, RetryableFailureCodes = [],
+            },
+            ReceiptRetention = new BaseActivationReceiptRetentionPolicy
+            {
+                FormatVersion = 1, DuplicateResolutionLifetime = TimeSpan.FromHours(24),
+                ProtectedBackupCoverage = BaseActivationProtectedBackupCoverage.NotRequired,
+            },
+            Limits = new BaseActivationLimits
+            {
+                MaximumInputBytes = 4096, MaximumResultBytes = 4096, MaximumAttempts = 1, MaximumYields = 0,
+                MaximumRenewalsPerSlice = 1, MaximumChildrenPerSlice = 1, MaximumLineageDepth = 1,
+                LeaseDuration = TimeSpan.FromMinutes(1), HandlerTimeout = TimeSpan.FromMinutes(1),
+                Provider = ActivationLimits(), AtomicCreation = ExecutionLimits(),
+            },
+            Handler = new BaseActivationHandlerDraft
+            {
+                Id = "test.activation.handler", Version = 1, FactoryId = "test.activation.handler.factory",
+                WorkerSubjectKind = AccessSubjectKind.System,
+                SemanticAuthority = BaseActivationHandlerSemanticAuthority.Create("test.activation.handler.semantics", 1),
+            },
+        }, SqliteActivationDtos.HPDBaseActivationDtoAuthority, static _ => new ScheduleHandler());
 
     [Fact]
     public async Task Activation_prune_pages_emit_exact_durable_floors_without_self_blocking()
@@ -680,7 +978,7 @@ public sealed partial class SqliteModuleMutationTests
             await using SqliteRecordStore store = ActivationAdministrationStore(path, protector);
             BaseActivationExecutionLimits limits = ActivationLimits(); BaseActivationDefinitionKey definition = ActivationDefinition();
             BaseOwnedScopeSeekAuthority scope = ActivationScope(); byte[] overlap = System.Security.Cryptography.SHA256.HashData("prune"u8);
-            long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            long now = DateTimeOffset.UtcNow.AddDays(-2).ToUnixTimeMilliseconds();
             var worker = new BaseActivationWorkerAuthority
             {
                 ApplicationId = "activation-test", ModuleId = "test", WorkerIdentity = "prune-worker",
@@ -716,26 +1014,32 @@ public sealed partial class SqliteModuleMutationTests
                     Identity = ActivationIdentity($"prune-dispose-{version}"), Limits = limits,
                 })).IsSuccess().Should().BeTrue();
             }
+            now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            BaseActivationExecutionLimits pruneLimits = limits with { MaximumCandidates = 1 };
             var firstRequest = new BaseActivationPruneRequest
             {
                 ApplicationId = "activation-test", Scope = scope, Definition = definition, Take = 1, AcceptedTime = AcceptedTime(now++),
-                Identity = ActivationIdentity("prune-first"), Limits = limits,
+                Identity = ActivationIdentity("prune-first"), Limits = pruneLimits,
             };
             OperationResult<BaseActivationPrunePage> tooSmall = await store.PruneAsync(firstRequest with
             {
-                Identity = ActivationIdentity("prune-too-small"), Limits = limits with { MaximumEvidenceBytes = 1 },
+                Identity = ActivationIdentity("prune-too-small"), Limits = pruneLimits with { MaximumEvidenceBytes = 1 },
             });
             tooSmall.Status.Should().Be(OperationStatus.ValidationFailed);
             tooSmall.Error!.Code.Should().Be("base.activation.budgetExceeded");
             BaseActivationPrunePage first = (await store.PruneAsync(firstRequest)).Value!;
             first.Items.Should().ContainSingle(); first.Completed.Should().BeFalse();
+            first.Accounting.Candidates.Should().Be(1);
+            first.Accounting.ReadIntervals.Should().Be(2);
             BaseActivationPruneEvidenceContract.IsValid(first.Items[0]).Should().BeTrue();
             BaseActivationPrunePage second = (await store.PruneAsync(new BaseActivationPruneRequest
             {
                 ApplicationId = "activation-test", Scope = scope, Definition = definition, AfterActivationId = first.NextActivationId,
-                Take = 1, AcceptedTime = AcceptedTime(now++), Identity = ActivationIdentity("prune-second"), Limits = limits,
+                Take = 1, AcceptedTime = AcceptedTime(now++), Identity = ActivationIdentity("prune-second"), Limits = pruneLimits,
             })).Value!;
             second.Items.Should().ContainSingle(); second.Completed.Should().BeTrue();
+            second.Accounting.Candidates.Should().Be(1);
+            second.Accounting.ReadIntervals.Should().Be(1);
             BaseActivationPruneEvidenceContract.IsValid(second.Items[0]).Should().BeTrue();
             second.Items[0].ActivationId.Should().NotBe(first.Items[0].ActivationId);
 
@@ -774,10 +1078,12 @@ public sealed partial class SqliteModuleMutationTests
         var activation = new BaseActivationCreateIntent
         {
             Ordinal = 0, Definition = definition.Activation, CanonicalInput = definition.CanonicalInput,
+            ReceiptRetention = DefaultReceiptRetention(),
             InputChecksum = definition.InputChecksum, Scope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Global },
             RequestedDueAt = definition.Version, EffectiveDueAt = definition.Version, OccurrenceId = occurrenceId,
             OverlapKey = System.Security.Cryptography.SHA256.HashData(definition.ConcurrencyKey.AsSpan()).ToImmutableArray(),
             OverlapPolicy = definition.ActivationOverlapPolicy, InitiallyEligible = definition.ActivationOverlapPolicy != BaseScheduleOverlapPolicy.CancelPrevious,
+            MaximumYields = 0,
             Identity = ActivationIdentity(key + "-activation"),
         };
         var fact = new BaseScheduleOccurrenceFact
@@ -1236,7 +1542,8 @@ public sealed partial class SqliteModuleMutationTests
         bool? installCell = null,
         int maxPendingActivationRows = 1_000_000,
         int maxClaimedActivationRows = 1_000_000,
-        int maxTerminalActivationRows = 1_000_000)
+        int maxTerminalActivationRows = 1_000_000,
+        string semanticApplicationId = "")
     {
         var options = new HPDBaseSqliteOptions
         {
@@ -1244,6 +1551,7 @@ public sealed partial class SqliteModuleMutationTests
             MaxPendingActivationRows = maxPendingActivationRows,
             MaxClaimedActivationRows = maxClaimedActivationRows,
             MaxTerminalActivationRows = maxTerminalActivationRows,
+            SemanticActivationApplicationId = semanticApplicationId,
         };
         if (installOperation ?? installModuleAssets)
             options.ModuleMutations = [operation ?? Definition()];
@@ -1297,8 +1605,11 @@ public sealed partial class SqliteModuleMutationTests
     }
 
     private static BaseGeneratedModuleMutationIdentity<Request, Result> Identity() => new(
-        "module.increment", 1, new byte[32], Json.Default.Request, Json.Default.Result, [],
-        [BaseModuleDtoPropertyBinding.Create<Result, string>("result.generation", nameof(Result.Generation))]);
+        "module.increment", 1, new byte[32],
+        SqliteActivationDtos.HPDBaseActivationDtoAuthority.InputTypeInfo,
+        SqliteActivationDtos.HPDBaseActivationDtoAuthority.ResultTypeInfo,
+        SqliteActivationDtos.HPDBaseActivationDtoAuthority.InputBindings.Values.ToArray(),
+        SqliteActivationDtos.HPDBaseActivationDtoAuthority.ResultBindings.Values.ToArray());
 
     private static BaseRegisteredModuleMutationDefinition Definition() => BaseModuleMutationContract.Seal(new()
     {
@@ -1309,16 +1620,22 @@ public sealed partial class SqliteModuleMutationTests
         {
             Captures = [new BaseModuleGenerationCapture { Id = "generation", CellId = "module.generation", Absence = BaseModuleGenerationAbsenceBehavior.AllowEither }],
             Guards = [],
+            Preconditions = [],
             Body = new BaseModuleMutationBlock { Statements = [new BaseModuleIncrementGenerationStatement { Id = "increment", CaptureId = "generation", CreateIfAbsent = true }] },
             Result = new BaseModuleResultProjection
             {
                 Value = new BaseModuleObjectExpression
                 {
-                    Id = "result", ResultTypeId = "result",
+                    Id = "result",
                     Properties = [new BaseModuleObjectPropertyExpression
                     {
                         StablePropertyId = "result.generation",
-                        Value = new BaseModuleResultingGenerationExpression { Id = "result-generation", ResultTypeId = "string", CaptureId = "generation" },
+                        Value = new BaseModuleResultingGenerationExpression
+                        {
+                            Id = "result-generation",
+                            ResultType = BaseGeneratedModuleScalarManifest.Primitive<string>().Seal(["result.generation"]).ValueType,
+                            CaptureId = "generation",
+                        },
                     }],
                 },
             },
@@ -1332,6 +1649,7 @@ public sealed partial class SqliteModuleMutationTests
         MaximumCaptures = 8, MaximumRecordCaptures = 8, MaximumRelationTargetCaptures = 8, MaximumGenerationCaptures = 8,
         MaximumRecordMutations = 8, MaximumGenerationReads = 8, MaximumGenerationComparisons = 8, MaximumGenerationIncrements = 8,
         MaximumGuardNodes = 8, MaximumGuardDepth = 8, MaximumStatements = 8, MaximumBranches = 8, MaximumExpressionNodes = 32,
+        MaximumPreconditions = 8, MaximumRequestGuardEvaluations = 16, MaximumStaticSetMembers = 16, MaximumStaticSetComparisons = 120, MaximumDisabledCaptures = 8, MaximumRemovedFields = 8,
         MaximumReadIntervals = 16, MaximumSubjectValidations = 8, MaximumAuthorityReads = 16, MaximumRelationChecks = 8,
         MaximumUniqueConstraintChecks = 8, MaximumRequestBytes = 4096, MaximumSelectedBytes = 4096, MaximumGenerationBytes = 4096,
         MaximumEvidenceBytes = 4096, MaximumWrittenBytes = 4096, MaximumFactBytes = 4096, MaximumJournalBytes = 4096,
@@ -1381,7 +1699,11 @@ public sealed partial class SqliteModuleMutationTests
     }
 
     private static BaseActivationDefinitionKey ActivationDefinition() => new()
-    { Id = "test.activation", Version = 1, Checksum = new byte[32].ToImmutableArray() };
+    {
+        Id = ScheduleTarget.Definition.Id,
+        Version = ScheduleTarget.Definition.Version,
+        Checksum = ScheduleTarget.Definition.Checksum,
+    };
 
     private static BaseOwnedScopeSeekAuthority ActivationScope() => new()
     {
@@ -1393,6 +1715,28 @@ public sealed partial class SqliteModuleMutationTests
     private static BaseMutationRequestIdentity ActivationIdentity(string id) =>
         BaseMutationRequestIdentity.Create(
             "activation-test", "activation", id, BaseMutationRequestFingerprint.Create(new byte[32]));
+
+    private static BaseActivationReceiptCompactionRequest CompactionRequest(
+        BaseActivationDefinitionKey definition,
+        BaseOwnedScopeSeekAuthority scope,
+        BaseActivationYieldReservationState reservation,
+        long acceptedTime,
+        string identity) => new()
+    {
+        ApplicationId = "activation-test",
+        Definition = definition,
+        ReceiptRetention = DefaultReceiptRetention(),
+        Scope = scope,
+        AcceptedTime = AcceptedTime(acceptedTime),
+        Take = 8,
+        BackupFloor = new BaseActivationReceiptBackupFloor
+        {
+            Kind = BaseActivationReceiptBackupFloorKind.NotApplicable,
+        },
+        ExpectedReservation = reservation,
+        Limits = ActivationLimits(),
+        Identity = ActivationIdentity(identity),
+    };
 
     private sealed class PreparedPlanProbe(
         BaseAtomicMutationAuthorityRequirement authority,
@@ -1488,7 +1832,8 @@ public sealed partial class SqliteModuleMutationTests
         BaseAtomicMutationAuthorityRequirement authority,
         BaseAtomicMutationExecutionLimits limits,
         string inputText = "activation-input",
-        string activationIdentity = "activation-1") : IAtomicMutationProcessor
+        string activationIdentity = "activation-1",
+        long maximumYields = 0) : IAtomicMutationProcessor
     {
         public bool CapturedExisting { get; private set; }
         public int ProvisionalCount { get; private set; }
@@ -1506,15 +1851,14 @@ public sealed partial class SqliteModuleMutationTests
                 Items = [new BaseActivationCreateIntent
                 {
                     Ordinal = 0,
-                    Definition = new BaseActivationDefinitionKey
-                    {
-                        Id = "test.activation", Version = 1, Checksum = new byte[32].ToImmutableArray(),
-                    },
+                    Definition = ActivationDefinition(),
+                    ReceiptRetention = DefaultReceiptRetention(),
                     CanonicalInput = input.ToImmutableArray(),
                     InputChecksum = System.Security.Cryptography.SHA256.HashData(input).ToImmutableArray(),
                     Scope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Global },
                     RequestedDueAt = 1,
                     EffectiveDueAt = 1,
+                    MaximumYields = maximumYields,
                     Identity = BaseMutationRequestIdentity.Create(
                         "activation-test", "enqueue", activationIdentity,
                         BaseMutationRequestFingerprint.Create(new byte[32])),
@@ -1567,6 +1911,13 @@ public sealed partial class SqliteModuleMutationTests
         }
     }
 
+    private static BaseActivationReceiptRetentionPolicy DefaultReceiptRetention() => new()
+    {
+        FormatVersion = 1,
+        DuplicateResolutionLifetime = TimeSpan.FromHours(24),
+        ProtectedBackupCoverage = BaseActivationProtectedBackupCoverage.NotRequired,
+    };
+
     private static AtomicMutationProcessingResult Failure(BaseError? error) => new(
         AtomicMutationProcessingOutcome.Failed, [], error ?? new BaseError
         {
@@ -1575,11 +1926,29 @@ public sealed partial class SqliteModuleMutationTests
             Category = ErrorCategory.Store,
         });
 
-    public sealed record Request;
-    public sealed record Result { public required string Generation { get; init; } }
+    public sealed record Request
+    {
+        [BaseField("sqlite.activation.request.scope", MaximumUtf8Bytes = 32), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)]
+        public string Scope { get; init; } = "application";
+    }
+    public sealed record Result
+    {
+        [BaseField("result.generation", MaximumUtf8Bytes = 32), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)]
+        public required string Generation { get; init; }
+    }
     [JsonSerializable(typeof(Request))]
     [JsonSerializable(typeof(Result))]
     internal sealed partial class Json : JsonSerializerContext;
+
+    private sealed class ScheduleHandler : IBaseActivationHandler<Request, Result>
+    {
+        public ValueTask<BaseActivationHandlerResult<Result>> ExecuteAsync(
+            BaseActivationContext context, Request input, CancellationToken cancellationToken) =>
+            ValueTask.FromResult<BaseActivationHandlerResult<Result>>(new BaseActivationSucceeded<Result>
+            {
+                Result = new Result { Generation = input.Scope },
+            });
+    }
 
     private sealed class AllowPolicyEvaluator : IPolicyEvaluator
     {
@@ -1587,3 +1956,7 @@ public sealed partial class SqliteModuleMutationTests
             ValueTask.FromResult(new PolicyDecision { Effect = PolicyEffect.Allow, Outcome = PolicyOutcome.Allowed });
     }
 }
+
+[BaseActivationDtoAuthority("sqlite.activation.dto", 1, "module", "request", "result",
+    typeof(SqliteModuleMutationTests.Json), typeof(SqliteModuleMutationTests.Request), typeof(SqliteModuleMutationTests.Result))]
+internal static partial class SqliteActivationDtos;

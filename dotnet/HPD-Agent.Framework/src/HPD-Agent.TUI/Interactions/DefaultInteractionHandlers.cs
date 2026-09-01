@@ -1,4 +1,5 @@
 using HPD.Agent;
+using HPD.Agent.Permissions;
 using HPD.Agent.TUI.Composition;
 
 namespace HPD.Agent.TUI.Interactions;
@@ -6,22 +7,46 @@ namespace HPD.Agent.TUI.Interactions;
 public sealed class PermissionRequestInteractionHandler :
     AgentTuiInteractionHandler<PermissionRequestEvent>
 {
+    private readonly PermissionPresentationRendererRegistry _renderers;
+
+    /// <summary>Creates the default handler without optional typed renderers.</summary>
+    public PermissionRequestInteractionHandler()
+        : this(new PermissionPresentationRendererRegistry())
+    {
+    }
+
+    internal PermissionRequestInteractionHandler(PermissionPresentationRendererRegistry renderers) =>
+        _renderers = renderers;
+
     protected override async Task<AgentTuiInteractionResult> HandleAsync(
         AgentTuiInteractionContext<PermissionRequestEvent> context,
         CancellationToken cancellationToken)
     {
         var request = context.Request;
-        var options = new[]
+        if (request.Evaluation.Presentation is { } presentation &&
+            _renderers.TryGet(presentation.PresentationId, out var renderer))
         {
-            new PermissionDialogChoice("Allow once", PermissionDialogChoiceKind.Response, true, PermissionChoice.Ask, null),
-            new PermissionDialogChoice("Always allow", PermissionDialogChoiceKind.Response, true, PermissionChoice.AlwaysAllow, null),
-            new PermissionDialogChoice("Deny once", PermissionDialogChoiceKind.Response, false, PermissionChoice.Ask, "Denied by the TUI."),
-            new PermissionDialogChoice("Tell agent what to do instead", PermissionDialogChoiceKind.Feedback, false, PermissionChoice.Ask, null)
-        };
+            var decision = await renderer.RenderAsync(
+                presentation.Payload,
+                request.Evaluation.Choices,
+                cancellationToken).ConfigureAwait(false);
+            var legalChoice = request.Evaluation.Choices.Items.FirstOrDefault(choice =>
+                string.Equals(choice.Id, decision.ChoiceId, StringComparison.Ordinal));
+            if (legalChoice is null || legalChoice.Decision != decision.Kind)
+                throw new InvalidOperationException(
+                    "Permission presentation renderer returned a decision outside the server-owned choice set.");
+            return AgentTuiInteractionResult.AnswerRequest(new PermissionResponseEvent(
+                request.PermissionId,
+                request.SourceName,
+                decision.ChoiceId,
+                decision.Feedback ?? decision.Reason));
+        }
+
+        var options = request.Evaluation.Choices.Items;
         var selected = await context.Dialogs.SelectAsync(
             BuildTitle(request),
             options,
-            choice => choice.Title,
+            choice => choice.Label,
             cancellationToken).ConfigureAwait(false);
 
         if (!selected.IsSubmitted || selected.Value is null)
@@ -29,13 +54,12 @@ public sealed class PermissionRequestInteractionHandler :
             return AgentTuiInteractionResult.AnswerRequest(new PermissionResponseEvent(
                 request.PermissionId,
                 request.SourceName,
-                Approved: false,
-                Reason: "Permission dialog was canceled.",
-                Choice: PermissionChoice.Ask));
+                ChoiceId: "deny_once",
+                Feedback: "Permission dialog was canceled."));
         }
 
         var choice = selected.Value;
-        if (choice.Kind == PermissionDialogChoiceKind.Feedback)
+        if (choice.Decision == PermissionDecisionKind.Feedback)
         {
             var feedback = await context.Dialogs.InputAsync(
                 "Tell agent what to do instead",
@@ -44,41 +68,24 @@ public sealed class PermissionRequestInteractionHandler :
             return AgentTuiInteractionResult.AnswerRequest(new PermissionResponseEvent(
                 request.PermissionId,
                 request.SourceName,
-                Approved: false,
-                Reason: !feedback.IsSubmitted || string.IsNullOrWhiteSpace(feedback.Value)
+                ChoiceId: choice.Id,
+                Feedback: !feedback.IsSubmitted || string.IsNullOrWhiteSpace(feedback.Value)
                     ? "Permission dialog was canceled."
-                    : feedback.Value,
-                Choice: PermissionChoice.Ask,
-                DeniedBehavior: PermissionDeniedBehavior.ReturnToModel));
+                    : feedback.Value));
         }
 
         return AgentTuiInteractionResult.AnswerRequest(new PermissionResponseEvent(
             request.PermissionId,
             request.SourceName,
-            choice.Approved,
-            choice.Reason,
-            choice.Choice));
+            choice.Id));
     }
 
     private static string BuildTitle(PermissionRequestEvent request)
     {
-        var description = string.IsNullOrWhiteSpace(request.Description)
+        var description = string.IsNullOrWhiteSpace(request.Evaluation.Summary)
             ? ""
-            : $"\n{request.Description}";
-        return $"Allow {request.FunctionName}?{description}";
-    }
-
-    private sealed record PermissionDialogChoice(
-        string Title,
-        PermissionDialogChoiceKind Kind,
-        bool Approved,
-        PermissionChoice Choice,
-        string? Reason);
-
-    private enum PermissionDialogChoiceKind
-    {
-        Response,
-        Feedback
+            : $"\n{request.Evaluation.Summary}";
+        return $"{request.Evaluation.Title}{description}";
     }
 }
 

@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
 
@@ -63,9 +64,39 @@ internal static class ReflectionToolFactory
             FunctionResult: GetStringProperty(collapseAttribute, "FunctionResult"),
             SystemPrompt: GetStringProperty(collapseAttribute, "SystemPrompt"),
             FunctionNames: methods.Select(GetCapabilityName).ToArray(),
-            CollapseMiddlewareFactories: CreateCollapseMiddlewareFactories(collapseAttribute));
+            StableIdentity: $"{toolharnessType.Assembly.GetName().Name}:{toolharnessType.FullName ?? toolharnessType.Name}",
+            Middleware: RejectReflectionMiddleware(collapseAttribute),
+            CreateSubAgentActions: instance => CreateSubAgentActionDescriptors(
+                methods, instance, toolharnessType.Name, collapseAttribute is not null));
 
         return true;
+    }
+
+    private static IReadOnlyList<SubAgentActionDescriptor> CreateSubAgentActionDescriptors(
+        IEnumerable<MethodInfo> methods,
+        object instance,
+        string parentToolHarness,
+        bool requiresToolHarnessActivation)
+    {
+        return methods.Where(method => HasAttribute(method, "SubAgentAttribute")).Select(method =>
+        {
+            var definition = InvokeCapabilityMethod<SubAgent>(method, method.IsStatic ? null : instance);
+            return new SubAgentActionDescriptor
+            {
+                ParentToolHarness = parentToolHarness,
+                RequiresToolHarnessActivation = requiresToolHarnessActivation,
+                Action = definition.Name,
+                Description = definition.Description,
+                CapabilityId = CapabilityId.Create($"reflection:{method.DeclaringType?.FullName}.{method.Name}"),
+                Definition = definition,
+                InvocationModePolicy = definition.InvocationModePolicy,
+                InvocationModeHandling = AgentInvocationModeHandling.ToolBody,
+                ContextPolicy = definition.ContextPolicy,
+                RequiresPermission = true,
+                BranchBinder = json => SubAgentGeneratedBranchBinder.Bind(
+                    json, definition.ContextPolicy == SubAgentContextPolicy.ModelChoice)
+            };
+        }).ToArray();
     }
 
     [RequiresUnreferencedCode(ReflectionRequiresUnreferencedCodeMessage)]
@@ -83,6 +114,8 @@ internal static class ReflectionToolFactory
         foreach (var method in methods)
         {
             ThrowIfGeneratorOnlyFeaturesAreUsed(method);
+            if (HasAttribute(method, "SubAgentAttribute"))
+                continue;
             functions.Add(CreateCapability(method, method.IsStatic ? null : instance, context, serializerOptions));
         }
 
@@ -94,7 +127,7 @@ internal static class ReflectionToolFactory
         return functions;
     }
 
-    private static IReadOnlyList<Func<IAgentMiddleware>>? CreateCollapseMiddlewareFactories(object? collapseAttribute)
+    private static IReadOnlyList<ToolHarnessMiddlewareDescriptor>? RejectReflectionMiddleware(object? collapseAttribute)
     {
         if (collapseAttribute?.GetType().GetProperty("Middlewares")?.GetValue(collapseAttribute) is not Type[] middlewareTypes ||
             middlewareTypes.Length == 0)
@@ -102,28 +135,9 @@ internal static class ReflectionToolFactory
             return null;
         }
 
-        var factories = new List<Func<IAgentMiddleware>>(middlewareTypes.Length);
-        foreach (var middlewareType in middlewareTypes)
-        {
-            if (!typeof(IAgentMiddleware).IsAssignableFrom(middlewareType))
-            {
-                throw new InvalidOperationException(
-                    $"Collapse middleware '{middlewareType.FullName}' must implement {nameof(IAgentMiddleware)}.");
-            }
-
-            ConstructorInfo? constructor = middlewareType.GetConstructor(Type.EmptyTypes);
-            if (constructor is null)
-            {
-                throw new InvalidOperationException(
-                    $"Reflection-registered collapse middleware '{middlewareType.FullName}' must have a public parameterless constructor. " +
-                    "Use builder middleware configuration or the source generator for configured constructors.");
-            }
-
-            factories.Add(() => (IAgentMiddleware)(constructor.Invoke(parameters: null)
-                ?? throw new InvalidOperationException($"Could not create collapse middleware '{middlewareType.FullName}'.")));
-        }
-
-        return factories;
+        throw new InvalidOperationException(
+            "Reflection-registered ToolHarness middleware is not supported. ToolHarness middleware requires " +
+            "source-generated stable identities, ownership, and Native AOT activation descriptors.");
     }
 
     private static AIFunction CreateToolHarnessContainer(
@@ -131,7 +145,8 @@ internal static class ReflectionToolFactory
         object collapseAttribute,
         JsonSerializerOptions serializerOptions)
     {
-        var toolharnessName = methods[0].DeclaringType!.Name;
+        var toolharnessType = methods[0].DeclaringType!;
+        var toolharnessName = toolharnessType.Name;
         var childFunctions = methods.Select(GetCapabilityName).ToArray();
         var description = GetStringProperty(collapseAttribute, "Description") ?? $"Tools in {toolharnessName}.";
         var functionResult = GetStringProperty(collapseAttribute, "FunctionResult");
@@ -155,6 +170,7 @@ internal static class ReflectionToolFactory
                     ["IsContainer"] = true,
                     ["IsToolHarnessContainer"] = true,
                     ["ToolHarnessName"] = toolharnessName,
+                    ["ToolHarnessIdentity"] = $"{toolharnessType.Assembly.GetName().Name}:{toolharnessType.FullName ?? toolharnessType.Name}",
                     ["ChildFunctions"] = childFunctions,
                     ["FunctionResult"] = functionResult,
                     ["SystemPrompt"] = systemPrompt,
@@ -171,11 +187,6 @@ internal static class ReflectionToolFactory
         IToolMetadata? context,
         JsonSerializerOptions serializerOptions)
     {
-        if (HasAttribute(method, "SubAgentAttribute"))
-        {
-            return CreateSubAgent(method, instance, serializerOptions);
-        }
-
         if (HasAttribute(method, "MultiAgentAttribute"))
         {
             return CreateMultiAgent(method, instance, serializerOptions);
@@ -188,11 +199,25 @@ internal static class ReflectionToolFactory
         MethodInfo method,
         object? instance,
         IToolMetadata? context,
-        JsonSerializerOptions serializerOptions)
+        JsonSerializerOptions serializerOptions,
+        IReadOnlyDictionary<string, HPD.Agent.Permissions.AIFunctionPermissionDescriptor>? permissionDescriptors = null)
     {
         var parameters = GetModelParameters(method).ToArray();
         var parameterNames = parameters.Select(parameter => parameter.Name!).ToArray();
         var resultType = UnwrapReturnType(method.ReturnType);
+        var functionAttribute = GetAIFunctionAttribute(method);
+        var invocationModePolicy = GetInvocationModePolicy(functionAttribute);
+        var invocationModeHandling = GetInvocationModeHandling(functionAttribute);
+        var permissionAttribute = method.GetCustomAttribute<RequiresPermissionAttribute>(inherit: false);
+        var requiresPermission = permissionAttribute is not null;
+        ValidatePermissionAuthority(permissionAttribute?.PermissionAuthority);
+        var policyDescriptorId = ResolveExplicitDescriptor(permissionAttribute?.PermissionPolicy, permissionDescriptors, policy: true);
+        var interactionDescriptorId = ResolveExplicitDescriptor(permissionAttribute?.PermissionInteraction, permissionDescriptors, policy: false);
+        var operationContract = CreateOperationContract(
+            parameters, invocationModePolicy, invocationModeHandling, requiresPermission, permissionDescriptors);
+        var actionSchema = operationContract is null
+            ? default
+            : CreateSchema(method, parameters, serializerOptions);
 
         return HPDAIFunctionFactory.Create(
             async (arguments, functionContext, cancellationToken) =>
@@ -209,9 +234,25 @@ internal static class ReflectionToolFactory
                 ParameterDescriptions = parameters
                     .Where(parameter => GetDescription(parameter) is not null)
                     .ToDictionary(parameter => parameter.Name!, parameter => GetDescription(parameter)!),
-                RequiresPermission = HasAttribute(method, "RequiresPermissionAttribute"),
-                InvocationModePolicy = GetInvocationModePolicy(GetAIFunctionAttribute(method)),
-                InvocationModeHandling = GetInvocationModeHandling(GetAIFunctionAttribute(method)),
+                FunctionPermission = requiresPermission
+                    ? new AIFunctionPermissionDeclaration
+                    {
+                        RequiresPermission = true,
+                        Authority = permissionAttribute!.PermissionAuthority ??
+                            $"function/{Uri.EscapeDataString(GetFunctionName(method))}",
+                        PolicyDescriptorId = policyDescriptorId,
+                        InteractionDescriptorId = interactionDescriptorId,
+                        Source = PermissionDeclarationSource.FunctionAttribute
+                    }
+                    : null,
+                InvocationModePolicy = invocationModePolicy,
+                InvocationModeHandling = invocationModeHandling,
+                OperationContract = operationContract,
+                VerifiedActionComposition = operationContract is null
+                    ? null
+                    : new VerifiedAIFunctionActionComposition(actionSchema, operationContract),
+                PermissionDescriptors = permissionDescriptors ??
+                    new Dictionary<string, HPD.Agent.Permissions.AIFunctionPermissionDescriptor>(StringComparer.Ordinal),
                 SerializerOptions = serializerOptions,
                 ResultType = resultType,
                 Validator = (json, options) => ValidateArguments(json, options, parameters, parameterNames),
@@ -228,63 +269,14 @@ internal static class ReflectionToolFactory
             });
     }
 
-    private static AIFunction CreateSubAgent(
+    [RequiresUnreferencedCode(ReflectionRequiresUnreferencedCodeMessage)]
+    [RequiresDynamicCode("Reflection tool registration uses runtime method invocation and System.Text.Json runtime type metadata.")]
+    internal static AIFunction CreateExplicitFunction(
         MethodInfo method,
         object? instance,
-        JsonSerializerOptions serializerOptions)
-    {
-        var registrationDefinition = InvokeCapabilityMethod<SubAgent>(method, instance);
-
-        return HPDAIFunctionFactory.Create(
-            async (arguments, functionContext, cancellationToken) =>
-            {
-                var jsonArgs = arguments.GetJson();
-                var input = jsonArgs.TryGetProperty("input", out var inputProperty)
-                    ? inputProperty.GetString() ?? string.Empty
-                    : string.Empty;
-                var taskName = jsonArgs.TryGetProperty("taskName", out var taskNameProperty)
-                    ? taskNameProperty.GetString() ?? string.Empty
-                    : string.Empty;
-                var requestedMode = AgentInvocationModes.ReadRequestedMode(jsonArgs);
-                var requestedContext = SubAgentContexts.ReadRequestedContext(jsonArgs);
-
-                var result = await SubAgentRuntime.InvokeAsync(
-                    new SubAgentRuntime.SubAgentInvocationRequest
-                    {
-                        Definition = registrationDefinition,
-                        Input = input,
-                        TaskName = taskName,
-                        ParentContext = functionContext,
-                        RequestedMode = requestedMode,
-                        RequestedContext = requestedContext
-                    },
-                    cancellationToken).ConfigureAwait(false);
-
-                return result.ToToolResult();
-            },
-            new HPDAIFunctionFactoryOptions
-            {
-                Name = registrationDefinition.Name,
-                Description = registrationDefinition.Description,
-                RequiresPermission = true,
-                SerializerOptions = serializerOptions,
-                ResultType = typeof(object),
-                SchemaProvider = () => SubAgentContexts.CreateSchema(
-                    CreateSubAgentInputSchema(
-                        registrationDefinition.InvocationModePolicy == AgentInvocationModePolicy.ModelChoice),
-                    registrationDefinition.ContextPolicy),
-                AdditionalProperties = new Dictionary<string, object?>
-                {
-                    ["CapabilityType"] = "SubAgent",
-                    ["IsContainer"] = false,
-                    ["IsSubAgent"] = true,
-                    ["ExecutionModel"] = "ThreadNative",
-                    ["ParentToolHarness"] = method.DeclaringType?.Name,
-                    ["RequiresPermission"] = true,
-                    ["SubAgentDefinition"] = registrationDefinition
-                }
-            });
-    }
+        IReadOnlyDictionary<string, HPD.Agent.Permissions.AIFunctionPermissionDescriptor> permissionDescriptors,
+        JsonSerializerOptions serializerOptions) =>
+        CreateFunction(method, instance, context: null, serializerOptions, permissionDescriptors);
 
     private static AIFunction CreateMultiAgent(
         MethodInfo method,
@@ -330,7 +322,12 @@ internal static class ReflectionToolFactory
             {
                 Name = name,
                 Description = description,
-                RequiresPermission = true,
+                FunctionPermission = new AIFunctionPermissionDeclaration
+                {
+                    RequiresPermission = true,
+                    Authority = $"function/{Uri.EscapeDataString(name)}",
+                    Source = PermissionDeclarationSource.FrameworkDefault
+                },
                 SerializerOptions = serializerOptions,
                 ResultType = typeof(object),
                 SchemaProvider = () => CreateInputSchema(
@@ -490,10 +487,10 @@ internal static class ReflectionToolFactory
 
         foreach (var parameter in parameters)
         {
-            properties[parameter.Name!] = CreateParameterSchema(parameter, serializerOptions);
+            properties[GetSerializedParameterName(parameter)] = CreateParameterSchema(parameter, serializerOptions);
             if (!parameter.HasDefaultValue && !IsNullable(parameter))
             {
-                required.Add(CreateStringNode(parameter.Name!));
+                required.Add(CreateStringNode(GetSerializedParameterName(parameter)));
             }
         }
 
@@ -854,6 +851,140 @@ internal static class ReflectionToolFactory
             : AgentInvocationModeHandling.Runtime;
     }
 
+    private static AIFunctionOperationContract? CreateOperationContract(
+        ParameterInfo[] parameters,
+        AgentInvocationModePolicy defaultPolicy,
+        AgentInvocationModeHandling defaultHandling,
+        bool requiresPermissionByDefault,
+        IReadOnlyDictionary<string, HPD.Agent.Permissions.AIFunctionPermissionDescriptor>? permissionDescriptors = null)
+    {
+        var analyzed = parameters.Select(parameter => new
+        {
+            Parameter = parameter,
+            Polymorphic = parameter.ParameterType.GetCustomAttribute<JsonPolymorphicAttribute>(inherit: false),
+            Cases = parameter.ParameterType.GetCustomAttributes<JsonDerivedTypeAttribute>(inherit: false).ToArray()
+        }).ToArray();
+        foreach (var union in analyzed.Where(static candidate => candidate.Polymorphic is not null))
+        {
+            var declaredTypes = union.Cases.Select(static unionCase => unionCase.DerivedType).ToHashSet();
+            var undeclared = GetLoadableTypes(union.Parameter.ParameterType.Assembly).FirstOrDefault(type =>
+                type != union.Parameter.ParameterType &&
+                union.Parameter.ParameterType.IsAssignableFrom(type) &&
+                type.GetCustomAttribute<AIFunctionActionAttribute>(inherit: false) is not null &&
+                !declaredTypes.Contains(type));
+            if (undeclared is not null)
+                throw new InvalidOperationException(
+                    $"Action type '{undeclared.FullName}' is outside the function's declared closed union.");
+        }
+        var candidates = analyzed.Where(candidate => candidate.Polymorphic is not null && candidate.Cases.Any(unionCase =>
+            unionCase.DerivedType.GetCustomAttribute<AIFunctionActionAttribute>(inherit: false) is not null)).ToArray();
+        if (candidates.Length == 0) return null;
+        if (candidates.Length != 1)
+            throw new InvalidOperationException("An action-contracted function must have exactly one direct closed-union parameter.");
+
+        var candidate = candidates[0];
+        var discriminator = candidate.Polymorphic!.TypeDiscriminatorPropertyName;
+        if (string.IsNullOrWhiteSpace(discriminator))
+            throw new InvalidOperationException("The action union requires a string discriminator property name.");
+        var actions = new Dictionary<string, AIFunctionActionPolicy>(StringComparer.Ordinal);
+        foreach (var unionCase in candidate.Cases)
+        {
+            if (unionCase.TypeDiscriminator is not string serialized || string.IsNullOrWhiteSpace(serialized))
+                throw new InvalidOperationException("Every action union case requires a non-empty string discriminator.");
+            var declaration = unionCase.DerivedType.GetCustomAttribute<AIFunctionActionAttribute>(inherit: false)
+                ?? throw new InvalidOperationException($"Action type '{unionCase.DerivedType.FullName}' requires AIFunctionActionAttribute.");
+            ValidatePermissionAuthority(declaration.PermissionAuthority);
+            var policyDescriptorId = ResolveExplicitDescriptor(declaration.PermissionPolicy, permissionDescriptors, policy: true);
+            var interactionDescriptorId = ResolveExplicitDescriptor(declaration.PermissionInteraction, permissionDescriptors, policy: false);
+            if (!string.Equals(declaration.Action, serialized, StringComparison.Ordinal))
+                throw new InvalidOperationException($"Action declaration '{declaration.Action}' does not match serializer discriminator '{serialized}'.");
+            var policy = declaration.InvocationModePolicy switch
+            {
+                AIFunctionActionInvocationModePolicy.Inherit => defaultPolicy,
+                AIFunctionActionInvocationModePolicy.SynchronousOnly => AgentInvocationModePolicy.SynchronousOnly,
+                AIFunctionActionInvocationModePolicy.BackgroundOnly => AgentInvocationModePolicy.BackgroundOnly,
+                AIFunctionActionInvocationModePolicy.ModelChoice => AgentInvocationModePolicy.ModelChoice,
+                _ => throw new InvalidOperationException("Unsupported action invocation-mode policy.")
+            };
+            var handling = declaration.InvocationModeHandling switch
+            {
+                AIFunctionActionInvocationModeHandling.Inherit => defaultHandling,
+                AIFunctionActionInvocationModeHandling.Runtime => AgentInvocationModeHandling.Runtime,
+                AIFunctionActionInvocationModeHandling.ToolBody => AgentInvocationModeHandling.ToolBody,
+                _ => throw new InvalidOperationException("Unsupported action invocation-mode handling.")
+            };
+            var requiresPermission = declaration.Permission switch
+            {
+                PermissionRequirement.Inherit => requiresPermissionByDefault,
+                PermissionRequirement.Required => true,
+                PermissionRequirement.NotRequired => false,
+                _ => throw new InvalidOperationException("Unsupported action permission requirement.")
+            };
+            if (!actions.TryAdd(serialized, new AIFunctionActionPolicy
+                {
+                    InvocationModePolicy = policy,
+                    InvocationModeHandling = handling,
+                    Permission = new AIFunctionPermissionDeclaration
+                    {
+                        RequiresPermission = requiresPermission,
+                        Authority = declaration.PermissionAuthority ??
+                            $"function/{Uri.EscapeDataString(GetFunctionName(candidate.Parameter.Member as MethodInfo ?? throw new InvalidOperationException()))}/action/{Uri.EscapeDataString(serialized)}",
+                        PolicyDescriptorId = policyDescriptorId,
+                        InteractionDescriptorId = interactionDescriptorId,
+                        Source = declaration.Permission == PermissionRequirement.Inherit
+                            ? PermissionDeclarationSource.FunctionAttribute
+                            : PermissionDeclarationSource.ActionOverride
+                    }
+                }))
+                throw new InvalidOperationException($"Duplicate action discriminator '{serialized}'.");
+        }
+        return new AIFunctionOperationContract
+        {
+            ActionArgumentName = GetSerializedParameterName(candidate.Parameter),
+            Discriminator = discriminator,
+            Actions = actions
+        };
+    }
+
+    private static string? ResolveExplicitDescriptor(
+        Type? declaredType,
+        IReadOnlyDictionary<string, HPD.Agent.Permissions.AIFunctionPermissionDescriptor>? descriptors,
+        bool policy)
+    {
+        if (declaredType is null) return null;
+        var descriptor = declaredType.FullName is { } id && descriptors?.TryGetValue(id, out var found) == true
+            ? found
+            : null;
+        if (descriptor is null || policy && descriptor.PolicyFactory is null ||
+            !policy && descriptor.InteractionFactory is null)
+            throw new InvalidOperationException(
+                $"Reflection-created permission type '{declaredType.FullName}' requires an explicit descriptor keyed by its full type name.");
+        return descriptor.DescriptorId;
+    }
+
+    private static string GetSerializedParameterName(ParameterInfo parameter) =>
+        parameter.Name ?? throw new InvalidOperationException("Model-facing parameters require a serialized name.");
+
+    private static void ValidatePermissionAuthority(string? authority)
+    {
+        if (authority is not null && (authority.Length == 0 || authority != authority.Trim() ||
+            authority.Any(char.IsControl) || Encoding.UTF8.GetByteCount(authority) > 512))
+            throw new InvalidOperationException(
+                "Permission authority must be canonical, non-empty, control-free, and at most 512 UTF-8 bytes.");
+    }
+
+    private static IEnumerable<Type> GetLoadableTypes(Assembly assembly)
+    {
+        try
+        {
+            return assembly.GetTypes();
+        }
+        catch (ReflectionTypeLoadException exception)
+        {
+            return exception.Types.OfType<Type>();
+        }
+    }
+
     private static IEnumerable<MethodInfo> GetCapabilityMethods(Type toolharnessType)
     {
         const BindingFlags flags = BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
@@ -952,19 +1083,6 @@ internal static class ReflectionToolFactory
             """
             {"type":"object","properties":{},"required":[],"additionalProperties":false}
             """);
-        return document.RootElement.Clone();
-    }
-
-    private static JsonElement CreateSubAgentInputSchema(bool includeInvocationMode = false)
-    {
-        var schema = includeInvocationMode
-            ? """
-              {"type":"object","properties":{"taskName":{"type":"string","description":"A short name used to identify this delegated task and its child thread."},"input":{"type":"string","description":"The user's question or task for the sub-agent. Pass the full request here."},"invocationMode":{"type":"string","enum":["synchronous","background"],"description":"Whether to wait for the result now or run in the background. Use synchronous unless the task can continue independently."}},"required":["taskName","input"],"additionalProperties":false}
-              """
-            : """
-              {"type":"object","properties":{"taskName":{"type":"string","description":"A short name used to identify this delegated task and its child thread."},"input":{"type":"string","description":"The user's question or task for the sub-agent. Pass the full request here."}},"required":["taskName","input"],"additionalProperties":false}
-              """;
-        using var document = JsonDocument.Parse(schema);
         return document.RootElement.Clone();
     }
 

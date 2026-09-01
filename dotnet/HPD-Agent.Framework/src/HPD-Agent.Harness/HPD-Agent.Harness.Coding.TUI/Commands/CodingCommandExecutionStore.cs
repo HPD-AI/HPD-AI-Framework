@@ -6,7 +6,7 @@ internal sealed class CodingCommandExecutionStore
 
     private readonly Dictionary<string, CodingCommandExecutionState> _byCommandId = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _commandIdByToolCallId = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, string> _commandIdByBackgroundHandleId = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _commandIdByOperationId = new(StringComparer.Ordinal);
 
     public CodingCommandExecutionState GetOrCreate(ExecuteCommandEvent evt)
     {
@@ -21,9 +21,9 @@ internal sealed class CodingCommandExecutionStore
         }
 
         _commandIdByToolCallId[evt.ToolCallId] = evt.CommandId;
-        if (state.BackgroundHandleId is not null)
+        if (state.OperationId is not null)
         {
-            _commandIdByBackgroundHandleId[state.BackgroundHandleId] = evt.CommandId;
+            _commandIdByOperationId[state.OperationId] = evt.CommandId;
         }
 
         return state;
@@ -69,9 +69,9 @@ internal sealed class CodingCommandExecutionStore
         return false;
     }
 
-    public bool TryGetByBackgroundHandleId(string backgroundHandleId, out CodingCommandExecutionState state)
+    public bool TryGetByOperationId(string operationId, out CodingCommandExecutionState state)
     {
-        if (_commandIdByBackgroundHandleId.TryGetValue(backgroundHandleId, out var commandId))
+        if (_commandIdByOperationId.TryGetValue(operationId, out var commandId))
         {
             return TryGetByCommandId(commandId, out state);
         }
@@ -80,11 +80,11 @@ internal sealed class CodingCommandExecutionStore
         return false;
     }
 
-    public void IndexBackgroundHandle(CodingCommandExecutionState state)
+    public void IndexOperation(CodingCommandExecutionState state)
     {
-        if (state.BackgroundHandleId is not null)
+        if (state.OperationId is not null)
         {
-            _commandIdByBackgroundHandleId[state.BackgroundHandleId] = state.CommandId;
+            _commandIdByOperationId[state.OperationId] = state.CommandId;
         }
     }
 

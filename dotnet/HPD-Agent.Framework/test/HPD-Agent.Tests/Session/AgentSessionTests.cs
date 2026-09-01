@@ -239,7 +239,7 @@ public class AgentSessionTests : AgentTestBase
     {
         // Arrange
         var session = new HPD.Agent.Session();
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
 
         // Act
         session.Store = store;
@@ -256,7 +256,7 @@ public class AgentSessionTests : AgentTestBase
         session.AddMetadata("key", "value");
 
         // Set a store reference
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         session.Store = store;
 
         // Act — Serialize the session

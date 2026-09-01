@@ -81,6 +81,9 @@ public sealed class ContentReadResult : IAsyncDisposable
 /// </remarks>
 public interface IContentStore
 {
+    /// <summary>Gets whether exact content addresses remain resolvable after process restart.</summary>
+    ContentStorePersistenceCapability PersistenceCapability => ContentStorePersistenceCapability.Ephemeral;
+
     /// <summary>
     /// Write content in the given scope and return metadata for the stored item.
     /// </summary>
@@ -156,6 +159,16 @@ public interface IContentStore
         ContentScope scope,
         ContentQuery? query = null,
         CancellationToken cancellationToken = default);
+}
+
+/// <summary>Declares the restart guarantees of a content-store implementation.</summary>
+public enum ContentStorePersistenceCapability
+{
+    /// <summary>Addresses are valid only for the current store lifetime.</summary>
+    Ephemeral,
+
+    /// <summary>Exact versioned addresses remain resolvable after process restart.</summary>
+    RestartDurable
 }
 
 /// <summary>Controls content creation, replacement, and conditional mutation.</summary>

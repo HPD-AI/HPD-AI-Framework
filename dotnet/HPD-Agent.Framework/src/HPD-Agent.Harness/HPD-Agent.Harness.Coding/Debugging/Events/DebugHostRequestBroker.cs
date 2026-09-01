@@ -1,10 +1,13 @@
 using System.Collections.Immutable;
 using HPD.Agent;
 using HPD.Events;
+using HPD.Agent.Serialization;
 using HPDOS.ToolHarnesses.Middleware;
 
 namespace HPD.Agent.ToolHarness.Coding.Debugging;
 
+[DurableEvent]
+[EventType("DEBUG_RUN_IN_TERMINAL_REQUEST")]
 public sealed record DebugRunInTerminalRequestEvent : AgentEvent, IAgentRequestEvent<DebugRunInTerminalResponseEvent>
 {
     public override EventKind Kind { get; init; } = EventKind.Control;
@@ -22,6 +25,8 @@ public sealed record DebugRunInTerminalRequestEvent : AgentEvent, IAgentRequestE
     public string SourceName => "HPD.Debugging";
 }
 
+[DurableEvent]
+[EventType("DEBUG_RUN_IN_TERMINAL_RESPONSE")]
 public sealed record DebugRunInTerminalResponseEvent : AgentEvent, IAgentResponseEvent
 {
     public override EventKind Kind { get; init; } = EventKind.Control;
@@ -56,12 +61,12 @@ internal interface IDebugHostRequestBroker
 internal sealed class DebugHostRequestBroker : IDebugHostRequestBroker
 {
     private readonly IEventCoordinator _events;
-    private readonly IThreadEventPublisher? _threadEvents;
+    private readonly IAgentEventPublisher? _threadEvents;
     private readonly TimeSpan _timeout;
 
     public DebugHostRequestBroker(
         IEventCoordinator events,
-        IThreadEventPublisher? threadEvents,
+        IAgentEventPublisher? threadEvents,
         TimeSpan? timeout = null)
     {
         _events = events ?? throw new ArgumentNullException(nameof(events));

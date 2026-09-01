@@ -54,13 +54,13 @@ public class Integration_JWT_Tests
             opts.Jwt.ValidateLifetime     = true;
             opts.Jwt.ClockSkew            = TimeSpan.Zero;
         })
-        .UseInMemorySqliteForTests()
+        .UseBaseTestHost()
         .AddAuthentication();
 
         builder.Services.AddAuthorization();
 
         var app = builder.Build();
-        app.Services.InitializeHPDAuthDevelopmentDatabaseAsync().GetAwaiter().GetResult();
+        app.Services.InitializeHPDAuthBaseTestHostAsync().GetAwaiter().GetResult();
         app.UseRouting();
         app.UseAuthentication();
         app.UseAuthorization();
@@ -73,7 +73,7 @@ public class Integration_JWT_Tests
             var tokenSvc    = ctx.RequestServices.GetRequiredService<ITokenService>();
             var user        = await userManager.FindByIdAsync(userId);
             if (user is null) return Results.NotFound();
-            var response = await tokenSvc.GenerateTokensAsync(user);
+            var response = await tokenSvc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
             return Results.Ok(response);
         });
 

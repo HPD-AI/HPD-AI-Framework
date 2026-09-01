@@ -13,7 +13,7 @@ public static class AgentBuilderExtensions
     public static AgentBuilder WithMoonshot(
         this AgentBuilder builder,
         string model = MoonshotProvider.DefaultChatModel,
-        string? apiKey = null,
+        ProviderAuthentication? authentication = null,
         string? endpoint = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -23,8 +23,11 @@ public static class AgentBuilderExtensions
 
         var chatConfig = new ChatClientConfig
         {
-            ProviderKey = "moonshot",
-            ApiKey = apiKey,
+            Provider = new ProviderReference
+            {
+                Key = "moonshot",
+                Authentication = authentication ?? new ApiKeyProviderAuthentication { SecretKey = "moonshot:ApiKey" }
+            },
             Endpoint = endpoint,
             ModelName = model
         };
@@ -34,6 +37,8 @@ public static class AgentBuilderExtensions
 
         return builder;
     }
+    /// <summary>Configures Moonshot with a literal runtime-only API key.</summary>
+    public static AgentBuilder WithMoonshot(this AgentBuilder builder, string model, ReadOnlySpan<char> apiKey, string? endpoint = null) => builder.WithMoonshot(model, builder.RegisterExplicitApiKey(apiKey), endpoint);
 
     /// <summary>
     /// Adds Moonshot/Kimi-specific runtime chat request options to the chat defaults.

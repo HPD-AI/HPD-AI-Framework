@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><PublishAot>true</PublishAot><PublishTrimmed>true</PublishTrimmed><NoWarn>$(NoWarn);CA1303</NoWarn></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../../src/HPD.Payments.Runtime/HPD.Payments.Runtime.csproj" /></ItemGroup>
+</Project>

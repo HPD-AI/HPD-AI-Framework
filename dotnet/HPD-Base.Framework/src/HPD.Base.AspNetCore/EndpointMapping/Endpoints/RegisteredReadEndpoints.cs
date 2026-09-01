@@ -69,8 +69,12 @@ internal static class RegisteredReadEndpoints
         catch (RequestBodyTooLargeException) { await BodyTooLarge(context); return; }
         catch (JsonException) { await InvalidBody(context); return; }
         if (parameters is null) { await Problem(context, OperationStatus.ValidationFailed, new BaseError { Code = "base.http.body.required", Message = "Registered read parameters are required.", Category = ErrorCategory.Validation }); return; }
+        bool compound = registration.Plan.Topology == BaseRelationalReadTopology.CompoundCount;
+        if (compound && context.Request.Query.Count != 0)
+        { await Problem(context, OperationStatus.ValidationFailed, new BaseError { Code = "base.relational.read.invalid", Message = "The registered read page is invalid.", Category = ErrorCategory.Validation }); return; }
         if (!int.TryParse(context.Request.Query["page"], out int page)) page = 1;
-        if (!int.TryParse(context.Request.Query["perPage"], out int perPage)) perPage = 50;
+        if (!int.TryParse(context.Request.Query["perPage"], out int perPage))
+            perPage = compound ? registration.Plan.CompoundCountBranches.Length : 50;
         BaseReadPageRequest request;
         try { request = BaseReadPageRequest.Create(page, perPage); }
         catch (ArgumentOutOfRangeException) { await Problem(context, OperationStatus.ValidationFailed, new BaseError { Code = "base.relational.read.invalid", Message = "The registered read page is invalid.", Category = ErrorCategory.Validation }); return; }

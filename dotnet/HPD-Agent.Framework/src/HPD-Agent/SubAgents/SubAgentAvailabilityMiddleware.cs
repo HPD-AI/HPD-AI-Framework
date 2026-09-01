@@ -1,84 +1,120 @@
+using System.Collections.Concurrent;
 using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent;
 
-/// <summary>
-/// Enforces per-capability subagent depth availability on the final model-facing tool list.
-/// </summary>
+/// <summary>Projects the unified subagent action surface for the current parent and iteration.</summary>
 internal sealed class SubAgentAvailabilityMiddleware : IAgentMiddleware
 {
-    private readonly IReadOnlyList<AIFunction> _allFunctions;
-    private readonly IReadOnlySet<string> _allFunctionNames;
+    private readonly bool _toolHarnessActivationEnabled;
+    private readonly HashSet<string> _neverCollapse;
+    private readonly IReadOnlyList<SubAgentActionDescriptor> _declaredActions;
+    private readonly ConcurrentDictionary<ProjectionKey, AIFunction?> _cache = new();
 
-    public SubAgentAvailabilityMiddleware(IEnumerable<AITool> allTools)
+    /// <summary>Captures immutable role descriptors; functions are composed per parent revision.</summary>
+    public SubAgentAvailabilityMiddleware(
+        IEnumerable<AITool> allTools,
+        bool toolHarnessActivationEnabled,
+        IEnumerable<string>? neverCollapse = null)
     {
         ArgumentNullException.ThrowIfNull(allTools);
-        _allFunctions = allTools.OfType<AIFunction>().ToArray();
-        _allFunctionNames = _allFunctions
-            .Select(static function => function.Name)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _declaredActions = ReadActions(allTools);
+        _ = SubAgentDeclarationCatalog.Create(_declaredActions);
+        _toolHarnessActivationEnabled = toolHarnessActivationEnabled;
+        _neverCollapse = new HashSet<string>(neverCollapse ?? [], StringComparer.OrdinalIgnoreCase);
     }
 
     /// <inheritdoc />
-    public Task BeforeIterationAsync(BeforeIterationContext context, CancellationToken cancellationToken)
+    public async Task BeforeIterationAsync(BeforeIterationContext context, CancellationToken cancellationToken)
     {
-        var tools = context.Options.Tools;
-        if (tools is null || tools.Count == 0)
-            return Task.CompletedTask;
-
-        var currentDepth = context.GetParentAgentMetadata()?.Depth ?? 0;
+        if (context.Options.Tools is null) return;
+        var publishedActions = ReadActions(context.Options.Tools);
+        var pin = context.RunConfig.SubAgentCatalogPin;
+        if (pin is null)
+        {
+            var actionsToPin = publishedActions.Count > 0
+                ? publishedActions
+                : _declaredActions;
+            pin = new SubAgentDeclarationCatalogPin(
+                actionsToPin,
+                SubAgentDeclarationCatalog.Create(actionsToPin));
+            context.RunConfig.SubAgentCatalogPin = pin;
+        }
+        var catalog = pin.Catalog;
+        catalog.ValidateOverrides(context.RunConfig.SubAgents);
+        var depth = context.GetParentAgentMetadata()?.Depth ?? 0;
         var maximumDepth = context.Base.Config?.MaxSubAgentDepth ?? 4;
-        context.Options.Tools = ProjectAvailableTools(
-            tools,
-            currentDepth,
-            maximumDepth);
-
-        return Task.CompletedTask;
-    }
-
-    internal IList<AITool> ProjectAvailableTools(
-        IEnumerable<AITool> tools,
-        int currentDepth,
-        int maximumDepth)
-    {
-        var projected = ContainerFunctionProjection.Project(
-            _allFunctions,
-            function => IsAvailable(
-                function,
-                currentDepth,
-                maximumDepth));
-        var projectedByName = projected.ToDictionary(
-            static function => function.Name,
-            StringComparer.OrdinalIgnoreCase);
-
-        return tools
-            .Select(tool =>
+        var expanded = context.GetMiddlewareState<ContainerMiddlewareState>()?.ExpandedContainers
+            ?? System.Collections.Immutable.ImmutableHashSet<string>.Empty;
+        var available = pin.Actions.Where(action =>
+                IsCreationVisible(action, expanded) &&
+                depth < maximumDepth && action.Definition.Availability.AllowsInvocationFrom(depth))
+            .ToArray();
+        long generation = 0;
+        long revision = 0;
+        var hasRegistryEntries = false;
+        if (context.Session?.Store is { } store && context.SessionId is { } sessionId && context.ThreadId is { } threadId)
+        {
+            var key = new ThreadKey(sessionId, threadId);
+            var head = await store.GetThreadEventHeadAsync(key, cancellationToken).ConfigureAwait(false);
+            if (head is not null)
             {
-                if (tool is not AIFunction function ||
-                    !_allFunctionNames.Contains(function.Name))
-                {
-                    return tool;
-                }
-
-                return projectedByName.GetValueOrDefault(function.Name);
-            })
-            .Where(static tool => tool is not null)
-            .Cast<AITool>()
+                generation = head.Generation;
+                revision = head.ThreadSequenceNumber;
+                hasRegistryEntries = (await new SubAgentChildRegistry(store)
+                    .ProjectAsync(key, head.Cursor, cancellationToken).ConfigureAwait(false)).Entries.Count > 0;
+            }
+        }
+        var parent = new ThreadKey(context.SessionId ?? string.Empty, context.ThreadId ?? string.Empty);
+        var digest = string.Join('|', available.Select(static action => string.Join(':',
+            action.Action,
+            action.ParentToolHarness,
+            action.RequiresToolHarnessActivation,
+            action.Description,
+            action.CapabilityId.Value,
+            action.Definition.AgentId,
+            action.InvocationModePolicy,
+            action.InvocationModeHandling,
+            action.ContextPolicy,
+            action.RequiresPermission,
+            action.Definition.Availability.MaximumChildDepth)));
+        var projectionKey = new ProjectionKey(parent, generation, revision, depth, digest, catalog.Revision, 1);
+        if (_cache.Count >= 256)
+            _cache.Clear();
+        var function = _cache.GetOrAdd(projectionKey, _ =>
+            available.Length == 0 && !hasRegistryEntries ? null : (AIFunction)SubAgentsFunctionFactory.Create(available));
+        context.Options.Tools = context.Options.Tools
+            .Where(static tool => tool is not AIFunction function ||
+                !string.Equals(function.Name, SubAgentsFunctionFactory.FunctionName, StringComparison.Ordinal))
+            .Concat(function is null ? [] : [function])
             .ToList();
     }
 
-    private static bool IsAvailable(AIFunction function, int currentDepth, int maximumDepth)
-    {
-        if (function.AdditionalProperties?.TryGetValue("IsSubAgent", out var marker) != true || marker is not true)
-            return true;
+    private static IReadOnlyList<SubAgentActionDescriptor> ReadActions(IEnumerable<AITool> tools) =>
+        tools.OfType<AIFunction>()
+            .Where(static function => string.Equals(
+                function.Name, SubAgentsFunctionFactory.FunctionName, StringComparison.Ordinal))
+            .SelectMany(static function =>
+                function.AdditionalProperties.TryGetValue("SubAgentActions", out var value) &&
+                value is IReadOnlyList<SubAgentActionDescriptor> actions ? actions : [])
+            .ToArray();
 
-        if (currentDepth >= maximumDepth)
-            return false;
+    private bool IsCreationVisible(
+        SubAgentActionDescriptor action,
+        System.Collections.Immutable.ImmutableHashSet<string> expanded) =>
+        !_toolHarnessActivationEnabled ||
+        !action.RequiresToolHarnessActivation ||
+        _neverCollapse.Contains(action.ParentToolHarness) ||
+        expanded.Contains(action.ParentToolHarness, StringComparer.OrdinalIgnoreCase);
 
-        return function.AdditionalProperties.TryGetValue("SubAgentDefinition", out var value) &&
-               value is SubAgent definition &&
-               definition.Availability.AllowsInvocationFrom(currentDepth);
-    }
+    private readonly record struct ProjectionKey(
+        ThreadKey Parent,
+        long Generation,
+        long Revision,
+        int Depth,
+        string AvailabilityDigest,
+        string CatalogRevision,
+        int CompositionVersion);
 
 }

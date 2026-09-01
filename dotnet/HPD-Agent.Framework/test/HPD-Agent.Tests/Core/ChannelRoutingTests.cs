@@ -251,7 +251,7 @@ public class ChannelRoutingTests
         { new ReasoningDeltaEvent("thinking", "msg1"), EventChannel.Streaming, EventKind.Content },
         { new ToolCallStartEvent("call1", "tool", "msg1"), EventChannel.Synchronous, EventKind.Lifecycle },
         { new PermissionRequestEvent("perm1", "source", "tool", null, "call1", null), EventChannel.Interactive, EventKind.Control },
-        { new PermissionResponseEvent("perm1", "source", true), EventChannel.Interactive, EventKind.Control },
+        { new PermissionResponseEvent("perm1", "source", "allow_once"), EventChannel.Interactive, EventKind.Control },
         { new ClarificationRequestEvent("req1", "source", "question"), EventChannel.Interactive, EventKind.Control },
         { new HPD.Agent.ClientTools.ClientToolInvokeOutcomeEvent
             {
@@ -284,23 +284,11 @@ public class ChannelRoutingTests
     }
 
     [Fact]
-    public void InterruptionRequestEvent_SerializesAsInputEnvelope()
-    {
-        var evt = new InterruptionRequestEvent("stream-abc", "User cancelled", InterruptionSource.User);
-
-        var json = AgentEventSerializer.ToJson(evt);
-
-        Assert.Contains("\"type\":\"INTERRUPTION_REQUEST\"", json);
-        Assert.Contains("\"version\":\"1.0\"", json);
-        Assert.Contains("\"reason\":\"User cancelled\"", json);
-    }
-
-    [Fact]
     public void InterruptionHandledEvent_SerializesWithType()
     {
         var evt = new InterruptionHandledEvent("stream-abc", "User cancelled", InterruptionSource.User);
 
-        var json = AgentEventSerializer.ToJson(evt);
+        var json = HPD.Agent.Tests.TestEventApplication.Codec.Serialize(evt);
 
         Assert.Contains("\"type\":\"INTERRUPTION_HANDLED\"", json);
         Assert.Contains("\"version\":\"1.0\"", json);
@@ -312,7 +300,7 @@ public class ChannelRoutingTests
     {
         var evt = new TextDeltaEvent("hello", "msg1");
 
-        var json = AgentEventSerializer.ToJson(evt);
+        var json = HPD.Agent.Tests.TestEventApplication.Codec.Serialize(evt);
 
         Assert.Contains("\"type\":\"TEXT_DELTA\"", json);
         Assert.Contains("\"text\":\"hello\"", json);
@@ -323,16 +311,10 @@ public class ChannelRoutingTests
     {
         var evt = new MessageTurnStartedEvent("turn1", "conv1", "agent") { Channel = EventChannel.Control };
 
-        var json = AgentEventSerializer.ToJson(evt);
+        var json = HPD.Agent.Tests.TestEventApplication.Codec.Serialize(evt);
 
         Assert.Contains("\"type\":\"MESSAGE_TURN_STARTED\"", json);
         Assert.Contains("channel", json, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void AgentEventSerializer_GetEventTypeName_ReturnsCorrectType()
-    {
-        Assert.Equal("INTERRUPTION_REQUEST", AgentEventSerializer.GetEventTypeName(typeof(InterruptionRequestEvent)));
     }
 
     private static async Task<Event> ReadFirstAsync(System.Threading.Channels.ChannelReader<Event> reader, CancellationToken ct)

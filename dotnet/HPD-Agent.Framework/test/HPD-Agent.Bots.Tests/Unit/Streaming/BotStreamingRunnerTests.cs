@@ -18,7 +18,7 @@ public class BotStreamingRunnerTests
         var agent = new HpdAgent(CreateAgentConfig(), chatClient, mergedOptions: null);
         await agent.CreateSessionAsync("session-1");
         var runner = new BotStreamingRunner(
-            new TestSessionManager(new InMemorySessionStore()),
+            new TestSessionManager(new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec)),
             new StaticAgentManager(agent));
 
         var updates = new List<string>();
@@ -61,7 +61,7 @@ public class BotStreamingRunnerTests
         var agent = new HpdAgent(CreateAgentConfig(), chatClient, mergedOptions: null);
         await agent.CreateSessionAsync("session-1");
         var runner = new BotStreamingRunner(
-            new TestSessionManager(new InMemorySessionStore()),
+            new TestSessionManager(new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec)),
             new StaticAgentManager(agent));
 
         var updates = new List<string>();
@@ -116,7 +116,7 @@ public class BotStreamingRunnerTests
                 MaxRetries = 0,
                 NormalizeErrors = true,
             },
-            SessionStore = new InMemorySessionStore(),
+            SessionStore = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec),
             SessionStoreOptions = new SessionStoreOptions
             {
                 PersistAfterTurn = true,

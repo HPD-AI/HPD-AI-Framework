@@ -15,6 +15,7 @@ internal sealed class SqliteNames
         SchemaIdentity = Prefix + "schema_identity";
         SchemaBaseline = Prefix + "schema_baseline";
         SchemaAssets = Prefix + "schema_assets";
+        LogicalIndexes = Prefix + "logical_indexes";
         SchemaHistory = Prefix + "schema_history";
         SchemaLease = Prefix + "schema_lease";
         SubjectContracts = Prefix + "subject_contracts";
@@ -52,8 +53,14 @@ internal sealed class SqliteNames
         ActivationSchedules = Prefix + "activation_schedules";
         ActivationOccurrences = Prefix + "activation_occurrences";
         ActivationScheduleCancellations = Prefix + "activation_schedule_cancellations";
-        ActivationReceipts = Prefix + "activation_receipts";
+        ActivationInstanceReceipts = Prefix + "activation_instance_receipts";
+        ActivationInstanceReceiptCompactionFacts = Prefix + "activation_instance_receipt_compaction_facts";
+        ActivationControlReceipts = Prefix + "activation_control_receipts";
+        ActivationBackupCoverageCheckpoints = Prefix + "activation_backup_coverage_checkpoints";
         ActivationPruneFloors = Prefix + "activation_prune_floors";
+        ActivationReceiptRecoveryFloors = Prefix + "activation_receipt_recovery_floors";
+        StudioInfrastructureInventory = Prefix + "studio_infrastructure_inventory";
+        StudioInfrastructureKindSequenceIndex = "ix_" + Prefix + "studio_infrastructure_inventory_kind_sequence";
         MutationJournalScopeIndex = "ix_" + Prefix + "mutation_journal_scope_position";
     }
 
@@ -73,6 +80,7 @@ internal sealed class SqliteNames
     public string SchemaBaseline { get; }
     /// <summary>Gets the schema assets.</summary>
     public string SchemaAssets { get; }
+    public string LogicalIndexes { get; }
     /// <summary>Gets the schema history.</summary>
     public string SchemaHistory { get; }
     /// <summary>Gets the schema lease.</summary>
@@ -135,10 +143,22 @@ internal sealed class SqliteNames
     public string ActivationOccurrences { get; }
     /// <summary>Gets durable cancel-previous maintenance table name.</summary>
     public string ActivationScheduleCancellations { get; }
-    /// <summary>Gets durable activation-operation receipt table name.</summary>
-    public string ActivationReceipts { get; }
+    /// <summary>Gets durable definition-bound activation-instance receipt table name.</summary>
+    public string ActivationInstanceReceipts { get; }
+    /// <summary>Gets compact retained authority for deleted activation-instance receipt payloads.</summary>
+    public string ActivationInstanceReceiptCompactionFacts { get; }
+    /// <summary>Gets durable scheduler, executor, migration, and maintenance receipt table name.</summary>
+    public string ActivationControlReceipts { get; }
+    /// <summary>Gets durable authenticated backup-coverage checkpoint table name.</summary>
+    public string ActivationBackupCoverageCheckpoints { get; }
     /// <summary>Gets non-prunable per-activation L51 prune authority.</summary>
     public string ActivationPruneFloors { get; }
+    /// <summary>Gets durable semantic-recovery authority for retained orphaned activation receipts.</summary>
+    public string ActivationReceiptRecoveryFloors { get; }
+    /// <summary>Gets the provider-owned Studio infrastructure inventory.</summary>
+    public string StudioInfrastructureInventory { get; }
+    /// <summary>Gets the infrastructure kind/sequence access path.</summary>
+    public string StudioInfrastructureKindSequenceIndex { get; }
     /// <summary>Gets the mutation journal scope index.</summary>
     public string MutationJournalScopeIndex { get; }
 }

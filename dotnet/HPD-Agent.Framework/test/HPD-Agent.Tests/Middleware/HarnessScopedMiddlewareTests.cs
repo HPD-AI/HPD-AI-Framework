@@ -1,1687 +1,607 @@
-// Copyright 2026 Einstein Essibu
-// SPDX-License-Identifier: FSL-1.1-ALv2
-
-using HPD.Agent;
 using HPD.Agent.Middleware;
-using Microsoft.Extensions.AI;
-using System.Collections.Immutable;
-using Xunit;
-using static HPD.Agent.Tests.Middleware.V2.MiddlewareTestHelpers;
+using Microsoft.Extensions.DependencyInjection;
+using System.Text.Json;
+using HPD.Agent.Tests.Middleware.V2;
+using Microsoft.AspNetCore.Builder;
 
 namespace HPD.Agent.Tests.Middleware;
 
-/// <summary>
-
-/// Covers:
-///   Cat 1  — AgentMiddlewarePipeline.Dispatch* methods (T001–T005)
-///   Cat 2  — ContainerMiddlewareState (T006–T009)
-///   Cat 3  — CollapseAttribute (T010–T011)
-///   Cat 4  — ContainerMiddleware constructor + pipeline instantiation (T012–T015)
-///   Cat 5  — ContainerMiddleware dispatch routing (T016–T026)
-///   Cat 6  — OnErrorAsync routing (T027)
-///   Cat 7  — §5B DI builder-time instances (T028–T035)
-///   Cat 8  — §5A config-constructor middleware (T036–T040)
-///   Cat 9  — ToolHarnessReference.MiddlewareConfigs serialisation (T041–T044)
-///   Cat 10 — CollapseMiddlewareConfigFactory record (T045–T046)
-///   Cat 11 — BeforeParallelBatchAsync dispatch (T050–T053)
-/// </summary>
-public class HARNESScopedMiddlewareTests
+public sealed class HarnessScopedMiddlewareTests
 {
-    // ═══════════════════════════════════════════════════════════════════════
-    // CATEGORY 1 — AgentMiddlewarePipeline.Dispatch* methods
-    // ═══════════════════════════════════════════════════════════════════════
-
     [Fact]
-    public async Task T001_DispatchBeforeIterationAsync_CallsAllMiddlewaresInRegistrationOrder()
+    public async Task Registry_ActivatesOnceAndDrainsInvocationLeases()
     {
-        var order = new List<string>();
-        var pipeline = new AgentMiddlewarePipeline(new IAgentMiddleware[]
+        var created = 0;
+        var registry = new ToolHarnessPipelineRegistry();
+        var harness = Harness(_ =>
         {
-            new SpyMiddleware("A", order),
-            new SpyMiddleware("B", order),
-            new SpyMiddleware("C", order),
+            Interlocked.Increment(ref created);
+            return ToolHarnessMiddlewareActivation.ExecutionOwned(new Probe());
         });
-        var ctx = CreateBeforeIterationContext();
+        var leases = await Task.WhenAll(Enumerable.Range(0, 16)
+            .Select(async _ => await registry.AcquireAsync(harness, Context())));
+        Assert.Equal(1, created);
+        Assert.Equal(16, registry.GetDiagnosticsSnapshot().Entries.Single().AdmissionCount);
 
-        await pipeline.DispatchBeforeIterationAsync(ctx, CancellationToken.None);
-
-        Assert.Equal(new[] { "A.BeforeIteration", "B.BeforeIteration", "C.BeforeIteration" }, order);
+        var teardown = registry.DeactivateAllAsync(ToolHarnessDeactivationReason.Completed).AsTask();
+        await Task.Yield();
+        Assert.False(teardown.IsCompleted);
+        foreach (var lease in leases) await lease.DisposeAsync();
+        await teardown;
     }
 
     [Fact]
-    public async Task T002_DispatchAfterIterationAsync_CallsInReverseOrder_CollectsAllExceptions()
+    public async Task Cleanup_IsReverseOrderedAndAllAttempted()
     {
-        var order = new List<string>();
-        var pipeline = new AgentMiddlewarePipeline(new IAgentMiddleware[]
+        var calls = new List<string>();
+        var registry = new ToolHarnessPipelineRegistry();
+        var harness = Harness(
+            _ => ToolHarnessMiddlewareActivation.ExecutionOwned(new Probe("first", calls, true)),
+            _ => ToolHarnessMiddlewareActivation.ExecutionOwned(new Probe("second", calls, true)));
+        await using (await registry.AcquireAsync(harness, Context())) { }
+
+        var error = await Assert.ThrowsAsync<AggregateException>(async () =>
+            await registry.DeactivateAllAsync(ToolHarnessDeactivationReason.Completed));
+
+        Assert.Equal(2, error.Flatten().InnerExceptions.Count);
+        Assert.Equal(["deactivate:second", "deactivate:first", "dispose:second", "dispose:first"], calls);
+    }
+
+    [Fact]
+    public async Task FailedActivation_UnwindsConstructedInstancesWithoutPublishingPipeline()
+    {
+        var disposed = false;
+        var registry = new ToolHarnessPipelineRegistry();
+        var harness = Harness(
+            _ => ToolHarnessMiddlewareActivation.ExecutionOwned(new Probe(onDispose: () => disposed = true)),
+            _ => throw new InvalidOperationException("activation failed"));
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await registry.AcquireAsync(harness, Context()));
+        Assert.Equal("activation failed", error.Message);
+        Assert.True(disposed);
+        Assert.Empty(registry.GetDiagnosticsSnapshot().Entries);
+    }
+
+    [Fact]
+    public async Task TransferredOwner_DelaysExecutionCleanup()
+    {
+        var disposed = false;
+        var scope = ToolHarnessExecutionScope.Create(null);
+        await using (await scope.Registry.AcquireAsync(
+            Harness(_ => ToolHarnessMiddlewareActivation.ExecutionOwned(new Probe(onDispose: () => disposed = true))),
+            Context())) { }
+        var operation = scope.TransferToOperation("operation-1");
+
+        await scope.ReleaseForegroundAsync(ToolHarnessDeactivationReason.Completed);
+        Assert.False(scope.Completion.IsCompleted);
+        await operation.DisposeAsync();
+        await scope.Completion;
+        Assert.True(disposed);
+    }
+
+    [Fact]
+    public async Task ServicesOwnedMiddleware_UsesExecutionChildScopeAndScopeOwnsDisposal()
+    {
+        var services = new ServiceCollection();
+        services.AddScoped<ScopedProbe>();
+        await using var provider = services.BuildServiceProvider();
+        var scope = ToolHarnessExecutionScope.Create(provider);
+        ScopedProbe? resolved = null;
+        var harness = HarnessOf<ScopedProbe>(context =>
         {
-            new SpyMiddleware("A", order),
-            new ThrowingAfterIterationMiddleware("BOOM"),
-            new SpyMiddleware("C", order),
-        });
-        var ctx = CreateAfterIterationContext();
-
-        var ex = await Assert.ThrowsAsync<AggregateException>(
-            () => pipeline.DispatchAfterIterationAsync(ctx, CancellationToken.None));
-
-        // All three ran in reverse order (C, Thrower, A) — C and A recorded, Thrower threw
-        Assert.Equal(new[] { "C.AfterIteration", "A.AfterIteration" }, order);
-        Assert.Single(ex.InnerExceptions);
-        Assert.Equal("BOOM", ex.InnerExceptions[0].Message);
-    }
-
-    [Fact]
-    public async Task T003_DispatchAfterFunctionAsync_RespectsShouldExecuteFilter()
-    {
-        var order = new List<string>();
-        // Scope "Scoped" to a different function so it is filtered out for "TestFunction" context
-        var scoped = new ScopedSpyMiddleware("Scoped", order, shouldExecute: false)
-            .ForFunction("OtherFunction");
-        var always = new SpyMiddleware("Always", order);
-        var pipeline = new AgentMiddlewarePipeline(new IAgentMiddleware[] { scoped, always });
-
-        // Context function is "TestFunction" — "Scoped" is scoped to "OtherFunction", so filtered
-        var ctx = CreateAfterFunctionContext();
-        await pipeline.DispatchAfterFunctionAsync(ctx, CancellationToken.None);
-
-        // Only "Always" ran — Scoped was filtered by scope metadata
-        Assert.Equal(new[] { "Always.AfterFunction" }, order);
-        Assert.DoesNotContain("Scoped.AfterFunction", order);
-    }
-
-    [Fact]
-    public async Task T004_DispatchOnErrorAsync_SwallowsExceptionsFromHandlers()
-    {
-        var pipeline = new AgentMiddlewarePipeline(new IAgentMiddleware[]
-        {
-            new ThrowingOnErrorMiddleware("err1"),
-            new ThrowingOnErrorMiddleware("err2"),
-        });
-        var ctx = CreateErrorContext();
-
-        // Should not throw — DispatchOnErrorAsync swallows handler errors
-        await pipeline.DispatchOnErrorAsync(ctx, CancellationToken.None);
-    }
-
-    [Fact]
-    public async Task T005_ExecuteFunctionCallAsync_StillWorkesCorrectly_Regression()
-    {
-        var order = new List<string>();
-        var pipeline = new AgentMiddlewarePipeline(new IAgentMiddleware[]
-        {
-            new WrapRecordingMiddleware("Outer", order),
-            new WrapRecordingMiddleware("Inner", order),
-        });
-
-        var request = CreateFunctionRequest();
-        object? result = await pipeline.ExecuteFunctionCallAsync(
-            request,
-            _ => { order.Add("actual"); return Task.FromResult<object?>("ok"); },
-            CancellationToken.None);
-
-        Assert.Equal(new[] { "Outer.before", "Inner.before", "actual", "Inner.after", "Outer.after" }, order);
-        Assert.Equal("ok", result);
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // CATEGORY 2 — ContainerMiddlewareState
-    // ═══════════════════════════════════════════════════════════════════════
-
-    [Fact]
-    public void T006_WithToolHarnessPipeline_AddsToNewState_OriginalUnchanged()
-    {
-        var original = new ContainerMiddlewareState();
-        var pipeline = MakeEmptyPipeline();
-
-        var updated = original.WithToolHarnessPipeline("DbToolHarness", pipeline);
-
-        Assert.True(original.ToolHarnessPipelines.IsEmpty);
-        Assert.True(updated.ToolHarnessPipelines.ContainsKey("DbToolHarness"));
-        Assert.Same(pipeline, updated.ToolHarnessPipelines["DbToolHarness"]);
-    }
-
-    [Fact]
-    public void T007_WithoutToolHarnessPipeline_RemovesKey_LeavesOtherIntact()
-    {
-        var state = new ContainerMiddlewareState()
-            .WithToolHarnessPipeline("A", MakeEmptyPipeline())
-            .WithToolHarnessPipeline("B", MakeEmptyPipeline());
-
-        var updated = state.WithoutToolHarnessPipeline("A");
-
-        Assert.False(updated.ToolHarnessPipelines.ContainsKey("A"));
-        Assert.True(updated.ToolHarnessPipelines.ContainsKey("B"));
-    }
-
-    [Fact]
-    public void T008_ClearTurnContainers_ClearsToolHarnessPipelines()
-    {
-        var state = new ContainerMiddlewareState()
-            .WithExpandedContainer("DbToolHarness")
-            .WithToolHarnessPipeline("DbToolHarness", MakeEmptyPipeline())
-            .WithRecoveredFunction("call-1", new RecoveryInfo(RecoveryType.HiddenItem, "DbToolHarness", "Query"))
-            .WithContainerInstructions("DbToolHarness", new ContainerInstructionSet("activated", "use transactions"));
-
-        var cleared = state.ClearTurnContainers();
-
-        Assert.True(cleared.ExpandedContainers.IsEmpty);
-        Assert.True(cleared.ContainersExpandedThisTurn.IsEmpty);
-        Assert.True(cleared.RecoveredFunctionCalls.IsEmpty);
-        Assert.True(cleared.ToolHarnessPipelines.IsEmpty);
-    }
-
-    [Fact]
-    public void T009_ClearTurnContainers_ClearsExactlyTheFourTurnScopedFields()
-    {
-        // Verify the four fields cleared are exactly the four specified in the proposal.
-        // ActiveContainerInstructions is also turn-scoped (cleared separately via ClearContainerInstructions).
-        var state = new ContainerMiddlewareState()
-            .WithExpandedContainer("X")
-            .WithToolHarnessPipeline("X", MakeEmptyPipeline());
-
-        var cleared = state.ClearTurnContainers();
-
-        // All four cleared:
-        Assert.True(cleared.ExpandedContainers.IsEmpty);
-        Assert.True(cleared.ContainersExpandedThisTurn.IsEmpty);
-        Assert.True(cleared.RecoveredFunctionCalls.IsEmpty);
-        Assert.True(cleared.ToolHarnessPipelines.IsEmpty);
-        // ActiveContainerInstructions NOT touched by ClearTurnContainers (uses ClearContainerInstructions)
-        // — this is by design, so no assertion needed here
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // CATEGORY 3 — CollapseAttribute
-    // ═══════════════════════════════════════════════════════════════════════
-
-    [Fact]
-    public void T010_CollapseAttribute_Middlewares_DefaultsToNull()
-    {
-        var attr = new CollapseAttribute("desc");
-        Assert.Null(attr.Middlewares);
-    }
-
-    [Fact]
-    public void T011_CollapseAttribute_Middlewares_CanBeSetAndRetrieved()
-    {
-        var attr = new CollapseAttribute("desc") { Middlewares = [typeof(SimpleSpyMiddleware)] };
-        Assert.NotNull(attr.Middlewares);
-        Assert.Single(attr.Middlewares);
-        Assert.Equal(typeof(SimpleSpyMiddleware), attr.Middlewares[0]);
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // CATEGORY 4 — ContainerMiddleware constructor + pipeline instantiation
-    // ═══════════════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task T012_ContainerMiddleware_NullToolHarnessFactories_DoesNotThrow_PassesThrough()
-    {
-        var middleware = BuildContainerMiddleware(toolharnessFactories: null);
-        int handlerCalls = 0;
-        var req = CreateFunctionRequest(
-            function: AIFunctionFactory.Create(() => "ok", "Query"));
-
-        var result = await middleware.WrapFunctionCallAsync(
-            req,
-            r => { handlerCalls++; return Task.FromResult<object?>("passthrough"); },
-            CancellationToken.None);
-
-        Assert.Equal(1, handlerCalls);
-        Assert.Equal("passthrough", result);
-    }
-
-    [Fact]
-    public async Task T013_PipelineInstantiatedAtExpansionTime_ForToolHarnessWithFactories()
-    {
-        int factoryCallCount = 0;
-        var factories = new Dictionary<string, ToolHarnessFactory>
-        {
-            ["DbToolHarness"] = BuildToolHarnessFactory("DbToolHarness",
-                childFunctions: ["Query", "Execute"],
-                middlewareFactories: new Func<IAgentMiddleware>[]
-                {
-                    () => { factoryCallCount++; return new SimpleSpyMiddleware(); },
-                    () => { factoryCallCount++; return new SimpleSpyMiddleware(); },
-                })
-        };
-
-        var (containerMiddleware, tools) = BuildContainerMiddlewareWithContainerTool(
-            "DbToolHarness", ["Query", "Execute"], factories);
-
-        // Simulate expansion: LLM calls DbToolHarness container
-        var agentCtx = V2.MiddlewareTestHelpers.CreateAgentContext();
-        var toolCall = new FunctionCallContent("call-1", "DbToolHarness", null);
-        var beCtx = agentCtx.AsBeforeToolExecution(
-            new ChatMessage(ChatRole.Assistant, []),
-            new List<FunctionCallContent> { toolCall },
-            new AgentRunConfig());
-
-        await containerMiddleware.BeforeToolExecutionAsync(beCtx, CancellationToken.None);
-
-        var state = beCtx.GetMiddlewareState<ContainerMiddlewareState>();
-        Assert.NotNull(state);
-        Assert.True(state.ToolHarnessPipelines.ContainsKey("DbToolHarness"));
-        Assert.Equal(2, state.ToolHarnessPipelines["DbToolHarness"].Count);
-        Assert.Equal(2, factoryCallCount);
-    }
-
-    [Fact]
-    public async Task T014_PipelineNotReInstantiated_IfAlreadyInState()
-    {
-        int factoryCallCount = 0;
-        var existingPipeline = MakeEmptyPipeline();
-        var factories = new Dictionary<string, ToolHarnessFactory>
-        {
-            ["DbToolHarness"] = BuildToolHarnessFactory("DbToolHarness",
-                childFunctions: ["Query"],
-                middlewareFactories: new Func<IAgentMiddleware>[]
-                {
-                    () => { factoryCallCount++; return new SimpleSpyMiddleware(); }
-                })
-        };
-
-        var (containerMiddleware, _) = BuildContainerMiddlewareWithContainerTool(
-            "DbToolHarness", ["Query"], factories);
-
-        // Pre-populate state with existing pipeline (simulates persistent container)
-        var preState = new ContainerMiddlewareState()
-            .WithExpandedContainer("DbToolHarness")
-            .WithToolHarnessPipeline("DbToolHarness", existingPipeline);
-
-        var agentCtx = V2.MiddlewareTestHelpers.CreateAgentContext(state: InitialStateWith(preState));
-        var toolCall = new FunctionCallContent("call-2", "DbToolHarness", null);
-        var beCtx = agentCtx.AsBeforeToolExecution(
-            new ChatMessage(ChatRole.Assistant, []),
-            new List<FunctionCallContent> { toolCall },
-            new AgentRunConfig());
-
-        await containerMiddleware.BeforeToolExecutionAsync(beCtx, CancellationToken.None);
-
-        var state = beCtx.GetMiddlewareState<ContainerMiddlewareState>();
-        // Factory must NOT have been called again — same pipeline instance
-        Assert.Equal(0, factoryCallCount);
-        Assert.Same(existingPipeline, state!.ToolHarnessPipelines["DbToolHarness"]);
-    }
-
-    [Fact]
-    public async Task T015_ToolHarnessWithNoFactories_DoesNotAddPipeline()
-    {
-        var factories = new Dictionary<string, ToolHarnessFactory>
-        {
-            ["MathToolHarness"] = BuildToolHarnessFactory("MathToolHarness",
-                childFunctions: ["Add"],
-                middlewareFactories: null) // no scoped middleware
-        };
-
-        var (containerMiddleware, _) = BuildContainerMiddlewareWithContainerTool(
-            "MathToolHarness", ["Add"], factories);
-
-        var agentCtx = V2.MiddlewareTestHelpers.CreateAgentContext();
-        var toolCall = new FunctionCallContent("call-3", "MathToolHarness", null);
-        var beCtx = agentCtx.AsBeforeToolExecution(
-            new ChatMessage(ChatRole.Assistant, []),
-            new List<FunctionCallContent> { toolCall },
-            new AgentRunConfig());
-
-        await containerMiddleware.BeforeToolExecutionAsync(beCtx, CancellationToken.None);
-
-        var state = beCtx.GetMiddlewareState<ContainerMiddlewareState>();
-        Assert.NotNull(state);
-        // ToolHarness expanded but no pipeline created
-        Assert.True(state.ExpandedContainers.Contains("MathToolHarness"));
-        Assert.False(state.ToolHarnessPipelines.ContainsKey("MathToolHarness"));
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // CATEGORY 5 — ContainerMiddleware dispatch routing
-    // ═══════════════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task T016_BeforeIterationAsync_DispatchesToAllActiveToolHarnessPipelines()
-    {
-        var orderA = new List<string>();
-        var orderB = new List<string>();
-        var spyA = new SpyMiddleware("PipelineA", orderA);
-        var spyB = new SpyMiddleware("PipelineB", orderB);
-
-        var state = new ContainerMiddlewareState()
-            .WithToolHarnessPipeline("ToolHarnessA", new AgentMiddlewarePipeline(new IAgentMiddleware[] { spyA }))
-            .WithToolHarnessPipeline("ToolHarnessB", new AgentMiddlewarePipeline(new IAgentMiddleware[] { spyB }));
-
-        var middleware = BuildContainerMiddleware();
-        var ctx = CreateBeforeIterationContextWithState(state);
-
-        await middleware.BeforeIterationAsync(ctx, CancellationToken.None);
-
-        Assert.Contains("PipelineA.BeforeIteration", orderA);
-        Assert.Contains("PipelineB.BeforeIteration", orderB);
-    }
-
-    [Fact]
-    public async Task T017_AfterIterationAsync_DispatchesPipelinesInReverseOrder()
-    {
-        var globalOrder = new List<string>();
-        var spyA = new SpyMiddleware("A", globalOrder);
-        var spyB = new SpyMiddleware("B", globalOrder);
-
-        // Register A then B in state (insertion order)
-        var state = new ContainerMiddlewareState()
-            .WithToolHarnessPipeline("ToolHarnessA", new AgentMiddlewarePipeline(new IAgentMiddleware[] { spyA }))
-            .WithToolHarnessPipeline("ToolHarnessB", new AgentMiddlewarePipeline(new IAgentMiddleware[] { spyB }));
-
-        var middleware = BuildContainerMiddleware();
-        var ctx = CreateAfterIterationContextWithState(state);
-
-        await middleware.AfterIterationAsync(ctx, CancellationToken.None);
-
-        // Both pipelines must have dispatched (ImmutableDictionary order is not guaranteed)
-        var afterCalls = globalOrder.Where(s => s.Contains("AfterIteration")).ToList();
-        Assert.Equal(2, afterCalls.Count);
-        Assert.Contains("A.AfterIteration", afterCalls);
-        Assert.Contains("B.AfterIteration", afterCalls);
-    }
-
-    [Fact]
-    public async Task T018_BeforeFunctionAsync_RoutesOnlyToOwningToolHarnessPipeline()
-    {
-        var dbOrder = new List<string>();
-        var searchOrder = new List<string>();
-        var dbSpy = new SpyMiddleware("DbSpy", dbOrder);
-        var searchSpy = new SpyMiddleware("SearchSpy", searchOrder);
-
-        // Build container middleware with two toolharnesses; Query belongs to DbToolHarness
-        var (containerMiddleware, tools) = BuildContainerMiddlewareWithTwoToolHarnesses(
-            ("DbToolHarness", new[] { "Query", "Execute" }, dbSpy),
-            ("SearchToolHarness", new[] { "WebSearch" }, searchSpy));
-
-        var state = new ContainerMiddlewareState()
-            .WithExpandedContainer("DbToolHarness")
-            .WithExpandedContainer("SearchToolHarness")
-            .WithToolHarnessPipeline("DbToolHarness", new AgentMiddlewarePipeline(new IAgentMiddleware[] { dbSpy }))
-            .WithToolHarnessPipeline("SearchToolHarness", new AgentMiddlewarePipeline(new IAgentMiddleware[] { searchSpy }));
-
-        var queryFn = tools.First(t => t is AIFunction af && af.Name == "Query") as AIFunction;
-        var ctx = CreateBeforeFunctionContextWithState(queryFn!, "Query", state);
-
-        await containerMiddleware.BeforeFunctionAsync(ctx, CancellationToken.None);
-
-        Assert.Contains("DbSpy.BeforeFunction", dbOrder);
-        Assert.DoesNotContain("SearchSpy.BeforeFunction", searchOrder);
-    }
-
-    [Fact]
-    public async Task T019_BeforeFunctionAsync_NullFunction_DoesNotDispatchToToolHarnessPipeline()
-    {
-        var order = new List<string>();
-        var spy = new SpyMiddleware("Spy", order);
-
-        var state = new ContainerMiddlewareState()
-            .WithToolHarnessPipeline("DbToolHarness", new AgentMiddlewarePipeline(new IAgentMiddleware[] { spy }));
-
-        var middleware = BuildContainerMiddleware();
-        // function = null simulates the recovery path
-        var ctx = CreateBeforeFunctionContextWithState(null!, "Query", state);
-
-        await middleware.BeforeFunctionAsync(ctx, CancellationToken.None);
-
-        // Recovery logic runs (OverrideResult set), but toolharness pipeline not dispatched
-        Assert.DoesNotContain("Spy.BeforeFunction", order);
-        // OverrideResult set to empty string by recovery logic when function is null and no recovery call tracked
-        // (state has no RecoveredFunctionCalls so OverrideResult won't be set in this case — just assert no dispatch)
-    }
-
-    [Fact]
-    public async Task T020_AfterFunctionAsync_RoutesOnlyToOwningToolHarnessPipeline()
-    {
-        var dbOrder = new List<string>();
-        var searchOrder = new List<string>();
-        var dbSpy = new SpyMiddleware("DbSpy", dbOrder);
-        var searchSpy = new SpyMiddleware("SearchSpy", searchOrder);
-
-        var (containerMiddleware, tools) = BuildContainerMiddlewareWithTwoToolHarnesses(
-            ("DbToolHarness", new[] { "Query", "Execute" }, dbSpy),
-            ("SearchToolHarness", new[] { "WebSearch" }, searchSpy));
-
-        var state = new ContainerMiddlewareState()
-            .WithExpandedContainer("DbToolHarness")
-            .WithExpandedContainer("SearchToolHarness")
-            .WithToolHarnessPipeline("DbToolHarness", new AgentMiddlewarePipeline(new IAgentMiddleware[] { dbSpy }))
-            .WithToolHarnessPipeline("SearchToolHarness", new AgentMiddlewarePipeline(new IAgentMiddleware[] { searchSpy }));
-
-        var queryFn = tools.First(t => t is AIFunction af && af.Name == "Query") as AIFunction;
-        var ctx = CreateAfterFunctionContextWithState(queryFn!, "Query", state);
-
-        await containerMiddleware.AfterFunctionAsync(ctx, CancellationToken.None);
-
-        Assert.Contains("DbSpy.AfterFunction", dbOrder);
-        Assert.DoesNotContain("SearchSpy.AfterFunction", searchOrder);
-    }
-
-    [Fact]
-    public async Task T021_WrapFunctionCallAsync_ToolHarnessPipelineIsInnermostWrapper()
-    {
-        var order = new List<string>();
-        var globalWrap = new WrapRecordingMiddleware("global", order);
-        var toolharnessWrap = new WrapRecordingMiddleware("toolharness", order);
-
-        // Build a minimal _itemToContainerMap by constructing a container tool
-        var (containerMiddleware, tools) = BuildContainerMiddlewareWithContainerTool(
-            "DbToolHarness", ["Query"], new Dictionary<string, ToolHarnessFactory>
-            {
-                ["DbToolHarness"] = BuildToolHarnessFactory("DbToolHarness",
-                    childFunctions: ["Query"],
-                    middlewareFactories: new Func<IAgentMiddleware>[] { () => toolharnessWrap })
-            });
-
-        // Pre-populate state with an active toolharness pipeline (simulates post-expansion)
-        var state = new ContainerMiddlewareState()
-            .WithExpandedContainer("DbToolHarness")
-            .WithToolHarnessPipeline("DbToolHarness", new AgentMiddlewarePipeline(new IAgentMiddleware[] { toolharnessWrap }));
-
-        var queryFn = tools.First(t => t is AIFunction af && af.Name == "Query") as AIFunction;
-        var agentCtx = V2.MiddlewareTestHelpers.CreateAgentContext(state: InitialStateWith(state));
-        var req = new FunctionRequest
-        {
-            Function = queryFn!,
-            CallId = "call-x",
-            Arguments = new Dictionary<string, object?>(),
-            State = agentCtx.State,
-        };
-
-        // Build a global pipeline that contains containerMiddleware as the only global wrapper
-        var globalPipeline = new AgentMiddlewarePipeline(new IAgentMiddleware[]
-        {
-            globalWrap,
-            containerMiddleware,
+            resolved = context.GetRequiredService<ScopedProbe>();
+            return ToolHarnessMiddlewareActivation.ServicesOwned(resolved);
         });
 
-        await globalPipeline.ExecuteFunctionCallAsync(
-            req,
-            _ => { order.Add("actual"); return Task.FromResult<object?>(null); },
-            CancellationToken.None);
+        await using (await scope.Registry.AcquireAsync(harness, Context(scope.Services))) { }
+        Assert.NotNull(resolved);
+        Assert.False(resolved.Disposed);
 
-        Assert.Equal(new[]
+        await scope.ReleaseForegroundAsync(ToolHarnessDeactivationReason.Completed);
+        await scope.Completion;
+        Assert.True(resolved.Disposed);
+    }
+
+    [Fact]
+    public void PersistentContainerState_ContainsNoRuntimeOwnershipObjects()
+    {
+        var forbidden = new[]
         {
-            "global.before",
-            "toolharness.before",
-            "actual",
-            "toolharness.after",
-            "global.after",
-        }, order);
-    }
-
-    [Fact]
-    public async Task T022_WrapFunctionCallAsync_PassesThrough_WhenToolHarnessFactoriesNull()
-    {
-        var middleware = BuildContainerMiddleware(toolharnessFactories: null);
-        int calls = 0;
-        var req = CreateFunctionRequest(function: AIFunctionFactory.Create(() => "ok", "Query"));
-
-        await middleware.WrapFunctionCallAsync(
-            req,
-            _ => { calls++; return Task.FromResult<object?>(null); },
-            CancellationToken.None);
-
-        Assert.Equal(1, calls);
-    }
-
-    [Fact]
-    public async Task T023_WrapFunctionCallAsync_PassesThrough_WhenFunctionNotInItemToContainerMap()
-    {
-        // Function "RandomFunc" is not a child of any known container
-        var factories = new Dictionary<string, ToolHarnessFactory>
-        {
-            ["DbToolHarness"] = BuildToolHarnessFactory("DbToolHarness",
-                childFunctions: ["Query"],
-                middlewareFactories: new Func<IAgentMiddleware>[] { () => new SimpleSpyMiddleware() })
-        };
-        var (middleware, _) = BuildContainerMiddlewareWithContainerTool("DbToolHarness", ["Query"], factories);
-
-        int calls = 0;
-        var req = CreateFunctionRequest(function: AIFunctionFactory.Create(() => "ok", "RandomFunc"));
-
-        await middleware.WrapFunctionCallAsync(
-            req,
-            _ => { calls++; return Task.FromResult<object?>(null); },
-            CancellationToken.None);
-
-        Assert.Equal(1, calls);
-    }
-
-    [Fact]
-    public async Task T024_AfterMessageTurnAsync_DispatchesToPipelinesBeforeClearingState()
-    {
-        var order = new List<string>();
-        var spy = new SpyMiddleware("Spy", order);
-        var pipeline = new AgentMiddlewarePipeline(new IAgentMiddleware[] { spy });
-
-        var state = new ContainerMiddlewareState()
-            .WithExpandedContainer("DbToolHarness")
-            .WithToolHarnessPipeline("DbToolHarness", pipeline);
-
-        var middleware = BuildContainerMiddleware();
-        var ctx = CreateAfterMessageTurnContextWithState(state);
-
-        await middleware.AfterMessageTurnAsync(ctx, CancellationToken.None);
-
-        // Spy was called
-        Assert.Contains("Spy.AfterMessageTurn", order);
-
-        // Pipelines cleared from state after the hook
-        var finalState = ctx.GetMiddlewareState<ContainerMiddlewareState>();
-        Assert.True(finalState == null || finalState.ToolHarnessPipelines.IsEmpty);
-    }
-
-    [Fact]
-    public async Task T025_AfterMessageTurnAsync_DispatchesPipelinesInReverseOrder()
-    {
-        var globalOrder = new List<string>();
-        var spyA = new SpyMiddleware("A", globalOrder);
-        var spyB = new SpyMiddleware("B", globalOrder);
-
-        var state = new ContainerMiddlewareState()
-            .WithExpandedContainer("ToolHarnessA")
-            .WithExpandedContainer("ToolHarnessB")
-            .WithToolHarnessPipeline("ToolHarnessA", new AgentMiddlewarePipeline(new IAgentMiddleware[] { spyA }))
-            .WithToolHarnessPipeline("ToolHarnessB", new AgentMiddlewarePipeline(new IAgentMiddleware[] { spyB }));
-
-        var middleware = BuildContainerMiddleware();
-        var ctx = CreateAfterMessageTurnContextWithState(state);
-
-        await middleware.AfterMessageTurnAsync(ctx, CancellationToken.None);
-
-        // Both pipelines must have dispatched (ImmutableDictionary order is not guaranteed)
-        var afterCalls = globalOrder.Where(s => s.Contains("AfterMessageTurn")).ToList();
-        Assert.Equal(2, afterCalls.Count);
-        Assert.Contains("A.AfterMessageTurn", afterCalls);
-        Assert.Contains("B.AfterMessageTurn", afterCalls);
-    }
-
-    [Fact]
-    public async Task T026_BeforeToolExecutionAsync_DispatchesToNewlyActivatedPipelineImmediately()
-    {
-        var order = new List<string>();
-        var factories = new Dictionary<string, ToolHarnessFactory>
-        {
-            ["DbToolHarness"] = BuildToolHarnessFactory("DbToolHarness",
-                childFunctions: ["Query"],
-                middlewareFactories: new Func<IAgentMiddleware>[]
-                {
-                    () => new SpyMiddleware("DbSpy", order)
-                })
+            typeof(IAgentMiddleware), typeof(AgentMiddlewarePipeline), typeof(IServiceProvider),
+            typeof(Task), typeof(CancellationTokenSource), typeof(IDisposable), typeof(IAsyncDisposable)
         };
 
-        var (containerMiddleware, _) = BuildContainerMiddlewareWithContainerTool("DbToolHarness", ["Query"], factories);
-
-        var agentCtx = V2.MiddlewareTestHelpers.CreateAgentContext();
-        var toolCall = new FunctionCallContent("c1", "DbToolHarness", null);
-        var beCtx = agentCtx.AsBeforeToolExecution(
-            new ChatMessage(ChatRole.Assistant, []),
-            new List<FunctionCallContent> { toolCall },
-            new AgentRunConfig());
-
-        await containerMiddleware.BeforeToolExecutionAsync(beCtx, CancellationToken.None);
-
-        Assert.Contains("DbSpy.BeforeToolExecution", order);
+        Assert.DoesNotContain(typeof(ContainerMiddlewareState).GetProperties(), property =>
+            forbidden.Any(type => type.IsAssignableFrom(property.PropertyType)));
     }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // CATEGORY 6 — OnErrorAsync routing (T027)
-    // ═══════════════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task T027_OnErrorAsync_DispatchesToAllActiveToolHarnessPipelinesInReverseOrder_SwallowsHandlerExceptions()
+    public async Task ActivationRacingRegistryClosure_CannotPublishOrphanPipeline()
     {
-        var order = new List<string>();
-        var spyA = new SpyMiddleware("A", order);
-        var throwingB = new ThrowingOnErrorMiddleware("boom"); // throws in OnError
-        var spyC = new SpyMiddleware("C", order);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var disposed = false;
+        var registry = new ToolHarnessPipelineRegistry();
+        var harness = HarnessOf<BlockingActivationProbe>(_ => ToolHarnessMiddlewareActivation.ExecutionOwned(
+            new BlockingActivationProbe(entered, release, () => disposed = true)));
 
-        var state = new ContainerMiddlewareState()
-            .WithToolHarnessPipeline("ToolHarnessA", new AgentMiddlewarePipeline(new IAgentMiddleware[] { spyA }))
-            .WithToolHarnessPipeline("ToolHarnessB", new AgentMiddlewarePipeline(new IAgentMiddleware[] { throwingB }))
-            .WithToolHarnessPipeline("ToolHarnessC", new AgentMiddlewarePipeline(new IAgentMiddleware[] { spyC }));
+        var acquire = registry.AcquireAsync(harness, Context()).AsTask();
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var close = registry.DeactivateAllAsync(ToolHarnessDeactivationReason.Shutdown).AsTask();
+        release.TrySetResult();
 
-        var middleware = BuildContainerMiddleware();
-        var ctx = CreateErrorContextWithState(state);
-
-        // Must not throw even though ToolHarnessB's handler throws
-        await middleware.OnErrorAsync(ctx, CancellationToken.None);
-
-        // A and C recorded; B threw but was swallowed (ImmutableDictionary order is not guaranteed)
-        var onErrorCalls = order.Where(s => s.Contains("OnError")).ToList();
-        Assert.Equal(2, onErrorCalls.Count);
-        Assert.Contains("A.OnError", onErrorCalls);
-        Assert.Contains("C.OnError", onErrorCalls);
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // HELPER TYPES — Spy / Recording middleware
-    // ═══════════════════════════════════════════════════════════════════════
-
-    private class SpyMiddleware(string name, List<string> log) : IAgentMiddleware
-    {
-        public Task BeforeIterationAsync(BeforeIterationContext ctx, CancellationToken ct)
-        { log.Add($"{name}.BeforeIteration"); return Task.CompletedTask; }
-
-        public Task AfterIterationAsync(AfterIterationContext ctx, CancellationToken ct)
-        { log.Add($"{name}.AfterIteration"); return Task.CompletedTask; }
-
-        public Task BeforeToolExecutionAsync(BeforeToolExecutionContext ctx, CancellationToken ct)
-        { log.Add($"{name}.BeforeToolExecution"); return Task.CompletedTask; }
-
-        public Task BeforeParallelBatchAsync(BeforeParallelBatchContext ctx, CancellationToken ct)
-        { log.Add($"{name}.BeforeParallelBatch"); return Task.CompletedTask; }
-
-        public Task BeforeFunctionAsync(BeforeFunctionContext ctx, CancellationToken ct)
-        { log.Add($"{name}.BeforeFunction"); return Task.CompletedTask; }
-
-        public Task AfterFunctionAsync(AfterFunctionContext ctx, CancellationToken ct)
-        { log.Add($"{name}.AfterFunction"); return Task.CompletedTask; }
-
-        public Task AfterMessageTurnAsync(AfterMessageTurnContext ctx, CancellationToken ct)
-        { log.Add($"{name}.AfterMessageTurn"); return Task.CompletedTask; }
-
-        public Task OnErrorAsync(ErrorContext ctx, CancellationToken ct)
-        { log.Add($"{name}.OnError"); return Task.CompletedTask; }
-    }
-
-    private class SimpleSpyMiddleware : IToolHarnessMiddleware
-    {
-        public bool Called { get; private set; }
-        public Task BeforeFunctionAsync(BeforeFunctionContext ctx, CancellationToken ct)
-        { Called = true; return Task.CompletedTask; }
-    }
-
-    private class ScopedSpyMiddleware(string name, List<string> log, bool shouldExecute) : IAgentMiddleware
-    {
-        public bool ShouldExecuteResult => shouldExecute;
-
-        public Task AfterFunctionAsync(AfterFunctionContext ctx, CancellationToken ct)
+        try
         {
-            log.Add($"{name}.AfterFunction");
+            await using var lease = await acquire;
+        }
+        catch (Exception exception) when (exception is ObjectDisposedException or InvalidOperationException)
+        {
+            // Closure won admission after the already-started activation; this is also valid.
+        }
+        await close;
+
+        Assert.True(disposed);
+        Assert.Empty(registry.GetDiagnosticsSnapshot().Entries);
+        await Assert.ThrowsAsync<ObjectDisposedException>(() =>
+            registry.AcquireAsync(harness, Context()).AsTask());
+    }
+
+    [Fact]
+    public async Task SeparateExecutions_ReceiveDifferentMiddlewareInstances()
+    {
+        var instances = new List<Probe>();
+        var harness = Harness(_ =>
+        {
+            var instance = new Probe();
+            lock (instances) instances.Add(instance);
+            return ToolHarnessMiddlewareActivation.ExecutionOwned(instance);
+        });
+        var first = ToolHarnessExecutionScope.Create(null);
+        var second = ToolHarnessExecutionScope.Create(null);
+
+        await using (await first.Registry.AcquireAsync(harness, Context())) { }
+        await using (await second.Registry.AcquireAsync(harness, Context())) { }
+
+        Assert.Equal(2, instances.Count);
+        Assert.NotSame(instances[0], instances[1]);
+        await first.ReleaseForegroundAsync(ToolHarnessDeactivationReason.Completed);
+        await second.ReleaseForegroundAsync(ToolHarnessDeactivationReason.Completed);
+    }
+
+    [Fact]
+    public async Task ServicesOwnedActivationWithoutChildScope_FailsClosed()
+    {
+        var registry = new ToolHarnessPipelineRegistry();
+        var harness = Harness(_ => ToolHarnessMiddlewareActivation.ServicesOwned(new Probe()));
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            registry.AcquireAsync(harness, Context()).AsTask());
+
+        Assert.Contains("must be the exact instance resolved", error.Message);
+        Assert.Empty(registry.GetDiagnosticsSnapshot().Entries);
+    }
+
+    [Fact]
+    public async Task Diagnostics_ExposeOnlyIdentityOrdinalStateAndAdmission()
+    {
+        var registry = new ToolHarnessPipelineRegistry();
+        await using var lease = await registry.AcquireAsync(Harness(_ =>
+            ToolHarnessMiddlewareActivation.ExecutionOwned(new Probe())), Context());
+
+        var entry = Assert.Single(registry.GetDiagnosticsSnapshot().Entries);
+        Assert.Equal("tests:Harness", entry.HarnessIdentity);
+        Assert.True(entry.ActivationOrdinal > 0);
+        Assert.Equal(ToolHarnessPipelineLifecycleState.Active, entry.State);
+        Assert.Equal(1, entry.AdmissionCount);
+        Assert.DoesNotContain(entry.GetType().GetProperties(), property =>
+            typeof(IAgentMiddleware).IsAssignableFrom(property.PropertyType) ||
+            typeof(AgentMiddlewarePipeline).IsAssignableFrom(property.PropertyType));
+    }
+
+    [Fact]
+    public async Task Diagnostics_ReflectActivatingDeactivatingAndAdmissionTransitions()
+    {
+        var activationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finishActivation = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var registry = new ToolHarnessPipelineRegistry();
+        var harness = HarnessOf<BlockingActivationProbe>(_ => ToolHarnessMiddlewareActivation.ExecutionOwned(
+            new BlockingActivationProbe(activationEntered, finishActivation, static () => { })));
+
+        var acquiring = registry.AcquireAsync(harness, Context()).AsTask();
+        await activationEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var activating = Assert.Single(registry.GetDiagnosticsSnapshot().Entries);
+        Assert.Equal(ToolHarnessPipelineLifecycleState.Activating, activating.State);
+        Assert.Equal(0, activating.AdmissionCount);
+
+        finishActivation.TrySetResult();
+        var lease = await acquiring;
+        var admitted = Assert.Single(registry.GetDiagnosticsSnapshot().Entries);
+        Assert.Equal(ToolHarnessPipelineLifecycleState.Active, admitted.State);
+        Assert.Equal(1, admitted.AdmissionCount);
+
+        var deactivation = registry.DeactivateAllAsync(ToolHarnessDeactivationReason.Completed).AsTask();
+        await WaitUntilAsync(() => registry.GetDiagnosticsSnapshot().Entries.SingleOrDefault()?.State ==
+            ToolHarnessPipelineLifecycleState.Deactivating);
+        var deactivating = Assert.Single(registry.GetDiagnosticsSnapshot().Entries);
+        Assert.Equal(1, deactivating.AdmissionCount);
+        await Assert.ThrowsAsync<ObjectDisposedException>(() =>
+            registry.AcquireAsync(harness, Context()).AsTask());
+
+        await lease.DisposeAsync();
+        await deactivation;
+        Assert.Empty(registry.GetDiagnosticsSnapshot().Entries);
+    }
+
+    [Fact]
+    public async Task ScopedDispatch_UsesDeclarationOrderBefore_AndReverseOrderAfterAndError()
+    {
+        var calls = new List<string>();
+        var registry = new ToolHarnessPipelineRegistry();
+        var harness = HarnessOf<OrderedHookProbe>(
+            _ => ToolHarnessMiddlewareActivation.ExecutionOwned(new OrderedHookProbe("first", calls)),
+            _ => ToolHarnessMiddlewareActivation.ExecutionOwned(new OrderedHookProbe("second", calls)),
+            _ => ToolHarnessMiddlewareActivation.ExecutionOwned(new OrderedHookProbe("third", calls)));
+        await using var lease = await registry.AcquireAsync(harness, Context());
+
+        await lease.Pipeline.DispatchBeforeFunctionAsync(
+            MiddlewareTestHelpers.CreateBeforeFunctionContext(), CancellationToken.None);
+        await lease.Pipeline.DispatchAfterFunctionAsync(
+            MiddlewareTestHelpers.CreateAfterFunctionContext(), CancellationToken.None);
+        await lease.Pipeline.DispatchOnErrorAsync(
+            MiddlewareTestHelpers.CreateErrorContext(), CancellationToken.None);
+
+        Assert.Equal([
+            "before:first", "before:second", "before:third",
+            "after:third", "after:second", "after:first",
+            "error:third", "error:second", "error:first"
+        ], calls);
+    }
+
+    [Fact]
+    public async Task RawNestedDispatch_DoesNotClearOuterMiddlewareStateGuard()
+    {
+        var registry = new ToolHarnessPipelineRegistry();
+        await using var lease = await registry.AcquireAsync(
+            Harness(_ => ToolHarnessMiddlewareActivation.ExecutionOwned(new Probe())), Context());
+        var context = MiddlewareTestHelpers.CreateBeforeFunctionContext();
+        context.Base.SetMiddlewareExecuting(true);
+
+        await lease.Pipeline.DispatchBeforeFunctionAsync(context, CancellationToken.None);
+
+        var error = Assert.Throws<InvalidOperationException>(() => context.Base.SyncState(context.State));
+        Assert.Contains("during middleware execution", error.Message);
+        context.Base.SetMiddlewareExecuting(false);
+    }
+
+    [Theory]
+    [InlineData(ToolHarnessDeactivationReason.Completed)]
+    [InlineData(ToolHarnessDeactivationReason.Failed)]
+    [InlineData(ToolHarnessDeactivationReason.Cancelled)]
+    public async Task EveryTerminalReason_DisposesExecutionOwnedMiddlewareExactlyOnce(
+        ToolHarnessDeactivationReason reason)
+    {
+        var disposeCount = 0;
+        var scope = ToolHarnessExecutionScope.Create(null);
+        await using (await scope.Registry.AcquireAsync(Harness(_ =>
+            ToolHarnessMiddlewareActivation.ExecutionOwned(
+                new Probe(onDispose: () => Interlocked.Increment(ref disposeCount)))), Context())) { }
+
+        await scope.ReleaseForegroundAsync(reason);
+        await scope.Completion;
+
+        Assert.Equal(1, disposeCount);
+    }
+
+    [Fact]
+    public async Task ServicesOwnedMiddleware_RemainsAliveDuringDeactivation_ThenScopeDisposesIt()
+    {
+        var services = new ServiceCollection();
+        services.AddScoped<ScopeLifetimeProbe>();
+        await using var provider = services.BuildServiceProvider();
+        var execution = ToolHarnessExecutionScope.Create(provider);
+        ScopeLifetimeProbe? probe = null;
+        var harness = HarnessOf<ScopeLifetimeProbe>(context =>
+        {
+            probe = context.GetRequiredService<ScopeLifetimeProbe>();
+            return ToolHarnessMiddlewareActivation.ServicesOwned(probe);
+        });
+
+        await using (await execution.Registry.AcquireAsync(harness, Context(execution.Services))) { }
+        await execution.ReleaseForegroundAsync(ToolHarnessDeactivationReason.Completed);
+        await execution.Completion;
+
+        Assert.NotNull(probe);
+        Assert.True(probe.WasAliveDuringDeactivation);
+        Assert.Equal(1, probe.DisposeCount);
+    }
+
+    [Fact]
+    public async Task ServicesOwnedMiddleware_IsResolvedFromInputScope_NotRootProvider()
+    {
+        var services = new ServiceCollection();
+        services.AddScoped<ScopedProbe>();
+        await using var root = services.BuildServiceProvider();
+        var rootInstance = root.GetRequiredService<ScopedProbe>();
+        var execution = ToolHarnessExecutionScope.Create(root);
+        ScopedProbe? activated = null;
+        var harness = HarnessOf<ScopedProbe>(context =>
+        {
+            activated = context.GetRequiredService<ScopedProbe>();
+            return ToolHarnessMiddlewareActivation.ServicesOwned(activated);
+        });
+
+        await using (await execution.Registry.AcquireAsync(harness, Context(execution.Services))) { }
+
+        Assert.NotNull(activated);
+        Assert.NotSame(rootInstance, activated);
+        await execution.ReleaseForegroundAsync(ToolHarnessDeactivationReason.Completed);
+        await execution.Completion;
+        Assert.True(activated.Disposed);
+        Assert.False(rootInstance.Disposed);
+    }
+
+    [Fact]
+    public async Task AspNetCoreHost_ResolvesServicesOwnedMiddlewareOnlyFromRequestLikeChildScope()
+    {
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            EnvironmentName = "Development"
+        });
+        builder.Services.AddScoped<ScopedProbe>();
+        await using var app = builder.Build();
+        Assert.Throws<InvalidOperationException>(() =>
+            app.Services.GetRequiredService<ScopedProbe>());
+        var execution = ToolHarnessExecutionScope.Create(app.Services);
+        ScopedProbe? activated = null;
+        var harness = HarnessOf<ScopedProbe>(context =>
+        {
+            activated = context.GetRequiredService<ScopedProbe>();
+            return ToolHarnessMiddlewareActivation.ServicesOwned(activated);
+        });
+
+        await using (await execution.Registry.AcquireAsync(
+            harness, Context(execution.Services))) { }
+
+        Assert.NotNull(activated);
+        await execution.ReleaseForegroundAsync(ToolHarnessDeactivationReason.Completed);
+        await execution.Completion;
+        Assert.True(activated.Disposed);
+    }
+
+    [Fact]
+    public async Task ForegroundRelease_ReturnsBeforeTransferredOwnerAndCompletionWaitsForIt()
+    {
+        var scope = ToolHarnessExecutionScope.Create(null);
+        var owner = scope.TransferToOperation("operation-tail");
+
+        var release = scope.ReleaseForegroundAsync(ToolHarnessDeactivationReason.Completed);
+
+        Assert.True(release.IsCompletedSuccessfully);
+        Assert.False(scope.Completion.IsCompleted);
+        await owner.DisposeAsync();
+        await scope.Completion;
+    }
+
+    [Fact]
+    public async Task CleanupFailure_IsObservedAndFaultsCompletionAfterAllCleanup()
+    {
+        Exception? observed = null;
+        var scope = ToolHarnessExecutionScope.Create(null, exception => observed = exception);
+        await using (await scope.Registry.AcquireAsync(Harness(_ =>
+            ToolHarnessMiddlewareActivation.ExecutionOwned(new Probe(failDispose: true))), Context())) { }
+
+        await Assert.ThrowsAsync<AggregateException>(() =>
+            scope.ReleaseForegroundAsync(ToolHarnessDeactivationReason.Failed).AsTask());
+        var completionError = await Assert.ThrowsAsync<AggregateException>(() => scope.Completion);
+
+        Assert.Same(completionError, observed);
+    }
+
+    [Fact]
+    public async Task ContainerState_SerializesWhilePipelineIsActive_AndHydrationKeepsRuntimeSeparate()
+    {
+        var registry = new ToolHarnessPipelineRegistry();
+        var constructed = 0;
+        var harness = Harness(_ =>
+        {
+            Interlocked.Increment(ref constructed);
+            return ToolHarnessMiddlewareActivation.ExecutionOwned(new Probe());
+        });
+        await using var lease = await registry.AcquireAsync(harness, Context());
+        var state = new ContainerMiddlewareState().WithExpandedContainer("Harness");
+
+        var json = JsonSerializer.Serialize(state, SessionJsonContext.Default.ContainerMiddlewareState);
+        var hydrated = JsonSerializer.Deserialize(json, SessionJsonContext.Default.ContainerMiddlewareState);
+
+        Assert.Contains("Harness", hydrated!.ExpandedContainers);
+        Assert.Equal(1, constructed);
+        var freshRegistry = new ToolHarnessPipelineRegistry();
+        Assert.Empty(freshRegistry.GetDiagnosticsSnapshot().Entries);
+        await using (await freshRegistry.AcquireAsync(harness, Context())) { }
+        Assert.Equal(2, constructed);
+    }
+
+    [Fact]
+    public async Task FileCheckpoint_RoundTripsActiveContainerState_AndHydratesFreshRuntimePipeline()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"hpd-v9-checkpoint-{Guid.NewGuid():N}");
+        var constructed = 0;
+        var harness = Harness(_ =>
+        {
+            Interlocked.Increment(ref constructed);
+            return ToolHarnessMiddlewareActivation.ExecutionOwned(new Probe());
+        });
+        var registry = new ToolHarnessPipelineRegistry();
+        var factories = new Dictionary<string, MiddlewareStateFactory>
+        {
+            ["HPD.Agent.ContainerMiddlewareState"] = new(
+                "HPD.Agent.ContainerMiddlewareState",
+                typeof(ContainerMiddlewareState),
+                "ContainerMiddleware",
+                1,
+                true,
+                StateScope.Thread,
+                json => JsonSerializer.Deserialize(
+                    json, SessionJsonContext.Default.ContainerMiddlewareState),
+                value => JsonSerializer.Serialize(
+                    (ContainerMiddlewareState)value,
+                    SessionJsonContext.Default.ContainerMiddlewareState))
+        };
+
+        try
+        {
+            await using var activeLease = await registry.AcquireAsync(harness, Context());
+            var state = new MiddlewareState().SetState(
+                "HPD.Agent.ContainerMiddlewareState",
+                new ContainerMiddlewareState().WithExpandedContainer("Harness"));
+            var session = new global::HPD.Agent.Session("checkpoint-session");
+            var thread = session.CreateThread("test-agent", "main");
+            state.SaveToThread(thread, factories);
+
+            var store = new FileSessionStore(
+                directory, HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
+            await store.SaveSessionAsync(session);
+            await store.SaveInitialThreadAsync(session.Id, thread);
+
+            var reopened = new FileSessionStore(
+                directory, HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
+            var projected = await reopened.ProjectThreadAsync(
+                session.Id, thread.Id, ThreadProjectionPurpose.CompleteSemanticExport);
+            var hydrated = MiddlewareState.LoadFromThread(projected, factories)
+                .GetState<ContainerMiddlewareState>("HPD.Agent.ContainerMiddlewareState");
+
+            Assert.NotNull(hydrated);
+            Assert.Contains("Harness", hydrated.ExpandedContainers);
+            Assert.Equal(1, constructed);
+
+            var freshRegistry = new ToolHarnessPipelineRegistry();
+            Assert.Empty(freshRegistry.GetDiagnosticsSnapshot().Entries);
+            await using (await freshRegistry.AcquireAsync(harness, Context())) { }
+            Assert.Equal(2, constructed);
+            await freshRegistry.DeactivateAllAsync(ToolHarnessDeactivationReason.Completed);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ContainerStateTransforms_DoNotConstructMiddleware()
+    {
+        var constructed = 0;
+        _ = Harness(_ =>
+        {
+            Interlocked.Increment(ref constructed);
+            return ToolHarnessMiddlewareActivation.ExecutionOwned(new Probe());
+        });
+
+        var transformed = new ContainerMiddlewareState().WithExpandedContainer("Harness");
+
+        Assert.Contains("Harness", transformed.ExpandedContainers);
+        Assert.Equal(0, constructed);
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> predicate)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        while (!predicate())
+            await Task.Delay(10, timeout.Token);
+    }
+
+    private static ToolHarnessFactory Harness(params ToolHarnessMiddlewareFactory[] factories) => new(
+        "Harness", typeof(object), static () => new object(), static (_, _, _) => [],
+        static () => [], static () => [], StableIdentity: "tests:Harness",
+        Middleware: factories.Select(factory => new ToolHarnessMiddlewareDescriptor
+        {
+            MiddlewareType = typeof(Probe), Factory = factory
+        }).ToArray());
+
+    private static ToolHarnessFactory HarnessOf<TMiddleware>(params ToolHarnessMiddlewareFactory[] factories)
+        where TMiddleware : IToolHarnessMiddleware => new(
+        "Harness", typeof(object), static () => new object(), static (_, _, _) => [],
+        static () => [], static () => [], StableIdentity: "tests:Harness",
+        Middleware: factories.Select(factory => new ToolHarnessMiddlewareDescriptor
+        {
+            MiddlewareType = typeof(TMiddleware), Factory = factory
+        }).ToArray());
+
+    private static ToolHarnessActivationContext Context(IServiceProvider? services = null) => new(
+        "tests:Harness", Guid.NewGuid().ToString("N"), services, new AgentRunConfig());
+
+    private sealed class Probe(string name = "probe", List<string>? calls = null, bool failDispose = false, Action? onDispose = null)
+        : IToolHarnessMiddleware, IToolHarnessMiddlewareLifecycle, IAsyncDisposable
+    {
+        public ValueTask OnHarnessActivatedAsync(ToolHarnessActivationContext context, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+        public ValueTask OnHarnessDeactivatingAsync(ToolHarnessDeactivationContext context, CancellationToken cancellationToken)
+        { calls?.Add($"deactivate:{name}"); return ValueTask.CompletedTask; }
+        public ValueTask DisposeAsync()
+        {
+            calls?.Add($"dispose:{name}"); onDispose?.Invoke();
+            return failDispose ? ValueTask.FromException(new InvalidOperationException(name)) : ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class ScopedProbe : IToolHarnessMiddleware, IAsyncDisposable
+    {
+        internal bool Disposed { get; private set; }
+        public ValueTask DisposeAsync() { Disposed = true; return ValueTask.CompletedTask; }
+    }
+
+    private sealed class ScopeLifetimeProbe : IToolHarnessMiddleware, IToolHarnessMiddlewareLifecycle, IAsyncDisposable
+    {
+        internal bool WasAliveDuringDeactivation { get; private set; }
+        internal int DisposeCount { get; private set; }
+        public ValueTask OnHarnessActivatedAsync(ToolHarnessActivationContext context, CancellationToken cancellationToken) =>
+            ValueTask.CompletedTask;
+        public ValueTask OnHarnessDeactivatingAsync(ToolHarnessDeactivationContext context, CancellationToken cancellationToken)
+        {
+            WasAliveDuringDeactivation = DisposeCount == 0;
+            return ValueTask.CompletedTask;
+        }
+        public ValueTask DisposeAsync()
+        {
+            DisposeCount++;
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class BlockingActivationProbe(
+        TaskCompletionSource entered,
+        TaskCompletionSource release,
+        Action onDispose) : IToolHarnessMiddleware, IToolHarnessMiddlewareLifecycle, IAsyncDisposable
+    {
+        public async ValueTask OnHarnessActivatedAsync(ToolHarnessActivationContext context, CancellationToken cancellationToken)
+        {
+            entered.TrySetResult();
+            await release.Task.WaitAsync(cancellationToken);
+        }
+
+        public ValueTask OnHarnessDeactivatingAsync(ToolHarnessDeactivationContext context, CancellationToken cancellationToken) =>
+            ValueTask.CompletedTask;
+
+        public ValueTask DisposeAsync() { onDispose(); return ValueTask.CompletedTask; }
+    }
+
+    private sealed class OrderedHookProbe(string name, List<string> calls) : IToolHarnessMiddleware
+    {
+        public Task BeforeFunctionAsync(BeforeFunctionContext context, CancellationToken cancellationToken)
+        {
+            calls.Add($"before:{name}");
             return Task.CompletedTask;
         }
-    }
 
-    private class WrapRecordingMiddleware(string name, List<string> log) : IAgentMiddleware
-    {
-        public Task<object?> WrapFunctionCallAsync(
-            FunctionRequest req,
-            Func<FunctionRequest, Task<object?>> next,
-            CancellationToken ct)
+        public Task AfterFunctionAsync(AfterFunctionContext context, CancellationToken cancellationToken)
         {
-            return WrapAsync(req, next, ct);
+            calls.Add($"after:{name}");
+            return Task.CompletedTask;
         }
 
-        private async Task<object?> WrapAsync(
-            FunctionRequest req,
-            Func<FunctionRequest, Task<object?>> next,
-            CancellationToken ct)
+        public Task OnErrorAsync(ErrorContext context, CancellationToken cancellationToken)
         {
-            log.Add($"{name}.before");
-            var result = await next(req);
-            log.Add($"{name}.after");
-            return result;
+            calls.Add($"error:{name}");
+            return Task.CompletedTask;
         }
-    }
-
-    private class ThrowingAfterIterationMiddleware(string message) : IAgentMiddleware
-    {
-        public Task AfterIterationAsync(AfterIterationContext ctx, CancellationToken ct)
-            => Task.FromException(new InvalidOperationException(message));
-    }
-
-    private class ThrowingOnErrorMiddleware(string message) : IAgentMiddleware
-    {
-        public Task OnErrorAsync(ErrorContext ctx, CancellationToken ct)
-            => Task.FromException(new InvalidOperationException(message));
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // HELPER BUILDERS
-    // ═══════════════════════════════════════════════════════════════════════
-
-    private static AgentMiddlewarePipeline MakeEmptyPipeline()
-        => new AgentMiddlewarePipeline(Array.Empty<IAgentMiddleware>());
-
-    private static ContainerMiddleware BuildContainerMiddleware(
-        IList<AITool>? tools = null,
-        IReadOnlyDictionary<string, ToolHarnessFactory>? toolharnessFactories = null,
-        IReadOnlyDictionary<string, List<IAgentMiddleware>>? HARNESScopedMiddlewares = null,
-        IReadOnlyDictionary<string, Dictionary<string, System.Text.Json.JsonElement>>? middlewareConfigs = null)
-    {
-        tools ??= new List<AITool>
-        {
-            AIFunctionFactory.Create(() => "dummy", "Dummy")
-        };
-        return new ContainerMiddleware(
-            tools,
-            ImmutableHashSet<string>.Empty,
-            toolharnessFactories,
-            HARNESScopedMiddlewares,
-            middlewareConfigs,
-            new CollapsingConfig { Enabled = true });
-    }
-
-    /// <summary>
-    /// Builds a ContainerMiddleware and corresponding tool list where a single
-    /// collapsed container tool exists with its child functions.
-    /// </summary>
-    private static (ContainerMiddleware middleware, IList<AITool> tools)
-        BuildContainerMiddlewareWithContainerTool(
-            string toolharnessName,
-            string[] childFunctionNames,
-            Dictionary<string, ToolHarnessFactory>? factories = null,
-            IReadOnlyDictionary<string, List<IAgentMiddleware>>? HARNESScopedMiddlewares = null,
-            IReadOnlyDictionary<string, Dictionary<string, System.Text.Json.JsonElement>>? middlewareConfigs = null)
-    {
-        var tools = BuildToolsForCollapsedToolHarness(toolharnessName, childFunctionNames);
-        var middleware = new ContainerMiddleware(
-            tools,
-            ImmutableHashSet<string>.Empty,
-            factories,
-            HARNESScopedMiddlewares,
-            middlewareConfigs,
-            new CollapsingConfig { Enabled = true });
-        return (middleware, tools);
-    }
-
-    /// <summary>
-    /// Builds a ContainerMiddleware with two collapsed toolharnesses for isolation tests.
-    /// </summary>
-    private static (ContainerMiddleware middleware, IList<AITool> tools)
-        BuildContainerMiddlewareWithTwoToolHarnesses(
-            (string name, string[] children, IAgentMiddleware spy) a,
-            (string name, string[] children, IAgentMiddleware spy) b)
-    {
-        var tools = new List<AITool>();
-        tools.AddRange(BuildToolsForCollapsedToolHarness(a.name, a.children));
-        tools.AddRange(BuildToolsForCollapsedToolHarness(b.name, b.children));
-
-        // No factory dict needed — pipelines are set up manually in tests via state
-        var middleware = new ContainerMiddleware(
-            tools,
-            ImmutableHashSet<string>.Empty,
-            toolharnessFactories: null,
-            HARNESScopedMiddlewares: null,
-            middlewareConfigs: null,
-            new CollapsingConfig { Enabled = true });
-        return (middleware, tools);
-    }
-
-    /// <summary>
-    /// Creates the container AIFunction tool + child AIFunction tools that the
-    /// ContainerMiddleware uses to build _itemToContainerMap.
-    /// </summary>
-    private static List<AITool> BuildToolsForCollapsedToolHarness(string toolharnessName, string[] childFunctionNames)
-    {
-        var tools = new List<AITool>();
-
-        // Container tool (IsContainer = true, FunctionNames = childFunctionNames, ToolHarnessName = toolharnessName)
-        var containerFunc = HPDAIFunctionFactory.Create(
-            (_, _, _) => Task.FromResult<object?>($"{toolharnessName} expanded"),
-            new HPDAIFunctionFactoryOptions
-            {
-                Name = toolharnessName,
-                Description = $"{toolharnessName} container",
-                AdditionalProperties = new Dictionary<string, object?>
-                {
-                    ["IsContainer"] = true,
-                    ["ToolHarnessName"] = toolharnessName,
-                    ["ReferencedFunctions"] = childFunctionNames,
-                    ["IsToolHarnessContainer"] = true,
-                },
-            });
-        tools.Add(containerFunc);
-
-        // Child tools
-        foreach (var child in childFunctionNames)
-        {
-            var childFunc = AIFunctionFactory.Create(() => $"result of {child}", name: child, description: child);
-            tools.Add(childFunc);
-        }
-
-        return tools;
-    }
-
-    private static ToolHarnessFactory BuildToolHarnessFactory(
-        string name,
-        string[] childFunctions,
-        IReadOnlyList<Func<IAgentMiddleware>>? middlewareFactories,
-        IReadOnlyList<CollapseMiddlewareConfigFactory>? configFactories = null)
-    {
-        return new ToolHarnessFactory(
-            Name: name,
-            ToolHarnessType: typeof(object),
-            CreateInstance: () => new object(),
-            CreateFunctions: (_, _, _) => new List<AIFunction>(),
-            GetReferencedToolHarnesses: () => Array.Empty<string>(),
-            GetReferencedFunctions: () => new Dictionary<string, string[]>(),
-            HasDescription: true,
-            Description: $"{name} description",
-            FunctionNames: childFunctions,
-            CollapseMiddlewareFactories: middlewareFactories,
-            CollapseMiddlewareConfigFactories: configFactories);
-    }
-
-    private static AgentLoopState InitialStateWith(ContainerMiddlewareState containerState)
-    {
-        var baseState = AgentLoopState.InitialSafe(
-            new List<ChatMessage>(),
-            "test-run",
-            "test-conv",
-            "TestAgent");
-
-        return baseState with
-        {
-            MiddlewareState = baseState.MiddlewareState.SetState("HPD.Agent.ContainerMiddlewareState", containerState),
-        };
-    }
-
-    private static BeforeIterationContext CreateBeforeIterationContextWithState(ContainerMiddlewareState state)
-    {
-        var loopState = InitialStateWith(state);
-        return V2.MiddlewareTestHelpers.CreateBeforeIterationContext(state: loopState);
-    }
-
-    private static AfterIterationContext CreateAfterIterationContextWithState(ContainerMiddlewareState state)
-    {
-        var loopState = InitialStateWith(state);
-        return V2.MiddlewareTestHelpers.CreateAfterIterationContext(state: loopState);
-    }
-
-    private static BeforeFunctionContext CreateBeforeFunctionContextWithState(
-        AIFunction function,
-        string functionName,
-        ContainerMiddlewareState state)
-    {
-        var loopState = InitialStateWith(state);
-        var agentCtx = V2.MiddlewareTestHelpers.CreateAgentContext(state: loopState);
-        function ??= AIFunctionFactory.Create(() => "ok", functionName);
-        return agentCtx.AsBeforeFunction(
-            function,
-            "call-test",
-            new Dictionary<string, object?>(),
-            new AgentRunConfig(),
-            toolharnessName: null,
-            skillName: null);
-    }
-
-    private static AfterFunctionContext CreateAfterFunctionContextWithState(
-        AIFunction function,
-        string functionName,
-        ContainerMiddlewareState state)
-    {
-        var loopState = InitialStateWith(state);
-        var agentCtx = V2.MiddlewareTestHelpers.CreateAgentContext(state: loopState);
-        return agentCtx.AsAfterFunction(
-            function,
-            "call-test",
-            result: "ok",
-            exception: null,
-            new AgentRunConfig());
-    }
-
-    private static AfterMessageTurnContext CreateAfterMessageTurnContextWithState(ContainerMiddlewareState state)
-    {
-        var loopState = InitialStateWith(state);
-        return V2.MiddlewareTestHelpers.CreateAfterMessageTurnContext(state: loopState);
-    }
-
-    private static ErrorContext CreateErrorContextWithState(ContainerMiddlewareState state)
-    {
-        var loopState = InitialStateWith(state);
-        return V2.MiddlewareTestHelpers.CreateErrorContext(state: loopState);
-    }
-
-    private static FunctionRequest CreateFunctionRequest(AIFunction? function = null)
-    {
-        var state = AgentLoopState.InitialSafe(
-            new List<ChatMessage>(), "test-run", "test-conv", "TestAgent");
-        return new FunctionRequest
-        {
-            Function = function ?? AIFunctionFactory.Create(() => "ok", "TestFunction"),
-            CallId = "call-1",
-            Arguments = new Dictionary<string, object?>(),
-            State = state,
-        };
-    }
-
-    private static BeforeParallelBatchContext CreateBeforeParallelBatchContextWithState(
-        ContainerMiddlewareState state,
-        IReadOnlyList<ParallelFunctionInfo> parallelFunctions)
-    {
-        var loopState = InitialStateWith(state);
-        var agentCtx = V2.MiddlewareTestHelpers.CreateAgentContext(state: loopState);
-        return agentCtx.AsBeforeParallelBatch(parallelFunctions, new AgentRunConfig());
-    }
-
-    private static ParallelFunctionInfo MakeParallelFunctionInfo(string functionName)
-    {
-        var fn = AIFunctionFactory.Create(() => $"result of {functionName}", name: functionName);
-        return new ParallelFunctionInfo(fn, $"call-{functionName}", new Dictionary<string, object?>());
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // CATEGORY 7 — §5B DI builder-time instances
-    // ═══════════════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task T028_DI_Instances_MergedAfterAttributeFactories_InOrder()
-    {
-        var order = new List<string>();
-        var attrMiddleware = new SpyMiddleware("attr", order);
-        var diMiddleware = new SpyMiddleware("di", order);
-
-        var factories = new Dictionary<string, ToolHarnessFactory>
-        {
-            ["DbToolHarness"] = BuildToolHarnessFactory("DbToolHarness",
-                childFunctions: ["Query"],
-                middlewareFactories: new Func<IAgentMiddleware>[] { () => attrMiddleware })
-        };
-        var diMap = new Dictionary<string, List<IAgentMiddleware>>
-        {
-            ["DbToolHarness"] = new List<IAgentMiddleware> { diMiddleware }
-        };
-
-        var (middleware, _) = BuildContainerMiddlewareWithContainerTool(
-            "DbToolHarness", ["Query"], factories, HARNESScopedMiddlewares: diMap);
-
-        var agentCtx = V2.MiddlewareTestHelpers.CreateAgentContext();
-        var toolCall = new FunctionCallContent("c1", "DbToolHarness", null);
-        var beCtx = agentCtx.AsBeforeToolExecution(
-            new ChatMessage(ChatRole.Assistant, []),
-            new List<FunctionCallContent> { toolCall },
-            new AgentRunConfig());
-
-        await middleware.BeforeToolExecutionAsync(beCtx, CancellationToken.None);
-
-        var state = beCtx.GetMiddlewareState<ContainerMiddlewareState>();
-        Assert.NotNull(state);
-        var pipeline = state.ToolHarnessPipelines["DbToolHarness"];
-        Assert.Equal(2, pipeline.Count);
-        // attr comes first, di appended after
-        Assert.Same(attrMiddleware, pipeline.Middlewares[0]);
-        Assert.Same(diMiddleware, pipeline.Middlewares[1]);
-    }
-
-    [Fact]
-    public async Task T029_DI_Instances_Alone_WhenNoAttributeFactories()
-    {
-        var diMiddleware = new SimpleSpyMiddleware();
-
-        // No CollapseMiddlewareFactories — toolharness has no attribute-declared middleware
-        var factories = new Dictionary<string, ToolHarnessFactory>
-        {
-            ["DbToolHarness"] = BuildToolHarnessFactory("DbToolHarness",
-                childFunctions: ["Query"],
-                middlewareFactories: null)
-        };
-        var diMap = new Dictionary<string, List<IAgentMiddleware>>
-        {
-            ["DbToolHarness"] = new List<IAgentMiddleware> { diMiddleware }
-        };
-
-        var (middleware, _) = BuildContainerMiddlewareWithContainerTool(
-            "DbToolHarness", ["Query"], factories, HARNESScopedMiddlewares: diMap);
-
-        var agentCtx = V2.MiddlewareTestHelpers.CreateAgentContext();
-        var toolCall = new FunctionCallContent("c1", "DbToolHarness", null);
-        var beCtx = agentCtx.AsBeforeToolExecution(
-            new ChatMessage(ChatRole.Assistant, []),
-            new List<FunctionCallContent> { toolCall },
-            new AgentRunConfig());
-
-        await middleware.BeforeToolExecutionAsync(beCtx, CancellationToken.None);
-
-        var state = beCtx.GetMiddlewareState<ContainerMiddlewareState>();
-        Assert.NotNull(state);
-        Assert.True(state.ToolHarnessPipelines.ContainsKey("DbToolHarness"));
-        Assert.Equal(1, state.ToolHarnessPipelines["DbToolHarness"].Count);
-        Assert.Same(diMiddleware, state.ToolHarnessPipelines["DbToolHarness"].Middlewares[0]);
-    }
-
-    [Fact]
-    public async Task T030_DI_Instances_NoPipelineCreated_WhenMapHasNoEntryForThisToolHarness()
-    {
-        // diMap exists but doesn't have an entry for DbToolHarness
-        var diMap = new Dictionary<string, List<IAgentMiddleware>>
-        {
-            ["OtherToolHarness"] = new List<IAgentMiddleware> { new SimpleSpyMiddleware() }
-        };
-        var factories = new Dictionary<string, ToolHarnessFactory>
-        {
-            ["DbToolHarness"] = BuildToolHarnessFactory("DbToolHarness",
-                childFunctions: ["Query"],
-                middlewareFactories: null)
-        };
-
-        var (middleware, _) = BuildContainerMiddlewareWithContainerTool(
-            "DbToolHarness", ["Query"], factories, HARNESScopedMiddlewares: diMap);
-
-        var agentCtx = V2.MiddlewareTestHelpers.CreateAgentContext();
-        var toolCall = new FunctionCallContent("c1", "DbToolHarness", null);
-        var beCtx = agentCtx.AsBeforeToolExecution(
-            new ChatMessage(ChatRole.Assistant, []),
-            new List<FunctionCallContent> { toolCall },
-            new AgentRunConfig());
-
-        await middleware.BeforeToolExecutionAsync(beCtx, CancellationToken.None);
-
-        var state = beCtx.GetMiddlewareState<ContainerMiddlewareState>();
-        Assert.NotNull(state);
-        Assert.True(state.ExpandedContainers.Contains("DbToolHarness"));
-        Assert.False(state.ToolHarnessPipelines.ContainsKey("DbToolHarness"));
-    }
-
-    [Fact]
-    public async Task T031_DI_Instances_DifferentToolHarnessesAreIsolated_OnlyExpandedOneGetsPipeline()
-    {
-        var spyA = new SimpleSpyMiddleware();
-        var spyB = new SimpleSpyMiddleware();
-        var diMap = new Dictionary<string, List<IAgentMiddleware>>
-        {
-            ["ToolHarnessA"] = new List<IAgentMiddleware> { spyA },
-            ["ToolHarnessB"] = new List<IAgentMiddleware> { spyB },
-        };
-
-        var tools = new List<AITool>();
-        tools.AddRange(BuildToolsForCollapsedToolHarness("ToolHarnessA", ["FuncA"]));
-        tools.AddRange(BuildToolsForCollapsedToolHarness("ToolHarnessB", ["FuncB"]));
-
-        var middleware = new ContainerMiddleware(
-            tools,
-            ImmutableHashSet<string>.Empty,
-            toolharnessFactories: null,
-            HARNESScopedMiddlewares: diMap,
-            middlewareConfigs: null,
-            new CollapsingConfig { Enabled = true });
-
-        // Only ToolHarnessA expands
-        var agentCtx = V2.MiddlewareTestHelpers.CreateAgentContext();
-        var toolCall = new FunctionCallContent("c1", "ToolHarnessA", null);
-        var beCtx = agentCtx.AsBeforeToolExecution(
-            new ChatMessage(ChatRole.Assistant, []),
-            new List<FunctionCallContent> { toolCall },
-            new AgentRunConfig());
-
-        await middleware.BeforeToolExecutionAsync(beCtx, CancellationToken.None);
-
-        var state = beCtx.GetMiddlewareState<ContainerMiddlewareState>();
-        Assert.NotNull(state);
-        Assert.True(state.ToolHarnessPipelines.ContainsKey("ToolHarnessA"));
-        Assert.False(state.ToolHarnessPipelines.ContainsKey("ToolHarnessB"));
-    }
-
-    [Fact]
-    public async Task T032_DI_Instance_IsDispatchedAtExpansionTime_BeforeToolExecution()
-    {
-        var order = new List<string>();
-        var diSpy = new SpyMiddleware("DISpy", order);
-        var diMap = new Dictionary<string, List<IAgentMiddleware>>
-        {
-            ["DbToolHarness"] = new List<IAgentMiddleware> { diSpy }
-        };
-        // Non-null factories dict (empty) so BeforeToolExecution dispatch gate passes
-        var factories = new Dictionary<string, ToolHarnessFactory>();
-
-        var (middleware, _) = BuildContainerMiddlewareWithContainerTool(
-            "DbToolHarness", ["Query"],
-            factories: factories,
-            HARNESScopedMiddlewares: diMap);
-
-        var agentCtx = V2.MiddlewareTestHelpers.CreateAgentContext();
-        var toolCall = new FunctionCallContent("c1", "DbToolHarness", null);
-        var beCtx = agentCtx.AsBeforeToolExecution(
-            new ChatMessage(ChatRole.Assistant, []),
-            new List<FunctionCallContent> { toolCall },
-            new AgentRunConfig());
-
-        await middleware.BeforeToolExecutionAsync(beCtx, CancellationToken.None);
-
-        Assert.Contains("DISpy.BeforeToolExecution", order);
-    }
-
-    [Fact]
-    public async Task T033_DI_Instance_WrapFunctionCallAsync_IsInnermostAroundActualCall()
-    {
-        var order = new List<string>();
-        var globalWrap = new WrapRecordingMiddleware("global", order);
-        var diWrap = new WrapRecordingMiddleware("di", order);
-
-        var state = new ContainerMiddlewareState()
-            .WithExpandedContainer("DbToolHarness")
-            .WithToolHarnessPipeline("DbToolHarness", new AgentMiddlewarePipeline(new IAgentMiddleware[] { diWrap }));
-
-        var tools = BuildToolsForCollapsedToolHarness("DbToolHarness", ["Query"]);
-        var containerMiddleware = new ContainerMiddleware(
-            tools,
-            ImmutableHashSet<string>.Empty,
-            toolharnessFactories: new Dictionary<string, ToolHarnessFactory>
-            {
-                ["DbToolHarness"] = BuildToolHarnessFactory("DbToolHarness", ["Query"], middlewareFactories: null)
-            },
-            HARNESScopedMiddlewares: null,
-            middlewareConfigs: null,
-            new CollapsingConfig { Enabled = true });
-
-        var queryFn = tools.First(t => t is AIFunction af && af.Name == "Query") as AIFunction;
-        var agentCtx = V2.MiddlewareTestHelpers.CreateAgentContext(state: InitialStateWith(state));
-        var req = new FunctionRequest
-        {
-            Function = queryFn!,
-            CallId = "call-x",
-            Arguments = new Dictionary<string, object?>(),
-            State = agentCtx.State,
-        };
-
-        var globalPipeline = new AgentMiddlewarePipeline(new IAgentMiddleware[]
-        {
-            globalWrap,
-            containerMiddleware,
-        });
-
-        await globalPipeline.ExecuteFunctionCallAsync(
-            req,
-            _ => { order.Add("actual"); return Task.FromResult<object?>(null); },
-            CancellationToken.None);
-
-        Assert.Equal(new[]
-        {
-            "global.before",
-            "di.before",
-            "actual",
-            "di.after",
-            "global.after",
-        }, order);
-    }
-
-    [Fact]
-    public void T034_ToolHarnessOptions_AddScopedMiddleware_Null_Throws()
-    {
-        var opts = new ToolHarnessOptions();
-        Assert.Throws<ArgumentNullException>(() => opts.AddScopedMiddleware(null!));
-    }
-
-    [Fact]
-    public void T035_ToolHarnessOptions_AddScopedMiddleware_Chains_AndReturnsSameInstance()
-    {
-        var opts = new ToolHarnessOptions();
-        var mwA = new SimpleSpyMiddleware();
-        var mwB = new SimpleSpyMiddleware();
-
-        var returned = opts.AddScopedMiddleware(mwA).AddScopedMiddleware(mwB);
-
-        Assert.Same(opts, returned);
-        Assert.Equal(2, opts.ScopedMiddlewares.Count);
-        Assert.Same(mwA, opts.ScopedMiddlewares[0]);
-        Assert.Same(mwB, opts.ScopedMiddlewares[1]);
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // CATEGORY 8 — §5A config-constructor middleware
-    // ═══════════════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task T036_ConfigFactory_UsedWhenMiddlewareConfigsProvided()
-    {
-        ConfigCapturingMiddleware? created = null;
-        var configJson = System.Text.Json.JsonDocument.Parse("""{"requestsPerMinute":20}""").RootElement;
-
-        var configFactory = new CollapseMiddlewareConfigFactory(
-            MiddlewareTypeName: "ConfigCapturingMiddleware",
-            Factory: json => { created = new ConfigCapturingMiddleware(json); return created; });
-
-        var factories = new Dictionary<string, ToolHarnessFactory>
-        {
-            ["DbToolHarness"] = BuildToolHarnessFactory("DbToolHarness",
-                childFunctions: ["Query"],
-                middlewareFactories: null,
-                configFactories: new[] { configFactory })
-        };
-        var middlewareConfigs = new Dictionary<string, Dictionary<string, System.Text.Json.JsonElement>>
-        {
-            ["DbToolHarness"] = new Dictionary<string, System.Text.Json.JsonElement>
-            {
-                ["ConfigCapturingMiddleware"] = configJson
-            }
-        };
-
-        var (middleware, _) = BuildContainerMiddlewareWithContainerTool(
-            "DbToolHarness", ["Query"], factories, middlewareConfigs: middlewareConfigs);
-
-        var agentCtx = V2.MiddlewareTestHelpers.CreateAgentContext();
-        var toolCall = new FunctionCallContent("c1", "DbToolHarness", null);
-        var beCtx = agentCtx.AsBeforeToolExecution(
-            new ChatMessage(ChatRole.Assistant, []),
-            new List<FunctionCallContent> { toolCall },
-            new AgentRunConfig());
-
-        await middleware.BeforeToolExecutionAsync(beCtx, CancellationToken.None);
-
-        Assert.NotNull(created);
-        Assert.Equal(20, created.ReceivedConfig.GetProperty("requestsPerMinute").GetInt32());
-    }
-
-    [Fact]
-    public async Task T037_ConfigFactory_NotCalledWhenMiddlewareConfigsMapIsNull()
-    {
-        bool factoryCalled = false;
-        var configFactory = new CollapseMiddlewareConfigFactory(
-            MiddlewareTypeName: "ConfigCapturingMiddleware",
-            Factory: json => { factoryCalled = true; return new SimpleSpyMiddleware(); });
-
-        var factories = new Dictionary<string, ToolHarnessFactory>
-        {
-            ["DbToolHarness"] = BuildToolHarnessFactory("DbToolHarness",
-                childFunctions: ["Query"],
-                middlewareFactories: null,
-                configFactories: new[] { configFactory })
-        };
-
-        // middlewareConfigs is null — factory should not be called
-        var (middleware, _) = BuildContainerMiddlewareWithContainerTool(
-            "DbToolHarness", ["Query"], factories, middlewareConfigs: null);
-
-        var agentCtx = V2.MiddlewareTestHelpers.CreateAgentContext();
-        var toolCall = new FunctionCallContent("c1", "DbToolHarness", null);
-        var beCtx = agentCtx.AsBeforeToolExecution(
-            new ChatMessage(ChatRole.Assistant, []),
-            new List<FunctionCallContent> { toolCall },
-            new AgentRunConfig());
-
-        await middleware.BeforeToolExecutionAsync(beCtx, CancellationToken.None);
-
-        Assert.False(factoryCalled);
-        var state = beCtx.GetMiddlewareState<ContainerMiddlewareState>();
-        Assert.False(state?.ToolHarnessPipelines.ContainsKey("DbToolHarness"));
-    }
-
-    [Fact]
-    public async Task T038_ConfigFactory_NotCalledWhenToolHarnessNotInConfigsMap()
-    {
-        bool factoryCalled = false;
-        var configFactory = new CollapseMiddlewareConfigFactory(
-            MiddlewareTypeName: "ConfigCapturingMiddleware",
-            Factory: json => { factoryCalled = true; return new SimpleSpyMiddleware(); });
-
-        var factories = new Dictionary<string, ToolHarnessFactory>
-        {
-            ["DbToolHarness"] = BuildToolHarnessFactory("DbToolHarness",
-                childFunctions: ["Query"],
-                middlewareFactories: null,
-                configFactories: new[] { configFactory })
-        };
-        // Config map exists but only for a different toolharness
-        var middlewareConfigs = new Dictionary<string, Dictionary<string, System.Text.Json.JsonElement>>
-        {
-            ["OtherToolHarness"] = new Dictionary<string, System.Text.Json.JsonElement>
-            {
-                ["ConfigCapturingMiddleware"] = System.Text.Json.JsonDocument.Parse("{}").RootElement
-            }
-        };
-
-        var (middleware, _) = BuildContainerMiddlewareWithContainerTool(
-            "DbToolHarness", ["Query"], factories, middlewareConfigs: middlewareConfigs);
-
-        var agentCtx = V2.MiddlewareTestHelpers.CreateAgentContext();
-        var toolCall = new FunctionCallContent("c1", "DbToolHarness", null);
-        var beCtx = agentCtx.AsBeforeToolExecution(
-            new ChatMessage(ChatRole.Assistant, []),
-            new List<FunctionCallContent> { toolCall },
-            new AgentRunConfig());
-
-        await middleware.BeforeToolExecutionAsync(beCtx, CancellationToken.None);
-
-        Assert.False(factoryCalled);
-    }
-
-    [Fact]
-    public async Task T039_ConfigFactory_MergedWithParameterlessFactories_ConfigAfterParamless()
-    {
-        var paramlessMw = new SimpleSpyMiddleware();
-        ConfigCapturingMiddleware? configMw = null;
-        var configJson = System.Text.Json.JsonDocument.Parse("{}").RootElement;
-
-        var configFactory = new CollapseMiddlewareConfigFactory(
-            MiddlewareTypeName: "ConfigCapturingMiddleware",
-            Factory: json => { configMw = new ConfigCapturingMiddleware(json); return configMw; });
-
-        var factories = new Dictionary<string, ToolHarnessFactory>
-        {
-            ["DbToolHarness"] = BuildToolHarnessFactory("DbToolHarness",
-                childFunctions: ["Query"],
-                middlewareFactories: new Func<IAgentMiddleware>[] { () => paramlessMw },
-                configFactories: new[] { configFactory })
-        };
-        var middlewareConfigs = new Dictionary<string, Dictionary<string, System.Text.Json.JsonElement>>
-        {
-            ["DbToolHarness"] = new Dictionary<string, System.Text.Json.JsonElement>
-            {
-                ["ConfigCapturingMiddleware"] = configJson
-            }
-        };
-
-        var (middleware, _) = BuildContainerMiddlewareWithContainerTool(
-            "DbToolHarness", ["Query"], factories, middlewareConfigs: middlewareConfigs);
-
-        var agentCtx = V2.MiddlewareTestHelpers.CreateAgentContext();
-        var toolCall = new FunctionCallContent("c1", "DbToolHarness", null);
-        var beCtx = agentCtx.AsBeforeToolExecution(
-            new ChatMessage(ChatRole.Assistant, []),
-            new List<FunctionCallContent> { toolCall },
-            new AgentRunConfig());
-
-        await middleware.BeforeToolExecutionAsync(beCtx, CancellationToken.None);
-
-        var state = beCtx.GetMiddlewareState<ContainerMiddlewareState>();
-        var pipeline = state!.ToolHarnessPipelines["DbToolHarness"];
-        Assert.Equal(2, pipeline.Count);
-        Assert.Same(paramlessMw, pipeline.Middlewares[0]);  // paramless first
-        Assert.Same(configMw, pipeline.Middlewares[1]);     // config-ctor second
-    }
-
-    [Fact]
-    public async Task T040_ConfigFactory_UnknownMiddlewareNameInConfigsMap_IsIgnored()
-    {
-        bool factoryCalled = false;
-        var configFactory = new CollapseMiddlewareConfigFactory(
-            MiddlewareTypeName: "ConfigCapturingMiddleware",
-            Factory: json => { factoryCalled = true; return new SimpleSpyMiddleware(); });
-
-        var factories = new Dictionary<string, ToolHarnessFactory>
-        {
-            ["DbToolHarness"] = BuildToolHarnessFactory("DbToolHarness",
-                childFunctions: ["Query"],
-                middlewareFactories: null,
-                configFactories: new[] { configFactory })
-        };
-        // Config map key doesn't match the factory's MiddlewareTypeName
-        var middlewareConfigs = new Dictionary<string, Dictionary<string, System.Text.Json.JsonElement>>
-        {
-            ["DbToolHarness"] = new Dictionary<string, System.Text.Json.JsonElement>
-            {
-                ["UnknownMiddleware"] = System.Text.Json.JsonDocument.Parse("{}").RootElement
-            }
-        };
-
-        var (middleware, _) = BuildContainerMiddlewareWithContainerTool(
-            "DbToolHarness", ["Query"], factories, middlewareConfigs: middlewareConfigs);
-
-        var agentCtx = V2.MiddlewareTestHelpers.CreateAgentContext();
-        var toolCall = new FunctionCallContent("c1", "DbToolHarness", null);
-        var beCtx = agentCtx.AsBeforeToolExecution(
-            new ChatMessage(ChatRole.Assistant, []),
-            new List<FunctionCallContent> { toolCall },
-            new AgentRunConfig());
-
-        // Should not throw
-        await middleware.BeforeToolExecutionAsync(beCtx, CancellationToken.None);
-
-        Assert.False(factoryCalled);
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // CATEGORY 9 — ToolHarnessReference.MiddlewareConfigs serialisation
-    // ═══════════════════════════════════════════════════════════════════════
-
-    [Fact]
-    public void T041_ToolHarnessReference_MiddlewareConfigs_RoundTrips_ViaConverter()
-    {
-        var json = """
-            {
-              "name": "DatabaseToolHarness",
-              "middlewareConfigs": {
-                "DbRateLimitMiddleware": { "requestsPerMinute": 20 }
-              }
-            }
-            """;
-
-        var reference = System.Text.Json.JsonSerializer.Deserialize<ToolHarnessReference>(json);
-
-        Assert.NotNull(reference);
-        Assert.NotNull(reference!.MiddlewareConfigs);
-        Assert.True(reference.MiddlewareConfigs!.ContainsKey("DbRateLimitMiddleware"));
-        Assert.Equal(20, reference.MiddlewareConfigs["DbRateLimitMiddleware"]
-            .GetProperty("requestsPerMinute").GetInt32());
-
-        // Round-trip
-        var serialized = System.Text.Json.JsonSerializer.Serialize(reference);
-        var roundTripped = System.Text.Json.JsonSerializer.Deserialize<ToolHarnessReference>(serialized);
-        Assert.Equal(20, roundTripped!.MiddlewareConfigs!["DbRateLimitMiddleware"]
-            .GetProperty("requestsPerMinute").GetInt32());
-    }
-
-    [Fact]
-    public void T042_ToolHarnessReference_MiddlewareConfigs_Null_UsesSimpleSyntax()
-    {
-        var reference = new ToolHarnessReference { Name = "MathToolHarness" };
-        var json = System.Text.Json.JsonSerializer.Serialize(reference);
-
-        // Simple string syntax, not an object
-        Assert.Equal("\"MathToolHarness\"", json);
-    }
-
-    [Fact]
-    public void T043_ToolHarnessReference_MiddlewareConfigs_Present_UsesObjectSyntax()
-    {
-        var reference = new ToolHarnessReference
-        {
-            Name = "DatabaseToolHarness",
-            MiddlewareConfigs = new Dictionary<string, System.Text.Json.JsonElement>
-            {
-                ["DbRateLimitMiddleware"] = System.Text.Json.JsonDocument.Parse("""{"rps":5}""").RootElement
-            }
-        };
-
-        var json = System.Text.Json.JsonSerializer.Serialize(reference);
-
-        Assert.Contains("\"middlewareConfigs\"", json);
-        Assert.Contains("DbRateLimitMiddleware", json);
-    }
-
-    [Fact]
-    public void T044_ToolHarnessReference_Converter_IgnoresUnknownKeys_WhenMiddlewareConfigsPresent()
-    {
-        var json = """
-            {
-              "name": "DatabaseToolHarness",
-              "unknownProp": true,
-              "middlewareConfigs": { "MyMiddleware": { "x": 1 } }
-            }
-            """;
-
-        // Must not throw
-        var reference = System.Text.Json.JsonSerializer.Deserialize<ToolHarnessReference>(json);
-
-        Assert.NotNull(reference);
-        Assert.Equal("DatabaseToolHarness", reference!.Name);
-        Assert.NotNull(reference.MiddlewareConfigs);
-        Assert.True(reference.MiddlewareConfigs!.ContainsKey("MyMiddleware"));
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // CATEGORY 10 — CollapseMiddlewareConfigFactory record
-    // ═══════════════════════════════════════════════════════════════════════
-
-    [Fact]
-    public void T045_CollapseMiddlewareConfigFactory_FactoryDelegate_ReceivesJsonElement()
-    {
-        var json = System.Text.Json.JsonDocument.Parse("""{"requestsPerMinute":20}""").RootElement;
-        var factory = new CollapseMiddlewareConfigFactory(
-            MiddlewareTypeName: "DbRateLimitMiddleware",
-            Factory: element => new ConfigCapturingMiddleware(element));
-
-        var instance = factory.Factory(json) as ConfigCapturingMiddleware;
-
-        Assert.NotNull(instance);
-        Assert.Equal(20, instance!.ReceivedConfig.GetProperty("requestsPerMinute").GetInt32());
-    }
-
-    [Fact]
-    public void T046_ToolHarnessFactory_CollapseMiddlewareConfigFactories_DefaultsToNull()
-    {
-        var factory = new ToolHarnessFactory(
-            Name: "MathToolHarness",
-            ToolHarnessType: typeof(object),
-            CreateInstance: () => new object(),
-            CreateFunctions: (_, _, _) => new List<AIFunction>(),
-            GetReferencedToolHarnesses: () => Array.Empty<string>(),
-            GetReferencedFunctions: () => new Dictionary<string, string[]>());
-
-        Assert.Null(factory.CollapseMiddlewareConfigFactories);
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // CATEGORY 11 — BeforeParallelBatchAsync dispatch
-    // ═══════════════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task T050_BeforeParallelBatchAsync_DispatchesToToolHarnessPipelinesForFunctionsInBatch()
-    {
-        var dbOrder = new List<string>();
-        var searchOrder = new List<string>();
-        var dbSpy = new SpyMiddleware("DbSpy", dbOrder);
-        var searchSpy = new SpyMiddleware("SearchSpy", searchOrder);
-
-        var tools = new List<AITool>();
-        tools.AddRange(BuildToolsForCollapsedToolHarness("DbToolHarness", ["Query", "Execute"]));
-        tools.AddRange(BuildToolsForCollapsedToolHarness("SearchToolHarness", ["WebSearch"]));
-
-        var factories = new Dictionary<string, ToolHarnessFactory>
-        {
-            ["DbToolHarness"] = BuildToolHarnessFactory("DbToolHarness", ["Query", "Execute"], middlewareFactories: null),
-            ["SearchToolHarness"] = BuildToolHarnessFactory("SearchToolHarness", ["WebSearch"], middlewareFactories: null),
-        };
-        var middleware = new ContainerMiddleware(
-            tools,
-            ImmutableHashSet<string>.Empty,
-            factories,
-            HARNESScopedMiddlewares: null,
-            middlewareConfigs: null,
-            new CollapsingConfig { Enabled = true });
-
-        var state = new ContainerMiddlewareState()
-            .WithExpandedContainer("DbToolHarness")
-            .WithExpandedContainer("SearchToolHarness")
-            .WithToolHarnessPipeline("DbToolHarness", new AgentMiddlewarePipeline(new IAgentMiddleware[] { dbSpy }))
-            .WithToolHarnessPipeline("SearchToolHarness", new AgentMiddlewarePipeline(new IAgentMiddleware[] { searchSpy }));
-
-        // Batch contains one DbToolHarness fn and one SearchToolHarness fn
-        var batch = new List<ParallelFunctionInfo>
-        {
-            MakeParallelFunctionInfo("Query"),
-            MakeParallelFunctionInfo("WebSearch"),
-        };
-        var ctx = CreateBeforeParallelBatchContextWithState(state, batch);
-
-        await middleware.BeforeParallelBatchAsync(ctx, CancellationToken.None);
-
-        Assert.Contains("DbSpy.BeforeParallelBatch", dbOrder);
-        Assert.Contains("SearchSpy.BeforeParallelBatch", searchOrder);
-    }
-
-    [Fact]
-    public async Task T051_BeforeParallelBatchAsync_DispatchesEachToolHarnessPipelineOnlyOnce_EvenWithMultipleFunctions()
-    {
-        var order = new List<string>();
-        var dbSpy = new SpyMiddleware("DbSpy", order);
-
-        var tools = BuildToolsForCollapsedToolHarness("DbToolHarness", ["Query", "Execute"]);
-        var factories = new Dictionary<string, ToolHarnessFactory>
-        {
-            ["DbToolHarness"] = BuildToolHarnessFactory("DbToolHarness", ["Query", "Execute"], middlewareFactories: null),
-        };
-        var middleware = new ContainerMiddleware(
-            tools,
-            ImmutableHashSet<string>.Empty,
-            factories,
-            HARNESScopedMiddlewares: null,
-            middlewareConfigs: null,
-            new CollapsingConfig { Enabled = true });
-
-        var state = new ContainerMiddlewareState()
-            .WithExpandedContainer("DbToolHarness")
-            .WithToolHarnessPipeline("DbToolHarness", new AgentMiddlewarePipeline(new IAgentMiddleware[] { dbSpy }));
-
-        // Both Query and Execute belong to DbToolHarness — pipeline should only be dispatched once
-        var batch = new List<ParallelFunctionInfo>
-        {
-            MakeParallelFunctionInfo("Query"),
-            MakeParallelFunctionInfo("Execute"),
-        };
-        var ctx = CreateBeforeParallelBatchContextWithState(state, batch);
-
-        await middleware.BeforeParallelBatchAsync(ctx, CancellationToken.None);
-
-        Assert.Equal(1, order.Count(s => s == "DbSpy.BeforeParallelBatch"));
-    }
-
-    [Fact]
-    public async Task T052_BeforeParallelBatchAsync_SkipsFunctionsNotInAnyContainer()
-    {
-        var order = new List<string>();
-        var spy = new SpyMiddleware("Spy", order);
-
-        var tools = BuildToolsForCollapsedToolHarness("DbToolHarness", ["Query"]);
-        var factories = new Dictionary<string, ToolHarnessFactory>
-        {
-            ["DbToolHarness"] = BuildToolHarnessFactory("DbToolHarness", ["Query"], middlewareFactories: null),
-        };
-        var middleware = new ContainerMiddleware(
-            tools,
-            ImmutableHashSet<string>.Empty,
-            factories,
-            HARNESScopedMiddlewares: null,
-            middlewareConfigs: null,
-            new CollapsingConfig { Enabled = true });
-
-        var state = new ContainerMiddlewareState()
-            .WithExpandedContainer("DbToolHarness")
-            .WithToolHarnessPipeline("DbToolHarness", new AgentMiddlewarePipeline(new IAgentMiddleware[] { spy }));
-
-        // Batch: one known fn (Query) and one unknown fn (GlobalFunc not in any container)
-        var batch = new List<ParallelFunctionInfo>
-        {
-            MakeParallelFunctionInfo("Query"),
-            MakeParallelFunctionInfo("GlobalFunc"),
-        };
-        var ctx = CreateBeforeParallelBatchContextWithState(state, batch);
-
-        await middleware.BeforeParallelBatchAsync(ctx, CancellationToken.None);
-
-        // DbToolHarness dispatched exactly once (for Query); GlobalFunc produced no dispatch
-        Assert.Equal(1, order.Count(s => s == "Spy.BeforeParallelBatch"));
-    }
-
-    [Fact]
-    public async Task T053_BeforeParallelBatchAsync_DoesNotDispatch_WhenToolHarnessFactoriesNull()
-    {
-        var order = new List<string>();
-        var spy = new SpyMiddleware("Spy", order);
-
-        // toolharnessFactories = null → early return before any dispatch
-        var middleware = BuildContainerMiddleware(toolharnessFactories: null);
-
-        var state = new ContainerMiddlewareState()
-            .WithToolHarnessPipeline("DbToolHarness", new AgentMiddlewarePipeline(new IAgentMiddleware[] { spy }));
-
-        var batch = new List<ParallelFunctionInfo> { MakeParallelFunctionInfo("Query") };
-        var ctx = CreateBeforeParallelBatchContextWithState(state, batch);
-
-        await middleware.BeforeParallelBatchAsync(ctx, CancellationToken.None);
-
-        Assert.Empty(order);
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // ADDITIONAL HELPER TYPES
-    // ═══════════════════════════════════════════════════════════════════════
-
-    /// <summary>Captures the JsonElement config it was constructed with (for §5A tests).</summary>
-    private class ConfigCapturingMiddleware(System.Text.Json.JsonElement config) : IToolHarnessMiddleware
-    {
-        public System.Text.Json.JsonElement ReceivedConfig { get; } = config;
     }
 }

@@ -19,7 +19,7 @@ public class ThreadOperationTests : AgentTestBase
     public async Task InMemoryStore_SaveAndLoadThread_RoundTrip()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
@@ -42,7 +42,7 @@ public class ThreadOperationTests : AgentTestBase
     public async Task InMemoryStore_LoadThread_NonExistent_ReturnsNull()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
 
         // Act
         var result = await store.ProjectThreadAsync("no-session", "no-thread", ThreadProjectionPurpose.ThreadHistory);
@@ -55,7 +55,7 @@ public class ThreadOperationTests : AgentTestBase
     public async Task InMemoryStore_DeleteThread_RemovesThread()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
@@ -75,7 +75,7 @@ public class ThreadOperationTests : AgentTestBase
     public async Task InMemoryStore_ListThreads_ReturnsAllDescriptors()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
@@ -98,7 +98,7 @@ public class ThreadOperationTests : AgentTestBase
     public async Task InMemoryStore_DeleteSession_AlsoDeletesAllThreads()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
         await store.SaveInitialThreadAsync("test-session", session.CreateThread("test-agent", "main"));
@@ -120,7 +120,7 @@ public class ThreadOperationTests : AgentTestBase
     public async Task InMemoryStore_MultipleThreads_MessageIsolation()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
@@ -147,7 +147,7 @@ public class ThreadOperationTests : AgentTestBase
     public async Task InMemoryStore_DeleteThread_DoesNotAffectOtherThreads()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
@@ -168,7 +168,7 @@ public class ThreadOperationTests : AgentTestBase
     public async Task InMemoryStore_DeleteThread_SessionRemains()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var session = new HPD.Agent.Session("test-session");
         session.AddMetadata("project", "test");
         await store.SaveSessionAsync(session);
@@ -194,7 +194,7 @@ public class ThreadOperationTests : AgentTestBase
         var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-test-{Guid.NewGuid():N}");
         try
         {
-            var store = new FileSessionStore(tempDir);
+            var store = new FileSessionStore(tempDir, HPD.Agent.Tests.TestEventApplication.Codec);
             var session = new HPD.Agent.Session("test-session");
             await store.SaveSessionAsync(session);
 
@@ -226,7 +226,7 @@ public class ThreadOperationTests : AgentTestBase
         var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-test-{Guid.NewGuid():N}");
         try
         {
-            var store = new FileSessionStore(tempDir);
+            var store = new FileSessionStore(tempDir, HPD.Agent.Tests.TestEventApplication.Codec);
             var session = new HPD.Agent.Session("test-session");
             await store.SaveSessionAsync(session);
 
@@ -255,7 +255,7 @@ public class ThreadOperationTests : AgentTestBase
         var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-test-{Guid.NewGuid():N}");
         try
         {
-            var store = new FileSessionStore(tempDir);
+            var store = new FileSessionStore(tempDir, HPD.Agent.Tests.TestEventApplication.Codec);
             var session = new HPD.Agent.Session("test-session");
             await store.SaveSessionAsync(session);
 
@@ -284,7 +284,7 @@ public class ThreadOperationTests : AgentTestBase
         var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-test-{Guid.NewGuid():N}");
         try
         {
-            var store = new FileSessionStore(tempDir);
+            var store = new FileSessionStore(tempDir, HPD.Agent.Tests.TestEventApplication.Codec);
             var session = new HPD.Agent.Session("test-session");
             await store.SaveSessionAsync(session);
 
@@ -312,7 +312,7 @@ public class ThreadOperationTests : AgentTestBase
     public async Task Thread_Description_SetAndRetrieved()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
@@ -331,7 +331,7 @@ public class ThreadOperationTests : AgentTestBase
     public async Task Thread_Tags_SetAndRetrieved()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
@@ -394,7 +394,7 @@ public class ThreadOperationTests : AgentTestBase
     public async Task ForkThread_CreatesNewThread_WithCorrectLineage()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
@@ -426,7 +426,7 @@ public class ThreadOperationTests : AgentTestBase
     public async Task ForkThread_CopiesMessages_UpToForkPoint()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
@@ -450,7 +450,7 @@ public class ThreadOperationTests : AgentTestBase
     public async Task ForkThread_CopiesThreadMiddlewareState()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
@@ -475,7 +475,7 @@ public class ThreadOperationTests : AgentTestBase
     public async Task ForkThread_ThreadStateDivergesAfterFork()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
@@ -515,7 +515,7 @@ public class ThreadOperationTests : AgentTestBase
     public async Task SessionMiddlewareState_SharedAcrossThreads()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var session = new HPD.Agent.Session("test-session");
         session.MiddlewareState["PermissionPersistentState"] = "{\"Bash\":\"AlwaysAllow\"}";
         await store.SaveSessionAsync(session);
@@ -534,7 +534,7 @@ public class ThreadOperationTests : AgentTestBase
     public async Task ThreadMiddlewareState_IsolatedPerThread()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
@@ -627,7 +627,7 @@ public class ThreadOperationTests : AgentTestBase
     [Fact]
     public async Task LoadSessionAndThread_SingleThread_DefaultsToMain()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
         await store.SaveInitialThreadAsync("test-session", session.CreateThread("test-agent", "main"));
@@ -646,7 +646,7 @@ public class ThreadOperationTests : AgentTestBase
     [Fact]
     public async Task LoadSessionAndThread_MultipleThreads_NoThreadId_ThrowsAmbiguousThreadException()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
         await store.SaveInitialThreadAsync("test-session", session.CreateThread("test-agent", "main"));
@@ -669,7 +669,7 @@ public class ThreadOperationTests : AgentTestBase
     [Fact]
     public async Task LoadSessionAndThread_MultipleThreads_ExplicitThreadId_Works()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
         await store.SaveInitialThreadAsync("test-session", session.CreateThread("test-agent", "main"));
@@ -689,7 +689,7 @@ public class ThreadOperationTests : AgentTestBase
     [Fact]
     public async Task LoadSessionAndThread_SessionNotInStore_ThrowsSessionNotFoundException()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
 
         var agent = new AgentBuilder(DefaultConfig(), new TestProviderRegistry(new FakeChatClient()))
             .WithSessionStore(store)
@@ -706,7 +706,7 @@ public class ThreadOperationTests : AgentTestBase
     [Fact]
     public async Task LoadSessionAndThread_ThreadNotInStore_ThrowsSessionNotFoundException()
     {
-        var store = new InMemorySessionStore();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
 
         var agent = new AgentBuilder(DefaultConfig(), new TestProviderRegistry(new FakeChatClient()))
             .WithSessionStore(store)

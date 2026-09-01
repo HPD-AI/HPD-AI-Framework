@@ -20,11 +20,11 @@ public sealed class RuntimeTelemetryTests
         var runtime = provider.GetRequiredService<IBaseRecordRuntime>();
 
         await runtime.ListAsync("items", new RecordQuery(), RuntimeTestData.AnonymousPrincipal, RuntimeTestData.Operation(BaseOperationKind.List), CancellationToken.None);
-        await runtime.GetAsync("items", new RecordId("rec_seed"), RuntimeTestData.AnonymousPrincipal, RuntimeTestData.Operation(BaseOperationKind.Get), CancellationToken.None);
+        await runtime.GetAsync("items", RecordId.Create("rec_seed"), RuntimeTestData.AnonymousPrincipal, RuntimeTestData.Operation(BaseOperationKind.Get), CancellationToken.None);
         await runtime.CreateAsync("items", CreateRequest("rec_created"), RuntimeTestData.AnonymousPrincipal, RuntimeTestData.Operation(BaseOperationKind.Create), CancellationToken.None);
-        await runtime.PatchAsync("items", new RecordId("rec_created"), PatchRequest(), RuntimeTestData.AnonymousPrincipal, RuntimeTestData.Operation(BaseOperationKind.Patch), CancellationToken.None);
-        await runtime.ReplaceAsync("items", new RecordId("rec_created"), ReplaceRequest(), RuntimeTestData.AnonymousPrincipal, RuntimeTestData.Operation(BaseOperationKind.Replace), CancellationToken.None);
-        await runtime.DeleteAsync("items", new RecordId("rec_created"), new RecordDeleteRequest(), RuntimeTestData.AnonymousPrincipal, RuntimeTestData.Operation(BaseOperationKind.Delete), CancellationToken.None);
+        await runtime.PatchAsync("items", RecordId.Create("rec_created"), PatchRequest(), RuntimeTestData.AnonymousPrincipal, RuntimeTestData.Operation(BaseOperationKind.Patch), CancellationToken.None);
+        await runtime.ReplaceAsync("items", RecordId.Create("rec_created"), ReplaceRequest(), RuntimeTestData.AnonymousPrincipal, RuntimeTestData.Operation(BaseOperationKind.Replace), CancellationToken.None);
+        await runtime.DeleteAsync("items", RecordId.Create("rec_created"), new RecordDeleteRequest(), RuntimeTestData.AnonymousPrincipal, RuntimeTestData.Operation(BaseOperationKind.Delete), CancellationToken.None);
 
         var names = listener.Stopped.Select(activity => activity.OperationName).ToArray();
         Assert.Contains(HPDBaseTelemetrySpans.RuntimeRecordsList, names);
@@ -214,14 +214,14 @@ public sealed class RuntimeTelemetryTests
     private static RecordEnvelope Record(string id) => new()
     {
         CollectionId = "items",
-        Id = new RecordId(id),
+        Id = RecordId.Create(id),
         Payload = Payload("seed"),
         Metadata = new RecordMetadata()
     };
 
     private static RecordCreateRequest CreateRequest(string requestedId) => new()
     {
-        RequestedId = new RecordId(requestedId),
+        RequestedId = RecordId.Create(requestedId),
         Payload = Payload("created")
     };
 
@@ -232,7 +232,8 @@ public sealed class RuntimeTelemetryTests
 
     private static RecordPatchRequest PatchRequest() => new()
     {
-        Patch = Payload("patched")
+        Patch = Payload("patched"),
+        RemovedFieldIds = []
     };
 
     private static RecordReplaceRequest ReplaceRequest() => new()

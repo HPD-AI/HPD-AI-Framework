@@ -24,6 +24,7 @@ public abstract class SessionManager : IDisposable
     private readonly ISessionStore _store;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _threadOperationLocks = new();
     private readonly ConcurrentDictionary<string, ThreadExecutionState> _threadExecutions = new();
+    private readonly ConcurrentDictionary<string, string> _pausedThreadPromotions = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _sessionLocks = new();
     private readonly ConcurrentDictionary<string, ThreadExecutionProjectionCache> _threadExecutionProjections = new();
     private bool _disposed;
@@ -101,13 +102,17 @@ public abstract class SessionManager : IDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
+        var executionId = Guid.NewGuid().ToString("N");
         var candidate = new ThreadExecutionState(
-            Guid.NewGuid().ToString("N"),
+            executionId,
             agentId,
             sessionId,
             threadId,
             DateTimeOffset.UtcNow,
-            ThreadExecutionOwnership.Reserved);
+            ThreadExecutionOwnership.Reserved)
+        {
+            Reservation = new CoordinatorWorkReservation(agentId, sessionId, threadId, executionId)
+        };
 
         var key = ThreadExecutionKey(sessionId, threadId);
         if (_threadExecutions.TryAdd(key, candidate))
@@ -132,6 +137,15 @@ public abstract class SessionManager : IDisposable
             ? execution
             : null;
     }
+
+    public void PauseThreadPromotion(string sessionId, string threadId, string threadExecutionId)
+        => _pausedThreadPromotions[ThreadExecutionKey(sessionId, threadId)] = threadExecutionId;
+
+    public bool TryResumeThreadPromotion(string sessionId, string threadId)
+        => _pausedThreadPromotions.TryRemove(ThreadExecutionKey(sessionId, threadId), out _);
+
+    public bool IsThreadPromotionPaused(string sessionId, string threadId)
+        => _pausedThreadPromotions.ContainsKey(ThreadExecutionKey(sessionId, threadId));
 
     public bool ActivateThreadExecution(string sessionId, string threadId, string threadExecutionId)
     {
@@ -347,7 +361,10 @@ public sealed record ThreadExecutionState(
     string SessionId,
     string ThreadId,
     DateTimeOffset StartedAt,
-    ThreadExecutionOwnership Ownership);
+    ThreadExecutionOwnership Ownership)
+{
+    internal CoordinatorWorkReservation Reservation { get; init; } = null!;
+}
 
 public enum ThreadExecutionOwnership
 {

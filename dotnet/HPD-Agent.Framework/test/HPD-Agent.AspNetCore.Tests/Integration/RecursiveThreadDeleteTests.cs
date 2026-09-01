@@ -37,7 +37,7 @@ public class RecursiveDeleteEnabledFactory : IDisposable
                 services.AddRouting();
                 services.AddSingleton(_fakeChatClient);
                 services.AddSingleton<IAgentFactory, TestWebApplicationAgentFactory>();
-                services.AddHPDAgent("test-agent", options =>
+                services.AddTestApplicationCompositions().AddHPDAgent("test-agent", options =>
                 {
                     options.SessionStorePath = Path.Combine(Path.GetTempPath(), $"hpd-recursive-{Guid.NewGuid()}");
                     options.AllowRecursiveThreadDelete = true;

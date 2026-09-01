@@ -31,6 +31,7 @@ internal sealed class RealtimeProviderProtocolParticipantV1 : IAgentInteractiveM
     private RealtimeProviderProtocolPhaseV1 _phase = RealtimeProviderProtocolPhaseV1.Created;
 
     public AgentModelTransport Transport => AgentModelTransport.Realtime;
+
     internal RealtimeProviderProtocolSnapshotV1 Snapshot => new(_revision, _phase, _submittedUserMessageKeys.Count);
 
     public async IAsyncEnumerable<AgentModelUpdate> RunAsync(
@@ -499,7 +500,8 @@ internal sealed class RealtimeProviderProtocolParticipantV1 : IAgentInteractiveM
                     : AgentInputTranscriptStage.Partial,
             message.ItemId,
             message.ContentIndex,
-            ToException(message.Error));
+            ToException(message.Error),
+            message.Usage);
 
     private static IEnumerable<AgentModelUpdate> MapOutput(OutputTextAudioRealtimeServerMessage message)
     {

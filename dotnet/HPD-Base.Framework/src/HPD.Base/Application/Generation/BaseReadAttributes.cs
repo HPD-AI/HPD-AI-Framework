@@ -89,6 +89,12 @@ public sealed class BaseReadParameterAttribute(string id) : Attribute
 {
     /// <summary>Gets the stable parameter identifier.</summary>
     public string Id { get; } = id;
+
+    /// <summary>Gets or sets the minimum decoded byte length of a <see cref="BaseBinary"/> value.</summary>
+    public int MinimumBytes { get; set; }
+
+    /// <summary>Gets or sets the mandatory maximum decoded byte length of a <see cref="BaseBinary"/> value.</summary>
+    public int MaximumBytes { get; set; }
 }
 
 /// <summary>Declares one stable generated read projection field.</summary>
@@ -98,4 +104,10 @@ public sealed class BaseReadFieldAttribute(string id) : Attribute
 {
     /// <summary>Gets the stable projection-field identifier.</summary>
     public string Id { get; } = id;
+
+    /// <summary>Gets or sets the minimum decoded byte length of a <see cref="BaseBinary"/> value.</summary>
+    public int MinimumBytes { get; set; }
+
+    /// <summary>Gets or sets the mandatory maximum decoded byte length of a <see cref="BaseBinary"/> value.</summary>
+    public int MaximumBytes { get; set; }
 }

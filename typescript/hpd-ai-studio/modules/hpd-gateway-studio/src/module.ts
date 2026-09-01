@@ -1,5 +1,20 @@
 import type { GatewayClient } from '@hpd/gateway-client';
-import type { StudioModule, StudioModuleInitialization } from '@hpd-research/hpd-studio-core';
+import { gatewayOperationInventoryChecksum, gatewayOperations } from '@hpd/gateway-client';
+import { createGatewayStudioClient, type GatewayStudioClientHostContext } from '@hpd/gateway-client/studio-host';
+import {
+  computeStudioFrontendAbiChecksum,
+  defineStudioModuleDescriptor,
+  studioClientId,
+  studioPageId,
+  studioSha256,
+  validateStudioModuleActivation,
+  type StudioAuthenticationService,
+  type StudioLifecycle,
+  type StudioModuleActivation,
+  type StudioModuleActivationContext,
+  type StudioPageComponentBinding,
+  type StudioPageId
+} from '@hpd-research/hpd-studio-core';
 import GatewayOverview from './GatewayOverview.svelte';
 import GatewayConfigure from './GatewayConfigure.svelte';
 import GatewayOperate from './GatewayOperate.svelte';
@@ -9,61 +24,118 @@ import { createGatewayDeclarationController } from './declaration-state.ts';
 import { createGatewayQuickRouteCoordinator } from './quick-route.ts';
 import { createGatewayManagedWorkflowController } from './managed-workflows.ts';
 import { createGatewayOperationsController } from './operations.ts';
-import { validateGatewayObservabilityLinks, type GatewayObservabilityLink } from './observability-links.ts';
+import { installGatewayRuntimeContext, type GatewayRuntimeContext } from './runtime-context.ts';
 
-export type { GatewayObservabilityLink } from './observability-links.ts';
+const clientId = studioClientId('gateway.admin');
+const runtimeAbiChecksum = studioSha256('da2abd35244cc5ceebe99d49ee50941100b09939c556515661a6942981879c8f');
+const generatedContractChecksum = studioSha256('02c406f8c49752d24278f14e4db91694c8e84bf8ff2ef37b2e3feed81cdb21f7');
+const operationInventoryChecksum = studioSha256(gatewayOperationInventoryChecksum);
+const componentAbiChecksum = studioSha256('e1a32da3c6dea7d690c8380873ddf4225687df4a220de4038ad1c0137e53f0a3');
+const pageDefinitions = [
+  ['gateway.configure', 'component.gateway.configure', GatewayConfigure],
+  ['gateway.diagnose', 'component.gateway.diagnose', GatewayDiagnose],
+  ['gateway.operate', 'component.gateway.operate', GatewayOperate],
+  ['gateway.overview', 'component.gateway.overview', GatewayOverview]
+] as const;
+const pageComponents = Object.freeze(Object.fromEntries(pageDefinitions.map(([id, exportId, component]) => {
+  const binding: StudioPageComponentBinding = Object.freeze({
+    componentExportId: exportId as string,
+    componentAbiChecksum,
+    component: component as unknown as StudioPageComponentBinding['component']
+  });
+  return [studioPageId(id as string), binding] as const;
+}))) as Readonly<Record<StudioPageId, StudioPageComponentBinding>>;
+const clientSlots = Object.freeze([Object.freeze({ clientId, version: 1, staticRuntimeAbiChecksum: runtimeAbiChecksum,
+  protocol: 'frameworkGeneratedContractV1' as const, generatedContractChecksum, operationInventoryChecksum,
+  endpointSurfaceId: 'gateway.admin.v1', transportClass: 'sameOriginShellAuthenticated' as const,
+  owningPageIds: Object.freeze(pageDefinitions.map(([id]) => studioPageId(id))),
+  limitsChecksum: studioSha256('99fc0b8491cf94f0c171fbfa337821f84f456f349cdf12b1ff571d8c60227e75') })]);
+const frontendAbiChecksum = computeStudioFrontendAbiChecksum('gateway', 1, clientSlots, pageComponents);
 
-export interface GatewayStudioModuleOptions {
-  readonly client: GatewayClient;
-  readonly now?: () => Date;
-  readonly isVisible?: () => boolean;
-  readonly observabilityLinks?: readonly GatewayObservabilityLink[];
+/** Static, authorization-neutral Gateway Studio frontend contribution. */
+export const studioModuleDescriptor = defineStudioModuleDescriptor({
+  moduleId: 'gateway',
+  moduleVersion: 1,
+  frontendAbiChecksum,
+  clientSlots,
+  pageComponents
+});
+
+/** Host-only generated-client activator consumed by the trusted Studio shell before module activation. */
+export const studioFrameworkClientActivators = Object.freeze([Object.freeze({
+  clientId,
+  version: 1,
+  runtimeAbiChecksum,
+  generatedContractChecksum,
+  operationInventoryChecksum,
+  async create(context: GatewayStudioClientHostContext): Promise<Readonly<{ readonly client: GatewayClient; dispose(): void }>> {
+    const client = createGatewayStudioClient(context);
+    let disposed = false;
+    return Object.freeze({ client, dispose(): void { disposed = true; void disposed; } });
+  }
+})]);
+
+/** Activates Gateway semantics over the shell-owned, principal-generation-bound generated client. */
+export async function activateStudioModule(context: StudioModuleActivationContext): Promise<StudioModuleActivation> {
+  validateStudioModuleActivation(studioModuleDescriptor, context);
+  const binding = context.clients.get(clientId);
+  if (!binding || !isGatewayClient(binding.client)) throw new TypeError('Gateway Studio generated-client authority is unavailable.');
+  const lifecycle = createLifecycle(context);
+  const authentication = createActivationAuthentication(binding.generatedContractChecksum);
+  const controller = createGatewayStudioController({ client: binding.client, authentication, lifecycle });
+  let principalGeneration = 1n;
+  const declaration = createGatewayDeclarationController({ client: binding.client, hostCapabilityIdentity: () => {
+    const host = controller.snapshot().observation?.hostCapabilities;
+    return host?.state === 'value' && host.value ? { algorithm: host.value.snapshotAlgorithm, value: host.value.snapshotValue } : null;
+  }});
+  const workflows = createGatewayManagedWorkflowController({ client: binding.client, studio: controller, declaration, authentication });
+  const operations = createGatewayOperationsController({ client: binding.client, studio: controller, managed: workflows, authentication });
+  const quickRoute = createGatewayQuickRouteCoordinator({ declaration, client: binding.client,
+    principalGeneration: () => principalGeneration, capabilityIdentity: () => {
+      const host = controller.snapshot().observation?.hostCapabilities;
+      return host?.state === 'value' && host.value ? { algorithm: host.value.snapshotAlgorithm, value: host.value.snapshotValue } : null;
+    }});
+  const runtime: GatewayRuntimeContext = Object.freeze({ controller, declaration, quickRoute, workflows, operations, observabilityLinks: Object.freeze([]) });
+  const uninstall = installGatewayRuntimeContext(runtime);
+  let disposed = false;
+  return Object.freeze({
+    moduleId: 'gateway', moduleVersion: 1, frontendAbiChecksum,
+    async dispose(): Promise<void> {
+      if (disposed) return;
+      disposed = true; principalGeneration++; uninstall(); operations.dispose(); workflows.dispose();
+      quickRoute.dispose(); declaration.dispose(); controller.dispose(); lifecycle.dispose();
+    }
+  });
 }
 
-export function createGatewayStudioModule(options: GatewayStudioModuleOptions): StudioModule {
-  if (!options || !options.client) throw new TypeError('Gateway Studio requires an HPD Gateway client.');
-  const observabilityLinks=validateGatewayObservabilityLinks(options.observabilityLinks??[]);
-  return Object.freeze({
-    id: 'gateway',
-    label: 'Gateway',
-    title: 'HPD Gateway Studio',
-    description: 'Governed Gateway lifecycle, configuration, operation, and diagnosis.',
-    navItems: [{ path: '/gateway', label: 'Gateway', summary: 'Gateway operational truth' },{path:'/gateway/configure',label:'Configure',summary:'Author and validate one complete candidate'},{path:'/gateway/operate',label:'Operate',summary:'Immutable revisions and governed activation'},{path:'/gateway/diagnose',label:'Diagnose',summary:'Outcome-first diagnosis and safe observation export'}],
-    routes: [{
-      path: '/gateway',
-      component: GatewayOverview,
-      title: 'Gateway Overview',
-      eyebrow: 'HPD Gateway Studio',
-      summary: 'Outcome-first desired, delivered, active, and effective truth.'
-    },{path:'/gateway/configure',component:GatewayConfigure,title:'Gateway Configure',eyebrow:'HPD Gateway Studio',summary:'Lossless complete-document authoring and validation.'},{path:'/gateway/operate',component:GatewayOperate,title:'Gateway Operate',eyebrow:'HPD Gateway Studio',summary:'Review immutable revisions, delivery, and exact activation outcomes.'},{path:'/gateway/diagnose',component:GatewayDiagnose,title:'Gateway Diagnose',eyebrow:'HPD Gateway Studio',summary:'Outcome-first diagnosis, provenance, and bounded local export.'}],
-    initialize(context: StudioModuleInitialization) {
-      const controller = createGatewayStudioController({
-        client: options.client,
-        authentication: context.authentication,
-        lifecycle: context.lifecycle,
-        now: options.now,
-        isVisible: options.isVisible
-      });
-      let principalGeneration=0n;
-      let prior=context.authentication.snapshot();
-      const declaration=createGatewayDeclarationController({client:options.client,hostCapabilityIdentity:()=>{const snapshot=controller.snapshot();const host=snapshot.observation?.hostCapabilities;return host?.state==='value'&&host.value?{algorithm:host.value.snapshotAlgorithm,value:host.value.snapshotValue}:null;}});
-      const workflows=createGatewayManagedWorkflowController({client:options.client,studio:controller,declaration,authentication:context.authentication});
-      const operations=createGatewayOperationsController({client:options.client,studio:controller,managed:workflows,authentication:context.authentication,now:options.now});
-      const quickRoute=createGatewayQuickRouteCoordinator({declaration,client:options.client,principalGeneration:()=>principalGeneration,capabilityIdentity:()=>{const snapshot=controller.snapshot();const host=snapshot.observation?.hostCapabilities;return host?.state==='value'&&host.value?{algorithm:host.value.snapshotAlgorithm,value:host.value.snapshotValue}:null;}});
-      const authUnsubscribe=context.authentication.subscribe(next=>{const changed=!next.isAuthenticated||!prior.isAuthenticated||next.subjectHint===undefined||prior.subjectHint===undefined||next.subjectHint!==prior.subjectHint;if(changed){principalGeneration++;quickRoute.cancel();declaration.clearPrincipal();}prior=next;});
-      context.contexts.set('gateway-controller', controller);
-      context.contexts.set('gateway-declaration-controller',declaration);
-      context.contexts.set('gateway-quick-route-coordinator',quickRoute);
-      context.contexts.set('gateway-managed-workflow-controller',workflows);
-      context.contexts.set('gateway-operations-controller',operations);
-      context.contexts.set('gateway-observability-links',observabilityLinks);
-      context.lifecycle.defer(() => context.contexts.delete('gateway-controller'));
-      context.lifecycle.defer(() => context.contexts.delete('gateway-declaration-controller'));
-      context.lifecycle.defer(() => context.contexts.delete('gateway-quick-route-coordinator'));
-      context.lifecycle.defer(() => context.contexts.delete('gateway-managed-workflow-controller'));
-      context.lifecycle.defer(() => context.contexts.delete('gateway-operations-controller'));
-      context.lifecycle.defer(() => context.contexts.delete('gateway-observability-links'));
-      return { dispose: () => {authUnsubscribe();operations.dispose();workflows.dispose();quickRoute.dispose();declaration.dispose();controller.dispose();} };
-    }
+function isGatewayClient(value: object): value is GatewayClient {
+  const candidate = value as Record<string, unknown>;
+  return gatewayOperations.length > 0 && gatewayOperations.every(operation => typeof candidate[operation.operation] === 'function');
+}
+
+function createActivationAuthentication(subjectHint: string): StudioAuthenticationService {
+  const snapshot = Object.freeze({ isAuthenticated: true, subjectHint });
+  return Object.freeze({ snapshot: () => snapshot, subscribe(listener: (value: typeof snapshot) => void): () => void {
+    listener(snapshot); return () => undefined;
+  }});
+}
+
+function createLifecycle(context: StudioModuleActivationContext): StudioLifecycle & { dispose(): void } {
+  const disposers: Array<() => void> = [];
+  const defer = (dispose: () => void | Promise<void>): void => {
+    context.lifecycle.defer(dispose); disposers.push(() => { void dispose(); });
+  };
+  return Object.freeze({ signal: context.lifecycle.signal, defer,
+    trackAbortController(controller = new AbortController()): AbortController {
+      const abort = (): void => controller.abort(); context.lifecycle.signal.addEventListener('abort', abort, { once: true });
+      defer(() => { context.lifecycle.signal.removeEventListener('abort', abort); controller.abort(); }); return controller;
+    },
+    setInterval(callback: () => void, milliseconds: number): number {
+      const handle = globalThis.setInterval(callback, milliseconds); defer(() => globalThis.clearInterval(handle)); return handle;
+    },
+    listen(target: Pick<EventTarget, 'addEventListener' | 'removeEventListener'>, type: string, listener: EventListener): void {
+      target.addEventListener(type, listener); defer(() => target.removeEventListener(type, listener));
+    },
+    dispose(): void { for (const dispose of disposers.splice(0).reverse()) dispose(); }
   });
 }

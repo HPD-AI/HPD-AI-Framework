@@ -16,10 +16,10 @@ public abstract class RecordStoreRevisionConformanceTests<TFixture> : RecordStor
             Collection,
             new RecordCreateRequest
             {
-                RequestedId = new RecordId("revision-target"),
+                RequestedId = RecordId.Create("revision-target"),
                 Payload = RecordStoreConformanceData.Payload(("title", "old"))
             },
-            Operation(BaseOperationKind.Create, new RecordId("revision-target")));
+            Operation(BaseOperationKind.Create, RecordId.Create("revision-target")));
         RecordStoreConformanceAssertions.Success(create, OperationStatus.Created);
         Assert.NotNull(create.Value!.Metadata.Revision);
 
@@ -28,6 +28,7 @@ public abstract class RecordStoreRevisionConformanceTests<TFixture> : RecordStor
             create.Value.Id,
             new RecordPatchRequest
             {
+                RemovedFieldIds = [],
                 ExpectedRevision = create.Value.Metadata.Revision,
                 Patch = RecordStoreConformanceData.Patch(("title", RecordStoreConformanceData.StringElement("patched")))
             },
@@ -76,6 +77,7 @@ public abstract class RecordStoreRevisionConformanceTests<TFixture> : RecordStor
             record.Id,
             new RecordPatchRequest
             {
+                RemovedFieldIds = [],
                 Patch = RecordStoreConformanceData.Patch(("title", RecordStoreConformanceData.StringElement("new"))),
                 ExpectedRevision = stale
             },
@@ -145,6 +147,7 @@ public abstract class RecordStoreRevisionConformanceTests<TFixture> : RecordStor
                 record.Id,
                 new RecordPatchRequest
                 {
+                    RemovedFieldIds = [],
                     ExpectedRevision = expected,
                     Patch = RecordStoreConformanceData.Patch(("title", RecordStoreConformanceData.StringElement("patched")))
                 },

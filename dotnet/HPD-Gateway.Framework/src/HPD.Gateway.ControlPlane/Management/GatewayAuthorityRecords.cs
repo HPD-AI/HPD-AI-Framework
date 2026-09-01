@@ -7,12 +7,11 @@ namespace HPD.Gateway.ControlPlane;
 [BaseIndex("gateway.revisions.namespace-target", nameof(NamespaceId), nameof(TargetNodeId), Required = false)]
 internal sealed partial record GatewayAcceptedRevision
 {
-    private byte[] _canonicalConfigurationUtf8 = [];
     [BaseField("revision.namespace-id")] public required string NamespaceId { get; init; }
     [BaseField("revision.target-node-id")] public required string TargetNodeId { get; init; }
     [BaseField("revision.content-hash-algorithm")] public required string ContentHashAlgorithm { get; init; }
     [BaseField("revision.content-hash-value")] public required string ContentHashValue { get; init; }
-    [BaseField("revision.canonical-configuration")] public required byte[] CanonicalConfigurationUtf8 { get => [.. _canonicalConfigurationUtf8]; init => _canonicalConfigurationUtf8 = value is null ? throw new ArgumentNullException(nameof(value)) : [.. value]; }
+    [BaseField("revision.canonical-configuration", MaximumBytes = 1_048_576)] public required BaseBinary CanonicalConfigurationUtf8 { get; init; }
     [BaseField("revision.schema-version")] public required string SchemaVersion { get; init; }
     [BaseField("revision.canonicalization-version")] public required string CanonicalizationVersion { get; init; }
     [BaseField("revision.parent-id")] public string? ParentRevisionId { get; init; }
@@ -29,12 +28,11 @@ internal sealed partial record GatewayAcceptedRevision
 [BaseIndex("gateway.validations.namespace-target", nameof(NamespaceId), nameof(TargetNodeId), Required = false)]
 internal sealed partial record GatewayValidationRecord
 {
-    private byte[] _diagnosticsJson = [];
     [BaseField("validation.namespace-id")] public required string NamespaceId { get; init; }
     [BaseField("validation.target-node-id")] public required string TargetNodeId { get; init; }
     [BaseField("validation.outcome")] public required GatewayValidationOutcome Outcome { get; init; }
     [BaseField("validation.content-hash-value")] public string? ContentHashValue { get; init; }
-    [BaseField("validation.diagnostics-json")] public required byte[] DiagnosticsJson { get => [.. _diagnosticsJson]; init => _diagnosticsJson = value is null ? throw new ArgumentNullException(nameof(value)) : [.. value]; }
+    [BaseField("validation.diagnostics-json", MaximumBytes = 1_048_576)] public required BaseBinary DiagnosticsJson { get; init; }
     [BaseField("validation.correlation-id")] public required string CorrelationId { get; init; }
 }
 
@@ -163,12 +161,11 @@ internal sealed partial record GatewayNodeActivationOutcome
 [BaseIndex("gateway.receipts.operation", nameof(NamespaceId), nameof(StableOperationId), Required = false)]
 internal sealed partial record GatewayCommandReceipt
 {
-    private byte[] _fingerprint = [];
     [BaseField("receipt.namespace-id")] public required string NamespaceId { get; init; }
     [BaseField("receipt.target-node-id")] public required string TargetNodeId { get; init; }
     [BaseField("receipt.operation")] public required string Operation { get; init; }
     [BaseField("receipt.idempotency-key")] public required string IdempotencyKey { get; init; }
-    [BaseField("receipt.fingerprint")] public required byte[] Fingerprint { get => [.. _fingerprint]; init => _fingerprint = value is null ? throw new ArgumentNullException(nameof(value)) : [.. value]; }
+    [BaseField("receipt.fingerprint", MaximumBytes = 32)] public required BaseBinary Fingerprint { get; init; }
     [BaseField("receipt.result-code")] public required string StableResultCode { get; init; }
     [BaseField("receipt.operation-id")] public required string StableOperationId { get; init; }
     [BaseField("receipt.revision-id")] public string? StableRevisionId { get; init; }
@@ -179,7 +176,6 @@ internal sealed partial record GatewayCommandReceipt
 [BaseCollection(GatewayAuthoritySchema.AdministrativeOperationIntents, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnly)]
 internal sealed partial record GatewayAdministrativeOperationIntent
 {
-    private byte[]? _purgeRecordIdsJson;
     [BaseField("admin-intent.namespace-id")] public required string NamespaceId { get; init; }
     [BaseField("admin-intent.operation")] public required GatewayAdministrativeOperationKind Operation { get; init; }
     [BaseField("admin-intent.actor-id")] public required string ActorId { get; init; }
@@ -190,7 +186,7 @@ internal sealed partial record GatewayAdministrativeOperationIntent
     [BaseField("admin-intent.backup-artifact-label")] public string? BackupArtifactLabel { get; init; }
     [BaseField("admin-intent.expected-generation")] public long? ExpectedGeneration { get; init; }
     [BaseField("admin-intent.purge-collection-id")] public string? PurgeCollectionId { get; init; }
-    [BaseField("admin-intent.purge-record-ids-json")] public byte[]? PurgeRecordIdsJson { get => _purgeRecordIdsJson is null ? null : [.. _purgeRecordIdsJson]; init => _purgeRecordIdsJson = value is null ? null : [.. value]; }
+    [BaseField("admin-intent.purge-record-ids-json", MaximumBytes = 1_048_576)] public BaseBinary? PurgeRecordIdsJson { get; init; }
 }
 
 [BaseCollection(GatewayAuthoritySchema.AdministrativeArtifacts, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnly)]
@@ -226,12 +222,11 @@ internal sealed partial record GatewayPurgeAuthorityState
 [BaseCollection(GatewayAuthoritySchema.AdministrativeObservations, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnly)]
 internal sealed partial record GatewayAdministrativeOperationObservation
 {
-    private byte[] _resultJson = [];
     [BaseField("admin-observation.intent-id")] public required string IntentId { get; init; }
     [BaseField("admin-observation.kind")] public required GatewayAdministrativeObservationKind Kind { get; init; }
     [BaseField("admin-observation.result-code")] public required string ResultCode { get; init; }
     [BaseField("admin-observation.provider-generation")] public long? ProviderGeneration { get; init; }
-    [BaseField("admin-observation.result-json")] public required byte[] ResultJson { get => [.. _resultJson]; init => _resultJson = value is null ? throw new ArgumentNullException(nameof(value)) : [.. value]; }
+    [BaseField("admin-observation.result-json", MaximumBytes = 1_048_576)] public required BaseBinary ResultJson { get; init; }
 }
 
 [BaseCollection(GatewayAuthoritySchema.AdministrativeCompletions, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnly)]

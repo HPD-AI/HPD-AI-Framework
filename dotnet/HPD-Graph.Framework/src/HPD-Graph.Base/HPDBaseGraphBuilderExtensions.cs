@@ -42,15 +42,15 @@ public static class HPDBaseGraphBuilderExtensions
     public static HPDBaseBuilder AddScheduledGraphActivation(
         this HPDBaseBuilder builder,
         BaseGraphActivationDefinition definition,
-        BaseScheduleDefinition schedule)
+        BaseGeneratedScheduleRegistration schedule)
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(schedule);
-        if (!string.Equals(schedule.Activation.Id, definition.Registration.Definition.Id, StringComparison.Ordinal)
-            || schedule.Activation.Version != definition.Registration.Definition.Version
+        if (!string.Equals(schedule.Definition.Activation.Id, definition.Registration.Definition.Id, StringComparison.Ordinal)
+            || schedule.Definition.Activation.Version != definition.Registration.Definition.Version
             || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
-                schedule.Activation.Checksum.AsSpan(), definition.Registration.Definition.Checksum.AsSpan()))
+                schedule.Definition.Activation.Checksum.AsSpan(), definition.Registration.Definition.Checksum.AsSpan()))
             throw new InvalidOperationException("hpd.graph.activation.scheduleInvalid");
         builder.AddActivation(definition.Registration);
         builder.AddActivation(definition.ResumeRegistration);

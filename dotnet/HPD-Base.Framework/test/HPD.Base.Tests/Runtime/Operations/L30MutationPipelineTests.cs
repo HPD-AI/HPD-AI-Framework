@@ -374,7 +374,7 @@ public sealed class L30MutationPipelineTests
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await store.LastSession!.GetAsync(
                 Collection("items"),
-                new RecordId("session"),
+                RecordId.Create("session"),
                 RuntimeTestData.Operation(BaseOperationKind.Get),
                 CancellationToken.None));
     }
@@ -419,7 +419,7 @@ public sealed class L30MutationPipelineTests
 
         var deleted = await runtime.DeleteAsync(
             "items",
-            new RecordId("created"),
+            RecordId.Create("created"),
             new RecordDeleteRequest { ReturnPrevious = true },
             RuntimeTestData.AnonymousPrincipal,
             RuntimeTestData.Operation(BaseOperationKind.Delete),
@@ -463,7 +463,7 @@ public sealed class L30MutationPipelineTests
         string title,
         string? secret = null) => new()
     {
-        RequestedId = new RecordId(recordId),
+        RequestedId = RecordId.Create(recordId),
         Payload = Payload(title, secret)
     };
 
@@ -472,7 +472,7 @@ public sealed class L30MutationPipelineTests
         string createTitle,
         string updateTitle) => new()
     {
-        Id = new RecordId(id),
+        Id = RecordId.Create(id),
         CreatePayload = Payload(createTitle),
         UpdatePayload = Payload(updateTitle),
         UpdateMode = RecordUpsertUpdateMode.Patch,
@@ -503,7 +503,7 @@ public sealed class L30MutationPipelineTests
         string? revision = null) => new()
     {
         CollectionId = collectionId,
-        Id = new RecordId(id),
+        Id = RecordId.Create(id),
         Payload = Payload(title),
         Metadata = new RecordMetadata
         {
@@ -525,7 +525,7 @@ public sealed class L30MutationPipelineTests
         string id) =>
         store.GetAsync(
             Collection("items"),
-            new RecordId(id),
+            RecordId.Create(id),
             RuntimeTestData.Operation(BaseOperationKind.Get),
             CancellationToken.None);
 

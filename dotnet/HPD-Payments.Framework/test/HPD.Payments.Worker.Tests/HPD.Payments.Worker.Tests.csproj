@@ -1,4 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><IsTestProject>false</IsTestProject></PropertyGroup>
-  <ItemGroup><ProjectReference Include="../../src/HPD.Payments.Worker/HPD.Payments.Worker.csproj" /></ItemGroup>
+  <PropertyGroup><OutputType>Exe</OutputType><IsTestProject>false</IsTestProject><NoWarn>$(NoWarn);CA1303</NoWarn></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../../src/HPD.Payments.Worker/HPD.Payments.Worker.csproj" /><Compile Include="../ReleaseCellBinding.cs" Link="ReleaseCellBinding.cs" /></ItemGroup>
 </Project>

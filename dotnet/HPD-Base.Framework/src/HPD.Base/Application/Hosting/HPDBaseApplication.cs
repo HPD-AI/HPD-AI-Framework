@@ -119,6 +119,12 @@ internal sealed class DefaultHPDBaseApplication(IBaseProviderBootstrap bootstrap
         {
             return Fail("base.store.authorityAmbiguous");
         }
+        catch (InvalidOperationException exception) when (string.Equals(
+            exception.Message, BaseSchemaErrorCodes.CapabilityUnavailable,
+            StringComparison.Ordinal))
+        {
+            return Fail(BaseSchemaErrorCodes.CapabilityUnavailable);
+        }
         catch
         {
             return Fail("base.application.initializationFailed");
@@ -461,6 +467,10 @@ internal sealed class DefaultBaseProviderBootstrap(
 
     private void ValidateAuthorityGraph()
     {
+        if (features.StoreReceipt.ProviderChecksum.Length != 32
+            || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                features.StoreReceipt.ProviderChecksum.AsSpan(), features.StoreProvider.ProviderChecksum.AsSpan()))
+            throw new InvalidOperationException("base.store.authorityAmbiguous");
         HPDBaseStoreInstallationMarker[] markers = services.GetServices<HPDBaseStoreInstallationMarker>().ToArray();
         if (markers.Length != 1 || markers[0].Identity != features.StoreReceipt.Identity)
             throw new InvalidOperationException("base.store.authorityAmbiguous");
@@ -474,6 +484,23 @@ internal sealed class DefaultBaseProviderBootstrap(
             throw new InvalidOperationException("base.store.authorityAmbiguous");
 
         object store = registration.Store;
+        BaseSelectionMutationCapability? selectionMutation = registration.Store.Capabilities.SelectionMutation;
+        if (features.StoreProvider.LogicalIndexes.Supported
+            && (selectionMutation is null
+                || !selectionMutation.IsSupported
+                || !selectionMutation.SupportedIndexShapes.SequenceEqual(
+                    features.StoreProvider.SelectionMutationIndexShapes)))
+            throw new InvalidOperationException("base.store.authorityAmbiguous");
+        if (features.StoreProvider.LogicalIndexes.Supported)
+        {
+            if (store is not IBaseLogicalIndexCertificationInspection inspection)
+                throw new InvalidOperationException("base.store.authorityAmbiguous");
+            BaseLogicalIndexProviderCapability capability =
+                inspection.LogicalIndexCertificationCapability;
+            if (!BaseLogicalIndexProviderContract.ValidateCapability(capability)
+                || !LogicalIndexGraphFits(capability, features.CollectionDefinitions))
+                throw new InvalidOperationException(BaseSchemaErrorCodes.CapabilityUnavailable);
+        }
         IBaseVectorProvider[] vectorProviders = services.GetServices<IBaseVectorProvider>().ToArray();
         IBaseVectorAuthority[] vectorAuthorities = services.GetServices<IBaseVectorAuthority>().ToArray();
         IBaseTextProvider[] textProviders = services.GetServices<IBaseTextProvider>().ToArray();
@@ -484,7 +511,8 @@ internal sealed class DefaultBaseProviderBootstrap(
                 "records" => store is IRecordStore,
                 "mutation" => store is IRecordMutationStore,
                 "atomic" => store is IAtomicRecordStore,
-                "schema" => store is IBaseSchemaStore,
+                "logical-index" => store is IBaseLogicalIndexOperationalStore logicalIndexes
+                    && logicalIndexes.LogicalIndexesReady,
                 "relational" => store is IRelationalReadStore,
                 "journal" or "history" => store is ITransactionalMutationJournalStore,
                 "administration" => store is IRecordStoreAdministration,
@@ -505,6 +533,39 @@ internal sealed class DefaultBaseProviderBootstrap(
             (services.GetServices<IBaseVectorAdministrationProvider>().Count() != 1 ||
              !ReferenceEquals(services.GetServices<IBaseVectorAdministrationProvider>().Single(), vectorProviders[0])))
             throw new InvalidOperationException("base.store.authorityAmbiguous");
+    }
+
+    private static bool LogicalIndexGraphFits(
+        BaseLogicalIndexProviderCapability capability,
+        IReadOnlyList<CollectionDefinition> collections)
+    {
+        long emptyDirectoryBytes = 0;
+        try
+        {
+            foreach (CollectionDefinition collection in collections)
+            {
+                BaseLogicalIndexDefinition[] required = (collection.Indexes ?? [])
+                    .Where(static index => index.StoreRequired).ToArray();
+                if (required.Length > capability.MaximumIndexesPerCollection)
+                    return false;
+                foreach (BaseLogicalIndexDefinition index in required)
+                {
+                    if (index.Parts.Length > capability.MaximumPartsPerIndex
+                        || index.MembershipPredicate.Nodes.Length
+                            > capability.MaximumPredicateNodesPerIndex
+                        || BaseLogicalIndexDirectoryContract.EmptyDirectoryRetainedBytes
+                            > capability.MaximumDirectoryBytesPerIndex)
+                        return false;
+                    emptyDirectoryBytes = checked(emptyDirectoryBytes
+                        + BaseLogicalIndexDirectoryContract.EmptyDirectoryRetainedBytes);
+                }
+            }
+        }
+        catch (OverflowException)
+        {
+            return false;
+        }
+        return emptyDirectoryBytes <= capability.MaximumDirectoryBytesPerStore;
     }
 
     private static void ValidateTokenLifetimes(HPDBaseTokenProtectionOptions options, DateTimeOffset now)

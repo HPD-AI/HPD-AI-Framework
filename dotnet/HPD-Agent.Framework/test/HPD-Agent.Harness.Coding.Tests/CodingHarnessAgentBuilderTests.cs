@@ -21,12 +21,14 @@ public class CodingToolHarnessAgentBuilderTests
         {
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig
             {
-                ProviderKey = "test",
+                Provider = new ProviderReference { Key = "test" },
                 ModelName = "test-model"
             } }
         };
 
         var agent = await new AgentBuilder(config, new TestProviderRegistry(chatClient))
+            .WithEventComposition(CodingEventTestCodec.Composition)
+            .WithChatClient(chatClient)
             .WithName("coding-toolharness-test-agent")
             .WithToolHarness<CodingToolHarness>()
             .BuildAsync();
@@ -96,12 +98,14 @@ public class CodingToolHarnessAgentBuilderTests
         {
             Chat = new ChatClientConfig
             {
-                ProviderKey = "test",
+                Provider = new ProviderReference { Key = "test" },
                 ModelName = "test-model"
             }
         };
 
         var agent = await new AgentBuilder(config, new TestProviderRegistry(chatClient))
+            .WithEventComposition(CodingEventTestCodec.Composition)
+            .WithChatClient(chatClient)
             .BuildAsync();
 
         var toolNames = agent.DefaultOptions?.Tools?
@@ -122,11 +126,9 @@ public class CodingToolHarnessAgentBuilderTests
             .OfType<CollapseAttribute>()
             .Should().ContainSingle().Subject;
 
-        collapse.Middlewares.Should().BeEquivalentTo([
+        collapse.Middlewares.Should().Equal([
             typeof(EnvironmentContextMiddleware),
-            typeof(CodingLanguageServerMiddleware),
-            typeof(ExecuteCommandPermissionMiddleware),
-            typeof(DebugPermissionMiddleware)
+            typeof(CodingLanguageServerMiddleware)
         ]);
     }
 
@@ -135,6 +137,8 @@ public class CodingToolHarnessAgentBuilderTests
     {
         using var chatClient = new RecordingTestChatClient();
         var agent = await new AgentBuilder(CreateTestConfig(), new TestProviderRegistry(chatClient))
+            .WithEventComposition(CodingEventTestCodec.Composition)
+            .WithChatClient(chatClient)
             .WithName("automatic-collapsing-root")
             .WithToolHarness<CodingToolHarness>()
             .BuildAsync();
@@ -156,6 +160,8 @@ public class CodingToolHarnessAgentBuilderTests
         reviewerConfig.Clients = CreateTestConfig().Clients;
 
         var reviewer = await new AgentBuilder(reviewerConfig, new TestProviderRegistry(chatClient))
+            .WithEventComposition(CodingEventTestCodec.Composition)
+            .WithChatClient(chatClient)
             .BuildAsync();
 
         await reviewer.RunAsync("Review this workspace.");
@@ -203,11 +209,13 @@ public class CodingToolHarnessAgentBuilderTests
                     {
                         Clients = new AgentClientsConfig { Chat = new ChatClientConfig
                         {
-                            ProviderKey = "test",
+                            Provider = new ProviderReference { Key = "test" },
                             ModelName = "test-model"
                         } }
                     },
                     new TestProviderRegistry(chatClient))
+                .WithEventComposition(CodingEventTestCodec.Composition)
+                .WithChatClient(chatClient)
                 .WithName("coding-toolharness-test-agent")
                 .WithToolHarness<CodingToolHarness>()
                 .BuildAsync();
@@ -297,7 +305,7 @@ public class CodingToolHarnessAgentBuilderTests
         {
             Chat = new ChatClientConfig
             {
-                ProviderKey = "test",
+                Provider = new ProviderReference { Key = "test" },
                 ModelName = "test-model"
             }
         }
@@ -358,7 +366,7 @@ public class CodingToolHarnessAgentBuilderTests
                 : null;
 
         public TProvider? GetProvider<TProvider>(string providerKey)
-            where TProvider : class, IProvider
+            where TProvider : class
             => GetProvider(providerKey) as TProvider;
 
         public IReadOnlyCollection<string> GetRegisteredProviders() => ["test"];
@@ -374,13 +382,15 @@ public class CodingToolHarnessAgentBuilderTests
         }
     }
 
-    private sealed class TestChatClientProvider(IChatClient chatClient) : IChatClientProvider
+    private sealed class TestChatClientProvider(IChatClient chatClient) : IProvider, IProviderClientFactory<IChatClient>
     {
         public string ProviderKey => "test";
 
         public string DisplayName => "Test";
 
-        public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default) => chatClient;
+        public ProviderClientCredentialBinding ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor) => ProviderClientCredentialBinding.RequestTime;
+        public ValueTask<ProviderClientConstruction<IChatClient>> CreateAsync(ProviderClientConstructionContext context, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(new ProviderClientConstruction<IChatClient> { Client = chatClient, Owner = ProviderClientConstructionUtilities.Own() });
 
         public IProviderErrorHandler CreateErrorHandler() => new GenericErrorHandler();
 
@@ -403,7 +413,7 @@ public class CodingToolHarnessAgentBuilderTests
                 }
             };
 
-        public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family) => ProviderValidationResult.Success();
+        public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config) => ProviderValidationResult.Success();
     }
 
     private sealed class TestChatClient : IChatClient

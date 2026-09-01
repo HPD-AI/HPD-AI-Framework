@@ -14,41 +14,19 @@ public static class AgentBuilderExtensions
     /// </summary>
     /// <param name="builder">The agent builder instance</param>
     /// <param name="model">The model to use (e.g., "claude-sonnet-4-5-20250929")</param>
-    /// <param name="apiKey">Optional API key. If not provided, will try to resolve from environment variables (ANTHROPIC_API_KEY) or appsettings.json</param>
     /// <returns>The builder for method chaining</returns>
     /// <remarks>
-    /// <para>
-    /// API Key Resolution (in priority order):
-    /// 1. Explicit apiKey parameter
-    /// 2. Environment variable: ANTHROPIC_API_KEY
-    /// 3. appsettings.json: "anthropic:ApiKey" or "Anthropic:ApiKey"
-    /// </para>
-    /// <para>
-    /// For FFI/JSON configuration, you can use the same structure directly:
-    /// <code>
-    /// {
-    ///   "Provider": {
-    ///     "ProviderKey": "anthropic",
-    ///     "ModelName": "claude-sonnet-4-5-20250929",
-    ///     "ApiKey": "sk-ant-..."
-    ///   }
-    /// }
-    /// </code>
-    /// </para>
+    /// The generated provider manifest selects the portable <c>anthropic:ApiKey</c> secret reference.
+    /// Hosts resolve that reference through their configured secret resolver chain.
     /// </remarks>
     /// <example>
     /// <code>
-    /// // Option 1: Provide API key explicitly
-    /// var agent = new AgentBuilder()
-    ///     .WithAnthropic("claude-sonnet-4-5-20250929", apiKey: "sk-ant-...")
-    ///     .Build();
-    ///
-    /// // Option 2: Auto-resolve from ANTHROPIC_API_KEY environment variable
+    /// // Resolve anthropic:ApiKey from ANTHROPIC_API_KEY or another host secret source.
     /// var agent = new AgentBuilder()
     ///     .WithAnthropic("claude-sonnet-4-5-20250929")
     ///     .Build();
     ///
-    /// // Option 3: Configure Anthropic-specific request options as chat defaults
+    /// // Configure Anthropic-specific request options as chat defaults.
     /// var agent = new AgentBuilder()
     ///     .WithAnthropic("claude-sonnet-4-5-20250929")
     ///     .WithAnthropicChatRequestOptions(opts =>
@@ -67,7 +45,7 @@ public static class AgentBuilderExtensions
     public static AgentBuilder WithAnthropic(
         this AgentBuilder builder,
         string model,
-        string? apiKey = null)
+        ProviderAuthentication? authentication = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
@@ -76,18 +54,30 @@ public static class AgentBuilderExtensions
 
         var chatConfig = new ChatClientConfig
         {
-            ProviderKey = "anthropic",
+            Provider = new ProviderReference
+            {
+                Key = "anthropic",
+                Authentication = authentication ?? new ApiKeyProviderAuthentication { SecretKey = "anthropic:ApiKey" }
+            },
             ModelName = model
         };
-
-        if (apiKey is not null)
-            builder.AddExplicitSecret("anthropic:ApiKey", apiKey);
 
         builder.ProviderRegistry.Register(new AnthropicProvider());
         builder.Config.SetChatClientConfig(chatConfig);
 
         return builder;
     }
+
+    /// <summary>Configures Anthropic with a literal runtime-only API key.</summary>
+    /// <param name="builder">The agent builder.</param>
+    /// <param name="model">The Anthropic model identifier.</param>
+    /// <param name="apiKey">The API key copied immediately into HPD-owned clearable storage.</param>
+    /// <returns>The same builder.</returns>
+    public static AgentBuilder WithAnthropic(
+        this AgentBuilder builder,
+        string model,
+        ReadOnlySpan<char> apiKey) =>
+        builder.WithAnthropic(model, builder.RegisterExplicitApiKey(apiKey));
 
     /// <summary>
     /// Adds Anthropic-specific runtime chat request options to the chat defaults.

@@ -12,7 +12,7 @@ public sealed class ProviderManifestContractsTests
         var fragment = new ProviderManifestFragment(descriptors, factories, Array.Empty<ProviderPayloadJsonContract>(), Array.Empty<ProviderSecretAliasRegistration>());
 
         descriptors.Add(new TestDescriptor());
-        factories.Add(new ProviderRuntimeFactoryRegistration("test", Array.Empty<ProviderClientFamily>(), static () => throw new NotSupportedException()));
+        factories.Add(new ProviderRuntimeFactoryRegistration("test", ["default"], Array.Empty<ProviderClientFamily>(), static () => throw new NotSupportedException()));
 
         Assert.Empty(fragment.Descriptors);
         Assert.Empty(fragment.RuntimeFactories);
@@ -37,22 +37,38 @@ public sealed class ProviderManifestContractsTests
         var chat = new TestDescriptor("test", ProviderClientFamily.Chat, ["legacy-test"]);
         var embeddings = new TestDescriptor("test", ProviderClientFamily.Embeddings, []);
         var composition = ProviderComposition.Create([
-            new([chat], [new("test", [ProviderClientFamily.Chat], static () => throw new NotSupportedException())], [], []),
-            new([embeddings], [new("test", [ProviderClientFamily.Embeddings], static () => throw new NotSupportedException())], [], [])]);
+            new([chat], [new("test", ["default"], [ProviderClientFamily.Chat], static () => throw new NotSupportedException())], [], []),
+            new([embeddings], [new("test", ["default"], [ProviderClientFamily.Embeddings], static () => throw new NotSupportedException())], [], [])]);
 
         Assert.Equal("test", composition.Descriptors.Canonicalize("LEGACY-TEST"));
         Assert.True(composition.Descriptors.TryGet("test", out var descriptor));
         Assert.Equal(2, descriptor!.Families.Count);
-        Assert.NotNull(composition.Runtime.GetFactory("legacy-test", ProviderClientFamily.Chat));
+        Assert.NotNull(composition.Runtime.GetFactory("legacy-test", "default", ProviderClientFamily.Chat));
     }
 
     [Fact]
-    public void Composition_RejectsDuplicateFamily()
+    public void Composition_RejectsConflictingFamilyContributions()
     {
         var exception = Assert.Throws<ProviderCompositionException>(() => ProviderComposition.Create([
             new([new TestDescriptor("test", ProviderClientFamily.Chat, [])], [], [], []),
-            new([new TestDescriptor("test", ProviderClientFamily.Chat, [])], [], [], [])]));
+            new([new TestDescriptor("test", ProviderClientFamily.Chat, [], ProviderFamilyLifetime.StatefulPerRun)], [], [], [])]));
         Assert.Equal("HPDP010", exception.Code);
+    }
+
+    [Fact]
+    public void Composition_SelectsRuntimeFactoryByBackend()
+    {
+        var descriptor = new TestDescriptor("test", ProviderClientFamily.Chat, []);
+        var platform = new ProviderRuntimeFactoryRegistration(
+            "test", ["platform"], [ProviderClientFamily.Chat], static () => throw new InvalidOperationException("platform"));
+        var account = new ProviderRuntimeFactoryRegistration(
+            "test", ["account"], [ProviderClientFamily.Chat], static () => throw new InvalidOperationException("account"));
+        var composition = ProviderComposition.Create([
+            new([descriptor], [platform], [], []),
+            new([descriptor], [account], [], [])]);
+
+        Assert.Same(platform, composition.Runtime.GetFactory("test", "platform", ProviderClientFamily.Chat));
+        Assert.Same(account, composition.Runtime.GetFactory("test", "account", ProviderClientFamily.Chat));
     }
 
     [Fact]
@@ -85,7 +101,7 @@ public sealed class ProviderManifestContractsTests
             typeof(ProviderClientConfig), HPDJsonContext.Default.ProviderClientConfig);
         ProviderManifestFragment CreateFragment() => new(
             [descriptor],
-            [new("test", [ProviderClientFamily.Chat], static () => throw new NotSupportedException())],
+            [new("test", ["default"], [ProviderClientFamily.Chat], static () => throw new NotSupportedException())],
             [contract],
             [new("test:ApiKey", ["TEST_API_KEY"])],
             "HPD.Agent.Providers.Test");
@@ -157,12 +173,16 @@ public sealed class ProviderManifestContractsTests
     private sealed class TestDescriptor : IProviderDescriptor
     {
         public TestDescriptor() : this("test", ProviderClientFamily.Chat, []) { }
-        public TestDescriptor(string key, ProviderClientFamily family, IReadOnlyList<string> aliases)
+        public TestDescriptor(
+            string key,
+            ProviderClientFamily family,
+            IReadOnlyList<string> aliases,
+            ProviderFamilyLifetime lifetime = ProviderFamilyLifetime.ReusableClient)
         {
             ProviderKey = key;
             Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
             {
-                [family] = new() { Family = family }
+                [family] = new() { Family = family, Lifetime = lifetime }
             };
             Aliases = aliases;
         }
@@ -171,6 +191,8 @@ public sealed class ProviderManifestContractsTests
         public Uri? DocumentationUri => null;
         public IReadOnlyDictionary<ProviderClientFamily, ProviderFamilyDescriptor> Families { get; } =
             new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>();
+        public IReadOnlyDictionary<string, ProviderBackendDescriptor> Backends { get; } =
+            new Dictionary<string, ProviderBackendDescriptor>();
         public IReadOnlyList<string> Aliases { get; }
     }
 }

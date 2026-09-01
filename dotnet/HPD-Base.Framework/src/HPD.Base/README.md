@@ -25,3 +25,5 @@ independent gates.
 Documentation and cookbooks: <https://github.com/HPD-AI/HPD-Base>
 
 Durable background work and scheduling: [Durable activations](DurableActivations.md)
+
+Generated bounded queries: [Registered reads](RegisteredReads.md)

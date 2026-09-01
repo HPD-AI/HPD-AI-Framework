@@ -7,6 +7,7 @@ namespace HPD.Base;
 internal sealed record BaseSemanticActivationInspectionTokenPayload(
     string ApplicationId,
     string LogicalStoreId,
+    ImmutableArray<byte> ProviderIncarnation,
     long RestoreEpoch,
     BaseSemanticActivationDefinitionKey Definition,
     BaseSemanticActivationSlotState? State,
@@ -18,8 +19,8 @@ internal sealed class BaseSemanticActivationInspectionTokenCodec(
     BaseOpaqueTokenProtector tokens,
     TimeProvider timeProvider)
 {
-    private const byte Version = 1;
-    private const string Purpose = "hpd.base.semantic-activation.inspection.v1";
+    private const byte Version = 2;
+    private const string Purpose = "hpd.base.semantic-activation.inspection.v2";
 
     internal BaseSemanticActivationInspectionToken Protect(
         BaseSemanticActivationInspectionTokenPayload payload)
@@ -62,7 +63,7 @@ internal sealed class BaseSemanticActivationInspectionTokenCodec(
         BaseSemanticActivationDefinitionKey definition, BaseSemanticActivationSlotState? state, int take)
     {
         using var stream = new MemoryStream(); using var writer = new BinaryWriter(stream, Encoding.UTF8, true);
-        Write(writer, "base.semanticActivation.inspectionBinding.v1"); Write(writer, applicationId); Write(writer, logicalStoreId);
+        Write(writer, "base.semanticActivation.inspectionBinding.v2"); Write(writer, applicationId); Write(writer, logicalStoreId);
         Definition(writer, definition); writer.Write(state is not null); if (state is not null) writer.Write((int)state.Value); writer.Write(take);
         writer.Flush(); return SHA256.HashData(stream.ToArray());
     }
@@ -70,7 +71,7 @@ internal sealed class BaseSemanticActivationInspectionTokenCodec(
     private static byte[] Encode(BaseSemanticActivationInspectionTokenPayload value)
     {
         using var stream = new MemoryStream(); using var writer = new BinaryWriter(stream, Encoding.UTF8, true);
-        Write(writer, value.ApplicationId); Write(writer, value.LogicalStoreId); writer.Write(value.RestoreEpoch);
+        Write(writer, value.ApplicationId); Write(writer, value.LogicalStoreId); writer.Write(value.ProviderIncarnation.ToArray()); writer.Write(value.RestoreEpoch);
         Definition(writer, value.Definition); writer.Write(value.State is not null); if (value.State is not null) writer.Write((int)value.State.Value);
         writer.Write(value.Take); Write(writer, value.Boundary.DefinitionId); writer.Write(value.Boundary.ScopeBindingId.ToArray());
         Span<byte> key = stackalloc byte[BaseSemanticActivationKeyDigest.Length]; value.Boundary.Key.CopyTo(key); writer.Write(key);
@@ -81,16 +82,16 @@ internal sealed class BaseSemanticActivationInspectionTokenCodec(
     private static BaseSemanticActivationInspectionTokenPayload Decode(byte[] bytes)
     {
         using var stream = new MemoryStream(bytes, false); using var reader = new BinaryReader(stream, Encoding.UTF8, true);
-        string application = Read(reader); string store = Read(reader); long restore = reader.ReadInt64();
+        string application = Read(reader); string store = Read(reader); byte[] incarnation = reader.ReadBytes(32); long restore = reader.ReadInt64();
         BaseSemanticActivationDefinitionKey definition = ReadDefinition(reader);
         BaseSemanticActivationSlotState? state = reader.ReadBoolean() ? (BaseSemanticActivationSlotState)reader.ReadInt32() : null;
         int take = reader.ReadInt32(); string boundaryDefinition = Read(reader); byte[] binding = reader.ReadBytes(32); byte[] key = reader.ReadBytes(32);
         long generation = reader.ReadInt64(); byte[] checksum = reader.ReadBytes(32); long expiry = reader.ReadInt64();
-        if (stream.Position != stream.Length || restore < 0 || take is < 1 or > 256 || binding.Length != 32 || key.Length != 32
+        if (stream.Position != stream.Length || incarnation.Length != 32 || restore < 0 || take is < 1 or > 256 || binding.Length != 32 || key.Length != 32
             || generation <= 0 || checksum.Length != 32 || state is not null && !Enum.IsDefined(state.Value)) throw new FormatException();
-        return new(application, store, restore, definition, state, take, new()
+        return new(application, store, incarnation.ToImmutableArray(), restore, definition, state, take, new()
         {
-            DefinitionId = boundaryDefinition, ScopeBindingId = binding.ToImmutableArray(), Key = BaseSemanticActivationKeyDigest.Create(key),
+            DefinitionId = boundaryDefinition, ProviderIncarnation = incarnation.ToImmutableArray(), ScopeBindingId = binding.ToImmutableArray(), Key = BaseSemanticActivationKeyDigest.Create(key),
             CapturedAuthorityGeneration = generation, RuntimeBoundaryChecksum = checksum.ToImmutableArray(),
         }, new DateTimeOffset(expiry, TimeSpan.Zero));
     }

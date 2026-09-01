@@ -34,7 +34,7 @@ internal static class SseTestEventReader
                 if (line is null)
                     break;
                 if (line.StartsWith("data: ", StringComparison.Ordinal))
-                    events.Add(AgentEventSerializer.DeserializeEventJson(line[6..]));
+                    events.Add(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec.DeserializeEvent(line[6..]));
             }
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)

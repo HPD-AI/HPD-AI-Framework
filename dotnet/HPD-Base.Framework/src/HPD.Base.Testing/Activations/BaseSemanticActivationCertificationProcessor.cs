@@ -14,19 +14,48 @@ internal sealed class BaseSemanticActivationCertificationProcessor(
     string parentIdentity,
     bool retire = false,
     BaseSemanticActivationExecutionLimits? semanticLimits = null,
-    long acceptedTime = 1)
+    long acceptedTime = 1,
+    string semanticKey = "certification-subject",
+    BaseSemanticActivationSubjectLifetimeBinding? subjectLifetime = null,
+    BaseSemanticActivationKeyDefinition? installedDefinition = null)
     : IBaseSemanticActivationCertificationProcessor
 {
     public bool ContainsSemanticActivation => true;
-    private static readonly byte[] DefinitionChecksum = SHA256.HashData("certification-semantic-definition"u8);
     private static readonly byte[] ActivationChecksum = SHA256.HashData("certification-activation-definition"u8);
-    private static readonly byte[] CanonicalKey = "certification-subject"u8.ToArray();
-    private static readonly byte[] ProposedBinding = SHA256.HashData("certification-scope-binding"u8);
+    private readonly byte[] canonicalKey = Encoding.UTF8.GetBytes(semanticKey);
+    private static readonly byte[] ProposedBinding =
+        BaseSemanticActivationCertificationSubjectAuthority.ScopeBindingId.ToArray();
     private static readonly byte[] CompletionChecksum = SHA256.HashData("certification-completion-operation"u8);
+    private static readonly byte[] SubjectContractChecksum = Convert.FromHexString(
+        BaseSemanticActivationCertificationSubjectAuthority.Registration.Checksum);
 
-    internal static ImmutableArray<byte> InstalledDefinitionSetChecksum => DefinitionChecksum.ToImmutableArray();
+    internal static ImmutableArray<byte> InstalledDefinitionSetChecksum =>
+        InstalledDefinition(DefaultBaseModuleMutationRuntime.ResolveExecutionLimits(
+            BaseModuleMutationPlatform.MaximumLimits)).Checksum;
 
-    internal static BaseSemanticActivationKeyDefinition InstalledDefinition(BaseAtomicMutationExecutionLimits atomicLimits) => new()
+    internal static BaseSemanticActivationSubjectLifetimeBinding SubjectLifetime(int ordinal)
+    {
+        byte[] epoch = SHA256.HashData(Encoding.UTF8.GetBytes($"certification-subject-epoch:{ordinal}"))[..16];
+        byte[] incarnation = new byte[24];
+        BinaryPrimitives.WriteInt64BigEndian(incarnation, 1);
+        SHA256.HashData(Encoding.UTF8.GetBytes($"certification-subject-incarnation:{ordinal}"))[..16]
+            .CopyTo(incarnation, 8);
+        var value = new BaseSemanticActivationSubjectLifetimeBinding
+        {
+            ContractId = "certification.subject", ContractVersion = 1,
+            ContractChecksum = SubjectContractChecksum.ToImmutableArray(),
+            SubjectId = BaseSubjectId.Create($"subject-{ordinal}", BaseSubjectIdKind.OrdinalString),
+            AuthorityEpoch = new BaseSubjectAuthorityEpoch(epoch),
+            Incarnation = new BaseSubjectIncarnation(incarnation),
+            ScopeBindingId = ProposedBinding.ToImmutableArray(), Checksum = [],
+        };
+        return value with { Checksum = BaseSemanticActivationEvidenceContract.SubjectLifetimeChecksum(value) };
+    }
+
+    internal static BaseSemanticActivationKeyDefinition InstalledDefinition(
+        BaseAtomicMutationExecutionLimits atomicLimits,
+        BaseSemanticActivationExecutionLimits? executionLimits = null) =>
+        BaseSemanticActivationDefinitionContract.Seal(new()
     {
         Id = "certification.semantic", Version = 1, OwningApplicationId = "certification-application",
         OwningModuleId = "certification",
@@ -42,32 +71,76 @@ internal sealed class BaseSemanticActivationCertificationProcessor(
         },
         ScopeKind = BaseSubjectScopeKind.Global, EnsureGrantId = "certification.semantic.ensure",
         RetirementGrantId = "certification.semantic.retire", MaintenanceGrantId = "certification.semantic.maintain",
-        Compaction = new BaseSemanticActivationNoCompaction(), RequestTypeId = "certification.request",
+        Compaction = new BaseSemanticActivationSubjectRetirementCompaction(
+            new BaseSemanticActivationSubjectContractIdentity(
+                "certification.subject", 1, SubjectContractChecksum.ToImmutableArray()),
+            "subject", "certification.subject.retire"),
+        RequestTypeId = "certification.request",
         RequestSerializerChecksum = SHA256.HashData("certification-request"u8).ToImmutableArray(),
         KeyExpressionChecksum = SHA256.HashData("certification-key-expression"u8).ToImmutableArray(),
         Limits = new BaseSemanticActivationLimits
         {
             MaximumCanonicalKeyBytes = 256, MaximumLiveSlots = 100, MaximumRetiredSlots = 100,
-            MaximumAbsenceMarkers = 100, Execution = SemanticLimits(), Deadlines = new BaseSemanticActivationDeadlineCapability
+            MaximumAbsenceMarkers = 100, Execution = executionLimits ?? SemanticLimits(), Deadlines = new BaseSemanticActivationDeadlineCapability
             {
                 AcquisitionTimeout = TimeSpan.FromSeconds(5), TransactionTimeout = TimeSpan.FromSeconds(5),
                 CommitObservationTimeout = TimeSpan.FromSeconds(5), ReceiptResolutionTimeout = TimeSpan.FromSeconds(5),
                 MaintenanceTimeout = TimeSpan.FromSeconds(5), QuarantineRetentionTimeout = TimeSpan.FromSeconds(5),
             },
         },
-        Checksum = DefinitionChecksum.ToImmutableArray(),
+        Checksum = [],
+    });
+
+    internal static BaseSemanticActivationKeyDefinition InstalledDefinitionV2(
+        BaseAtomicMutationExecutionLimits atomicLimits,
+        BaseSemanticActivationExecutionLimits? executionLimits = null) =>
+        BaseSemanticActivationDefinitionContract.Seal(
+            InstalledDefinition(atomicLimits, executionLimits) with { Version = 2, Checksum = [] });
+
+    internal static BaseSemanticActivationMigrationDefinition InstalledMigration(
+        BaseAtomicMutationExecutionLimits atomicLimits,
+        BaseSemanticActivationExecutionLimits? executionLimits = null) =>
+        BaseSemanticActivationMigrationContract.Seal(new()
+    {
+        Id = "certification.semantic.migration",
+        Version = 1,
+        From = DefinitionKey(InstalledDefinition(atomicLimits, executionLimits)),
+        To = DefinitionKey(InstalledDefinitionV2(atomicLimits, executionLimits)),
+        Checksum = [],
+    });
+
+    internal static BaseSemanticActivationRemovalAuthority InstalledRemoval(
+        BaseAtomicMutationExecutionLimits atomicLimits,
+        BaseSemanticActivationExecutionLimits? executionLimits = null) =>
+        BaseSemanticActivationRemovalAuthorityContract.Seal(new()
+    {
+        Id = "certification.semantic.removal",
+        Version = 1,
+        From = InstalledDefinition(atomicLimits, executionLimits),
+        ResultingDefinitionSetChecksum = InstalledDefinitionV2(atomicLimits, executionLimits).Checksum,
+        Checksum = [],
+    });
+
+    private static BaseSemanticActivationDefinitionKey DefinitionKey(
+        BaseSemanticActivationKeyDefinition value) => new()
+    {
+        Id = value.Id,
+        Version = value.Version,
+        Checksum = value.Checksum,
     };
 
     public ImmutableArray<byte> ParentActivationAuthorityChecksum { get; } =
         BoundHash("base.semanticActivation.certificationParent.v2\0", Encoding.UTF8.GetBytes(parentIdentity)).ToImmutableArray();
 
     public ImmutableArray<byte> SemanticIntentChecksum { get; } =
-        BoundHash("base.semanticActivation.certificationIntent.v2\0", Encoding.UTF8.GetBytes(logicalStoreId), DefinitionChecksum, CanonicalKey, ProposedBinding,
+        BoundHash("base.semanticActivation.certificationIntent.v2\0", Encoding.UTF8.GetBytes(logicalStoreId),
+            DefinitionChecksumFor(installedDefinition), Encoding.UTF8.GetBytes(semanticKey), ProposedBinding,
             [retire ? (byte)2 : (byte)1]).ToImmutableArray();
 
     internal BaseProvisionalSemanticActivation? Provisional { get; private set; }
     internal BaseCapturedSemanticActivationEvidence? Captured { get; private set; }
     internal BaseSemanticActivationAccounting? PreparedAccounting { get; private set; }
+    internal byte[]? RecoveryReceiptJson { get; private set; }
     internal string? FailureStage { get; private set; }
 
     public ValueTask<AtomicMutationProcessingResult> ResolveReceiptAsync(
@@ -90,7 +163,8 @@ internal sealed class BaseSemanticActivationCertificationProcessor(
     public async ValueTask<AtomicMutationProcessingResult> ProcessAsync(
         IAtomicRecordSession session, CancellationToken cancellationToken = default)
     {
-        BaseSemanticActivationDefinitionIdentity definition = Definition();
+        BaseSemanticActivationDefinitionIdentity definition = Definition(installedDefinition);
+        byte[] definitionChecksum = definition.Checksum.ToArray();
         BaseOwnedSubjectScopeEvidence scope = new() { Kind = BaseSubjectScopeKind.Global };
         BaseSemanticActivationDueAuthority due = new()
         {
@@ -98,27 +172,30 @@ internal sealed class BaseSemanticActivationCertificationProcessor(
             CanonicalUnixMilliseconds = 1,
         };
         BaseSemanticActivationKeyDigest key = BaseSemanticActivationKeyDigest.Create(
-            BoundHash("base.semanticActivation.key.v1\0", Encoding.UTF8.GetBytes(definition.Id), ProposedBinding, CanonicalKey));
+            BoundHash("base.semanticActivation.key.v1\0", Encoding.UTF8.GetBytes(definition.Id), ProposedBinding, canonicalKey));
         byte[] activationId = BoundHash("base.semanticActivation.activation.v1\0",
             Encoding.UTF8.GetBytes(authority.ApplicationId), Encoding.UTF8.GetBytes(authority.StoreInstanceId),
-            "certification"u8.ToArray(), "certification.semantic"u8.ToArray(), ProposedBinding, CanonicalKey);
+            "certification"u8.ToArray(), "certification.semantic"u8.ToArray(), ProposedBinding, canonicalKey);
         byte[] creationChecksum = BoundHash("base.semanticActivation.creation.v1\0",
-            DefinitionChecksum, key.ToArray(), ProposedBinding, activationId);
+            definitionChecksum, key.ToArray(), ProposedBinding, activationId);
         BaseSemanticActivationOperation operation = retire
             ? new BaseSemanticActivationRetireIntent
             {
-                Definition = definition, Key = key, CanonicalKey = CanonicalKey.ToImmutableArray(), Scope = scope,
+                Definition = definition, Key = key, CanonicalKey = canonicalKey.ToImmutableArray(), Scope = scope,
+                SubjectLifetime = subjectLifetime,
                 CompletionOperation = CompletionOperation(),
             }
             : new BaseSemanticActivationEnsureIntent
             {
-                Definition = definition, Key = key, CanonicalKey = CanonicalKey.ToImmutableArray(), Scope = scope, Due = due,
+                Definition = definition, Key = key, CanonicalKey = canonicalKey.ToImmutableArray(), Scope = scope, Due = due,
+                SubjectLifetime = subjectLifetime,
                 Activation = new BaseSemanticActivationCreateIntent
                 {
                     Definition = new BaseActivationDefinitionKey
                     {
                         Id = "certification.activation", Version = 1, Checksum = ActivationChecksum.ToImmutableArray(),
                     },
+                    ReceiptRetention = DefaultReceiptRetention(),
                     CanonicalInput = "certification-payload"u8.ToArray().ToImmutableArray(),
                     InputChecksum = SHA256.HashData("certification-payload"u8).ToImmutableArray(), Scope = scope, Due = due,
                     Priority = 0, InitiallyEligible = true, Limits = ActivationLimits(),
@@ -130,26 +207,29 @@ internal sealed class BaseSemanticActivationCertificationProcessor(
                 },
             };
         BaseSemanticActivationExecutionLimits effectiveLimits = semanticLimits ?? SemanticLimits();
+        BaseSemanticActivationStoreAuthorityRequirement installedAuthority = authority.SemanticActivation
+            ?? throw new InvalidOperationException("base.semanticActivation.certificationInvalid");
         BaseAtomicSemanticActivationExtension extension = new()
         {
             Capture = new BaseSemanticActivationCaptureRequest
             {
-                Definition = definition, CanonicalKey = CanonicalKey.ToImmutableArray(),
-                KeyPreimageChecksum = SHA256.HashData(CanonicalKey).ToImmutableArray(), Scope = scope,
+                Definition = definition, CanonicalKey = canonicalKey.ToImmutableArray(),
+                KeyPreimageChecksum = SHA256.HashData(canonicalKey).ToImmutableArray(), Scope = scope,
                 ProposedScopeBindingId = ProposedBinding.ToImmutableArray(),
                 Operation = retire ? BaseSemanticActivationOperationKind.Retire : BaseSemanticActivationOperationKind.Ensure,
                 StoreAuthority = new BaseSemanticActivationStoreAuthorityRequirement
                 {
                     ApplicationId = authority.ApplicationId, LogicalStoreId = logicalStoreId,
                     StoreInstanceId = authority.StoreInstanceId, RestoreEpoch = authority.RestoreEpoch,
-                    SchemaGeneration = authority.SchemaGeneration, SemanticAuthorityGeneration = 1,
-                    DefinitionSetChecksum = DefinitionChecksum.ToImmutableArray(),
+                    SchemaGeneration = authority.SchemaGeneration,
+                    SemanticAuthorityGeneration = installedAuthority.SemanticAuthorityGeneration,
+                    DefinitionSetChecksum = installedAuthority.DefinitionSetChecksum.ToArray().ToImmutableArray(),
                 },
                 Limits = effectiveLimits, AcceptedTime = AcceptedTime(),
             },
             Operation = operation,
-            StructuralDigest = BoundHash("base.semanticActivation.extension.v1\0", DefinitionChecksum,
-                CanonicalKey, ProposedBinding, [retire ? (byte)2 : (byte)1]).ToImmutableArray(),
+            StructuralDigest = BoundHash("base.semanticActivation.extension.v1\0", definitionChecksum,
+                canonicalKey, ProposedBinding, [retire ? (byte)2 : (byte)1]).ToImmutableArray(),
         };
         BaseAtomicExecutionRequest request = new()
         {
@@ -210,8 +290,9 @@ internal sealed class BaseSemanticActivationCertificationProcessor(
                 BaseOwnedMutationFact.FromCanonicalBytes(fact.CopyCanonicalBytes(), fact.CodecVersion)).ToImmutableArray(),
             ModuleMutation = moduleReceipt,
         };
-        long receiptBytes = JsonSerializer.SerializeToUtf8Bytes(
-            BaseAtomicReceiptWire.From(receipt), HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire).LongLength;
+        RecoveryReceiptJson = JsonSerializer.SerializeToUtf8Bytes(
+            BaseAtomicReceiptWire.From(receipt), HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire);
+        long receiptBytes = RecoveryReceiptJson.LongLength;
         BaseProvisionalAtomicMutationAccounting prior = applied.Value.Accounting;
         return new AtomicMutationProcessingResult(new BaseAtomicMutationCommitFinalization
         {
@@ -238,16 +319,24 @@ internal sealed class BaseSemanticActivationCertificationProcessor(
     internal static BaseSemanticActivationExecutionLimits SemanticLimits() => new()
     {
         MaximumOperations = 1, MaximumScopeDirectoryReads = 1, MaximumSlotReads = 1, MaximumActivationReads = 1,
-        MaximumReadIntervals = 4, MaximumIndexOperations = 4, MaximumActivationBytes = 4096,
+        MaximumReadIntervals = 8, MaximumIndexOperations = 4096, MaximumActivationBytes = 4096,
         MaximumScopeDirectoryBytes = 4096, MaximumEvidenceBytes = 16384, MaximumReceiptBytes = 4096,
-        MaximumTransientBytes = 32768,
+        MaximumTransientBytes = 262144,
     };
 
-    internal static BaseSemanticActivationDefinitionIdentity Definition() => new()
+    internal static BaseSemanticActivationDefinitionIdentity Definition(
+        BaseSemanticActivationKeyDefinition? installedDefinition = null) => new()
     {
-        Id = "certification.semantic", Version = 1, Checksum = DefinitionChecksum.ToImmutableArray(),
+        Id = installedDefinition?.Id ?? "certification.semantic",
+        Version = installedDefinition?.Version ?? 1,
+        Checksum = DefinitionChecksumFor(installedDefinition).ToImmutableArray(),
         OwnerGeneration = 1, OwningModuleId = "certification", RetirementOperation = CompletionOperation(),
     };
+
+    private static byte[] DefinitionChecksumFor(BaseSemanticActivationKeyDefinition? installedDefinition) =>
+        (installedDefinition ?? InstalledDefinition(
+            DefaultBaseModuleMutationRuntime.ResolveExecutionLimits(
+                BaseModuleMutationPlatform.MaximumLimits))).Checksum.ToArray();
 
     private static BaseSemanticActivationModuleOperationIdentity CompletionOperation() => new()
     {
@@ -267,8 +356,8 @@ internal sealed class BaseSemanticActivationCertificationProcessor(
 
     private BaseActivationLimits ActivationLimits() => new()
     {
-        MaximumInputBytes = 4096, MaximumResultBytes = 4096, MaximumAttempts = 3,
-        MaximumRenewalsPerAttempt = 3, MaximumChildrenPerAttempt = 8, MaximumLineageDepth = 8,
+        MaximumInputBytes = 4096, MaximumResultBytes = 4096, MaximumAttempts = 3, MaximumYields = 0,
+        MaximumRenewalsPerSlice = 3, MaximumChildrenPerSlice = 8, MaximumLineageDepth = 8,
         LeaseDuration = TimeSpan.FromMinutes(1), HandlerTimeout = TimeSpan.FromMinutes(1),
         Provider = new BaseActivationExecutionLimits
         {
@@ -279,6 +368,13 @@ internal sealed class BaseSemanticActivationCertificationProcessor(
             ReceiptResolutionTimeout = TimeSpan.FromSeconds(5),
         },
         AtomicCreation = limits,
+    };
+
+    private static BaseActivationReceiptRetentionPolicy DefaultReceiptRetention() => new()
+    {
+        FormatVersion = 1,
+        DuplicateResolutionLifetime = TimeSpan.FromHours(24),
+        ProtectedBackupCoverage = BaseActivationProtectedBackupCoverage.NotRequired,
     };
 
     private static void Append(IncrementalHash hash, string value)

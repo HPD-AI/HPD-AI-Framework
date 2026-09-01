@@ -10,18 +10,56 @@ namespace HPD.Agent.Tests.Core;
 public class AgentInputDispatchTests
 {
     [Fact]
-    public void BuiltInRegistrations_DeclareRequiredDelivery()
+    public void BuiltInRegistrations_DeclareRequiredRoutingClass()
     {
-        AgentInputDispatcher.GetBuiltInRegistration(typeof(UserMessagesInputEvent)).Delivery
-            .Should().Be(AgentInputDelivery.QueuedWork);
-        AgentInputDispatcher.GetBuiltInRegistration(typeof(CompactThreadInputEvent)).Delivery
-            .Should().Be(AgentInputDelivery.QueuedWork);
-        AgentInputDispatcher.GetBuiltInRegistration(typeof(ClientToolBackgroundOperationOutcomeEvent)).Delivery
-            .Should().Be(AgentInputDelivery.ActiveControl);
-        AgentInputDispatcher.GetBuiltInRegistration(typeof(InterruptionRequestEvent)).Delivery
-            .Should().Be(AgentInputDelivery.ActiveControl);
-        AgentInputDispatcher.GetBuiltInRegistration(typeof(SteeringInputEvent)).Delivery
-            .Should().Be(AgentInputDelivery.ActiveControl);
+        AgentInputDispatcher.GetBuiltInRegistration(typeof(UserMessagesInputEvent)).RoutingClass
+            .Should().Be(AgentInputRoutingClass.Work);
+        AgentInputDispatcher.GetBuiltInRegistration(typeof(CompactThreadInputEvent)).RoutingClass
+            .Should().Be(AgentInputRoutingClass.Work);
+        AgentInputDispatcher.GetBuiltInRegistration(typeof(AudioSessionInputEvent)).RoutingClass
+            .Should().Be(AgentInputRoutingClass.SessionControl);
+        AgentInputDispatcher.GetBuiltInRegistration(typeof(ClientToolOperationOutcomeEvent)).RoutingClass
+            .Should().Be(AgentInputRoutingClass.ActiveControl);
+    }
+
+    [Fact]
+    public void UserMessagesInputEvent_DefaultsToQueueAndAllowsExplicitSteer()
+    {
+        new UserMessagesInputEvent().Delivery.Should().Be(AgentInputDelivery.Queue);
+        new UserMessagesInputEvent { Delivery = AgentInputDelivery.Steer }
+            .Delivery.Should().Be(AgentInputDelivery.Steer);
+    }
+
+    [Fact]
+    public async Task AudioSessionInput_RejectsWhenCapabilityIsNotInstalled()
+    {
+        var dispatcher = new AgentInputDispatcher(new AgentMiddlewarePipeline([]));
+        var input = new AudioSessionInputEvent { Command = new AudioSessionCommand.Start() };
+
+        var result = await dispatcher.DispatchAsync(input,
+            AgentInputDispatcher.GetBuiltInRegistration(input.GetType()), CreateContext(), CancellationToken.None);
+
+        result.Should().BeEquivalentTo(new AgentInputResult.AudioSession(
+            new AudioSessionInputResult.Rejected(AudioSessionInputDisposition.CapabilityNotInstalled,
+                "audio-capability-not-installed")));
+    }
+
+    [Fact]
+    public async Task AudioSessionInput_DelegatesToInstalledCapability()
+    {
+        var capabilities = new RuntimeCapabilityRegistry();
+        var runtime = new RecordingAudioSessionRuntime();
+        capabilities.Set<IAudioSessionInputRuntime>(runtime);
+        var context = CreateContext(runtimeCapabilities: capabilities);
+        var dispatcher = new AgentInputDispatcher(new AgentMiddlewarePipeline([]));
+        var input = new AudioSessionInputEvent { Command = new AudioSessionCommand.Start() };
+
+        var result = await dispatcher.DispatchAsync(input,
+            AgentInputDispatcher.GetBuiltInRegistration(input.GetType()), context, CancellationToken.None);
+
+        runtime.Seen.Should().BeSameAs(input);
+        result.Should().BeEquivalentTo(new AgentInputResult.AudioSession(
+            new AudioSessionInputResult.Started("audio-1", 1)));
     }
 
     [Fact]
@@ -94,13 +132,14 @@ public class AgentInputDispatchTests
     }
 
     [Fact]
-    public async Task DispatchAsync_BeforeInput_CannotChangeDelivery()
+    public async Task DispatchAsync_BeforeInput_CannotChangeRoutingClass()
     {
         var middleware = new ReplacingInputMiddleware(
-            new SteeringInputEvent
+            new ClientToolOperationOutcomeEvent
             {
-                ThreadExecutionId = "execution",
-                Messages = [new ChatMessage(ChatRole.User, "steer")]
+                ClientOperationId = "operation",
+                State = ClientToolOperationOutcomeState.Completed,
+                ThreadExecutionId = "execution"
             });
         var dispatcher = new AgentInputDispatcher(new AgentMiddlewarePipeline([middleware]));
         var input = new UserMessagesInputEvent
@@ -115,7 +154,7 @@ public class AgentInputDispatchTests
             CancellationToken.None).AsTask();
 
         await act.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("*QueuedWork*ActiveControl*");
+            .WithMessage("*Work*ActiveControl*");
     }
 
     [Fact]
@@ -123,10 +162,10 @@ public class AgentInputDispatchTests
     {
         var middleware = new RecordingAfterInputMiddleware();
         var dispatcher = new AgentInputDispatcher(new AgentMiddlewarePipeline([middleware]));
-        var input = new ClientToolBackgroundOperationOutcomeEvent
+        var input = new ClientToolOperationOutcomeEvent
         {
             ClientOperationId = "missing-operation",
-            State = ClientToolBackgroundOperationOutcomeState.Completed
+            State = ClientToolOperationOutcomeState.Completed
         };
 
         var act = () => dispatcher.DispatchAsync(
@@ -155,25 +194,17 @@ public class AgentInputDispatchTests
     }
 
     private static AgentInputHandlingContext CreateContext(
-        Func<UserMessagesInputEvent, Task<AgentTurnResult>>? runMessages = null)
+        Func<UserMessagesInputEvent, Task<AgentTurnResult>>? runMessages = null,
+        IRuntimeCapabilityRegistry? runtimeCapabilities = null)
         => new()
         {
             AgentName = "InputDispatchAgent",
             Config = new AgentConfig { Name = "InputDispatchAgent" },
             EventCoordinator = new EventCoordinator(),
+            RuntimeCapabilities = runtimeCapabilities ?? new RuntimeCapabilityRegistry(),
             RunMessagesAsync = (input, _, _, _) => runMessages?.Invoke(input)
                 ?? Task.FromResult(AgentTurnResult.Empty),
-            InterruptAsync = (input, _) => Task.FromResult(new AgentInputResult
-            {
-                Disposition = AgentInputDisposition.Accepted,
-                ThreadExecutionId = input.ThreadExecutionId
-            }),
-            SteerAsync = (input, _) => Task.FromResult(new AgentInputResult
-            {
-                Disposition = AgentInputDisposition.Accepted,
-                ThreadExecutionId = input.ThreadExecutionId
-            }),
-            TryResolveClientToolBackgroundOperation = _ => false
+            TryResolveClientToolOperation = _ => false
         };
 
     private sealed record TestInputEvent(string Value) : AgentInputEvent;
@@ -190,11 +221,28 @@ public class AgentInputDispatchTests
             CancellationToken cancellationToken)
         {
             Seen.Add(input.Value);
-            return ValueTask.FromResult(new AgentInputResult
-            {
-                Disposition = AgentInputDisposition.Completed
-            });
+            return ValueTask.FromResult<AgentInputResult>(
+                new AgentInputResult.Completed(AgentTurnResult.Empty, input.ThreadExecutionId));
         }
+    }
+
+    private sealed class RecordingAudioSessionRuntime : IAudioSessionInputRuntime
+    {
+        public AudioSessionInputEvent? Seen { get; private set; }
+
+        public ValueTask<AudioSessionInputResult> ExecuteAsync(AudioSessionInputEvent input,
+            AgentClientSet? clientSet, CancellationToken cancellationToken)
+        {
+            Seen = input;
+            return ValueTask.FromResult<AudioSessionInputResult>(new AudioSessionInputResult.Started("audio-1", 1));
+        }
+
+        public ValueTask<AudioSemanticAdmissionResult> AcceptSemanticAsync(string audioSessionId,
+            string candidateId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<AudioSemanticAdmissionResult> AcknowledgeSemanticAsync(string audioSessionId,
+            string candidateId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<AudioSemanticAdmissionResult> WithdrawSemanticAsync(string audioSessionId,
+            string candidateId, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
     private sealed class ReplacingInputMiddleware : IAgentMiddleware

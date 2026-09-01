@@ -96,9 +96,9 @@ public sealed class SqlitePolicyCompositionTests
     {
         var result = await runtime.CreateAsync(
             "items",
-            new RecordCreateRequest { RequestedId = new RecordId(id), Payload = Payload(id, tenant) },
+            new RecordCreateRequest { RequestedId = RecordId.Create(id), Payload = Payload(id, tenant) },
             Principal(),
-            Operation(BaseOperationKind.Create, new RecordId(id)));
+            Operation(BaseOperationKind.Create, RecordId.Create(id)));
         result.Status.Should().Be(OperationStatus.Created);
     }
 

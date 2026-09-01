@@ -3,12 +3,11 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Text.Json;
 using HPD.Agent;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
-using HPD.Agent.Secrets;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.ML.OnnxRuntimeGenAI;
 
 namespace HPD.Agent.Providers.OnnxRuntime;
@@ -17,11 +16,12 @@ namespace HPD.Agent.Providers.OnnxRuntime;
 /// ONNX Runtime GenAI provider implementation for local model inference.
 /// </summary>
 [HpdProvider("onnx-runtime", "ONNX Runtime GenAI", DocumentationUrl = "https://onnxruntime.ai/docs/genai/")]
+[HpdProviderBackend("local", ProviderAuthenticationKind.Anonymous, IsDefaultBackend = true, IsDefaultAuthentication = true)]
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(OnnxRuntimeProviderConfig), typeof(OnnxRuntimeJsonContext))]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.OperationOptions, typeof(OnnxRuntimeChatRequestOptions), typeof(OnnxRuntimeJsonContext))]
 [HpdProviderSecretAlias("onnx-runtime:ModelPath", "ONNX_MODEL_PATH", "ONNX_RUNTIME_MODEL_PATH")]
-internal class OnnxRuntimeProvider : IChatClientProvider, IProviderSecretAliasProvider
+internal class OnnxRuntimeProvider : IProvider, IProviderClientFactory<IChatClient>, IProviderSecretAliasProvider
 {
     public string ProviderKey => "onnx-runtime";
     public string DisplayName => "ONNX Runtime GenAI";
@@ -36,16 +36,21 @@ internal class OnnxRuntimeProvider : IChatClientProvider, IProviderSecretAliasPr
             new("onnx-runtime:ModelPath", new[] { "ONNX_MODEL_PATH", "ONNX_RUNTIME_MODEL_PATH" }),
         };
 
-    public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
+    public ProviderClientCredentialBinding ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor)
     {
-        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(descriptor);
+        return ProviderClientCredentialBinding.ConstructionTime;
+    }
 
-        var onnxConfig = config.ProviderConfig as OnnxRuntimeProviderConfig;
-        var secrets = services?.GetService<ISecretResolver>();
-
-        var modelPath = onnxConfig?.ModelPath
-            ?? ResolveOptionalSecret(secrets, "onnx-runtime:ModelPath")
-            ?? global::System.Environment.GetEnvironmentVariable("ONNX_MODEL_PATH");
+    public ValueTask<ProviderClientConstruction<IChatClient>> CreateAsync(
+        ProviderClientConstructionContext context,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
+        ProviderClientConstructionUtilities.RequireAnonymous(context.CredentialBinding);
+        var onnxConfig = ReadConfig(context.EffectiveConfig);
+        var modelPath = onnxConfig?.ModelPath;
 
         if (string.IsNullOrWhiteSpace(modelPath))
         {
@@ -69,7 +74,11 @@ internal class OnnxRuntimeProvider : IChatClientProvider, IProviderSecretAliasPr
             finalClient = new StructuredToolCallingOnnxRuntimeChatClient(finalClient);
         }
 
-        return finalClient;
+        return ValueTask.FromResult(new ProviderClientConstruction<IChatClient>
+        {
+            Client = finalClient,
+            Owner = ProviderClientConstructionUtilities.Own(finalClient)
+        });
     }
 
     public IProviderErrorHandler CreateErrorHandler()
@@ -100,13 +109,15 @@ internal class OnnxRuntimeProvider : IChatClientProvider, IProviderSecretAliasPr
         };
     }
 
-    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
+    public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
 
         var errors = new List<string>();
-        var onnxConfig = config.ProviderConfig as OnnxRuntimeProviderConfig;
-        var modelPath = onnxConfig?.ModelPath ?? global::System.Environment.GetEnvironmentVariable("ONNX_MODEL_PATH");
+        if (config.Family != ProviderClientFamily.Chat)
+            errors.Add("ONNX Runtime supports only chat.");
+        var onnxConfig = ReadConfig(config);
+        var modelPath = onnxConfig?.ModelPath;
 
         if (string.IsNullOrWhiteSpace(modelPath))
         {
@@ -227,10 +238,10 @@ internal class OnnxRuntimeProvider : IChatClientProvider, IProviderSecretAliasPr
            config?.HardwareDeviceId is not null ||
            config?.HardwareVendorId is not null;
 
-    private static string? ResolveOptionalSecret(ISecretResolver? secrets, string key)
-        => secrets?.ResolveAsync(key, CancellationToken.None)
-            .AsTask()
-            .GetAwaiter()
-            .GetResult()
-            ?.Value;
+    private static OnnxRuntimeProviderConfig? ReadConfig(EffectiveProviderClientConfig config) =>
+        config.ProviderConfiguration.CanonicalPayload.IsEmpty
+            ? null
+            : JsonSerializer.Deserialize(
+                config.ProviderConfiguration.CanonicalPayload.AsSpan(),
+                OnnxRuntimeJsonContext.Default.OnnxRuntimeProviderConfig);
 }

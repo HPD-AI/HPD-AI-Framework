@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 
 namespace HPD.Base;
@@ -29,6 +30,8 @@ internal static class BaseSerializerContract
             declarations = root.Properties.Select(property =>
             {
                 var binding = bindingInput.SingleOrDefault(candidate => string.Equals(candidate.WireName, property.Name, StringComparison.Ordinal));
+                bool closedEnum = IsClosedEnumConverter(property);
+                bool utcDateTime = IsUtcDateTimeConverter(property);
                 return new BaseSerializerPropertyDeclaration
                 {
                     DeclaringType = root.Type,
@@ -39,6 +42,8 @@ internal static class BaseSerializerContract
                     Nullable = property.IsGetNullable,
                     Ignored = property.Get is null && property.Set is null,
                     ExplicitNever = false,
+                    ConverterIdentity = closedEnum ? "explicit:hpd.base.closed-enum-json:3:" + CanonicalType(property.PropertyType) : utcDateTime ? "explicit:hpd.base.utc-date-time-json:1" : "stj-built-in",
+                    ConverterType = closedEnum || utcDateTime ? property.CustomConverter!.GetType() : null,
                 };
             }).ToArray();
         }
@@ -168,12 +173,18 @@ internal static class BaseSerializerContract
             }
             if (property.Get is null || property.ShouldSerialize is not null && declaration?.ExplicitNever != true) throw Invalid();
             if (declaration is not null && (property.PropertyType != declaration.PropertyType || property.IsRequired != declaration.Required)) throw Invalid();
-            if (declaration is null && property.CustomConverter is not null || declaration is not null &&
+            bool implicitClosedEnum = declaration is null && IsClosedEnumConverter(property);
+            bool implicitUtcDateTime = declaration is null && IsUtcDateTimeConverter(property);
+            bool declaredClosedEnum = declaration?.ConverterIdentity.StartsWith("explicit:hpd.base.closed-enum-json:3:", StringComparison.Ordinal) == true;
+            bool declaredUtcDateTime = declaration?.ConverterIdentity == "explicit:hpd.base.utc-date-time-json:1";
+            if (declaration is null && property.CustomConverter is not null && !implicitClosedEnum && !implicitUtcDateTime || declaration is not null &&
+                !declaredClosedEnum && !declaredUtcDateTime &&
                 ((declaration.ConverterType is null) != (property.CustomConverter is null) ||
                  declaration.ConverterType is not null && property.CustomConverter?.GetType() != declaration.ConverterType)) throw Invalid();
             text.Append("property:").Append(declaration?.ApplicationName ?? property.Name).Append(':').Append(property.Name).Append(':').Append(CanonicalType(property.PropertyType)).Append(':')
                 .Append(property.IsRequired ? '1' : '0').Append(':').Append(property.Set is not null ? '1' : '0').Append(':')
-                .Append((declaration?.Nullable ?? property.IsGetNullable) ? '1' : '0').Append(':').Append(declaration?.ConverterIdentity ?? "stj-built-in").Append('\n');
+                .Append((declaration?.Nullable ?? property.IsGetNullable) ? '1' : '0').Append(':')
+                .Append(declaration?.ConverterIdentity ?? (implicitClosedEnum ? "explicit:hpd.base.closed-enum-json:3:" + CanonicalType(property.PropertyType) : implicitUtcDateTime ? "explicit:hpd.base.utc-date-time-json:1" : "stj-built-in")).Append('\n');
             Append(info.Options.GetTypeInfo(property.PropertyType), rootType, depth + 1, 0, nodes, ref propertyCount, text, declarations);
         }
     }
@@ -186,10 +197,11 @@ internal static class BaseSerializerContract
 
     private static bool Scalar(Type type) => type.IsEnum || type == typeof(string) || type == typeof(bool) ||
         type == typeof(byte) || type == typeof(short) || type == typeof(int) || type == typeof(long) ||
+        type == typeof(uint) || type == typeof(ulong) ||
         type == typeof(float) || type == typeof(double) || type == typeof(decimal) || type == typeof(Guid) ||
         type == typeof(DateTime) || type == typeof(DateTimeOffset) || type == typeof(JsonElement) ||
-        type == typeof(BaseBinary) || type == typeof(BaseVector) || type == typeof(RecordId) ||
-        type == typeof(BaseModuleGeneration) ||
+        type == typeof(BaseBinary) || type == typeof(BaseCanonicalJson) || type == typeof(BaseVector) || type == typeof(RecordId) ||
+        type == typeof(BaseModuleGeneration) || type == typeof(RevisionToken) || type == typeof(BaseSubjectIncarnation) ||
         type.IsGenericType && type.GetGenericTypeDefinition() == typeof(BaseSubjectReference<>) ||
         type.IsGenericType && type.GetGenericTypeDefinition() == typeof(BaseRecordId<>);
 
@@ -202,6 +214,23 @@ internal static class BaseSerializerContract
         Type definition = type.GetGenericTypeDefinition();
         return (definition.FullName ?? definition.Name) + "[" +
             string.Join(",", type.GetGenericArguments().Select(CanonicalType)) + "]";
+    }
+
+    /// <summary>Returns the L44 canonical CLR type identity without assembly-version coupling.</summary>
+    internal static string CanonicalTypeIdentity(Type type) => CanonicalType(type);
+    private static bool IsClosedEnumConverter(JsonPropertyInfo property)
+    {
+        if (property.CustomConverter is null) return false;
+        Type valueType = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
+        Type converterType = property.CustomConverter.GetType();
+        return valueType.IsEnum && converterType.IsGenericType &&
+            converterType.GetGenericTypeDefinition() == typeof(BaseClosedEnumJsonConverter<>) &&
+            converterType.GenericTypeArguments[0] == valueType;
+    }
+    private static bool IsUtcDateTimeConverter(JsonPropertyInfo property)
+    {
+        Type valueType = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
+        return valueType == typeof(DateTimeOffset) && property.CustomConverter?.GetType() == typeof(BaseUtcDateTimeJsonConverter);
     }
     private static InvalidOperationException Invalid() => new("base.schema.serializer.metadataInvalid");
 }

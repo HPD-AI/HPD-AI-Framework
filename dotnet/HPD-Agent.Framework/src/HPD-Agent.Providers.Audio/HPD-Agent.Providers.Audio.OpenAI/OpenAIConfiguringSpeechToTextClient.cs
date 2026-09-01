@@ -3,6 +3,7 @@
 
 using Microsoft.Extensions.AI;
 using OpenAI.Audio;
+using HPD.Agent.Audio.Providers;
 
 namespace HPD.Agent.Providers.Audio.OpenAI;
 
@@ -12,19 +13,40 @@ internal sealed class OpenAIConfiguringSpeechToTextClient : ISpeechToTextClient
 {
     private readonly ISpeechToTextClient _innerClient;
     private readonly OpenAISttOptions _providerConfig;
+    private readonly string _apiKey;
+    private readonly Uri _endpoint;
+    private readonly string _modelId;
+    private readonly string? _languageCode;
+    private readonly IReadOnlyDictionary<string, string>? _headers;
 
     public OpenAIConfiguringSpeechToTextClient(
         ISpeechToTextClient innerClient,
-        OpenAISttOptions providerConfig)
+        OpenAISttOptions providerConfig,
+        string apiKey,
+        Uri endpoint,
+        string modelId,
+        string? languageCode,
+        IReadOnlyDictionary<string, string>? headers)
     {
         _innerClient = innerClient ?? throw new ArgumentNullException(nameof(innerClient));
         _providerConfig = providerConfig ?? throw new ArgumentNullException(nameof(providerConfig));
+        _apiKey = apiKey;
+        _endpoint = endpoint;
+        _modelId = modelId;
+        _languageCode = languageCode;
+        _headers = headers;
     }
 
     public void Dispose() => _innerClient.Dispose();
 
     public object? GetService(Type serviceType, object? serviceKey = null)
-        => _innerClient.GetService(serviceType, serviceKey);
+    {
+        if (serviceKey is null && serviceType == typeof(IStreamingSpeechToTextParticipantFactory))
+            return new OpenAIRealtimeSpeechToTextParticipantFactory(_apiKey, _endpoint, _modelId,
+                _languageCode, _providerConfig, _headers);
+
+        return _innerClient.GetService(serviceType, serviceKey);
+    }
 
     public Task<SpeechToTextResponse> GetTextAsync(
         Stream audioSpeechStream,

@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
+    <TargetFrameworks>net11.0;net10.0;net9.0;net8.0</TargetFrameworks>
     <RootNamespace>HPD.Events</RootNamespace>
     <AssemblyName>HPD.Events</AssemblyName>
     <IsPackable>true</IsPackable>
@@ -10,6 +10,7 @@
     <IsAotCompatible>true</IsAotCompatible>
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
     <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+    <NoWarn>$([System.String]::Copy('$(NoWarn)').Replace(';CS1591', ''))</NoWarn>
 
     <!-- Package metadata -->
     <PackageId>HPD-Events</PackageId>

@@ -3,13 +3,12 @@ using System.Diagnostics.CodeAnalysis;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Threading;
+using System.Text.Json;
 using OllamaSharp;
 using HPD.Agent;
 using HPD.Agent.Providers;
 using HPD.Agent.ErrorHandling;
-using HPD.Agent.Secrets;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Agent.Providers.Ollama;
 
@@ -32,12 +31,13 @@ namespace HPD.Agent.Providers.Ollama;
 /// </para>
 /// </remarks>
 [HpdProvider("ollama", "Ollama", DocumentationUrl = "https://ollama.com/")]
+[HpdProviderBackend("local", ProviderAuthenticationKind.Anonymous, IsDefaultBackend = true, IsDefaultAuthentication = true)]
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(OllamaProviderConfig), typeof(OllamaJsonContext))]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.OperationOptions, typeof(OllamaChatRequestOptions), typeof(OllamaJsonContext))]
 [HpdProviderSecretAlias("ollama:Endpoint", "OLLAMA_ENDPOINT")]
 [HpdProviderSecretAlias("ollama:Host", "OLLAMA_HOST")]
-internal class OllamaProvider : IChatClientProvider, IProviderSecretAliasProvider
+internal class OllamaProvider : IProvider, IProviderClientFactory<IChatClient>, IProviderSecretAliasProvider
 {
     public string ProviderKey => "ollama";
     public string DisplayName => "Ollama";
@@ -54,26 +54,31 @@ internal class OllamaProvider : IChatClientProvider, IProviderSecretAliasProvide
         };
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
-    public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
+    public ProviderClientCredentialBinding ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor)
     {
-        var secrets = services?.GetService<ISecretResolver>();
-        var resolvedEndpoint = config.Endpoint
-            ?? ResolveOptionalSecret(secrets, "ollama:Endpoint")
-            ?? ResolveOptionalSecret(secrets, "ollama:Host");
+        ArgumentNullException.ThrowIfNull(descriptor);
+        return ProviderClientCredentialBinding.ConstructionTime;
+    }
 
-        // Resolve endpoint - defaults to localhost if not provided
-        var endpoint = string.IsNullOrEmpty(resolvedEndpoint)
-            ? new Uri("http://localhost:11434")
-            : new Uri(resolvedEndpoint);
+    public ValueTask<ProviderClientConstruction<IChatClient>> CreateAsync(
+        ProviderClientConstructionContext context,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
+        ProviderClientConstructionUtilities.RequireAnonymous(context.CredentialBinding);
+        var config = context.EffectiveConfig;
+        var endpoint = config.Endpoint ?? new Uri("http://localhost:11434");
 
         if (string.IsNullOrEmpty(config.ModelName))
         {
             throw new InvalidOperationException("Model name is required for Ollama provider.");
         }
 
-        var providerConfig = config.ProviderConfig as OllamaProviderConfig;
+        var providerConfig = ReadConfig(config);
 
-        var httpClient = new HttpClient { BaseAddress = endpoint };
+        var httpClient = context.Services.HttpClientFactory.CreateClient("hpd-provider-ollama");
+        httpClient.BaseAddress = endpoint;
         if (providerConfig?.TimeoutMs is { } timeoutMs)
         {
             httpClient.Timeout = TimeSpan.FromMilliseconds(timeoutMs);
@@ -81,7 +86,7 @@ internal class OllamaProvider : IChatClientProvider, IProviderSecretAliasProvide
 
         var client = new OllamaApiClient(httpClient, config.ModelName);
 
-        if (config.CustomHeaders is not null)
+        if (config.CustomHeaders.Count > 0)
         {
             foreach (var header in config.CustomHeaders)
             {
@@ -89,7 +94,12 @@ internal class OllamaProvider : IChatClientProvider, IProviderSecretAliasProvide
             }
         }
 
-        return new OllamaConfiguredChatClient(client, config.ModelName, endpoint, providerConfig);
+        IChatClient configured = new OllamaConfiguredChatClient(client, config.ModelName, endpoint, providerConfig);
+        return ValueTask.FromResult(new ProviderClientConstruction<IChatClient>
+        {
+            Client = configured,
+            Owner = ProviderClientConstructionUtilities.Own(httpClient, configured)
+        });
     }
 
     public IProviderErrorHandler CreateErrorHandler()
@@ -121,17 +131,17 @@ internal class OllamaProvider : IChatClientProvider, IProviderSecretAliasProvide
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
-    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
+    public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
     {
         var errors = new List<string>();
+
+        if (config.Family != ProviderClientFamily.Chat)
+            errors.Add("Ollama supports only chat.");
 
         if (string.IsNullOrEmpty(config.ModelName))
             errors.Add("Model name is required for Ollama");
 
-        if (!string.IsNullOrEmpty(config.Endpoint) && !Uri.IsWellFormedUriString(config.Endpoint, UriKind.Absolute))
-            errors.Add("Endpoint must be a valid, absolute URI");
-
-        var providerConfig = config.ProviderConfig as OllamaProviderConfig;
+        var providerConfig = ReadConfig(config);
         if (providerConfig?.TimeoutMs is <= 0)
             errors.Add("TimeoutMs must be greater than zero when specified.");
 
@@ -140,10 +150,10 @@ internal class OllamaProvider : IChatClientProvider, IProviderSecretAliasProvide
             : ProviderValidationResult.Success();
     }
 
-    private static string? ResolveOptionalSecret(ISecretResolver? secrets, string key)
-        => secrets?.ResolveAsync(key, CancellationToken.None)
-            .AsTask()
-            .GetAwaiter()
-            .GetResult()
-            ?.Value;
+    private static OllamaProviderConfig? ReadConfig(EffectiveProviderClientConfig config) =>
+        config.ProviderConfiguration.CanonicalPayload.IsEmpty
+            ? null
+            : JsonSerializer.Deserialize(
+                config.ProviderConfiguration.CanonicalPayload.AsSpan(),
+                OllamaJsonContext.Default.OllamaProviderConfig);
 }

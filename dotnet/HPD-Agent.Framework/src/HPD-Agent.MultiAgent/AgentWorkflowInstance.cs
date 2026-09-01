@@ -497,7 +497,7 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
         HPD.Agent.Middleware.FunctionExecutionContext? parentContext,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        using var inheritedClientLease = parentContext?.ClientSet?.AcquireBorrowedLease();
+        await using var inheritedClientLease = parentContext?.ClientSet?.AcquireBorrowedLease();
         // Build agents lazily (with chat client inheritance if no provider configured)
         var agents = await BuildAgentsAsync(cancellationToken);
 
@@ -581,7 +581,9 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
             {
                 // Emit error event
                 await eventCoordinator.EmitAsync(new MessageTurnErrorEvent(
+                    MessageTurnId: executionId,
                     ErrorMessage: ex.Message,
+                    Usage: MessageTurnUsageSummary.Empty,
                     Exception: ex), CancellationToken.None).ConfigureAwait(false);
             }
             finally

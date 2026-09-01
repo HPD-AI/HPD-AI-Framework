@@ -114,7 +114,7 @@ public class CharacterizationTests : AgentTestBase
         var config = DefaultConfig();
         // Ensure provider is configured
         config.EnsureChatClientConfig();
-        config.EnsureChatClientConfig().ProviderKey = "test";
+        config.EnsureChatClientConfig().Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" };
         config.EnsureChatClientConfig().ModelName = "test-model";
 
         var agent = CreateAgent(
@@ -194,7 +194,7 @@ public class CharacterizationTests : AgentTestBase
         config.MaxAgenticIterations = 5; // Set low limit
         // Ensure provider is configured
         config.EnsureChatClientConfig();
-        config.EnsureChatClientConfig().ProviderKey = "test";
+        config.EnsureChatClientConfig().Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" };
         config.EnsureChatClientConfig().ModelName = "test-model";
 
         var agent = CreateAgentWithMiddlewares(
@@ -324,7 +324,7 @@ public class CharacterizationTests : AgentTestBase
         config.ErrorHandling.MaxRetries = 3;
         // Ensure provider is configured
         config.EnsureChatClientConfig();
-        config.EnsureChatClientConfig().ProviderKey = "test";
+        config.EnsureChatClientConfig().Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" };
         config.EnsureChatClientConfig().ModelName = "test-model";
 
         var agent = CreateAgent(

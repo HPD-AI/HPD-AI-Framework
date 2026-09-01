@@ -22,9 +22,9 @@ public abstract class RuntimeStoreResultNormalizationConformanceTests<TFixture> 
 
         var result = await runtime.GetAsync(
             Collection.Id,
-            new RecordId("dependency-failure"),
+            RecordId.Create("dependency-failure"),
             Principal,
-            Operation(BaseOperationKind.Get, new RecordId("dependency-failure")));
+            Operation(BaseOperationKind.Get, RecordId.Create("dependency-failure")));
 
         RecordStoreConformanceAssertions.Failure(result, OperationStatus.StoreError);
         Assert.True(result.Error!.Store?.Retryable);
@@ -49,9 +49,9 @@ public abstract class RuntimeStoreResultNormalizationConformanceTests<TFixture> 
         {
             await runtime.GetAsync(
                 Collection.Id,
-                new RecordId("programmer-failure"),
+                RecordId.Create("programmer-failure"),
                 Principal,
-                Operation(BaseOperationKind.Get, new RecordId("programmer-failure")));
+                Operation(BaseOperationKind.Get, RecordId.Create("programmer-failure")));
         });
     }
 }

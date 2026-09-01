@@ -51,6 +51,9 @@ public class ConfigSerializationTests
             {
                 Enabled = false,
                 MaxFunctionNamesInDescription = 3,
+                EnableErrorRecovery = false,
+                RecoveryHistoryMode = ContainerRecoveryHistoryMode.Preserve,
+                HideToolHarnessInteractionsWithinTurn = false,
                 NeverCollapse = ["SmallHarness"]
             }
         };
@@ -60,6 +63,9 @@ public class ConfigSerializationTests
         Assert.NotSame(source.Collapsing, snapshot.Collapsing);
         Assert.False(snapshot.Collapsing.Enabled);
         Assert.Equal(3, snapshot.Collapsing.MaxFunctionNamesInDescription);
+        Assert.False(snapshot.Collapsing.EnableErrorRecovery);
+        Assert.Equal(ContainerRecoveryHistoryMode.Preserve, snapshot.Collapsing.RecoveryHistoryMode);
+        Assert.False(snapshot.Collapsing.HideToolHarnessInteractionsWithinTurn);
         Assert.Contains("SmallHarness", snapshot.Collapsing.NeverCollapse);
     }
 

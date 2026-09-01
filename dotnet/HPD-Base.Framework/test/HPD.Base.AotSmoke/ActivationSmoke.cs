@@ -1,12 +1,7 @@
-using System.Collections.Immutable;
-using System.Text.Json;
-
 namespace HPD.Base.AotSmoke;
 
 internal static class ActivationSmoke
 {
-    private static readonly AotApplicationJsonContext Serializer = new(
-        BaseSerializerGeneratedContract.CreateOptions(JsonNamingPolicy.CamelCase));
     internal static readonly string[] GrantIds =
     [
         "hpd.base.aot.activation.enqueue", "hpd.base.aot.activation.observe",
@@ -17,18 +12,26 @@ internal static class ActivationSmoke
         "hpd.base.aot.activation.migrate", "hpd.base.aot.activation.reconcile",
         "hpd.base.aot.activation.retry", "hpd.base.aot.activation.dispose",
         "hpd.base.aot.activation.remove", "hpd.base.aot.activation.repair",
+        "hpd.base.aot.activation.target.enqueue", "hpd.base.aot.activation.target.observe",
+        "hpd.base.aot.activation.target.claim", "hpd.base.aot.activation.target.execute",
+        "hpd.base.aot.activation.target.renew", "hpd.base.aot.activation.target.complete",
+        "hpd.base.aot.activation.target.fail", "hpd.base.aot.activation.target.cancel",
+        "hpd.base.aot.activation.target.inspect", "hpd.base.aot.activation.target.replay",
+        "hpd.base.aot.activation.target.migrate", "hpd.base.aot.activation.target.reconcile",
+        "hpd.base.aot.activation.target.retry", "hpd.base.aot.activation.target.dispose",
+        "hpd.base.aot.activation.target.remove", "hpd.base.aot.activation.target.repair",
+        "hpd.base.aot.activation.yield", "hpd.base.aot.activation.target.yield",
     ];
 
     internal static BaseActivationHandlerRegistration<ActivationSmokeInput, ActivationSmokeResult> Registration { get; } =
-        BaseActivationDefinitionBuilder.Create(new BaseActivationDefinition
+        BaseActivationDefinitionBuilder.CreateGenerated(new BaseActivationDefinitionDraft
         {
             Id = "hpd.base.aot.activation", Version = 1, OwningModuleId = "hpd.base.aot",
             ExecutionClass = BaseActivationExecutionClass.AtLeastOnceWorker,
-            InputTypeId = "hpd.base.aot.activation.input", ResultTypeId = "hpd.base.aot.activation.result",
             Grants = new BaseActivationGrantSet
             {
                 Enqueue = GrantIds[0], Observe = GrantIds[1], Claim = GrantIds[2], Execute = GrantIds[3],
-                Renew = GrantIds[4], Complete = GrantIds[5], Fail = GrantIds[6], Cancel = GrantIds[7],
+                Renew = GrantIds[4], Complete = GrantIds[5], Fail = GrantIds[6], Yield = GrantIds[32], Cancel = GrantIds[7],
                 Inspect = GrantIds[8], Replay = GrantIds[9], Migrate = GrantIds[10], Reconcile = GrantIds[11],
                 Retry = GrantIds[12], Dispose = GrantIds[13], Remove = GrantIds[14], Repair = GrantIds[15],
             },
@@ -39,26 +42,83 @@ internal static class ActivationSmoke
                 MultiplierNumerator = 2, MultiplierDenominator = 1, JitterBasisPoints = 0,
                 RetryableFailureCodes = ["hpd.base.aot.activation.retryable"],
             },
+            ReceiptRetention = new BaseActivationReceiptRetentionPolicy
+            {
+                FormatVersion = 1, DuplicateResolutionLifetime = TimeSpan.FromHours(24),
+                ProtectedBackupCoverage = BaseActivationProtectedBackupCoverage.NotRequired,
+            },
             Limits = new BaseActivationLimits
             {
-                MaximumInputBytes = 4096, MaximumResultBytes = 4096, MaximumAttempts = 3,
-                MaximumRenewalsPerAttempt = 4, MaximumChildrenPerAttempt = 4, MaximumLineageDepth = 4,
+                MaximumInputBytes = 4096, MaximumResultBytes = 4096, MaximumAttempts = 3, MaximumYields = 0,
+                MaximumRenewalsPerSlice = 4, MaximumChildrenPerSlice = 4, MaximumLineageDepth = 4,
                 LeaseDuration = TimeSpan.FromMinutes(1), HandlerTimeout = TimeSpan.FromSeconds(5),
                 Provider = ProviderLimits(), AtomicCreation = AtomicLimits(),
             },
-            Handler = new BaseActivationHandlerBinding
+            Handler = new BaseActivationHandlerDraft
             {
                 Id = "hpd.base.aot.activation.handler", Version = 1,
                 FactoryId = "hpd.base.aot.activation.handler.factory",
-                InputTypeId = "hpd.base.aot.activation.input", ResultTypeId = "hpd.base.aot.activation.result",
                 WorkerSubjectKind = AccessSubjectKind.ServicePrincipal,
-                Checksum = ImmutableArray.Create(new byte[32]),
+                SemanticAuthority = BaseActivationHandlerSemanticAuthority.Create("hpd.base.aot.activation.handler.semantics", 1),
             },
-            Checksum = [],
-        }, Serializer.ActivationSmokeInput, Serializer.ActivationSmokeResult,
-        [BaseModuleDtoPropertyBinding.Create<ActivationSmokeInput, string>("hpd.base.aot.activation.input.value", "value")],
-        [BaseModuleDtoPropertyBinding.Create<ActivationSmokeResult, string>("hpd.base.aot.activation.result.value", "value")],
-        static _ => new ActivationSmokeHandler());
+        }, ActivationSmokeDtos.HPDBaseActivationDtoAuthority, static _ => new ActivationSmokeHandler());
+
+    internal static BaseActivationHandlerRegistration<ActivationMigrationTargetInput, ActivationSmokeResult> MigrationTargetRegistration { get; } =
+        BaseActivationDefinitionBuilder.CreateGenerated(new BaseActivationDefinitionDraft
+        {
+            Id = "hpd.base.aot.activation.target", Version = 1, OwningModuleId = "hpd.base.aot",
+            ExecutionClass = BaseActivationExecutionClass.AtLeastOnceWorker,
+            Grants = new BaseActivationGrantSet
+            {
+                Enqueue = GrantIds[16], Observe = GrantIds[17], Claim = GrantIds[18], Execute = GrantIds[19],
+                Renew = GrantIds[20], Complete = GrantIds[21], Fail = GrantIds[22], Yield = GrantIds[33], Cancel = GrantIds[23],
+                Inspect = GrantIds[24], Replay = GrantIds[25], Migrate = GrantIds[26], Reconcile = GrantIds[27],
+                Retry = GrantIds[28], Dispose = GrantIds[29], Remove = GrantIds[30], Repair = GrantIds[31],
+            },
+            SourceGrantIds = [],
+            Retry = new BaseActivationRetryProfile
+            {
+                MaximumAttempts = 1, InitialDelayMilliseconds = 1, MaximumDelayMilliseconds = 1,
+                MultiplierNumerator = 1, MultiplierDenominator = 1, JitterBasisPoints = 0,
+                RetryableFailureCodes = [],
+            },
+            ReceiptRetention = new BaseActivationReceiptRetentionPolicy
+            {
+                FormatVersion = 1, DuplicateResolutionLifetime = TimeSpan.FromHours(24),
+                ProtectedBackupCoverage = BaseActivationProtectedBackupCoverage.NotRequired,
+            },
+            Limits = new BaseActivationLimits
+            {
+                MaximumInputBytes = 4096, MaximumResultBytes = 4096, MaximumAttempts = 1, MaximumYields = 0,
+                MaximumRenewalsPerSlice = 1, MaximumChildrenPerSlice = 1, MaximumLineageDepth = 1,
+                LeaseDuration = TimeSpan.FromMinutes(1), HandlerTimeout = TimeSpan.FromSeconds(5),
+                Provider = ProviderLimits(), AtomicCreation = AtomicLimits(),
+            },
+            Handler = new BaseActivationHandlerDraft
+            {
+                Id = "hpd.base.aot.activation.target.handler", Version = 1,
+                FactoryId = "hpd.base.aot.activation.target.handler.factory",
+                WorkerSubjectKind = AccessSubjectKind.ServicePrincipal,
+                SemanticAuthority = BaseActivationHandlerSemanticAuthority.Create(
+                    "hpd.base.aot.activation.target.handler.semantics", 1),
+            },
+        }, ActivationMigrationTargetDtos.HPDBaseActivationDtoAuthority,
+            static _ => new ActivationMigrationTargetHandler());
+
+    internal static BaseActivationMigrationRegistration<ActivationSmokeInput, ActivationMigrationTargetInput> Migration { get; } =
+        BaseActivationMigrationBuilder
+            .From(Registration, ActivationSmokeDtos.HPDBaseActivationDtoAuthority)
+            .To(MigrationTargetRegistration, ActivationMigrationTargetDtos.HPDBaseActivationDtoAuthority)
+            .Map(ActivationMigrationTargetDtos.InputProperties.Value, ActivationSmokeDtos.InputProperties.Value)
+            .Constant(ActivationMigrationTargetDtos.InputProperties.TenantId,
+                Guid.Parse("9ca52180-5f5e-497f-81cc-99f4a606bcd4"))
+            .Constant(ActivationMigrationTargetDtos.InputProperties.Nonce, BaseBinary.From([1, 2, 3, 4]))
+            .Constant(ActivationMigrationTargetDtos.InputProperties.Mode, ActivationMigrationMode.Active)
+            .Create(new BaseActivationMigrationDraft
+            {
+                Id = "hpd.base.aot.activation.migration", Version = 1,
+                OwningModuleId = "hpd.base.aot", GrantId = GrantIds[10],
+            });
 
     private static BaseActivationExecutionLimits ProviderLimits() => new()
     {
@@ -94,16 +154,65 @@ internal static class ActivationSmoke
     };
 }
 
+[BaseActivationDtoAuthority("hpd.base.aot.activation.dto", 1, "hpd.base.aot",
+    "hpd.base.aot.activation.input", "hpd.base.aot.activation.result",
+    typeof(AotApplicationJsonContext), typeof(ActivationSmokeInput), typeof(ActivationSmokeResult))]
+internal static partial class ActivationSmokeDtos;
+
+[BaseActivationDtoAuthority("hpd.base.aot.activation.target.dto", 1, "hpd.base.aot",
+    "hpd.base.aot.activation.target.input", "hpd.base.aot.activation.result",
+    typeof(AotApplicationJsonContext), typeof(ActivationMigrationTargetInput), typeof(ActivationSmokeResult))]
+internal static partial class ActivationMigrationTargetDtos;
+
 internal sealed record ActivationSmokeInput
 {
-    [BaseField("hpd.base.aot.activation.input.value")]
+    [BaseField("hpd.base.aot.activation.input.value", MaximumUtf8Bytes = 256)]
+    [BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)]
     public required string Value { get; init; }
 }
 
 internal sealed record ActivationSmokeResult
 {
-    [BaseField("hpd.base.aot.activation.result.value")]
+    [BaseField("hpd.base.aot.activation.result.value", MaximumUtf8Bytes = 256)]
+    [BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)]
     public required string Value { get; init; }
+}
+
+internal enum ActivationMigrationMode
+{
+    [System.Text.Json.Serialization.JsonStringEnumMemberName("active")] Active,
+    [System.Text.Json.Serialization.JsonStringEnumMemberName("passive")] Passive,
+}
+
+internal sealed record ActivationMigrationTargetInput
+{
+    [BaseField("hpd.base.aot.activation.input.value", MaximumUtf8Bytes = 256)]
+    [BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)]
+    public required string Value { get; init; }
+
+    [BaseField("hpd.base.aot.activation.target.tenant")]
+    [BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)]
+    [System.Text.Json.Serialization.JsonConverter(typeof(BaseCanonicalGuidJsonConverter))]
+    public required Guid TenantId { get; init; }
+
+    [BaseField("hpd.base.aot.activation.target.nonce", MinimumBytes = 4, MaximumBytes = 4)]
+    [BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)]
+    public required BaseBinary Nonce { get; init; }
+
+    [BaseField("hpd.base.aot.activation.target.mode", AllowedEnumLiterals = ["active", "passive"])]
+    [BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)]
+    [System.Text.Json.Serialization.JsonConverter(typeof(BaseClosedEnumJsonConverter<ActivationMigrationMode>))]
+    public required ActivationMigrationMode Mode { get; init; }
+}
+
+internal sealed class ActivationMigrationTargetHandler : IBaseActivationHandler<ActivationMigrationTargetInput, ActivationSmokeResult>
+{
+    public ValueTask<BaseActivationHandlerResult<ActivationSmokeResult>> ExecuteAsync(
+        BaseActivationContext context, ActivationMigrationTargetInput input, CancellationToken cancellationToken) =>
+        ValueTask.FromResult<BaseActivationHandlerResult<ActivationSmokeResult>>(new BaseActivationSucceeded<ActivationSmokeResult>
+        {
+            Result = new ActivationSmokeResult { Value = input.Value },
+        });
 }
 
 internal sealed class ActivationSmokeHandler : IBaseActivationHandler<ActivationSmokeInput, ActivationSmokeResult>
@@ -138,10 +247,28 @@ internal sealed class ActivationSmokeHandler : IBaseActivationHandler<Activation
                 ? ensureFailure.Error
                 : retireResult is BaseFailure<BaseModuleMutationExecutionResult<SemanticRetireSmokeResult>> retireFailure
                     ? retireFailure.Error : null;
+            if (error is null && ensureResult is not null)
+            {
+                BaseResult<BaseModuleMutationExecutionResult<SemanticEnsureSmokeResult>> resolved =
+                    await context.ResolveModuleMutationAsync(
+                        SemanticEnsureMutationSmoke.Identity, identity, cancellationToken);
+                error = resolved is BaseFailure<BaseModuleMutationExecutionResult<SemanticEnsureSmokeResult>> failure
+                    ? failure.Error : null;
+            }
+            if (error is null && retireResult is not null)
+            {
+                BaseResult<BaseModuleMutationExecutionResult<SemanticRetireSmokeResult>> resolved =
+                    await context.ResolveModuleMutationAsync(
+                        SemanticRetirementMutationSmoke.Identity, identity, cancellationToken);
+                error = resolved is BaseFailure<BaseModuleMutationExecutionResult<SemanticRetireSmokeResult>> failure
+                    ? failure.Error : null;
+            }
             if (error is not null)
-                return new BaseActivationHandlerResult<ActivationSmokeResult> { FailureCode = error.Code, Retryable = false };
+                return new BaseActivationFailed<ActivationSmokeResult>
+            {
+                FailureCode = error.Code, Retryable = false };
         }
-        return new BaseActivationHandlerResult<ActivationSmokeResult>
+        return new BaseActivationSucceeded<ActivationSmokeResult>
         { Result = new ActivationSmokeResult { Value = input.Value } };
     }
 }

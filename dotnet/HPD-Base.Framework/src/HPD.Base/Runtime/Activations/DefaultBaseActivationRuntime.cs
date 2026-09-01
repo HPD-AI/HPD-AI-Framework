@@ -41,8 +41,11 @@ internal sealed class DefaultBaseActivationRuntime(
             return Failure<BaseActivationEnqueueResult>(OperationStatus.PolicyDenied, "base.activation.unauthorized", ErrorCategory.Authorization);
 
         byte[] inputBytes;
-        try { inputBytes = JsonSerializer.SerializeToUtf8Bytes(input, identity.Input); }
-        catch { return Failure<BaseActivationEnqueueResult>(OperationStatus.ValidationFailed, "base.activation.invalid", ErrorCategory.Validation); }
+        try { inputBytes = identity.CanonicalInput(input); }
+        catch (BaseActivationDtoContractException exception) when (exception.Code == "base.activation.inputInvalid")
+        { return Failure<BaseActivationEnqueueResult>(OperationStatus.ValidationFailed, "base.activation.inputInvalid", ErrorCategory.Validation); }
+        catch (Exception exception) when (exception is JsonException or BaseModuleScalarContractException)
+        { return Failure<BaseActivationEnqueueResult>(OperationStatus.ValidationFailed, "base.activation.inputInvalid", ErrorCategory.Validation); }
         if (inputBytes.LongLength > definition.Limits.MaximumInputBytes)
             return Failure<BaseActivationEnqueueResult>(OperationStatus.ValidationFailed, "base.activation.budgetExceeded", ErrorCategory.Validation);
 
@@ -92,6 +95,8 @@ internal sealed class DefaultBaseActivationRuntime(
                     Id = definition.Id, Version = definition.Version,
                     Checksum = definition.Checksum.ToArray().ToImmutableArray(),
                 },
+                MaximumYields = definition.Limits.MaximumYields,
+                ReceiptRetention = definition.ReceiptRetention with { },
                 CanonicalInput = inputBytes.ToImmutableArray(),
                 InputChecksum = inputChecksum.ToImmutableArray(),
                 Scope = scope,
@@ -124,10 +129,19 @@ internal sealed class DefaultBaseActivationRuntime(
         if (execution.Outcome == RecordMutationExecutionOutcome.Indeterminate)
             return Failure<BaseActivationEnqueueResult>(OperationStatus.StoreError, "base.activation.commitIndeterminate", ErrorCategory.Store);
         if (execution.Outcome != RecordMutationExecutionOutcome.Committed)
+        {
+            string code = execution.Error?.Code ?? execution.Processing?.Error?.Code ?? "base.activation.storeError";
+            if (code == "base.activation.providerContractInvalid")
+            {
+                (session.Services.GetService(typeof(BaseActivationProviderExecutionGate)) as BaseActivationProviderExecutionGate)
+                    ?.QuarantineContractViolation();
+                return BaseActivationFailureContract.ProviderContractInvalid<BaseActivationEnqueueResult>();
+            }
             return Failure<BaseActivationEnqueueResult>(execution.Outcome == RecordMutationExecutionOutcome.ConflictRollbackConfirmed
                 ? OperationStatus.Conflict : OperationStatus.StoreError,
-                execution.Error?.Code ?? execution.Processing?.Error?.Code ?? "base.activation.storeError",
+                code,
                 execution.Error?.Category ?? execution.Processing?.Error?.Category ?? ErrorCategory.Store);
+        }
         string activationId = processor.ActivationId ?? expectedActivationId;
         return OperationResults.Ok(new BaseActivationEnqueueResult
         {
@@ -246,6 +260,6 @@ internal sealed class DefaultBaseActivationRuntime(
 
         private static AtomicMutationProcessingResult Failed(BaseError? error) => new(
             AtomicMutationProcessingOutcome.Failed, [], error ?? new BaseError
-            { Code = "base.activation.providerContractInvalid", Message = "The activation provider returned invalid evidence.", Category = ErrorCategory.Store });
+            { Code = "base.activation.providerContractInvalid", Message = "The provider cannot satisfy the activation contract.", Category = ErrorCategory.Capability });
     }
 }

@@ -47,6 +47,8 @@ public sealed class BaseStoreProviderDescriptor
     public BaseStorageProtectionCapability[] StorageProtectionCapabilities { get; init; } = [];
     /// <summary>Gets or initializes the maximum decoded binary field size supported by the provider.</summary>
     public int MaximumBinaryFieldBytes { get; init; } = 1_048_576;
+    /// <summary>Gets the provider's frozen relational-read capability authority.</summary>
+    public required RelationalReadCapability RelationalReads { get; init; }
     /// <summary>Gets the provider's certified exported-subject validation envelope.</summary>
     public required BaseSubjectReferenceCapability SubjectReferences { get; init; }
     /// <summary>Gets the provider's certified exported-subject lifecycle envelope.</summary>
@@ -63,6 +65,10 @@ public sealed class BaseStoreProviderDescriptor
     public required BaseSemanticActivationCapability SemanticActivations { get; init; }
     /// <summary>Gets the frozen semantic-activation provider-certification profile.</summary>
     public required BaseSemanticActivationCertificationProfile SemanticActivationCertification { get; init; }
+    /// <summary>Gets the frozen required-logical-index provider-certification profile.</summary>
+    public required BaseLogicalIndexProviderProfile LogicalIndexes { get; init; }
+    /// <summary>Gets the L43 index access shapes advertised by the exact store implementation.</summary>
+    public required ImmutableArray<BaseIndexAccessShape> SelectionMutationIndexShapes { get; init; }
 }
 
 /// <summary>Represents one validated immutable authoritative store selection.</summary>
@@ -70,6 +76,8 @@ public sealed class HPDBaseStoreProvider
 {
     private readonly string[] _registrationIds;
     private readonly BaseStorageProtectionCapability[] _storageProtectionCapabilities;
+    private readonly RelationalReadCapability _relationalReads;
+    private readonly ImmutableArray<byte> _providerChecksum;
     internal HPDBaseStoreProvider(BaseStoreProviderDescriptor descriptor, IHPDBaseStoreInstaller installer)
     {
         Kind = descriptor.Kind;
@@ -78,6 +86,8 @@ public sealed class HPDBaseStoreProvider
         _registrationIds = descriptor.RegistrationIds.ToArray();
         _storageProtectionCapabilities = descriptor.StorageProtectionCapabilities.Select(BaseStorageProtectionContract.Clone).ToArray();
         MaximumBinaryFieldBytes = descriptor.MaximumBinaryFieldBytes;
+        _relationalReads = BaseRelationalReadCapabilityContract.Clone(descriptor.RelationalReads);
+        RelationalReadCapabilityChecksum = BaseRelationalReadCapabilityContract.Checksum(_relationalReads).ToArray();
         SubjectReferences = descriptor.SubjectReferences with { };
         SubjectLifecycle = descriptor.SubjectLifecycle with { };
         SubjectRetirement = descriptor.SubjectRetirement with { };
@@ -93,6 +103,10 @@ public sealed class HPDBaseStoreProvider
         };
         SemanticActivations = BaseSemanticActivationCapabilityContract.Clone(descriptor.SemanticActivations);
         SemanticActivationCertification = BaseSemanticActivationCertificationContract.Clone(descriptor.SemanticActivationCertification);
+        LogicalIndexes = BaseLogicalIndexProviderContract.CloneProfile(descriptor.LogicalIndexes);
+        SelectionMutationIndexShapes = descriptor.SelectionMutationIndexShapes.ToArray().ToImmutableArray();
+        _providerChecksum = ComputeProviderChecksum();
+        StudioCapabilityChecksum = ComputeStudioCapabilityChecksum();
         Installer = installer;
     }
 
@@ -106,6 +120,8 @@ public sealed class HPDBaseStoreProvider
     internal IReadOnlyList<BaseStorageProtectionCapability> StorageProtectionCapabilities => _storageProtectionCapabilities;
     /// <summary>Gets the provider's certified maximum decoded binary-field size.</summary>
     public int MaximumBinaryFieldBytes { get; }
+    /// <summary>Gets the provider's frozen relational-read capability authority.</summary>
+    public RelationalReadCapability RelationalReads => BaseRelationalReadCapabilityContract.Clone(_relationalReads);
     /// <summary>Gets the provider's certified exported-subject validation envelope.</summary>
     public BaseSubjectReferenceCapability SubjectReferences { get; }
     /// <summary>Gets the provider's certified exported-subject lifecycle envelope.</summary>
@@ -122,7 +138,98 @@ public sealed class HPDBaseStoreProvider
     public BaseSemanticActivationCapability SemanticActivations { get; }
     /// <summary>Gets the frozen semantic-activation provider-certification profile.</summary>
     public BaseSemanticActivationCertificationProfile SemanticActivationCertification { get; }
+    /// <summary>Gets the frozen required-logical-index provider-certification profile.</summary>
+    public BaseLogicalIndexProviderProfile LogicalIndexes { get; }
+    /// <summary>Gets the immutable L43 index access shapes bound into provider authority.</summary>
+    public ImmutableArray<BaseIndexAccessShape> SelectionMutationIndexShapes { get; }
+    /// <summary>Gets a defensive copy of the complete provider-descriptor checksum.</summary>
+    public ImmutableArray<byte> ProviderChecksum => _providerChecksum.ToArray().ToImmutableArray();
+    internal byte[] StudioCapabilityChecksum { get; }
+    internal byte[] RelationalReadCapabilityChecksum { get; }
     internal IHPDBaseStoreInstaller Installer { get; }
+
+    private ImmutableArray<byte> ComputeProviderChecksum()
+    {
+        using var stream = new MemoryStream();
+        static void I32(Stream target, int value) { Span<byte> bytes = stackalloc byte[4]; System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(bytes, value); target.Write(bytes); }
+        static void I64(Stream target, long value) { Span<byte> bytes = stackalloc byte[8]; System.Buffers.Binary.BinaryPrimitives.WriteInt64BigEndian(bytes, value); target.Write(bytes); }
+        static void Bool(Stream target, bool value) => target.WriteByte(value ? (byte)1 : (byte)0);
+        static void Bytes(Stream target, ReadOnlySpan<byte> value) { I32(target, value.Length); target.Write(value); }
+        static void Text(Stream target, string value) => Bytes(target, Encoding.UTF8.GetBytes(value));
+        static void Protection(Stream target, BaseStorageProtectionCapability value)
+        {
+            using var item = new MemoryStream(); Text(item, value.OwningModuleId); I32(item, (int)value.Guarantee);
+            BaseStorageProtectionCoverage coverage = value.Coverage;
+            foreach (BaseStorageProtectionState state in new[] { coverage.AuthoritativeRecords, coverage.Journal,
+                coverage.Receipts, coverage.ProviderState, coverage.Indexes, coverage.TemporaryFiles,
+                coverage.AuthoritativeBackups, coverage.AdministrativeExports, coverage.OrdinaryExports,
+                coverage.ExternalFilesAndBlobs }) I32(item, (int)state);
+            I32(item, (int)value.KeyOwner); I32(item, (int)value.Rotation); I32(item, (int)value.Verification);
+            Bytes(target, SHA256.HashData(item.ToArray()));
+        }
+        stream.Write("base.store.providerDescriptor.v2"u8);
+        Text(stream, Kind); I32(stream, ProtocolVersion); I32(stream, (int)Capabilities);
+        string[] registrations = _registrationIds.Order(StringComparer.Ordinal).ToArray();
+        I32(stream, registrations.Length); foreach (string id in registrations) Text(stream, id);
+        BaseStorageProtectionCapability[] protection = _storageProtectionCapabilities
+            .OrderBy(static value => value.OwningModuleId, StringComparer.Ordinal).ToArray();
+        I32(stream, protection.Length); foreach (BaseStorageProtectionCapability value in protection) Protection(stream, value);
+        I32(stream, MaximumBinaryFieldBytes); Bytes(stream, RelationalReadCapabilityChecksum);
+        Bool(stream, SubjectReferences.TransactionSnapshotValidationSupported);
+        foreach (long value in new long[] { SubjectReferences.MaximumReferencesPerRecord, SubjectReferences.MaximumReferencesPerMutation,
+            SubjectReferences.MaximumSubjectIdUtf8Bytes, SubjectReferences.MaximumValidationPlansPerMutation,
+            SubjectReferences.MaximumAuthorityReads, SubjectReferences.MaximumReadIntervals,
+            SubjectReferences.MaximumSelectedBytes, SubjectReferences.MaximumEvidenceBytes,
+            SubjectReferences.MaximumTransientBytes, SubjectReferences.MaximumExecutionTime.Ticks }) I64(stream, value);
+        foreach (bool value in new[] { SubjectLifecycle.AtomicTombstoneMetadataSupported,
+            SubjectLifecycle.ActivationGuardedFinalRetirementSupported, SubjectLifecycle.TransactionalPublicationSupported,
+            SubjectLifecycle.IndependentCursorSupported, SubjectLifecycle.ReconciliationSupported }) Bool(stream, value);
+        foreach (long value in new long[] { SubjectLifecycle.MaximumConsumersPerContract, SubjectLifecycle.MaximumFactsPerPage,
+            SubjectLifecycle.MaximumResultBytes, SubjectLifecycle.MaximumRetainedFacts, SubjectLifecycle.MaximumReadTimeout.Ticks }) I64(stream, value);
+        foreach (bool value in new[] { SubjectRetirement.ActivationGuardedFinalPurgeSupported,
+            SubjectRetirement.TransactionalBarrierSupported, SubjectRetirement.TransactionalFinalPurgeSupported }) Bool(stream, value);
+        foreach (long value in new long[] { SubjectRetirement.MaximumRequiredConsumersPerContract,
+            SubjectRetirement.MaximumAcknowledgementsPerCommit, SubjectRetirement.MaximumPendingBarriers,
+            SubjectRetirement.MaximumCoordinationWindow.Ticks, SubjectRetirement.MaximumAdministrationPageSize,
+            SubjectRetirement.MaximumResultBytes, SubjectRetirement.MaximumRetirementProjectionsPerCommit,
+            SubjectRetirement.MaximumBarrierReadsPerCommit, SubjectRetirement.MaximumAcknowledgementReadsPerCommit,
+            SubjectRetirement.MaximumPublicationsPerCommit, SubjectRetirement.MaximumEvidenceBytes,
+            SubjectRetirement.MaximumPublicationBytes, SubjectRetirement.MaximumTransientBytes,
+            SubjectRetirement.MaximumAcquisitionTimeout.Ticks, SubjectRetirement.MaximumTransactionTimeout.Ticks,
+            SubjectRetirement.MaximumCommitCompletionTimeout.Ticks, SubjectRetirement.MaximumReceiptResolutionTimeout.Ticks }) I64(stream, value);
+        Bytes(stream, BaseSemanticActivationCertificationContract.ModuleMutationCapabilityChecksum(ModuleMutations).AsSpan());
+        Bool(stream, TextSearch is not null); if (TextSearch is not null) Bytes(stream, BaseTextCertificationReceiptContract.CapabilityChecksum(TextSearch).AsSpan());
+        Bytes(stream, Activations.CanonicalChecksum.AsSpan());
+        Bytes(stream, BaseSemanticActivationCapabilityContract.Checksum(SemanticActivations).AsSpan());
+        Bytes(stream, SemanticActivationCertification.Checksum.AsSpan());
+        Bytes(stream, LogicalIndexes.Checksum.AsSpan());
+        I32(stream, SelectionMutationIndexShapes.Length);
+        foreach (BaseIndexAccessShape shape in SelectionMutationIndexShapes) I32(stream, (int)shape);
+        return SHA256.HashData(stream.ToArray()).ToImmutableArray();
+    }
+
+    private byte[] ComputeStudioCapabilityChecksum()
+    {
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        static byte[] Utf8(string value) => Encoding.UTF8.GetBytes(value);
+        hash.AppendData(Utf8("base.studio.provider-capability.v3"));
+        Span<byte> integer = stackalloc byte[4];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(integer, ProtocolVersion);
+        hash.AppendData(Utf8(Kind)); hash.AppendData(integer);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(integer, (int)Capabilities); hash.AppendData(integer);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(integer, MaximumBinaryFieldBytes); hash.AppendData(integer);
+        hash.AppendData(RelationalReadCapabilityChecksum.AsSpan());
+        foreach (string id in _registrationIds.Order(StringComparer.Ordinal)) hash.AppendData(Utf8(id));
+        hash.AppendData(Activations.CanonicalChecksum.AsSpan());
+        hash.AppendData(BaseSemanticActivationCapabilityContract.Checksum(SemanticActivations).AsSpan());
+        hash.AppendData(SemanticActivationCertification.Checksum.AsSpan());
+        foreach (BaseIndexAccessShape shape in SelectionMutationIndexShapes)
+        {
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(integer, (int)shape);
+            hash.AppendData(integer);
+        }
+        return hash.GetHashAndReset();
+    }
 }
 
 /// <summary>Creates validated immutable store-provider descriptors for provider packages.</summary>
@@ -137,6 +244,8 @@ public static class HPDBaseStoreProviderFactory
         ArgumentNullException.ThrowIfNull(descriptor);
         ArgumentNullException.ThrowIfNull(installer);
         if (descriptor.ProtocolVersion != ProtocolVersion || !ValidIdentifier(descriptor.Kind) || descriptor.MaximumBinaryFieldBytes is < 1 or > 1_048_576 ||
+            !BaseRelationalReadCapabilityContract.IsValid(descriptor.RelationalReads) ||
+            descriptor.Capabilities.HasFlag(BaseStoreProviderCapabilities.RelationalExecution) != descriptor.RelationalReads.Supported ||
             !ValidSubjectCapability(descriptor.SubjectReferences)
             || !ValidLifecycleCapability(descriptor.SubjectLifecycle)
             || !ValidRetirementCapability(descriptor.SubjectRetirement)
@@ -146,6 +255,15 @@ public static class HPDBaseStoreProviderFactory
             || !BaseActivationCapabilityContract.IsValid(descriptor.Activations)
             || !BaseSemanticActivationCapabilityContract.IsValid(descriptor.SemanticActivations)
             || !BaseSemanticActivationCertificationContract.ValidateProfile(descriptor.SemanticActivationCertification)
+            || !BaseLogicalIndexProviderContract.ValidateProfile(descriptor.LogicalIndexes)
+            || descriptor.Capabilities.HasFlag(BaseStoreProviderCapabilities.RequiredIndexes)
+                != descriptor.LogicalIndexes.Supported
+            || descriptor.SelectionMutationIndexShapes.IsDefault
+            || descriptor.SelectionMutationIndexShapes.Any(static shape => !Enum.IsDefined(shape))
+            || descriptor.SelectionMutationIndexShapes.Distinct().Count() != descriptor.SelectionMutationIndexShapes.Length
+            || !descriptor.SelectionMutationIndexShapes.SequenceEqual(descriptor.LogicalIndexes.Capability.AccessShapes)
+            || !string.Equals(descriptor.LogicalIndexes.StoreProviderKind, descriptor.Kind, StringComparison.Ordinal)
+            || descriptor.LogicalIndexes.StoreProviderProtocolVersion != descriptor.ProtocolVersion
             || descriptor.SemanticActivationCertification.Supported != descriptor.SemanticActivations.Supported
             || !string.Equals(descriptor.SemanticActivationCertification.StoreProviderKind, descriptor.Kind, StringComparison.Ordinal)
             || descriptor.SemanticActivationCertification.StoreProviderProtocolVersion != descriptor.ProtocolVersion
@@ -178,6 +296,7 @@ public static class HPDBaseStoreProviderFactory
             Kind = new string(descriptor.Kind.AsSpan()), ProtocolVersion = descriptor.ProtocolVersion,
             Capabilities = descriptor.Capabilities, RegistrationIds = ids, StorageProtectionCapabilities = protection,
             MaximumBinaryFieldBytes = descriptor.MaximumBinaryFieldBytes,
+            RelationalReads = BaseRelationalReadCapabilityContract.Clone(descriptor.RelationalReads),
             SubjectReferences = descriptor.SubjectReferences with { },
             SubjectLifecycle = descriptor.SubjectLifecycle with { },
             SubjectRetirement = descriptor.SubjectRetirement with { },
@@ -195,6 +314,8 @@ public static class HPDBaseStoreProviderFactory
             },
             SemanticActivations = BaseSemanticActivationCapabilityContract.Clone(descriptor.SemanticActivations),
             SemanticActivationCertification = BaseSemanticActivationCertificationContract.Clone(descriptor.SemanticActivationCertification),
+            LogicalIndexes = BaseLogicalIndexProviderContract.CloneProfile(descriptor.LogicalIndexes),
+            SelectionMutationIndexShapes = descriptor.SelectionMutationIndexShapes.ToArray().ToImmutableArray(),
         }, installer);
     }
 
@@ -370,6 +491,7 @@ public sealed class HPDBaseStoreInstallationContext
         var receipt = new HPDBaseStoreRegistrationReceipt(
             Provider.Kind,
             Provider.ProtocolVersion,
+            Provider.ProviderChecksum,
             new string(recordStoreRegistrationId.AsSpan()),
             roles,
             Provider.RegistrationIds.ToArray(),
@@ -384,7 +506,7 @@ public sealed class HPDBaseStoreInstallationContext
     private static string[] RequiredRoles(BaseStoreProviderCapabilities capabilities, CollectionDefinition[] collections)
     {
         var roles = new List<string> { "records", "mutation", "atomic" };
-        if (capabilities.HasFlag(BaseStoreProviderCapabilities.RequiredIndexes)) roles.Add("schema");
+        if (capabilities.HasFlag(BaseStoreProviderCapabilities.RequiredIndexes)) roles.Add("logical-index");
         if (capabilities.HasFlag(BaseStoreProviderCapabilities.RelationalExecution)) roles.Add("relational");
         if (capabilities.HasFlag(BaseStoreProviderCapabilities.TransactionalJournal)) roles.Add("journal");
         if (capabilities.HasFlag(BaseStoreProviderCapabilities.HistoricalReads)) roles.Add("history");
@@ -425,7 +547,7 @@ public sealed class HPDBaseStoreInstallationContext
             canonical.Append(collection.Id).Append('\n');
             foreach (FieldDefinition field in (collection.Fields ?? []).OrderBy(static value => value.Id, StringComparer.Ordinal))
                 canonical.Append("f:").Append(field.Id).Append(':').Append(field.Type).Append('\n');
-            foreach (IndexDefinition index in (collection.Indexes ?? []).OrderBy(static value => value.Id, StringComparer.Ordinal))
+            foreach (BaseLogicalIndexDefinition index in (collection.Indexes ?? []).OrderBy(static value => value.Id))
                 canonical.Append("i:").Append(index.Id).Append('\n');
             foreach (VectorIndexDefinition index in (collection.VectorIndexes ?? []).OrderBy(static value => value.Id, StringComparer.Ordinal))
                 canonical.Append("v:").Append(index.Id).Append(':').Append(index.Dimensions).Append(':').Append((int)index.Function).Append('\n');
@@ -470,6 +592,11 @@ public sealed class HPDBaseStoreInstallationContext
     private static BaseExportedSubjectDefinition CloneSubject(BaseExportedSubjectDefinition value) => value with
     {
         TombstoneFieldId = new string(value.TombstoneFieldId.AsSpan()),
+        TombstoneMetadata = new BaseSubjectTombstoneMetadataDefinition
+        {
+            Instant = value.TombstoneMetadata.Instant with { FieldId = value.TombstoneMetadata.Instant.FieldId is null ? null : new string(value.TombstoneMetadata.Instant.FieldId.AsSpan()) },
+            Sequence = value.TombstoneMetadata.Sequence with { FieldId = value.TombstoneMetadata.Sequence.FieldId is null ? null : new string(value.TombstoneMetadata.Sequence.FieldId.AsSpan()) },
+        },
         Audiences = value.Audiences.ToArray(),
         ValidationPlan = value.ValidationPlan with
         {
@@ -486,11 +613,7 @@ public sealed class HPDBaseStoreInstallationContext
             RequiredCapabilities = field.RequiredCapabilities?.ToArray(),
             Extensions = CloneExtensions(field.Extensions),
         }).ToArray(),
-        Indexes = value.Indexes?.Select(static index => index with
-        {
-            Parts = index.Parts?.Select(static part => part with { Extensions = CloneExtensions(part.Extensions) }).ToArray(),
-            Extensions = CloneExtensions(index.Extensions),
-        }).ToArray(),
+        Indexes = value.Indexes?.Select(BaseSchemaContract.Clone).ToArray(),
         VectorIndexes = value.VectorIndexes?.Select(static index => index with { FilterFieldIds = index.FilterFieldIds.ToArray() }).ToArray(),
         TextIndexes = value.TextIndexes?.Select(BaseTextIndexContract.Seal).ToArray(),
         PolicyRefs = value.PolicyRefs?.ToArray(),
@@ -529,10 +652,12 @@ public sealed class HPDBaseStoreRegistrationReceipt
 {
     private readonly ReadOnlyCollection<string> _requiredRoles;
     private readonly ReadOnlyCollection<string> _contributorIds;
-    internal HPDBaseStoreRegistrationReceipt(string kind, int protocolVersion, string recordStoreRegistrationId, string[] requiredRoles, string[] contributorIds, string schemaDigest, Guid identity)
+    private readonly ImmutableArray<byte> _providerChecksum;
+    internal HPDBaseStoreRegistrationReceipt(string kind, int protocolVersion, ImmutableArray<byte> providerChecksum, string recordStoreRegistrationId, string[] requiredRoles, string[] contributorIds, string schemaDigest, Guid identity)
     {
         Kind = kind;
         ProtocolVersion = protocolVersion;
+        _providerChecksum = providerChecksum.ToArray().ToImmutableArray();
         RecordStoreRegistrationId = recordStoreRegistrationId;
         _requiredRoles = Array.AsReadOnly(requiredRoles.Select(static value => new string(value.AsSpan())).ToArray());
         _contributorIds = Array.AsReadOnly(contributorIds.Select(static value => new string(value.AsSpan())).ToArray());
@@ -543,6 +668,8 @@ public sealed class HPDBaseStoreRegistrationReceipt
     public string Kind { get; }
     /// <summary>Gets the provider protocol version.</summary>
     public int ProtocolVersion { get; }
+    /// <summary>Gets the complete selected provider-descriptor checksum.</summary>
+    public ImmutableArray<byte> ProviderChecksum => _providerChecksum.ToArray().ToImmutableArray();
     /// <summary>Gets the stable authoritative record-store registration identifier.</summary>
     public string RecordStoreRegistrationId { get; }
     /// <summary>Gets the frozen authoritative roles required from the selected bundle.</summary>

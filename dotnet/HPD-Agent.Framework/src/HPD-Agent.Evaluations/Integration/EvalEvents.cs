@@ -2,11 +2,14 @@
 // SPDX-License-Identifier: FSL-1.1-ALv2
 
 using HPD.Agent;
+using HPD.Agent.Serialization;
 using Microsoft.Extensions.AI.Evaluation;
 
 namespace HPD.Agent.Evaluations.Integration;
 
 /// <summary>Emitted when an online evaluator completes scoring a turn.</summary>
+[DurableEvent]
+[EventType("EVAL_SCORE")]
 public sealed record EvalScoreEvent : AgentEvent
 {
     public string EvaluatorName { get; init; } = string.Empty;
@@ -20,6 +23,8 @@ public sealed record EvalScoreEvent : AgentEvent
 }
 
 /// <summary>Emitted when an online evaluator throws an exception or times out.</summary>
+[DurableEvent]
+[EventType("EVAL_FAILED")]
 public sealed record EvalFailedEvent : AgentEvent
 {
     public string EvaluatorName { get; init; } = string.Empty;
@@ -32,6 +37,8 @@ public sealed record EvalFailedEvent : AgentEvent
 }
 
 /// <summary>Emitted when a turn is flagged for human annotation.</summary>
+[DurableEvent]
+[EventType("ANNOTATION_REQUESTED")]
 public sealed record AnnotationRequestedEvent : AgentEvent, IAgentRequestEvent<AnnotationResponseEvent>
 {
     public string AnnotationId { get; init; } = string.Empty;
@@ -46,6 +53,8 @@ public sealed record AnnotationRequestedEvent : AgentEvent, IAgentRequestEvent<A
 }
 
 /// <summary>Human response to an annotation request.</summary>
+[DurableEvent]
+[EventType("ANNOTATION_RESPONSE")]
 public sealed record AnnotationResponseEvent : AgentEvent, IAgentResponseEvent
 {
     public string AnnotationId { get; init; } = string.Empty;
@@ -65,6 +74,8 @@ public sealed record AnnotationResponseEvent : AgentEvent, IAgentResponseEvent
 /// Distinct from EvalFailedEvent (which signals evaluator exceptions/timeouts).
 /// This signals that the evaluator ran successfully but the agent behavior was wrong.
 /// </summary>
+[DurableEvent]
+[EventType("EVAL_POLICY_VIOLATION")]
 public sealed record EvalPolicyViolationEvent : AgentEvent
 {
     public string EvaluatorName { get; init; } = string.Empty;

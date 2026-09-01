@@ -52,7 +52,7 @@ public class AnthropicProviderConfigTests
     public void WithAnthropicChatRequestOptions_ShouldStoreOptionsInChatConfig()
     {
         var builder = new AgentBuilder()
-            .WithAnthropic("claude-sonnet-4-5-20250929", "key")
+            .WithAnthropic("claude-sonnet-4-5-20250929")
             .WithAnthropicChatRequestOptions(opts =>
             {
                 opts.ServiceTier = AnthropicServiceTier.StandardOnly;

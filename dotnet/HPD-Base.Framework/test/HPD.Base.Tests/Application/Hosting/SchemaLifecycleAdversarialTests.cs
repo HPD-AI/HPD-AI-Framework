@@ -1,6 +1,8 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using FluentAssertions;
 using HPD.Base.Tests.Application.Generation;
+using HPD.Base.Tests.Subjects;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -8,6 +10,30 @@ namespace HPD.Base.Tests.Application.Hosting;
 
 public sealed class SchemaLifecycleAdversarialTests
 {
+    [Theory]
+    [InlineData(HostileTombstoneReceiptKind.Missing)]
+    [InlineData(HostileTombstoneReceiptKind.Malformed)]
+    [InlineData(HostileTombstoneReceiptKind.StaleGeneration)]
+    public async Task SubjectTombstoneMetadataLoweringReceiptsFailClosed(
+        HostileTombstoneReceiptKind receiptKind)
+    {
+        var store = new HostileSchemaStore { TombstoneReceiptKind = receiptKind };
+        byte[] key = Enumerable.Repeat((byte)0x75, 32).ToArray();
+        await using ServiceProvider provider = HostWithSubject(store, key);
+        IBaseSchemaManager manager = provider.GetRequiredService<IBaseSchemaManager>();
+        BaseSchemaPlan plan = (await manager.PlanAsync(new BaseSchemaPlanRequest
+        {
+            StoreId = store.Capabilities.StoreId,
+        })).Value!;
+
+        OperationResult<BaseSchemaApplyResult> result = await manager.ApplyAsync(new BaseSchemaApplyRequest
+        {
+            ProtectedArtifact = plan.ProtectedArtifact,
+        });
+
+        result.Error!.Code.Should().Be(BaseSchemaErrorCodes.MigrationFailed);
+    }
+
     [Fact]
     public async Task ProviderCannotInventARefinementOrAcceptAnInapplicableAttestation()
     {
@@ -97,9 +123,42 @@ public sealed class SchemaLifecycleAdversarialTests
             .UseStore(TestStoreProvider.Create(store, schema: true)));
         return services.BuildServiceProvider();
     }
+
+    private static ServiceProvider HostWithSubject(HostileSchemaStore store, byte[] key)
+    {
+        store.SubjectRegistration = L45SqliteUserSubject.HPDBaseSubjectRegistration;
+        var services = new ServiceCollection().AddLogging();
+        services.AddHPDBase(builder => builder
+            .ConfigureSchema(options =>
+            {
+                options.ApplicationId = "hostile-subject-schema-app";
+                options.PlanProtectionKey = key;
+                options.MaxApplyDuration = TimeSpan.FromSeconds(1);
+                options.CommitCompletionTimeout = TimeSpan.FromMilliseconds(10);
+            })
+            .AddCollection(L45SqlitePrivateUser.Collection)
+            .AddExportedSubject(L45SqliteUserSubject.HPDBaseSubjectRegistration)
+            .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey
+            {
+                Id = 75,
+                Key = Enumerable.Repeat((byte)0x75, 32).ToArray(),
+                IssueNotBefore = DateTimeOffset.UnixEpoch,
+            })
+            .UseStore(TestStoreProvider.Create(store, schema: true)));
+        return services.BuildServiceProvider();
+    }
 }
 
-internal sealed class HostileSchemaStore() : FakeRecordStore("hostile-schema"), IBaseSchemaStore
+public enum HostileTombstoneReceiptKind
+{
+    Valid,
+    Missing,
+    Malformed,
+    StaleGeneration,
+}
+
+internal sealed class HostileSchemaStore() : FakeRecordStore("hostile-schema"), IBaseSchemaStore,
+    IBaseSubjectValidationPlanReceiptStore
 {
     private readonly TaskCompletionSource<OperationResult<BaseSchemaApplyResult>> _apply =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -118,8 +177,32 @@ internal sealed class HostileSchemaStore() : FakeRecordStore("hostile-schema"), 
     public bool ReturnInvalidResult { get; set; }
     public BaseSchemaPlanClassification? RefinedClassification { get; set; }
     public bool BlockApply { get; set; }
+    public HostileTombstoneReceiptKind TombstoneReceiptKind { get; set; }
+    public BaseGeneratedSubjectRegistration? SubjectRegistration { get; set; }
     public TaskCompletionSource ApplyStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public TaskCompletionSource ApplyCompleted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public ValueTask<OperationResult<BaseSubjectValidationPlanReceipt[]>> ReadSubjectValidationPlanReceiptsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        BaseSubjectValidationPlanReceipt[] receipts = SubjectRegistration is null
+            ? []
+            :
+            [
+                new BaseSubjectValidationPlanReceipt
+                {
+                    PlanId = SubjectRegistration.Definition.ValidationPlan.Id,
+                    PlanVersion = SubjectRegistration.Definition.ValidationPlan.Version,
+                    PlanChecksum = SubjectRegistration.PlanChecksum,
+                    StoreInstanceId = Capabilities.StoreId,
+                    SchemaGeneration = 1,
+                    Access = SubjectRegistration.Definition.ValidationPlan.Access,
+                    LoweringFormatVersion = 1,
+                },
+            ];
+        return ValueTask.FromResult(OperationResults.Ok(receipts));
+    }
 
     public ValueTask<OperationResult<BaseSchemaObservedState>> InspectSchemaAsync(
         BaseSchemaInspectionRequest request, CancellationToken cancellationToken = default) =>
@@ -152,6 +235,7 @@ internal sealed class HostileSchemaStore() : FakeRecordStore("hostile-schema"), 
             {
                 Outcome = BaseSchemaApplyOutcome.Applied, Generation = 99, BaselineId = "wrong",
                 Checksum = "secret-provider-value", State = BaseSchemaMigrationState.Ready,
+                SubjectTombstoneMetadata = [],
             }));
         return BlockApply
             ? new ValueTask<OperationResult<BaseSchemaApplyResult>>(_apply.Task)
@@ -176,13 +260,26 @@ internal sealed class HostileSchemaStore() : FakeRecordStore("hostile-schema"), 
             Generation = request.ExpectedGeneration + 1, Compatibility = BaseSchemaCompatibility.Compatible,
             Assets = [], MigrationState = BaseSchemaMigrationState.Ready, LastAppliedPlanId = envelope.PlanId,
         };
+        ImmutableArray<BaseSubjectTombstoneMetadataLoweringReceipt> receipts = SubjectRegistration is null
+            ? []
+            : [Receipt(SubjectRegistration, State.Generation)];
+        if (TombstoneReceiptKind == HostileTombstoneReceiptKind.Missing)
+            receipts = [];
+        else if (TombstoneReceiptKind == HostileTombstoneReceiptKind.Malformed)
+            receipts = [receipts[0] with { ReceiptChecksum = [0x75] }];
+        else if (TombstoneReceiptKind == HostileTombstoneReceiptKind.StaleGeneration)
+            receipts = [Receipt(SubjectRegistration!, State.Generation - 1)];
         return OperationResults.Ok(new BaseSchemaApplyResult
         {
             Outcome = BaseSchemaApplyOutcome.Applied, Generation = State.Generation,
             BaselineId = envelope.TargetBaselineId, Checksum = request.ExpectedTargetChecksum,
-            State = BaseSchemaMigrationState.Ready,
+            State = BaseSchemaMigrationState.Ready, SubjectTombstoneMetadata = receipts,
         });
     }
+
+    private static BaseSubjectTombstoneMetadataLoweringReceipt Receipt(
+        BaseGeneratedSubjectRegistration registration,
+        long generation) => BaseSubjectTombstoneMetadataLowering.Create(registration, generation);
 
     public ValueTask<OperationResult<BaseSchemaHistoryPage>> ReadSchemaHistoryAsync(
         BaseSchemaHistoryRequest request, CancellationToken cancellationToken = default) =>

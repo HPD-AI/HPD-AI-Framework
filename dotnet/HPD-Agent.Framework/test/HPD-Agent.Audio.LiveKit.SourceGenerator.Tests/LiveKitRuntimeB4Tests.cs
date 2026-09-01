@@ -8,6 +8,16 @@ namespace HPD.Agent.Audio.LiveKit.SourceGenerator.Tests;
 public sealed class LiveKitRuntimeB4Tests
 {
     [Fact]
+    public void Qualified_native_asset_is_copied_and_hash_verified_for_runtime_admission()
+    {
+        var artifact = LiveKitRuntimeSupport.VerifyCurrentArtifact();
+
+        Assert.Equal(LiveKitNativeArtifactDisposition.Verified, artifact.Disposition);
+        Assert.NotNull(artifact.Path);
+        Assert.EndsWith("liblivekit_ffi.dylib", artifact.Path, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Callback_before_registration_is_retained_and_response_is_released_once()
     {
         var native = new ScriptedNative();
@@ -114,6 +124,23 @@ public sealed class LiveKitRuntimeB4Tests
     }
 
     [Fact]
+    public async Task Outbound_clear_preempts_an_inflight_capture_before_clearing_playout()
+    {
+        var capture = new BlockingCapture();
+        await using var sink = new LiveKitOutboundAudioSink(Format(), capture);
+        var write = sink.WriteAsync(Frame(new byte[96_000])).AsTask();
+        await capture.Entered.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        await sink.FlushAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(1));
+        await write.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.True(capture.CaptureCancelled);
+        Assert.Equal(1, capture.Clears);
+        await sink.WriteAsync(Frame([1,2,3,4]));
+        Assert.Equal(1, capture.CompletedCaptures);
+    }
+
+    [Fact]
     public void Replacement_fences_the_previous_session_generation()
     {
         var fence = new LiveKitSessionGenerationFence();
@@ -201,6 +228,137 @@ public sealed class LiveKitRuntimeB4Tests
         Assert.Equal(1, capture.Clears);
     }
 
+    [Fact]
+    public async Task Completed_final_output_stream_closes_playback_observation_with_approximate_boundary()
+    {
+        var capture = new ScriptedCapture();
+        await using var endpoint = new LiveKitOutboundAudioSink(Format(), capture);
+        IAudioOutputSink adapter = new LiveKitAudioOutputSinkAdapter(endpoint);
+        var flowId = new HPD.Agent.Audio.OutputFlowId("flow-completed");
+        var responseId = new HPD.Agent.Audio.ResponseId("response-completed");
+        var segmentId = new HPD.Agent.Audio.OutputSegmentId("segment-completed");
+        await adapter.StartAsync(new OutputAudioStream
+        {
+            OutputFlowId = flowId,
+            ResponseId = responseId,
+            SegmentId = segmentId,
+            SegmentIndex = 0,
+            IsFinalSegment = true,
+            SourceTextStart = 0,
+            SourceTextLength = 12,
+            MediaType = "audio/pcm",
+            PayloadKind = OutputAudioPayloadKind.DecodedPcmFrame
+        });
+
+        await adapter.CompleteAsync(new OutputAudioStreamCompletion
+        {
+            OutputFlowId = flowId,
+            ResponseId = responseId,
+            SegmentId = segmentId,
+            SegmentIndex = 0,
+            Disposition = OutputAudioStreamDisposition.Completed,
+            ChunkCount = 1,
+            SizeBytes = 4,
+            Duration = TimeSpan.FromMilliseconds(20),
+            CompletedAt = DateTimeOffset.UtcNow
+        });
+
+        var events = new List<OutputPlaybackEvent>();
+        await foreach (var playbackEvent in adapter.ReadPlaybackEventsAsync(flowId))
+            events.Add(playbackEvent);
+
+        Assert.Collection(events,
+            queued => Assert.IsType<OutputPlaybackQueuedEvent>(queued),
+            completed =>
+            {
+                var value = Assert.IsType<OutputPlaybackCompletedEvent>(completed);
+                Assert.Equal(12, value.Cursor.PlayedTextLength);
+                Assert.Equal(TimeSpan.FromMilliseconds(20), value.Cursor.PlayedDuration);
+                Assert.Equal(OutputAlignmentPrecision.Approximate, value.Cursor.Precision);
+            });
+    }
+
+    [Fact]
+    public async Task Interrupted_output_stream_terminates_observation_and_retained_sink_accepts_next_flow()
+    {
+        var capture = new ScriptedCapture();
+        await using var endpoint = new LiveKitOutboundAudioSink(Format(), capture);
+        IAudioOutputSink adapter = new LiveKitAudioOutputSinkAdapter(endpoint);
+        var firstFlow = new HPD.Agent.Audio.OutputFlowId("flow-interrupted");
+        var responseId = new HPD.Agent.Audio.ResponseId("response-interrupted");
+        var segmentId = new HPD.Agent.Audio.OutputSegmentId("segment-interrupted");
+        await adapter.StartAsync(new OutputAudioStream
+        {
+            OutputFlowId = firstFlow,
+            ResponseId = responseId,
+            SegmentId = segmentId,
+            IsFinalSegment = true,
+            MediaType = "audio/pcm",
+            PayloadKind = OutputAudioPayloadKind.DecodedPcmFrame
+        });
+
+        await adapter.InterruptAsync(firstFlow);
+        var events = new List<OutputPlaybackEvent>();
+        await foreach (var playbackEvent in adapter.ReadPlaybackEventsAsync(firstFlow))
+            events.Add(playbackEvent);
+        Assert.Contains(events, item => item is OutputPlaybackInterruptedEvent);
+
+        var nextFlow = new HPD.Agent.Audio.OutputFlowId("flow-next");
+        var started = await adapter.StartAsync(new OutputAudioStream
+        {
+            OutputFlowId = nextFlow,
+            ResponseId = new HPD.Agent.Audio.ResponseId("response-next"),
+            SegmentId = new HPD.Agent.Audio.OutputSegmentId("segment-next"),
+            IsFinalSegment = true,
+            MediaType = "audio/pcm",
+            PayloadKind = OutputAudioPayloadKind.DecodedPcmFrame
+        });
+        Assert.Equal(OutputSinkStartDisposition.Accepted, started.Disposition);
+        await adapter.WriteAsync(new OutputAudioChunk
+        {
+            OutputFlowId = nextFlow,
+            ResponseId = started.ResponseId,
+            SegmentId = started.SegmentId,
+            SegmentIndex = 0,
+            Sequence = 0,
+            Payload = new DecodedOutputAudioFrame { Frame = Frame([1, 2, 3, 4]) }
+        });
+        Assert.Equal(AudioSinkState.Open, endpoint.State);
+    }
+
+    [Fact]
+    public async Task Interrupted_flow_drops_late_chunks_before_the_retained_transport()
+    {
+        var inner = new RecordingOutputSink();
+        var gated = new LiveKitManagedAudioSession.GatedAudioOutputSink(inner, static () => true);
+        var flowId = new HPD.Agent.Audio.OutputFlowId("stale-flow");
+        var responseId = new HPD.Agent.Audio.ResponseId("stale-response");
+        var segmentId = new HPD.Agent.Audio.OutputSegmentId("stale-segment");
+        await gated.StartAsync(new OutputAudioStream
+        {
+            OutputFlowId = flowId,
+            ResponseId = responseId,
+            SegmentId = segmentId,
+            IsFinalSegment = true,
+            MediaType = "audio/pcm",
+            PayloadKind = OutputAudioPayloadKind.DecodedPcmFrame
+        });
+
+        Assert.True(await gated.InterruptActiveAsync(CancellationToken.None));
+        await gated.WriteAsync(new OutputAudioChunk
+        {
+            OutputFlowId = flowId,
+            ResponseId = responseId,
+            SegmentId = segmentId,
+            SegmentIndex = 0,
+            Sequence = 0,
+            Payload = new DecodedOutputAudioFrame { Frame = Frame([1, 2, 3, 4]) }
+        });
+
+        Assert.Equal(1, inner.Interrupts);
+        Assert.Equal(0, inner.Writes);
+    }
+
     private static AudioFormat Format() => new() { SampleRate = 48_000, ChannelCount = 1, SampleFormat = AudioSampleFormat.Pcm16 };
     private static AudioFrame Frame(byte[] bytes) => new() { Data = bytes, Format = Format(), SamplesPerChannel = bytes.Length / 2 };
     private static byte[] Event(LiveKitFfiEventCase eventCase, ulong asyncId) => [checked((byte)eventCase), .. BitConverter.GetBytes(asyncId)];
@@ -269,6 +427,85 @@ public sealed class LiveKitRuntimeB4Tests
             finally { Interlocked.Decrement(ref _concurrent); }
         }
         public ValueTask ClearAsync(CancellationToken cancellationToken) { Clears++; return ValueTask.CompletedTask; }
+    }
+
+    private sealed class BlockingCapture : ILiveKitAudioCapturePort
+    {
+        internal TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal bool CaptureCancelled;
+        internal int Clears;
+        internal int CompletedCaptures;
+
+        public async ValueTask CaptureAsync(AudioFrame frame, CancellationToken cancellationToken)
+        {
+            Entered.TrySetResult();
+            if (CaptureCancelled)
+            {
+                CompletedCaptures++;
+                return;
+            }
+            try { await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken); }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                CaptureCancelled = true;
+                throw new InvalidDataException("LiveKit audio capture outcome is unknown.");
+            }
+        }
+
+        public ValueTask ClearAsync(CancellationToken cancellationToken)
+        {
+            Clears++;
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class RecordingOutputSink : IAudioOutputSink
+    {
+        internal int Writes;
+        internal int Interrupts;
+
+        public ValueTask<OutputSinkStartResult> StartAsync(OutputAudioStream stream, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(new OutputSinkStartResult
+            {
+                OutputFlowId = stream.OutputFlowId,
+                ResponseId = stream.ResponseId,
+                SegmentId = stream.SegmentId,
+                SegmentIndex = stream.SegmentIndex,
+                Disposition = OutputSinkStartDisposition.Accepted
+            });
+
+        public ValueTask WriteAsync(OutputAudioChunk chunk, CancellationToken cancellationToken = default)
+        {
+            Writes++;
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask CompleteAsync(OutputAudioStreamCompletion completion, CancellationToken cancellationToken = default) =>
+            ValueTask.CompletedTask;
+
+        public async IAsyncEnumerable<OutputPlaybackEvent> ReadPlaybackEventsAsync(
+            HPD.Agent.Audio.OutputFlowId outputFlowId,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            await Task.CompletedTask;
+            yield break;
+        }
+
+        public ValueTask<OutputPlaybackBoundary> InterruptAsync(
+            HPD.Agent.Audio.OutputFlowId outputFlowId,
+            CancellationToken cancellationToken = default)
+        {
+            Interrupts++;
+            return ValueTask.FromResult(new OutputPlaybackBoundary
+            {
+                OutputFlowId = outputFlowId,
+                ResponseId = new HPD.Agent.Audio.ResponseId("interrupted"),
+                PlayedTextLength = 0
+            });
+        }
+
+        public ValueTask FlushAsync(HPD.Agent.Audio.OutputFlowId outputFlowId, CancellationToken cancellationToken = default) =>
+            ValueTask.CompletedTask;
     }
 
     private sealed class ScriptedSessionControl : ILiveKitSessionControlPort

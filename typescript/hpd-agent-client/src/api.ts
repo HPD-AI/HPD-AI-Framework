@@ -38,7 +38,7 @@ import type {
   UpdateSessionRequest,
   UpdateThreadRequest,
 } from './types/session.js';
-import type { ThreadExecution, ThreadRuntimeState } from './types/thread-execution.js';
+import type { ThreadExecution, ThreadExecutionCancellation, ThreadRuntimeState } from './types/thread-execution.js';
 import type { TransportRequestOptions } from './transports/options.js';
 
 export class AgentHttpApi {
@@ -312,6 +312,32 @@ export class AgentHttpApi {
     );
     if (response.status === 404) return null;
     return this.readNullableJson(response, 'Failed to get thread execution');
+  }
+
+  async cancelThreadExecution(
+    agentId: string,
+    sessionId: string,
+    threadId: string,
+    threadExecutionId: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<ThreadExecutionCancellation> {
+    const response = await this.fetch(
+      this.url(`/agents/${agentId}/sessions/${sessionId}/threads/${threadId}/executions/${threadExecutionId}/cancel`),
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', signal: options.signal },
+    );
+    return this.readJson(response, 'Failed to cancel thread execution');
+  }
+
+  async startQueuedWork(
+    agentId: string,
+    sessionId: string,
+    threadId: string,
+  ): Promise<ThreadExecution> {
+    const response = await this.fetch(
+      this.url(`/agents/${agentId}/sessions/${sessionId}/threads/${threadId}/queue/start`),
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
+    );
+    return this.readJson(response, 'Failed to start queued work');
   }
 
   async getThreadGraph(sessionId: string): Promise<ThreadGraph> {

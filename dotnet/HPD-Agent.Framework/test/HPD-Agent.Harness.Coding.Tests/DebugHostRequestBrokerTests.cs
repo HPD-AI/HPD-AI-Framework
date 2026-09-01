@@ -1,5 +1,6 @@
 using HPD.Agent.ToolHarness.Coding.Debugging;
 using HPD.Agent;
+using HPD.Agent.Serialization;
 using HPD.Events;
 using HPD.Events.Core;
 using HPDOS.ToolHarnesses.Middleware;
@@ -114,12 +115,20 @@ public sealed class DebugHostRequestBrokerTests
         observed.WorkingDirectory.Should().Be("/workspace");
     }
 
-    private sealed class RecordingThreadPublisher(IEventCoordinator events) : IThreadEventPublisher
+    private sealed class RecordingThreadPublisher(IEventCoordinator events) : IAgentEventPublisher
     {
+        public AgentEventCodec EventCodec => CodingEventTestCodec.Codec;
         public bool ResponseCommitted { get; private set; }
         public int CommitCount { get; private set; }
         public ValueTask<ThreadEventHead?> GetHeadAsync(ThreadKey thread, CancellationToken cancellationToken = default)
             => ValueTask.FromResult<ThreadEventHead?>(null);
+        public ValueTask<AgentEvent> PublishAsync(ThreadKey thread, AgentEvent value, CancellationToken cancellationToken = default)
+            => CommitAndPublishAsync(thread, value, cancellationToken);
+        public async ValueTask<AgentEvent> PublishLiveAsync(AgentEvent value, CancellationToken cancellationToken = default)
+        {
+            await events.EmitAsync(value, cancellationToken);
+            return value;
+        }
         public async ValueTask<AgentEvent> CommitAndPublishAsync(ThreadKey thread, AgentEvent proposedEvent, CancellationToken cancellationToken = default)
         {
             CommitCount++;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { BaseHttpTransport, acknowledgeSubjectRetirement, advanceSubjectLifecycle, baseRedacted, collection, createBaseClient, decodeBaseJson, decodeBaseValue, encodeBaseJson, executeModuleMutation, executeSelectionMutation, field, isBaseRedacted, iterateSubjectLifecycle, moduleMutation, parseBaseJson, read, readSubjectLifecycle, reconcileSubjectLifecycle, selectionMutation, subjectLifecycleConsumer } from "../dist/index.js";
+import { BaseHttpTransport, acknowledgeSubjectRetirement, advanceSubjectLifecycle, baseCanonicalJsonNumber, baseRedacted, collection, createBaseClient, decodeBaseJson, decodeBaseValue, encodeBaseJson, executeModuleMutation, executeSelectionMutation, field, isBaseCanonicalJsonNumber, isBaseRedacted, iterateSubjectLifecycle, moduleMutation, parseBaseJson, read, readSubjectLifecycle, reconcileSubjectLifecycle, selectionMutation, subjectLifecycleConsumer } from "../dist/index.js";
 import { BaseRealtimeManager } from "../dist/realtime.js";
 
 const basicGraph = Object.freeze({
@@ -11,6 +11,20 @@ const basicGraph = Object.freeze({
   patch: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "stored_title", typeId: "title", required: false, nullable: false, disclosureShape: "none" }] }
 });
 const schema = Object.freeze({ protocolMajor: 2, schemaGeneration: "1", digest: `sha256:${"0".repeat(64)}`, audience: "application", features: { files: false, realtime: true, batch: true, controlOperations: [] }, typeGraph: basicGraph, reads: {}, collections: { documents: collection({ id: "documents", recordTypeId: "record", createTypeId: "create", replaceTypeId: "replace", patchTypeId: "patch", fields: { title: field("stable-title", "stored_title", ["equal", "notEqual"], "title") }, operations: ["get", "query", "create", "patch", "replace", "batch", "watch", "realtime"], pagination: "seek", maxPageSize: 100, vectorIndexes: {}, textIndexes: {} }) } });
+
+test("dynamic Studio string formats remain closed and interoperable", () => {
+  const graph = Object.freeze({
+    checksum: { kind: "string", minLength: 64, maxLength: 64, format: "sha256" },
+    text: { kind: "string", minLength: 1, maxLength: 512, format: "nfc-text" },
+    code: { kind: "string", minLength: 1, maxLength: 128, format: "safe-error-code" },
+    token: { kind: "string", minLength: 1, maxLength: 512, format: "studio-resource-token" }
+  });
+  assert.equal(decodeBaseJson(`"${"a".repeat(64)}"`, "checksum", graph), "a".repeat(64));
+  assert.equal(decodeBaseJson('"hpd.cloud"', "text", graph), "hpd.cloud");
+  assert.equal(decodeBaseJson('"base.studio.failed"', "code", graph), "base.studio.failed");
+  assert.equal(decodeBaseJson('"opaque_123-ABC"', "token", graph), "opaque_123-ABC");
+  assert.throws(() => decodeBaseJson('"ABC"', "checksum", graph), /base\.client\.responseInvalid/);
+});
 
 test("query uses the canonical RecordQuery wire shape", async () => {
   let wire;
@@ -341,7 +355,7 @@ test("the bounded JSON codec rejects duplicate and lossy numeric tokens before m
 
 test("the closed graph codec validates every node and canonicalizes binary32", () => {
   const graph = {
-    boolean: { kind: "boolean" }, plain: { kind: "string", minLength: 1, maxLength: 8, format: "plain" }, integer: { kind: "integer", minimum: "-10", maximum: "10", wire: "number" }, large: { kind: "integer", minimum: "0", maximum: "99999999999999999999", wire: "decimal-string" }, decimal: { kind: "decimal", wire: "decimal-string" }, f32: { kind: "floating", precision: "binary32", finiteOnly: true }, f64: { kind: "floating", precision: "binary64", finiteOnly: true }, bytes: { kind: "bytes", wire: "base64", maxBytes: 3 }, tagA: { kind: "literal", value: "a" }, tagB: { kind: "literal", value: "b" }, enumeration: { kind: "enum", values: ["x", "y"] }, array: { kind: "array", elementTypeId: "f32", minItems: 2, maxItems: 2 }, a: { kind: "object", additionalProperties: false, properties: [{ name: "kind", wireName: "kind", typeId: "tagA", required: true, nullable: false, disclosureShape: "none" }, { name: "value", wireName: "payload", typeId: "array", required: true, nullable: false, disclosureShape: "none" }] }, b: { kind: "object", additionalProperties: false, properties: [{ name: "kind", wireName: "kind", typeId: "tagB", required: true, nullable: false, disclosureShape: "none" }, { name: "value", wireName: "payload", typeId: "plain", required: false, nullable: true, disclosureShape: "none" }] }, union: { kind: "union", discriminator: "kind", variants: [{ tag: "a", typeId: "a" }, { tag: "b", typeId: "b" }] }
+    boolean: { kind: "boolean" }, plain: { kind: "string", minLength: 1, maxLength: 8, format: "plain" }, integer: { kind: "integer", minimum: "-10", maximum: "10", wire: "number" }, large: { kind: "integer", minimum: "0", maximum: "99999999999999999999", wire: "decimal-string" }, decimal: { kind: "decimal", wire: "decimal-string" }, f32: { kind: "floating", precision: "binary32", finiteOnly: true }, f64: { kind: "floating", precision: "binary64", finiteOnly: true }, bytes: { kind: "bytes", wire: "base64", maxBytes: 3 }, json: { kind: "canonicalJson", canonicalJsonShape: { jsonShape: "object", maximumCanonicalJsonBytes: 512, maximumJsonDepth: 4, maximumJsonArrayItems: 4, maximumJsonObjectProperties: 4, maximumJsonTotalNodes: 16, maximumJsonTotalStringUtf8Bytes: 32, maximumJsonTotalNameUtf8Bytes: 64, checksum: "0".repeat(64) } }, tagA: { kind: "literal", value: "a" }, tagB: { kind: "literal", value: "b" }, enumeration: { kind: "enum", values: ["x", "y"] }, array: { kind: "array", elementTypeId: "f32", minItems: 2, maxItems: 2 }, a: { kind: "object", additionalProperties: false, properties: [{ name: "kind", wireName: "kind", typeId: "tagA", required: true, nullable: false, disclosureShape: "none" }, { name: "value", wireName: "payload", typeId: "array", required: true, nullable: false, disclosureShape: "none" }] }, b: { kind: "object", additionalProperties: false, properties: [{ name: "kind", wireName: "kind", typeId: "tagB", required: true, nullable: false, disclosureShape: "none" }, { name: "value", wireName: "payload", typeId: "plain", required: false, nullable: true, disclosureShape: "none" }] }, union: { kind: "union", discriminator: "kind", variants: [{ tag: "a", typeId: "a" }, { tag: "b", typeId: "b" }] }
   };
   assert.deepEqual(decodeBaseJson('{"kind":"a","payload":[0.1,-0]}', "union", graph), { kind: "a", value: [Math.fround(0.1), 0] });
   assert.equal(encodeBaseJson({ kind: "a", value: [Math.fround(0.1), 0] }, "union", graph), '{"kind":"a","payload":[0.1,0]}');
@@ -351,6 +365,18 @@ test("the closed graph codec validates every node and canonicalizes binary32", (
   assert.deepEqual(decodeBaseJson('"AQID"', "bytes", graph), new Uint8Array([1, 2, 3])); assert.equal(decodeBaseJson('"99999999999999999999"', "large", graph), "99999999999999999999");
   const source = new Uint8Array([1, 2, 3]); const copied = decodeBaseValue(source, "bytes", graph); source[0] = 9;
   assert.deepEqual(copied, new Uint8Array([1, 2, 3])); assert.equal(encodeBaseJson(copied, "bytes", graph), '"AQID"');
+  const json = { enabled: true, labels: ["a"] }; const ownedJson = decodeBaseValue(json, "json", graph); json.labels[0] = "changed";
+  assert.deepEqual(ownedJson, { enabled: true, labels: ["a"] }); assert.equal(encodeBaseJson(ownedJson, "json", graph), '{"enabled":true,"labels":["a"]}');
+  assert.deepEqual(decodeBaseJson('{"enabled":true,"labels":["a"]}', "json", graph), { enabled: true, labels: ["a"] });
+  const wide = decodeBaseJson('{"value":9007199254740992,"minimum":-170141183460469231731687303715884105728,"precise":1.2345678901234567890123456789}', "json", graph);
+  assert.equal(isBaseCanonicalJsonNumber(wide.value), true);
+  assert.equal(wide.value.canonical, "9007199254740992");
+  assert.equal(wide.minimum.canonical, "-170141183460469231731687303715884105728");
+  assert.equal(wide.precise.canonical, "1.2345678901234567890123456789");
+  assert.equal(encodeBaseJson(wide, "json", graph), '{"minimum":-170141183460469231731687303715884105728,"precise":1.2345678901234567890123456789,"value":9007199254740992}');
+  assert.equal(encodeBaseJson({ value: baseCanonicalJsonNumber("170141183460469231731687303715884105727") }, "json", graph), '{"value":170141183460469231731687303715884105727}');
+  assert.throws(() => baseCanonicalJsonNumber("170141183460469231731687303715884105728"));
+  assert.throws(() => decodeBaseJson('{"enabled":true,"labels":["a","b","c","d","e"]}', "json", graph));
   assert.throws(() => decodeBaseJson('{"kind":"a","payload":[],"extra":true}', "union", graph)); assert.throws(() => decodeBaseJson("[0.1]", "array", graph));
   assert.throws(() => decodeBaseJson('{"kind":"c"}', "union", graph)); assert.throws(() => decodeBaseJson('[1e-50]', "array", graph));
 });
@@ -377,11 +403,31 @@ test("indeterminate mutations retain immutable bytes for explicit receipt resolu
 
 test("generated graph codecs guard records and registered-read rows at runtime", async () => {
   const graph = { title: { kind: "string", minLength: 1, maxLength: 8, format: "plain" }, score: { kind: "floating", precision: "binary32", finiteOnly: true }, record: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "stored_title", typeId: "title", required: true, nullable: false, disclosureShape: "none" }, { name: "score", wireName: "score", typeId: "score", required: false, nullable: false, disclosureShape: "none" }] }, create: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "title", typeId: "title", required: true, nullable: false, disclosureShape: "none" }, { name: "score", wireName: "score", typeId: "score", required: false, nullable: false, disclosureShape: "none" }] }, replace: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "title", typeId: "title", required: true, nullable: false, disclosureShape: "none" }, { name: "score", wireName: "score", typeId: "score", required: true, nullable: false, disclosureShape: "none" }] }, patch: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "title", typeId: "title", required: false, nullable: false, disclosureShape: "none" }, { name: "score", wireName: "score", typeId: "score", required: false, nullable: false, disclosureShape: "none" }] }, row: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "title", typeId: "title", required: true, nullable: false, disclosureShape: "none" }] }, parameters: { kind: "object", additionalProperties: false, properties: [] } };
-  const typedSchema = { ...schema, typeGraph: graph, reads: { titles: read({ id: "titles", parameterTypeId: "parameters", rowTypeId: "row", maxPageSize: 10, watchable: false }) }, collections: { documents: collection({ ...schema.collections.documents, fields: { title: field("stable-title", "stored_title", ["equal"], "title"), score: field("score", "score", ["equal"], "score") }, operations: ["get", "patch", "batch"] }) } };
+  const typedSchema = { ...schema, typeGraph: graph, reads: { titles: read({ id: "titles", parameterTypeId: "parameters", rowTypeId: "row", maxPageSize: 10, fixedCompleteResult: false, fixedDiscriminators: [], watchable: false }) }, collections: { documents: collection({ ...schema.collections.documents, fields: { title: field("stable-title", "stored_title", ["equal"], "title"), score: field("score", "score", ["equal"], "score") }, operations: ["get", "patch", "batch"] }) } };
   let mode = "record"; let mutationBody = ""; const base = createBaseClient({ schema: typedSchema, url: "https://base.test/base/", fetch: async (_url, init) => { if (mode === "record") return Response.json({ collectionId: "documents", id: "d1", payload: { kind: "json", json: { stored_title: "valid", score: 0.1, extra: true } }, metadata: {} }, { headers: { "X-Correlation-ID": "c" } }); if (mode === "read") return Response.json({ items: [{ title: "too-long-value" }], page: { hasMore: false } }, { headers: { "X-Correlation-ID": "c" } }); mutationBody = new TextDecoder().decode(init.body); return Response.json({ outcome: "committed", items: [{ itemId: "mutation", index: 0, kind: "patch", disposition: "committed", record: { collectionId: "documents", id: "d1", payload: { kind: "json", json: { stored_title: "valid", score: 0.1 } }, metadata: {} } }] }, { headers: { "X-Correlation-ID": "c" } }); } });
   const malformedRecord = await base.documents.get("d1"); assert.equal(malformedRecord.ok, false); assert.equal(malformedRecord.error.code, "base.client.responseInvalid");
   mode = "read"; const malformedRow = await base.reads.titles.execute({}); assert.equal(malformedRow.ok, false); assert.equal(malformedRow.error.code, "base.client.responseInvalid");
   mode = "mutation"; const patched = await base.documents.patch("d1", { score: Math.fround(0.1) }); assert.equal(patched.ok, true); assert.match(mutationBody, /\"score\":0\.1/); assert.doesNotMatch(mutationBody, /0\.10000000149011612/);
+});
+
+test("fixed complete registered reads expose aliases and return the complete immutable array", async () => {
+  const graph = { parameters: { kind: "object", additionalProperties: false, properties: [] }, row: { kind: "object", additionalProperties: false, properties: [{ name: "kind", wireName: "kind", typeId: "kind", required: true, nullable: false, disclosureShape: "none" }, { name: "count", wireName: "count", typeId: "count", required: true, nullable: false, disclosureShape: "none" }] }, kind: { kind: "string", minLength: 1, maxLength: 16, format: "plain" }, count: { kind: "integer", minimum: 0, maximum: 100 } };
+  const fixedSchema = { ...schema, typeGraph: graph, reads: { proof: read({ id: "proof", parameterTypeId: "parameters", rowTypeId: "row", maxPageSize: 2, fixedCompleteResult: true, fixedDiscriminators: ["alpha", "beta"], watchable: false }) } };
+  const base = createBaseClient({ schema: fixedSchema, url: "https://base.test/base/", fetch: async () => Response.json({ items: [{ kind: "alpha", count: 1 }, { kind: "beta", count: 0 }], page: { page: 1, perPage: 2, hasMore: false } }) });
+  assert.deepEqual(base.reads.proof.discriminators, ["alpha", "beta"]);
+  await assert.rejects(() => base.reads.proof.execute({}, { page: 1 }), /base\.query\.invalid/u);
+  await assert.rejects(() => base.reads.proof.execute({}, { perPage: 1 }), /base\.query\.invalid/u);
+  const result = await base.reads.proof.execute({});
+  assert.deepEqual(result, [{ kind: "alpha", count: "1" }, { kind: "beta", count: "0" }]);
+  assert.equal(Object.isFrozen(result), true);
+  const denied = createBaseClient({ schema: fixedSchema, url: "https://base.test/base/", fetch: async () => Response.json(
+    { code: "base.relational.read.denied", message: "Registered read denied." },
+    { status: 403, headers: { "X-Correlation-ID": "safe-read-failure" } }) });
+  await assert.rejects(
+    () => denied.reads.proof.execute({}),
+    error => error instanceof Error && error.code === "base.relational.read.denied"
+      && error.category === "authorization" && error.correlationId === "safe-read-failure"
+      && !Object.hasOwn(error, "details"));
 });
 
 test("mutation DTOs enforce authoritative required, nullable, and extra-member rules", async () => {

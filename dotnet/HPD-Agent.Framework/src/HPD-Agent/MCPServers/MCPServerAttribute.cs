@@ -2,11 +2,11 @@ namespace HPD.Agent;
 
 /// <summary>
 /// Marks a method as an MCP server provider.
-/// The method must return MCPServerConfig (from HPD.Agent.MCP namespace).
+/// The method must return McpServerConfig (from HPD.Agent.MCP namespace).
 /// </summary>
 /// <remarks>
 /// Two modes of operation:
-/// 1. **Inline config**: Method returns a fully configured MCPServerConfig with an explicit transport
+/// 1. **Inline config**: Method returns a fully configured McpServerConfig with an explicit transport
 /// 2. **Manifest reference**: Set FromManifest to load config from mcp.json by server name
 ///
 /// Description is auto-fetched from the MCP server's ServerInfo metadata at connection time.
@@ -21,7 +21,7 @@ namespace HPD.Agent;
 /// (same as [AIFunction] and [Skill]).
 /// </remarks>
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false, Inherited = false)]
-public class MCPServerAttribute : Attribute
+public class McpServerAttribute : Attribute
 {
     /// <summary>
     /// Server name to look up when using FromManifest mode.
@@ -47,7 +47,7 @@ public class MCPServerAttribute : Attribute
     /// The ServerName parameter specifies which server to look up.
     /// </summary>
     /// <example>
-    /// public MCPServerConfig LocalFileSystem() => new()
+    /// public McpServerConfig LocalFileSystem() => new()
     /// {
     ///     Name = "filesystem",
     ///     Transport = "stdio",
@@ -55,15 +55,15 @@ public class MCPServerAttribute : Attribute
     ///     Arguments = ["-y", "@modelcontextprotocol/server-filesystem", "."]
     /// };
     ///
-    /// public MCPServerConfig RemoteSearch() => new()
+    /// public McpServerConfig RemoteSearch() => new()
     /// {
     ///     Name = "search",
     ///     Transport = "http",
     ///     Endpoint = "https://mcp.example.com/search"
     /// };
     ///
-    /// [MCPServer("filesystem", FromManifest = "mcp.json")]
-    /// public MCPServerConfig? FileSystem() => null;
+    /// [McpServer("filesystem", FromManifest = "mcp.json")]
+    /// public McpServerConfig? FileSystem() => null;
     /// </example>
     public string? FromManifest { get; set; }
 
@@ -77,15 +77,15 @@ public class MCPServerAttribute : Attribute
     /// </summary>
     public bool CollapseWithinToolHarness { get; set; } = false;
 
-    public MCPServerAttribute() { }
-    public MCPServerAttribute(string serverName) => ServerName = serverName;
+    public McpServerAttribute() { }
+    public McpServerAttribute(string serverName) => ServerName = serverName;
 }
 
 /// <summary>
 /// Generic version for typed metadata support (conditional MCP servers).
 /// </summary>
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false, Inherited = false)]
-public sealed class MCPServerAttribute<TMetadata> : Attribute where TMetadata : IToolMetadata
+public sealed class McpServerAttribute<TMetadata> : Attribute where TMetadata : IToolMetadata
 {
     public Type ContextType => typeof(TMetadata);
     public string? ServerName { get; }
@@ -94,6 +94,6 @@ public sealed class MCPServerAttribute<TMetadata> : Attribute where TMetadata : 
     public string? FromManifest { get; set; }
     public bool CollapseWithinToolHarness { get; set; } = false;
 
-    public MCPServerAttribute() { }
-    public MCPServerAttribute(string serverName) => ServerName = serverName;
+    public McpServerAttribute() { }
+    public McpServerAttribute(string serverName) => ServerName = serverName;
 }

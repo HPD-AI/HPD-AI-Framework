@@ -66,6 +66,7 @@ internal static class BaseAtomicMutationOwnership
             ProjectionDigest = ImmutableArray.Create(value.Text.ProjectionDigest.ToArray()),
             Facts = value.Text.Facts.Select(FreezeTextFact).ToImmutableArray(),
         },
+        Schema = BaseAtomicSchemaContract.Freeze(value.Schema),
         Activations = value.Activations is null ? null : new BaseActivationCreationExtension
         {
             StructuralDigest = ImmutableArray.Create(value.Activations.StructuralDigest.ToArray()),
@@ -268,7 +269,7 @@ internal static class BaseAtomicMutationOwnership
     private static BaseTextProjectionFact FreezeTextFact(BaseTextProjectionFact value) => value with
     {
         CollectionId = new(value.CollectionId.AsSpan()), TextIndexId = new(value.TextIndexId.AsSpan()),
-        TextIndexChecksum = ImmutableArray.Create(value.TextIndexChecksum.ToArray()), RecordId = new(new string(value.RecordId.Value.AsSpan())),
+        TextIndexChecksum = ImmutableArray.Create(value.TextIndexChecksum.ToArray()), RecordId = RecordId.Create(new string(value.RecordId.Value.AsSpan())),
         Before = FreezeTextState(value.Before), After = FreezeTextState(value.After), FactChecksum = ImmutableArray.Create(value.FactChecksum.ToArray()),
     };
 
@@ -286,6 +287,7 @@ internal static class BaseAtomicMutationOwnership
         EventId = new string(value.EventId.AsSpan()),
         Collection = FreezeCollection(value.Collection),
         ProposedPayload = value.ProposedPayload is null ? null : RecordCloneHelpers.ClonePayload(value.ProposedPayload),
+        RemovedFieldIds = value.RemovedFieldIds.Select(static field => new string(field.AsSpan())).ToImmutableArray(),
         Delete = value.Delete is null ? null : value.Delete with { },
         Current = value.Current is null ? null : RecordCloneHelpers.CloneEnvelope(value.Current),
         ChangedFields = value.ChangedFields.Select(static field => new string(field.AsSpan())).ToImmutableArray(),
@@ -334,24 +336,7 @@ internal static class BaseAtomicMutationOwnership
                 ContractChecksum = new string(field.SubjectReference.ContractChecksum.AsSpan()),
             },
         }).ToArray(),
-        Indexes = value.Indexes?.Select(static index => index with
-        {
-            Parts = index.Parts?.Select(static part => part with
-            {
-                FieldId = part.FieldId is null ? null : new string(part.FieldId.AsSpan()),
-                Expression = part.Expression is null ? null : new string(part.Expression.AsSpan()),
-                Collation = part.Collation is null ? null : new string(part.Collation.AsSpan()),
-                OperatorClass = part.OperatorClass is null ? null : new string(part.OperatorClass.AsSpan()),
-                Extensions = part.Extensions?.ToDictionary(
-                    static pair => new string(pair.Key.AsSpan()),
-                    static pair => pair.Value.Clone(),
-                    StringComparer.Ordinal),
-            }).ToArray(),
-            Extensions = index.Extensions?.ToDictionary(
-                static pair => new string(pair.Key.AsSpan()),
-                static pair => pair.Value.Clone(),
-                StringComparer.Ordinal),
-        }).ToArray(),
+        Indexes = value.Indexes?.Select(BaseSchemaContract.Clone).ToArray(),
         VectorIndexes = value.VectorIndexes?.Select(static index => index with
         {
             FilterFieldIds = index.FilterFieldIds.Select(static field => new string(field.AsSpan())).ToArray(),
