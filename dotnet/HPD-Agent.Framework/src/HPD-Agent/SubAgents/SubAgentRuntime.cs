@@ -518,6 +518,8 @@ public static class SubAgentRuntime
         }
         if (creation.Phase == SubAgentCreationPhase.ChildCreated)
         {
+            await ValidateCreatedChildRouteAsync(
+                store, creation, definition, contextPolicy, cancellationToken).ConfigureAwait(false);
             var child = new SubAgentChildReference
             {
                 LocalId = creation.LocalId,
@@ -537,6 +539,28 @@ public static class SubAgentRuntime
                 creationStore, creation, SubAgentCreationPhase.Registered, cancellationToken).ConfigureAwait(false);
         }
         return new AdmittedSubAgentInvocation(route, creation.LocalId, contextPolicy, creationStore, creation);
+    }
+
+    private static async ValueTask ValidateCreatedChildRouteAsync(
+        ISessionStore store,
+        SubAgentCreationRecord creation,
+        SubAgent definition,
+        SubAgentContextPolicy contextPolicy,
+        CancellationToken cancellationToken)
+    {
+        var descriptor = await store.GetThreadAsync(creation.ChildThread, cancellationToken).ConfigureAwait(false);
+        var runtimeChild = descriptor?.RuntimeChild;
+        if (descriptor is null ||
+            descriptor.Kind != ThreadKind.SubAgent ||
+            !string.Equals(descriptor.DefaultAgent.AgentId, definition.AgentId, StringComparison.Ordinal) ||
+            runtimeChild is null ||
+            !string.Equals(runtimeChild.ParentSessionId, creation.Key.Parent.SessionId, StringComparison.Ordinal) ||
+            !string.Equals(runtimeChild.ParentThreadId, creation.Key.Parent.ThreadId, StringComparison.Ordinal) ||
+            !string.Equals(runtimeChild.SubAgentName, definition.Name, StringComparison.Ordinal) ||
+            !string.Equals(runtimeChild.ParentToolCallId, creation.Key.ParentToolCallId, StringComparison.Ordinal) ||
+            !string.Equals(runtimeChild.InvocationId, creation.InvocationId, StringComparison.Ordinal) ||
+            !string.Equals(runtimeChild.ContextPolicy, contextPolicy.ToString(), StringComparison.Ordinal))
+            throw new InvalidOperationException("subagent_exact_route_collision");
     }
 
     private static void ValidateCreationDepth(SubAgentInvocationRequest request)

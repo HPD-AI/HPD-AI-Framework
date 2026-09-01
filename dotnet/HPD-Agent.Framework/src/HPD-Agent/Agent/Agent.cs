@@ -7598,7 +7598,11 @@ public sealed partial class Agent : IAsyncDisposable
                     Timestamp = DateTimeOffset.UnixEpoch,
                     ExchangeTimestampNs = 0,
                     CreatedAt = DateTime.UnixEpoch,
-                    Preparation = preparation with { TargetSeedFingerprint = null }
+                    Preparation = preparation with
+                    {
+                        TargetSeedFingerprint = null,
+                        SourceBoundary = null
+                    }
                 };
             return codec.Serialize(normalized);
         });
