@@ -70,7 +70,7 @@ public sealed record SubAgentDto(
     string LocalId,
     string Role,
     SubAgentChildAvailability Availability,
-    string AgentId,
+    string? AgentId,
     string? SessionId,
     string? ThreadId,
     string? Status,

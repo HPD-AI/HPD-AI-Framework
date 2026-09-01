@@ -135,7 +135,7 @@ public sealed record AgentTuiSubAgentInfo(
     string LocalId,
     string Role,
     SubAgentChildAvailability Availability,
-    string AgentId,
+    string? AgentId,
     string? SessionId,
     string? ThreadId,
     string? Status,

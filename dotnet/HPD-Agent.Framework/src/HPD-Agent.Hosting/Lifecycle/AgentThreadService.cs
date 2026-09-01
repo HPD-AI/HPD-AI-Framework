@@ -64,15 +64,17 @@ public sealed class AgentThreadService : IAgentThreadService
         var registry = await new SubAgentChildRegistry(_sessionManager.Store)
             .ProjectAsync(parent, cancellationToken: cancellationToken).ConfigureAwait(false);
         var results = new List<SubAgentDto>();
-        foreach (var child in registry.Children.Values.OrderBy(static value => value.LocalId.Value, StringComparer.Ordinal))
+        foreach (var entry in registry.Entries.Values.OrderBy(static value => value.LocalId.Value, StringComparer.Ordinal))
         {
-            var descriptor = child.ChildThread is { } route
+            var child = (entry as SubAgentAvailableChild)?.Child;
+            var descriptor = child?.ChildThread is { } route
                 ? await _sessionManager.Store.GetThreadAsync(route, cancellationToken).ConfigureAwait(false)
                 : null;
             results.Add(new SubAgentDto(
-                child.LocalId.Value, child.RoleName, child.Availability, child.ChildAgentId,
-                child.ChildThread?.SessionId, child.ChildThread?.ThreadId,
-                descriptor?.RuntimeChild?.Status, descriptor?.MessageCount ?? 0, child.UnavailableReason));
+                entry.LocalId.Value, entry.RoleName, entry.Availability, child?.ChildAgentId,
+                child?.ChildThread.SessionId, child?.ChildThread.ThreadId,
+                descriptor?.RuntimeChild?.Status, descriptor?.MessageCount ?? 0,
+                (entry as SubAgentChildTombstone)?.Reason));
         }
         return AgentServiceResult<IReadOnlyList<SubAgentDto>>.Success(results);
     }

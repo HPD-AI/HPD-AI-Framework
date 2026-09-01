@@ -55,7 +55,7 @@ public static class SubAgentTuiExtensions
 
             var child = selected.Value;
             if (child.Availability != SubAgentChildAvailability.Available ||
-                child.SessionId is null || child.ThreadId is null)
+                child.AgentId is null || child.SessionId is null || child.ThreadId is null)
             {
                 AddNotice(context, child.Reason ?? "This subagent is unavailable.", TranscriptSeverity.Warning);
                 return null;
