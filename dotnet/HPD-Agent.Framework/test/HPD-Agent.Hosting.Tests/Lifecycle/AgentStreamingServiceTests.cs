@@ -349,8 +349,8 @@ public sealed class AgentStreamingServiceTests : IAsyncLifetime
             .AgentId.Should().Be(stored.Id);
         var terminal = observed.OfType<ThreadExecutionFinishedEvent>()
             .Single(evt => evt.ThreadExecutionId == threadExecutionId);
-        terminal.InputResult.Should().BeOfType<AgentInputResult.Completed>()
-            .Which.ThreadExecutionId.Should().Be(threadExecutionId);
+        terminal.Outcome.Should().Be(ThreadExecutionOutcome.Succeeded);
+        terminal.Error.Should().BeNull();
 
         await WaitUntilAsync(
             () => _sessionManager.GetActiveThreadExecution(sessionId, threadId) is null,

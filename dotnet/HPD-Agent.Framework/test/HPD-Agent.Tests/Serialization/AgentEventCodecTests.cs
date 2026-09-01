@@ -36,6 +36,40 @@ public sealed partial class AgentEventCodecTests
     }
 
     [Fact]
+    public void ThreadExecutionFinishedEvent_IsAScalarDurableFact()
+    {
+        var value = new ThreadExecutionFinishedEvent(
+            "execution-1",
+            "agent-1",
+            ThreadExecutionOutcome.Succeeded,
+            DateTimeOffset.Parse("2026-08-31T12:00:00Z"));
+
+        var json = CoreCodec.Serialize(value);
+        var roundTrip = CoreCodec.DeserializeEvent(json)
+            .Should().BeOfType<ThreadExecutionFinishedEvent>().Subject;
+
+        json.Should().NotContain("inputResult");
+        json.Should().NotContain("turnResult");
+        roundTrip.Should().BeEquivalentTo(value);
+    }
+
+    [Fact]
+    public void ThreadExecutionFinishedEvent_SkipsRemovedLegacyInputResultWithoutHydratingNestedEvents()
+    {
+        var value = new ThreadExecutionFinishedEvent(
+            "execution-1",
+            "agent-1",
+            ThreadExecutionOutcome.Succeeded,
+            DateTimeOffset.Parse("2026-08-31T12:00:00Z"));
+        var current = CoreCodec.Serialize(value);
+        var legacy = current[..^1] +
+            ",\"inputResult\":{\"type\":\"completed\",\"turnResult\":{\"events\":[{}]},\"threadExecutionId\":\"execution-1\"}}";
+
+        CoreCodec.DeserializeEvent(legacy)
+            .Should().BeEquivalentTo(value);
+    }
+
+    [Fact]
     public void Composition_IsDeterministicAcrossFragmentOrder()
     {
         var first = AgentEventComposition.Create([CoreAgentEventModule.Fragment, CreateTestFragment()]);

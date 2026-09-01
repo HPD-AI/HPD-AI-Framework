@@ -121,7 +121,6 @@ public sealed class AgentStreamingService : IAgentStreamingService
                     publisher,
                     cancelled: ex is OperationCanceledException,
                     error: ex,
-                    inputResult: null,
                     CancellationToken.None).ConfigureAwait(false);
             }
             else
@@ -246,7 +245,6 @@ public sealed class AgentStreamingService : IAgentStreamingService
                 publisher,
                 outcome.Cancelled,
                 outcome.Error,
-                outcome.Result,
                 CancellationToken.None).ConfigureAwait(false);
             runtimePin.Dispose();
             submission.Dispose();
@@ -278,7 +276,6 @@ public sealed class AgentStreamingService : IAgentStreamingService
         IAgentEventPublisher publisher,
         bool cancelled,
         Exception? error,
-        AgentInputResult? inputResult,
         CancellationToken cancellationToken)
     {
         var key = new ThreadKey(execution.SessionId, execution.ThreadId);
@@ -311,8 +308,7 @@ public sealed class AgentStreamingService : IAgentStreamingService
                     : new ThreadExecutionError(error.GetType().Name, error.Message))
             {
                 SessionId = execution.SessionId,
-                ThreadId = execution.ThreadId,
-                InputResult = inputResult
+                ThreadId = execution.ThreadId
             });
 
         await publisher.CommitAndPublishAsync(
