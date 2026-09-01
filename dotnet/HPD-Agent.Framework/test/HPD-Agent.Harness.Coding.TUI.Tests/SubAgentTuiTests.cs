@@ -25,7 +25,7 @@ public sealed class SubAgentTuiTests
     public async Task InvocationLifecycle_UpdatesAndFinalizesOneSemanticCell()
     {
         var state = CreateState();
-        await state.ApplyEventAsync(new ToolCallStartEvent("call-1", "reviewer", "message-1"));
+        await state.ApplyEventAsync(new ToolCallStartEvent("call-1", "SubAgents", "message-1"));
         await state.ApplyEventAsync(new ToolCallArgsEvent(
             "call-1",
             """{"action":"reviewer","input":"Read and analyze the Helium project."}"""));
@@ -64,7 +64,7 @@ public sealed class SubAgentTuiTests
     public async Task LongPromptAndSummary_AreBounded()
     {
         var state = CreateState();
-        await state.ApplyEventAsync(new ToolCallStartEvent("call-1", "worker", "message-1"));
+        await state.ApplyEventAsync(new ToolCallStartEvent("call-1", "SubAgents", "message-1"));
         await state.ApplyEventAsync(new ToolCallArgsEvent(
             "call-1", $$"""{"action":"worker","input":"{{new string('p', 400)}}"}"""));
 
@@ -80,6 +80,26 @@ public sealed class SubAgentTuiTests
         var completed = Assert.IsType<CodingSubAgentCell>(Assert.Single(Rows(state)).Cell);
         completed.Detail!.Length.Should().Be(240);
         completed.Mode.Should().Be(AgentInvocationMode.Background);
+    }
+
+    [Fact]
+    public async Task UnifiedControlAction_UsesActionAndChildAsSemanticLabels()
+    {
+        var state = CreateState();
+        await state.ApplyEventAsync(new ToolCallStartEvent("call-1", "SubAgents", "message-1"));
+        await state.ApplyEventAsync(new ToolCallArgsEvent(
+            "call-1", """{"request":{"action":"continue","child":"worker-1","input":"finish tests"}}"""));
+
+        var cell = Assert.IsType<CodingSubAgentCell>(Assert.Single(Rows(state)).Cell);
+        cell.RoleName.Should().Be("continue");
+        cell.TaskName.Should().Be("worker-1");
+        cell.Detail.Should().Be("finish tests");
+
+        await state.ApplyEventAsync(new ToolCallResultEvent(
+            "call-1", new ToolResultPayload { Text = "completed" }, Name: "SubAgents"));
+
+        Assert.IsType<CodingSubAgentCell>(Assert.Single(Rows(state)).Cell)
+            .State.Should().Be(CodingSubAgentState.Completed);
     }
 
     private static AgentTuiSessionState CreateState()
