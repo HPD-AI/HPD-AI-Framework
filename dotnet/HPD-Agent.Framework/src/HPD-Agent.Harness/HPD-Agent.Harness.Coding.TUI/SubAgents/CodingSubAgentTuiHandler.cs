@@ -43,7 +43,6 @@ internal sealed class CodingSubAgentTuiHandler : IAgentTuiEventHandler, IAgentTu
                 entry.InvocationId = started.InvocationId;
                 store.ByInvocation[started.InvocationId] = entry;
                 entry.RoleName = started.RoleName;
-                entry.TaskName = started.TaskName;
                 entry.ContextPolicy = started.ContextPolicy;
                 entry.Mode = started.Mode;
                 entry.State = CodingSubAgentState.Running;
