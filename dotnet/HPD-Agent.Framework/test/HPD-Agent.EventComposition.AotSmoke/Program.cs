@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Diagnostics;
 using System.Text.Json;
 using HPD.Agent;
 using HPD.Agent.EventComposition.AotFixture;
@@ -20,6 +21,9 @@ if (!composition.Codec.TryGetByType(typeof(AotFixtureEvent), out var descriptor)
 if (!composition.Codec.TryGetByType(typeof(AotFixtureTwoEvent), out _) ||
     !composition.Codec.TryGetByType(typeof(AotSmokeLocalEvent), out _))
     return 4;
+
+if (args.Length == 2 && string.Equals(args[1], "--continue", StringComparison.Ordinal))
+    return await ContinueAfterRestartAsync(Path.GetFullPath(args[0]), composition);
 
 var content = new InMemoryContentStore();
 using var coordinator = new HPD.Events.Core.EventCoordinator();
@@ -89,65 +93,92 @@ await new SubAgentChildRegistry(firstStore).RegisterAsync(parent, new SubAgentCh
     CreatedAt = DateTimeOffset.UtcNow
 });
 
-// Simulate restart: discard every first-phase runtime object, reopen durable state,
-// and resolve both the controller and child runtime from fresh objects.
-var restartStore = new FileSessionStore(root, composition.Codec);
-durableSession.Store = restartStore;
-var inheritedClient = new ContinuationClient("current-controller");
-var childDefaultClient = new ContinuationClient("child-builder");
-await using var childAgent = await new AgentBuilder(new AgentConfig
-    {
-        Name = "worker-agent",
-        MaxAgenticIterations = 1
-    })
-    .WithChatClient(childDefaultClient)
-    .WithEventComposition(composition)
-    .WithFileSessionStore(root)
-    .BuildAsync();
-await using var resolver = new ContinuationResolver(childAgent);
-using var services = new ServiceCollection()
-    .AddSingleton<IAgentRuntimeResolver>(resolver)
-    .BuildServiceProvider();
-await using var controllerClients = AgentClientSet.ForChat(
-    inheritedClient,
-    executionIdentity: inheritedClient.Identity);
-var function = AIFunctionFactory.Create(
-    (string value) => value,
-    new AIFunctionFactoryOptions { Name = SubAgentsFunctionFactory.FunctionName });
-var state = AgentLoopState.InitialSafe([], "run", "conversation", "parent-agent");
-using var eventCoordinator = new HPD.Events.Core.EventCoordinator();
-var agentContext = new AgentContext(
-    "parent-agent", "conversation", state, eventCoordinator,
-    durableSession, parentThread, CancellationToken.None,
-    effectiveChatClient: AgentChatClientHandle.Borrowed(
-        inheritedClient, AgentChatClientSource.BuilderDefault,
-        executionIdentity: inheritedClient.Identity),
-    services: services,
-    config: new AgentConfig { Name = "parent-agent" },
-    clientSet: controllerClients);
-var before = agentContext.AsBeforeFunction(
-    function, "restart-tool-call", new Dictionary<string, object?>(), new AgentRunConfig(), null, null);
-var functionContext = new FunctionExecutionContext(before, new FunctionRequest
+var processPath = Environment.ProcessPath;
+if (string.IsNullOrWhiteSpace(processPath))
+    return 8;
+using var restart = Process.Start(new ProcessStartInfo
 {
-    Function = function,
-    CallId = "restart-tool-call",
-    Arguments = new Dictionary<string, object?>(),
-    State = state,
-    ResultMetadata = new ToolResultMetadata(),
-    EventCoordinator = eventCoordinator
+    FileName = processPath,
+    UseShellExecute = false,
+    ArgumentList = { root, "--continue" }
 });
-using var continueJson = JsonDocument.Parse("""{"child":"worker-1","input":"continue after restart"}""");
-var continueResult = await SubAgentRuntime.ControlAsync(
-    "continue", continueJson.RootElement, functionContext, CancellationToken.None);
-var operation = continueResult as SubAgentOperationResult;
-var continuedEvents = await restartStore.CollectThreadEventsAsync(childRoute.SessionId, childRoute.ThreadId);
-return operation?.Status == SubAgentOperationStatus.Completed &&
-       inheritedClient.CallCount == 1 &&
-       childDefaultClient.CallCount == 0 &&
-       resolver.LeaseCount == 1 &&
-       continuedEvents?.OfType<SubAgentContinuationReceiptEvent>().Any() == true &&
-       continuedEvents.OfType<ThreadExecutionFinishedEvent>()
-           .Any(value => value.Outcome == ThreadExecutionOutcome.Succeeded) ? 0 : 7;
+if (restart is null)
+    return 8;
+await restart.WaitForExitAsync();
+return restart.ExitCode;
+
+static async Task<int> ContinueAfterRestartAsync(
+    string root,
+    AgentEventComposition composition)
+{
+    const string sessionId = "subagent-aot-session";
+    const string parentThreadId = "subagent-parent";
+    var restartStore = new FileSessionStore(root, composition.Codec);
+    var durableSession = await restartStore.LoadSessionAsync(sessionId);
+    var parentThread = await restartStore.ProjectThreadAsync(
+        sessionId, parentThreadId, ThreadProjectionPurpose.ThreadHistory);
+    if (durableSession is null || parentThread is null)
+        return 6;
+    durableSession.Store = restartStore;
+    parentThread.Session = durableSession;
+
+    var childRoute = new ThreadKey(sessionId, "worker-thread");
+    var inheritedClient = new ContinuationClient("current-controller");
+    var childDefaultClient = new ContinuationClient("child-builder");
+    await using var childAgent = await new AgentBuilder(new AgentConfig
+        {
+            Name = "worker-agent",
+            MaxAgenticIterations = 1
+        })
+        .WithChatClient(childDefaultClient)
+        .WithEventComposition(composition)
+        .WithFileSessionStore(root)
+        .BuildAsync();
+    await using var resolver = new ContinuationResolver(childAgent);
+    using var services = new ServiceCollection()
+        .AddSingleton<IAgentRuntimeResolver>(resolver)
+        .BuildServiceProvider();
+    await using var controllerClients = AgentClientSet.ForChat(
+        inheritedClient,
+        executionIdentity: inheritedClient.Identity);
+    var function = AIFunctionFactory.Create(
+        (string value) => value,
+        new AIFunctionFactoryOptions { Name = SubAgentsFunctionFactory.FunctionName });
+    var state = AgentLoopState.InitialSafe([], "run", "conversation", "parent-agent");
+    using var eventCoordinator = new HPD.Events.Core.EventCoordinator();
+    var agentContext = new AgentContext(
+        "parent-agent", "conversation", state, eventCoordinator,
+        durableSession, parentThread, CancellationToken.None,
+        effectiveChatClient: AgentChatClientHandle.Borrowed(
+            inheritedClient, AgentChatClientSource.BuilderDefault,
+            executionIdentity: inheritedClient.Identity),
+        services: services,
+        config: new AgentConfig { Name = "parent-agent" },
+        clientSet: controllerClients);
+    var before = agentContext.AsBeforeFunction(
+        function, "restart-tool-call", new Dictionary<string, object?>(), new AgentRunConfig(), null, null);
+    var functionContext = new FunctionExecutionContext(before, new FunctionRequest
+    {
+        Function = function,
+        CallId = "restart-tool-call",
+        Arguments = new Dictionary<string, object?>(),
+        State = state,
+        ResultMetadata = new ToolResultMetadata(),
+        EventCoordinator = eventCoordinator
+    });
+    using var continueJson = JsonDocument.Parse("""{"child":"worker-1","input":"continue after restart"}""");
+    var continueResult = await SubAgentRuntime.ControlAsync(
+        "continue", continueJson.RootElement, functionContext, CancellationToken.None);
+    var operation = continueResult as SubAgentOperationResult;
+    var continuedEvents = await restartStore.CollectThreadEventsAsync(childRoute.SessionId, childRoute.ThreadId);
+    return operation?.Status == SubAgentOperationStatus.Completed &&
+           inheritedClient.CallCount == 1 &&
+           childDefaultClient.CallCount == 0 &&
+           resolver.LeaseCount == 1 &&
+           continuedEvents?.OfType<SubAgentContinuationReceiptEvent>().Any() == true &&
+           continuedEvents.OfType<ThreadExecutionFinishedEvent>()
+               .Any(value => value.Outcome == ThreadExecutionOutcome.Succeeded) ? 0 : 7;
+}
 
 internal sealed class ContinuationClient(string response) : IChatClient
 {
