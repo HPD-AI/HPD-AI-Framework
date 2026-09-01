@@ -149,21 +149,20 @@ public sealed class ActionScopedFunctionInvocationTests
                 OperationContract = Contract()
             }));
         var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
-        var agentContext = new Middleware.AgentContext(
+        var agentContext = new global::HPD.Agent.Middleware.AgentContext(
             "AgentA",
             "conversation-1",
             state,
-            new HPD.Events.EventCoordinator(),
+            new global::HPD.Events.Core.EventCoordinator(),
             session: null,
             thread: null,
             CancellationToken.None);
         var core = new FunctionExecutionCore(
-            new Middleware.AgentMiddlewarePipeline([]));
+            new global::HPD.Agent.Middleware.AgentMiddlewarePipeline([]));
         var call = FunctionExecutionCore.NormalizeProviderFunctionCall(new FunctionCallContent(
             "call-1",
             function.Name,
-            JsonSerializer.Deserialize<Dictionary<string, object?>>(
-                """{"request":{"action":"run","value":2}}""")!));
+            ParsedArguments("""{"request":{"action":"run","value":2}}""")));
 
         var preparation = await core.PrepareFunctionAsync(
             call,
@@ -208,20 +207,19 @@ public sealed class ActionScopedFunctionInvocationTests
                 OperationContract = Contract()
             }));
         var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
-        var agentContext = new Middleware.AgentContext(
+        var agentContext = new global::HPD.Agent.Middleware.AgentContext(
             "AgentA",
             "conversation-1",
             state,
-            new HPD.Events.EventCoordinator(),
+            new global::HPD.Events.Core.EventCoordinator(),
             session: null,
             thread: null,
             CancellationToken.None);
-        var core = new FunctionExecutionCore(new Middleware.AgentMiddlewarePipeline([]));
+        var core = new FunctionExecutionCore(new global::HPD.Agent.Middleware.AgentMiddlewarePipeline([]));
         var call = new FunctionCallContent(
             "call-1",
             function.Name,
-            JsonSerializer.Deserialize<Dictionary<string, object?>>(
-                """{"request":{"action":"run","value":2}}""")!);
+            ParsedArguments("""{"request":{"action":"run","value":2}}"""));
 
         var preparation = await core.PrepareFunctionAsync(
             call,
@@ -401,4 +399,13 @@ public sealed class ActionScopedFunctionInvocationTests
             }
         }
     };
+
+    private static Dictionary<string, object?> ParsedArguments(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement.EnumerateObject().ToDictionary(
+            static property => property.Name,
+            static property => (object?)property.Value.Clone(),
+            StringComparer.Ordinal);
+    }
 }
