@@ -9,6 +9,7 @@ internal sealed class SubAgentAvailabilityMiddleware : IAgentMiddleware
 {
     private readonly bool _toolHarnessActivationEnabled;
     private readonly HashSet<string> _neverCollapse;
+    private readonly IReadOnlyList<SubAgentActionDescriptor> _declaredActions;
     private readonly ConcurrentDictionary<ProjectionKey, AIFunction?> _cache = new();
 
     /// <summary>Captures immutable role descriptors; functions are composed per parent revision.</summary>
@@ -18,7 +19,8 @@ internal sealed class SubAgentAvailabilityMiddleware : IAgentMiddleware
         IEnumerable<string>? neverCollapse = null)
     {
         ArgumentNullException.ThrowIfNull(allTools);
-        _ = SubAgentDeclarationCatalog.Create(ReadActions(allTools));
+        _declaredActions = ReadActions(allTools);
+        _ = SubAgentDeclarationCatalog.Create(_declaredActions);
         _toolHarnessActivationEnabled = toolHarnessActivationEnabled;
         _neverCollapse = new HashSet<string>(neverCollapse ?? [], StringComparer.OrdinalIgnoreCase);
     }
@@ -31,9 +33,12 @@ internal sealed class SubAgentAvailabilityMiddleware : IAgentMiddleware
         var pin = context.RunConfig.SubAgentCatalogPin;
         if (pin is null)
         {
+            var actionsToPin = publishedActions.Count > 0
+                ? publishedActions
+                : _declaredActions;
             pin = new SubAgentDeclarationCatalogPin(
-                publishedActions,
-                SubAgentDeclarationCatalog.Create(publishedActions));
+                actionsToPin,
+                SubAgentDeclarationCatalog.Create(actionsToPin));
             context.RunConfig.SubAgentCatalogPin = pin;
         }
         var catalog = pin.Catalog;

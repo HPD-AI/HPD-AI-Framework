@@ -31,6 +31,29 @@ public sealed class SubAgentToolHarnessVisibilityTests
     }
 
     [Fact]
+    public async Task FirstCollapsedIterationDoesNotPermanentlyEraseDeclarationsFromRunPin()
+    {
+        var research = CreateDescriptor("researcher", "ResearchHarness", requiresActivation: true);
+        var declared = SubAgentsFunctionFactory.Create([research]);
+        var middleware = new SubAgentAvailabilityMiddleware([declared], toolHarnessActivationEnabled: true);
+        var runConfig = new AgentRunConfig();
+        var collapsed = CreateIterationContext([], runConfig: runConfig, runId: "run-1");
+
+        await middleware.BeforeIterationAsync(collapsed, CancellationToken.None);
+
+        Assert.Empty(collapsed.Options.Tools!);
+        var activated = CreateIterationContext([declared], runConfig: runConfig, runId: "run-1");
+        activated.UpdateMiddlewareState<ContainerMiddlewareState>(state =>
+            state.WithExpandedContainer("ResearchHarness"));
+
+        await middleware.BeforeIterationAsync(activated, CancellationToken.None);
+
+        var function = Assert.IsAssignableFrom<AIFunction>(Assert.Single(activated.Options.Tools!));
+        Assert.Equal(["researcher"], GetRoleActions(function));
+        Assert.True(GetContract(function).Actions.ContainsKey("researcher"));
+    }
+
+    [Fact]
     public async Task NeverCollapseMakesCollapsedHarnessCreationVisibleWithoutExpansion()
     {
         var research = CreateDescriptor("researcher", "ResearchHarness", requiresActivation: true);
