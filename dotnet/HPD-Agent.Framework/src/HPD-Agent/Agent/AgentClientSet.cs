@@ -23,12 +23,16 @@ public sealed class AgentClientSet : IAsyncDisposable
     public IHostedFileClient? HostedFiles { get; init; }
     public IReadOnlyDictionary<ProviderClientFamily, ProviderClientConfig> ResolvedConfigs { get; init; }
         = new Dictionary<ProviderClientFamily, ProviderClientConfig>();
+    /// <summary>Gets safe identities for the runtime clients that actually won family selection.</summary>
+    public IReadOnlyDictionary<ProviderClientFamily, ProviderClientExecutionIdentity> ExecutionIdentities { get; init; }
+        = new Dictionary<ProviderClientFamily, ProviderClientExecutionIdentity>();
 
     public static AgentClientSet Empty { get; } = new();
 
     public static AgentClientSet ForChat(
         IChatClient? chat,
-        ProviderClientConfig? chatConfig = null)
+        ProviderClientConfig? chatConfig = null,
+        ProviderClientExecutionIdentity? executionIdentity = null)
     {
         var configs = chatConfig == null
             ? new Dictionary<ProviderClientFamily, ProviderClientConfig>()
@@ -40,12 +44,22 @@ public sealed class AgentClientSet : IAsyncDisposable
         return new AgentClientSet
         {
             Chat = chat,
-            ResolvedConfigs = configs
+            ResolvedConfigs = configs,
+            ExecutionIdentities = executionIdentity is null
+                ? new Dictionary<ProviderClientFamily, ProviderClientExecutionIdentity>()
+                : new Dictionary<ProviderClientFamily, ProviderClientExecutionIdentity>
+                {
+                    [ProviderClientFamily.Chat] = executionIdentity
+                }
         };
     }
 
     public ProviderClientConfig? GetResolvedConfig(ProviderClientFamily family)
         => ResolvedConfigs.TryGetValue(family, out var config) ? config : null;
+
+    /// <summary>Gets the safe selected-client identity for a family when available.</summary>
+    public ProviderClientExecutionIdentity? GetExecutionIdentity(ProviderClientFamily family)
+        => ExecutionIdentities.TryGetValue(family, out var identity) ? identity : null;
 
     internal void SetOwnedClients(IReadOnlySet<object> ownedClients)
         => _ownedClients = ownedClients;

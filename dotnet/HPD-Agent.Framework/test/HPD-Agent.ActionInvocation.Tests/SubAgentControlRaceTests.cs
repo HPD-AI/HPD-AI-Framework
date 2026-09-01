@@ -144,11 +144,11 @@ public sealed class SubAgentControlRaceTests
             RoleName = "worker",
             CapabilityId = CapabilityId.Create($"test:{localId}"),
             ChildAgentId = "worker-agent",
-            Availability = SubAgentChildAvailability.Available,
             ChildThread = route,
             CreationContext = SubAgentCreationContext.Fresh,
             CreationInvocationId = $"create-{localId}",
             ParentToolCallId = $"call-{localId}",
+            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
             CreatedAt = DateTimeOffset.UtcNow
         });
         return route;

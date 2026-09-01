@@ -3,6 +3,8 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace HPD.Agent;
 
@@ -28,12 +30,14 @@ internal sealed class AgentChatClientHandle
         AgentChatClientSource source,
         ProviderClientConfig? resolvedConfig,
         EffectiveProviderClientConfig? effectiveConfig,
+        ProviderClientExecutionIdentity? executionIdentity,
         IAsyncDisposable? owner)
     {
         Client = client ?? throw new ArgumentNullException(nameof(client));
         Source = source;
         ResolvedConfig = resolvedConfig;
         EffectiveConfig = effectiveConfig;
+        ExecutionIdentity = executionIdentity ?? CreateExecutionIdentity(client, resolvedConfig, effectiveConfig);
         _owner = owner;
     }
 
@@ -41,27 +45,85 @@ internal sealed class AgentChatClientHandle
     public AgentChatClientSource Source { get; }
     public ProviderClientConfig? ResolvedConfig { get; }
     public EffectiveProviderClientConfig? EffectiveConfig { get; }
+    public ProviderClientExecutionIdentity? ExecutionIdentity { get; }
 
     public static AgentChatClientHandle Borrowed(
         IChatClient client,
         AgentChatClientSource source,
-        ProviderClientConfig? resolvedConfig = null) =>
-        new(client, source, resolvedConfig, null, null);
+        ProviderClientConfig? resolvedConfig = null,
+        ProviderClientExecutionIdentity? executionIdentity = null) =>
+        new(client, source, resolvedConfig, null, executionIdentity, null);
 
     public static AgentChatClientHandle Owned(
         IChatClient client,
         IAsyncDisposable owner,
         AgentChatClientSource source,
         ProviderClientConfig? resolvedConfig = null,
-        EffectiveProviderClientConfig? effectiveConfig = null) =>
-        new(client, source, resolvedConfig, effectiveConfig, owner);
+        EffectiveProviderClientConfig? effectiveConfig = null,
+        ProviderClientExecutionIdentity? executionIdentity = null) =>
+        new(client, source, resolvedConfig, effectiveConfig, executionIdentity, owner);
 
     public static AgentChatClientHandle Leased(
         IProviderClientLease<IChatClient> lease,
         AgentChatClientSource source,
         ProviderClientConfig? resolvedConfig,
         EffectiveProviderClientConfig effectiveConfig) =>
-        new(lease.Client, source, resolvedConfig, effectiveConfig, lease);
+        new(lease.Client, source, resolvedConfig, effectiveConfig, null, lease);
+
+    private static ProviderClientExecutionIdentity? CreateExecutionIdentity(
+        IChatClient client,
+        ProviderClientConfig? resolvedConfig,
+        EffectiveProviderClientConfig? effectiveConfig)
+    {
+        if (client.GetService(typeof(ProviderClientExecutionIdentity)) is ProviderClientExecutionIdentity declared)
+            return declared;
+        var provider = effectiveConfig?.Provider.Backend.ProviderKey ?? resolvedConfig?.Provider?.Key;
+        var backend = effectiveConfig?.Provider.Backend.BackendKey ?? resolvedConfig?.Provider?.Backend;
+        if (string.IsNullOrWhiteSpace(provider) || string.IsNullOrWhiteSpace(backend))
+            return null;
+        var usage = client.GetService(typeof(ProviderStreamingUsageSemanticsDeclaration))
+            as ProviderStreamingUsageSemanticsDeclaration;
+        var adapter = usage?.AdapterId ?? $"{provider}/{backend}/chat";
+        var fingerprint = effectiveConfig?.ConstructionFingerprint ?? Convert.ToHexString(SHA256.HashData(
+            Encoding.UTF8.GetBytes(string.Join('|', provider, backend, resolvedConfig?.ModelName, adapter))));
+        return new ProviderClientExecutionIdentity
+        {
+            ProviderKey = provider,
+            BackendKey = backend,
+            Family = ProviderClientFamily.Chat,
+            ModelName = effectiveConfig?.ModelName ?? resolvedConfig?.ModelName,
+            OperationAdapterKey = adapter,
+            UsageSemanticsKey = usage?.AdapterId ?? provider,
+            SafeConfigurationFingerprint = fingerprint
+        };
+    }
+
+    internal static ProviderClientExecutionIdentity? CreateOverrideExecutionIdentity(
+        IChatClient client,
+        ClientOverride<IChatClient> value,
+        ProviderClientConfig? config)
+    {
+        if (client.GetService(typeof(ProviderClientExecutionIdentity)) is ProviderClientExecutionIdentity declared)
+            return declared;
+        var provider = value.ProviderKey ?? config?.Provider?.Key;
+        var backend = value.BackendKey ?? config?.Provider?.Backend;
+        var usage = client.GetService(typeof(ProviderStreamingUsageSemanticsDeclaration))
+            as ProviderStreamingUsageSemanticsDeclaration;
+        var adapter = value.OperationAdapterKey ?? usage?.AdapterId;
+        if (string.IsNullOrWhiteSpace(provider) || string.IsNullOrWhiteSpace(backend) || string.IsNullOrWhiteSpace(adapter))
+            return null;
+        return new ProviderClientExecutionIdentity
+        {
+            ProviderKey = provider,
+            BackendKey = backend,
+            Family = ProviderClientFamily.Chat,
+            ModelName = config?.ModelName,
+            OperationAdapterKey = adapter,
+            UsageSemanticsKey = usage?.AdapterId ?? provider,
+            SafeConfigurationFingerprint = Convert.ToHexString(SHA256.HashData(
+                Encoding.UTF8.GetBytes(string.Join('|', provider, backend, config?.ModelName, adapter))))
+        };
+    }
 
     public AgentChatClientLease AcquireLease()
     {
@@ -158,6 +220,12 @@ internal sealed class AgentChatClientResolver : IAsyncDisposable
                 cancellationToken).ConfigureAwait(false);
         }
 
+        if (request.ParentInheritance == ClientFamilyInheritanceMode.InheritResolved)
+            return request.ParentResolved?.AcquireLease() ?? throw new AgentRunConfigurationException(
+                "subagent_parent_client_unavailable",
+                "clients.chat",
+                "Chat requires the current controlling invocation's resolved client, but none is available.");
+
         if (request.RunConfig?.Clients.Chat?.Override is { } runOverride)
             return InstallOverride(runOverride, AgentChatClientSource.InjectedOverride, request.RunConfig.Clients.Chat);
 
@@ -175,8 +243,6 @@ internal sealed class AgentChatClientResolver : IAsyncDisposable
                 AgentChatClientSource.RuntimeProvider,
                 cancellationToken).ConfigureAwait(false);
 
-        if (request.ParentInheritance == ClientFamilyInheritanceMode.InheritResolved && request.ParentResolved is not null)
-            return request.ParentResolved.AcquireLease();
         if (request.BuilderDefault is not null)
             return request.BuilderDefault.AcquireLease();
 
@@ -189,9 +255,10 @@ internal sealed class AgentChatClientResolver : IAsyncDisposable
                 AgentChatClientSource.BuilderDefault,
                 cancellationToken).ConfigureAwait(false);
         }
-        catch (AgentRunConfigurationException) when (
+        catch (AgentRunConfigurationException exception) when (
             request.ParentInheritance == ClientFamilyInheritanceMode.FallbackToParent &&
-            request.ParentResolved is not null)
+            request.ParentResolved is not null &&
+            exception.Code is "ProviderDefaultRequired" or "ProviderProfileRequired")
         {
             return request.ParentResolved.AcquireLease();
         }
@@ -222,6 +289,7 @@ internal sealed class AgentChatClientResolver : IAsyncDisposable
         AgentChatClientSource source,
         ProviderClientConfig? config)
     {
+        var identity = AgentChatClientHandle.CreateOverrideExecutionIdentity(value.Client, value, config);
         if (value is ClientOverride<IChatClient>.Transferred { Lifetime: RuntimeOverrideLifetime.Agent } agentTransfer)
         {
             lock (_overrideGate)
@@ -230,7 +298,8 @@ internal sealed class AgentChatClientResolver : IAsyncDisposable
                     return existing.Handle.AcquireLease();
                 if (!agentTransfer.TryConsume())
                     throw new InvalidOperationException("A transferred client override can be installed exactly once.");
-                var handle = AgentChatClientHandle.Owned(value.Client, agentTransfer.Owner, source, config);
+                var handle = AgentChatClientHandle.Owned(
+                    value.Client, agentTransfer.Owner, source, config, executionIdentity: identity);
                 var root = handle.AcquireLease();
                 _agentOverrideRoots.Add(agentTransfer, root);
                 return handle.AcquireLease();
@@ -240,9 +309,10 @@ internal sealed class AgentChatClientResolver : IAsyncDisposable
         return value switch
         {
             ClientOverride<IChatClient>.Borrowed =>
-                AgentChatClientHandle.Borrowed(value.Client, source, config).AcquireLease(),
+                AgentChatClientHandle.Borrowed(value.Client, source, config, identity).AcquireLease(),
             ClientOverride<IChatClient>.Transferred transferred when transferred.TryConsume() =>
-                AgentChatClientHandle.Owned(value.Client, transferred.Owner, source, config).AcquireLease(),
+                AgentChatClientHandle.Owned(
+                    value.Client, transferred.Owner, source, config, executionIdentity: identity).AcquireLease(),
             ClientOverride<IChatClient>.Transferred =>
                 throw new InvalidOperationException("A transferred client override can be installed exactly once."),
             _ => throw new ArgumentOutOfRangeException(nameof(value))

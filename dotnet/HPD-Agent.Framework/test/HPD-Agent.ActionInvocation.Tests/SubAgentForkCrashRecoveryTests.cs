@@ -24,11 +24,11 @@ public sealed class SubAgentForkCrashRecoveryTests
             RoleName = "reviewer",
             CapabilityId = CapabilityId.Create("test:reviewer"),
             ChildAgentId = "reviewer-agent",
-            Availability = SubAgentChildAvailability.Available,
             ChildThread = sourceChild,
             CreationContext = SubAgentCreationContext.Fresh,
             CreationInvocationId = "create-reviewer",
             ParentToolCallId = "call-reviewer",
+            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
             CreatedAt = DateTimeOffset.UtcNow
         };
         await new SubAgentChildRegistry(firstStore).RegisterAsync(sourceKey, childReference);
@@ -114,7 +114,7 @@ public sealed class SubAgentForkCrashRecoveryTests
 
         var recoveredKey = new ThreadKey(recovered.SessionId, recovered.Id);
         var projection = await new SubAgentChildRegistry(restartStore).ProjectAsync(recoveredKey);
-        var recoveredChild = Assert.Single(projection.Children).Value;
+        var recoveredChild = Assert.Single(projection.AvailableChildren).Value;
         Assert.Equal(preparedChild, recoveredChild.ChildThread);
         Assert.NotNull(await restartStore.GetThreadAsync(preparedChild));
         var committed = Assert.IsType<ThreadForkOperationRecord>(

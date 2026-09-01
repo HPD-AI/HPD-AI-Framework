@@ -8,6 +8,7 @@ namespace HPD.Agent;
 internal sealed class SubAgentAvailabilityMiddleware : IAgentMiddleware
 {
     private readonly IReadOnlyList<SubAgentActionDescriptor> _actions;
+    private readonly SubAgentDeclarationCatalog _catalog;
     private readonly bool _toolHarnessActivationEnabled;
     private readonly HashSet<string> _neverCollapse;
     private readonly ConcurrentDictionary<ProjectionKey, AIFunction?> _cache = new();
@@ -25,6 +26,7 @@ internal sealed class SubAgentAvailabilityMiddleware : IAgentMiddleware
                 function.AdditionalProperties.TryGetValue("SubAgentActions", out var value) &&
                 value is IReadOnlyList<SubAgentActionDescriptor> actions ? actions : [])
             .ToArray();
+        _catalog = SubAgentDeclarationCatalog.Create(_actions);
         _toolHarnessActivationEnabled = toolHarnessActivationEnabled;
         _neverCollapse = new HashSet<string>(neverCollapse ?? [], StringComparer.OrdinalIgnoreCase);
     }
@@ -33,6 +35,7 @@ internal sealed class SubAgentAvailabilityMiddleware : IAgentMiddleware
     public async Task BeforeIterationAsync(BeforeIterationContext context, CancellationToken cancellationToken)
     {
         if (context.Options.Tools is null) return;
+        _catalog.ValidateOverrides(context.RunConfig.SubAgents);
         var depth = context.GetParentAgentMetadata()?.Depth ?? 0;
         var maximumDepth = context.Base.Config?.MaxSubAgentDepth ?? 4;
         var expanded = context.GetMiddlewareState<ContainerMiddlewareState>()?.ExpandedContainers
@@ -53,7 +56,7 @@ internal sealed class SubAgentAvailabilityMiddleware : IAgentMiddleware
                 generation = head.Generation;
                 revision = head.ThreadSequenceNumber;
                 hasRegistryEntries = (await new SubAgentChildRegistry(store)
-                    .ProjectAsync(key, head.Cursor, cancellationToken).ConfigureAwait(false)).Children.Count > 0;
+                    .ProjectAsync(key, head.Cursor, cancellationToken).ConfigureAwait(false)).Entries.Count > 0;
             }
         }
         var parent = new ThreadKey(context.SessionId ?? string.Empty, context.ThreadId ?? string.Empty);
@@ -69,7 +72,7 @@ internal sealed class SubAgentAvailabilityMiddleware : IAgentMiddleware
             action.ContextPolicy,
             action.RequiresPermission,
             action.Definition.Availability.MaximumChildDepth)));
-        var projectionKey = new ProjectionKey(parent, generation, revision, depth, digest, 1);
+        var projectionKey = new ProjectionKey(parent, generation, revision, depth, digest, _catalog.Revision, 1);
         if (_cache.Count >= 256)
             _cache.Clear();
         var function = _cache.GetOrAdd(projectionKey, _ =>
@@ -95,5 +98,6 @@ internal sealed class SubAgentAvailabilityMiddleware : IAgentMiddleware
         long Revision,
         int Depth,
         string AvailabilityDigest,
+        string CatalogRevision,
         int CompositionVersion);
 }

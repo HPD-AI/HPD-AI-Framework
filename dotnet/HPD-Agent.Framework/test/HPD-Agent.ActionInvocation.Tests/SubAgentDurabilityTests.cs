@@ -21,6 +21,7 @@ public sealed class SubAgentDurabilityTests
             RoleName = "reviewer",
             ChildAgentId = "reviewer-agent",
             Context = SubAgentCreationContext.Fresh,
+            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
             InputFingerprint = "ABC"
         });
         var terminal = reserved.Record with
@@ -143,11 +144,11 @@ public sealed class SubAgentDurabilityTests
             RoleName = "reviewer",
             CapabilityId = CapabilityId.Create("test:old-role"),
             ChildAgentId = "reviewer-agent",
-            Availability = SubAgentChildAvailability.Available,
             ChildThread = new ThreadKey("session", "old-child"),
             CreationContext = SubAgentCreationContext.Fresh,
             CreationInvocationId = "old-invocation",
             ParentToolCallId = "old-call",
+            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
             CreatedAt = DateTimeOffset.UtcNow
         });
 
@@ -158,6 +159,7 @@ public sealed class SubAgentDurabilityTests
                 RoleName = "reviewer",
                 ChildAgentId = "reviewer-agent",
                 Context = SubAgentCreationContext.Fresh,
+                ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
                 InputFingerprint = "ABC"
             });
 
@@ -315,11 +317,11 @@ public sealed class SubAgentDurabilityTests
             RoleName = "reviewer",
             CapabilityId = CapabilityId.Create("test:reviewer"),
             ChildAgentId = "reviewer-agent",
-            Availability = SubAgentChildAvailability.Available,
             ChildThread = childKey,
             CreationContext = SubAgentCreationContext.Fresh,
             CreationInvocationId = "create-reviewer",
             ParentToolCallId = "call-reviewer",
+            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
             CreatedAt = DateTimeOffset.UtcNow
         };
         await new SubAgentChildRegistry(store).RegisterAsync(sourceKey, original);
@@ -346,9 +348,9 @@ public sealed class SubAgentDurabilityTests
                 SubAgents = new SubAgentForkOptions { Policy = SubAgentForkPolicy.Detach }
             });
         var detachedChild = (await new SubAgentChildRegistry(store)
-            .ProjectAsync(new ThreadKey(detached.SessionId, detached.Id))).Children[original.LocalId];
+            .ProjectAsync(new ThreadKey(detached.SessionId, detached.Id))).Entries[original.LocalId];
         Assert.Equal(SubAgentChildAvailability.Detached, detachedChild.Availability);
-        Assert.Null(detachedChild.ChildThread);
+        Assert.IsType<SubAgentChildTombstone>(detachedChild);
 
         var copied = await agent.ForkThreadAsync(source, "copied", fromMessageId: forkPoint.MessageId,
             new ThreadForkOptions
@@ -361,11 +363,9 @@ public sealed class SubAgentDurabilityTests
                 }
             });
         var copiedChild = (await new SubAgentChildRegistry(store)
-            .ProjectAsync(new ThreadKey(copied.SessionId, copied.Id))).Children[original.LocalId];
-        Assert.Equal(SubAgentChildAvailability.Available, copiedChild.Availability);
-        Assert.NotNull(copiedChild.ChildThread);
+            .ProjectAsync(new ThreadKey(copied.SessionId, copied.Id))).AvailableChildren[original.LocalId];
         Assert.NotEqual(childKey, copiedChild.ChildThread);
-        var copiedDescriptor = await store.GetThreadAsync(copiedChild.ChildThread!.Value);
+        var copiedDescriptor = await store.GetThreadAsync(copiedChild.ChildThread);
         Assert.NotNull(copiedDescriptor);
         Assert.Equal(ThreadKind.SubAgent, copiedDescriptor.Kind);
         Assert.Equal(ThreadVisibility.Hidden, copiedDescriptor.Visibility);

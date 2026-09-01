@@ -19,11 +19,18 @@ public sealed record AgentOperationNotification
     public string? SourceThreadExecutionId { get; init; }
 }
 
-/// <summary>Requests semantic delivery of accepted operation notifications.</summary>
+/// <summary>
+/// Requests semantic delivery of accepted operation notifications. A running runtime
+/// delivers the notifications at the next safe boundary of a matching active agentic
+/// turn when possible; otherwise it durably queues them as subsequent work.
+/// </summary>
 public sealed record AgentOperationNotificationInputEvent(
     IReadOnlyList<AgentOperationNotification> Notifications) : AgentInputEvent;
 
-/// <summary>Records that an operation notification was durably queued.</summary>
+/// <summary>
+/// Records that an operation notification was durably admitted for same-turn or
+/// subsequent queued delivery.
+/// </summary>
 [HPD.Agent.Serialization.DurableEvent]
 [HPD.Agent.Serialization.EventType("AGENT_OPERATION_NOTIFICATION_QUEUED")]
 public sealed record AgentOperationNotificationQueuedEvent : AgentEvent

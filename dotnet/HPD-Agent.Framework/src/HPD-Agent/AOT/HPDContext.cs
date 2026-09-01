@@ -120,6 +120,11 @@ using Microsoft.Extensions.AI;
 
 // --- Per-invocation run options (AgentRunConfig) ---
 [JsonSerializable(typeof(AgentRunConfig))]
+[JsonSerializable(typeof(SubAgentRunOverrides))]
+[JsonSerializable(typeof(SubAgentRunPolicyOverride))]
+[JsonSerializable(typeof(AgentClientInheritancePatch))]
+[JsonSerializable(typeof(SubAgentExecutionPolicy))]
+[JsonSerializable(typeof(AgentClientInheritance))]
 [JsonSerializable(typeof(AgentSecurityRunConfig))]
 [JsonSerializable(typeof(AgentSandboxRunConfig))]
 [JsonSerializable(typeof(AgentApprovalPolicy))]

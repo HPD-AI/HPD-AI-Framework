@@ -34,6 +34,7 @@ public sealed partial class Agent
 
         var leases = new List<IAsyncDisposable>();
         var resolved = new Dictionary<ProviderClientFamily, ProviderClientConfig>();
+        var identities = new Dictionary<ProviderClientFamily, ProviderClientExecutionIdentity>();
         try
         {
             var textToSpeech = await ResolveFamilyAsync(
@@ -44,6 +45,7 @@ public sealed partial class Agent
                 _textToSpeechClientManager,
                 leases,
                 resolved,
+                identities,
                 cancellationToken).ConfigureAwait(false);
             var speechToText = await ResolveFamilyAsync(
                 ProviderClientFamily.SpeechToText,
@@ -53,6 +55,7 @@ public sealed partial class Agent
                 _speechToTextClientManager,
                 leases,
                 resolved,
+                identities,
                 cancellationToken).ConfigureAwait(false);
             var realtime = await ResolveFamilyAsync(
                 ProviderClientFamily.Realtime,
@@ -62,6 +65,7 @@ public sealed partial class Agent
                 _realtimeClientManager,
                 leases,
                 resolved,
+                identities,
                 cancellationToken).ConfigureAwait(false);
             var image = await ResolveFamilyAsync(
                 ProviderClientFamily.ImageGeneration,
@@ -71,6 +75,7 @@ public sealed partial class Agent
                 _imageGeneratorManager,
                 leases,
                 resolved,
+                identities,
                 cancellationToken).ConfigureAwait(false);
             var embeddings = await ResolveFamilyAsync(
                 ProviderClientFamily.Embeddings,
@@ -80,6 +85,7 @@ public sealed partial class Agent
                 _embeddingGeneratorManager,
                 leases,
                 resolved,
+                identities,
                 cancellationToken).ConfigureAwait(false);
             var hostedFiles = await ResolveFamilyAsync(
                 ProviderClientFamily.HostedFiles,
@@ -89,6 +95,7 @@ public sealed partial class Agent
                 _hostedFileClientManager,
                 leases,
                 resolved,
+                identities,
                 cancellationToken).ConfigureAwait(false);
 
             var result = new AgentClientSet
@@ -99,7 +106,8 @@ public sealed partial class Agent
                 ImageGenerator = image,
                 EmbeddingGenerator = embeddings,
                 HostedFiles = hostedFiles,
-                ResolvedConfigs = resolved
+                ResolvedConfigs = resolved,
+                ExecutionIdentities = identities
             };
             // Provider-client managers own cached constructions. A run owns only
             // the leases it acquired; disposing the client instances directly
@@ -124,6 +132,7 @@ public sealed partial class Agent
         ProviderClientManager<TClient> manager,
         List<IAsyncDisposable> leases,
         Dictionary<ProviderClientFamily, ProviderClientConfig> resolved,
+        Dictionary<ProviderClientFamily, ProviderClientExecutionIdentity> identities,
         CancellationToken cancellationToken)
         where TClient : class
     {
@@ -249,6 +258,16 @@ public sealed partial class Agent
         var authoring = runConfig ?? agent.Clients.GetFamilyConfig(family);
         if (authoring is not null)
             resolved[family] = ProviderClientConfigSnapshot.Clone(authoring);
+        identities[family] = new ProviderClientExecutionIdentity
+        {
+            ProviderKey = effective.Provider.Backend.ProviderKey,
+            BackendKey = effective.Provider.Backend.BackendKey,
+            Family = family,
+            ModelName = effective.ModelName,
+            OperationAdapterKey = $"{effective.Provider.Backend.ProviderKey}/{effective.Provider.Backend.BackendKey}/{family}",
+            UsageSemanticsKey = effective.Provider.Backend.ProviderKey,
+            SafeConfigurationFingerprint = effective.ConstructionFingerprint
+        };
         return lease.Client;
     }
 

@@ -57,32 +57,91 @@ public sealed record SubAgentChildReference
     public required CapabilityId CapabilityId { get; init; }
     /// <summary>Gets the child's durable agent definition identifier.</summary>
     public required string ChildAgentId { get; init; }
-    /// <summary>Gets the current registry availability.</summary>
-    public required SubAgentChildAvailability Availability { get; init; }
-    /// <summary>Gets the exact child route when one is available.</summary>
-    public ThreadKey? ChildThread { get; init; }
+    /// <summary>Gets the exact executable child route.</summary>
+    public required ThreadKey ChildThread { get; init; }
     /// <summary>Gets the resolved creation topology.</summary>
     public required SubAgentCreationContext CreationContext { get; init; }
     /// <summary>Gets the semantic invocation that created the child.</summary>
     public required string CreationInvocationId { get; init; }
     /// <summary>Gets the parent tool-call idempotency key.</summary>
     public required string ParentToolCallId { get; init; }
+    /// <summary>Gets the complete durable child execution policy.</summary>
+    public required SubAgentExecutionPolicy ExecutionPolicy { get; init; }
     /// <summary>Gets the durable creation time.</summary>
     public required DateTimeOffset CreatedAt { get; init; }
-    /// <summary>Gets a bounded explanation when the route is unavailable.</summary>
-    public string? UnavailableReason { get; init; }
+}
+
+/// <summary>Closed registry projection branch for either executable authority or a tombstone.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "$kind")]
+[JsonDerivedType(typeof(SubAgentAvailableChild), "available")]
+[JsonDerivedType(typeof(SubAgentChildTombstone), "tombstone")]
+public abstract record SubAgentRegistryEntry
+{
+    /// <summary>Gets the identifier local to the controlling parent.</summary>
+    public abstract SubAgentLocalId LocalId { get; init; }
+    /// <summary>Gets the declared role name.</summary>
+    public abstract string RoleName { get; init; }
+    /// <summary>Gets the projected availability.</summary>
+    public abstract SubAgentChildAvailability Availability { get; init; }
+}
+
+/// <summary>Executable registry entry containing the complete durable child authority.</summary>
+public sealed record SubAgentAvailableChild : SubAgentRegistryEntry
+{
+    /// <summary>Gets the complete executable child reference.</summary>
+    public required SubAgentChildReference Child { get; init; }
+    /// <inheritdoc />
+    public override SubAgentLocalId LocalId { get => Child.LocalId; init { } }
+    /// <inheritdoc />
+    public override string RoleName { get => Child.RoleName; init { } }
+    /// <inheritdoc />
+    public override SubAgentChildAvailability Availability
+    {
+        get => SubAgentChildAvailability.Available;
+        init { }
+    }
+}
+
+/// <summary>Non-executable registry entry retaining only bounded model-facing identity and reason.</summary>
+public sealed record SubAgentChildTombstone : SubAgentRegistryEntry
+{
+    /// <inheritdoc />
+    public override required SubAgentLocalId LocalId { get; init; }
+    /// <inheritdoc />
+    public override required string RoleName { get; init; }
+    /// <inheritdoc />
+    public override required SubAgentChildAvailability Availability { get; init; }
+    /// <summary>Gets the bounded reason execution is unavailable.</summary>
+    public required string Reason { get; init; }
+    /// <summary>Gets the original durable child creation time for presentation.</summary>
+    public required DateTimeOffset CreatedAt { get; init; }
+    /// <summary>Gets the optional safe policy correlation without executable policy contents.</summary>
+    public string? ExecutionPolicyFingerprint { get; init; }
 }
 
 /// <summary>Immutable projection of a parent thread's child registry at one journal cursor.</summary>
 public sealed record SubAgentChildRegistryProjection(
     ThreadKey Parent,
     ThreadJournalCursor Cursor,
-    IReadOnlyDictionary<SubAgentLocalId, SubAgentChildReference> Children,
+    IReadOnlyDictionary<SubAgentLocalId, SubAgentRegistryEntry> Entries,
     IReadOnlySet<SubAgentLocalId> ControllerGrants)
 {
-    /// <summary>Resolves one local identifier without inspecting any other session or thread.</summary>
-    public bool TryGet(SubAgentLocalId localId, out SubAgentChildReference child) =>
-        Children.TryGetValue(localId, out child!);
+    /// <summary>Gets only executable child references from the closed registry projection.</summary>
+    public IReadOnlyDictionary<SubAgentLocalId, SubAgentChildReference> AvailableChildren =>
+        Entries.Values.OfType<SubAgentAvailableChild>()
+            .ToDictionary(static entry => entry.LocalId, static entry => entry.Child);
+
+    /// <summary>Resolves one executable local identifier without inspecting another route.</summary>
+    public bool TryGetAvailable(SubAgentLocalId localId, out SubAgentChildReference child)
+    {
+        if (Entries.TryGetValue(localId, out var entry) && entry is SubAgentAvailableChild available)
+        {
+            child = available.Child;
+            return true;
+        }
+        child = null!;
+        return false;
+    }
 }
 
 /// <summary>Durably registers one child route under its parent-local identifier.</summary>
@@ -112,7 +171,7 @@ public sealed record SubAgentChildUnavailableEvent(
 [HPD.Agent.Serialization.DurableEvent]
 [HPD.Agent.Serialization.EventType("SUBAGENT_REGISTRY_SEED")]
 public sealed record SubAgentRegistrySeedEvent(
-    IReadOnlyList<SubAgentChildReference> Children,
+    IReadOnlyList<SubAgentRegistryEntry> Entries,
     IReadOnlyList<SubAgentCreationRecord> PendingCreations,
     IReadOnlyList<SubAgentLocalId>? ControllerGrants = null) : AgentEvent;
 
@@ -383,7 +442,7 @@ public sealed class SubAgentChildRegistry
         if (limit.Generation != head.Generation || limit.SequenceNumber > head.ThreadSequenceNumber)
             throw new ThreadCursorConflictException(parent, limit, head.Cursor);
 
-        var children = new Dictionary<SubAgentLocalId, SubAgentChildReference>();
+        var entries = new Dictionary<SubAgentLocalId, SubAgentRegistryEntry>();
         var grants = new HashSet<SubAgentLocalId>();
         await foreach (var batch in _store.ReadThreadEventsAsync(
             parent,
@@ -392,7 +451,7 @@ public sealed class SubAgentChildRegistry
         {
             foreach (var evt in batch.Events)
             {
-                Apply(children, evt);
+                Apply(entries, evt);
                 if (evt is SubAgentRegistrySeedEvent seed)
                 {
                     grants.Clear();
@@ -402,7 +461,7 @@ public sealed class SubAgentChildRegistry
                     grants.Add(grant.LocalId);
             }
         }
-        return new(parent, limit, children, grants);
+        return new(parent, limit, entries, grants);
     }
 
     /// <summary>Registers one child idempotently by parent tool call and capability.</summary>
@@ -412,14 +471,16 @@ public sealed class SubAgentChildRegistry
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(child);
+        child.ExecutionPolicy.Validate();
         for (var attempt = 0; attempt < 8; attempt++)
         {
             var projection = await ProjectAsync(parent, cancellationToken: cancellationToken).ConfigureAwait(false);
-            var replay = projection.Children.Values.FirstOrDefault(existing =>
+            var replay = projection.Entries.Values.OfType<SubAgentAvailableChild>()
+                .Select(static entry => entry.Child).FirstOrDefault(existing =>
                 string.Equals(existing.ParentToolCallId, child.ParentToolCallId, StringComparison.Ordinal) &&
                 existing.CapabilityId == child.CapabilityId);
             if (replay is not null) return replay;
-            if (projection.Children.ContainsKey(child.LocalId))
+            if (projection.Entries.ContainsKey(child.LocalId))
                 throw new InvalidOperationException("subagent_creation_conflict");
 
             var scoped = new SubAgentChildRegisteredEvent(child)
@@ -442,42 +503,63 @@ public sealed class SubAgentChildRegistry
     }
 
     private static void Apply(
-        Dictionary<SubAgentLocalId, SubAgentChildReference> children,
+        Dictionary<SubAgentLocalId, SubAgentRegistryEntry> entries,
         AgentEvent evt)
     {
         switch (evt)
         {
             case SubAgentRegistrySeedEvent seed:
-                children.Clear();
-                foreach (var child in seed.Children) children[child.LocalId] = child;
+                entries.Clear();
+                foreach (var entry in seed.Entries)
+                {
+                    if (entry is SubAgentAvailableChild available)
+                        available.Child.ExecutionPolicy.Validate();
+                    else if (entry is SubAgentChildTombstone { Availability: SubAgentChildAvailability.Available })
+                        throw new InvalidOperationException("subagent_registry_entry_invalid");
+                    entries[entry.LocalId] = entry;
+                }
                 break;
             case SubAgentChildRegisteredEvent registered:
-                children[registered.Child.LocalId] = registered.Child;
+                registered.Child.ExecutionPolicy.Validate();
+                entries[registered.Child.LocalId] = new SubAgentAvailableChild { Child = registered.Child };
                 break;
-            case SubAgentChildDetachedEvent detached when children.TryGetValue(detached.LocalId, out var child):
-                children[detached.LocalId] = child with
+            case SubAgentChildDetachedEvent detached when entries.TryGetValue(detached.LocalId, out var detachedEntry):
+                entries[detached.LocalId] = new SubAgentChildTombstone
                 {
+                    LocalId = detached.LocalId,
+                    RoleName = detachedEntry.RoleName,
                     Availability = SubAgentChildAvailability.Detached,
-                    ChildThread = null,
-                    UnavailableReason = detached.Reason
+                    Reason = detached.Reason,
+                    CreatedAt = detachedEntry is SubAgentAvailableChild detachedAvailable
+                        ? detachedAvailable.Child.CreatedAt
+                        : ((SubAgentChildTombstone)detachedEntry).CreatedAt,
+                    ExecutionPolicyFingerprint = detachedEntry is SubAgentAvailableChild detachedExecutable
+                        ? detachedExecutable.Child.ExecutionPolicy.Fingerprint
+                        : (detachedEntry as SubAgentChildTombstone)?.ExecutionPolicyFingerprint
                 };
                 break;
-            case SubAgentChildRemappedEvent remapped when children.TryGetValue(remapped.LocalId, out var child):
-                children[remapped.LocalId] = child with
+            case SubAgentChildRemappedEvent remapped when entries.TryGetValue(remapped.LocalId, out var remapEntry) &&
+                                                             remapEntry is SubAgentAvailableChild remapAvailable:
+                entries[remapped.LocalId] = new SubAgentAvailableChild
                 {
-                    Availability = SubAgentChildAvailability.Available,
-                    ChildThread = remapped.ChildThread,
-                    UnavailableReason = null
+                    Child = remapAvailable.Child with { ChildThread = remapped.ChildThread }
                 };
                 break;
-            case SubAgentChildUnavailableEvent unavailable when children.TryGetValue(unavailable.LocalId, out var child):
-                children[unavailable.LocalId] = child with
+            case SubAgentChildUnavailableEvent unavailable when entries.TryGetValue(unavailable.LocalId, out var unavailableEntry):
+                if (unavailable.Availability == SubAgentChildAvailability.Available)
+                    throw new InvalidOperationException("subagent_registry_entry_invalid");
+                entries[unavailable.LocalId] = new SubAgentChildTombstone
                 {
+                    LocalId = unavailable.LocalId,
+                    RoleName = unavailableEntry.RoleName,
                     Availability = unavailable.Availability,
-                    ChildThread = unavailable.Availability == SubAgentChildAvailability.Available
-                        ? child.ChildThread
-                        : null,
-                    UnavailableReason = unavailable.Reason
+                    Reason = unavailable.Reason,
+                    CreatedAt = unavailableEntry is SubAgentAvailableChild unavailableAvailable
+                        ? unavailableAvailable.Child.CreatedAt
+                        : ((SubAgentChildTombstone)unavailableEntry).CreatedAt,
+                    ExecutionPolicyFingerprint = unavailableEntry is SubAgentAvailableChild executable
+                        ? executable.Child.ExecutionPolicy.Fingerprint
+                        : (unavailableEntry as SubAgentChildTombstone)?.ExecutionPolicyFingerprint
                 };
                 break;
         }
@@ -496,12 +578,12 @@ public sealed class SubAgentRegistryRebaseSeedProvider(SubAgentChildRegistry reg
         var projection = await registry.ProjectAsync(thread, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
         var creations = await CollectCreationsAsync(thread, cancellationToken).ConfigureAwait(false);
-        if (projection.Children.Count == 0 && creations.Count == 0) return Array.Empty<AgentEvent>();
+        if (projection.Entries.Count == 0 && creations.Count == 0) return Array.Empty<AgentEvent>();
         return
         [
             new SubAgentRegistrySeedEvent(
-                projection.Children.Values
-                    .OrderBy(static child => child.LocalId.Value, StringComparer.Ordinal)
+                projection.Entries.Values
+                    .OrderBy(static entry => entry.LocalId.Value, StringComparer.Ordinal)
                     .ToArray(),
                 creations,
                 projection.ControllerGrants.OrderBy(static id => id.Value, StringComparer.Ordinal).ToArray())

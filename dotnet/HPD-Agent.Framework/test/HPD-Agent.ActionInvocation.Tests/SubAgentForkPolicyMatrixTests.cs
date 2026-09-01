@@ -28,15 +28,13 @@ public sealed class SubAgentForkPolicyMatrixTests
 
         var projection = await new SubAgentChildRegistry(fixture.Store)
             .ProjectAsync(new ThreadKey(fork.SessionId, fork.Id));
-        Assert.Equal(2, projection.Children.Count);
+        Assert.Equal(2, projection.AvailableChildren.Count);
         foreach (var sourceChild in fixture.Children.OrderBy(child => child.LocalId.Value, StringComparer.Ordinal))
         {
-            var copied = projection.Children[sourceChild.LocalId];
-            Assert.Equal(SubAgentChildAvailability.Available, copied.Availability);
-            Assert.NotNull(copied.ChildThread);
+            var copied = projection.AvailableChildren[sourceChild.LocalId];
             Assert.NotEqual(sourceChild.ChildThread, copied.ChildThread);
             var descriptor = Assert.IsType<ThreadDescriptor>(
-                await fixture.Store.GetThreadAsync(copied.ChildThread.Value));
+                await fixture.Store.GetThreadAsync(copied.ChildThread));
             Assert.Equal(fork.Id, descriptor.RuntimeChild!.ParentThreadId);
             Assert.Equal(sourceChild.RoleName, descriptor.RuntimeChild.SubAgentName);
             Assert.Equal(sourceChild.ChildAgentId, descriptor.DefaultAgent.AgentId);
@@ -77,8 +75,8 @@ public sealed class SubAgentForkPolicyMatrixTests
         var replayProjection = await new SubAgentChildRegistry(fixture.Store)
             .ProjectAsync(new ThreadKey(replay.SessionId, replay.Id));
         Assert.Equal(
-            projection.Children.Values.OrderBy(child => child.LocalId.Value).Select(child => child.ChildThread),
-            replayProjection.Children.Values.OrderBy(child => child.LocalId.Value).Select(child => child.ChildThread));
+            projection.AvailableChildren.Values.OrderBy(child => child.LocalId.Value).Select(child => child.ChildThread),
+            replayProjection.AvailableChildren.Values.OrderBy(child => child.LocalId.Value).Select(child => child.ChildThread));
     }
 
     [Theory]
@@ -93,7 +91,7 @@ public sealed class SubAgentForkPolicyMatrixTests
         await CreateSubAgentThreadAsync(
             fixture.Store,
             grandchildKey,
-            sourceChild.ChildThread!.Value,
+            sourceChild.ChildThread,
             "scout",
             "scout-agent",
             "create-scout",
@@ -101,7 +99,7 @@ public sealed class SubAgentForkPolicyMatrixTests
         var grandchild = ChildReference(
             "scout-1", "scout", "scout-agent", grandchildKey, "create-scout", "call-scout");
         await new SubAgentChildRegistry(fixture.Store)
-            .RegisterAsync(sourceChild.ChildThread.Value, grandchild);
+            .RegisterAsync(sourceChild.ChildThread, grandchild);
 
         var fork = await agent.ForkThreadAsync(
             fixture.Source,
@@ -119,21 +117,21 @@ public sealed class SubAgentForkPolicyMatrixTests
 
         var parentProjection = await new SubAgentChildRegistry(fixture.Store)
             .ProjectAsync(new ThreadKey(fork.SessionId, fork.Id));
-        var copiedChild = parentProjection.Children[sourceChild.LocalId];
-        var copiedChildKey = Assert.IsType<ThreadKey>(copiedChild.ChildThread);
+        var copiedChild = parentProjection.AvailableChildren[sourceChild.LocalId];
+        var copiedChildKey = copiedChild.ChildThread;
         var descendantProjection = await new SubAgentChildRegistry(fixture.Store)
             .ProjectAsync(copiedChildKey);
-        var copiedGrandchild = descendantProjection.Children[grandchild.LocalId];
+        var copiedGrandchild = descendantProjection.Entries[grandchild.LocalId];
 
         if (descendantPolicy == SubAgentForkPolicy.Detach)
         {
+            Assert.IsType<SubAgentChildTombstone>(copiedGrandchild);
             Assert.Equal(SubAgentChildAvailability.Detached, copiedGrandchild.Availability);
-            Assert.Null(copiedGrandchild.ChildThread);
         }
         else
         {
-            Assert.Equal(SubAgentChildAvailability.Available, copiedGrandchild.Availability);
-            Assert.Equal(grandchildKey, copiedGrandchild.ChildThread);
+            var availableGrandchild = Assert.IsType<SubAgentAvailableChild>(copiedGrandchild).Child;
+            Assert.Equal(grandchildKey, availableGrandchild.ChildThread);
             Assert.True(await SubAgentControllerAuthority.IsGrantedAsync(
                 fixture.Store, grandchildKey, copiedChildKey, grandchild.LocalId));
         }
@@ -193,7 +191,7 @@ public sealed class SubAgentForkPolicyMatrixTests
 
         var forkKey = new ThreadKey(fork.SessionId, fork.Id);
         var projection = await new SubAgentChildRegistry(fixture.Store).ProjectAsync(forkKey);
-        var shared = projection.Children[isolatedChild.LocalId];
+        var shared = projection.AvailableChildren[isolatedChild.LocalId];
         Assert.Equal(isolatedChildKey, shared.ChildThread);
         Assert.True(await SubAgentControllerAuthority.IsGrantedAsync(
             fixture.Store, isolatedChildKey, forkKey, isolatedChild.LocalId));
@@ -281,11 +279,11 @@ public sealed class SubAgentForkPolicyMatrixTests
             RoleName = role,
             CapabilityId = CapabilityId.Create($"test:{role}"),
             ChildAgentId = agentId,
-            Availability = SubAgentChildAvailability.Available,
             ChildThread = child,
             CreationContext = SubAgentCreationContext.Fresh,
             CreationInvocationId = invocationId,
             ParentToolCallId = toolCallId,
+            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
             CreatedAt = DateTimeOffset.UtcNow
         };
 

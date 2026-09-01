@@ -12,6 +12,7 @@ internal static class AgentRunConfigSnapshot
     internal static IReadOnlySet<string> CapturedPropertyNames { get; } = new HashSet<string>(StringComparer.Ordinal)
     {
         nameof(AgentRunConfig.Security),
+        nameof(AgentRunConfig.SubAgents),
         nameof(AgentRunConfig.Clients),
         nameof(AgentRunConfig.SystemInstructions),
         nameof(AgentRunConfig.Tools),
@@ -39,9 +40,38 @@ internal static class AgentRunConfigSnapshot
             SubAgentRunConfigFields.All,
             composition);
         snapshot.Clients = CloneClients(source.Clients);
+        snapshot.SubAgents = CloneSubAgentOverrides(source.SubAgents);
         SnapshotProviderPayloads(snapshot.Clients, composition);
         snapshot.Evaluations = SnapshotEvaluations(source.Evaluations);
         return snapshot;
+    }
+
+    private static SubAgentRunOverrides CloneSubAgentOverrides(SubAgentRunOverrides source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        var seen = new HashSet<CapabilityId>();
+        var values = source.Capabilities
+            .Select(value =>
+            {
+                ArgumentNullException.ThrowIfNull(value);
+                if (string.IsNullOrWhiteSpace(value.CapabilityId.Value))
+                    throw new AgentRunConfigurationException(
+                        "subagent_override_capability_unknown",
+                        "SubAgents.Capabilities",
+                        "A subagent override requires a non-empty CapabilityId.");
+                if (!seen.Add(value.CapabilityId))
+                    throw new AgentRunConfigurationException(
+                        "subagent_override_capability_duplicate",
+                        "SubAgents.Capabilities",
+                        $"Capability '{value.CapabilityId}' has more than one subagent override.");
+                return value with
+                {
+                    Clients = value.Clients is null ? null : value.Clients with { }
+                };
+            })
+            .OrderBy(static value => value.CapabilityId.Value, StringComparer.Ordinal)
+            .ToArray();
+        return new SubAgentRunOverrides { Capabilities = values };
     }
 
     private static AgentClientsConfig CloneClients(AgentClientsConfig source) => new()

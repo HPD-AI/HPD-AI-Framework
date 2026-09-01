@@ -134,6 +134,12 @@ public sealed record AgentSandboxRunConfig
 public class AgentRunConfig
 {
     /// <summary>
+    /// Gets or sets capability-targeted subagent policy overrides for this invocation.
+    /// These overrides are controller-relative and are never inherited into the child's own run.
+    /// </summary>
+    public SubAgentRunOverrides SubAgents { get; set; } = new();
+
+    /// <summary>
     /// Security controls for this run.
     /// </summary>
     public AgentSecurityRunConfig Security { get; set; } = new();

@@ -62,11 +62,11 @@ public sealed class SubAgentToolHarnessVisibilityTests
             RoleName = "researcher",
             CapabilityId = CapabilityId.Create("test:researcher"),
             ChildAgentId = "research-agent",
-            Availability = SubAgentChildAvailability.Detached,
             ChildThread = new ThreadKey(session.Id, "child"),
             CreationContext = SubAgentCreationContext.Fresh,
             CreationInvocationId = "creation",
             ParentToolCallId = "call",
+            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
             CreatedAt = DateTimeOffset.UtcNow
         });
         var research = CreateDescriptor("researcher", "ResearchHarness", requiresActivation: true);
@@ -94,6 +94,50 @@ public sealed class SubAgentToolHarnessVisibilityTests
         await middleware.BeforeIterationAsync(context, CancellationToken.None);
 
         Assert.Empty(context.Options.Tools!);
+    }
+
+    [Fact]
+    public async Task CollapsedDeclarationStillAuthorizesCapabilityTargetedOverride()
+    {
+        var research = CreateDescriptor("researcher", "ResearchHarness", requiresActivation: true);
+        var declared = SubAgentsFunctionFactory.Create([research]);
+        var middleware = new SubAgentAvailabilityMiddleware([declared], toolHarnessActivationEnabled: true);
+        var runConfig = new AgentRunConfig
+        {
+            SubAgents = new SubAgentRunOverrides
+            {
+                Capabilities = [new SubAgentRunPolicyOverride { CapabilityId = research.CapabilityId }]
+            }
+        };
+        var context = CreateIterationContext([declared], runConfig: runConfig);
+
+        await middleware.BeforeIterationAsync(context, CancellationToken.None);
+
+        Assert.Empty(context.Options.Tools!);
+    }
+
+    [Fact]
+    public async Task UnknownOverrideCapabilityFailsBeforeToolProjection()
+    {
+        var research = CreateDescriptor("researcher", "ResearchHarness", requiresActivation: true);
+        var declared = SubAgentsFunctionFactory.Create([research]);
+        var middleware = new SubAgentAvailabilityMiddleware([declared], toolHarnessActivationEnabled: true);
+        var runConfig = new AgentRunConfig
+        {
+            SubAgents = new SubAgentRunOverrides
+            {
+                Capabilities = [new SubAgentRunPolicyOverride
+                {
+                    CapabilityId = CapabilityId.Create("test:unknown")
+                }]
+            }
+        };
+        var context = CreateIterationContext([declared], runConfig: runConfig);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => middleware.BeforeIterationAsync(context, CancellationToken.None));
+
+        Assert.Equal("subagent_override_capability_unknown", exception.Message);
     }
 
     private static SubAgentActionDescriptor CreateDescriptor(
@@ -128,7 +172,8 @@ public sealed class SubAgentToolHarnessVisibilityTests
     private static BeforeIterationContext CreateIterationContext(
         IReadOnlyList<AITool> tools,
         Session? session = null,
-        Thread? thread = null)
+        Thread? thread = null,
+        AgentRunConfig? runConfig = null)
     {
         session ??= new Session("session");
         thread ??= new Thread("parent", "parent-agent") { Session = session };
@@ -137,6 +182,6 @@ public sealed class SubAgentToolHarnessVisibilityTests
             "parent-agent", "conversation", state, new HPD.Events.Core.EventCoordinator(),
             session, thread, CancellationToken.None);
         return agentContext.AsBeforeIteration(
-            0, [], new ChatOptions { Tools = tools.ToList() }, new AgentRunConfig());
+            0, [], new ChatOptions { Tools = tools.ToList() }, runConfig ?? new AgentRunConfig());
     }
 }

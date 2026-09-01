@@ -122,7 +122,7 @@ public sealed partial class Agent : IAsyncDisposable
     private readonly TaskCompletionSource _disposeCompletion =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    private async Task<bool> DrainAcceptedSteeringAsync(
+    private async Task<bool> DrainAcceptedTurnContinuationsAsync(
         ActiveRuntimeInput? activeInput,
         List<ChatMessage> sharedMessages,
         List<ChatMessage> turnHistory,
@@ -135,17 +135,22 @@ public sealed partial class Agent : IAsyncDisposable
             return false;
 
         var drained = false;
-        while (activeInput.Steering.Reader.TryRead(out var accepted))
+        while (activeInput.Continuations.Reader.TryRead(out var accepted))
         {
             var messages = accepted.Messages.ToArray();
-            foreach (var message in messages)
+            if (accepted.OperationNotification is null)
             {
-                EnsureMessageIdentity(message);
-                message.WithPolicy(
-                    AgentMessageSource.Steering,
-                    AgentMessageVisibility.Transcript,
-                    AgentMessagePersistence.ThreadHistory);
+                foreach (var message in messages)
+                {
+                    EnsureMessageIdentity(message);
+                    message.WithPolicy(
+                        AgentMessageSource.Steering,
+                        AgentMessageVisibility.Transcript,
+                        AgentMessagePersistence.ThreadHistory);
+                }
             }
+            else
+                foreach (var message in messages) EnsureMessageIdentity(message);
 
             await CommitThreadMessagesAsync(
                     session,
@@ -157,6 +162,14 @@ public sealed partial class Agent : IAsyncDisposable
                 .ConfigureAwait(false);
             sharedMessages.AddRange(messages);
             turnHistory.AddRange(messages);
+            if (accepted.OperationNotification is not null)
+            {
+                await PublishAgentOperationNotificationDeliveredAsync(
+                        accepted.OperationNotification,
+                        eventCoordinator,
+                        CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
             drained = true;
         }
 
@@ -174,7 +187,7 @@ public sealed partial class Agent : IAsyncDisposable
                 return true;
 
             activeInput.State = ActiveRuntimeInputState.Finishing;
-            if (activeInput.Steering.Reader.TryPeek(out _))
+            if (activeInput.Continuations.Reader.TryPeek(out _))
             {
                 activeInput.State = ActiveRuntimeInputState.Accepting;
                 return false;
@@ -332,7 +345,8 @@ public sealed partial class Agent : IAsyncDisposable
             : AgentChatClientHandle.Borrowed(
                 _baseClient,
                 AgentChatClientSource.BuilderDefault,
-                clientSet?.GetResolvedConfig(Providers.ProviderClientFamily.Chat));
+                clientSet?.GetResolvedConfig(Providers.ProviderClientFamily.Chat),
+                clientSet?.GetExecutionIdentity(Providers.ProviderClientFamily.Chat));
         _chatClientResolver = new AgentChatClientResolver(providerRegistry, serviceProvider);
         _providerProfileIndex = _chatClientResolver.Composition is null
             ? null
@@ -1382,8 +1396,8 @@ public sealed partial class Agent : IAsyncDisposable
                 result = ControlResult(AgentInputDisposition.ActiveInputNotSteerable, activeInput.ThreadExecutionId);
             else if (activeInput.State != ActiveRuntimeInputState.Accepting)
                 result = ControlResult(AgentInputDisposition.ExecutionFinishing, activeInput.ThreadExecutionId);
-            else if (!activeInput.Steering.Writer.TryWrite(
-                         new AcceptedSteeringInput(steering.Messages, steering.ClientInputId)))
+            else if (!activeInput.Continuations.Writer.TryWrite(
+                         new AcceptedTurnContinuation(steering.Messages, steering.ClientInputId)))
                 result = ControlResult(AgentInputDisposition.ExecutionFinishing, activeInput.ThreadExecutionId);
             else
                 result = new AgentInputResult.Steered(activeInput.ThreadExecutionId);
@@ -1398,6 +1412,36 @@ public sealed partial class Agent : IAsyncDisposable
         }
 
         return result!;
+    }
+
+    private PreparedAgentWorkAdmission PrepareOperationNotificationAdmission(
+        AgentOperationNotificationInputEvent input,
+        AgentWorkScheduler scheduler)
+    {
+        var admitted = (AgentOperationNotificationInputEvent)AuthorizeWorkIdentity(
+            CaptureInput(input),
+            _inputDispatcher.GetRegistration(input.GetType()));
+        var continuation = AgentOperationNotificationDispatcher.ToNotificationTurnInput(admitted);
+
+        return scheduler.Prepare(
+            admitted,
+            tryCommitToActiveTurn: () =>
+            {
+                var activeInput = _activeRuntimeInput;
+                if (activeInput is null ||
+                    activeInput.State != ActiveRuntimeInputState.Accepting ||
+                    activeInput.Input is not (UserMessagesInputEvent or AgentOperationNotificationInputEvent) ||
+                    !string.Equals(activeInput.Input.SessionId, admitted.SessionId, StringComparison.Ordinal) ||
+                    !string.Equals(activeInput.Input.ThreadId, admitted.ThreadId, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                return activeInput.Continuations.Writer.TryWrite(new AcceptedTurnContinuation(
+                    continuation.Messages,
+                    continuation.ClientInputId,
+                    admitted));
+            });
     }
 
     private static AgentInputResult ControlResult(AgentInputDisposition disposition, string? executionId)
@@ -1785,7 +1829,7 @@ public sealed partial class Agent : IAsyncDisposable
                     lock (_runtimeLock)
                     {
                         activeInput.State = ActiveRuntimeInputState.Finished;
-                        activeInput.Steering.Writer.TryComplete(runError);
+                        activeInput.Continuations.Writer.TryComplete(runError);
                         if (ReferenceEquals(_activeRuntimeInput, activeInput))
                             _activeRuntimeInput = null;
                         if (_runtimeInputCompletions.Remove(input, out var completion))
@@ -1957,9 +2001,7 @@ public sealed partial class Agent : IAsyncDisposable
             runtimeNotificationDispatcher = new AgentOperationNotificationDispatcher(
                 _eventCoordinator,
                 runtimeThreadEvents,
-                input => runtimeWorkScheduler.Prepare(AuthorizeWorkIdentity(
-                    CaptureInput(input),
-                    _inputDispatcher.GetRegistration(input.GetType()))),
+                input => PrepareOperationNotificationAdmission(input, runtimeWorkScheduler),
                 AgentRunConfigSnapshot.Capture(runConfig, _chatClientResolver.Composition));
 
             _runtimeCts = runtimeCts;
@@ -2785,6 +2827,11 @@ public sealed partial class Agent : IAsyncDisposable
                         ParentInheritance = inheritedChatMode
                     },
                     effectiveCancellationToken).ConfigureAwait(false);
+                if (chatClientLease.Handle.ExecutionIdentity is null)
+                    throw new AgentRunConfigurationException(
+                        "subagent_provider_attribution_missing",
+                        "clients.chat",
+                        "The selected chat client must declare a safe provider/backend/adapter execution identity.");
             }
             runClientSet = await ResolveRunClientSetV9Async(effectiveRunConfig, effectiveCancellationToken)
                 .ConfigureAwait(false);
@@ -2955,7 +3002,7 @@ public sealed partial class Agent : IAsyncDisposable
 
             while (!state.IsTerminated)
             {
-                if (await DrainAcceptedSteeringAsync(
+                if (await DrainAcceptedTurnContinuationsAsync(
                         activeInput,
                         sharedMessages,
                         turnHistory,
@@ -3403,13 +3450,18 @@ public sealed partial class Agent : IAsyncDisposable
                                 ? Providers.ProviderClientFamily.Realtime
                                 : Providers.ProviderClientFamily.Chat;
                             var selected = Config?.ResolveClientConfig(family, effectiveRunConfig.Clients);
+                            var selectedIdentity = family is Providers.ProviderClientFamily.Chat
+                                ? chatClientLease?.Handle.ExecutionIdentity
+                                : effectiveClientSet?.GetExecutionIdentity(family);
                             var operationId = Guid.NewGuid().ToString("N");
                             ProviderOperationAccountingScope.Current?.RegisterAttempt(new(
                                 operationId, logicalModelOperationId, attemptNumber,
                                 family is Providers.ProviderClientFamily.Realtime
                                     ? ProviderOperationKind.RealtimeModelResponse
                                     : ProviderOperationKind.ChatModelResponse,
-                                family, selected?.Provider?.Key, selected?.ModelName));
+                                family,
+                                selectedIdentity?.ProviderKey ?? selected?.Provider?.Key,
+                                selectedIdentity?.ModelName ?? selected?.ModelName));
                             ProviderUsageAccumulator? usageAccumulator = null;
                             UsageUpdateSemantics ResolveAttemptUsageSemantics()
                             {
@@ -3419,10 +3471,10 @@ public sealed partial class Agent : IAsyncDisposable
                                     : request.ChatModel?.GetService(typeof(ProviderStreamingUsageSemanticsDeclaration))
                                         as ProviderStreamingUsageSemanticsDeclaration;
                                 return ProviderStreamingUsageSemanticsCatalog.Resolve(
-                                    selected?.Provider?.Key, family, declaration);
+                                    selectedIdentity?.ProviderKey ?? selected?.Provider?.Key, family, declaration);
                             }
                             var transcriptionAttempts = new Dictionary<string, (string OperationId, UsageDetails? Usage)>(StringComparer.Ordinal);
-                            string? attemptModelId = selected?.ModelName;
+                            string? attemptModelId = selectedIdentity?.ModelName ?? selected?.ModelName;
                             string? attemptResponseId = null;
                             await using var attemptEnumerator = modelTurnExecutor
                                 .RunAsync(request, attemptCancellationToken)
@@ -7135,26 +7187,29 @@ public sealed partial class Agent : IAsyncDisposable
         List<AgentEvent> plannedTargetEvents;
         try
         {
-        var preparedChildren = forkOperation.PreparedChildren.Concat(registryEvents.OfType<SubAgentChildRegisteredEvent>()
-            .Select(static evt => evt.Child.ChildThread)
-            .Where(static route => route is not null)
-            .Select(static route => route!.Value))
+        var projectedEntries = registryEvents.OfType<SubAgentRegistrySeedEvent>()
+            .SelectMany(static evt => evt.Entries)
+            .ToArray();
+        var preparedChildren = forkOperation.PreparedChildren.Concat(projectedEntries
+            .OfType<SubAgentAvailableChild>()
+            .Select(static entry => entry.Child.ChildThread))
             .Distinct()
             .ToArray();
         var sourceRegistryForOutcomes = await new SubAgentChildRegistry(store)
             .ProjectAsync(sourceKey, sourceForkBoundary, cancellationToken).ConfigureAwait(false);
         var outcomes = new List<SubAgentForkChildOutcome>();
-        foreach (var evt in registryEvents.OfType<SubAgentChildRegisteredEvent>())
+        foreach (var entry in projectedEntries)
         {
+            var projectedChild = (entry as SubAgentAvailableChild)?.Child;
             string? childSeed = null;
             ThreadJournalCursor? childBoundary = null;
             if (effectiveSubAgentOptions.Policy == SubAgentForkPolicy.ForkDirectChildren &&
-                evt.Child.ChildThread is { } childTarget)
+                projectedChild is { } executable)
             {
                 var admittedChild = forkOperation.ChildOutcomes.FirstOrDefault(outcome =>
                     outcome.OwningParent == sourceKey &&
-                    outcome.Target == childTarget &&
-                    string.Equals(outcome.LocalId, evt.Child.LocalId.Value, StringComparison.Ordinal))
+                    outcome.Target == executable.ChildThread &&
+                    string.Equals(outcome.LocalId, executable.LocalId.Value, StringComparison.Ordinal))
                     ?? throw new InvalidOperationException("thread_fork_prepared_child_missing");
                 childSeed = admittedChild.TargetSeedFingerprint
                     ?? throw new InvalidOperationException("thread_fork_prepared_child_seed_missing");
@@ -7162,20 +7217,22 @@ public sealed partial class Agent : IAsyncDisposable
                     ?? throw new InvalidOperationException("thread_fork_prepared_child_boundary_missing");
             }
             outcomes.Add(new SubAgentForkChildOutcome(
-                evt.Child.LocalId.Value,
+                entry.LocalId.Value,
                 effectiveSubAgentOptions.Policy,
-                sourceRegistryForOutcomes.Children.GetValueOrDefault(evt.Child.LocalId)?.ChildThread,
-                evt.Child.ChildThread,
-                evt.Child.Availability,
+                sourceRegistryForOutcomes.Entries.GetValueOrDefault(entry.LocalId) is SubAgentAvailableChild sourceAvailable
+                    ? sourceAvailable.Child.ChildThread
+                    : null,
+                projectedChild?.ChildThread,
+                entry.Availability,
                 childSeed,
                 childBoundary,
                 sourceKey,
                 targetKey));
         }
         foreach (var admittedOutcome in forkOperation.ChildOutcomes.Where(outcome =>
-                     sourceRegistryForOutcomes.Children.Values.Any(child =>
+                     sourceRegistryForOutcomes.Entries.Values.Any(entry =>
                          outcome.OwningParent == sourceKey &&
-                         string.Equals(child.LocalId.Value, outcome.LocalId, StringComparison.Ordinal))))
+                         string.Equals(entry.LocalId.Value, outcome.LocalId, StringComparison.Ordinal))))
         {
             var plannedOutcome = outcomes.FirstOrDefault(outcome =>
                 outcome.OwningParent == admittedOutcome.OwningParent &&
@@ -7886,23 +7943,43 @@ public sealed partial class Agent : IAsyncDisposable
     {
         var sourceRegistry = await new SubAgentChildRegistry(store)
             .ProjectAsync(source, sourceBoundary, cancellationToken).ConfigureAwait(false);
-        if (sourceRegistry.Children.Count == 0) return Array.Empty<AgentEvent>();
-        var events = new List<AgentEvent>();
-        foreach (var child in sourceRegistry.Children.Values.OrderBy(static child => child.LocalId.Value, StringComparer.Ordinal))
+        if (sourceRegistry.Entries.Count == 0) return Array.Empty<AgentEvent>();
+        var entries = new List<SubAgentRegistryEntry>();
+        var grants = new List<AgentEvent>();
+        foreach (var sourceEntry in sourceRegistry.Entries.Values.OrderBy(static entry => entry.LocalId.Value, StringComparer.Ordinal))
         {
-            var projected = options.Policy switch
+            if (sourceEntry is SubAgentChildTombstone existingTombstone)
             {
-                SubAgentForkPolicy.Detach => child with
+                entries.Add(existingTombstone with { });
+                continue;
+            }
+            var child = ((SubAgentAvailableChild)sourceEntry).Child;
+            SubAgentRegistryEntry projectedEntry;
+            SubAgentChildReference? projectedChild = null;
+            if (options.Policy == SubAgentForkPolicy.Detach)
+            {
+                projectedEntry = new SubAgentChildTombstone
                 {
+                    LocalId = child.LocalId,
+                    RoleName = child.RoleName,
                     Availability = SubAgentChildAvailability.Detached,
-                    ChildThread = null,
-                    UnavailableReason = "This subagent was not carried into the current conversation branch. Start a new role action to continue independently."
-                },
-                SubAgentForkPolicy.Share => child,
-                SubAgentForkPolicy.ForkDirectChildren => await ForkDirectRuntimeChildAsync(
-                    store, child, target, source, forkOperationId, requestFingerprint, options, operationStore, cancellationToken).ConfigureAwait(false),
-                _ => throw new ArgumentOutOfRangeException(nameof(options))
-            };
+                    Reason = "This subagent was not carried into the current conversation branch. Start a new role action to continue independently.",
+                    CreatedAt = child.CreatedAt,
+                    ExecutionPolicyFingerprint = child.ExecutionPolicy.Fingerprint
+                };
+            }
+            else
+            {
+                projectedChild = options.Policy switch
+                {
+                    SubAgentForkPolicy.Share => child,
+                    SubAgentForkPolicy.ForkDirectChildren => await ForkDirectRuntimeChildAsync(
+                        store, child, target, source, forkOperationId, requestFingerprint, options, operationStore, cancellationToken).ConfigureAwait(false),
+                    _ => throw new ArgumentOutOfRangeException(nameof(options))
+                };
+                projectedEntry = new SubAgentAvailableChild { Child = projectedChild };
+            }
+            entries.Add(projectedEntry);
             var rootOperation = await operationStore.GetThreadForkOperationAsync(forkOperationId, cancellationToken)
                 .ConfigureAwait(false) ?? throw new InvalidOperationException("thread_fork_operation_missing");
             if (source != rootOperation.Source && options.Policy is not SubAgentForkPolicy.ForkDirectChildren)
@@ -7911,38 +7988,41 @@ public sealed partial class Agent : IAsyncDisposable
                     operationStore,
                     forkOperationId,
                     new SubAgentForkChildOutcome(
-                        projected.LocalId.Value,
+                        projectedEntry.LocalId.Value,
                         options.Policy,
                         child.ChildThread,
-                        projected.ChildThread,
-                        projected.Availability,
+                        projectedChild?.ChildThread,
+                        projectedEntry.Availability,
                         OwningParent: source,
                         Controller: target),
                     cancellationToken).ConfigureAwait(false);
             }
-            events.Add(new SubAgentChildRegisteredEvent(projected)
-            {
-                SessionId = target.SessionId,
-                ThreadId = target.ThreadId
-            });
-            if (options.Policy == SubAgentForkPolicy.Share && projected.ChildThread is { } sharedRoute)
+            if (options.Policy == SubAgentForkPolicy.Share && projectedChild is { } shared)
             {
                 await SubAgentControllerAuthority.GrantAsync(
                     store,
-                    sharedRoute,
+                    shared.ChildThread,
                     target,
-                    projected.LocalId,
+                    shared.LocalId,
                     forkOperationId,
                     rootOperation.Source,
                     cancellationToken).ConfigureAwait(false);
-                events.Add(new SubAgentControllerGrantedEvent(projected.LocalId, sharedRoute)
+                grants.Add(new SubAgentControllerGrantedEvent(shared.LocalId, shared.ChildThread)
                 {
                     SessionId = target.SessionId,
                     ThreadId = target.ThreadId
                 });
             }
         }
-        return events;
+        var seed = new SubAgentRegistrySeedEvent(
+            entries,
+            [],
+            grants.OfType<SubAgentControllerGrantedEvent>().Select(static grant => grant.LocalId).ToArray())
+        {
+            SessionId = target.SessionId,
+            ThreadId = target.ThreadId
+        };
+        return [seed, .. grants];
     }
 
     private static async ValueTask<SubAgentChildReference> ForkDirectRuntimeChildAsync(
@@ -7956,8 +8036,7 @@ public sealed partial class Agent : IAsyncDisposable
         IThreadForkOperationStore operationStore,
         CancellationToken cancellationToken)
     {
-        if (source.Availability != SubAgentChildAvailability.Available || source.ChildThread is not { } sourceKey)
-            return source with { ChildThread = null, Availability = SubAgentChildAvailability.Unavailable };
+        var sourceKey = source.ChildThread;
         var descriptor = await store.GetThreadAsync(sourceKey, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException("subagent_fork_boundary_unavailable");
         var operationSuffix = forkOperationId[..Math.Min(12, forkOperationId.Length)];
@@ -8087,7 +8166,7 @@ public sealed partial class Agent : IAsyncDisposable
             await ValidateForkChildTargetAsync(
                 store, targetKey, forkOperationId, childBoundary, childSeedFingerprint, CancellationToken.None)
                 .ConfigureAwait(false);
-            return source with { ChildThread = targetKey, UnavailableReason = null };
+            return source with { ChildThread = targetKey };
         }
         if (source.CreationContext == SubAgentCreationContext.Isolated)
         {
@@ -8121,7 +8200,7 @@ public sealed partial class Agent : IAsyncDisposable
                 store, targetKey, forkOperationId, childBoundary, childSeedFingerprint, CancellationToken.None)
                 .ConfigureAwait(false);
         }
-        return source with { ChildThread = targetKey, UnavailableReason = null };
+        return source with { ChildThread = targetKey };
     }
 
     private static async ValueTask EnsureForkChildOutcomeAsync(

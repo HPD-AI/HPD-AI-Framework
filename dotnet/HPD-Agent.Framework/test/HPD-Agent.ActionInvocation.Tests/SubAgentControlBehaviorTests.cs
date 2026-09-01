@@ -20,14 +20,15 @@ public sealed class SubAgentControlBehaviorTests
             RoleName = "worker",
             CapabilityId = CapabilityId.Create("test:worker-3"),
             ChildAgentId = "worker-agent",
-            Availability = SubAgentChildAvailability.Detached,
-            ChildThread = null,
+            ChildThread = new ThreadKey(parent.SessionId, "detached-child"),
             CreationContext = SubAgentCreationContext.Fresh,
             CreationInvocationId = "create-3",
             ParentToolCallId = "call-3",
-            CreatedAt = DateTimeOffset.UtcNow,
-            UnavailableReason = "detached"
+            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
+            CreatedAt = DateTimeOffset.UtcNow
         });
+        await store.AppendThreadEventsAsync(parent,
+            [new SubAgentChildDetachedEvent(new SubAgentLocalId("worker-3"), "detached")]);
         await store.AppendThreadEventsAsync(
             finished,
             [
@@ -137,11 +138,11 @@ public sealed class SubAgentControlBehaviorTests
             RoleName = "worker",
             CapabilityId = CapabilityId.Create($"test:{localId}"),
             ChildAgentId = "worker-agent",
-            Availability = SubAgentChildAvailability.Available,
             ChildThread = route,
             CreationContext = SubAgentCreationContext.Fresh,
             CreationInvocationId = $"create-{localId}",
             ParentToolCallId = $"call-{localId}",
+            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
             CreatedAt = DateTimeOffset.UtcNow
         });
         return route;

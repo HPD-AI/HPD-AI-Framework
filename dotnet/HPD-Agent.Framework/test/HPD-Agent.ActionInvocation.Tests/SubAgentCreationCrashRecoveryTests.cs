@@ -9,6 +9,78 @@ namespace HPD.Agent.ActionInvocation.Tests;
 public sealed class SubAgentCreationCrashRecoveryTests
 {
     [Fact]
+    public async Task IsolatedCreationMaterializesAndReplaysTheReservedExactRoute()
+    {
+        var store = new InMemorySessionStore(CoreAgentEventComposition.Instance.Codec);
+        var parent = new ThreadKey("session", "parent");
+        await CreateParentAsync(store, parent);
+        var resolver = new FixedResolver(store);
+        var context = await CreateContextAsync(store, parent, resolver);
+        var capability = CapabilityId.Create("test:worker");
+        var definition = CreateDefinition(SubAgentContextPolicy.Isolated);
+        var request = new SubAgentRuntime.SubAgentInvocationRequest
+        {
+            Definition = definition,
+            Input = "work",
+            CapabilityId = capability,
+            ParentContext = context
+        };
+
+        var first = await SubAgentRuntime.InvokeAsync(request, CancellationToken.None);
+        var replay = await SubAgentRuntime.InvokeAsync(request, CancellationToken.None);
+
+        Assert.StartsWith("background_unavailable:", first.Text, StringComparison.Ordinal);
+        Assert.StartsWith("background_unavailable:", replay.Text, StringComparison.Ordinal);
+        var key = new SubAgentCreationKey(parent, "tool-call", capability);
+        var creation = Assert.IsType<SubAgentCreationRecord>(
+            await new JournalSubAgentCreationStore(store).GetSubAgentCreationAsync(key));
+        Assert.Equal(SubAgentCreationPhase.Registered, creation.Phase);
+        Assert.NotNull(await store.LoadSessionAsync(creation.ChildThread.SessionId));
+        var child = Assert.IsType<ThreadDescriptor>(await store.GetThreadAsync(creation.ChildThread));
+        Assert.Equal(creation.ChildThread, child.Key);
+        Assert.Equal(parent.SessionId, child.RuntimeChild!.ParentSessionId);
+        Assert.Equal(parent.ThreadId, child.RuntimeChild.ParentThreadId);
+        Assert.Equal(creation.InvocationId, child.RuntimeChild.InvocationId);
+        Assert.Equal("Isolated", child.RuntimeChild.ContextPolicy);
+        Assert.Single((await new SubAgentChildRegistry(store).ProjectAsync(parent)).AvailableChildren);
+    }
+
+    [Fact]
+    public async Task RestartFromChildCreatedReportsMissingReservedRouteDistinctly()
+    {
+        var store = new InMemorySessionStore(CoreAgentEventComposition.Instance.Codec);
+        var parent = new ThreadKey("session", "parent");
+        await CreateParentAsync(store, parent);
+        var key = new SubAgentCreationKey(parent, "tool-call", CapabilityId.Create("test:worker"));
+        var creationStore = new JournalSubAgentCreationStore(store);
+        var reserved = await creationStore.TryReserveSubAgentCreationAsync(key, new SubAgentCreationRequest
+        {
+            RoleName = "worker",
+            ChildAgentId = "worker-agent",
+            Context = SubAgentCreationContext.Fresh,
+            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
+            InputFingerprint = Convert.ToHexString(
+                System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("work")))
+        });
+        await creationStore.WriteSubAgentCreationAsync(
+            reserved.Record with { Phase = SubAgentCreationPhase.ChildCreated, Revision = 2 },
+            new SubAgentCreationWriteCondition(1));
+        var context = await CreateContextAsync(store, parent, new FixedResolver(store));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await SubAgentRuntime.InvokeAsync(new SubAgentRuntime.SubAgentInvocationRequest
+            {
+                Definition = CreateDefinition(),
+                Input = "work",
+                CapabilityId = key.CapabilityId,
+                ParentContext = context
+            }, CancellationToken.None));
+
+        Assert.Equal("subagent_reserved_route_missing", exception.Message);
+        Assert.Empty((await new SubAgentChildRegistry(store).ProjectAsync(parent)).AvailableChildren);
+    }
+
+    [Fact]
     public async Task RestartFromChildCreatedRejectsTamperedExactRouteWithoutRegistering()
     {
         var store = new InMemorySessionStore(CoreAgentEventComposition.Instance.Codec);
@@ -21,6 +93,7 @@ public sealed class SubAgentCreationCrashRecoveryTests
             RoleName = "worker",
             ChildAgentId = "worker-agent",
             Context = SubAgentCreationContext.Fresh,
+            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
             InputFingerprint = Convert.ToHexString(
                 System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("work")))
         });
@@ -54,7 +127,7 @@ public sealed class SubAgentCreationCrashRecoveryTests
             }, CancellationToken.None));
 
         Assert.Equal("subagent_exact_route_collision", exception.Message);
-        Assert.Empty((await new SubAgentChildRegistry(store).ProjectAsync(parent)).Children);
+        Assert.Empty((await new SubAgentChildRegistry(store).ProjectAsync(parent)).AvailableChildren);
         Assert.Equal(
             SubAgentCreationPhase.ChildCreated,
             (await creationStore.GetSubAgentCreationAsync(key))!.Phase);
@@ -73,6 +146,7 @@ public sealed class SubAgentCreationCrashRecoveryTests
             RoleName = "worker",
             ChildAgentId = "worker-agent",
             Context = SubAgentCreationContext.Fresh,
+            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
             InputFingerprint = Convert.ToHexString(
                 System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("work")))
         });
@@ -108,7 +182,7 @@ public sealed class SubAgentCreationCrashRecoveryTests
 
         Assert.StartsWith("background_unavailable:", result.Text, StringComparison.Ordinal);
         var projection = await new SubAgentChildRegistry(restart).ProjectAsync(parent);
-        var registered = Assert.Single(projection.Children).Value;
+        var registered = Assert.Single(projection.AvailableChildren).Value;
         Assert.Equal(childCreated.LocalId, registered.LocalId);
         Assert.Equal(childCreated.ChildThread, registered.ChildThread);
         var latest = Assert.IsType<SubAgentCreationRecord>(
@@ -134,9 +208,10 @@ public sealed class SubAgentCreationCrashRecoveryTests
             }], new ThreadAppendCondition(ThreadJournalCursor.Start(1)));
     }
 
-    private static SubAgent CreateDefinition() => SubAgent.FromConfig(
+    private static SubAgent CreateDefinition(
+        SubAgentContextPolicy contextPolicy = SubAgentContextPolicy.Fresh) => SubAgent.FromConfig(
         "worker-agent", "worker", "Does work.", new AgentConfig(),
-        SubAgentContextPolicy.Fresh, metadata: null,
+        contextPolicy, metadata: null,
         AgentInvocationModePolicy.BackgroundOnly, operationNotification: null);
 
     private static async Task AppendExactChildAsync(ISessionStore store, SubAgentCreationRecord creation) =>

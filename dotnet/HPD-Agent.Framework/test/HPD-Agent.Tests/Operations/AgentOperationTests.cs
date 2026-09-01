@@ -491,6 +491,45 @@ public sealed class AgentOperationTests
     }
 
     [Fact]
+    public async Task PreparedSchedulerAdmissionPrefersActiveTurnAndDoesNotAlsoQueue()
+    {
+        var gate = new object();
+        var channel = System.Threading.Channels.Channel.CreateUnbounded<AgentInputEvent>();
+        var scheduler = new AgentWorkScheduler(gate, channel.Writer);
+        var input = new AgentOperationNotificationInputEvent([]);
+        var activeAdmissions = 0;
+        using var prepared = scheduler.Prepare(
+            input,
+            tryCommitToActiveTurn: () =>
+            {
+                activeAdmissions++;
+                return true;
+            });
+
+        prepared.CommitVisible();
+        prepared.CommitVisible();
+
+        Assert.Equal(1, activeAdmissions);
+        Assert.False(channel.Reader.TryRead(out _));
+        await scheduler.StopPreparing().WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public async Task PreparedSchedulerAdmissionQueuesWhenActiveTurnDeclinesIt()
+    {
+        var gate = new object();
+        var channel = System.Threading.Channels.Channel.CreateUnbounded<AgentInputEvent>();
+        var scheduler = new AgentWorkScheduler(gate, channel.Writer);
+        var input = new AgentOperationNotificationInputEvent([]);
+        using var prepared = scheduler.Prepare(input, tryCommitToActiveTurn: () => false);
+
+        prepared.CommitVisible();
+
+        Assert.Same(input, await channel.Reader.ReadAsync());
+        Assert.False(channel.Reader.TryRead(out _));
+    }
+
+    [Fact]
     public void NotificationFormattingRejectsXmlIllegalContentAndUnknownStatus()
     {
         static AgentOperationNotification Notification(string name, string status) => new()

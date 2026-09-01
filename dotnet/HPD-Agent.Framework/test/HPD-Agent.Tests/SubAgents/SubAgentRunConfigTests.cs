@@ -141,7 +141,27 @@ public sealed class SubAgentRunConfigTests
     }
 
     [Fact]
-    public void IsolatedWithOverride_UsesChildOnlyConfiguration()
+    public void InheritAll_NeverPropagatesControllerRelativeSubAgentOverrides()
+    {
+        var parent = new AgentRunConfig
+        {
+            SubAgents = new SubAgentRunOverrides
+            {
+                Capabilities = [new SubAgentRunPolicyOverride
+                {
+                    CapabilityId = CapabilityId.Create("outer:worker"),
+                    InheritedFields = SubAgentRunConfigFields.None
+                }]
+            }
+        };
+
+        var child = SubAgentRunConfig.InheritOnly(SubAgentRunConfigFields.All).Resolve(parent);
+
+        child.SubAgents.Capabilities.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CompilePolicy_CapturesIsolatedDeclarationWithoutMutableCallback()
     {
         var parent = new AgentRunConfig
         {
@@ -149,22 +169,18 @@ public sealed class SubAgentRunConfigTests
             SystemInstructions = new SystemInstructionsRunConfig { Override = "Parent persona" }
         };
 
-        var child = SubAgentRunConfig
-            .Isolated()
-            .Override(config =>
-            {
-                config.Clients.Chat ??= new ChatClientConfig();
-                config.Clients.Chat.Provider = new ProviderReference { Key = "child-provider" };
-                config.SystemInstructions = new SystemInstructionsRunConfig { Override = "Child override" };
-            })
-            .Resolve(parent);
+        var declaration = SubAgentRunConfig.Isolated();
+        var policy = declaration.CompilePolicy();
+        var child = SubAgentRunConfig.Resolve(policy, parent);
 
-        child.Clients.Chat!.Provider?.Key.Should().Be("child-provider");
-        child.SystemInstructions!.Override.Should().Be("Child override");
+        policy.InheritedFields.Should().Be(SubAgentRunConfigFields.None);
+        policy.Clients.Chat.Should().Be(ClientFamilyInheritanceMode.UseOwn);
+        child.Clients.Chat.Should().BeNull();
+        child.SystemInstructions.Should().BeNull();
     }
 
     [Fact]
-    public void Override_RunsAfterInheritance()
+    public void TargetedOverride_RequiresDeclarationAllowanceAndProducesFrozenPolicy()
     {
         var parent = new AgentRunConfig
         {
@@ -175,17 +191,24 @@ public sealed class SubAgentRunConfigTests
             } }
         };
 
-        var child = SubAgentRunConfig
-            .Inherit()
-            .Override(config => config.Clients.Chat = new ChatClientConfig
+        var declaration = SubAgentRunConfig.Inherit().AllowParentRunOverrides(
+            new SubAgentRunPolicyOverrideAllowance
             {
-                Provider = new HPD.Agent.Providers.ProviderReference { Key = "child-provider" },
-                Temperature = 0.1
-            })
-            .Resolve(parent);
+                MayEnableInheritedFields = SubAgentRunConfigFields.Instructions,
+                Clients = new AgentClientInheritanceOverrideAllowance { Chat = true }
+            });
+        var runOverride = new SubAgentRunPolicyOverride
+        {
+            CapabilityId = CapabilityId.Create("test:reviewer"),
+            InheritedFields = SubAgentRunConfigFields.Default | SubAgentRunConfigFields.Instructions,
+            Clients = new AgentClientInheritancePatch { Chat = ClientFamilyInheritanceMode.UseOwn }
+        };
+        var policy = declaration.Compile(runOverride);
+        var child = SubAgentRunConfig.Resolve(policy, parent);
 
-        child.Clients.Chat!.Provider?.Key.Should().Be("child-provider");
-        child.Clients.Chat.Temperature.Should().Be(0.1);
+        policy.Clients.Chat.Should().Be(ClientFamilyInheritanceMode.UseOwn);
+        policy.InheritedFields.Should().HaveFlag(SubAgentRunConfigFields.Instructions);
+        child.SystemInstructions.Should().NotBeNull();
         parent.Clients.Chat!.Temperature.Should().Be(0.8);
     }
 
@@ -206,20 +229,18 @@ public sealed class SubAgentRunConfigTests
                 }
             }
         };
-        var selection = SubAgentRunConfig.Inherit().Override(config =>
-            config.Clients.TextToSpeech = new TextToSpeechClientConfig { Speed = 1.25f });
+        var selection = SubAgentRunConfig.Inherit();
 
         var child = selection.Resolve(new AgentRunConfig(), parentClients, new AgentConfig());
 
         child.Clients.TextToSpeech!.Provider?.Key.Should().Be("parent-speech");
         child.Clients.TextToSpeech.ModelName.Should().Be("parent-model");
         child.Clients.TextToSpeech.VoiceId.Should().Be("parent-voice");
-        child.Clients.TextToSpeech.Speed.Should().Be(1.25f);
         child.Clients.TextToSpeech.Override!.Client.Should().BeSameAs(client);
     }
 
     [Fact]
-    public void InheritResolved_ExplicitProviderSwitch_DiscardsParentBoundClient()
+    public void UseOwn_NonChatFamily_DoesNotInstallParentBoundClient()
     {
         var parentClients = new AgentClientSet
         {
@@ -233,17 +254,14 @@ public sealed class SubAgentRunConfigTests
                 }
             }
         };
-        var selection = SubAgentRunConfig.Inherit().Override(config =>
-            config.Clients.TextToSpeech = new TextToSpeechClientConfig
-            {
-                Provider = new HPD.Agent.Providers.ProviderReference { Key = "child-speech" },
-                ModelName = "child-model"
-            });
+        var selection = SubAgentRunConfig.Inherit().WithClients(new AgentClientInheritance
+        {
+            TextToSpeech = ClientFamilyInheritanceMode.UseOwn
+        });
 
         var child = selection.Resolve(new AgentRunConfig(), parentClients, new AgentConfig());
 
-        child.Clients.TextToSpeech!.Provider?.Key.Should().Be("child-speech");
-        child.Clients.TextToSpeech.Override.Should().BeNull();
+        child.Clients.TextToSpeech.Should().BeNull();
     }
 
     [Fact]

@@ -5,6 +5,65 @@ using Microsoft.Extensions.AI;
 
 namespace HPD.Agent;
 
+/// <summary>Immutable pre-filter catalog of every subagent declaration admitted by an agent build.</summary>
+public sealed record SubAgentDeclarationCatalog
+{
+    /// <summary>Gets the stable revision fingerprint of the declarations.</summary>
+    public required string Revision { get; init; }
+
+    /// <summary>Gets declarations keyed by their generated capability identity.</summary>
+    public required IReadOnlyDictionary<CapabilityId, SubAgentActionDescriptor> Declarations { get; init; }
+
+    /// <summary>Creates and validates a catalog before any visibility filtering is applied.</summary>
+    /// <param name="declarations">All materialized subagent declarations.</param>
+    /// <returns>A canonical immutable catalog.</returns>
+    public static SubAgentDeclarationCatalog Create(IEnumerable<SubAgentActionDescriptor> declarations)
+    {
+        ArgumentNullException.ThrowIfNull(declarations);
+        var ordered = declarations
+            .OrderBy(static value => value.CapabilityId.Value, StringComparer.Ordinal)
+            .ThenBy(static value => value.ParentToolHarness, StringComparer.Ordinal)
+            .ThenBy(static value => value.Action, StringComparer.Ordinal)
+            .ToArray();
+        var map = new Dictionary<CapabilityId, SubAgentActionDescriptor>();
+        foreach (var declaration in ordered)
+        {
+            if (map.TryGetValue(declaration.CapabilityId, out var existing))
+                throw new InvalidOperationException(
+                    $"Duplicate subagent capability '{declaration.CapabilityId.Value}' is declared by " +
+                    $"'{existing.ParentToolHarness}' and '{declaration.ParentToolHarness}'.");
+            map.Add(declaration.CapabilityId, declaration);
+        }
+        var canonical = string.Join("\n", ordered.Select(static value => string.Join('|',
+            value.CapabilityId.Value,
+            value.ParentToolHarness,
+            value.Action,
+            value.Definition.AgentId,
+            value.Definition.Name)));
+        return new SubAgentDeclarationCatalog
+        {
+            Revision = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(canonical))),
+            Declarations = new ReadOnlyDictionary<CapabilityId, SubAgentActionDescriptor>(map)
+        };
+    }
+
+    internal void ValidateOverrides(SubAgentRunOverrides overrides)
+    {
+        ArgumentNullException.ThrowIfNull(overrides);
+        var seen = new HashSet<CapabilityId>();
+        foreach (var runOverride in overrides.Capabilities)
+        {
+            ArgumentNullException.ThrowIfNull(runOverride);
+            if (!seen.Add(runOverride.CapabilityId))
+                throw new InvalidOperationException("subagent_override_capability_duplicate");
+            if (!Declarations.TryGetValue(runOverride.CapabilityId, out var declaration))
+                throw new InvalidOperationException("subagent_override_capability_unknown");
+            declaration.Definition.RunConfig.Compile(runOverride).Validate();
+        }
+    }
+}
+
 /// <summary>Immutable generated declaration for one model-facing subagent creation action.</summary>
 public sealed record SubAgentActionDescriptor
 {

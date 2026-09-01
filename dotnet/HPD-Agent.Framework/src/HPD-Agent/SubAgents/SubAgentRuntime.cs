@@ -381,21 +381,14 @@ public static class SubAgentRuntime
                 route,
                 cancellationToken).ConfigureAwait(false);
 
-            await using var inheritedClientLease = request.ParentContext?.ClientSet?.AcquireBorrowedLease();
-            await agent.RunAsync(new UserMessagesInputEvent { Messages = [
-                new ChatMessage(ChatRole.User, request.Input)
-                ],
-                SessionId = route.SessionId,
-                ThreadId = route.ThreadId,
-                ThreadExecutionId = threadExecutionId,
-                RunConfig = definition.RunConfig.Resolve(
-                    request.ParentContext?.RunConfig,
-                    request.ParentContext?.ClientSet,
-                    agent.Config,
-                    agent.ProviderComposition),
-                InheritedChatClient = request.ParentContext?.GetEffectiveChatClientHandle(),
-                InheritedChatMode = definition.RunConfig.Clients.Chat
-            }, cancellationToken).ConfigureAwait(false);
+            await ExecuteChildAsync(
+                agent,
+                new ThreadKey(route.SessionId, route.ThreadId),
+                admission.Creation.Request.ExecutionPolicy,
+                request.ParentContext,
+                request.Input,
+                threadExecutionId,
+                cancellationToken).ConfigureAwait(false);
 
             var text = await ResolveAssistantTextAfterAsync(
                 agent,
@@ -475,6 +468,10 @@ public static class SubAgentRuntime
         if (context.SessionId is null || context.ThreadId is null || string.IsNullOrWhiteSpace(context.FunctionCallId))
             throw new InvalidOperationException("subagent_creation_requires_parent_identity");
         var creationStore = new JournalSubAgentCreationStore(store);
+        var executionPolicy = ResolveExecutionPolicy(
+            definition.RunConfig,
+            request.CapabilityId,
+            context.RunConfig?.SubAgents);
         var key = new SubAgentCreationKey(
             new ThreadKey(context.SessionId, context.ThreadId),
             context.FunctionCallId,
@@ -486,7 +483,8 @@ public static class SubAgentRuntime
                 RoleName = definition.Name,
                 ChildAgentId = definition.AgentId,
                 Context = ToCreationContext(contextPolicy),
-                InputFingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(request.Input)))
+                InputFingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(request.Input))),
+                ExecutionPolicy = executionPolicy
             },
             cancellationToken).ConfigureAwait(false);
         var creation = reservation.Record;
@@ -502,15 +500,15 @@ public static class SubAgentRuntime
             plannedRoute,
             cancellationToken).ConfigureAwait(false);
         AttachParentCoordinator(runtime.Agent, request.ParentContext);
-        var route = plannedRoute;
         if (creation.Phase == SubAgentCreationPhase.Reserved)
         {
-            route = await EnsureInvocationRouteAsync(
+            await EnsureInvocationRouteAsync(
                 runtime.Agent,
                 definition,
                 request.ParentContext,
                 creation.LocalId.Value,
-                plannedRoute,
+                creation.ChildThread,
+                creation.InvocationId,
                 contextPolicy,
                 cancellationToken).ConfigureAwait(false);
             creation = await AdvanceCreationRecordAsync(
@@ -526,11 +524,11 @@ public static class SubAgentRuntime
                 RoleName = definition.Name,
                 CapabilityId = request.CapabilityId,
                 ChildAgentId = definition.AgentId,
-                Availability = SubAgentChildAvailability.Available,
                 ChildThread = creation.ChildThread,
                 CreationContext = creation.Request.Context,
                 CreationInvocationId = creation.InvocationId,
                 ParentToolCallId = context.FunctionCallId,
+                ExecutionPolicy = creation.Request.ExecutionPolicy,
                 CreatedAt = creation.CreatedAt
             };
             await new SubAgentChildRegistry(store).RegisterAsync(key.Parent, child, cancellationToken)
@@ -538,7 +536,7 @@ public static class SubAgentRuntime
             creation = await AdvanceCreationRecordAsync(
                 creationStore, creation, SubAgentCreationPhase.Registered, cancellationToken).ConfigureAwait(false);
         }
-        return new AdmittedSubAgentInvocation(route, creation.LocalId, contextPolicy, creationStore, creation);
+        return new AdmittedSubAgentInvocation(plannedRoute, creation.LocalId, contextPolicy, creationStore, creation);
     }
 
     private static async ValueTask ValidateCreatedChildRouteAsync(
@@ -550,8 +548,9 @@ public static class SubAgentRuntime
     {
         var descriptor = await store.GetThreadAsync(creation.ChildThread, cancellationToken).ConfigureAwait(false);
         var runtimeChild = descriptor?.RuntimeChild;
-        if (descriptor is null ||
-            descriptor.Kind != ThreadKind.SubAgent ||
+        if (descriptor is null)
+            throw new InvalidOperationException("subagent_reserved_route_missing");
+        if (descriptor.Kind != ThreadKind.SubAgent ||
             !string.Equals(descriptor.DefaultAgent.AgentId, definition.AgentId, StringComparison.Ordinal) ||
             runtimeChild is null ||
             !string.Equals(runtimeChild.ParentSessionId, creation.Key.Parent.SessionId, StringComparison.Ordinal) ||
@@ -688,14 +687,18 @@ public static class SubAgentRuntime
             cancellationToken: cancellationToken).ConfigureAwait(false);
         if (string.Equals(action, "list", StringComparison.Ordinal))
         {
-            return new SubAgentListResult(projection.Children.Values
-                .OrderBy(static child => child.LocalId.Value, StringComparer.Ordinal)
-                .Select(static child => new SubAgentListItem(
-                    child.LocalId.Value,
-                    child.RoleName,
-                    child.Availability,
-                    child.CreatedAt,
-                    child.UnavailableReason))
+            return new SubAgentListResult(projection.Entries.Values
+                .OrderBy(static entry => entry.LocalId.Value, StringComparer.Ordinal)
+                .Select(static entry => entry switch
+                {
+                    SubAgentAvailableChild available => new SubAgentListItem(
+                        available.LocalId.Value, available.RoleName, available.Availability,
+                        available.Child.CreatedAt, null),
+                    SubAgentChildTombstone tombstone => new SubAgentListItem(
+                        tombstone.LocalId.Value, tombstone.RoleName, tombstone.Availability,
+                        tombstone.CreatedAt, tombstone.Reason),
+                    _ => throw new InvalidOperationException("subagent_registry_entry_invalid")
+                })
                 .ToArray());
         }
 
@@ -707,13 +710,17 @@ public static class SubAgentRuntime
             ? childProperty.GetString()
             : null;
         if (string.IsNullOrWhiteSpace(localValue) ||
-            !projection.TryGet(new SubAgentLocalId(localValue), out var child))
+            !projection.Entries.TryGetValue(new SubAgentLocalId(localValue), out var entry))
             return Failure("subagent_unknown", "This child is not registered under the current parent. Use list to inspect available children.");
-        if (child.Availability == SubAgentChildAvailability.Detached)
-            return Failure("subagent_detached_by_fork", child.UnavailableReason ?? "This child was detached by the parent fork. Start a new role action.", child.LocalId.Value);
-        if (child.Availability != SubAgentChildAvailability.Available || child.ChildThread is null)
-            return Failure("subagent_unavailable", child.UnavailableReason ?? "This child is currently unavailable.", child.LocalId.Value);
-        var childDescriptor = await store.GetThreadAsync(child.ChildThread.Value, cancellationToken).ConfigureAwait(false);
+        if (entry is SubAgentChildTombstone tombstone)
+            return Failure(
+                tombstone.Availability == SubAgentChildAvailability.Detached
+                    ? "subagent_detached_by_fork"
+                    : "subagent_unavailable",
+                tombstone.Reason,
+                tombstone.LocalId.Value);
+        var child = ((SubAgentAvailableChild)entry).Child;
+        var childDescriptor = await store.GetThreadAsync(child.ChildThread, cancellationToken).ConfigureAwait(false);
         if (childDescriptor is null ||
             childDescriptor.Kind != ThreadKind.SubAgent ||
             !string.Equals(childDescriptor.DefaultAgent.AgentId, child.ChildAgentId, StringComparison.Ordinal) ||
@@ -725,7 +732,7 @@ public static class SubAgentRuntime
             string.Equals(childDescriptor.RuntimeChild?.ParentThreadId, projection.Parent.ThreadId, StringComparison.Ordinal);
         if (!ownedByParent && !await SubAgentControllerAuthority.IsGrantedAsync(
                 store,
-                child.ChildThread.Value,
+                child.ChildThread,
                 projection.Parent,
                 child.LocalId,
                 cancellationToken).ConfigureAwait(false))
@@ -735,7 +742,7 @@ public static class SubAgentRuntime
         {
             var resolver = functionContext.Services?.GetService<IAgentRuntimeResolver>()
                 ?? throw new InvalidOperationException("subagent_unavailable: no agent runtime resolver is configured.");
-            var route = child.ChildThread.Value;
+            var route = child.ChildThread;
             var input = branch.GetProperty("input").GetString() ?? string.Empty;
             var continueKey = $"{functionContext.SessionId}|{functionContext.ThreadId}|{functionContext.FunctionCallId}|{child.LocalId.Value}|{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(input)))}";
             var continueDigest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(continueKey))).ToLowerInvariant();
@@ -876,13 +883,14 @@ public static class SubAgentRuntime
                             ["subAgent.child"] = child.LocalId.Value,
                             ["subAgent.invocationId"] = invocationId
                         },
-                        notification: null,
+                        notification: new AgentOperationNotificationPolicy(),
                         async (_, runtimeToken) =>
                         {
                             try
                             {
                                 await ContinueChildAsync(
-                                    resolver, store, child, route, input, executionId, runtimeToken).ConfigureAwait(false);
+                                    resolver, store, child, route, input, executionId,
+                                    functionContext, runtimeToken).ConfigureAwait(false);
                                 return new AgentOperationCompletion("Subagent continuation completed.");
                             }
                             finally
@@ -909,7 +917,8 @@ public static class SubAgentRuntime
             try
             {
                 var output = await ContinueChildAsync(
-                    resolver, store, child, route, input, executionId, cancellationToken).ConfigureAwait(false);
+                    resolver, store, child, route, input, executionId,
+                    functionContext, cancellationToken).ConfigureAwait(false);
                 return new SubAgentOperationResult
                 {
                     Status = SubAgentOperationStatus.Completed,
@@ -927,12 +936,12 @@ public static class SubAgentRuntime
 
         if (string.Equals(action, "sendMessage", StringComparison.Ordinal))
         {
-            var active = await controller.FindActiveAsync(child.ChildThread.Value, cancellationToken).ConfigureAwait(false);
+            var active = await controller.FindActiveAsync(child.ChildThread, cancellationToken).ConfigureAwait(false);
             if (!active.IsActive || active.ThreadExecutionId is null)
                 return Failure("subagent_not_running", "This child has no active execution to steer.", child.LocalId.Value);
             var input = branch.GetProperty("input").GetString() ?? string.Empty;
             var steered = await controller.SteerAsync(
-                child.ChildThread.Value,
+                child.ChildThread,
                 active.ThreadExecutionId,
                 new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, input)] },
                 cancellationToken).ConfigureAwait(false);
@@ -947,12 +956,12 @@ public static class SubAgentRuntime
 
         if (string.Equals(action, "cancel", StringComparison.Ordinal))
         {
-            var active = await controller.FindActiveAsync(child.ChildThread.Value, cancellationToken).ConfigureAwait(false);
+            var active = await controller.FindActiveAsync(child.ChildThread, cancellationToken).ConfigureAwait(false);
             if (!active.IsActive || active.ThreadExecutionId is null)
                 return Failure("subagent_not_running", "This child has no active execution to cancel.", child.LocalId.Value);
             var reason = branch.TryGetProperty("reason", out var reasonValue) ? reasonValue.GetString() : null;
             var cancelled = await controller.CancelAsync(
-                child.ChildThread.Value, active.ThreadExecutionId, reason, cancellationToken).ConfigureAwait(false);
+                child.ChildThread, active.ThreadExecutionId, reason, cancellationToken).ConfigureAwait(false);
             return new SubAgentOperationResult
             {
                 Status = cancelled.Accepted ? SubAgentOperationStatus.Cancelled : SubAgentOperationStatus.Unavailable,
@@ -982,19 +991,21 @@ public static class SubAgentRuntime
         ThreadKey route,
         string input,
         string executionId,
+        FunctionExecutionContext controllerContext,
         CancellationToken cancellationToken)
     {
         await using var lease = await resolver.GetOrBuildAsync(
             child.ChildAgentId, route.SessionId, route.ThreadId, cancellationToken).ConfigureAwait(false);
         try
         {
-            await lease.Agent.RunAsync(new UserMessagesInputEvent
-            {
-                Messages = [new ChatMessage(ChatRole.User, input)],
-                SessionId = route.SessionId,
-                ThreadId = route.ThreadId,
-                ThreadExecutionId = executionId
-            }, cancellationToken).ConfigureAwait(false);
+            await ExecuteChildAsync(
+                lease.Agent,
+                route,
+                child.ExecutionPolicy,
+                controllerContext,
+                input,
+                executionId,
+                cancellationToken).ConfigureAwait(false);
             var output = await ReadExecutionTextAsync(store, route, executionId, CancellationToken.None)
                 .ConfigureAwait(false);
             await store.AppendThreadEventsAsync(
@@ -1004,6 +1015,36 @@ public static class SubAgentRuntime
             return output;
         }
         catch { throw; }
+    }
+
+    private static async ValueTask ExecuteChildAsync(
+        Agent childAgent,
+        ThreadKey childThread,
+        SubAgentExecutionPolicy policy,
+        FunctionExecutionContext? controllingContext,
+        string input,
+        string threadExecutionId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(childAgent);
+        ArgumentNullException.ThrowIfNull(policy);
+        policy.Validate();
+        await using var inheritedClientLease = controllingContext?.ClientSet?.AcquireBorrowedLease();
+        await childAgent.RunAsync(new UserMessagesInputEvent
+        {
+            Messages = [new ChatMessage(ChatRole.User, input)],
+            SessionId = childThread.SessionId,
+            ThreadId = childThread.ThreadId,
+            ThreadExecutionId = threadExecutionId,
+            RunConfig = SubAgentRunConfig.Resolve(
+                policy,
+                controllingContext?.RunConfig,
+                controllingContext?.ClientSet,
+                childAgent.Config,
+                childAgent.ProviderComposition),
+            InheritedChatClient = controllingContext?.GetEffectiveChatClientHandle(),
+            InheritedChatMode = policy.Clients.Chat
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     private static async ValueTask<string?> ReadExecutionTextAsync(
@@ -1110,7 +1151,7 @@ public static class SubAgentRuntime
     {
         var requested = branch.TryGetProperty("children", out var childrenElement)
             ? childrenElement.EnumerateArray().Select(static value => value.GetString()!).ToHashSet(StringComparer.Ordinal)
-            : projection.Children.Keys.Select(static key => key.Value).ToHashSet(StringComparer.Ordinal);
+            : projection.Entries.Keys.Select(static key => key.Value).ToHashSet(StringComparer.Ordinal);
         var mode = branch.TryGetProperty("mode", out var modeElement) ? modeElement.GetString() : "all";
         var timeoutSeconds = branch.TryGetProperty("timeoutSeconds", out var timeoutElement)
             ? timeoutElement.GetInt32()
@@ -1121,11 +1162,12 @@ public static class SubAgentRuntime
         var tasks = new List<Task<SubAgentWaitItem>>();
         foreach (var localId in requested)
         {
-            if (!projection.TryGet(new SubAgentLocalId(localId), out var child) || child.ChildThread is not { } route)
+            if (!projection.TryGetAvailable(new SubAgentLocalId(localId), out var child))
             {
                 observations.Add(new SubAgentWaitItem(localId, null, "unavailable"));
                 continue;
             }
+            var route = child.ChildThread;
             var snapshot = await ReadLatestExecutionAsync(store, route, cancellationToken).ConfigureAwait(false);
             if (snapshot.ExecutionId is null)
             {
@@ -1225,12 +1267,14 @@ public static class SubAgentRuntime
         {
             var projection = await registry.ProjectAsync(parent, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
-            var replay = projection.Children.Values.FirstOrDefault(child =>
+            var availableChildren = projection.Entries.Values.OfType<SubAgentAvailableChild>()
+                .Select(static entry => entry.Child).ToArray();
+            var replay = availableChildren.FirstOrDefault(child =>
                 string.Equals(child.ParentToolCallId, context.FunctionCallId, StringComparison.Ordinal) &&
                 child.CapabilityId == request.CapabilityId);
             if (replay is not null) return replay.LocalId;
-            var ordinal = projection.Children.Values.Count(child =>
-                string.Equals(child.RoleName, request.Definition.Name, StringComparison.Ordinal)) + 1;
+            var ordinal = projection.Entries.Values.Count(entry =>
+                string.Equals(entry.RoleName, request.Definition.Name, StringComparison.Ordinal)) + 1;
             var localId = new SubAgentLocalId($"{Normalize(request.Definition.Name)}-{ordinal}");
             var child = new SubAgentChildReference
             {
@@ -1238,7 +1282,6 @@ public static class SubAgentRuntime
                 RoleName = request.Definition.Name,
                 CapabilityId = request.CapabilityId,
                 ChildAgentId = request.Definition.AgentId,
-                Availability = SubAgentChildAvailability.Available,
                 ChildThread = new ThreadKey(route.SessionId, route.ThreadId),
                 CreationContext = contextPolicy switch
                 {
@@ -1249,6 +1292,7 @@ public static class SubAgentRuntime
                 },
                 CreationInvocationId = route.InvocationId,
                 ParentToolCallId = context.FunctionCallId,
+                ExecutionPolicy = request.Definition.RunConfig.Compile(),
                 CreatedAt = DateTimeOffset.UtcNow
             };
             try
@@ -1278,41 +1322,43 @@ public static class SubAgentRuntime
     {
         var contextPolicy = SubAgentContexts.Resolve(subAgent.ContextPolicy, requestedContext: null);
         var route = PlanInvocationRoute(subAgent, functionContext, storageName, contextPolicy);
-        return await EnsureInvocationRouteAsync(
+        await EnsureInvocationRouteAsync(
             agent,
             subAgent,
             functionContext,
             storageName,
-            route,
+            new ThreadKey(route.SessionId, route.ThreadId),
+            route.InvocationId,
             contextPolicy,
             cancellationToken).ConfigureAwait(false);
+        return route;
     }
 
-    private static async Task<SubAgentInvocationRoute> EnsureInvocationRouteAsync(
+    private static async Task EnsureInvocationRouteAsync(
         Agent agent,
         SubAgent subAgent,
         FunctionExecutionContext? functionContext,
         string storageName,
-        SubAgentInvocationRoute route,
+        ThreadKey route,
+        string invocationId,
         SubAgentContextPolicy contextPolicy,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(agent);
         ArgumentNullException.ThrowIfNull(subAgent);
-        var runId = route.InvocationId;
-        var sessionId = await ResolveSessionAsync(agent, subAgent, functionContext, storageName, runId, contextPolicy, cancellationToken)
-            .ConfigureAwait(false);
-        var threadId = await ResolveThreadAsync(agent, subAgent, functionContext, storageName, sessionId, runId, contextPolicy, cancellationToken)
-            .ConfigureAwait(false);
+        await EnsureSessionAsync(
+            agent, subAgent, functionContext, storageName, route.SessionId, invocationId,
+            contextPolicy, cancellationToken).ConfigureAwait(false);
+        await EnsureThreadAsync(
+            agent, subAgent, functionContext, storageName, route, invocationId,
+            contextPolicy, cancellationToken).ConfigureAwait(false);
 
         functionContext?.ResultMetadata.Set("subAgentStatus", "started");
-        functionContext?.ResultMetadata.Set("subAgentSessionId", sessionId);
-        functionContext?.ResultMetadata.Set("subAgentThreadId", threadId);
+        functionContext?.ResultMetadata.Set("subAgentSessionId", route.SessionId);
+        functionContext?.ResultMetadata.Set("subAgentThreadId", route.ThreadId);
         functionContext?.ResultMetadata.Set("subAgentName", subAgent.Name);
         functionContext?.ResultMetadata.Set("subAgentLocalStorageName", storageName);
-        functionContext?.ResultMetadata.Set("invocationId", runId);
-
-        return new SubAgentInvocationRoute(sessionId, threadId, runId);
+        functionContext?.ResultMetadata.Set("invocationId", invocationId);
     }
 
     private static SubAgentInvocationRoute PlanInvocationRoute(
@@ -1515,54 +1561,55 @@ public static class SubAgentRuntime
             ?? string.Empty;
     }
 
-    private static async Task<string> ResolveSessionAsync(
+    private static async Task EnsureSessionAsync(
         Agent agent,
         SubAgent subAgent,
         FunctionExecutionContext? functionContext,
         string storageName,
-        string runId,
+        string sessionId,
+        string invocationId,
         SubAgentContextPolicy contextPolicy,
         CancellationToken cancellationToken)
     {
         if (contextPolicy != SubAgentContextPolicy.Isolated)
         {
-            return functionContext?.SessionId
+            var parentSessionId = functionContext?.SessionId
                 ?? throw new InvalidOperationException("Parent-session subagents require a parent SessionId.");
+            if (!string.Equals(sessionId, parentSessionId, StringComparison.Ordinal))
+                throw new InvalidOperationException("subagent_reserved_route_invalid");
+            return;
         }
 
-        var sessionId = BuildSessionId(subAgent, storageName, runId);
         var store = agent.Config.SessionStore
             ?? throw new InvalidOperationException("No session store configured.");
         if (await store.LoadSessionAsync(sessionId, cancellationToken).ConfigureAwait(false) is null)
         {
             await agent.CreateSessionAsync(
                 sessionId,
-                BuildMetadata(subAgent, functionContext, storageName, runId, contextPolicy),
+                BuildMetadata(subAgent, functionContext, storageName, invocationId, contextPolicy),
                 cancellationToken).ConfigureAwait(false);
         }
-        return sessionId;
     }
 
-    private static async Task<string> ResolveThreadAsync(
+    private static async Task EnsureThreadAsync(
         Agent agent,
         SubAgent subAgent,
         FunctionExecutionContext? functionContext,
         string storageName,
-        string sessionId,
-        string runId,
+        ThreadKey route,
+        string invocationId,
         SubAgentContextPolicy contextPolicy,
         CancellationToken cancellationToken)
     {
-        var metadata = BuildMetadata(subAgent, functionContext, storageName, runId, contextPolicy);
-        var exactThreadId = BuildThreadId(subAgent, storageName, runId);
+        var metadata = BuildMetadata(subAgent, functionContext, storageName, invocationId, contextPolicy);
         var exactStore = agent.Config?.SessionStore
             ?? throw new InvalidOperationException("No session store configured.");
-        if (await exactStore.GetThreadAsync(new ThreadKey(sessionId, exactThreadId), cancellationToken).ConfigureAwait(false) is { } existing)
+        if (await exactStore.GetThreadAsync(route, cancellationToken).ConfigureAwait(false) is { } existing)
         {
             if (!string.Equals(existing.DefaultAgent.AgentId, agent.AgentId, StringComparison.Ordinal) ||
                 existing.Kind != ThreadKind.SubAgent)
                 throw new InvalidOperationException("subagent_exact_route_collision");
-            return exactThreadId;
+            return;
         }
 
         switch (contextPolicy)
@@ -1570,9 +1617,9 @@ public static class SubAgentRuntime
             case SubAgentContextPolicy.Fresh:
             case SubAgentContextPolicy.Isolated:
             {
-                var threadId = BuildThreadId(subAgent, storageName, runId);
-                await CreateEmptyThreadAsync(agent, sessionId, threadId, metadata, cancellationToken).ConfigureAwait(false);
-                return threadId;
+                await CreateEmptyThreadAsync(
+                    agent, route.SessionId, route.ThreadId, metadata, cancellationToken).ConfigureAwait(false);
+                return;
             }
 
             case SubAgentContextPolicy.Fork:
@@ -1592,7 +1639,6 @@ public static class SubAgentRuntime
                     ?? throw new InvalidOperationException($"Parent thread '{parentThreadId}' not found in session '{parentSessionId}'.");
                 var forkPoint = parentThread.Messages.LastOrDefault()?.MessageId
                     ?? throw new InvalidOperationException("Cannot fork subagent thread from an empty parent thread.");
-                var threadId = BuildThreadId(subAgent, storageName, runId);
                 var forkOptions = new ThreadForkOptions
                 {
                     Metadata = metadata,
@@ -1602,11 +1648,11 @@ public static class SubAgentRuntime
                 await agent.ForkThreadAsync(
                     parentSessionId,
                     parentThreadId,
-                    threadId,
+                    route.ThreadId,
                     forkPoint,
                     forkOptions,
                     cancellationToken).ConfigureAwait(false);
-                return threadId;
+                return;
             }
 
             default:
@@ -1657,6 +1703,22 @@ public static class SubAgentRuntime
     {
         var callId = request.ParentContext?.FunctionCallId ?? Guid.NewGuid().ToString("N");
         return $"{Normalize(request.Definition.Name)}-{Normalize(callId)[..Math.Min(12, Normalize(callId).Length)]}";
+    }
+
+    private static SubAgentExecutionPolicy ResolveExecutionPolicy(
+        SubAgentRunConfig declaration,
+        CapabilityId capabilityId,
+        SubAgentRunOverrides? overrides)
+    {
+        ArgumentNullException.ThrowIfNull(declaration);
+        var matches = overrides?.Capabilities
+            .Where(value => value.CapabilityId == capabilityId)
+            .ToArray() ?? [];
+        if (matches.Length > 1)
+            throw new InvalidOperationException("subagent_override_capability_duplicate");
+        var policy = declaration.Compile(matches.SingleOrDefault());
+        policy.Validate();
+        return policy;
     }
 
     private static string Normalize(string value)

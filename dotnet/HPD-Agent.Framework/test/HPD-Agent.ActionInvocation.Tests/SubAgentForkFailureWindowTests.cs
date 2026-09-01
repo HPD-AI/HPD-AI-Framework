@@ -98,17 +98,17 @@ public sealed class SubAgentForkFailureWindowTests
                 }
             });
         var copied = (await new SubAgentChildRegistry(fixture.Store)
-            .ProjectAsync(new ThreadKey(fork.SessionId, fork.Id))).Children[fixture.Child.LocalId];
-        var copiedKey = Assert.IsType<ThreadKey>(copied.ChildThread);
+            .ProjectAsync(new ThreadKey(fork.SessionId, fork.Id))).AvailableChildren[fixture.Child.LocalId];
+        var copiedKey = copied.ChildThread;
         var copiedHeadBefore = Assert.IsType<ThreadEventHead>(
             await fixture.Store.GetThreadEventHeadAsync(copiedKey));
 
         await fixture.Store.AppendThreadEventsAsync(
-            fixture.Child.ChildThread!.Value,
+            fixture.Child.ChildThread,
             [new ContentAddedEvent("late", "user", new TextContent("late source mutation"))
             {
-                SessionId = fixture.Child.ChildThread.Value.SessionId,
-                ThreadId = fixture.Child.ChildThread.Value.ThreadId
+                SessionId = fixture.Child.ChildThread.SessionId,
+                ThreadId = fixture.Child.ChildThread.ThreadId
             }]);
 
         var copiedHeadAfter = Assert.IsType<ThreadEventHead>(
@@ -191,11 +191,11 @@ public sealed class SubAgentForkFailureWindowTests
             RoleName = "reviewer",
             CapabilityId = CapabilityId.Create("test:reviewer"),
             ChildAgentId = "reviewer-agent",
-            Availability = SubAgentChildAvailability.Available,
             ChildThread = childKey,
             CreationContext = SubAgentCreationContext.Fresh,
             CreationInvocationId = "create-reviewer",
             ParentToolCallId = "call-reviewer",
+            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
             CreatedAt = DateTimeOffset.UtcNow
         };
         await new SubAgentChildRegistry(store).RegisterAsync(sourceKey, child);

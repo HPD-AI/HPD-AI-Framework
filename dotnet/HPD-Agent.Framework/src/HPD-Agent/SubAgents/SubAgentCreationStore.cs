@@ -19,6 +19,8 @@ public sealed record SubAgentCreationRequest
     public required SubAgentCreationContext Context { get; init; }
     /// <summary>Gets a stable fingerprint of the initial semantic input.</summary>
     public required string InputFingerprint { get; init; }
+    /// <summary>Gets the complete resolved durable execution policy.</summary>
+    public required SubAgentExecutionPolicy ExecutionPolicy { get; init; }
 }
 
 /// <summary>Identifies the durable phase reached by a child creation.</summary>
@@ -121,6 +123,7 @@ public sealed class JournalSubAgentCreationStore(ISessionStore store) : ISubAgen
     {
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(request);
+        request.ExecutionPolicy.Validate();
         for (var attempt = 0; attempt < 16; attempt++)
         {
             var projection = await SubAgentCreationProjection.ReadAsync(
@@ -138,9 +141,9 @@ public sealed class JournalSubAgentCreationStore(ISessionStore store) : ISubAgen
             var ordinal = projection.Records.Values
                 .Where(record => string.Equals(record.Request.RoleName, request.RoleName, StringComparison.Ordinal))
                 .Select(record => ParseOrdinal(record.LocalId.Value, rolePrefix))
-                .Concat(registry.Children.Values
-                    .Where(child => string.Equals(child.RoleName, request.RoleName, StringComparison.Ordinal))
-                    .Select(child => ParseOrdinal(child.LocalId.Value, rolePrefix)))
+                .Concat(registry.Entries.Values
+                    .Where(entry => string.Equals(entry.RoleName, request.RoleName, StringComparison.Ordinal))
+                    .Select(entry => ParseOrdinal(entry.LocalId.Value, rolePrefix)))
                 .DefaultIfEmpty(0)
                 .Max() + 1;
             var localId = new SubAgentLocalId($"{rolePrefix}{ordinal}");

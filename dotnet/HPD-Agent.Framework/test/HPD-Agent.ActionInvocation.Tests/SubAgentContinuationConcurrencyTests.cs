@@ -96,11 +96,11 @@ public sealed class SubAgentContinuationConcurrencyTests
             RoleName = "worker",
             CapabilityId = CapabilityId.Create("test:worker"),
             ChildAgentId = "worker-agent",
-            Availability = SubAgentChildAvailability.Available,
             ChildThread = child,
             CreationContext = SubAgentCreationContext.Fresh,
             CreationInvocationId = "create-worker",
             ParentToolCallId = "call-worker",
+            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
             CreatedAt = DateTimeOffset.UtcNow
         });
         var resolver = new BlockingResolver();

@@ -10,9 +10,10 @@ internal enum ActiveRuntimeInputState
     Finished
 }
 
-internal sealed record AcceptedSteeringInput(
+internal sealed record AcceptedTurnContinuation(
     IReadOnlyList<ChatMessage> Messages,
-    string? ClientInputId);
+    string? ClientInputId,
+    AgentOperationNotificationInputEvent? OperationNotification = null);
 
 internal sealed class ActiveRuntimeInput
 {
@@ -20,7 +21,7 @@ internal sealed class ActiveRuntimeInput
     {
         Input = input;
         Cancellation = cancellation;
-        Steering = Channel.CreateUnbounded<AcceptedSteeringInput>(new UnboundedChannelOptions
+        Continuations = Channel.CreateUnbounded<AcceptedTurnContinuation>(new UnboundedChannelOptions
         {
             SingleReader = true,
             SingleWriter = false,
@@ -30,7 +31,7 @@ internal sealed class ActiveRuntimeInput
 
     internal AgentInputEvent Input { get; }
     internal CancellationTokenSource Cancellation { get; }
-    internal Channel<AcceptedSteeringInput> Steering { get; }
+    internal Channel<AcceptedTurnContinuation> Continuations { get; }
     internal ActiveRuntimeInputState State { get; set; } = ActiveRuntimeInputState.Accepting;
     internal string? ThreadExecutionId => Input.ThreadExecutionId;
 }
@@ -80,7 +81,8 @@ internal sealed class AgentWorkScheduler
     internal PreparedAgentWorkAdmission Prepare(
         AgentInputEvent input,
         Action? reserveCompletion = null,
-        Action? abortCompletion = null)
+        Action? abortCompletion = null,
+        Func<bool>? tryCommitToActiveTurn = null)
     {
         lock (_gate)
         {
@@ -97,7 +99,7 @@ internal sealed class AgentWorkScheduler
             {
                 lock (_gate)
                 {
-                    var admitted = _writer.TryWrite(input);
+                    var admitted = tryCommitToActiveTurn?.Invoke() == true || _writer.TryWrite(input);
                     if (!admitted)
                     {
                         System.Environment.FailFast(

@@ -102,7 +102,7 @@ public sealed class SubAgent
 
     /// <summary>
     /// Controls which values the child run inherits from the invoking parent's
-    /// <see cref="AgentRunConfig"/> and applies any child-only overrides.
+    /// <see cref="AgentRunConfig"/>, including declaration-owned permission for targeted parent-run policy changes.
     /// </summary>
     public SubAgentRunConfig RunConfig { get; init; } = SubAgentRunConfig.Inherit();
 
@@ -142,7 +142,7 @@ public sealed class SubAgent
     /// <summary>
     /// Returns an equivalent subagent declaration with the supplied parent run-configuration inheritance.
     /// </summary>
-    /// <param name="runConfig">The inheritance selection and child-only overrides.</param>
+    /// <param name="runConfig">The immutable inheritance selection and parent-run override allowance.</param>
     /// <returns>A new subagent declaration.</returns>
     public SubAgent WithRunConfig(SubAgentRunConfig runConfig)
     {

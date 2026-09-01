@@ -208,6 +208,25 @@ public sealed record EffectiveProviderClientConfig
     public required string ConstructionFingerprint { get; init; }
 }
 
+/// <summary>Safe immutable identity of the client that actually executes a provider operation.</summary>
+public sealed record ProviderClientExecutionIdentity
+{
+    /// <summary>Gets the canonical provider key.</summary>
+    public required string ProviderKey { get; init; }
+    /// <summary>Gets the canonical backend key.</summary>
+    public required string BackendKey { get; init; }
+    /// <summary>Gets the selected client family.</summary>
+    public required ProviderClientFamily Family { get; init; }
+    /// <summary>Gets the selected model where the family uses one.</summary>
+    public string? ModelName { get; init; }
+    /// <summary>Gets the generated or adapter-declared operation identity.</summary>
+    public required string OperationAdapterKey { get; init; }
+    /// <summary>Gets the adapter identity governing usage semantics.</summary>
+    public required string UsageSemanticsKey { get; init; }
+    /// <summary>Gets a stable fingerprint containing no credential or authorization material.</summary>
+    public required string SafeConfigurationFingerprint { get; init; }
+}
+
 /// <summary>Deeply immutable portable defaults shared by the nine provider-family factories.</summary>
 public sealed record ProviderFamilyDefaultsSnapshot
 {
