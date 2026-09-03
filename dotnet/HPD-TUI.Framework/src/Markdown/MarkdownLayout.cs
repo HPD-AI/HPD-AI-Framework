@@ -15,7 +15,11 @@ public readonly record struct MarkdownLayoutKey(
     ColorSystem ColorSystem,
     MarkdownPresentationMode Mode,
     long SyntaxThemeRevision,
-    MarkdownSpacingKey SpacingKey = default);
+    MarkdownSpacingKey SpacingKey = default,
+    MarkdownResourceLimitsKey ResourceLimitsKey = default);
+
+/// <summary>Identifies why a prepared layout used a deterministic simplified presentation.</summary>
+public enum MarkdownDegradationReason { None, SourceLength, LayoutRows, TableShape, CodeHighlightLength, LayoutFailure }
 
 /// <summary>Represents an immutable, prepared terminal layout.</summary>
 public sealed class MarkdownLayout
@@ -26,6 +30,8 @@ public sealed class MarkdownLayout
     public required ImmutableArray<MarkdownBlockLayout> Blocks { get; init; }
     /// <summary>Gets the fully composed rows rendered by <c>MarkdownView</c>.</summary>
     public required ImmutableArray<MarkdownLayoutRow> Rows { get; init; }
+    /// <summary>Gets the resource limit that selected a simplified presentation.</summary>
+    public MarkdownDegradationReason DegradationReason { get; init; }
     /// <summary>Gets the rendered height.</summary>
     public int Height => Rows.Length;
 }
@@ -39,6 +45,8 @@ public sealed class MarkdownBlockLayout
     public required int SourceEndExclusive { get; init; }
     /// <summary>Gets the styled terminal lines.</summary>
     public required ImmutableArray<StyledTerminalLine> Lines { get; init; }
+    /// <summary>Gets the resource policy that simplified this block.</summary>
+    public MarkdownDegradationReason DegradationReason { get; init; }
 }
 
 /// <summary>Identifies the role of one composed layout row.</summary>
@@ -67,4 +75,12 @@ public readonly record struct StyledTerminalRun(
     TerminalHyperlink? Hyperlink = null,
     int? SourceStart = null,
     int? SourceEndExclusive = null,
-    bool IsDecorative = false);
+    bool IsDecorative = false,
+    ImmutableArray<MarkdownSourceMapSegment> SourceMap = default);
+
+/// <summary>Maps an exact UTF-16 visual segment to the canonical source segment that produced it.</summary>
+public readonly record struct MarkdownSourceMapSegment(
+    int VisualStart,
+    int VisualEndExclusive,
+    int SourceStart,
+    int SourceEndExclusive);

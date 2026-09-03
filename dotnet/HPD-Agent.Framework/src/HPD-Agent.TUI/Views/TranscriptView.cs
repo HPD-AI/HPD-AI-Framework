@@ -112,7 +112,8 @@ public sealed class TranscriptView : IComponent
         var themeKey = reasoning && theme is not null ? theme.Key : _renderThemeKey;
         var key = new HPD.TUI.Markdown.MarkdownLayoutKey(document.Parsed.PipelineId, "terminal-v1",
             Math.Max(1, _renderWidth - depth - (reasoning ? 2 : 0)), themeKey, _renderColorSystem,
-            HPD.TUI.Markdown.MarkdownPresentationMode.Rich, 0, new HPD.TUI.Markdown.MarkdownSpacing().Key);
+            HPD.TUI.Markdown.MarkdownPresentationMode.Rich, 0, new HPD.TUI.Markdown.MarkdownSpacing().Key,
+            new HPD.TUI.Markdown.MarkdownResourceLimits().Key);
         MarkdownLayout layout;
         try { layout = projection.RequirePrepared(document.Revision, key); }
         catch (InvalidOperationException) { return false; }

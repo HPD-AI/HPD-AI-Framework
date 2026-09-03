@@ -183,12 +183,42 @@ public sealed class MarkdownDocumentParser : IMarkdownDocumentParser
         if (options.Pipeline.Configuration.Extensions?.Any(static extension =>
                 extension.Invalidation == MarkdownExtensionInvalidation.DocumentGlobal) == true)
             features |= MarkdownDocumentFeatures.ExtensionGlobalState;
-        var capabilities = syntax.Descendants()
+        var nodes = syntax.Descendants()
             .Prepend(syntax)
-            .Select(static node => node.GetType().FullName ?? node.GetType().Name)
-            .Distinct(StringComparer.Ordinal)
-            .OrderBy(static name => name, StringComparer.Ordinal)
             .ToArray();
-        return new MarkdownDocumentSnapshot(source, blocks, features, Array.AsReadOnly(capabilities), options.Pipeline, syntax);
+        var maximumDepth = GetMaximumDepth(syntax, 0);
+        if (maximumDepth > options.Pipeline.Configuration.MaximumNestingDepth)
+            throw new InvalidOperationException("Markdown nesting exceeds the configured parser and terminal-renderer limit.");
+        var capabilities = nodes
+            .Select(static node => new MarkdownNodeCapability(
+                node.GetType().FullName ?? node.GetType().Name,
+                HasTypedTerminalRenderer(node) ? MarkdownTerminalNodeHandling.TypedRenderer : MarkdownTerminalNodeHandling.SanitizedSourceFallback))
+            .Distinct()
+            .OrderBy(static capability => capability.RuntimeType, StringComparer.Ordinal)
+            .ToArray();
+        return new MarkdownDocumentSnapshot(source, blocks, features, Array.AsReadOnly(capabilities), maximumDepth, options.Pipeline, syntax);
+    }
+
+    private static bool HasTypedTerminalRenderer(MarkdownObject node) => node is
+        Markdig.Syntax.MarkdownDocument or HeadingBlock or ParagraphBlock or FencedCodeBlock or CodeBlock or
+        ListBlock or ListItemBlock or QuoteBlock or ThematicBreakBlock or HtmlBlock or Table or
+        Markdig.Extensions.Tables.TableRow or Markdig.Extensions.Tables.TableCell or
+        Markdig.Syntax.Inlines.LiteralInline or Markdig.Syntax.Inlines.EmphasisInline or
+        Markdig.Syntax.Inlines.CodeInline or Markdig.Syntax.Inlines.LinkInline or
+        Markdig.Syntax.Inlines.LineBreakInline or Markdig.Syntax.Inlines.HtmlInline or
+        Markdig.Syntax.Inlines.AutolinkInline or Markdig.Extensions.TaskLists.TaskList;
+
+    private static int GetMaximumDepth(MarkdownObject node, int depth)
+    {
+        var maximum = depth;
+        if (node is ContainerBlock containerBlock)
+            foreach (var child in containerBlock)
+                maximum = Math.Max(maximum, GetMaximumDepth(child, depth + 1));
+        if (node is LeafBlock { Inline: { } inline })
+            maximum = Math.Max(maximum, GetMaximumDepth(inline, depth + 1));
+        if (node is Markdig.Syntax.Inlines.ContainerInline containerInline)
+            for (var child = containerInline.FirstChild; child is not null; child = child.NextSibling)
+                maximum = Math.Max(maximum, GetMaximumDepth(child, depth + 1));
+        return maximum;
     }
 }

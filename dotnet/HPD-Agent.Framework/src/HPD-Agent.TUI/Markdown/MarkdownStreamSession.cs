@@ -1,5 +1,6 @@
 using System.Text;
 using System.Collections.Immutable;
+using System.Diagnostics;
 using HPD.TUI.Markdown;
 
 namespace HPD.Agent.TUI.Markdown;
@@ -17,6 +18,18 @@ public sealed record MarkdownStreamUpdate(
     int PreviousStableSourceLength,
     int StableSourceLength);
 
+/// <summary>Reports source-safe streaming parser measurements for one message lineage.</summary>
+public readonly record struct MarkdownStreamDiagnosticsSnapshot(
+    long Utf16CodeUnitsAppended,
+    long DeltasAccepted,
+    long DeltasCoalesced,
+    long ParseCount,
+    TimeSpan ParseDuration,
+    long ParseFallbacks,
+    long PublicationCount,
+    long FullMessageInvalidations,
+    TimeSpan FinalizationDuration);
+
 /// <summary>Owns canonical source and newline-gated parsing for one agent message.</summary>
 public sealed class MarkdownStreamSession
 {
@@ -30,6 +43,16 @@ public sealed class MarkdownStreamSession
     private int _stableSourceLength;
     private string? _failureDetail;
     private bool _documentGlobal;
+    private long _utf16CodeUnitsAppended;
+    private long _deltasAccepted;
+    private long _deltasCoalesced;
+    private long _pendingDeltas;
+    private long _parseCount;
+    private long _parseTicks;
+    private long _parseFallbacks;
+    private long _publicationCount;
+    private long _fullMessageInvalidations;
+    private long _finalizationTicks;
 
     public MarkdownStreamSession(
         MarkdownStreamIdentity identity,
@@ -67,6 +90,11 @@ public sealed class MarkdownStreamSession
     public long Revision { get; private set; }
     /// <summary>Gets the document-global invalidation epoch.</summary>
     public long Epoch { get; private set; }
+    /// <summary>Gets structured measurements that never include model source.</summary>
+    public MarkdownStreamDiagnosticsSnapshot Diagnostics => new(
+        _utf16CodeUnitsAppended, _deltasAccepted, _deltasCoalesced,
+        _parseCount, TimeSpan.FromTicks(_parseTicks), _parseFallbacks,
+        _publicationCount, _fullMessageInvalidations, TimeSpan.FromTicks(_finalizationTicks));
 
     /// <summary>Appends exact source without parsing it.</summary>
     public MarkdownSourceChange Append(string delta)
@@ -75,6 +103,9 @@ public sealed class MarkdownStreamSession
         ArgumentNullException.ThrowIfNull(delta);
         if (delta.Length == 0) return new(false, false, Revision);
         _source.Append(delta);
+        _utf16CodeUnitsAppended += delta.Length;
+        _deltasAccepted++;
+        _pendingDeltas++;
         Revision++;
         var previousParseable = _parseableSourceLength;
         var finalNewline = FindFinalNewline(_source);
@@ -101,16 +132,36 @@ public sealed class MarkdownStreamSession
     {
         EnsureStreaming();
         State = state;
-        return Publish(terminal: true, state);
+        var started = Stopwatch.GetTimestamp();
+        try { return Publish(terminal: true, state); }
+        finally { _finalizationTicks += Stopwatch.GetElapsedTime(started).Ticks; }
     }
 
     private MarkdownStreamUpdate Publish(bool terminal, MarkdownMessageState state)
     {
-        var parsedLength = terminal ? _source.Length : _parseableSourceLength;
-        var parsedSource = _source.ToString(0, parsedLength);
+        _deltasCoalesced += Math.Max(0, _pendingDeltas - 1);
+        _pendingDeltas = 0;
+        var requestedParsedLength = terminal ? _source.Length : _parseableSourceLength;
+        var parsedLength = requestedParsedLength;
+        var parsedSource = _source.ToString(0, requestedParsedLength);
         var previousStable = _stableSourceLength;
-        if (_snapshot.Source != parsedSource) _snapshot = _parser.Parse(parsedSource, _parseOptions);
+        if (_snapshot.Source != parsedSource)
+        {
+            var started = Stopwatch.GetTimestamp();
+            try { _snapshot = _parser.Parse(parsedSource, _parseOptions); }
+            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+            {
+                _parseFallbacks++;
+                parsedLength = _snapshot.Source.Length;
+            }
+            finally
+            {
+                _parseCount++;
+                _parseTicks += Stopwatch.GetElapsedTime(started).Ticks;
+            }
+        }
 
+        var parseFallback = parsedLength != requestedParsedLength;
         var global = (_snapshot.Features & (MarkdownDocumentFeatures.ReferenceDefinitions | MarkdownDocumentFeatures.ExtensionGlobalState)) != 0;
         _stableSourceLength = terminal ? _snapshot.Source.Length : global ? 0 : FindStableBoundary(_snapshot, terminal: false);
         if (global && !_documentGlobal) Epoch++;
@@ -134,9 +185,12 @@ public sealed class MarkdownStreamSession
             AdditionalProperties = _additionalProperties
         };
         var invalidation = terminal ? MarkdownInvalidationKind.Finalized
+            : parseFallback ? MarkdownInvalidationKind.FullMessage
             : global ? MarkdownInvalidationKind.FullMessage
             : _stableSourceLength > previousStable ? MarkdownInvalidationKind.StableAppendAndMutableTail
             : MarkdownInvalidationKind.MutableTail;
+        _publicationCount++;
+        if (invalidation == MarkdownInvalidationKind.FullMessage) _fullMessageInvalidations++;
         return new(document, invalidation, previousStable, _stableSourceLength);
     }
 

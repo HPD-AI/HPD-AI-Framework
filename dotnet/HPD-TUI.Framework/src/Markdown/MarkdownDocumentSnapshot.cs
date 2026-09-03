@@ -7,13 +7,14 @@ namespace HPD.TUI.Markdown;
 public sealed class MarkdownDocumentSnapshot
 {
     internal MarkdownDocumentSnapshot(string source, IReadOnlyList<MarkdownTopLevelBlock> blocks,
-        MarkdownDocumentFeatures features, IReadOnlyList<string> nodeCapabilities,
-        MarkdownPipelineDescriptor pipeline, Markdig.Syntax.MarkdownDocument syntax)
+        MarkdownDocumentFeatures features, IReadOnlyList<MarkdownNodeCapability> nodeCapabilities,
+        int maximumObservedNestingDepth, MarkdownPipelineDescriptor pipeline, Markdig.Syntax.MarkdownDocument syntax)
     {
         Source = source;
         Blocks = blocks;
         Features = features;
         NodeCapabilities = nodeCapabilities;
+        MaximumObservedNestingDepth = maximumObservedNestingDepth;
         PipelineId = pipeline.StableId;
         Pipeline = pipeline;
         Syntax = syntax;
@@ -26,12 +27,20 @@ public sealed class MarkdownDocumentSnapshot
     /// <summary>Gets document-wide semantic features.</summary>
     public MarkdownDocumentFeatures Features { get; }
     /// <summary>Gets sorted runtime node capabilities encountered during semantic analysis.</summary>
-    public IReadOnlyList<string> NodeCapabilities { get; }
+    public IReadOnlyList<MarkdownNodeCapability> NodeCapabilities { get; }
+    /// <summary>Gets the deepest parser node level observed in this immutable snapshot.</summary>
+    public int MaximumObservedNestingDepth { get; }
     /// <summary>Gets the structural pipeline identity.</summary>
     public string PipelineId { get; }
     internal Markdig.Syntax.MarkdownDocument Syntax { get; }
     internal MarkdownPipelineDescriptor Pipeline { get; }
 }
+
+/// <summary>Declares the audited terminal handling selected for one parser runtime node type.</summary>
+public sealed record MarkdownNodeCapability(string RuntimeType, MarkdownTerminalNodeHandling TerminalHandling);
+
+/// <summary>Identifies whether a parser node has typed terminal behavior or sanitized span fallback.</summary>
+public enum MarkdownTerminalNodeHandling { TypedRenderer, SanitizedSourceFallback }
 
 /// <summary>Describes one top-level parsed block and its canonical-source range.</summary>
 public sealed record MarkdownTopLevelBlock(int SourceStart, int SourceEndExclusive, MarkdownBlockKind Kind, int Ordinal)

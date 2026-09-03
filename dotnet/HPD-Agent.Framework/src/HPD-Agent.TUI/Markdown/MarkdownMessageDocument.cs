@@ -1,5 +1,6 @@
 using HPD.TUI.Markdown;
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using HPD.TUI.Core;
@@ -97,17 +98,41 @@ public sealed class MarkdownExactSourceAuthority
 /// <summary>Applies visibility and privilege policy before granting forensic exact-source access.</summary>
 internal static class MarkdownExportPolicy
 {
-    internal static MarkdownExactSourceAuthority AuthorizeExact(MarkdownMessageDocument document)
+    internal static MarkdownExactSourceAuthority AuthorizeExact(
+        MarkdownMessageDocument document,
+        IMarkdownExactSourceAuthorization authorization)
     {
         ArgumentNullException.ThrowIfNull(document);
-        if (document.Presentation.Visibility == AgentMessageVisibility.Hidden)
+        ArgumentNullException.ThrowIfNull(authorization);
+        if (document.Presentation.Visibility == AgentMessageVisibility.Hidden ||
+            !authorization.CanExportExact(document.Identity, document.LineageId, document.Presentation))
             throw new UnauthorizedAccessException("This Markdown source is not authorized for exact export.");
         return new(document.Identity, document.LineageId);
     }
 }
 
+/// <summary>Provides the host's privileged decision for forensic exact-source disclosure.</summary>
+internal interface IMarkdownExactSourceAuthorization
+{
+    /// <summary>Decides whether the specified retained lineage may be disclosed exactly.</summary>
+    bool CanExportExact(
+        MarkdownStreamIdentity identity,
+        Guid lineageId,
+        MarkdownMessagePresentation presentation);
+}
+
 /// <summary>Identifies an inclusive visual selection in a prepared Markdown layout.</summary>
 public readonly record struct MarkdownVisualSelection(int StartRow, int StartColumn, int EndRow, int EndColumn);
+
+/// <summary>Reports source-safe layout and bounded-cache measurements for one projection lineage.</summary>
+public readonly record struct MarkdownProjectionDiagnosticsSnapshot(
+    long LayoutCount,
+    TimeSpan LayoutDuration,
+    long StableBlocksReused,
+    long CacheHits,
+    long CacheMisses,
+    long CacheEvictions,
+    long Degradations);
 
 /// <summary>Retains prepared block projections across immutable document publications.</summary>
 public sealed class MarkdownMessageProjection
@@ -121,6 +146,13 @@ public sealed class MarkdownMessageProjection
     private IAgentTuiDispatcher? _dispatcher;
     private long _cacheBytes;
     private long _cachedEpoch = -1;
+    private long _layoutCount;
+    private long _layoutTicks;
+    private long _stableBlocksReused;
+    private long _cacheHits;
+    private long _cacheMisses;
+    private long _cacheEvictions;
+    private long _degradations;
     internal MarkdownMessageProjection(MarkdownStreamIdentity identity, Guid lineageId)
     {
         Identity = identity;
@@ -135,6 +167,10 @@ public sealed class MarkdownMessageProjection
     public long Revision { get; internal set; }
     /// <summary>Gets the most recently projected epoch.</summary>
     public long Epoch { get; internal set; }
+    /// <summary>Gets structured measurements that never include model source.</summary>
+    public MarkdownProjectionDiagnosticsSnapshot Diagnostics => new(
+        _layoutCount, TimeSpan.FromTicks(_layoutTicks), _stableBlocksReused,
+        _cacheHits, _cacheMisses, _cacheEvictions, _degradations);
 
     internal void BindDispatcher(IAgentTuiDispatcher dispatcher)
     {
@@ -163,23 +199,28 @@ public sealed class MarkdownMessageProjection
         var layouts = ImmutableArray.CreateBuilder<MarkdownBlockLayout>(document.Parsed.Blocks.Count);
         var rows = ImmutableArray.CreateBuilder<MarkdownLayoutRow>();
         MarkdownTopLevelBlock? previous = null;
+        var degradationReason = MarkdownDegradationReason.None;
         foreach (var block in document.Parsed.Blocks)
         {
             var exactSource = document.Parsed.Source[block.SourceStart..block.SourceEndExclusive];
             var key = new BlockCacheKey(block.Ordinal, block.SourceStart, block.SourceEndExclusive, exactSource,
                 document.Parsed.PipelineId, options.Width, frameworkThemeKey, options.ColorSystem, options.Mode,
                 options.SyntaxThemeRevision, (options.Spacing ?? new MarkdownSpacing()).Key,
+                (options.ResourceLimits ?? new MarkdownResourceLimits()).Key,
                 (document.Parsed.Features & (MarkdownDocumentFeatures.ReferenceDefinitions | MarkdownDocumentFeatures.ExtensionGlobalState)) != 0
                     ? document.Revision : 0);
             MarkdownBlockLayout layout;
             if (_blocks.TryGetValue(key, out var cached))
             {
+                _cacheHits++;
+                _stableBlocksReused++;
                 layout = cached.Layout;
                 _lru.Remove(cached.Node);
                 _lru.AddLast(cached.Node);
             }
             else
             {
+                _cacheMisses++;
                 layout = engine.LayoutBlock(document.Parsed, block, options);
                 var isStable = block.SourceEndExclusive <= document.StableSourceLength;
                 var weight = EstimateBytes(exactSource, layout);
@@ -193,11 +234,14 @@ public sealed class MarkdownMessageProjection
                 }
             }
             if (rows.Count > 0)
-                for (var gap = 0; gap < MarkdownLayoutEngine.GetSeparatorRows(previous!, block, options.Spacing ?? new MarkdownSpacing()); gap++)
+                for (var gap = 0; gap < MarkdownLayoutEngine.GetSeparatorRows(
+                         previous!, block, options.Spacing ?? new MarkdownSpacing(), document.Parsed.Source); gap++)
                     rows.Add(new(MarkdownLayoutRowKind.Separator, StyledTerminalLine.Empty, null, null, null, true));
             foreach (var line in layout.Lines)
                 rows.Add(new(MarkdownLayoutRowKind.BlockContent, line, block.Ordinal, block.SourceStart, block.SourceEndExclusive, false));
             layouts.Add(layout);
+            if (degradationReason == MarkdownDegradationReason.None)
+                degradationReason = layout.DegradationReason;
             previous = block;
         }
 
@@ -218,9 +262,11 @@ public sealed class MarkdownMessageProjection
         return new MarkdownLayout
         {
             Key = new(document.Parsed.PipelineId, "terminal-v1", options.Width, frameworkThemeKey,
-                options.ColorSystem, options.Mode, options.SyntaxThemeRevision, (options.Spacing ?? new MarkdownSpacing()).Key),
+                options.ColorSystem, options.Mode, options.SyntaxThemeRevision, (options.Spacing ?? new MarkdownSpacing()).Key,
+                (options.ResourceLimits ?? new MarkdownResourceLimits()).Key),
             Blocks = layouts.ToImmutable(),
-            Rows = rows.ToImmutable()
+            Rows = rows.ToImmutable(),
+            DegradationReason = degradationReason
         };
     }
 
@@ -234,9 +280,18 @@ public sealed class MarkdownMessageProjection
             throw new InvalidOperationException("Markdown layout preparation must run on the owning TUI dispatcher.");
         var expectedKey = new MarkdownLayoutKey(document.Parsed.PipelineId, "terminal-v1", options.Width,
             options.Theme.ThemeKey, options.ColorSystem, options.Mode, options.SyntaxThemeRevision,
-            (options.Spacing ?? new MarkdownSpacing()).Key);
+            (options.Spacing ?? new MarkdownSpacing()).Key,
+            (options.ResourceLimits ?? new MarkdownResourceLimits()).Key);
         if (_prepared.TryGetValue(new(document.Revision, expectedKey), out var prepared)) return prepared;
-        var layout = ResolveLayout(document, options, engine);
+        var started = Stopwatch.GetTimestamp();
+        MarkdownLayout layout;
+        try { layout = ResolveLayout(document, options, engine); }
+        finally
+        {
+            _layoutCount++;
+            _layoutTicks += Stopwatch.GetElapsedTime(started).Ticks;
+        }
+        if (layout.DegradationReason != MarkdownDegradationReason.None) _degradations++;
         _prepared[new(document.Revision, layout.Key)] = layout;
         if (_prepared.Count > 8) _prepared.Remove(_prepared.Keys.First());
         return layout;
@@ -291,14 +346,25 @@ public sealed class MarkdownMessageProjection
             run.Hyperlink,
             run.SourceStart is { } start ? start + offset : null,
             run.SourceEndExclusive is { } end ? end + offset : null,
-            run.IsDecorative)).ToImmutableArray());
+            run.IsDecorative,
+            run.SourceMap.IsDefault
+                ? []
+                : run.SourceMap.Select(segment => segment with
+                {
+                    SourceStart = segment.SourceStart + offset,
+                    SourceEndExclusive = segment.SourceEndExclusive + offset
+                }).ToImmutableArray())).ToImmutableArray());
 
     private void EvictOldest()
     {
         var node = _lru.First;
         if (node is null) return;
         _lru.RemoveFirst();
-        if (_blocks.Remove(node.Value, out var entry)) _cacheBytes -= entry.Weight;
+        if (_blocks.Remove(node.Value, out var entry))
+        {
+            _cacheBytes -= entry.Weight;
+            _cacheEvictions++;
+        }
     }
 
     private static long EstimateBytes(string source, MarkdownBlockLayout layout)
@@ -321,6 +387,7 @@ public sealed class MarkdownMessageProjection
         int Ordinal, int Start, int End, string ExactSource, string PipelineId, int Width,
         ThemeKey ThemeKey, ColorSystem ColorSystem, MarkdownPresentationMode Mode, long SyntaxThemeRevision,
         MarkdownSpacingKey SpacingKey,
+        MarkdownResourceLimitsKey ResourceLimitsKey,
         long GlobalRevision);
 
     private readonly record struct PreparedKey(long Revision, MarkdownLayoutKey LayoutKey);

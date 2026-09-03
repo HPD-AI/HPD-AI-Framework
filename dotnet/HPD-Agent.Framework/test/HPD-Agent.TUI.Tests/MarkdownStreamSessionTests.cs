@@ -174,6 +174,32 @@ public sealed class MarkdownStreamSessionTests
     }
 
     [Theory]
+    [InlineData(MarkdownMessageState.Completed)]
+    [InlineData(MarkdownMessageState.Interrupted)]
+    [InlineData(MarkdownMessageState.Cancelled)]
+    [InlineData(MarkdownMessageState.Failed)]
+    public void LifecycleOnlyHiddenStreamsRetainTerminalStateWithoutRetainingSource(MarkdownMessageState state)
+    {
+        var dispatcher = new QueuedDispatcher();
+        var coordinator = new MarkdownStreamCoordinator(dispatcher, static (_, _) =>
+            throw new InvalidOperationException("A hidden stream must not publish."));
+        var identity = new MarkdownStreamIdentity(MarkdownStreamKind.Reasoning, state.ToString());
+        coordinator.Start(identity, new MarkdownMessagePresentation(Visibility: AgentMessageVisibility.Hidden));
+        coordinator.Append(identity, "secret");
+        switch (state)
+        {
+            case MarkdownMessageState.Completed: coordinator.Complete(identity); break;
+            case MarkdownMessageState.Interrupted: coordinator.Interrupt(identity); break;
+            case MarkdownMessageState.Cancelled: coordinator.Cancel(identity); break;
+            case MarkdownMessageState.Failed: coordinator.Fail(identity); break;
+        }
+        dispatcher.Drain();
+
+        Assert.True(coordinator.TryGetTerminalState(identity, out var actual));
+        Assert.Equal(state, actual);
+    }
+
+    [Theory]
     [InlineData("# Heading\n\nparagraph with [link](https://example.com)\n")]
     [InlineData("| a | b |\n|---|---|\n| 1 | 2 |\n")]
     [InlineData("> quote\n> continued\n\n- [x] task\n")]
@@ -228,7 +254,9 @@ public sealed class MarkdownStreamSessionTests
         second.Append("replacement");
         var secondDocument = second.Complete().Document;
 
-        var authority = MarkdownExportPolicy.AuthorizeExact(firstDocument);
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            MarkdownExportPolicy.AuthorizeExact(firstDocument, new ExactSourceAuthorization(false)));
+        var authority = MarkdownExportPolicy.AuthorizeExact(firstDocument, new ExactSourceAuthorization(true));
         Assert.Equal("exact\u001bsource", firstDocument.ExportExact(authority));
         Assert.Throws<UnauthorizedAccessException>(() => secondDocument.ExportExact(authority));
     }
@@ -243,7 +271,8 @@ public sealed class MarkdownStreamSessionTests
             Presentation = new MarkdownMessagePresentation(Visibility: AgentMessageVisibility.Hidden)
         };
 
-        Assert.Throws<UnauthorizedAccessException>(() => MarkdownExportPolicy.AuthorizeExact(document));
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            MarkdownExportPolicy.AuthorizeExact(document, new ExactSourceAuthorization(true)));
         Assert.Throws<UnauthorizedAccessException>(() => document.GetSafeDisplayText());
         Assert.Throws<ArgumentException>(() => new MarkdownStreamSession(
             new(MarkdownStreamKind.Assistant, "hidden-source"),
@@ -265,6 +294,14 @@ public sealed class MarkdownStreamSessionTests
         Assert.Same(first, second);
     }
 
+    private sealed class ExactSourceAuthorization(bool allow) : IMarkdownExactSourceAuthorization
+    {
+        public bool CanExportExact(
+            MarkdownStreamIdentity identity,
+            Guid lineageId,
+            MarkdownMessagePresentation presentation) => allow;
+    }
+
     [Fact]
     public void AppendOnlyGrowth_RetainsPreviouslyProvenStableBlockLayout()
     {
@@ -279,6 +316,101 @@ public sealed class MarkdownStreamSessionTests
         var secondLayout = session.Projection.ResolveLayout(secondDocument, options, engine);
 
         Assert.Same(firstLayout.Blocks[0], secondLayout.Blocks[0]);
+        Assert.True(session.Projection.Diagnostics.CacheHits > 0);
+    }
+
+    [Fact]
+    public void StructuredDiagnosticsCountWorkWithoutIncludingSource()
+    {
+        var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "diagnostics"));
+        session.Append("first\n\nsecond\n");
+        var first = session.Refresh().Document;
+        var options = new MarkdownLayoutOptions(40, MarkdownTheme.FromTheme(Theme.Default));
+        var engine = new MarkdownLayoutEngine();
+        _ = session.Projection.Prepare(first, options, engine);
+        session.Append("\nthird\n");
+        var final = session.Complete().Document;
+        _ = session.Projection.Prepare(final, options, engine);
+
+        Assert.Equal(2, session.Diagnostics.DeltasAccepted);
+        Assert.Equal("first\n\nsecond\n\nthird\n".Length, session.Diagnostics.Utf16CodeUnitsAppended);
+        Assert.InRange(session.Diagnostics.ParseCount, 1, session.Diagnostics.DeltasAccepted);
+        Assert.Equal(2, session.Projection.Diagnostics.LayoutCount);
+        Assert.True(session.Projection.Diagnostics.CacheHits > 0);
+        Assert.DoesNotContain("first", session.Diagnostics.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("first", session.Projection.Diagnostics.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ExcessiveNestingFallsBackToLiteralCanonicalTailWithoutLosingSource()
+    {
+        var source = string.Concat(Enumerable.Repeat("> ", 140)) + "deep";
+        var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "deep"));
+        session.Append(source);
+
+        var document = session.Complete().Document;
+
+        Assert.Equal(source, document.GetCanonicalSource());
+        Assert.Equal(source, document.UnparsedTail);
+        Assert.True(session.Diagnostics.ParseFallbacks > 0);
+    }
+
+    [Theory]
+    [InlineData("prose\n\n# heading\n\n- one\n- two\n\n> quote\n\n```csharp\nvar x = 1;\n```", 1)]
+    [InlineData("| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n\nafter", 7)]
+    [InlineData("[use][id]\n\n[id]: https://example.com\n", 5)]
+    [InlineData("<div>html</div>\n\nparagraph\r\n\r\n~~strike~~", 3)]
+    public void EveryPublicationStableRegionAndEveryResizeMatchColdOracle(string source, int partition)
+    {
+        var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "oracle"));
+        var engine = new MarkdownLayoutEngine();
+        var parser = new MarkdownDocumentParser();
+        var pipeline = MarkdownPipelineFactory.CreateDefault();
+        for (var offset = 0; offset < source.Length; offset += partition)
+        {
+            session.Append(source.Substring(offset, Math.Min(partition, source.Length - offset)));
+            var update = session.Refresh();
+            foreach (var width in new[] { 12, 24, 60 })
+            {
+                var options = new MarkdownLayoutOptions(width, MarkdownTheme.FromTheme(Theme.Default));
+                var projected = session.Projection.ResolveLayout(update.Document, options, engine);
+                var coldDocument = parser.Parse(update.Document.Parsed.Source,
+                    new MarkdownParseOptions { Pipeline = pipeline });
+                var cold = engine.Layout(coldDocument, options);
+                var stableOrdinals = update.Document.Parsed.Blocks
+                    .Where(block => block.SourceEndExclusive <= update.StableSourceLength)
+                    .Select(static block => block.Ordinal).ToHashSet();
+                Assert.Equal(
+                    BlockFingerprints(cold, stableOrdinals),
+                    BlockFingerprints(projected, stableOrdinals));
+            }
+        }
+
+        var final = session.Complete().Document;
+        foreach (var width in new[] { 12, 24, 60 })
+        {
+            var options = new MarkdownLayoutOptions(width, MarkdownTheme.FromTheme(Theme.Default));
+            Assert.Equal(
+                LayoutFingerprint(engine.Layout(parser.Parse(source, new MarkdownParseOptions { Pipeline = pipeline }), options)),
+                LayoutFingerprint(session.Projection.ResolveLayout(final, options, engine)));
+        }
+    }
+
+    [Fact]
+    public void WeightedProjectionCacheEvictsOldStableBlocksAndReportsReuse()
+    {
+        var source = string.Join("\n\n", Enumerable.Range(0, 300).Select(index => $"paragraph {index}")) + "\n";
+        var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "lru"));
+        session.Append(source);
+        var document = session.Refresh().Document;
+        var options = new MarkdownLayoutOptions(40, MarkdownTheme.FromTheme(Theme.Default));
+        var engine = new MarkdownLayoutEngine();
+
+        _ = session.Projection.ResolveLayout(document, options, engine);
+        _ = session.Projection.ResolveLayout(document, options, engine);
+
+        Assert.True(session.Projection.Diagnostics.CacheEvictions > 0);
+        Assert.True(session.Projection.Diagnostics.CacheMisses > session.Projection.Diagnostics.CacheHits);
     }
 
     private static IReadOnlyList<string> LayoutFingerprint(MarkdownLayout layout) => layout.Rows
@@ -286,6 +418,12 @@ public sealed class MarkdownStreamSessionTests
             ? new[] { $"{row.Kind}|{row.BlockOrdinal}|{row.SourceStart}|{row.SourceEndExclusive}|{row.IsDecorative}" }
             : row.Line.Runs.Select(run =>
                 $"{row.Kind}|{row.BlockOrdinal}|{row.SourceStart}|{row.SourceEndExclusive}|{row.IsDecorative}|{run.Text}|{run.Style}|{run.Hyperlink?.Destination}"))
+        .ToArray();
+
+    private static IReadOnlyList<string> BlockFingerprints(MarkdownLayout layout, HashSet<int> ordinals) => layout.Rows
+        .Where(row => row.BlockOrdinal is { } ordinal && ordinals.Contains(ordinal))
+        .SelectMany(static row => row.Line.Runs.Select(run =>
+            $"{row.BlockOrdinal}|{run.Text}|{run.Style}|{run.Hyperlink?.Destination}|{run.SourceStart}|{run.SourceEndExclusive}"))
         .ToArray();
 
     private sealed class QueuedDispatcher : IAgentTuiDispatcher

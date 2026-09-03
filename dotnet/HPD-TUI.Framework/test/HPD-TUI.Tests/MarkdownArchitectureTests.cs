@@ -146,8 +146,8 @@ public sealed class MarkdownArchitectureTests
         });
         var extended = parser.Parse("~~gone~~", new MarkdownParseOptions { Pipeline = MarkdownPipelineFactory.CreateDefault() });
 
-        Assert.DoesNotContain(plain.NodeCapabilities, static name => name.Contains("EmphasisInline", StringComparison.Ordinal));
-        Assert.Contains(extended.NodeCapabilities, static name => name.Contains("EmphasisInline", StringComparison.Ordinal));
+        Assert.DoesNotContain(plain.NodeCapabilities, static capability => capability.RuntimeType.Contains("EmphasisInline", StringComparison.Ordinal));
+        Assert.Contains(extended.NodeCapabilities, static capability => capability.RuntimeType.Contains("EmphasisInline", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -161,6 +161,32 @@ public sealed class MarkdownArchitectureTests
 
         Assert.Equal(spacing.Key, layout.Key.SpacingKey);
         Assert.Equal(2, layout.Rows.Count(static row => row.Kind == MarkdownLayoutRowKind.Separator));
+    }
+
+    [Fact]
+    public void PairwiseSpacing_CoversEveryBlockKindAndConsultsExactTrivia()
+    {
+        var spacing = new MarkdownSpacing { ParagraphGap = 3, HeadingTopGap = 4, HeadingBottomGap = 5 };
+        var kinds = Enum.GetValues<MarkdownBlockKind>();
+        foreach (var previousKind in kinds)
+        foreach (var currentKind in kinds)
+        {
+            var previous = new MarkdownTopLevelBlock(0, 1, previousKind, 0);
+            var current = new MarkdownTopLevelBlock(3, 4, currentKind, 1);
+            var withoutBlank = MarkdownLayoutEngine.GetSeparatorRows(previous, current, spacing, "a\nb");
+            var withBlank = MarkdownLayoutEngine.GetSeparatorRows(previous, current, spacing, "a\n\nb");
+
+            Assert.Equal(0, withoutBlank);
+            var expected = previousKind is MarkdownBlockKind.Html or MarkdownBlockKind.ThematicBreak ||
+                currentKind is MarkdownBlockKind.Html or MarkdownBlockKind.ThematicBreak
+                    ? 0
+                    : currentKind == MarkdownBlockKind.Heading
+                        ? spacing.HeadingTopGap
+                        : previousKind == MarkdownBlockKind.Heading
+                            ? spacing.HeadingBottomGap
+                            : spacing.ParagraphGap;
+            Assert.Equal(expected, withBlank);
+        }
     }
 
     [Fact]
@@ -188,6 +214,72 @@ public sealed class MarkdownArchitectureTests
         Assert.Contains(runs, static run => run.Text == "ab" && run.SourceStart == 0 && run.SourceEndExclusive == 2);
         Assert.Contains(runs, static run => run.Text == "界" && run.SourceStart == 4 && run.SourceEndExclusive == 5);
         Assert.Contains(runs, static run => run.Text == "c�" && run.SourceStart == 5 && run.SourceEndExclusive == 7);
+    }
+
+    [Fact]
+    public void TransformedInlineContentRetainsExplicitCanonicalSegments()
+    {
+        const string source = "escaped \\* and &amp; `code` <https://example.com>\nsoft\nbreak";
+        var document = new MarkdownDocumentParser().Parse(source,
+            new MarkdownParseOptions { Pipeline = MarkdownPipelineFactory.CreateDefault() });
+        var layout = new MarkdownLayoutEngine().Layout(document,
+            new(80, MarkdownTheme.FromTheme(Theme.Default)));
+        var runs = layout.Rows.SelectMany(static row => row.Line.Runs).ToArray();
+
+        var escaped = Assert.Single(runs.Where(static run => run.Text.Contains('*')));
+        var escapedMap = Assert.Single(escaped.SourceMap.Where(segment =>
+            escaped.Text[segment.VisualStart..segment.VisualEndExclusive] == "*"));
+        Assert.Equal("\\*", source[escapedMap.SourceStart..escapedMap.SourceEndExclusive]);
+        var code = Assert.Single(runs.Where(static run => run.Text == "code"));
+        Assert.Equal("code", source[code.SourceStart!.Value..code.SourceEndExclusive!.Value]);
+        var autolink = Assert.Single(runs.Where(static run => run.Text == "https://example.com"));
+        Assert.Equal("https://example.com", source[autolink.SourceStart!.Value..autolink.SourceEndExclusive!.Value]);
+        Assert.All(runs.Where(static run => run.Text == " "), static run =>
+            Assert.True(run.SourceStart.HasValue == run.SourceEndExclusive.HasValue));
+        Assert.All(runs.Where(static run => !run.IsDecorative && run.SourceStart.HasValue), static run =>
+            Assert.False(run.SourceMap.IsDefaultOrEmpty));
+    }
+
+    [Fact]
+    public void ResourceLimitsSelectDeterministicDegradationWithoutChangingCanonicalSource()
+    {
+        const string source = "one\ntwo\nthree";
+        var document = new MarkdownDocumentParser().Parse(source,
+            new MarkdownParseOptions { Pipeline = MarkdownPipelineFactory.CreateDefault() });
+        var engine = new MarkdownLayoutEngine();
+        var theme = MarkdownTheme.FromTheme(Theme.Default);
+
+        var sourceLimited = engine.Layout(document, new(20, theme, ResourceLimits: new()
+        {
+            MaximumRichSourceLength = 4
+        }));
+        var rowLimited = engine.LayoutRaw(source, document.PipelineId, new(20, theme,
+            Mode: MarkdownPresentationMode.Raw, ResourceLimits: new() { MaximumLayoutRows = 2 }));
+
+        Assert.Equal(MarkdownDegradationReason.SourceLength, sourceLimited.DegradationReason);
+        Assert.Equal(MarkdownDegradationReason.LayoutRows, rowLimited.DegradationReason);
+        Assert.Equal(source, document.Source);
+        Assert.Equal(source, string.Join('\n', sourceLimited.Rows.Select(RowText)));
+        Assert.All(rowLimited.Rows, static row => Assert.True(row.IsDecorative));
+    }
+
+    [Fact]
+    public void TableAndHighlightLimitsUseReadableDeterministicFallbacks()
+    {
+        const string source = "| a | b |\n|---|---|\n| 1 | 2 |\n\n```csharp\nvar value = 42;\n```";
+        var document = new MarkdownDocumentParser().Parse(source,
+            new MarkdownParseOptions { Pipeline = MarkdownPipelineFactory.CreateDefault() });
+        var limits = new MarkdownResourceLimits
+        {
+            MaximumTableColumns = 1,
+            MaximumHighlightedCodeLength = 4
+        };
+        var layout = new MarkdownLayoutEngine().Layout(document,
+            new(80, MarkdownTheme.FromTheme(Theme.Default), ResourceLimits: limits));
+
+        Assert.Equal(MarkdownDegradationReason.TableShape, layout.DegradationReason);
+        Assert.Contains("| a | b |", string.Join('\n', layout.Rows.Select(RowText)), StringComparison.Ordinal);
+        Assert.Contains(layout.Blocks, static block => block.DegradationReason == MarkdownDegradationReason.CodeHighlightLength);
     }
 
     [Fact]

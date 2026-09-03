@@ -223,7 +223,8 @@ internal static class MarkdownProjectionView
             colorSystem,
             MarkdownPresentationMode.Rich,
             0,
-            new MarkdownSpacing().Key);
+            new MarkdownSpacing().Key,
+            new MarkdownResourceLimits().Key);
         return new(projection.RequirePrepared(document.Revision, key));
     }
 }

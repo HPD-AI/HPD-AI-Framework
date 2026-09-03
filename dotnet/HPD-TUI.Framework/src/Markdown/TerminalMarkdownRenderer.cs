@@ -1,4 +1,6 @@
 using System.Text;
+using System.Globalization;
+using System.Net;
 using HPD.TUI.Core;
 using HPD.TUI.Utilities;
 using Markdig.Extensions.AutoLinks;
@@ -56,6 +58,7 @@ internal sealed class TerminalMarkdownRenderer : RendererBase
     internal TerminalHyperlink? ActiveHyperlink { get; set; }
     internal int ListDepth { get; set; }
     internal int QuoteDepth { get; set; }
+    internal MarkdownDegradationReason DegradationReason { get; set; }
     internal string PendingListMarker { get; set; } = string.Empty;
 
     public override object Render(MarkdownObject markdownObject)
@@ -76,8 +79,16 @@ internal sealed class TerminalMarkdownRenderer : RendererBase
         ActiveHyperlink = null;
         ListDepth = QuoteDepth = 0;
         PendingListMarker = string.Empty;
+        DegradationReason = MarkdownDegradationReason.None;
         Write(block.Syntax);
-        return _builder.Freeze(block.SourceStart, block.SourceEndExclusive);
+        var layout = _builder.Freeze(block.SourceStart, block.SourceEndExclusive);
+        return new MarkdownBlockLayout
+        {
+            SourceStart = layout.SourceStart,
+            SourceEndExclusive = layout.SourceEndExclusive,
+            Lines = layout.Lines,
+            DegradationReason = DegradationReason
+        };
     }
 
     private string RegistrationSignature() => string.Join('|', ObjectRenderers.Select(static renderer => renderer.GetType().AssemblyQualifiedName));
@@ -93,6 +104,67 @@ internal sealed class TerminalMarkdownRenderer : RendererBase
         var start = Math.Clamp(node.Span.Start, 0, _document.Source.Length);
         var end = node.Span.End < start ? start : Math.Clamp(node.Span.End + 1, start, _document.Source.Length);
         return (start, end);
+    }
+
+    internal (int Start, int End) LocateRenderedContent(MarkdownObject node, string rendered)
+    {
+        var (start, end) = NormalizeSpan(node);
+        var relative = _document.Source.AsSpan(start, end - start).IndexOf(rendered.AsSpan(), StringComparison.Ordinal);
+        return relative >= 0 ? (start + relative, start + relative + rendered.Length) : (start, end);
+    }
+
+    internal void WriteTransformed(MarkdownObject node, string rendered, Style style)
+    {
+        var (sourceStart, sourceEnd) = NormalizeSpan(node);
+        var cursor = sourceStart;
+        for (var visual = 0; visual < rendered.Length;)
+        {
+            var length = StringInfo.GetNextTextElementLength(rendered.AsSpan(visual));
+            var grapheme = rendered.AsSpan(visual, length);
+            var mappedStart = sourceStart;
+            var mappedEnd = sourceEnd;
+            if (cursor < sourceEnd && _document.Source[cursor] == '&')
+            {
+                var terminator = _document.Source.IndexOf(';', cursor, Math.Min(32, _document.Source.Length - cursor));
+                if (terminator >= cursor && WebUtility.HtmlDecode(_document.Source[cursor..(terminator + 1)]) == grapheme.ToString())
+                {
+                    mappedStart = cursor;
+                    mappedEnd = terminator + 1;
+                    cursor = mappedEnd;
+                }
+                else if (grapheme.SequenceEqual("&"))
+                {
+                    mappedStart = cursor;
+                    mappedEnd = ++cursor;
+                }
+            }
+            else if (cursor + length <= sourceEnd && _document.Source.AsSpan(cursor, length).SequenceEqual(grapheme))
+            {
+                mappedStart = cursor;
+                mappedEnd = cursor + length;
+                cursor = mappedEnd;
+            }
+            else if (cursor < sourceEnd && _document.Source[cursor] == '\\' &&
+                     cursor + 1 + length <= sourceEnd &&
+                     _document.Source.AsSpan(cursor + 1, length).SequenceEqual(grapheme))
+            {
+                mappedStart = cursor;
+                mappedEnd = cursor + 1 + length;
+                cursor = mappedEnd;
+            }
+            else
+            {
+                var found = _document.Source.AsSpan(cursor, sourceEnd - cursor).IndexOf(grapheme, StringComparison.Ordinal);
+                if (found >= 0)
+                {
+                    mappedStart = cursor + found;
+                    mappedEnd = mappedStart + length;
+                    cursor = mappedEnd;
+                }
+            }
+            Builder.Write(grapheme.ToString(), style, ActiveHyperlink, mappedStart, mappedEnd);
+            visual += length;
+        }
     }
 
     internal void WithPresentation(Style style, TerminalHyperlink? hyperlink, Action action)
@@ -147,8 +219,7 @@ internal sealed class LiteralInlineRenderer : TerminalObjectRenderer<LiteralInli
 {
     protected override void Write(TerminalMarkdownRenderer r, LiteralInline n)
     {
-        var (start, end) = r.NormalizeSpan(n);
-        r.Builder.Write(n.Content.ToString(), r.CurrentStyle, r.ActiveHyperlink, start, end);
+        r.WriteTransformed(n, n.Content.ToString(), r.CurrentStyle);
     }
 }
 
@@ -168,7 +239,7 @@ internal sealed class CodeInlineRenderer : TerminalObjectRenderer<CodeInline>
 {
     protected override void Write(TerminalMarkdownRenderer r, CodeInline n)
     {
-        var (start, end) = r.NormalizeSpan(n);
+        var (start, end) = r.LocateRenderedContent(n, n.Content);
         r.Builder.Write(n.Content, r.Options.Theme.InlineCode, r.ActiveHyperlink, start, end);
     }
 }
@@ -193,13 +264,20 @@ internal sealed class AutolinkRenderer : TerminalObjectRenderer<AutolinkInline>
     protected override void Write(TerminalMarkdownRenderer r, AutolinkInline n)
     {
         TerminalHyperlinkPolicy.TryCreate(n.Url, out var link);
-        var (start, end) = r.NormalizeSpan(n);
+        var (start, end) = r.LocateRenderedContent(n, n.Url);
         r.Builder.Write(n.Url, r.Options.Theme.Link, link, start, end);
     }
 }
 
 internal sealed class LineBreakRenderer : TerminalObjectRenderer<LineBreakInline>
-{ protected override void Write(TerminalMarkdownRenderer r, LineBreakInline n) { if (n.IsHard) r.Builder.NewLine(); else r.Builder.Write(" ", r.CurrentStyle); } }
+{
+    protected override void Write(TerminalMarkdownRenderer r, LineBreakInline n)
+    {
+        if (n.IsHard) { r.Builder.NewLine(); return; }
+        var (start, end) = r.NormalizeSpan(n);
+        r.Builder.Write(" ", r.CurrentStyle, r.ActiveHyperlink, start, end);
+    }
+}
 
 internal sealed class HtmlInlineRenderer : TerminalObjectRenderer<HtmlInline>
 { protected override void Write(TerminalMarkdownRenderer r, HtmlInline n) => r.WriteExact(n, r.Options.Theme.CodeBorder); }
@@ -216,7 +294,12 @@ internal sealed class FencedCodeRenderer : TerminalObjectRenderer<FencedCodeBloc
         if (!string.IsNullOrWhiteSpace(language))
         { r.Builder.Write(" ", r.Options.Theme.Body, decorative: true); r.Builder.Write(language.Trim(), r.Options.Theme.CodeLanguage, decorative: true); }
         r.Builder.NewLine();
-        var result = r.Highlighter.Highlight(n.Lines.ToString().TrimEnd().AsMemory(), language, r.Options.Theme);
+        var code = n.Lines.ToString().TrimEnd();
+        var highlightEligible = code.Length <= (r.Options.ResourceLimits ?? new MarkdownResourceLimits()).MaximumHighlightedCodeLength;
+        if (!highlightEligible) r.DegradationReason = MarkdownDegradationReason.CodeHighlightLength;
+        var result = highlightEligible
+            ? r.Highlighter.Highlight(code.AsMemory(), language, r.Options.Theme)
+            : new CodeHighlightResult([new StyledTerminalLine([new StyledTerminalRun(code, r.Options.Theme.Body)])], null);
         for (var index = 0; index < result.Lines.Length; index++)
         {
             if (index > 0) r.Builder.NewLine();
@@ -301,6 +384,13 @@ internal sealed class TableRenderer : TerminalObjectRenderer<Table>
         var rows = table.OfType<TableRow>().Select(row => row.OfType<TableCell>().ToArray()).ToArray();
         var columns = rows.Length == 0 ? 0 : rows.Max(row => row.Length);
         if (columns == 0) return;
+        var limits = r.Options.ResourceLimits ?? new MarkdownResourceLimits();
+        if (columns > limits.MaximumTableColumns || rows.Sum(static row => row.Length) > limits.MaximumTableCells)
+        {
+            r.DegradationReason = MarkdownDegradationReason.TableShape;
+            r.WriteExact(table, r.Options.Theme.Body);
+            return;
+        }
         var naturalLayouts = rows.Select((row, rowIndex) => row.Select(cell =>
             r.RenderNested(cell, 4096, rowIndex == 0 ? r.Options.Theme.TableHeader : r.Options.Theme.Body)).ToArray()).ToArray();
         var natural = naturalLayouts.Select(row => row.Select(PlainText).ToArray()).ToArray();

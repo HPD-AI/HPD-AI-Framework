@@ -97,13 +97,13 @@ public sealed class MarkdownStreamCoordinator
         });
 
     /// <summary>Completes an active stream.</summary>
-    public void Complete(MarkdownStreamIdentity identity) => Finalize(identity, static session => session.Complete());
+    public void Complete(MarkdownStreamIdentity identity) => Finalize(identity, MarkdownMessageState.Completed, static session => session.Complete());
     /// <summary>Interrupts an active stream.</summary>
-    public void Interrupt(MarkdownStreamIdentity identity) => Finalize(identity, static session => session.Interrupt());
+    public void Interrupt(MarkdownStreamIdentity identity) => Finalize(identity, MarkdownMessageState.Interrupted, static session => session.Interrupt());
     /// <summary>Cancels an active stream.</summary>
-    public void Cancel(MarkdownStreamIdentity identity) => Finalize(identity, static session => session.Cancel());
+    public void Cancel(MarkdownStreamIdentity identity) => Finalize(identity, MarkdownMessageState.Cancelled, static session => session.Cancel());
     /// <summary>Fails an active stream.</summary>
-    public void Fail(MarkdownStreamIdentity identity) => Finalize(identity, static session => session.Fail());
+    public void Fail(MarkdownStreamIdentity identity) => Finalize(identity, MarkdownMessageState.Failed, static session => session.Fail());
 
     /// <summary>Deterministically closes every active stream during an enclosing lifecycle transition.</summary>
     public void FinalizeAll(MarkdownMessageState state)
@@ -122,25 +122,33 @@ public sealed class MarkdownStreamCoordinator
                     _publish(update, pair.Value.Projection);
                 _terminal[pair.Key] = state;
             }
+            foreach (var identity in _lifecycleOnly)
+                _terminal[identity] = state;
             _refreshQueued.Clear();
             _lifecycleOnly.Clear();
             _sessions.Clear();
         });
 
-    private void Finalize(MarkdownStreamIdentity identity, Func<MarkdownStreamSession, MarkdownStreamUpdate> transition)
+    internal bool TryGetTerminalState(MarkdownStreamIdentity identity, out MarkdownMessageState state) =>
+        _terminal.TryGetValue(identity, out state);
+
+    private void Finalize(
+        MarkdownStreamIdentity identity,
+        MarkdownMessageState terminalState,
+        Func<MarkdownStreamSession, MarkdownStreamUpdate> transition)
         => Dispatch(() =>
         {
             _refreshQueued.Remove(identity);
             if (_lifecycleOnly.Remove(identity))
             {
-                _terminal[identity] = MarkdownMessageState.Completed;
+                _terminal[identity] = terminalState;
                 return;
             }
             if (!_sessions.Remove(identity, out var session))
             {
                 if (!_terminal.ContainsKey(identity))
                 {
-                    _terminal[identity] = MarkdownMessageState.Completed;
+                    _terminal[identity] = terminalState;
                     _diagnostic?.Invoke($"Markdown end arrived before start for '{identity.Kind}:{identity.MessageId}'.");
                 }
                 return;

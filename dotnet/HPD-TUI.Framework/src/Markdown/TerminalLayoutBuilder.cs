@@ -10,14 +10,20 @@ namespace HPD.TUI.Markdown;
 internal sealed class TerminalLayoutBuilder
 {
     private readonly int _width;
+    private readonly int _maximumRows;
     private readonly List<List<MutableRun>> _lines = [[]];
     private int _column;
     private string _wrapPrefix = string.Empty;
     private Style _wrapPrefixStyle;
 
-    internal TerminalLayoutBuilder(int width) => _width = width;
+    internal TerminalLayoutBuilder(int width, int maximumRows = 16_384)
+    {
+        _width = width;
+        _maximumRows = maximumRows;
+    }
 
     internal int Column => _column;
+    internal bool LimitExceeded { get; private set; }
 
     internal void SetWrapPrefix(string prefix, Style style)
     {
@@ -35,7 +41,7 @@ internal sealed class TerminalLayoutBuilder
         int? sourceEndExclusive = null,
         bool decorative = false)
     {
-        if (string.IsNullOrEmpty(value)) return;
+        if (string.IsNullOrEmpty(value) || LimitExceeded) return;
         var hasExactSourceRange = sourceStart.HasValue && sourceEndExclusive.HasValue &&
             sourceEndExclusive.Value - sourceStart.Value == value.Length;
         var offset = 0;
@@ -47,6 +53,7 @@ internal sealed class TerminalLayoutBuilder
             if (grapheme.SequenceEqual("\n") || grapheme.SequenceEqual("\r\n"))
             {
                 NewLine();
+                if (LimitExceeded) return;
                 offset += length;
                 continue;
             }
@@ -68,6 +75,7 @@ internal sealed class TerminalLayoutBuilder
             if (_column > 0 && displayWidth > 0 && _column + displayWidth > _width)
             {
                 NewLine(wrapped: true);
+                if (LimitExceeded) return;
                 if (text == " ") { offset += length; continue; }
             }
             var graphemeStart = hasExactSourceRange ? sourceStart + offset : sourceStart;
@@ -85,6 +93,7 @@ internal sealed class TerminalLayoutBuilder
 
     internal void NewLine(bool wrapped = false)
     {
+        if (_lines.Count >= _maximumRows) { LimitExceeded = true; return; }
         _lines.Add([]);
         _column = 0;
         if (wrapped && _wrapPrefix.Length > 0)
@@ -102,11 +111,12 @@ internal sealed class TerminalLayoutBuilder
                 var final = line[^1];
                 var trimmed = final.Text.ToString().TrimEnd();
                 final.Text.Clear().Append(trimmed);
+                final.TrimSourceMap(trimmed.Length);
                 if (final.Text.Length == 0) line.RemoveAt(line.Count - 1);
             }
             lines.Add(new(line.Select(static run => new StyledTerminalRun(
                 run.Text.ToString(), run.Style, run.Hyperlink, run.SourceStart,
-                run.SourceEndExclusive, run.Decorative)).ToImmutableArray()));
+                run.SourceEndExclusive, run.Decorative, run.SourceMap.ToImmutableArray())).ToImmutableArray()));
         }
         return new() { SourceStart = sourceStart, SourceEndExclusive = sourceEndExclusive, Lines = lines.ToImmutable() };
     }
@@ -116,12 +126,20 @@ internal sealed class TerminalLayoutBuilder
         var line = _lines[^1];
         if (line.Count > 0 && line[^1].CanAppend(style, hyperlink, sourceStart, sourceEndExclusive, decorative))
         {
+            var visualStart = line[^1].Text.Length;
             line[^1].Text.Append(text);
+            if (sourceStart.HasValue && sourceEndExclusive.HasValue)
+                line[^1].SourceMap.Add(new(visualStart, visualStart + text.Length, sourceStart.Value, sourceEndExclusive.Value));
             if (line[^1].SourceEndExclusive == sourceStart)
                 line[^1].SourceEndExclusive = sourceEndExclusive;
         }
         else
-            line.Add(new(new StringBuilder(text), style, hyperlink, sourceStart, sourceEndExclusive, decorative));
+        {
+            var run = new MutableRun(new StringBuilder(text), style, hyperlink, sourceStart, sourceEndExclusive, decorative);
+            if (sourceStart.HasValue && sourceEndExclusive.HasValue)
+                run.SourceMap.Add(new(0, text.Length, sourceStart.Value, sourceEndExclusive.Value));
+            line.Add(run);
+        }
     }
 
     private sealed class MutableRun(
@@ -138,6 +156,15 @@ internal sealed class TerminalLayoutBuilder
         internal int? SourceStart { get; } = sourceStart;
         internal int? SourceEndExclusive { get; set; } = sourceEndExclusive;
         internal bool Decorative { get; } = decorative;
+        internal List<MarkdownSourceMapSegment> SourceMap { get; } = [];
+
+        internal void TrimSourceMap(int visualLength)
+        {
+            SourceMap.RemoveAll(segment => segment.VisualStart >= visualLength);
+            if (SourceMap.Count == 0 || SourceMap[^1].VisualEndExclusive <= visualLength) return;
+            var final = SourceMap[^1];
+            SourceMap[^1] = final with { VisualEndExclusive = visualLength };
+        }
 
         internal bool CanAppend(Style nextStyle, TerminalHyperlink? nextHyperlink, int? nextStart, int? nextEnd, bool nextDecorative) =>
             Style == nextStyle && Hyperlink == nextHyperlink && Decorative == nextDecorative &&

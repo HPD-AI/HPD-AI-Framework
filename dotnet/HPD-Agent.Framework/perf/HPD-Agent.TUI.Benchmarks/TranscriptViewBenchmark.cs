@@ -46,7 +46,7 @@ public class TranscriptViewBenchmark
         var model = CreateTranscript(1_000);
         var view = new TranscriptView(model, _renderers, height: 16);
         Render(view);
-        model.Append(Row(_appendIndex++));
+        model.AddFinal(Row(_appendIndex++));
         return Render(view);
     }
 
@@ -56,25 +56,19 @@ public class TranscriptViewBenchmark
         var model = CreateTranscript(1_000);
         var view = new TranscriptView(model, _renderers, height: 16);
         Render(view);
-        model.Update(Row(_updateIndex, $"updated visible row {_updateIndex++:D4}"));
+        model.UpsertLive(Row(_updateIndex, $"updated visible row {_updateIndex++:D4}"));
         return Render(view);
     }
 
     [Benchmark]
-    public string Scroll()
-    {
-        _largeTranscript.ScrollUp(4);
-        var output = Render(_largeView);
-        _largeTranscript.ScrollDown(4);
-        return output;
-    }
+    public string RepeatedViewportRender() => Render(_largeView);
 
     private static TranscriptModel CreateTranscript(int count)
     {
         var model = new TranscriptModel();
         for (var i = 0; i < count; i++)
         {
-            model.Append(Row(i));
+            model.AddFinal(Row(i));
         }
 
         return model;
