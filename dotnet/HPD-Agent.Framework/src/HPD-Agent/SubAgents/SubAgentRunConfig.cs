@@ -244,7 +244,7 @@ public sealed record SubAgentExecutionPolicy
         {
             var locked = LockedClients.GetFamilyConfig(family);
             var turn = requested.GetFamilyConfig(family);
-            if (turn is not null && HasRuntimeOverride(turn))
+            if (turn is not null && (HasRuntimeOverride(turn) || turn.ProviderConfig is not null))
                 throw new InvalidOperationException("subagent_locked_client_override_forbidden");
             if (locked is null)
             {
