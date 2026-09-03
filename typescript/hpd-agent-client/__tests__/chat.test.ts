@@ -115,7 +115,11 @@ describe('ChatSession', () => {
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
-        text: async () => JSON.stringify({ disposition: 'accepted', activeExecution: null }),
+        json: async () => ({
+          threadExecutionId: 'run-1',
+          cancellationApplied: true,
+          status: 'cancelled',
+        }),
       } as Response);
 
     const chat = client.chat.session({ agentId: 'a1', sessionId: 's1', threadId: 'main' });
@@ -123,9 +127,9 @@ describe('ChatSession', () => {
 
     expect(result.disposition).toBe('accepted');
     expect(fetchSpy).toHaveBeenLastCalledWith(
-      'http://localhost:5135/agents/a1/sessions/s1/threads/main/inputs',
+      'http://localhost:5135/agents/a1/sessions/s1/threads/main/executions/run-1/cancel',
       expect.objectContaining({
-        body: expect.stringContaining('"threadExecutionId":"run-1"'),
+        body: '{}',
       }),
     );
     chat.dispose();
@@ -148,7 +152,7 @@ describe('ChatSession', () => {
     expect(hydrated).toEqual(state);
     expect(fetchSpy.mock.calls.map(([url]) => String(url))).toEqual([
       'http://localhost:5135/agents/a1/sessions/s1/threads/main/state',
-      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events?after=3:0',
+      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events?after=3:0&hierarchy=exactThread',
     ]);
     await chat.disconnectLive();
   });

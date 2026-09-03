@@ -1,4 +1,5 @@
-import type { AgentEvent, AgentResponseInput, AgentRunInputEvent, RespondResult } from './events.js';
+import type { AgentResponseInput, AgentRunInputEvent, RespondResult } from './events.js';
+import type { AgentEventDelivery, AgentEventHierarchy } from './event-delivery.js';
 import type { ThreadJournalCursor, ThreadExecution } from './thread-execution.js';
 
 export interface InputSubmissionResult {
@@ -29,6 +30,8 @@ export interface RuntimeScope {
   agentId?: string;
   /** Last committed generation/sequence completely applied by the consumer. */
   after?: ThreadJournalCursor;
+  /** Explicit hierarchy rooted at sessionId/threadId. Defaults to exactThread. */
+  hierarchy?: AgentEventHierarchy;
 }
 
 export interface RunTransportOptions {
@@ -52,7 +55,7 @@ export interface AgentTransport {
   respond(event: AgentResponseInput, options?: RunTransportOptions): Promise<RespondResult>;
 
   /** Register an acknowledged event handler. The cursor advances only after it resolves. */
-  onEvent(handler: (event: AgentEvent) => void | Promise<void>): void;
+  onEvent(handler: (delivery: AgentEventDelivery) => void | Promise<void>): void;
 
   /** Register error handler */
   onError(handler: (error: Error) => void): void;

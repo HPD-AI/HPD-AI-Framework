@@ -18,7 +18,6 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
     private EventLoopMailbox<TuiLoopEvent>? _mailbox;
     private bool _stopRequested;
     private bool _disposed;
-    private int _eventLoopThreadId;
 
     public ManagedTerminalTuiApplication(ITerminal terminal)
     {
@@ -100,7 +99,6 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
         using var mailbox = CreateMailbox(options);
         using var loopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _mailbox = mailbox;
-        _eventLoopThreadId = Environment.CurrentManagedThreadId;
         _stopRequested = false;
         var inputPump = PumpInputAsync(mailbox, loopCts.Token);
 
@@ -109,11 +107,18 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
             var dirty = options.RenderOnStart;
             while (!loopCts.IsCancellationRequested && !_stopRequested)
             {
-                _eventLoopThreadId = Environment.CurrentManagedThreadId;
                 if (dirty)
                 {
-                    FramePreparing?.Invoke(_terminal.GetSize(), _theme);
-                    Render();
+                    _dispatcherDepth.Value++;
+                    try
+                    {
+                        FramePreparing?.Invoke(_terminal.GetSize(), _theme);
+                        Render();
+                    }
+                    finally
+                    {
+                        _dispatcherDepth.Value--;
+                    }
                     dirty = false;
                 }
 
@@ -122,7 +127,6 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
                         options.AnimationTickInterval ?? options.MaxFrameInterval,
                         loopCts.Token)
                     .ConfigureAwait(false);
-                _eventLoopThreadId = Environment.CurrentManagedThreadId;
                 dirty |= await DrainEventsAsync(mailbox).ConfigureAwait(false);
             }
         }
@@ -131,12 +135,10 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
         }
         finally
         {
-            _eventLoopThreadId = Environment.CurrentManagedThreadId;
             _dispatcherDepth.Value++;
             try { Stopping?.Invoke(); }
             finally { _dispatcherDepth.Value--; }
             _mailbox = null;
-            _eventLoopThreadId = 0;
             await loopCts.CancelAsync().ConfigureAwait(false);
             await inputPump.ConfigureAwait(false);
             _terminal.ShowCursor();
@@ -196,8 +198,7 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
     }
 
     /// <inheritdoc />
-    public bool CheckAccess() => _dispatcherDepth.Value > 0 ||
-        (_eventLoopThreadId != 0 && _eventLoopThreadId == Environment.CurrentManagedThreadId);
+    public bool CheckAccess() => _dispatcherDepth.Value > 0;
 
     /// <inheritdoc />
     public void Post(Action callback)
@@ -332,7 +333,9 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
                         return false;
                     }
 
-                    dirty |= HandleInput(in input, requestRender: false);
+                    _dispatcherDepth.Value++;
+                    try { dirty |= HandleInput(in input, requestRender: false); }
+                    finally { _dispatcherDepth.Value--; }
                 }
                 else if (evt.Kind == TuiLoopEventKind.Callback)
                 {

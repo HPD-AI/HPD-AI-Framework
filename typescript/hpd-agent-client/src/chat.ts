@@ -10,6 +10,7 @@ import type {
   Session,
 } from './types/session.js';
 import type { ThreadJournalCursor, ThreadExecution, ThreadRuntimeState } from './types/thread-execution.js';
+import type { AgentEventHierarchy } from './types/event-delivery.js';
 
 export interface OpenChatOptions {
   agentId: string;
@@ -111,7 +112,7 @@ export class ChatSession {
     return this.client.getThreadExecution(this.agentId, this.sessionId, this.threadId, threadExecutionId);
   }
 
-  async subscribeLive(options: { after?: ThreadJournalCursor; signal?: AbortSignal } = {}): Promise<ThreadRuntimeState> {
+  async subscribeLive(options: { after?: ThreadJournalCursor; hierarchy?: AgentEventHierarchy; signal?: AbortSignal } = {}): Promise<ThreadRuntimeState> {
     const state = await this.getState();
     if (!state) {
       throw new Error(`Thread '${this.threadId}' was not found in session '${this.sessionId}'.`);
@@ -126,6 +127,7 @@ export class ChatSession {
         sequenceNumber: 0,
       },
       signal: options.signal,
+      hierarchy: options.hierarchy ?? 'exactThread',
     });
     return state;
   }

@@ -39,6 +39,41 @@ internal sealed class FFIConversationThread
 /// <param name="eventJsonPtr">Pointer to UTF-8 JSON string of the event, or null to signal end of stream</param>
 public delegate void StreamCallback(IntPtr context, IntPtr eventJsonPtr);
 
+/// <summary>Native callback for one thread-routed event delivery.</summary>
+/// <param name="json">Callback-scoped UTF-8 JSON bytes.</param>
+/// <param name="jsonLength">Number of bytes available at <paramref name="json"/>.</param>
+/// <param name="userData">Opaque caller state supplied when the subscription was created.</param>
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+public delegate void EventDeliveryCallback(IntPtr json, nuint jsonLength, IntPtr userData);
+
+/// <summary>Closed result set returned by <c>hpd_agent_subscribe_events</c>.</summary>
+public enum HpdSubscribeStatus
+{
+    /// <summary>The subscription was created.</summary>
+    Ok = 0,
+    /// <summary>A required pointer or key was missing.</summary>
+    InvalidArgument = 1,
+    /// <summary>A session or thread key was not valid UTF-8.</summary>
+    InvalidUtf8 = 2,
+    /// <summary>The hierarchy integer is outside the frozen range.</summary>
+    InvalidHierarchy = 3,
+    /// <summary>The agent handle is invalid or disposed.</summary>
+    DisposedAgent = 4,
+    /// <summary>An internal failure prevented subscription creation.</summary>
+    InternalError = 5
+}
+
+/// <summary>Closed result set returned by <c>hpd_subscription_dispose</c>.</summary>
+public enum HpdSubscriptionDisposeStatus
+{
+    /// <summary>The subscription is quiescent and the caller handle is null.</summary>
+    Disposed = 0,
+    /// <summary>The pointer to the caller-owned handle was null.</summary>
+    InvalidArgument = 1,
+    /// <summary>Disposal was attempted from the subscription's callback.</summary>
+    FromCallback = 2
+}
+
 /// <summary>
 /// Represents a native function exported from any C-compatible language (Rust, C++, Zig, Go, Swift, etc.).
 /// Language-agnostic structure that describes function metadata for FFI interop.
@@ -90,12 +125,78 @@ public sealed record FfiAgentOperation
     public required long Version { get; init; }
 }
 
+internal sealed class FfiEventSubscription : IDisposable
+{
+    private readonly object _gate = new();
+    private readonly EventDeliveryCallback _callback;
+    private readonly IntPtr _userData;
+    private readonly ManualResetEventSlim _quiescent = new(initialState: true);
+    private IDisposable? _managedSubscription;
+    private bool _accepting = true;
+    private int _callbacks;
+    private int _callbackThreadId;
+
+    internal FfiEventSubscription(EventDeliveryCallback callback, IntPtr userData)
+    {
+        _callback = callback;
+        _userData = userData;
+    }
+
+    internal void Attach(IDisposable managedSubscription) =>
+        _managedSubscription = managedSubscription;
+
+    internal bool IsCallbackThread =>
+        Volatile.Read(ref _callbackThreadId) == System.Environment.CurrentManagedThreadId &&
+        Volatile.Read(ref _callbacks) > 0;
+
+    internal unsafe void Invoke(string json)
+    {
+        lock (_gate)
+        {
+            if (!_accepting)
+                return;
+            if (Interlocked.Increment(ref _callbacks) == 1)
+                _quiescent.Reset();
+        }
+
+        var bytes = Encoding.UTF8.GetBytes(json);
+        Volatile.Write(ref _callbackThreadId, System.Environment.CurrentManagedThreadId);
+        try
+        {
+            fixed (byte* pointer = bytes)
+                _callback((IntPtr)pointer, (nuint)bytes.Length, _userData);
+        }
+        finally
+        {
+            Volatile.Write(ref _callbackThreadId, 0);
+            if (Interlocked.Decrement(ref _callbacks) == 0)
+                _quiescent.Set();
+        }
+    }
+
+    public void Dispose()
+    {
+        lock (_gate)
+        {
+            if (!_accepting)
+                return;
+            _accepting = false;
+        }
+        Interlocked.Exchange(ref _managedSubscription, null)?.Dispose();
+        _quiescent.Wait();
+        _quiescent.Dispose();
+    }
+}
+
 /// <summary>
 /// Static class containing all C# functions exported to Rust via FFI.
 /// This serves as the main entry point for the Rust wrapper library.
 /// </summary>
 public static partial class NativeExports
 {
+    private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+    private static readonly JsonSerializerOptions DeliveryJson = new(JsonSerializerDefaults.Web);
+
     internal static IntPtr RegisterManagedAgentForTesting(HPD.Agent.Agent agent) =>
         ObjectManager.Add(agent);
 
@@ -124,6 +225,35 @@ public static partial class NativeExports
         StreamCallback callback,
         IntPtr context) =>
         RunAgentStreamingCore(agentHandle, input, threadHandle, callback, context);
+
+    internal static unsafe HpdSubscribeStatus SubscribeEventsForTesting(
+        IntPtr agentHandle,
+        ReadOnlySpan<byte> sessionId,
+        ReadOnlySpan<byte> threadId,
+        int hierarchy,
+        EventDeliveryCallback callback,
+        IntPtr userData,
+        out IntPtr subscription)
+    {
+        fixed (byte* session = sessionId)
+        fixed (byte* thread = threadId)
+        {
+            var result = SubscribeEventsCore(
+                agentHandle,
+                (IntPtr)session,
+                (nuint)sessionId.Length,
+                (IntPtr)thread,
+                (nuint)threadId.Length,
+                hierarchy,
+                callback,
+                userData,
+                out subscription);
+            return result;
+        }
+    }
+
+    internal static HpdSubscriptionDisposeStatus DisposeSubscriptionForTesting(ref IntPtr subscription) =>
+        DisposeSubscriptionCore(ref subscription);
 
     internal static int RespondToPermissionForTesting(
         IntPtr agentHandle,
@@ -813,6 +943,9 @@ public static partial class NativeExports
                 thread = ObjectManager.Get<FFIConversationThread>(threadHandle);
             }
 
+            if (thread is null)
+                return 0;
+
             // Run agent and collect all events
             var responseText = new StringBuilder();
 
@@ -866,6 +999,149 @@ public static partial class NativeExports
         return RunAgentStreamingCore(agentHandle, input, threadHandle, callback, context);
     }
 
+    /// <summary>Creates a persistent, thread-routed native event subscription.</summary>
+    [UnmanagedCallersOnly(EntryPoint = "hpd_agent_subscribe_events")]
+    public static unsafe int SubscribeEvents(
+        IntPtr agentHandle,
+        IntPtr sessionId,
+        nuint sessionIdLength,
+        IntPtr threadId,
+        nuint threadIdLength,
+        int hierarchy,
+        IntPtr callback,
+        IntPtr userData,
+        IntPtr subscriptionAddress)
+    {
+        if (subscriptionAddress == IntPtr.Zero)
+            return (int)HpdSubscribeStatus.InvalidArgument;
+
+        *(IntPtr*)subscriptionAddress = IntPtr.Zero;
+        if (callback == IntPtr.Zero)
+            return (int)HpdSubscribeStatus.InvalidArgument;
+
+        try
+        {
+            var managedCallback = Marshal.GetDelegateForFunctionPointer<EventDeliveryCallback>(callback);
+            var status = SubscribeEventsCore(
+                agentHandle,
+                sessionId,
+                sessionIdLength,
+                threadId,
+                threadIdLength,
+                hierarchy,
+                managedCallback,
+                userData,
+                out var subscription);
+            if (status == HpdSubscribeStatus.Ok)
+                *(IntPtr*)subscriptionAddress = subscription;
+            return (int)status;
+        }
+        catch
+        {
+            return (int)HpdSubscribeStatus.InternalError;
+        }
+    }
+
+    /// <summary>Disposes a native event subscription and waits for admitted callbacks to finish.</summary>
+    [UnmanagedCallersOnly(EntryPoint = "hpd_subscription_dispose")]
+    public static unsafe int DisposeSubscription(IntPtr subscriptionAddress)
+    {
+        if (subscriptionAddress == IntPtr.Zero)
+            return (int)HpdSubscriptionDisposeStatus.InvalidArgument;
+
+        try
+        {
+            ref var subscription = ref *(IntPtr*)subscriptionAddress;
+            return (int)DisposeSubscriptionCore(ref subscription);
+        }
+        catch
+        {
+            return (int)HpdSubscriptionDisposeStatus.InvalidArgument;
+        }
+    }
+
+    private static HpdSubscribeStatus SubscribeEventsCore(
+        IntPtr agentHandle,
+        IntPtr sessionId,
+        nuint sessionIdLength,
+        IntPtr threadId,
+        nuint threadIdLength,
+        int hierarchyValue,
+        EventDeliveryCallback callback,
+        IntPtr userData,
+        out IntPtr subscription)
+    {
+        subscription = IntPtr.Zero;
+        if (sessionId == IntPtr.Zero || sessionIdLength == 0 || threadId == IntPtr.Zero || threadIdLength == 0)
+            return HpdSubscribeStatus.InvalidArgument;
+        if (sessionIdLength > int.MaxValue || threadIdLength > int.MaxValue)
+            return HpdSubscribeStatus.InvalidArgument;
+        if (!Enum.IsDefined(typeof(AgentEventHierarchy), hierarchyValue))
+            return HpdSubscribeStatus.InvalidHierarchy;
+        if (ObjectManager.Get<HPD.Agent.Agent>(agentHandle) is not { } agent)
+            return HpdSubscribeStatus.DisposedAgent;
+
+        string session;
+        string thread;
+        try
+        {
+            unsafe
+            {
+                session = StrictUtf8.GetString(new ReadOnlySpan<byte>((void*)sessionId, (int)sessionIdLength));
+                thread = StrictUtf8.GetString(new ReadOnlySpan<byte>((void*)threadId, (int)threadIdLength));
+            }
+        }
+        catch (DecoderFallbackException)
+        {
+            return HpdSubscribeStatus.InvalidUtf8;
+        }
+        if (string.IsNullOrWhiteSpace(session) || string.IsNullOrWhiteSpace(thread))
+            return HpdSubscribeStatus.InvalidArgument;
+
+        try
+        {
+            var nativeSubscription = new FfiEventSubscription(callback, userData);
+            var managedSubscription = agent.SubscribeAny(
+                new ThreadKey(session, thread),
+                (AgentEventHierarchy)hierarchyValue,
+                evt =>
+                {
+                    var route = AgentEventRoutes.Create(evt)
+                        ?? throw new InvalidOperationException("A keyed native delivery requires thread attribution.");
+                    var json = $"{{\"event\":{agent.Config.EventComposition!.Codec.Serialize(evt)}," +
+                        $"\"route\":{JsonSerializer.Serialize(route.ToPublic(), DeliveryJson)}}}";
+                    nativeSubscription.Invoke(json);
+                });
+            nativeSubscription.Attach(managedSubscription);
+            subscription = ObjectManager.Add(nativeSubscription);
+            return HpdSubscribeStatus.Ok;
+        }
+        catch
+        {
+            return HpdSubscribeStatus.InternalError;
+        }
+    }
+
+    private static HpdSubscriptionDisposeStatus DisposeSubscriptionCore(ref IntPtr subscription)
+    {
+        var handle = subscription;
+        if (handle == IntPtr.Zero)
+            return HpdSubscriptionDisposeStatus.Disposed;
+        var managed = ObjectManager.Get<FfiEventSubscription>(handle);
+        if (managed is null)
+        {
+            subscription = IntPtr.Zero;
+            return HpdSubscriptionDisposeStatus.Disposed;
+        }
+        if (managed.IsCallbackThread)
+            return HpdSubscriptionDisposeStatus.FromCallback;
+
+        subscription = IntPtr.Zero;
+        ObjectManager.Remove(handle);
+        managed.Dispose();
+        return HpdSubscriptionDisposeStatus.Disposed;
+    }
+
     private static int RunAgentStreamingCore(
         IntPtr agentHandle,
         string input,
@@ -885,19 +1161,19 @@ public static partial class NativeExports
             var messages = new[] { userMessage };
 
             // Get thread if provided
-            FFIConversationThread? thread = null;
-            if (threadHandle != IntPtr.Zero)
-            {
-                thread = ObjectManager.Get<FFIConversationThread>(threadHandle);
-            }
+            var thread = ObjectManager.Get<FFIConversationThread>(threadHandle);
+            if (thread is null) return 0;
 
             // Stream events to callback
             var task = Task.Run(async () =>
             {
-                using var subscription = agent.SubscribeAny(evt =>
+                var threadKey = new ThreadKey(thread.Session.Id, thread.Thread.Id);
+                using var subscription = agent.SubscribeAny(threadKey, evt =>
                 {
-                    // Serialize event to JSON
-                    var eventJson = agent.Config.EventComposition!.Codec.Serialize(evt);
+                    var route = AgentEventRoutes.Create(evt)
+                        ?? throw new InvalidOperationException("A keyed FFI delivery requires thread attribution.");
+                    var eventJson = $"{{\"event\":{agent.Config.EventComposition!.Codec.Serialize(evt)}," +
+                        $"\"route\":{JsonSerializer.Serialize(route.ToPublic())}}}";
                     var eventPtr = MarshalString(eventJson);
 
                     try

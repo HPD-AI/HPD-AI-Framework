@@ -136,7 +136,8 @@ public sealed record RequestSnapshot(
 
 public sealed record PendingRequestSnapshot(
     Event Request,
-    RequestSnapshot Session);
+    RequestSnapshot Session,
+    EventDeliveryContext Delivery);
 
 public sealed class RequestHandle
 {

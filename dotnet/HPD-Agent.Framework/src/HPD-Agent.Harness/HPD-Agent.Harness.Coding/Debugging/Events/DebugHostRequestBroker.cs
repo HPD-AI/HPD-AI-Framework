@@ -111,14 +111,15 @@ internal sealed class DebugHostRequestBroker : IDebugHostRequestBroker
             ThreadId = scope.ThreadId,
             TraceId = scope.TraceId
         };
+        var route = AgentEventRoutes.Create(request);
         var handle = _events.RegisterRequest<DebugRunInTerminalRequestEvent, DebugRunInTerminalResponseEvent>(
-            request, new RequestOptions { Timeout = _timeout, CancellationToken = cancellationToken });
+            request, route, new RequestOptions { Timeout = _timeout, CancellationToken = cancellationToken });
         try
         {
             if (_threadEvents is not null)
                 await _threadEvents.CommitAndPublishAsync(new(scope.SessionId, scope.ThreadId), request, cancellationToken).ConfigureAwait(false);
             else
-                await _events.EmitAsync(request, cancellationToken).ConfigureAwait(false);
+                await _events.EmitAsync(request, route, cancellationToken).ConfigureAwait(false);
             return (DebugRunInTerminalResponseEvent)await handle.Response.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
         catch

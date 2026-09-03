@@ -691,7 +691,10 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
                 AgentEvent evt;
                 try
                 {
-                    evt = _eventCodec.DeserializeEvent(json);
+                    using var delivery = JsonDocument.Parse(json);
+                    if (!delivery.RootElement.TryGetProperty("event", out var eventElement))
+                        continue;
+                    evt = _eventCodec.DeserializeEvent(eventElement.GetRawText());
                 }
                 catch (JsonException)
                 {

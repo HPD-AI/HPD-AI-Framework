@@ -348,7 +348,7 @@ public static class SubAgentRuntime
             admission.Route,
             cancellationToken).ConfigureAwait(false);
         var agent = runtime.Agent;
-        AttachParentCoordinator(agent, request.ParentContext);
+        AttachParentCoordinator(agent, request.ParentContext, admission.Route);
 
         var route = admission.Route;
         var localId = admission.LocalId;
@@ -499,7 +499,7 @@ public static class SubAgentRuntime
             request.ParentContext,
             plannedRoute,
             cancellationToken).ConfigureAwait(false);
-        AttachParentCoordinator(runtime.Agent, request.ParentContext);
+        AttachParentCoordinator(runtime.Agent, request.ParentContext, plannedRoute);
         if (creation.Phase == SubAgentCreationPhase.Reserved)
         {
             await EnsureInvocationRouteAsync(
@@ -1487,11 +1487,19 @@ public static class SubAgentRuntime
 
     private static void AttachParentCoordinator(
         Agent agent,
-        FunctionExecutionContext? functionContext)
+        FunctionExecutionContext? functionContext,
+        SubAgentInvocationRoute route)
     {
         var parentCoordinator = functionContext?.GetParentEventCoordinator();
         if (parentCoordinator != null)
             agent.EventCoordinator.SetParent(parentCoordinator);
+        if (functionContext?.SessionId is { Length: > 0 } parentSessionId &&
+            functionContext.ThreadId is { Length: > 0 } parentThreadId)
+        {
+            AgentEventRoutes.RegisterChild(
+                new ThreadKey(route.SessionId, route.ThreadId),
+                new ThreadKey(parentSessionId, parentThreadId));
+        }
     }
 
     private static AgentMetadata CreateSubAgentMetadata(

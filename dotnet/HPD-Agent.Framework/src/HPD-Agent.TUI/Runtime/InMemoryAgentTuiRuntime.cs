@@ -704,24 +704,27 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         if (store is null)
         {
             var signals = Channel.CreateUnbounded<AgentEvent>();
-            using var subscription = _agent.SubscribeAny(evt =>
+            using var subscription = _agent.SubscribeAny(
+                new ThreadKey(scope.SessionId, scope.ThreadId),
+                AgentEventHierarchy.ExactThread,
+                evt =>
             {
                 signals.Writer.TryWrite(evt);
                 return ValueTask.CompletedTask;
             });
             await foreach (var evt in signals.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
             {
-                if (IsInScope(evt, scope))
-                {
-                    yield return CreateDeliveryBatch([evt], AgentTuiEventDeliveryMode.Live, initialObservedCursor, 0);
-                }
+                yield return CreateDeliveryBatch([evt], AgentTuiEventDeliveryMode.Live, initialObservedCursor, 0);
             }
 
             yield break;
         }
 
         var liveSignals = Channel.CreateUnbounded<AgentEvent>();
-        using var liveSubscription = _agent.SubscribeAny(evt =>
+        using var liveSubscription = _agent.SubscribeAny(
+            new ThreadKey(scope.SessionId, scope.ThreadId),
+            AgentEventHierarchy.ExactThread,
+            evt =>
         {
             liveSignals.Writer.TryWrite(evt);
             return ValueTask.CompletedTask;
@@ -758,8 +761,6 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
 
         await foreach (var evt in liveSignals.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
         {
-            if (!IsInScope(evt, scope))
-                continue;
             var selectedThread = StringComparer.Ordinal.Equals(evt.SessionId, scope.SessionId) &&
                 StringComparer.Ordinal.Equals(evt.ThreadId, scope.ThreadId);
             if (evt.ThreadSequenceNumber > 0 && selectedThread)
@@ -1114,7 +1115,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         var store = _agent.Config?.SessionStore;
         if (store is null || string.IsNullOrWhiteSpace(evt.SessionId) || string.IsNullOrWhiteSpace(evt.ThreadId))
         {
-            await _agent.EventCoordinator.EmitAsync(evt, cancellationToken).ConfigureAwait(false);
+            await _agent.EventCoordinator.EmitAsync(evt, AgentEventRoutes.Create(evt), cancellationToken).ConfigureAwait(false);
             return evt;
         }
 
@@ -1122,15 +1123,6 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             new ThreadKey(evt.SessionId, evt.ThreadId),
             evt,
             cancellationToken).ConfigureAwait(false);
-    }
-
-    private static bool IsInScope(
-        AgentEvent evt,
-        AgentTuiRuntimeScope scope)
-    {
-        var sessionMatches = evt.SessionId is null || string.Equals(evt.SessionId, scope.SessionId, StringComparison.Ordinal);
-        var threadMatches = evt.ThreadId is null || string.Equals(evt.ThreadId, scope.ThreadId, StringComparison.Ordinal);
-        return sessionMatches && threadMatches;
     }
 
     private static AgentTuiEventBatch CreateDeliveryBatch(

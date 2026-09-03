@@ -314,6 +314,8 @@ public class Thread
         Visibility = visibility;
         ParentSessionId = parentSessionId;
         ParentThreadId = parentThreadId;
+        if (AgentEventRoutes.ValidateParentPair(parentSessionId, parentThreadId) is { } parent)
+            AgentEventRoutes.RegisterChild(new ThreadKey(sessionId, id), parent);
         SubAgentName = subAgentName;
         SubAgentStatus = subAgentStatus;
         InvocationId = invocationId;
@@ -393,6 +395,9 @@ public class Thread
             ParentToolCallId = parentToolCallId;
         if (TryRemoveString(metadata, "contextPolicy", out var contextPolicy))
             ContextPolicy = contextPolicy;
+
+        if (AgentEventRoutes.ValidateParentPair(ParentSessionId, ParentThreadId) is { } parent)
+            AgentEventRoutes.RegisterChild(new ThreadKey(SessionId, Id), parent);
 
         metadata.Remove("createdBy");
     }

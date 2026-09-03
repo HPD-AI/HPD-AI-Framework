@@ -38,6 +38,7 @@ internal static class ThreadDescriptorProjection
                 runtimeChild = CreateRuntimeChild(created.ParentSessionId, created.ParentThreadId, created.SubAgentName,
                     created.InvocationId, created.SubAgentSourceKind, created.ParentToolCallId,
                     created.ContextPolicy);
+                RegisterRuntimeChild(key, created.ParentSessionId, created.ParentThreadId);
                 preparation = created.Preparation;
                 break;
 
@@ -53,6 +54,7 @@ internal static class ThreadDescriptorProjection
                 runtimeChild = CreateRuntimeChild(updated.ParentSessionId, updated.ParentThreadId, updated.SubAgentName,
                     updated.InvocationId, updated.SubAgentSourceKind, updated.ParentToolCallId,
                     updated.ContextPolicy);
+                RegisterRuntimeChild(key, updated.ParentSessionId, updated.ParentThreadId);
                 break;
 
             case ThreadExecutionStartedEvent when runtimeChild is not null:
@@ -134,8 +136,17 @@ internal static class ThreadDescriptorProjection
         string? subAgentSourceKind,
         string? parentToolCallId,
         string? contextPolicy)
-        => parentSessionId is null && parentThreadId is null && subAgentName is null
+    {
+        AgentEventRoutes.ValidateParentPair(parentSessionId, parentThreadId);
+        return parentSessionId is null && parentThreadId is null && subAgentName is null
             ? null
             : new ThreadRuntimeChildDescriptor(parentSessionId, parentThreadId, subAgentName, invocationId,
                 subAgentSourceKind, parentToolCallId, contextPolicy, Status: null);
+    }
+
+    private static void RegisterRuntimeChild(ThreadKey child, string? parentSessionId, string? parentThreadId)
+    {
+        if (AgentEventRoutes.ValidateParentPair(parentSessionId, parentThreadId) is { } parent)
+            AgentEventRoutes.RegisterChild(child, parent);
+    }
 }

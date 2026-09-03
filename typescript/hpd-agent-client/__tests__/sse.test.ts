@@ -2,11 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SseTransport, ThreadJournalRebasedError } from '../src/transports/sse.js';
 import { EventTypes } from '../src/types/events.js';
 
+function delivery(event: object) {
+  const origin = { sessionId: 's1', threadId: 'main' };
+  return { event, route: { origin, path: [origin] } };
+}
+
 function stream(...events: object[]): ReadableStream<Uint8Array> {
   return new ReadableStream({
     start(controller) {
       controller.enqueue(new TextEncoder().encode(events
-        .map((event, index) => `id: 1:${index + 1}\ndata: ${JSON.stringify(event)}\n\n`)
+        .map((event, index) => `id: 1:${index + 1}\ndata: ${JSON.stringify(delivery(event))}\n\n`)
         .join('')));
       controller.close();
     },
@@ -17,7 +22,7 @@ function committedStream(sequenceNumber: number, event: object): ReadableStream<
   return new ReadableStream({
     start(controller) {
       controller.enqueue(new TextEncoder().encode(
-        `id: 1:${sequenceNumber}\ndata: ${JSON.stringify(event)}\n\n`,
+        `id: 1:${sequenceNumber}\ndata: ${JSON.stringify(delivery(event))}\n\n`,
       ));
       controller.close();
     },
@@ -43,12 +48,12 @@ describe('SseTransport runtime', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events?after=1:0',
+      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events?after=1:0&hierarchy=exactThread',
       expect.objectContaining({
         method: 'GET',
       }),
     );
-    expect(events).toEqual([{ type: EventTypes.TEXT_DELTA, text: 'Hello', messageId: 'm1' }]);
+    expect(events).toEqual([delivery({ type: EventTypes.TEXT_DELTA, text: 'Hello', messageId: 'm1' })]);
     transport.disconnect();
   });
 
@@ -228,7 +233,7 @@ describe('SseTransport runtime', () => {
   it('reconnects after EOF using the last acknowledged committed sequence', async () => {
     const transport = new SseTransport('http://localhost:5135');
     const events: string[] = [];
-    transport.onEvent((event) => {
+    transport.onEvent(({ event }) => {
       events.push((event as { text: string }).text);
       if (events.length === 2) transport.disconnect();
     });
@@ -253,15 +258,15 @@ describe('SseTransport runtime', () => {
     await vi.waitFor(() => expect(events).toEqual(['first', 'second']), { timeout: 2_000 });
 
     expect(fetchSpy.mock.calls.map(([url]) => String(url))).toEqual([
-      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events?after=1:4',
-      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events?after=1:5',
+      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events?after=1:4&hierarchy=exactThread',
+      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events?after=1:5&hierarchy=exactThread',
     ]);
   });
 
   it('delivers live events without advancing the reconnect cursor', async () => {
     const transport = new SseTransport('http://localhost:5135');
     const events: string[] = [];
-    transport.onEvent((event) => {
+    transport.onEvent(({ event }) => {
       events.push((event as { text: string }).text);
       if (events.length === 2) transport.disconnect();
     });
@@ -272,7 +277,7 @@ describe('SseTransport runtime', () => {
           start(controller) {
             controller.enqueue(new TextEncoder().encode(
               'event: live-agent-event\n' +
-              `data: ${JSON.stringify({ type: EventTypes.TEXT_DELTA, text: 'live' })}\n\n`,
+              `data: ${JSON.stringify(delivery({ type: EventTypes.TEXT_DELTA, text: 'live' }))}\n\n`,
             ));
             controller.close();
           },
@@ -294,8 +299,8 @@ describe('SseTransport runtime', () => {
     await vi.waitFor(() => expect(events).toEqual(['live', 'committed']), { timeout: 2_000 });
 
     expect(fetchSpy.mock.calls.map(([url]) => String(url))).toEqual([
-      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events?after=1:4',
-      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events?after=1:4',
+      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events?after=1:4&hierarchy=exactThread',
+      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events?after=1:4&hierarchy=exactThread',
     ]);
   });
 
@@ -306,7 +311,7 @@ describe('SseTransport runtime', () => {
     const firstAcknowledged = new Promise<void>((resolve) => {
       acknowledgeFirst = resolve;
     });
-    transport.onEvent(async (event) => {
+    transport.onEvent(async ({ event }) => {
       events.push((event as { text: string }).text);
       if (events.length === 1) await firstAcknowledged;
     });
@@ -315,8 +320,8 @@ describe('SseTransport runtime', () => {
       body: new ReadableStream({
         start(controller) {
           controller.enqueue(new TextEncoder().encode(
-            `id: 1:1\ndata: ${JSON.stringify({ type: EventTypes.TEXT_DELTA, text: 'first' })}\n\n` +
-            `id: 1:2\ndata: ${JSON.stringify({ type: EventTypes.TEXT_DELTA, text: 'second' })}\n\n`,
+            `id: 1:1\ndata: ${JSON.stringify(delivery({ type: EventTypes.TEXT_DELTA, text: 'first' }))}\n\n` +
+            `id: 1:2\ndata: ${JSON.stringify(delivery({ type: EventTypes.TEXT_DELTA, text: 'second' }))}\n\n`,
           ));
           controller.close();
         },

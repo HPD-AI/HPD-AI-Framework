@@ -183,12 +183,13 @@ public abstract class AgentManager : IAsyncDisposable
             if (!string.Equals(cacheKey, agentId, StringComparison.Ordinal))
             {
                 var liveEventHub = _runtimeEventHubs.GetOrAdd(cacheKey, static _ => new EventCoordinator());
-                liveEventBridge = agent.EventCoordinator.Subscribe<AgentEvent>(
-                    evt => liveEventHub.EmitAsync(evt),
-                    new EventSubscriptionOptions
+                liveEventBridge = agent.EventCoordinator.ForwardTo(
+                    liveEventHub,
+                    new EventForwardingOptions
                     {
                         Capacity = 4096,
                         FullMode = System.Threading.Channels.BoundedChannelFullMode.Wait,
+                        EventType = typeof(AgentEvent),
                         IncludeDerivedTypes = true
                     });
             }
@@ -251,10 +252,11 @@ public abstract class AgentManager : IAsyncDisposable
     /// runtime. Once that runtime exists, all of its agent events are forwarded into this hub;
     /// descendant events arrive through normal coordinator bubbling.
     /// </summary>
-    public EventInbox<AgentEvent> CreateRuntimeEventInbox(
+    public DeliveryInbox<AgentEventDelivery> CreateRuntimeEventInbox(
         string agentId,
         string sessionId,
         string threadId,
+        AgentEventHierarchy hierarchy = AgentEventHierarchy.ExactThread,
         EventInboxOptions? options = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
@@ -263,7 +265,11 @@ public abstract class AgentManager : IAsyncDisposable
 
         var cacheKey = RuntimeCacheKey(agentId, sessionId, threadId);
         var hub = _runtimeEventHubs.GetOrAdd(cacheKey, static _ => new EventCoordinator());
-        return hub.CreateInbox<AgentEvent>(options);
+        return AgentEventRoutes.CreateDeliveryInbox(
+            hub,
+            new ThreadKey(sessionId, threadId),
+            hierarchy,
+            options);
     }
 
     /// <summary>

@@ -34,8 +34,15 @@ public sealed class EventBus :
     public void Emit(Event evt) => _coordinator.Emit(evt);
 
     /// <inheritdoc />
+    public void Emit(Event evt, EventRouteDescriptor? route) => _coordinator.Emit(evt, route);
+
+    /// <inheritdoc />
     public ValueTask EmitAsync(Event evt, CancellationToken ct = default) =>
         _coordinator.EmitAsync(evt, ct);
+
+    /// <inheritdoc />
+    public ValueTask EmitAsync(Event evt, EventRouteDescriptor? route, CancellationToken ct = default) =>
+        _coordinator.EmitAsync(evt, route, ct);
 
     /// <inheritdoc />
     public IDisposable Subscribe<TEvent>(
@@ -73,12 +80,24 @@ public sealed class EventBus :
         where TResponse : Event, IResponseEvent =>
         _coordinator.StartRequest<TRequest, TResponse>(request, options);
 
+    /// <inheritdoc />
+    public RequestHandle StartRequest<TRequest, TResponse>(TRequest request, EventRouteDescriptor? route, RequestOptions? options = null)
+        where TRequest : Event, IRequestEvent
+        where TResponse : Event, IResponseEvent =>
+        _coordinator.StartRequest<TRequest, TResponse>(request, route, options);
+
     public RequestHandle RegisterRequest<TRequest, TResponse>(
         TRequest request,
         RequestOptions? options = null)
         where TRequest : Event, IRequestEvent
         where TResponse : Event, IResponseEvent =>
         _coordinator.RegisterRequest<TRequest, TResponse>(request, options);
+
+    /// <inheritdoc />
+    public RequestHandle RegisterRequest<TRequest, TResponse>(TRequest request, EventRouteDescriptor? route, RequestOptions? options = null)
+        where TRequest : Event, IRequestEvent
+        where TResponse : Event, IResponseEvent =>
+        _coordinator.RegisterRequest<TRequest, TResponse>(request, route, options);
 
     /// <inheritdoc />
     public Task<TResponse> RequestAsync<TRequest, TResponse>(
@@ -120,6 +139,9 @@ public sealed class EventBus :
                     "Full event-bus hierarchy support requires an EventBus or EventCoordinator parent.");
         }
     }
+
+    /// <summary>Creates an attached child coordinator with explicit owner inheritance.</summary>
+    public IEventCoordinator CreateChild(EventChildOwnership ownership) => _coordinator.CreateChild(ownership);
 
     /// <inheritdoc />
     public void Dispose() => _coordinator.Dispose();

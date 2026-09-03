@@ -472,7 +472,10 @@ public sealed class SubAgentChildRegistry
     {
         ArgumentNullException.ThrowIfNull(child);
         child.ExecutionPolicy.Validate();
-        for (var attempt = 0; attempt < 8; attempt++)
+        // The parent journal is also advanced by the active agent turn. Yield between
+        // optimistic retries so registration can acquire a gap instead of repeatedly
+        // racing the same publisher continuation.
+        for (var attempt = 0; attempt < 32; attempt++)
         {
             var projection = await ProjectAsync(parent, cancellationToken: cancellationToken).ConfigureAwait(false);
             var replay = projection.Entries.Values.OfType<SubAgentAvailableChild>()
@@ -497,7 +500,12 @@ public sealed class SubAgentChildRegistry
                     cancellationToken).ConfigureAwait(false);
                 return child;
             }
-            catch (ThreadAppendConflictException) when (attempt < 7) { }
+            catch (ThreadAppendConflictException)
+            {
+                if (attempt == 31) break;
+                await Task.Delay(TimeSpan.FromMilliseconds(Math.Min(1 << Math.Min(attempt, 5), 32)), cancellationToken)
+                    .ConfigureAwait(false);
+            }
         }
         throw new InvalidOperationException("subagent_creation_conflict");
     }

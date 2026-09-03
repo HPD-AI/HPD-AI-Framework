@@ -363,6 +363,27 @@ public sealed class MarkdownStreamSessionTests
     }
 
     [Fact]
+    public void PreparedLayoutLimitRetainsNewestPublicationAfterSlotReuse()
+    {
+        var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "prepared-limit"));
+        var options = new MarkdownLayoutOptions(40, MarkdownTheme.FromTheme(Theme.Default));
+        var engine = new MarkdownLayoutEngine();
+        MarkdownMessageDocument? latestDocument = null;
+        MarkdownLayout? latestLayout = null;
+
+        for (var revision = 1; revision <= 10; revision++)
+        {
+            session.Append($"line {revision}\n");
+            latestDocument = session.Refresh().Document;
+            latestLayout = session.Projection.Prepare(latestDocument, options, engine);
+        }
+
+        Assert.Same(
+            latestLayout,
+            session.Projection.RequirePrepared(latestDocument!.Revision, latestLayout!.Key));
+    }
+
+    [Fact]
     public void RepresentativeTokenStreamMeetsParseCoalescingAndStableReuseCounters()
     {
         var source = string.Join("\n\n", Enumerable.Range(0, 40)

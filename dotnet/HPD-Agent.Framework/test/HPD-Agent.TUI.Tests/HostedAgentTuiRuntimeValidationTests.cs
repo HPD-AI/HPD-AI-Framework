@@ -363,8 +363,8 @@ public sealed class HostedAgentTuiRuntimeValidationTests
             ThreadSequenceNumber = 5
         };
         var handler = new RawSequentialSseHandler(
-            $"event: live-agent-event\ndata: {TestEventComposition.Codec.Serialize(live)}\n\n",
-            $"id: 1:5\nevent: agent-event\ndata: {TestEventComposition.Codec.Serialize(committed)}\n\n");
+            $"event: live-agent-event\ndata: {DeliveryJson(live)}\n\n",
+            $"id: 1:5\nevent: agent-event\ndata: {DeliveryJson(committed)}\n\n");
         using var http = new HttpClient(handler)
         {
             BaseAddress = new Uri("http://127.0.0.1/api/hpd-agent/")
@@ -412,8 +412,8 @@ public sealed class HostedAgentTuiRuntimeValidationTests
             ThreadSequenceNumber = 7
         };
         var handler = new RawSequentialSseHandler(
-            $"id: 1:6\nevent: live-agent-event\ndata: {TestEventComposition.Codec.Serialize(live)}\n\n",
-            $"id: 1:7\nevent: agent-event\ndata: {TestEventComposition.Codec.Serialize(next)}\n\n");
+            $"id: 1:6\nevent: live-agent-event\ndata: {DeliveryJson(live)}\n\n",
+            $"id: 1:7\nevent: agent-event\ndata: {DeliveryJson(next)}\n\n");
         using var http = new HttpClient(handler)
         {
             BaseAddress = new Uri("http://127.0.0.1/api/hpd-agent/")
@@ -479,7 +479,7 @@ public sealed class HostedAgentTuiRuntimeValidationTests
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
-                    $"id: 1:{evt.ThreadSequenceNumber}\ndata: {TestEventComposition.Codec.Serialize(evt)}\n\n",
+                    $"id: 1:{evt.ThreadSequenceNumber}\ndata: {DeliveryJson(evt)}\n\n",
                     Encoding.UTF8,
                     "text/event-stream")
             });
@@ -513,6 +513,16 @@ public sealed class HostedAgentTuiRuntimeValidationTests
             Encoding.UTF8,
             "application/json")
     };
+
+    private static string DeliveryJson(AgentEvent evt)
+    {
+        var eventJson = TestEventComposition.Codec.Serialize(evt);
+        var route = JsonSerializer.Serialize(new AgentEventRoute(
+            new ThreadKey(evt.SessionId!, evt.ThreadId!),
+            [new ThreadKey(evt.SessionId!, evt.ThreadId!)],
+            evt.ThreadExecutionId));
+        return $"{{\"event\":{eventJson},\"route\":{route}}}";
+    }
 
     private sealed class ScopeInitializationHandler : HttpMessageHandler
     {

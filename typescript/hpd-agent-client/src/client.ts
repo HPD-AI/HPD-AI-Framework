@@ -117,8 +117,8 @@ export class AgentClient {
     this.api = new AgentHttpApi(this.config.baseUrl, requestOptions);
     this.chat = new ChatManager(this);
     this.transport = this.createTransport();
-    this.transport.onEvent((event) => {
-      const dispatched = this.outputDispatchQueue.then(() => this.dispatchOutputEvent(event));
+    this.transport.onEvent((delivery) => {
+      const dispatched = this.outputDispatchQueue.then(() => this.dispatchOutputEvent(delivery.event));
       this.outputDispatchQueue = dispatched.catch(() => {});
       return dispatched;
     });

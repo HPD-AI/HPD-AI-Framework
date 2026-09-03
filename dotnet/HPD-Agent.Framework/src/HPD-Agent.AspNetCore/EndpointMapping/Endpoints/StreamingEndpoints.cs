@@ -97,13 +97,31 @@ internal static class StreamingEndpoints
         IAgentStreamingService streaming,
         CancellationToken ct = default)
     {
-        var leaseResult = await streaming.ObserveThreadEventsAsync(agentId, sid, bid, ct);
+        if (!TryParseHierarchy(context.Request.Query["hierarchy"].ToString(), out var hierarchy))
+            return TypedResults.BadRequest();
+
+        var leaseResult = await streaming.ObserveThreadEventsAsync(agentId, sid, bid, hierarchy, ct);
         if (leaseResult.Status == AgentServiceStatus.NotFound)
             return TypedResults.NotFound();
 
         await using var observation = leaseResult.Value!;
         await SseEventHandler.StreamEventsAsync(context, observation, ct);
         return TypedResults.Empty;
+    }
+
+    private static bool TryParseHierarchy(string value, out AgentEventHierarchy hierarchy)
+    {
+        hierarchy = value switch
+        {
+            "" or "exactThread" => AgentEventHierarchy.ExactThread,
+            "directChildren" => AgentEventHierarchy.DirectChildren,
+            "threadAndDirectChildren" => AgentEventHierarchy.ThreadAndDirectChildren,
+            "descendants" => AgentEventHierarchy.Descendants,
+            "threadAndDescendants" => AgentEventHierarchy.ThreadAndDescendants,
+            _ => (AgentEventHierarchy)(-1)
+        };
+        return hierarchy >= AgentEventHierarchy.ExactThread &&
+            hierarchy <= AgentEventHierarchy.ThreadAndDescendants;
     }
 
     private static AgentInputEvent? ParseInputEvent(

@@ -564,30 +564,27 @@ public sealed partial class Agent : IAsyncDisposable
             return new AgentCapabilityRefreshResult(false, 0, "This agent has no capability catalog.");
 
         var previousEpoch = CapabilityEpoch;
-        await _eventCoordinator.EmitAsync(
-            EnrichOutputEvent(new AgentCapabilityRefreshStartedEvent(previousEpoch, reason)),
-            cancellationToken).ConfigureAwait(false);
+        var refreshStarted = EnrichOutputEvent(new AgentCapabilityRefreshStartedEvent(previousEpoch, reason));
+        await _eventCoordinator.EmitAsync(refreshStarted, AgentEventRoutes.Create(refreshStarted), cancellationToken).ConfigureAwait(false);
         var result = await _capabilityCatalog.RefreshAsync(reason, cancellationToken).ConfigureAwait(false);
         if (!result.Published)
         {
-            await _eventCoordinator.EmitAsync(
-                EnrichOutputEvent(new AgentCapabilityRefreshRejectedEvent(
+            var refreshRejected = EnrichOutputEvent(new AgentCapabilityRefreshRejectedEvent(
                     result.Epoch,
                     BoundCapabilityRefreshError(result.Error),
-                    reason)),
-                cancellationToken).ConfigureAwait(false);
+                    reason));
+            await _eventCoordinator.EmitAsync(refreshRejected, AgentEventRoutes.Create(refreshRejected), cancellationToken).ConfigureAwait(false);
             return result;
         }
 
         await using var lease = _capabilityCatalog.Acquire();
         _messageProcessor.ReplaceCapabilityFunctions(lease.Snapshot.Functions);
         _containerMiddleware?.ReplaceCapabilityFunctions(lease.Snapshot.Functions);
-        await _eventCoordinator.EmitAsync(
-            EnrichOutputEvent(new AgentCapabilityRefreshPublishedEvent(
+        var refreshPublished = EnrichOutputEvent(new AgentCapabilityRefreshPublishedEvent(
                 previousEpoch,
                 result.Epoch,
-                reason)),
-            cancellationToken).ConfigureAwait(false);
+                reason));
+        await _eventCoordinator.EmitAsync(refreshPublished, AgentEventRoutes.Create(refreshPublished), cancellationToken).ConfigureAwait(false);
         return result;
     }
 
@@ -691,8 +688,14 @@ public sealed partial class Agent : IAsyncDisposable
     }
 
     /// <summary>
-    /// Registers a removable ordered subscriber for the exact event type.
+    /// Registers a removable ordered subscriber for this agent owner's events.
     /// </summary>
+    /// <remarks>
+    /// Same-agent runtime events remain visible after bubbling, while events originating from
+    /// independently owned subagents are excluded. Threadless same-owner events are included.
+    /// The callback runs on a subscriber pump; publication does not await callback completion.
+    /// Disposal stops observation without stopping execution or bubbling.
+    /// </remarks>
     public IDisposable Subscribe<TEvent>(Func<TEvent, ValueTask> handler)
         where TEvent : AgentEvent
     {
@@ -700,8 +703,24 @@ public sealed partial class Agent : IAsyncDisposable
         return _eventCoordinator.Subscribe(handler);
     }
 
+    /// <summary>Subscribes to events whose complete session/thread key equals <paramref name="thread"/>.</summary>
+    /// <remarks>Threadless and descendant events are excluded. Callback execution is asynchronous to publication; disposal affects observation only.</remarks>
+    public IDisposable Subscribe<TEvent>(ThreadKey thread, Func<TEvent, ValueTask> handler)
+        where TEvent : AgentEvent =>
+        Subscribe(thread, AgentEventHierarchy.ExactThread, handler);
+
+    /// <summary>Subscribes to events in an explicitly selected hierarchy rooted at <paramref name="anchor"/>.</summary>
+    /// <remarks>Matching uses the complete session/thread key, is transitive where selected, and excludes sibling branches. Live child events keep their own journal identity. Disposal affects observation only.</remarks>
+    public IDisposable Subscribe<TEvent>(ThreadKey anchor, AgentEventHierarchy hierarchy, Func<TEvent, ValueTask> handler)
+        where TEvent : AgentEvent
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        ValidateThreadKey(anchor);
+        return _eventCoordinator.Subscribe(handler, CreateHierarchyOptions(anchor, hierarchy));
+    }
+
     /// <summary>
-    /// Registers a removable ordered subscriber for the exact event type.
+    /// Registers a removable ordered task subscriber for same-owner events, including threadless events but excluding independently owned descendants.
     /// </summary>
     public IDisposable Subscribe<TEvent>(Func<TEvent, Task> handler)
         where TEvent : AgentEvent
@@ -710,8 +729,16 @@ public sealed partial class Agent : IAsyncDisposable
         return Subscribe<TEvent>(evt => new ValueTask(handler(evt)));
     }
 
+    /// <summary>Subscribes a task callback to events originating from exactly <paramref name="thread"/>.</summary>
+    public IDisposable Subscribe<TEvent>(ThreadKey thread, Func<TEvent, Task> handler)
+        where TEvent : AgentEvent => Subscribe<TEvent>(thread, AgentEventHierarchy.ExactThread, evt => new ValueTask(handler(evt)));
+
+    /// <summary>Subscribes a task callback to an explicitly selected thread hierarchy.</summary>
+    public IDisposable Subscribe<TEvent>(ThreadKey anchor, AgentEventHierarchy hierarchy, Func<TEvent, Task> handler)
+        where TEvent : AgentEvent => Subscribe<TEvent>(anchor, hierarchy, evt => new ValueTask(handler(evt)));
+
     /// <summary>
-    /// Registers a removable ordered subscriber for the exact event type.
+    /// Registers a removable ordered action subscriber for same-owner events, including threadless events but excluding independently owned descendants.
     /// </summary>
     public IDisposable Subscribe<TEvent>(Action<TEvent> handler)
         where TEvent : AgentEvent
@@ -724,17 +751,38 @@ public sealed partial class Agent : IAsyncDisposable
         });
     }
 
+    /// <summary>Subscribes an action to events originating from exactly <paramref name="thread"/>.</summary>
+    public IDisposable Subscribe<TEvent>(ThreadKey thread, Action<TEvent> handler)
+        where TEvent : AgentEvent => Subscribe<TEvent>(thread, AgentEventHierarchy.ExactThread, evt => handler(evt));
+
+    /// <summary>Subscribes an action to an explicitly selected thread hierarchy.</summary>
+    public IDisposable Subscribe<TEvent>(ThreadKey anchor, AgentEventHierarchy hierarchy, Action<TEvent> handler)
+        where TEvent : AgentEvent => Subscribe<TEvent>(anchor, hierarchy, evt =>
+        {
+            handler(evt);
+            return ValueTask.CompletedTask;
+        });
+
     /// <summary>
-    /// Registers a removable ordered catch-all subscriber.
+    /// Registers a removable ordered catch-all subscriber for same-owner events.
     /// </summary>
+    /// <remarks>Threadless same-owner events are included; independently owned descendant events require a keyed hierarchy or explicit infrastructure scope. Callbacks run on a pump and disposal affects observation only.</remarks>
     public IDisposable SubscribeAny(Func<AgentEvent, ValueTask> handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
         return _eventCoordinator.Subscribe<AgentEvent>(handler);
     }
 
+    /// <summary>Subscribes to every agent event originating from exactly <paramref name="thread"/>.</summary>
+    public IDisposable SubscribeAny(ThreadKey thread, Func<AgentEvent, ValueTask> handler) =>
+        SubscribeAny(thread, AgentEventHierarchy.ExactThread, handler);
+
+    /// <summary>Subscribes to every agent event in an explicitly selected thread hierarchy.</summary>
+    public IDisposable SubscribeAny(ThreadKey anchor, AgentEventHierarchy hierarchy, Func<AgentEvent, ValueTask> handler) =>
+        Subscribe(anchor, hierarchy, handler);
+
     /// <summary>
-    /// Registers a removable ordered catch-all subscriber.
+    /// Registers a removable ordered catch-all task subscriber for same-owner events.
     /// </summary>
     public IDisposable SubscribeAny(Func<AgentEvent, Task> handler)
     {
@@ -742,8 +790,16 @@ public sealed partial class Agent : IAsyncDisposable
         return SubscribeAny(evt => new ValueTask(handler(evt)));
     }
 
+    /// <summary>Subscribes a task callback to every event from exactly one thread.</summary>
+    public IDisposable SubscribeAny(ThreadKey thread, Func<AgentEvent, Task> handler) =>
+        SubscribeAny(thread, AgentEventHierarchy.ExactThread, evt => new ValueTask(handler(evt)));
+
+    /// <summary>Subscribes a task callback to every event in a selected hierarchy.</summary>
+    public IDisposable SubscribeAny(ThreadKey anchor, AgentEventHierarchy hierarchy, Func<AgentEvent, Task> handler) =>
+        SubscribeAny(anchor, hierarchy, evt => new ValueTask(handler(evt)));
+
     /// <summary>
-    /// Registers a removable ordered catch-all subscriber.
+    /// Registers a removable ordered catch-all action subscriber for same-owner events.
     /// </summary>
     public IDisposable SubscribeAny(Action<AgentEvent> handler)
     {
@@ -753,6 +809,99 @@ public sealed partial class Agent : IAsyncDisposable
             handler(evt);
             return ValueTask.CompletedTask;
         });
+    }
+
+    /// <summary>Subscribes an action to every event from exactly one thread.</summary>
+    public IDisposable SubscribeAny(ThreadKey thread, Action<AgentEvent> handler) =>
+        SubscribeAny(thread, AgentEventHierarchy.ExactThread, handler);
+
+    /// <summary>Subscribes an action to every event in a selected hierarchy.</summary>
+    public IDisposable SubscribeAny(ThreadKey anchor, AgentEventHierarchy hierarchy, Action<AgentEvent> handler) =>
+        SubscribeAny(anchor, hierarchy, evt =>
+        {
+            handler(evt);
+            return ValueTask.CompletedTask;
+        });
+
+    /// <summary>Creates a caller-owned inbox for one complete session/thread key.</summary>
+    /// <remarks>Threadless events and descendants are excluded. Disposal completes observation without affecting execution or bubbling.</remarks>
+    public HPD.Events.EventInbox<TEvent> CreateEventInbox<TEvent>(
+        ThreadKey thread,
+        HPD.Events.EventInboxOptions? options = null)
+        where TEvent : AgentEvent =>
+        CreateEventInbox<TEvent>(thread, AgentEventHierarchy.ExactThread, options);
+
+    /// <summary>Creates a caller-owned inbox for a selected thread hierarchy.</summary>
+    /// <remarks>Transitive selections retain branch isolation and each event's own thread journal identity. Source order is retained per origin; no global sibling ordering is promised.</remarks>
+    public HPD.Events.EventInbox<TEvent> CreateEventInbox<TEvent>(
+        ThreadKey anchor,
+        AgentEventHierarchy hierarchy,
+        HPD.Events.EventInboxOptions? options = null)
+        where TEvent : AgentEvent
+    {
+        ValidateThreadKey(anchor);
+        ValidateHierarchy(hierarchy);
+        if (_eventCoordinator is not HPD.Events.Core.EventCoordinator coordinator)
+            throw new NotSupportedException("Routed agent inboxes require the built-in EventCoordinator.");
+        return coordinator.CreateFilteredInbox<TEvent>(
+            HPD.Events.EventOwnerScope.AllOwners,
+            new AgentHierarchyDeliveryPolicy(anchor, hierarchy),
+            options);
+    }
+
+    internal HPD.Events.DeliveryInbox<AgentEventDelivery> CreateEventDeliveryInbox(
+        ThreadKey anchor,
+        AgentEventHierarchy hierarchy,
+        HPD.Events.EventInboxOptions? options = null)
+    {
+        ValidateThreadKey(anchor);
+        ValidateHierarchy(hierarchy);
+        if (_eventCoordinator is not HPD.Events.Core.EventCoordinator coordinator)
+            throw new NotSupportedException("Routed agent inboxes require the built-in EventCoordinator.");
+        return coordinator.CreateProjectedDeliveryInbox<AgentEvent, AgentEventDelivery>(
+            HPD.Events.EventOwnerScope.AllOwners,
+            new AgentHierarchyDeliveryPolicy(anchor, hierarchy),
+            AgentDeliveryProjector.Instance,
+            options);
+    }
+
+    /// <summary>Returns pending requests whose immutable routes match a selected thread hierarchy.</summary>
+    /// <param name="anchor">The exact thread or hierarchy root to inspect.</param>
+    /// <param name="hierarchy">The relative hierarchy included in the result.</param>
+    public IReadOnlyList<HPD.Events.PendingRequestSnapshot> GetPendingRequests(
+        ThreadKey anchor,
+        AgentEventHierarchy hierarchy = AgentEventHierarchy.ExactThread)
+    {
+        ValidateThreadKey(anchor);
+        ValidateHierarchy(hierarchy);
+        var policy = new AgentHierarchyDeliveryPolicy(anchor, hierarchy);
+        return _eventCoordinator.GetPendingRequests()
+            .Where(snapshot => snapshot.Request is AgentEvent && policy.Includes(snapshot.Delivery))
+            .ToArray();
+    }
+
+    private static HPD.Events.EventSubscriptionOptions CreateHierarchyOptions(
+        ThreadKey anchor,
+        AgentEventHierarchy hierarchy)
+    {
+        ValidateHierarchy(hierarchy);
+        return new HPD.Events.EventSubscriptionOptions
+        {
+            OwnerScope = HPD.Events.EventOwnerScope.AllOwners,
+            DeliveryPolicy = new AgentHierarchyDeliveryPolicy(anchor, hierarchy)
+        };
+    }
+
+    private static void ValidateHierarchy(AgentEventHierarchy hierarchy)
+    {
+        if (!Enum.IsDefined(hierarchy))
+            throw new ArgumentOutOfRangeException(nameof(hierarchy), hierarchy, "Unknown agent event hierarchy.");
+    }
+
+    private static void ValidateThreadKey(ThreadKey thread)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(thread.SessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(thread.ThreadId);
     }
 
     /// <summary>
@@ -1904,7 +2053,7 @@ public sealed partial class Agent : IAsyncDisposable
             if (!codec.TryGetByType(evt.GetType(), out _))
                 throw new InvalidOperationException($"Agent event type '{evt.GetType().FullName}' is not present in codec '{codec.Digest}'.");
             var live = evt with { ThreadSequenceNumber = 0 };
-            await runtimeCoordinator.EmitAsync(live, cancellationToken).ConfigureAwait(false);
+            await runtimeCoordinator.EmitAsync(live, AgentEventRoutes.Create(live), cancellationToken).ConfigureAwait(false);
             return live;
         }
 
@@ -1919,7 +2068,7 @@ public sealed partial class Agent : IAsyncDisposable
                 ?? throw new InvalidOperationException("Agent runtime has no event composition authority.");
             if (!codec.TryGetByType(stateless.GetType(), out _))
                 throw new InvalidOperationException($"Agent event type '{stateless.GetType().FullName}' is not present in codec '{codec.Digest}'.");
-            await runtimeCoordinator.EmitAsync(stateless, cancellationToken).ConfigureAwait(false);
+            await runtimeCoordinator.EmitAsync(stateless, AgentEventRoutes.Create(stateless), cancellationToken).ConfigureAwait(false);
             return stateless;
         }
 
@@ -1958,8 +2107,7 @@ public sealed partial class Agent : IAsyncDisposable
             _runtimeStarting = true;
             _runtimeCts?.Dispose();
             runtimeCts = new CancellationTokenSource();
-            runtimeCoordinator = new HPD.Events.Core.EventCoordinator();
-            runtimeCoordinator.SetParent(_eventCoordinator);
+            runtimeCoordinator = _eventCoordinator.CreateChild(HPD.Events.EventChildOwnership.InheritOwner);
             runtimeThreadEvents = Config?.SessionStore is { } store
                 ? CreateEventPublisher(store, runtimeCoordinator)
                 : null;
@@ -4958,7 +5106,7 @@ public sealed partial class Agent : IAsyncDisposable
             cancellationToken: cancellationToken))
         {
             var outputEvent = EnrichOutputEvent(evt);
-            await _eventCoordinator.EmitAsync(outputEvent, cancellationToken).ConfigureAwait(false);
+            await _eventCoordinator.EmitAsync(outputEvent, AgentEventRoutes.Create(outputEvent), cancellationToken).ConfigureAwait(false);
             yield return outputEvent;
         }
     }

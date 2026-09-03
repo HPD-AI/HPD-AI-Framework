@@ -7,6 +7,11 @@ namespace HPD.Events;
 /// </summary>
 public sealed record EventInboxOptions
 {
+    /// <summary>
+    /// Controls whether the inbox accepts events from other coordinator owners. The default is
+    /// <see cref="EventOwnerScope.SameOwner"/>; broader infrastructure observation is explicit.
+    /// </summary>
+    public EventOwnerScope OwnerScope { get; init; } = EventOwnerScope.SameOwner;
     /// <summary>Per-inbox mailbox capacity.</summary>
     public int Capacity { get; init; } = 1024;
 
@@ -58,6 +63,7 @@ public sealed record EventInboxOptions
             Capacity = Capacity,
             FullMode = FullMode,
             IncludeDerivedTypes = IncludeDerivedTypes,
-            Channel = Channel
+            Channel = Channel,
+            OwnerScope = OwnerScope
         };
 }

@@ -510,7 +510,10 @@ public class TestEventCoordinator : IEventCoordinator
         }
     }
 
+    public void Emit(Event evt, EventRouteDescriptor? route) => Emit(evt);
+
     public ValueTask EmitAsync(Event evt, CancellationToken ct = default) { Emit(evt); return ValueTask.CompletedTask; }
+    public ValueTask EmitAsync(Event evt, EventRouteDescriptor? route, CancellationToken ct = default) => EmitAsync(evt, ct);
     public IDisposable Subscribe<TEvent>(Func<TEvent, ValueTask> handler, EventSubscriptionOptions? options = null) where TEvent : Event => _inner.Subscribe(handler, options);
     public IDisposable SubscribeAny(Func<Event, ValueTask> handler, EventSubscriptionOptions? options = null) => _inner.SubscribeAny(handler, options);
     public EventInbox<TEvent> CreateInbox<TEvent>(EventInboxOptions? options = null) where TEvent : Event => _inner.CreateInbox<TEvent>(options);
@@ -518,6 +521,8 @@ public class TestEventCoordinator : IEventCoordinator
     public EventCoordinatorStats GetStats() => _inner.GetStats();
 
     public void SetParent(IEventCoordinator parent) => _inner.SetParent(parent);
+    public IEventCoordinator CreateChild(EventChildOwnership ownership) => _inner.CreateChild(ownership);
+    public IDisposable ForwardTo(IEventCoordinator destination, EventForwardingOptions? options = null) => _inner.ForwardTo(destination, options);
 
     public RequestHandle StartRequest<TRequest, TResponse>(
         TRequest request,
@@ -530,12 +535,20 @@ public class TestEventCoordinator : IEventCoordinator
         return handle;
     }
 
+    public RequestHandle StartRequest<TRequest, TResponse>(TRequest request, EventRouteDescriptor? route, RequestOptions? options = null)
+        where TRequest : Event, IRequestEvent where TResponse : Event, IResponseEvent
+        => _inner.StartRequest<TRequest, TResponse>(request, route, options);
+
     public RequestHandle RegisterRequest<TRequest, TResponse>(
         TRequest request,
         RequestOptions? options = null)
         where TRequest : Event, IRequestEvent
         where TResponse : Event, IResponseEvent
         => _inner.RegisterRequest<TRequest, TResponse>(request, options);
+
+    public RequestHandle RegisterRequest<TRequest, TResponse>(TRequest request, EventRouteDescriptor? route, RequestOptions? options = null)
+        where TRequest : Event, IRequestEvent where TResponse : Event, IResponseEvent
+        => _inner.RegisterRequest<TRequest, TResponse>(request, route, options);
 
     public Task<TResponse> RequestAsync<TRequest, TResponse>(
         TRequest request,

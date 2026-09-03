@@ -291,8 +291,11 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         foreach (var pendingRequest in _pendingRecoveryRequests)
             _interactionQueue.Writer.TryWrite(pendingRequest);
         _pendingRecoveryRequests = [];
-        _interactionTask = ProcessInteractionsAsync(_interactionQueue.Reader, _observeCancellation.Token);
-        _observeTask = ObserveAsync(scope, _appliedCursor, _observeCancellation.Token);
+        using (ExecutionContext.SuppressFlow())
+        {
+            _interactionTask = ProcessInteractionsAsync(_interactionQueue.Reader, _observeCancellation.Token);
+            _observeTask = ObserveAsync(scope, _appliedCursor, _observeCancellation.Token);
+        }
     }
 
     private async ValueTask StartObserverIfNeededAsync(
@@ -1309,9 +1312,11 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         foreach (var entry in _state.Shell.Transcript.Snapshot().Entries)
         {
             if (entry.Cell is AssistantMessageCell assistant)
-                PrepareMarkdown(assistant.Document, assistant.Projection, size.Width, theme, reasoning: false);
+                PrepareMarkdown(assistant.Document, assistant.Projection, size.Width, theme, reasoning: false,
+                    entry.Metadata.AgentDepth);
             else if (entry.Cell is ReasoningMessageCell reasoning)
-                PrepareMarkdown(reasoning.Document, reasoning.Projection, size.Width, theme, reasoning: true);
+                PrepareMarkdown(reasoning.Document, reasoning.Projection, size.Width, theme, reasoning: true,
+                    entry.Metadata.AgentDepth);
         }
     }
 
@@ -1320,9 +1325,10 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         MarkdownMessageProjection projection,
         int outerWidth,
         Theme theme,
-        bool reasoning)
+        bool reasoning,
+        int? agentDepth = null)
     {
-        var depthIndent = Math.Max(0, document.Presentation.AgentDepth) * 2;
+        var depthIndent = Math.Max(0, agentDepth ?? document.Presentation.AgentDepth) * 2;
         var effectiveTheme = reasoning
             ? AgentTuiTranscriptRenderServices.Default.CreateMutedTheme(theme)
             : theme;

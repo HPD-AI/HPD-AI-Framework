@@ -1,8 +1,9 @@
 import { parseErrorResponse } from '../errors.js';
 import { SseParser } from '../parser.js';
-import type { AgentEvent, AgentResponseInput, AgentRunInputEvent, RespondResult, RespondStatus } from '../types/events.js';
+import type { AgentResponseInput, AgentRunInputEvent, RespondResult, RespondStatus } from '../types/events.js';
 import type { InputSubmissionResult } from '../types/transport.js';
 import type { ThreadJournalCursor } from '../types/thread-execution.js';
+import type { AgentEventDelivery, AgentEventHierarchy } from '../types/event-delivery.js';
 import type { SseMessage } from '../parser.js';
 import type {
   AgentTransport,
@@ -21,7 +22,8 @@ export class SseTransport implements AgentTransport {
   private sessionId?: string;
   private threadId?: string;
   private abortController?: AbortController;
-  private eventHandler?: (event: AgentEvent) => void | Promise<void>;
+  private eventHandler?: (delivery: AgentEventDelivery) => void | Promise<void>;
+  private hierarchy: AgentEventHierarchy = 'exactThread';
   private errorHandler?: (error: Error) => void;
   private closeHandler?: () => void;
   private _observing = false;
@@ -43,6 +45,10 @@ export class SseTransport implements AgentTransport {
     this.sessionId = scope?.sessionId;
     this.threadId = scope?.threadId || 'main';
     this.agentId = scope?.agentId;
+    this.hierarchy = scope?.hierarchy ?? 'exactThread';
+    if (!isHierarchy(this.hierarchy)) {
+      throw new Error(`Unknown agent event hierarchy '${String(this.hierarchy)}'`);
+    }
 
     if (!this.sessionId) {
       throw new Error('SSE connect() requires sessionId');
@@ -123,7 +129,7 @@ export class SseTransport implements AgentTransport {
     return this.postResponse(input, options);
   }
 
-  onEvent(handler: (event: AgentEvent) => void | Promise<void>): void {
+  onEvent(handler: (delivery: AgentEventDelivery) => void | Promise<void>): void {
     this.eventHandler = handler;
   }
 
@@ -157,7 +163,8 @@ export class SseTransport implements AgentTransport {
       `${this.baseUrl}/agents/${encodeURIComponent(this.agentId!)}` +
       `/sessions/${encodeURIComponent(this.sessionId!)}` +
       `/threads/${encodeURIComponent(this.threadId!)}` +
-      `/events?after=${this.cursor.generation}:${this.cursor.sequenceNumber}`,
+      `/events?after=${this.cursor.generation}:${this.cursor.sequenceNumber}` +
+      `&hierarchy=${encodeURIComponent(this.hierarchy)}`,
       {
         method: 'GET',
         headers: { Accept: 'text/event-stream' },
@@ -257,21 +264,22 @@ export class SseTransport implements AgentTransport {
     }
 
     if (message.kind === 'live-agent-event') {
-      await this.eventHandler!(message.event);
+      await this.eventHandler!(message.delivery);
       return;
     }
 
-    await this.dispatchCommitted(message.id, message.event);
+    await this.dispatchCommitted(message.id, message.delivery);
   }
 
-  private async dispatchCommitted(id: string | null, event: AgentEvent): Promise<void> {
+  private async dispatchCommitted(id: string | null, delivery: AgentEventDelivery): Promise<void> {
+    const event = delivery.event;
     const cursor = parseCommittedCursor(id, event.threadSequenceNumber);
     if (cursor.generation !== this.cursor.generation) {
       throw new ThreadJournalRebasedError(this.cursor.generation, cursor.generation);
     }
     if (cursor.sequenceNumber <= this.cursor.sequenceNumber) return;
 
-    await this.eventHandler!(event);
+    await this.eventHandler!(delivery);
     this.cursor = cursor;
   }
 
@@ -314,6 +322,12 @@ export class SseTransport implements AgentTransport {
 
     return controller.signal;
   }
+}
+
+function isHierarchy(value: unknown): value is AgentEventHierarchy {
+  return value === 'exactThread' || value === 'directChildren' ||
+    value === 'threadAndDirectChildren' || value === 'descendants' ||
+    value === 'threadAndDescendants';
 }
 
 function serializeResponseInput(input: AgentResponseInput): string {

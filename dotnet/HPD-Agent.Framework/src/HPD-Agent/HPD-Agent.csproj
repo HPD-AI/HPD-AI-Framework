@@ -81,10 +81,17 @@
   <ItemGroup>
     <InternalsVisibleTo Include="HPD.Agent.Audio" />
     <InternalsVisibleTo Include="HPD-Agent.Tests" />
+    <InternalsVisibleTo Include="HPD-Agent.EventRouting.Tests" />
+    <InternalsVisibleTo Include="HPD-Agent.AspNetCore.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.ToolHarness.Runtime.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.Authority.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.LiveAudio.Contracts.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.Hosting.Tests" />
+    <InternalsVisibleTo Include="HPD-Agent.Hosting" />
+    <InternalsVisibleTo Include="HPD-Agent.TUI" />
+    <InternalsVisibleTo Include="HPD-Agent.FFI" />
+    <InternalsVisibleTo Include="HPD-Agent.MultiAgent" />
+    <InternalsVisibleTo Include="HPD-Agent.Harness.Coding" />
     <InternalsVisibleTo Include="HPD-Agent.Evaluations.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.Harness.Coding.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.AIFunctionContracts.AotSmoke" />

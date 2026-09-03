@@ -31,7 +31,9 @@ public sealed class WorkflowEventCoordinator : IDisposable
     public ValueTask PublishAsync(
         HPD.Events.Event evt,
         CancellationToken cancellationToken = default) =>
-        _inner.EmitAsync(evt, cancellationToken);
+        evt is AgentEvent agentEvent
+            ? _inner.EmitAsync(agentEvent, AgentEventRoutes.Create(agentEvent), cancellationToken)
+            : _inner.EmitAsync(evt, cancellationToken);
 
     // ── Approval ──────────────────────────────────────────────────────────────
 

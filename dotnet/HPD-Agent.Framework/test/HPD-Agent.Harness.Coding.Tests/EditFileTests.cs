@@ -629,9 +629,11 @@ public sealed class EditFileTests : IDisposable
         public IReadOnlyList<PendingRequestSnapshot> GetPendingRequests() => _inner.GetPendingRequests();
 
         public void Emit(Event evt) => throw new InvalidOperationException("boom");
+        public void Emit(Event evt, EventRouteDescriptor? route) => Emit(evt);
 
         public ValueTask EmitAsync(Event evt, CancellationToken ct = default)
             => throw new InvalidOperationException("boom");
+        public ValueTask EmitAsync(Event evt, EventRouteDescriptor? route, CancellationToken ct = default) => EmitAsync(evt, ct);
 
         public IDisposable Subscribe<TEvent>(Func<TEvent, ValueTask> handler, EventSubscriptionOptions? options = null)
             where TEvent : Event
@@ -648,6 +650,8 @@ public sealed class EditFileTests : IDisposable
             => _inner.CreateChannelInbox(channel, options);
 
         public void SetParent(IEventCoordinator parent) => _inner.SetParent(parent);
+        public IEventCoordinator CreateChild(EventChildOwnership ownership) => _inner.CreateChild(ownership);
+        public IDisposable ForwardTo(IEventCoordinator destination, EventForwardingOptions? options = null) => _inner.ForwardTo(destination, options);
 
         public RequestHandle StartRequest<TRequest, TResponse>(
             TRequest request,
@@ -655,6 +659,9 @@ public sealed class EditFileTests : IDisposable
             where TRequest : Event, IRequestEvent
             where TResponse : Event, IResponseEvent
             => _inner.StartRequest<TRequest, TResponse>(request, options);
+        public RequestHandle StartRequest<TRequest, TResponse>(TRequest request, EventRouteDescriptor? route, RequestOptions? options = null)
+            where TRequest : Event, IRequestEvent where TResponse : Event, IResponseEvent
+            => _inner.StartRequest<TRequest, TResponse>(request, route, options);
 
         public RequestHandle RegisterRequest<TRequest, TResponse>(
             TRequest request,
@@ -662,6 +669,9 @@ public sealed class EditFileTests : IDisposable
             where TRequest : Event, IRequestEvent
             where TResponse : Event, IResponseEvent
             => _inner.RegisterRequest<TRequest, TResponse>(request, options);
+        public RequestHandle RegisterRequest<TRequest, TResponse>(TRequest request, EventRouteDescriptor? route, RequestOptions? options = null)
+            where TRequest : Event, IRequestEvent where TResponse : Event, IResponseEvent
+            => _inner.RegisterRequest<TRequest, TResponse>(request, route, options);
 
         public Task<TResponse> RequestAsync<TRequest, TResponse>(TRequest request, TimeSpan timeout, CancellationToken ct = default)
             where TRequest : Event, IRequestEvent

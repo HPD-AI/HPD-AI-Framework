@@ -38,6 +38,7 @@ public sealed class AgentStreamingService : IAgentStreamingService
         string agentId,
         string sessionId,
         string threadId,
+        AgentEventHierarchy hierarchy = AgentEventHierarchy.ExactThread,
         CancellationToken cancellationToken = default)
     {
         if (await _sessionManager.Store.LoadSessionAsync(sessionId, cancellationToken) == null)
@@ -51,6 +52,7 @@ public sealed class AgentStreamingService : IAgentStreamingService
             agentId,
             sessionId,
             threadId,
+            hierarchy,
             HPD.Events.EventInboxOptions.Deterministic());
         return AgentServiceResult<ThreadEventObservationLease>.Success(
             new ThreadEventObservationLease(_sessionManager.Store, key, liveEvents));

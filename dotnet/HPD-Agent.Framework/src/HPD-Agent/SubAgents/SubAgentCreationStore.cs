@@ -172,7 +172,12 @@ public sealed class JournalSubAgentCreationStore(ISessionStore store) : ISubAgen
                     .ConfigureAwait(false);
                 return new SubAgentCreationReservationResult(record, Created: true);
             }
-            catch (ThreadAppendConflictException) when (attempt < 15) { }
+            catch (ThreadAppendConflictException)
+            {
+                if (attempt == 15) break;
+                await Task.Delay(TimeSpan.FromMilliseconds(Math.Min(1 << Math.Min(attempt, 5), 32)), cancellationToken)
+                    .ConfigureAwait(false);
+            }
         }
         throw new InvalidOperationException("subagent_creation_conflict");
     }
@@ -237,7 +242,12 @@ public sealed class JournalSubAgentCreationStore(ISessionStore store) : ISubAgen
                     .ConfigureAwait(false);
                 return;
             }
-            catch (ThreadAppendConflictException) when (attempt < 15) { }
+            catch (ThreadAppendConflictException)
+            {
+                if (attempt == 15) break;
+                await Task.Delay(TimeSpan.FromMilliseconds(Math.Min(1 << Math.Min(attempt, 5), 32)), cancellationToken)
+                    .ConfigureAwait(false);
+            }
         }
         throw new InvalidOperationException("subagent_creation_write_conflict");
     }

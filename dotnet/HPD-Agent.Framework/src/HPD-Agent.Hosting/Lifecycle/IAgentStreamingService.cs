@@ -9,6 +9,7 @@ public interface IAgentStreamingService
         string agentId,
         string sessionId,
         string threadId,
+        AgentEventHierarchy hierarchy = AgentEventHierarchy.ExactThread,
         CancellationToken cancellationToken = default);
 
     Task<AgentServiceResult<InputSubmissionDto>> SubmitInputAsync(
@@ -48,7 +49,7 @@ public sealed class ThreadEventObservationLease : IAsyncDisposable
     public ThreadEventObservationLease(
         ISessionStore store,
         ThreadKey thread,
-        HPD.Events.EventInbox<AgentEvent> liveEvents)
+        HPD.Events.DeliveryInbox<AgentEventDelivery> liveEvents)
     {
         Store = store ?? throw new ArgumentNullException(nameof(store));
         Thread = thread;
@@ -57,7 +58,7 @@ public sealed class ThreadEventObservationLease : IAsyncDisposable
 
     public ISessionStore Store { get; }
     public ThreadKey Thread { get; }
-    public HPD.Events.EventInbox<AgentEvent> LiveEvents { get; }
+    public HPD.Events.DeliveryInbox<AgentEventDelivery> LiveEvents { get; }
 
     public ValueTask DisposeAsync() => LiveEvents.DisposeAsync();
 }

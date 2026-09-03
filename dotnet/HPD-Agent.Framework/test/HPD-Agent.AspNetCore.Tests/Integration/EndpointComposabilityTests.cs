@@ -233,9 +233,10 @@ public class EndpointComposabilityTests
     private sealed class UnsupportedThreadService : IAgentThreadService
     {
         public Task<AgentServiceResult<IReadOnlyList<ThreadDto>>> ListThreadsAsync(string sessionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult<IReadOnlyList<SubAgentDto>>> ListSubAgentsAsync(string sessionId, string threadId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AgentServiceResult<ThreadDto>> GetThreadAsync(string sessionId, string threadId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AgentServiceResult<ThreadDto>> CreateThreadAsync(string agentId, string sessionId, CreateThreadRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AgentServiceResult<ThreadDto>> ForkThreadAsync(string agentId, string sessionId, string threadId, ForkThreadRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult<ThreadForkResultDto>> ForkThreadAsync(string agentId, string sessionId, string threadId, ForkThreadRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AgentServiceResult<ThreadDto>> UpdateThreadAsync(string sessionId, string threadId, UpdateThreadRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AgentServiceResult> DeleteThreadAsync(string sessionId, string threadId, bool recursive = false, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AgentServiceResult<ThreadGraphDto>> GetThreadGraphAsync(string sessionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
@@ -273,7 +274,7 @@ public class EndpointComposabilityTests
 
     private sealed class UnsupportedStreamingService : IAgentStreamingService
     {
-        public Task<AgentServiceResult<ThreadEventObservationLease>> ObserveThreadEventsAsync(string agentId, string sessionId, string threadId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult<ThreadEventObservationLease>> ObserveThreadEventsAsync(string agentId, string sessionId, string threadId, AgentEventHierarchy hierarchy = AgentEventHierarchy.ExactThread, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AgentServiceResult<InputSubmissionDto>> SubmitInputAsync(string agentId, string sessionId, string threadId, AgentInputEvent input, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AgentServiceResult<ThreadRuntimeStateDto>> GetThreadStateAsync(string agentId, string sessionId, string threadId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AgentServiceResult<ThreadContextUsage>> EstimateContextUsageAsync(string agentId, string sessionId, string threadId, AgentRunConfig? runConfig, CancellationToken cancellationToken = default) => throw new NotSupportedException();

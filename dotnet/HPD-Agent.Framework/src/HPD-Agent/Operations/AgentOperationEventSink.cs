@@ -25,6 +25,6 @@ internal sealed class AgentOperationEventSink(
             return;
         }
 
-        await events.EmitAsync(operationEvent, cancellationToken).ConfigureAwait(false);
+        await events.EmitAsync(operationEvent, AgentEventRoutes.Create(operationEvent), cancellationToken).ConfigureAwait(false);
     }
 }

@@ -10,6 +10,9 @@ public sealed class EventCoordinator :
     IHierarchicalEventBus,
     IDisposable
 {
+    private static readonly object GraphLock = new();
+    private readonly HashSet<EventCoordinator> _forwardDestinations = [];
+    private readonly HashSet<EventCoordinator> _childCoordinators = [];
     private readonly EventChannelRouter _events;
 
     /// <summary>
@@ -17,9 +20,10 @@ public sealed class EventCoordinator :
     /// </summary>
     public EventCoordinator(
         Func<Event, Event>? eventEnricher = null,
-        Func<Event, bool>? eventFilter = null)
+        Func<Event, bool>? eventFilter = null,
+        EventOwnerId? ownerId = null)
     {
-        _events = new EventChannelRouter(eventEnricher, eventFilter);
+        _events = new EventChannelRouter(eventEnricher, eventFilter, ownerId);
     }
 
     internal IEventCoordinator? ParentCoordinatorForCycleDetection => _events.ParentCoordinator;
@@ -38,8 +42,15 @@ public sealed class EventCoordinator :
     public void Emit(Event evt) => _events.Emit(evt);
 
     /// <inheritdoc />
+    public void Emit(Event evt, EventRouteDescriptor? route) => _events.Emit(evt, route);
+
+    /// <inheritdoc />
     public ValueTask EmitAsync(Event evt, CancellationToken ct = default) =>
-        _events.EmitAsync(evt, ct);
+        _events.EmitAsync(evt, null, ct);
+
+    /// <inheritdoc />
+    public ValueTask EmitAsync(Event evt, EventRouteDescriptor? route, CancellationToken ct = default) =>
+        _events.EmitAsync(evt, route, ct);
 
     /// <inheritdoc />
     public IDisposable Subscribe<TEvent>(
@@ -69,15 +80,118 @@ public sealed class EventCoordinator :
     /// <inheritdoc />
     public void SetParent(IEventCoordinator parent)
     {
-        var previousParent = _events.ParentCoordinator;
-        _events.SetParent(parent, this);
+        if (parent is not EventCoordinator next)
+            throw new NotSupportedException("Hierarchical routed delivery requires an EventCoordinator parent.");
+        lock (GraphLock)
+        {
+            var previousParent = _events.ParentCoordinator;
+            if (!ReferenceEquals(previousParent, parent))
+            {
+                if (CanReach(this, next))
+                    throw new InvalidOperationException("The parent is already reachable from this coordinator.");
+                if (CanReach(next, this))
+                    throw new InvalidOperationException("Cannot set parent: this would create a cycle in the coordinator hierarchy.");
+            }
 
-        if (previousParent is EventCoordinator previous)
-            previous.UnregisterChildRouter(_events);
-
-        if (parent is EventCoordinator next)
+            _events.SetParent(parent, this);
+            if (previousParent is EventCoordinator previous && !ReferenceEquals(previous, next))
+            {
+                previous.UnregisterChildRouter(_events);
+                previous._childCoordinators.Remove(this);
+            }
             next.RegisterChildRouter(_events);
+            next._childCoordinators.Add(this);
+        }
     }
+
+    /// <inheritdoc />
+    public IEventCoordinator CreateChild(EventChildOwnership ownership)
+    {
+        var child = new EventCoordinator(ownerId: ownership == EventChildOwnership.InheritOwner ? _events.OwnerId : null);
+        child.SetParent(this);
+        return child;
+    }
+
+    /// <inheritdoc />
+    public IDisposable ForwardTo(IEventCoordinator destination, EventForwardingOptions? options = null)
+    {
+        if (destination is not EventCoordinator target)
+            throw new NotSupportedException("Provenance-preserving forwarding requires an EventCoordinator destination.");
+        if (ReferenceEquals(this, target))
+            throw new InvalidOperationException("A coordinator cannot forward to itself.");
+
+        lock (GraphLock)
+        {
+            if (_forwardDestinations.Contains(target))
+                throw new InvalidOperationException("This forwarding edge already exists.");
+            if (SelfAndDescendants().Any(origin => CanReach(origin, target)))
+                throw new InvalidOperationException("The destination is already reachable from this coordinator.");
+            if (CanReach(target, this))
+                throw new InvalidOperationException("The forwarding edge would create a coordinator cycle.");
+
+            var bridge = _events.CreateForwardingBridge(target, options, RemoveForwardingEdge);
+            _forwardDestinations.Add(target);
+            return bridge;
+        }
+
+        void RemoveForwardingEdge(EventCoordinator removed)
+        {
+            lock (GraphLock)
+                _forwardDestinations.Remove(removed);
+        }
+    }
+
+    private IEnumerable<EventCoordinator> SelfAndDescendants()
+    {
+        var pending = new Stack<EventCoordinator>();
+        var visited = new HashSet<EventCoordinator>();
+        pending.Push(this);
+        while (pending.TryPop(out var current))
+        {
+            if (!visited.Add(current))
+                continue;
+            yield return current;
+            foreach (var child in current._childCoordinators)
+                pending.Push(child);
+        }
+    }
+
+    private static bool CanReach(EventCoordinator source, EventCoordinator destination)
+    {
+        var pending = new Stack<EventCoordinator>();
+        var visited = new HashSet<EventCoordinator>();
+        pending.Push(source);
+        while (pending.TryPop(out var current))
+        {
+            if (!visited.Add(current))
+                continue;
+            if (!ReferenceEquals(current, source) && ReferenceEquals(current, destination))
+                return true;
+            if (current.ParentCoordinatorForCycleDetection is EventCoordinator parent)
+                pending.Push(parent);
+            foreach (var forwarded in current._forwardDestinations)
+                pending.Push(forwarded);
+        }
+        return false;
+    }
+
+    internal void ReceiveFromChild(in RoutedEvent delivery) => _events.ReceiveFromChild(delivery);
+    internal ValueTask ReceiveFromChildAsync(RoutedEvent delivery, CancellationToken ct) => _events.ReceiveFromChildAsync(delivery, ct);
+
+    internal void ReceiveForwarded(in RoutedEvent delivery) => _events.ReceiveForwarded(delivery);
+
+    internal DeliveryInbox<TDelivery> CreateProjectedDeliveryInbox<TEvent, TDelivery>(
+        EventOwnerScope ownerScope,
+        IEventDeliveryPolicy policy,
+        IEventDeliveryProjector<TEvent, TDelivery> projector,
+        EventInboxOptions? options = null)
+        where TEvent : Event => _events.CreateProjectedDeliveryInbox(ownerScope, policy, projector, options);
+
+    internal EventInbox<TEvent> CreateFilteredInbox<TEvent>(
+        EventOwnerScope ownerScope,
+        IEventDeliveryPolicy policy,
+        EventInboxOptions? options = null)
+        where TEvent : Event => _events.CreateFilteredInbox<TEvent>(ownerScope, policy, options);
 
     void IHierarchicalEventBus.SetParent(IEventBus parent)
     {
@@ -96,9 +210,15 @@ public sealed class EventCoordinator :
         RequestOptions? options = null)
         where TRequest : Event, IRequestEvent
         where TResponse : Event, IResponseEvent
+        => StartRequest<TRequest, TResponse>(request, null, options);
+
+    /// <inheritdoc />
+    public RequestHandle StartRequest<TRequest, TResponse>(TRequest request, EventRouteDescriptor? route, RequestOptions? options = null)
+        where TRequest : Event, IRequestEvent
+        where TResponse : Event, IResponseEvent
     {
         ArgumentNullException.ThrowIfNull(request);
-        return _events.StartRequest<TRequest, TResponse>(request, options);
+        return _events.StartRequest<TRequest, TResponse>(request, route, options);
     }
 
     public RequestHandle RegisterRequest<TRequest, TResponse>(
@@ -106,9 +226,15 @@ public sealed class EventCoordinator :
         RequestOptions? options = null)
         where TRequest : Event, IRequestEvent
         where TResponse : Event, IResponseEvent
+        => RegisterRequest<TRequest, TResponse>(request, null, options);
+
+    /// <inheritdoc />
+    public RequestHandle RegisterRequest<TRequest, TResponse>(TRequest request, EventRouteDescriptor? route, RequestOptions? options = null)
+        where TRequest : Event, IRequestEvent
+        where TResponse : Event, IResponseEvent
     {
         ArgumentNullException.ThrowIfNull(request);
-        return _events.RegisterRequest<TRequest, TResponse>(request, options);
+        return _events.RegisterRequest<TRequest, TResponse>(request, route, options);
     }
 
     /// <inheritdoc />
@@ -184,6 +310,13 @@ public sealed class EventCoordinator :
     /// </summary>
     public void Dispose()
     {
-        _events.Dispose();
+        lock (GraphLock)
+        {
+            if (_events.ParentCoordinator is EventCoordinator parent)
+                parent._childCoordinators.Remove(this);
+            _events.Dispose();
+            _forwardDestinations.Clear();
+            _childCoordinators.Clear();
+        }
     }
 }

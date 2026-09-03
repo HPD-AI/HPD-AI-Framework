@@ -145,6 +145,7 @@ public sealed class MarkdownMessageProjection
     private readonly Dictionary<BlockCacheKey, CacheEntry> _blocks = [];
     private readonly LinkedList<BlockCacheKey> _lru = [];
     private readonly Dictionary<PreparedKey, MarkdownLayout> _prepared = [];
+    private readonly Queue<PreparedKey> _preparedOrder = [];
     private readonly Dictionary<PreparedKey, RawPageState> _rawPages = [];
     private IAgentTuiDispatcher? _dispatcher;
     private long _cacheBytes;
@@ -304,10 +305,12 @@ public sealed class MarkdownMessageProjection
             _layoutTicks += Stopwatch.GetElapsedTime(started).Ticks;
         }
         if (layout.DegradationReason != MarkdownDegradationReason.None) _degradations++;
-        _prepared[new(document.Revision, layout.Key)] = layout;
+        var preparedKey = new PreparedKey(document.Revision, layout.Key);
+        _prepared[preparedKey] = layout;
+        _preparedOrder.Enqueue(preparedKey);
         if (_prepared.Count > 8)
         {
-            var oldest = _prepared.Keys.First();
+            var oldest = _preparedOrder.Dequeue();
             _prepared.Remove(oldest);
             _rawPages.Remove(oldest);
         }
@@ -318,7 +321,10 @@ public sealed class MarkdownMessageProjection
     public MarkdownLayout RequirePrepared(long revision, MarkdownLayoutKey key) =>
         _prepared.TryGetValue(new(revision, key), out var layout)
             ? layout
-            : throw new InvalidOperationException("Markdown layout was not prepared for this publication context.");
+            : throw new InvalidOperationException(
+                $"Markdown layout was not prepared for revision {revision}, width {key.Width}, " +
+                $"colors {key.ColorSystem}, mode {key.Mode}. Available revisions: " +
+                string.Join(", ", _prepared.Keys.Select(static prepared => prepared.Revision)));
 
     /// <summary>Gets the persisted raw page currently visible for a prepared publication.</summary>
     public MarkdownLayout RequireVisiblePrepared(long revision, MarkdownLayoutKey key)
@@ -327,6 +333,25 @@ public sealed class MarkdownMessageProjection
         return _rawPages.TryGetValue(preparedKey, out var page)
             ? page.Current
             : RequirePrepared(revision, key);
+    }
+
+    /// <summary>Gets the persisted visible page for an already-prepared document and layout context.</summary>
+    public MarkdownLayout RequireVisiblePrepared(
+        MarkdownMessageDocument document,
+        MarkdownLayoutOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        var key = new MarkdownLayoutKey(
+            document.Parsed.PipelineId,
+            "terminal-v1",
+            options.Width,
+            options.Theme.ThemeKey,
+            options.ColorSystem,
+            options.Mode,
+            options.SyntaxThemeRevision,
+            (options.Spacing ?? new MarkdownSpacing()).Key,
+            (options.ResourceLimits ?? new MarkdownResourceLimits()).Key);
+        return RequireVisiblePrepared(document.Revision, key);
     }
 
     internal bool TryNavigateRawPage(

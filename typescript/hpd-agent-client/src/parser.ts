@@ -1,9 +1,10 @@
 import type { AgentEvent } from './types/events.js';
+import type { AgentEventDelivery } from './types/event-delivery.js';
 
 export interface AgentEventSseMessage {
   kind: 'agent-event' | 'live-agent-event';
   id: string | null;
-  event: AgentEvent;
+  delivery: AgentEventDelivery;
 }
 
 export interface ControlSseMessage {
@@ -105,11 +106,11 @@ export class SseParser {
       // Join multi-line data and parse as JSON
       const json = dataLines.join('\n');
       const parsed = JSON.parse(json);
-      if (isAgentEventLike(parsed)) {
+      if (isAgentEventDelivery(parsed)) {
         return {
           kind: eventName === 'live-agent-event' ? 'live-agent-event' : 'agent-event',
           id,
-          event: parsed,
+          delivery: parsed,
         };
       }
       return eventName !== 'message'
@@ -126,4 +127,22 @@ function isAgentEventLike(value: unknown): value is AgentEvent {
   return value !== null &&
     typeof value === 'object' &&
     typeof (value as { type?: unknown }).type === 'string';
+}
+
+function isAgentEventDelivery(value: unknown): value is AgentEventDelivery {
+  if (value === null || typeof value !== 'object') return false;
+  const delivery = value as { event?: unknown; route?: unknown };
+  if (!isAgentEventLike(delivery.event) || delivery.route === null || typeof delivery.route !== 'object') return false;
+  const route = delivery.route as { origin?: unknown; path?: unknown };
+  if (!isThreadKey(route.origin) || !Array.isArray(route.path) ||
+      route.path.length === 0 || !route.path.every(isThreadKey)) return false;
+  const origin = route.origin as { sessionId: string; threadId: string };
+  const tail = route.path[route.path.length - 1] as { sessionId: string; threadId: string };
+  return tail.sessionId === origin.sessionId && tail.threadId === origin.threadId;
+}
+
+function isThreadKey(value: unknown): boolean {
+  return value !== null && typeof value === 'object' &&
+    typeof (value as { sessionId?: unknown }).sessionId === 'string' &&
+    typeof (value as { threadId?: unknown }).threadId === 'string';
 }

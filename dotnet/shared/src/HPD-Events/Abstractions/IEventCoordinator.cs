@@ -35,6 +35,9 @@ public interface IEventCoordinator
     /// <param name="evt">Event to emit</param>
     void Emit(Event evt);
 
+    /// <summary>Publishes an event with process-local route information.</summary>
+    void Emit(Event evt, EventRouteDescriptor? route);
+
     /// <summary>
     /// Publish an event asynchronously, waiting only when subscriber mailboxes request
     /// backpressure.
@@ -47,6 +50,9 @@ public interface IEventCoordinator
     /// when the caller must observe handler completion.
     /// </remarks>
     ValueTask EmitAsync(Event evt, CancellationToken ct = default);
+
+    /// <summary>Publishes an event asynchronously with process-local route information.</summary>
+    ValueTask EmitAsync(Event evt, EventRouteDescriptor? route, CancellationToken ct = default);
 
     /// <summary>
     /// Register a removable typed handler processed by a background subscriber pump.
@@ -97,11 +103,30 @@ public interface IEventCoordinator
     void SetParent(IEventCoordinator parent);
 
     /// <summary>
+    /// Creates an attached child with explicit owner inheritance. Inherited children remain visible
+    /// to same-owner subscriptions; new-owner children bubble but require all-owner observation.
+    /// </summary>
+    IEventCoordinator CreateChild(EventChildOwnership ownership);
+
+    /// <summary>Creates a provenance-preserving bridge to another coordinator.</summary>
+    /// <remarks>
+    /// The original event, owner, and optional route are retained. Disposal stops forwarding and
+    /// drains admitted bridge work without disposing the source, destination, or their operations.
+    /// Self, duplicate, redundant, cyclic, and unsupported destination edges are rejected.
+    /// </remarks>
+    IDisposable ForwardTo(IEventCoordinator destination, EventForwardingOptions? options = null);
+
+    /// <summary>
     /// Start a tracked answerable request session without requiring the caller to await it immediately.
     /// </summary>
     RequestHandle StartRequest<TRequest, TResponse>(
         TRequest request,
         RequestOptions? options = null)
+        where TRequest : Event, IRequestEvent
+        where TResponse : Event, IResponseEvent;
+
+    /// <summary>Starts a routed answerable request.</summary>
+    RequestHandle StartRequest<TRequest, TResponse>(TRequest request, EventRouteDescriptor? route, RequestOptions? options = null)
         where TRequest : Event, IRequestEvent
         where TResponse : Event, IResponseEvent;
 
@@ -112,6 +137,11 @@ public interface IEventCoordinator
     RequestHandle RegisterRequest<TRequest, TResponse>(
         TRequest request,
         RequestOptions? options = null)
+        where TRequest : Event, IRequestEvent
+        where TResponse : Event, IResponseEvent;
+
+    /// <summary>Registers a routed answerable request without publishing it.</summary>
+    RequestHandle RegisterRequest<TRequest, TResponse>(TRequest request, EventRouteDescriptor? route, RequestOptions? options = null)
         where TRequest : Event, IRequestEvent
         where TResponse : Event, IResponseEvent;
 

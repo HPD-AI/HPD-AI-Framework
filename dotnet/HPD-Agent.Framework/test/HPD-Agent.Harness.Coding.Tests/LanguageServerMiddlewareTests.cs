@@ -1859,11 +1859,15 @@ public sealed class LanguageServerMiddlewareTests
         public void Emit(Event evt)
             => Captured.Add(evt);
 
+        public void Emit(Event evt, EventRouteDescriptor? route) => Emit(evt);
+
         public ValueTask EmitAsync(Event evt, CancellationToken ct = default)
         {
             Emit(evt);
             return ValueTask.CompletedTask;
         }
+
+        public ValueTask EmitAsync(Event evt, EventRouteDescriptor? route, CancellationToken ct = default) => EmitAsync(evt, ct);
 
         public IDisposable Subscribe<TEvent>(
             Func<TEvent, ValueTask> handler,
@@ -1889,6 +1893,9 @@ public sealed class LanguageServerMiddlewareTests
         public void SetParent(IEventCoordinator parent)
             => _inner.SetParent(parent);
 
+        public IEventCoordinator CreateChild(EventChildOwnership ownership) => _inner.CreateChild(ownership);
+        public IDisposable ForwardTo(IEventCoordinator destination, EventForwardingOptions? options = null) => _inner.ForwardTo(destination, options);
+
         public RequestHandle StartRequest<TRequest, TResponse>(
             TRequest request,
             RequestOptions? options = null)
@@ -1896,12 +1903,20 @@ public sealed class LanguageServerMiddlewareTests
             where TResponse : Event, IResponseEvent
             => _inner.StartRequest<TRequest, TResponse>(request, options);
 
+        public RequestHandle StartRequest<TRequest, TResponse>(TRequest request, EventRouteDescriptor? route, RequestOptions? options = null)
+            where TRequest : Event, IRequestEvent where TResponse : Event, IResponseEvent
+            => _inner.StartRequest<TRequest, TResponse>(request, route, options);
+
         public RequestHandle RegisterRequest<TRequest, TResponse>(
             TRequest request,
             RequestOptions? options = null)
             where TRequest : Event, IRequestEvent
             where TResponse : Event, IResponseEvent
             => _inner.RegisterRequest<TRequest, TResponse>(request, options);
+
+        public RequestHandle RegisterRequest<TRequest, TResponse>(TRequest request, EventRouteDescriptor? route, RequestOptions? options = null)
+            where TRequest : Event, IRequestEvent where TResponse : Event, IResponseEvent
+            => _inner.RegisterRequest<TRequest, TResponse>(request, route, options);
 
         public Task<TResponse> RequestAsync<TRequest, TResponse>(
             TRequest request,

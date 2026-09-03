@@ -6,11 +6,16 @@ function sseStream(...events: object[]): ReadableStream<Uint8Array> {
   return new ReadableStream({
     start(controller) {
       const payload = events
-        .map((event, index) => `id: 1:${index + 1}\ndata: ${JSON.stringify(event)}\n\n`)
+        .map((event, index) => `id: 1:${index + 1}\ndata: ${JSON.stringify(delivery(event))}\n\n`)
         .join('');
       controller.enqueue(new TextEncoder().encode(payload));
     },
   });
+}
+
+function delivery(event: object) {
+  const origin = { sessionId: 'session-123', threadId: 'main' };
+  return { event, route: { origin, path: [origin] } };
 }
 
 function okStream(...events: object[]): Response {
