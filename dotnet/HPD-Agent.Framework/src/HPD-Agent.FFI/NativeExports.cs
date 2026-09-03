@@ -127,7 +127,6 @@ public sealed record FfiAgentOperation
 
 internal sealed class FfiEventSubscription : IDisposable
 {
-    private static readonly JsonSerializerOptions RouteJson = new(JsonSerializerDefaults.Web);
     private readonly object _gate = new();
     private readonly EventDeliveryCallback _callback;
     private readonly IntPtr _userData;
@@ -154,7 +153,7 @@ internal sealed class FfiEventSubscription : IDisposable
             await foreach (var delivery in inbox.Reader.ReadAllAsync().ConfigureAwait(false))
             {
                 var json = $"{{\"event\":{codec.Serialize(delivery.Event)}," +
-                    $"\"route\":{JsonSerializer.Serialize(delivery.Route, RouteJson)}}}";
+                    $"\"route\":{JsonSerializer.Serialize(delivery.Route, HPDFFIJsonContext.Default.AgentEventRoute)}}}";
                 Invoke(json);
             }
         });
@@ -213,7 +212,6 @@ internal sealed class FfiEventSubscription : IDisposable
 public static partial class NativeExports
 {
     private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
-    private static readonly JsonSerializerOptions DeliveryJson = new(JsonSerializerDefaults.Web);
 
     internal static IntPtr RegisterManagedAgentForTesting(HPD.Agent.Agent agent) =>
         ObjectManager.Add(agent);
@@ -1094,7 +1092,7 @@ public static partial class NativeExports
             return HpdSubscribeStatus.InvalidArgument;
         if (sessionIdLength > int.MaxValue || threadIdLength > int.MaxValue)
             return HpdSubscribeStatus.InvalidArgument;
-        if (!Enum.IsDefined(typeof(AgentEventHierarchy), hierarchyValue))
+        if (hierarchyValue is < (int)AgentEventHierarchy.ExactThread or > (int)AgentEventHierarchy.ThreadAndDescendants)
             return HpdSubscribeStatus.InvalidHierarchy;
         if (ObjectManager.Get<HPD.Agent.Agent>(agentHandle) is not { } agent)
             return HpdSubscribeStatus.DisposedAgent;
@@ -1188,7 +1186,7 @@ public static partial class NativeExports
                     await foreach (var delivery in inbox.Reader.ReadAllAsync().ConfigureAwait(false))
                     {
                         var eventJson = $"{{\"event\":{agent.Config.EventComposition!.Codec.Serialize(delivery.Event)}," +
-                            $"\"route\":{JsonSerializer.Serialize(delivery.Route, DeliveryJson)}}}";
+                            $"\"route\":{JsonSerializer.Serialize(delivery.Route, HPDFFIJsonContext.Default.AgentEventRoute)}}}";
                         var eventPtr = MarshalString(eventJson);
                         try { callback(context, eventPtr); }
                         finally { Marshal.FreeHGlobal(eventPtr); }

@@ -194,6 +194,7 @@ namespace HPD.Agent.FFI;
 [JsonSerializable(typeof(AgentOperationReceipt))]
 [JsonSerializable(typeof(AgentOperationNotification))]
 [JsonSerializable(typeof(AgentOperationTombstone))]
+[JsonSerializable(typeof(AgentEventRoute))]
 [JsonSerializable(typeof(FunctionInvocationSnapshot))]
 [JsonSerializable(typeof(ToolInvocationInfo))]
 [JsonSerializable(typeof(ToolResultPayload))]

@@ -292,6 +292,18 @@ public sealed class AgentStreamingServiceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ObserveThreadEventsAsync_RejectsUnknownHierarchyBeforeInstallingInbox()
+    {
+        var result = await _service.ObserveThreadEventsAsync(
+            "agent-1",
+            new ThreadKey("session", "thread"),
+            (AgentEventHierarchy)99);
+
+        result.Status.Should().Be(AgentServiceStatus.ValidationError);
+        result.ErrorCode.Should().Be("InvalidEventHierarchy");
+    }
+
+    [Fact]
     public async Task SubmitInputAsync_AllowsSelectedAgentDifferentFromThreadDefault_AndRecordsExecutingAgent()
     {
         var (sessionId, threadId) = await _sessionManager.CreateSessionAsync("agent-1", "session-hosted-run");

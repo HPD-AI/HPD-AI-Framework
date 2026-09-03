@@ -40,6 +40,11 @@ public sealed class AgentStreamingService : IAgentStreamingService
         AgentEventHierarchy hierarchy = AgentEventHierarchy.ExactThread,
         CancellationToken cancellationToken = default)
     {
+        if (hierarchy is < AgentEventHierarchy.ExactThread or > AgentEventHierarchy.ThreadAndDescendants)
+            return AgentServiceResult<ThreadEventObservationLease>.Validation(
+                "InvalidEventHierarchy",
+                $"Unknown agent event hierarchy value '{(int)hierarchy}'.");
+
         if (await _sessionManager.Store.LoadSessionAsync(anchor.SessionId, cancellationToken) == null)
             return AgentServiceResult<ThreadEventObservationLease>.NotFound;
 
