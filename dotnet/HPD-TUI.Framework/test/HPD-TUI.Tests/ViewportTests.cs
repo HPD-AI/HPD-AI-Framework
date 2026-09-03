@@ -20,8 +20,8 @@ public sealed class ViewportTests
 
         viewport.Render(in context, 10, ref writer);
 
-        Assert.Equal(new Rune('t'), grid.GetCell(0, 0).Rune);
-        Assert.Equal(new Rune('t'), grid.GetCell(0, 1).Rune);
+        Assert.Equal(new Rune('t'), grid.GetLeadingRune(grid.GetCell(0, 0)));
+        Assert.Equal(new Rune('t'), grid.GetLeadingRune(grid.GetCell(0, 1)));
         Assert.Equal(1, viewport.ScrollOffset);
     }
 

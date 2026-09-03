@@ -69,6 +69,29 @@ public sealed class TuiApplicationTests
         Assert.Contains("\x1b[?1049l", terminal.Output);
     }
 
+    [Fact]
+    public async Task Dispatcher_SerializesAsyncAndNestedCallbacksOnOneLogicalLoop()
+    {
+        using var terminal = new TestTerminal();
+        using var app = new TuiApplication(terminal);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        var sequence = new List<int>();
+        app.SetRoot(new Text("hello"));
+        var run = app.RunAsync(cancellationToken: cts.Token);
+
+        await app.InvokeAsync(async () =>
+        {
+            sequence.Add(1);
+            await Task.Yield();
+            await app.InvokeAsync(() => sequence.Add(2));
+            sequence.Add(3);
+        });
+        await cts.CancelAsync();
+        await run;
+
+        Assert.Equal([1, 2, 3], sequence);
+    }
+
     private sealed class TestTerminal : ITerminal, ITerminalInput
     {
         private readonly Queue<KeyEvent> _keys = new();

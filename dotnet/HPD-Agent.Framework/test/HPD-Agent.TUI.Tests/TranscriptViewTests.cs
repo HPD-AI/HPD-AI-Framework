@@ -62,7 +62,7 @@ public sealed class TranscriptViewTests
         model.AddFinal(new TranscriptEntry(
             Id: "assistant-1",
             EntryKey: "assistant:1",
-            Cell: new AssistantMessageCell("assistant", new Text("hello")),
+            Cell: HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant("test-assistant", "hello", "assistant"),
             Metadata: new TranscriptEntryMetadata(AgentName: "assistant")));
 
         var view = CreateView(model, height: 4);
@@ -281,8 +281,8 @@ public sealed class TranscriptViewTests
             id,
             entryKey,
             id.Contains("user", StringComparison.Ordinal)
-                ? new UserMessageCell(new Markdown(text))
-                : new AssistantMessageCell("assistant", new Markdown(text)),
+                ? new UserMessageCell(HPD.TUI.Content.MarkdownBlock.Create(text))
+                : HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant(id, text, "assistant"),
             new TranscriptEntryMetadata());
 
     private sealed record UnknownTranscriptCell : TranscriptCell;

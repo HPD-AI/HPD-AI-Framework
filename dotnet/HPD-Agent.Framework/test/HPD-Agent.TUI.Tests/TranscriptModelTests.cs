@@ -113,7 +113,7 @@ public sealed class TranscriptModelTests
             }
         };
 
-        var row = TranscriptEntry.FromEvent(evt, new AssistantMessageCell("assistant", new Text("hello")));
+        var row = TranscriptEntry.FromEvent(evt, HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant("test-assistant", "hello", "assistant"));
 
         row.Metadata.AgentId.Should().Be("root/coder");
         row.Metadata.AgentName.Should().Be("coder");

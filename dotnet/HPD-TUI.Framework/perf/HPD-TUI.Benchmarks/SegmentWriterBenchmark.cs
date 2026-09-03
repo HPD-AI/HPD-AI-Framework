@@ -63,7 +63,7 @@ public class SegmentWriterBenchmark
         public int CursorX { get; private set; }
         public int CursorY { get; private set; }
 
-        public bool Write(scoped ReadOnlySpan<char> text, Style style)
+        public bool Write(scoped ReadOnlySpan<char> text, Style style, TerminalRunMetadata metadata = default)
         {
             CursorX += text.Length;
             return true;

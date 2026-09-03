@@ -1,16 +1,16 @@
 using BenchmarkDotNet.Attributes;
 using HPD.TUI.Rendering;
-using MarkdownComponent = HPD.TUI.Components.Markdown;
+using MarkdownComponent = HPD.TUI.Content.MarkdownBlock;
 
 namespace HPD.TUI.Benchmarks;
 
 [MemoryDiagnoser]
 public class MarkdownRenderBenchmark
 {
-    private readonly MarkdownComponent _shortMarkdown = new("# Title\n\nA short paragraph with **bold** and `code`.");
-    private readonly MarkdownComponent _longMarkdown = new(BuildLongMarkdown());
-    private readonly MarkdownComponent _codeBlocks = new(BuildCodeBlocks());
-    private readonly MarkdownComponent _lists = new(BuildLists());
+    private readonly MarkdownComponent _shortMarkdown = MarkdownComponent.Create("# Title\n\nA short paragraph with **bold** and `code`.");
+    private readonly MarkdownComponent _longMarkdown = MarkdownComponent.Create(BuildLongMarkdown());
+    private readonly MarkdownComponent _codeBlocks = MarkdownComponent.Create(BuildCodeBlocks());
+    private readonly MarkdownComponent _lists = MarkdownComponent.Create(BuildLists());
     private int _widthIndex;
 
     [Benchmark(Baseline = true)]

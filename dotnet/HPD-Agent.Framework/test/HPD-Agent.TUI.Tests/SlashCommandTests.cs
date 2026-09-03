@@ -178,7 +178,7 @@ public sealed class SlashCommandTests
                 page,
                 height: 10))
             .Should()
-            .BeOfType<Markdown>()
+            .BeOfType<HPD.TUI.Content.MarkdownBlock>()
             .Subject
             .Source
             .Should()

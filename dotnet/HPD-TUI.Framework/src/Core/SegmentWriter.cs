@@ -21,10 +21,13 @@ public ref struct SegmentWriter
 
     public int CursorY => _sink.CursorY;
 
-    public bool Write(scoped ReadOnlySpan<char> text, Style style)
+    public bool Write(
+        scoped ReadOnlySpan<char> text,
+        Style style,
+        TerminalRunMetadata metadata = default)
     {
         _count++;
-        return _sink.Write(text, style);
+        return _sink.Write(text, style, metadata);
     }
 
     public bool Write(char value, Style style)
@@ -110,7 +113,7 @@ public interface ISegmentSink
 
     int CursorY { get; }
 
-    bool Write(scoped ReadOnlySpan<char> text, Style style);
+    bool Write(scoped ReadOnlySpan<char> text, Style style, TerminalRunMetadata metadata = default);
 
     bool WriteLineBreak();
 

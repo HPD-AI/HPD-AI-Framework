@@ -10,6 +10,7 @@ using HPD.TUI.Controllers;
 using HPD.TUI.Models;
 using HPD.TUI.Observability;
 using HPD.TUI.Rendering;
+using HPD.TUI.Core;
 
 namespace HPD.Agent.TUI.Tests;
 
@@ -71,7 +72,7 @@ public sealed class TranscriptViewPerformanceTests
             new TranscriptEntry(
                 Id: "assistant-1",
                 EntryKey: "assistant:1",
-                Cell: new AssistantMessageCell(null, new HPD.TUI.Components.Text("assistant")),
+                Cell: HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant("assistant-1", "assistant"),
                 Metadata: new TranscriptEntryMetadata(),
                 VerticalSpacing: 0),
             new TranscriptEntry(
@@ -83,14 +84,14 @@ public sealed class TranscriptViewPerformanceTests
         };
         foreach (var entry in entries)
         {
-            registry.Create(entry);
+            registry.Create(entry, 80, Theme.Default, ColorSystem.TrueColor);
         }
 
         var elapsed = Measure(() =>
         {
             for (var i = 0; i < 25_000; i++)
             {
-                registry.Create(entries[i % entries.Length]);
+                registry.Create(entries[i % entries.Length], 80, Theme.Default, ColorSystem.TrueColor);
             }
         });
 

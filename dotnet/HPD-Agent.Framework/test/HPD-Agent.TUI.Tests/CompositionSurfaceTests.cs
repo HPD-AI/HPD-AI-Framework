@@ -168,7 +168,7 @@ public sealed class CompositionSurfaceTests
         model.Transcript.AddFinal(new TranscriptEntry(
             Id: "row",
             EntryKey: null,
-            new AssistantMessageCell("assistant", new Markdown("hello")),
+            HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant("test-assistant", "hello", "assistant"),
             new TranscriptEntryMetadata()));
 
         var view = registry.ShellLayout.Create(new AgentTuiShellLayoutContext(
@@ -302,7 +302,7 @@ public sealed class CompositionSurfaceTests
             Metadata: new TranscriptEntryMetadata());
 
         var rendered = TuiCapture.RenderToString(
-            registry.TranscriptRenderers.Create(entry),
+            registry.TranscriptRenderers.Create(entry, 80, Theme.Default, ColorSystem.TrueColor),
             width: 80,
             height: 4,
             trimTrailingBlankLines: true);

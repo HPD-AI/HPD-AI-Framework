@@ -6,135 +6,6 @@ using HPD.TUI.Models;
 
 namespace HPD.Agent.TUI.Console;
 
-public sealed class TextMessageStreamHandler : IAgentTuiEventHandler
-{
-    private const string BuffersKey = "hpd.core.text.buffers";
-    private const string RolesKey = "hpd.core.text.roles";
-
-    public bool CanHandle(AgentEvent evt)
-        => evt is TextMessageStartEvent or TextDeltaEvent or TextMessageEndEvent;
-
-    public ValueTask HandleAsync(
-        AgentEvent evt,
-        AgentTuiEventContext context,
-        CancellationToken cancellationToken)
-    {
-        var buffers = context.State.GetOrCreate(
-            BuffersKey,
-            static () => new Dictionary<string, string>(StringComparer.Ordinal));
-        var roles = context.State.GetOrCreate(
-            RolesKey,
-            static () => new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
-
-        switch (evt)
-        {
-            case TextMessageStartEvent start:
-                buffers[start.MessageId] = "";
-                roles[start.MessageId] = start.Role;
-                UpdateTextRow(context, start.MessageId, start.Role, "", start);
-                break;
-
-            case TextDeltaEvent delta:
-                buffers.TryGetValue(delta.MessageId, out var current);
-                current += delta.Text;
-                buffers[delta.MessageId] = current;
-                roles.TryGetValue(delta.MessageId, out var deltaRole);
-                UpdateTextRow(context, delta.MessageId, deltaRole, current, delta);
-                break;
-
-            case TextMessageEndEvent end when buffers.TryGetValue(end.MessageId, out var final):
-                roles.TryGetValue(end.MessageId, out var endRole);
-                UpdateTextRow(context, end.MessageId, endRole, final, end);
-                break;
-        }
-
-        return ValueTask.CompletedTask;
-    }
-
-    private static void UpdateTextRow(
-        AgentTuiEventContext context,
-        string messageId,
-        string? role,
-        string markdown,
-        AgentEvent evt)
-    {
-        if (string.Equals(role, "user", StringComparison.OrdinalIgnoreCase))
-        {
-            context.Shell.Transcript.UpsertLive(new TranscriptEntry(
-                Id: $"user-{messageId}",
-                EntryKey: $"user:{messageId}",
-                Cell: new UserMessageCell(new Text(markdown)),
-                Metadata: new TranscriptEntryMetadata(
-                    AgentId: context.Scope.AgentId,
-                    AgentName: "user")));
-            return;
-        }
-
-        context.Shell.Transcript.UpsertLive(new TranscriptEntry(
-            Id: $"assistant-{messageId}",
-            EntryKey: $"assistant:{messageId}",
-            Cell: new AssistantMessageCell(
-                evt.Metadata?.AgentName ?? context.Scope.AgentId,
-                new Markdown(string.IsNullOrWhiteSpace(markdown) ? "_thinking..._" : markdown),
-                IsStreaming: true),
-            Metadata: TranscriptEntryMetadata.FromEvent(evt)));
-    }
-}
-
-public sealed class ReasoningStreamHandler : IAgentTuiEventHandler
-{
-    private const string BuffersKey = "hpd.core.reasoning.buffers";
-
-    public bool CanHandle(AgentEvent evt)
-        => evt is ReasoningMessageStartEvent or ReasoningDeltaEvent or ReasoningMessageEndEvent;
-
-    public ValueTask HandleAsync(
-        AgentEvent evt,
-        AgentTuiEventContext context,
-        CancellationToken cancellationToken)
-    {
-        var buffers = context.State.GetOrCreate(
-            BuffersKey,
-            static () => new Dictionary<string, string>(StringComparer.Ordinal));
-
-        switch (evt)
-        {
-            case ReasoningMessageStartEvent start:
-                buffers[start.MessageId] = "";
-                UpdateReasoningRow(context, start.MessageId, "", start);
-                break;
-
-            case ReasoningDeltaEvent delta:
-                buffers.TryGetValue(delta.MessageId, out var current);
-                current += delta.Text;
-                buffers[delta.MessageId] = current;
-                UpdateReasoningRow(context, delta.MessageId, current, delta);
-                break;
-
-            case ReasoningMessageEndEvent end when buffers.TryGetValue(end.MessageId, out var final):
-                UpdateReasoningRow(context, end.MessageId, final, end);
-                break;
-        }
-
-        return ValueTask.CompletedTask;
-    }
-
-    private static void UpdateReasoningRow(
-        AgentTuiEventContext context,
-        string messageId,
-        string markdown,
-        AgentEvent evt)
-    {
-        context.Shell.Transcript.UpsertLive(new TranscriptEntry(
-            Id: $"reasoning-{messageId}",
-            EntryKey: $"reasoning:{messageId}",
-            Cell: new ReasoningMessageCell(
-                new Markdown(string.IsNullOrWhiteSpace(markdown) ? "_reasoning..._" : markdown),
-                IsStreaming: true),
-            Metadata: TranscriptEntryMetadata.FromEvent(evt)));
-    }
-}
-
 public sealed class ToolLifecycleHandler : IAgentTuiEventHandler
 {
     private const string ToolRowsKey = "hpd.core.tool.rows";
@@ -196,7 +67,7 @@ public sealed class ToolLifecycleHandler : IAgentTuiEventHandler
             Cell: new ToolCallCell(
                 row.Name,
                 ToRunState(row.State),
-                Summary: new Markdown($"{args}{result}")),
+                Summary: HPD.TUI.Content.MarkdownBlock.Create($"{args}{result}")),
             Metadata: new TranscriptEntryMetadata(
                 AgentId: evt.Metadata?.AgentId ?? $"{context.Scope.AgentId}/tool",
                 AgentName: evt.Metadata?.AgentName ?? "tool",

@@ -353,7 +353,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
     {
         for (var x = 0; x < current.Width; x++)
         {
-            if (current.GetCell(x, y) != previous.GetCell(x, y))
+            if (!current.CellEquals(previous, x, y))
             {
                 return false;
             }

@@ -20,7 +20,7 @@ public sealed class ActivityTests
 
         view.Render(in context, 10, ref writer);
 
-        Assert.Equal(new Rune('⠙'), grid.GetCell(0, 0).Rune);
+        Assert.Equal(new Rune('⠙'), grid.GetLeadingRune(grid.GetCell(0, 0)));
         Assert.Equal("⠙ Work    ", ReadLine(grid, 0));
     }
 
@@ -134,7 +134,7 @@ public sealed class ActivityTests
         Span<char> buffer = stackalloc char[grid.Width];
         for (var x = 0; x < grid.Width; x++)
         {
-            buffer[x] = (char)grid.GetCell(x, y).Rune.Value;
+            buffer[x] = (char)grid.GetLeadingRune(grid.GetCell(x, y)).Value;
         }
 
         return new string(buffer);

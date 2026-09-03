@@ -16,7 +16,7 @@ public sealed class OverlayTests
 
         overlay.Render(in context, 8, ref writer);
 
-        Assert.Equal(new Rune('X'), grid.GetCell(3, 1).Rune);
+        Assert.Equal(new Rune('X'), grid.GetLeadingRune(grid.GetCell(3, 1)));
     }
 
     [Fact]
@@ -35,7 +35,7 @@ public sealed class OverlayTests
 
         overlay.Render(in context, 8, ref writer);
 
-        Assert.Equal(new Rune('X'), grid.GetCell(2, 3).Rune);
+        Assert.Equal(new Rune('X'), grid.GetLeadingRune(grid.GetCell(2, 3)));
     }
 
     [Fact]
@@ -53,7 +53,7 @@ public sealed class OverlayTests
 
         overlay.Render(in context, 8, ref writer);
 
-        Assert.Equal(new Rune('4'), grid.GetCell(0, 0).Rune);
+        Assert.Equal(new Rune('4'), grid.GetLeadingRune(grid.GetCell(0, 0)));
     }
 
     [Fact]
@@ -76,15 +76,15 @@ public sealed class OverlayTests
 
         overlay.Render(in context, 8, ref writer);
 
-        Assert.Equal(new Rune('a'), grid.GetCell(0, 1).Rune);
-        Assert.Equal(new Rune('X'), grid.GetCell(1, 1).Rune);
-        Assert.Equal(new Rune(' '), grid.GetCell(2, 1).Rune);
-        Assert.Equal(new Rune(' '), grid.GetCell(4, 1).Rune);
-        Assert.Equal(new Rune('f'), grid.GetCell(5, 1).Rune);
-        Assert.Equal(new Rune('A'), grid.GetCell(0, 2).Rune);
-        Assert.Equal(new Rune(' '), grid.GetCell(1, 2).Rune);
-        Assert.Equal(new Rune(' '), grid.GetCell(4, 2).Rune);
-        Assert.Equal(new Rune('F'), grid.GetCell(5, 2).Rune);
+        Assert.Equal(new Rune('a'), grid.GetLeadingRune(grid.GetCell(0, 1)));
+        Assert.Equal(new Rune('X'), grid.GetLeadingRune(grid.GetCell(1, 1)));
+        Assert.Equal(new Rune(' '), grid.GetLeadingRune(grid.GetCell(2, 1)));
+        Assert.Equal(new Rune(' '), grid.GetLeadingRune(grid.GetCell(4, 1)));
+        Assert.Equal(new Rune('f'), grid.GetLeadingRune(grid.GetCell(5, 1)));
+        Assert.Equal(new Rune('A'), grid.GetLeadingRune(grid.GetCell(0, 2)));
+        Assert.Equal(new Rune(' '), grid.GetLeadingRune(grid.GetCell(1, 2)));
+        Assert.Equal(new Rune(' '), grid.GetLeadingRune(grid.GetCell(4, 2)));
+        Assert.Equal(new Rune('F'), grid.GetLeadingRune(grid.GetCell(5, 2)));
     }
 
     [Fact]
@@ -98,9 +98,9 @@ public sealed class OverlayTests
 
         host.Render(in context, 8, ref writer);
 
-        Assert.Equal(new Rune('a'), grid.GetCell(0, 0).Rune);
-        Assert.Equal(new Rune('Z'), grid.GetCell(1, 0).Rune);
-        Assert.Equal(new Rune('c'), grid.GetCell(2, 0).Rune);
+        Assert.Equal(new Rune('a'), grid.GetLeadingRune(grid.GetCell(0, 0)));
+        Assert.Equal(new Rune('Z'), grid.GetLeadingRune(grid.GetCell(1, 0)));
+        Assert.Equal(new Rune('c'), grid.GetLeadingRune(grid.GetCell(2, 0)));
     }
 
     private sealed class ContextHeightComponent : IComponent

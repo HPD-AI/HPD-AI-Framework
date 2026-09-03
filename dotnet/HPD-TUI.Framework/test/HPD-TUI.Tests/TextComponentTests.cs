@@ -29,9 +29,9 @@ public sealed class TextComponentTests
 
         text.Render(in context, 3, ref writer);
 
-        Assert.Equal(new Rune('a'), grid.GetCell(0, 0).Rune);
-        Assert.Equal(new Rune('c'), grid.GetCell(2, 0).Rune);
-        Assert.Equal(new Rune('d'), grid.GetCell(0, 1).Rune);
+        Assert.Equal(new Rune('a'), grid.GetLeadingRune(grid.GetCell(0, 0)));
+        Assert.Equal(new Rune('c'), grid.GetLeadingRune(grid.GetCell(2, 0)));
+        Assert.Equal(new Rune('d'), grid.GetLeadingRune(grid.GetCell(0, 1)));
     }
 
     [Fact]
@@ -67,7 +67,7 @@ public sealed class TextComponentTests
         Span<char> buffer = stackalloc char[grid.Width];
         for (var x = 0; x < grid.Width; x++)
         {
-            buffer[x] = (char)grid.GetCell(x, y).Rune.Value;
+            buffer[x] = (char)grid.GetLeadingRune(grid.GetCell(x, y)).Value;
         }
 
         return new string(buffer);

@@ -31,11 +31,17 @@ public sealed class AgentTuiTranscriptRenderContext<TCell>
     public AgentTuiTranscriptRenderContext(
         TranscriptEntry entry,
         TCell cell,
-        AgentTuiTranscriptRenderServices services)
+        AgentTuiTranscriptRenderServices services,
+        int width,
+        Theme theme,
+        ColorSystem colorSystem)
     {
         Entry = entry ?? throw new ArgumentNullException(nameof(entry));
         Cell = cell ?? throw new ArgumentNullException(nameof(cell));
         Services = services ?? throw new ArgumentNullException(nameof(services));
+        Width = width;
+        Theme = theme ?? throw new ArgumentNullException(nameof(theme));
+        ColorSystem = colorSystem;
     }
 
     public TranscriptEntry Entry { get; }
@@ -47,6 +53,9 @@ public sealed class AgentTuiTranscriptRenderContext<TCell>
     public string DepthIndent => Services.GetDepthIndent(Metadata);
 
     public AgentTuiTranscriptRenderServices Services { get; }
+    public int Width { get; }
+    public Theme Theme { get; }
+    public ColorSystem ColorSystem { get; }
 }
 
 public sealed class AgentTuiTranscriptRenderServices
@@ -265,7 +274,7 @@ public sealed class AgentTuiTranscriptRenderServices
 
         public int CursorY => _inner.CursorY;
 
-        public bool Write(scoped ReadOnlySpan<char> text, Style style)
+        public bool Write(scoped ReadOnlySpan<char> text, Style style, TerminalRunMetadata metadata = default)
         {
             if (_needsPrefix)
             {
@@ -276,7 +285,7 @@ public sealed class AgentTuiTranscriptRenderServices
                 }
             }
 
-            return _inner.Write(text, style);
+            return _inner.Write(text, style, metadata);
         }
 
         public bool WriteLineBreak()
@@ -386,7 +395,7 @@ internal interface IAgentTuiTranscriptRendererAdapter
 
     Type CellType { get; }
 
-    IComponent Create(TranscriptEntry entry, AgentTuiTranscriptRenderServices services);
+    IComponent Create(TranscriptEntry entry, AgentTuiTranscriptRenderServices services, int width, Theme theme, ColorSystem colorSystem);
 }
 
 internal sealed class AgentTuiTranscriptRendererAdapter<TCell> : IAgentTuiTranscriptRendererAdapter
@@ -406,7 +415,7 @@ internal sealed class AgentTuiTranscriptRendererAdapter<TCell> : IAgentTuiTransc
 
     public IAgentTuiTranscriptRenderer<TCell> Renderer { get; }
 
-    public IComponent Create(TranscriptEntry entry, AgentTuiTranscriptRenderServices services)
+    public IComponent Create(TranscriptEntry entry, AgentTuiTranscriptRenderServices services, int width, Theme theme, ColorSystem colorSystem)
     {
         if (entry.Cell is not TCell cell)
         {
@@ -414,6 +423,6 @@ internal sealed class AgentTuiTranscriptRendererAdapter<TCell> : IAgentTuiTransc
                 $"Transcript renderer '{Key}' expected cell type '{typeof(TCell).Name}' but received '{entry.Cell.GetType().Name}'.");
         }
 
-        return Renderer.Create(new AgentTuiTranscriptRenderContext<TCell>(entry, cell, services));
+        return Renderer.Create(new AgentTuiTranscriptRenderContext<TCell>(entry, cell, services, width, theme, colorSystem));
     }
 }

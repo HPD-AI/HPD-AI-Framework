@@ -5,6 +5,7 @@ using HPD.Agent.TUI.Application;
 using HPD.Agent.TUI.Commands;
 using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Interactions;
+using HPD.Agent.TUI.Markdown;
 using HPD.Agent.TUI.Models;
 using HPD.Agent.TUI.Observability;
 using HPD.Agent.TUI.Runtime;
@@ -35,6 +36,8 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     private readonly AgentTuiRuntimeScope? _requestedScope;
     private readonly HpdAgentTuiRegistry _registry;
     private readonly ManagedTerminalTuiApplication _application;
+    private readonly MarkdownStreamCoordinator _markdownStreams;
+    private readonly HashSet<MarkdownStreamIdentity> _activeMarkdownStreams = [];
     private readonly object _commandGate = new();
     private readonly Queue<QueuedCommand> _queuedCommands = [];
     private bool _commandsReady;
@@ -75,6 +78,9 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         _requestedScope = requestedScope;
         _registry = registry;
         _application = new ManagedTerminalTuiApplication(terminal);
+        _markdownStreams = new MarkdownStreamCoordinator(
+            new AgentTuiDispatcher(_application),
+            PublishMarkdownUpdate);
         _application.ShortcutHandler = TryExecuteShortcut;
         if (_registry.Theme is { } theme)
         {
@@ -320,6 +326,8 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         _observeTask = null;
         _interactionTask = null;
         _interactionQueue = null;
+        _markdownStreams.DiscardAll();
+        _activeMarkdownStreams.Clear();
     }
 
     private void SubmitPrompt(ReadOnlyMemory<char> value)
@@ -1034,7 +1042,9 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 .WithCancellation(cancellationToken)
                 .ConfigureAwait(false))
             {
-                await OnAgentEventBatchAsync(batch, cancellationToken)
+                await _application.InvokeAsync(
+                        () => new ValueTask(OnAgentEventBatchAsync(batch, cancellationToken)),
+                        cancellationToken)
                     .ConfigureAwait(false);
             }
         }
@@ -1137,6 +1147,9 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             return;
         }
 
+        if (deliveryMode != AgentTuiEventDeliveryMode.Historical)
+            ProjectMarkdownEvent(evt);
+
         await _state.ApplyEventAsync(evt, cancellationToken, deliveryMode).ConfigureAwait(false);
         if (deliveryMode != AgentTuiEventDeliveryMode.Historical &&
             AgentTuiEventScope.CurrentThread.Includes(evt, _scope))
@@ -1152,6 +1165,95 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             CancelActiveInteraction(response.RequestId);
         else if (evt is AgentRequestTerminatedEvent terminal)
             CancelActiveInteraction(terminal.RequestId);
+    }
+
+    private void ProjectMarkdownEvent(AgentEvent evt)
+    {
+        switch (evt)
+        {
+            case TextMessageStartEvent start when !string.Equals(start.Role, "user", StringComparison.OrdinalIgnoreCase):
+                _activeMarkdownStreams.Add(new(MarkdownStreamKind.Assistant, start.MessageId));
+                _markdownStreams.Start(
+                    new(MarkdownStreamKind.Assistant, start.MessageId),
+                    new(
+                        start.Role,
+                        start.Source,
+                        start.Visibility,
+                        start.AuthorName ?? start.Metadata?.AgentName,
+                        start.Persistence,
+                        start.CreatedAt,
+                        start.ClientInputId,
+                        start.Metadata?.AgentId,
+                        start.Metadata?.AgentName,
+                        start.Metadata?.ParentAgentId,
+                        start.Metadata?.AgentChain,
+                        start.Metadata?.Depth ?? 0,
+                        start.SessionId,
+                        start.ThreadId));
+                break;
+            case TextDeltaEvent delta:
+                _markdownStreams.Append(new(MarkdownStreamKind.Assistant, delta.MessageId), delta.Text);
+                break;
+            case TextMessageEndEvent end:
+                _activeMarkdownStreams.Remove(new(MarkdownStreamKind.Assistant, end.MessageId));
+                _markdownStreams.Complete(new(MarkdownStreamKind.Assistant, end.MessageId));
+                break;
+            case ReasoningMessageStartEvent start:
+                _activeMarkdownStreams.Add(new(MarkdownStreamKind.Reasoning, start.MessageId));
+                _markdownStreams.Start(
+                    new(MarkdownStreamKind.Reasoning, start.MessageId),
+                    new(
+                        Role: start.Role,
+                        Source: AgentMessageSource.Internal,
+                        AuthorName: start.Metadata?.AgentName,
+                        AgentId: start.Metadata?.AgentId,
+                        AgentName: start.Metadata?.AgentName,
+                        ParentAgentId: start.Metadata?.ParentAgentId,
+                        AgentChain: start.Metadata?.AgentChain,
+                        AgentDepth: start.Metadata?.Depth ?? 0,
+                        SessionId: start.SessionId,
+                        ThreadId: start.ThreadId));
+                break;
+            case ReasoningDeltaEvent delta:
+                _markdownStreams.Append(new(MarkdownStreamKind.Reasoning, delta.MessageId), delta.Text);
+                break;
+            case ReasoningMessageEndEvent end:
+                _activeMarkdownStreams.Remove(new(MarkdownStreamKind.Reasoning, end.MessageId));
+                _markdownStreams.Complete(new(MarkdownStreamKind.Reasoning, end.MessageId));
+                break;
+            case ThreadExecutionFinishedEvent finished when _activeMarkdownStreams.Count > 0:
+                _activeMarkdownStreams.Clear();
+                _markdownStreams.FinalizeAll(finished.Outcome switch
+                {
+                    ThreadExecutionOutcome.Cancelled => MarkdownMessageState.Cancelled,
+                    ThreadExecutionOutcome.Failed => MarkdownMessageState.Failed,
+                    _ => MarkdownMessageState.Completed
+                });
+                break;
+        }
+    }
+
+    private void PublishMarkdownUpdate(MarkdownStreamUpdate update, MarkdownMessageProjection projection)
+    {
+        if (_state is null || update.Document.Presentation.Visibility == AgentMessageVisibility.Hidden) return;
+        var document = update.Document;
+        var reasoning = document.Identity.Kind == MarkdownStreamKind.Reasoning;
+        _state.Shell.Transcript.UpsertLive(new TranscriptEntry(
+            Id: $"{(reasoning ? "reasoning" : "assistant")}-{document.MessageId}",
+            EntryKey: $"{(reasoning ? "reasoning" : "assistant")}:{document.MessageId}",
+            Cell: reasoning
+                ? new ReasoningMessageCell(document, projection)
+                : new AssistantMessageCell(document.Presentation.AuthorName, document, projection),
+            Metadata: new TranscriptEntryMetadata(
+                AgentId: document.Presentation.AgentId ?? _scope?.AgentId,
+                AgentName: document.Presentation.AgentName ?? document.Presentation.AuthorName,
+                ParentAgentId: document.Presentation.ParentAgentId,
+                AgentChain: document.Presentation.AgentChain,
+                AgentDepth: document.Presentation.AgentDepth,
+                SessionId: document.Presentation.SessionId ?? _scope?.SessionId,
+                ThreadId: document.Presentation.ThreadId ?? _scope?.ThreadId,
+                MessageId: document.MessageId,
+                MessageRole: document.Presentation.Role)));
     }
 
     private async Task ProcessInteractionsAsync(

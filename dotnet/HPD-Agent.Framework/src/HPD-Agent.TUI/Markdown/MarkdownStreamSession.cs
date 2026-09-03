@@ -1,0 +1,150 @@
+using System.Text;
+using HPD.TUI.Markdown;
+
+namespace HPD.Agent.TUI.Markdown;
+
+/// <summary>Describes a source append without forcing a parse.</summary>
+public readonly record struct MarkdownSourceChange(bool SourceChanged, bool CompletedPhysicalLine, long Revision);
+
+/// <summary>Identifies the layout invalidation caused by one publication.</summary>
+public enum MarkdownInvalidationKind { None, MutableTail, StableAppendAndMutableTail, FullMessage, Finalized }
+
+/// <summary>Publishes an immutable message document and its invalidation boundary.</summary>
+public sealed record MarkdownStreamUpdate(
+    MarkdownMessageDocument Document,
+    MarkdownInvalidationKind Invalidation,
+    int PreviousStableSourceLength,
+    int StableSourceLength);
+
+/// <summary>Owns canonical source and newline-gated parsing for one agent message.</summary>
+public sealed class MarkdownStreamSession
+{
+    private readonly StringBuilder _source = new();
+    private readonly IMarkdownDocumentParser _parser;
+    private readonly MarkdownParseOptions _parseOptions;
+    private readonly MarkdownMessagePresentation _presentation;
+    private MarkdownDocumentSnapshot _snapshot;
+    private int _parseableSourceLength;
+    private int _stableSourceLength;
+    private string? _failureDetail;
+
+    public MarkdownStreamSession(
+        MarkdownStreamIdentity identity,
+        MarkdownMessagePresentation? presentation = null,
+        IMarkdownDocumentParser? parser = null,
+        MarkdownPipelineDescriptor? pipeline = null)
+    {
+        if (string.IsNullOrWhiteSpace(identity.MessageId)) throw new ArgumentException("A message ID is required.", nameof(identity));
+        Identity = identity;
+        MessageId = identity.MessageId;
+        LineageId = Guid.NewGuid();
+        Projection = new(identity, LineageId);
+        _presentation = presentation ?? new();
+        _parser = parser ?? new MarkdownDocumentParser();
+        _parseOptions = new() { Pipeline = pipeline ?? MarkdownPipelineFactory.CreateDefault() };
+        _snapshot = _parser.Parse(string.Empty, _parseOptions);
+    }
+
+    /// <summary>Gets the stream kind and external message identity.</summary>
+    public MarkdownStreamIdentity Identity { get; }
+    /// <summary>Gets the external message identity.</summary>
+    public string MessageId { get; }
+    /// <summary>Gets the unique identity of this accepted Start lineage.</summary>
+    public Guid LineageId { get; }
+    /// <summary>Gets the projection retained across document publications.</summary>
+    public MarkdownMessageProjection Projection { get; }
+    /// <summary>Gets the lifecycle state.</summary>
+    public MarkdownMessageState State { get; private set; } = MarkdownMessageState.Streaming;
+    /// <summary>Gets the exact-source revision.</summary>
+    public long Revision { get; private set; }
+    /// <summary>Gets the document-global invalidation epoch.</summary>
+    public long Epoch { get; private set; }
+
+    /// <summary>Appends exact source without parsing it.</summary>
+    public MarkdownSourceChange Append(string delta)
+    {
+        EnsureStreaming();
+        ArgumentNullException.ThrowIfNull(delta);
+        if (delta.Length == 0) return new(false, false, Revision);
+        _source.Append(delta);
+        Revision++;
+        var previousParseable = _parseableSourceLength;
+        var finalNewline = FindFinalNewline(_source);
+        _parseableSourceLength = finalNewline < 0 ? 0 : finalNewline + 1;
+        return new(true, _parseableSourceLength > previousParseable, Revision);
+    }
+
+    /// <summary>Parses the current complete-line prefix and publishes its literal incomplete tail.</summary>
+    public MarkdownStreamUpdate Refresh() => Publish(terminal: false, MarkdownMessageState.Streaming);
+    /// <summary>Completes the stream and parses every accepted code unit.</summary>
+    public MarkdownStreamUpdate Complete() => Transition(MarkdownMessageState.Completed);
+    /// <summary>Interrupts the stream while retaining every accepted code unit.</summary>
+    public MarkdownStreamUpdate Interrupt() => Transition(MarkdownMessageState.Interrupted);
+    /// <summary>Cancels the stream while retaining every accepted code unit.</summary>
+    public MarkdownStreamUpdate Cancel() => Transition(MarkdownMessageState.Cancelled);
+    /// <summary>Fails the stream while retaining every accepted code unit.</summary>
+    public MarkdownStreamUpdate Fail(string? detail = null)
+    {
+        _failureDetail = detail;
+        return Transition(MarkdownMessageState.Failed);
+    }
+
+    private MarkdownStreamUpdate Transition(MarkdownMessageState state)
+    {
+        EnsureStreaming();
+        State = state;
+        return Publish(terminal: true, state);
+    }
+
+    private MarkdownStreamUpdate Publish(bool terminal, MarkdownMessageState state)
+    {
+        var parsedLength = terminal ? _source.Length : _parseableSourceLength;
+        var parsedSource = _source.ToString(0, parsedLength);
+        var previousStable = _stableSourceLength;
+        if (_snapshot.Source != parsedSource) _snapshot = _parser.Parse(parsedSource, _parseOptions);
+
+        var global = (_snapshot.Features & (MarkdownDocumentFeatures.ReferenceDefinitions | MarkdownDocumentFeatures.ExtensionGlobalState)) != 0;
+        _stableSourceLength = terminal ? _snapshot.Source.Length : global ? 0 : FindStableBoundary(_snapshot, terminal: false);
+        if (global && previousStable > 0) Epoch++;
+        Projection.Revision = Revision;
+        Projection.Epoch = Epoch;
+        var tail = _source.ToString(parsedLength, _source.Length - parsedLength);
+        var document = new MarkdownMessageDocument
+        {
+            Identity = Identity,
+            LineageId = LineageId,
+            MessageId = MessageId,
+            Parsed = _snapshot,
+            UnparsedTail = tail,
+            StableSourceLength = _stableSourceLength,
+            State = state,
+            FailureDetail = _failureDetail,
+            Presentation = _presentation,
+            Revision = Revision,
+            Epoch = Epoch
+        };
+        var invalidation = terminal ? MarkdownInvalidationKind.Finalized
+            : global ? MarkdownInvalidationKind.FullMessage
+            : _stableSourceLength > previousStable ? MarkdownInvalidationKind.StableAppendAndMutableTail
+            : MarkdownInvalidationKind.MutableTail;
+        return new(document, invalidation, previousStable, _stableSourceLength);
+    }
+
+    private static int FindStableBoundary(MarkdownDocumentSnapshot snapshot, bool terminal)
+    {
+        if (terminal) return snapshot.Source.Length;
+        if (snapshot.Blocks.Count < 2) return 0;
+        return snapshot.Blocks[^1].SourceStart;
+    }
+
+    private static int FindFinalNewline(StringBuilder source)
+    {
+        for (var index = source.Length - 1; index >= 0; index--) if (source[index] == '\n') return index;
+        return -1;
+    }
+
+    private void EnsureStreaming()
+    {
+        if (State != MarkdownMessageState.Streaming) throw new InvalidOperationException("A terminal Markdown stream cannot be mutated.");
+    }
+}

@@ -5,8 +5,9 @@ using HPD.Events.Signals;
 
 namespace HPD.TUI.Rendering;
 
-public sealed class TuiApplication : IDisposable
+public sealed class TuiApplication : IDisposable, ITuiDispatcher
 {
+    private readonly AsyncLocal<int> _dispatcherDepth = new();
     private static readonly char[] EnterAlternateScreen = ['\x1b', '[', '?', '1', '0', '4', '9', 'h', '\x1b', '[', '2', 'J', '\x1b', '[', 'H'];
     private static readonly char[] LeaveAlternateScreen = ['\x1b', '[', '?', '1', '0', '4', '9', 'l'];
     public static readonly TimeSpan DefaultFrameInterval = TimeSpan.FromMilliseconds(16);
@@ -18,6 +19,7 @@ public sealed class TuiApplication : IDisposable
     private EventLoopMailbox<TuiLoopEvent>? _mailbox;
     private bool _stopRequested;
     private bool _disposed;
+    private int _eventLoopThreadId;
 
     public TuiApplication(ITerminal terminal)
     {
@@ -87,6 +89,7 @@ public sealed class TuiApplication : IDisposable
         using var mailbox = CreateMailbox(options);
         using var loopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _mailbox = mailbox;
+        _eventLoopThreadId = Environment.CurrentManagedThreadId;
         _stopRequested = false;
         var inputPump = PumpInputAsync(mailbox, loopCts.Token);
 
@@ -95,6 +98,7 @@ public sealed class TuiApplication : IDisposable
             var dirty = options.RenderOnStart;
             while (!loopCts.IsCancellationRequested && !_stopRequested)
             {
+                _eventLoopThreadId = Environment.CurrentManagedThreadId;
                 if (dirty)
                 {
                     Render();
@@ -106,7 +110,8 @@ public sealed class TuiApplication : IDisposable
                         options.AnimationTickInterval ?? options.MaxFrameInterval,
                         loopCts.Token)
                     .ConfigureAwait(false);
-                dirty |= DrainEvents(mailbox);
+                _eventLoopThreadId = Environment.CurrentManagedThreadId;
+                dirty |= await DrainEventsAsync(mailbox).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -115,6 +120,7 @@ public sealed class TuiApplication : IDisposable
         finally
         {
             _mailbox = null;
+            _eventLoopThreadId = 0;
             await loopCts.CancelAsync().ConfigureAwait(false);
             await inputPump.ConfigureAwait(false);
             _terminal.ShowCursor();
@@ -150,6 +156,53 @@ public sealed class TuiApplication : IDisposable
     public void RequestRender()
     {
         _mailbox?.TryWrite(new TuiLoopEvent(TuiLoopEventKind.RenderRequested));
+    }
+
+    /// <inheritdoc />
+    public bool CheckAccess() => _dispatcherDepth.Value > 0 ||
+        (_eventLoopThreadId != 0 && _eventLoopThreadId == Environment.CurrentManagedThreadId);
+
+    /// <inheritdoc />
+    public void Post(Action callback)
+    {
+        ArgumentNullException.ThrowIfNull(callback);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var mailbox = _mailbox ?? throw new InvalidOperationException("The TUI event loop is not running.");
+        if (!mailbox.TryWrite(new TuiLoopEvent(TuiLoopEventKind.Callback, Callback: () => { callback(); return ValueTask.CompletedTask; })))
+            throw new InvalidOperationException("The TUI event-loop mailbox rejected the callback.");
+    }
+
+    /// <inheritdoc />
+    public ValueTask InvokeAsync(Action callback, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(callback);
+        if (CheckAccess()) { callback(); return ValueTask.CompletedTask; }
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Post(() =>
+        {
+            if (cancellationToken.IsCancellationRequested) { completion.TrySetCanceled(cancellationToken); return; }
+            try { callback(); completion.TrySetResult(); }
+            catch (Exception exception) { completion.TrySetException(exception); }
+        });
+        return new ValueTask(completion.Task);
+    }
+
+    /// <inheritdoc />
+    public ValueTask InvokeAsync(Func<ValueTask> callback, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(callback);
+        if (CheckAccess()) return callback();
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var mailbox = _mailbox ?? throw new InvalidOperationException("The TUI event loop is not running.");
+        Func<ValueTask> invocation = async () =>
+        {
+            if (cancellationToken.IsCancellationRequested) { completion.TrySetCanceled(cancellationToken); return; }
+            try { await callback().ConfigureAwait(false); completion.TrySetResult(); }
+            catch (Exception exception) { completion.TrySetException(exception); }
+        };
+        if (!mailbox.TryWrite(new TuiLoopEvent(TuiLoopEventKind.Callback, Callback: invocation)))
+            throw new InvalidOperationException("The TUI event-loop mailbox rejected the callback.");
+        return new ValueTask(completion.Task);
     }
 
     private static async ValueTask<bool> WaitForEventOrFrameAsync(
@@ -212,7 +265,7 @@ public sealed class TuiApplication : IDisposable
         }
     }
 
-    private bool DrainEvents(EventLoopMailbox<TuiLoopEvent> mailbox)
+    private async ValueTask<bool> DrainEventsAsync(EventLoopMailbox<TuiLoopEvent> mailbox)
     {
         var dirty = false;
         var events = new TuiLoopEvent[64];
@@ -243,6 +296,13 @@ public sealed class TuiApplication : IDisposable
                     }
 
                     dirty |= HandleInput(in input, requestRender: false);
+                }
+                else if (evt.Kind == TuiLoopEventKind.Callback)
+                {
+                    _dispatcherDepth.Value++;
+                    try { await evt.Callback!().ConfigureAwait(false); }
+                    finally { _dispatcherDepth.Value--; }
+                    dirty = true;
                 }
             }
         }

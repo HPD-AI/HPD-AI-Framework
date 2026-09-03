@@ -101,7 +101,7 @@ public sealed class DefaultAgentTuiShellLayoutTests
 
         var registry = new HpdAgentTuiBuilder()
             .AddAgentTuiDefaults()
-            .ReplaceHeader(_ => new Markdown("logo one\nlogo two\nlogo three\nlogo four\nlogo five\nlogo six"))
+            .ReplaceHeader(_ => HPD.TUI.Content.MarkdownBlock.Create("logo one\nlogo two\nlogo three\nlogo four\nlogo five\nlogo six"))
             .Build();
         var shell = CreateShell(model, registry);
 
@@ -151,7 +151,7 @@ public sealed class DefaultAgentTuiShellLayoutTests
         => new(
             id,
             EntryKey: null,
-            new AssistantMessageCell(label, new Markdown(text)),
+            HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant(id, text, label),
             new TranscriptEntryMetadata());
 
     private static int CountMessages(string text)

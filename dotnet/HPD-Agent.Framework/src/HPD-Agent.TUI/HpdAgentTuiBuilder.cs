@@ -171,7 +171,7 @@ public sealed class HpdAgentTuiBuilder
                     return $"- `/{command.SlashName}` {description}";
                 }));
 
-            return new Markdown($"**Commands**\n\n{commands}");
+            return HPD.TUI.Content.MarkdownBlock.Create($"**Commands**\n\n{commands}");
         })
         {
             Title = "Commands",

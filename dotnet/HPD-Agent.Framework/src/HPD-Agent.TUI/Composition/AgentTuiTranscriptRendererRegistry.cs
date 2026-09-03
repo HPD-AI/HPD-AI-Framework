@@ -60,19 +60,22 @@ public sealed class AgentTuiTranscriptRendererRegistry
         return false;
     }
 
-    public IComponent Create(TranscriptEntry entry)
+    public IComponent Create(TranscriptEntry entry, int width, Theme theme, ColorSystem colorSystem)
     {
         ArgumentNullException.ThrowIfNull(entry);
 
         if (_byType.TryGetValue(entry.Cell.GetType(), out var renderer))
         {
-            return renderer.Create(entry, AgentTuiTranscriptRenderServices.Default);
+            return renderer.Create(entry, AgentTuiTranscriptRenderServices.Default, width, theme, colorSystem);
         }
 
         return _fallback.Create(new AgentTuiTranscriptRenderContext<TranscriptCell>(
             entry,
             entry.Cell,
-            AgentTuiTranscriptRenderServices.Default));
+            AgentTuiTranscriptRenderServices.Default,
+            width,
+            theme,
+            colorSystem));
     }
 
     private sealed class FallbackTranscriptCellRenderer : IAgentTuiTranscriptRenderer<TranscriptCell>

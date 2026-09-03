@@ -225,7 +225,10 @@ public sealed class AgentTuiSessionStateTests
             => new(
                 Id: $"assistant-{messageId}",
                 EntryKey: $"assistant:{messageId}",
-                new AssistantMessageCell("assistant", new Markdown(string.IsNullOrWhiteSpace(markdown) ? "_thinking..._" : markdown)),
+                HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant(
+                    messageId,
+                    string.IsNullOrWhiteSpace(markdown) ? "_thinking..._" : markdown,
+                    "assistant"),
                 new TranscriptEntryMetadata(
                     AgentId: context.Scope.AgentId,
                     AgentName: "assistant",

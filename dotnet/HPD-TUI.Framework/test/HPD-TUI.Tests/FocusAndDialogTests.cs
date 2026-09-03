@@ -75,8 +75,8 @@ public sealed class FocusAndDialogTests
 
         host.Render(in context, 8, ref writer);
 
-        Assert.Equal(new Rune('a'), grid.GetCell(0, 0).Rune);
-        Assert.Equal(new Rune('Z'), grid.GetCell(1, 0).Rune);
-        Assert.Equal(new Rune('c'), grid.GetCell(2, 0).Rune);
+        Assert.Equal(new Rune('a'), grid.GetLeadingRune(grid.GetCell(0, 0)));
+        Assert.Equal(new Rune('Z'), grid.GetLeadingRune(grid.GetCell(1, 0)));
+        Assert.Equal(new Rune('c'), grid.GetLeadingRune(grid.GetCell(2, 0)));
     }
 }

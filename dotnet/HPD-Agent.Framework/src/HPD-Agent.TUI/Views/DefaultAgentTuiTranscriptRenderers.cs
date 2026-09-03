@@ -1,6 +1,9 @@
 using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Models;
+using HPD.Agent.TUI.Markdown;
+using HPD.TUI.Components;
 using HPD.TUI.Core;
+using HPD.TUI.Markdown;
 
 namespace HPD.Agent.TUI.Views;
 
@@ -17,20 +20,29 @@ internal sealed class UserMessageCellRenderer : IAgentTuiTranscriptRenderer<User
 internal sealed class AssistantMessageCellRenderer : IAgentTuiTranscriptRenderer<AssistantMessageCell>
 {
     public IComponent Create(AgentTuiTranscriptRenderContext<AssistantMessageCell> context)
-        => new TranscriptRenderComponent((in RenderContext renderContext, int maxWidth, ref SegmentWriter output) =>
-        {
-            context.Services.Prefix(
-                    context.Cell.Body,
-                    context.DepthIndent,
-                    context.DepthIndent)
-                .Render(in renderContext, maxWidth, ref output);
-        });
+        => context.Services.Prefix(
+            MarkdownProjectionView.Create(
+                context.Cell.Document,
+                context.Cell.Projection,
+                Math.Max(1, context.Width - context.DepthIndent.Length),
+                context.Theme,
+                context.ColorSystem),
+            context.DepthIndent,
+            context.DepthIndent);
 }
 
 internal sealed class ReasoningMessageCellRenderer : IAgentTuiTranscriptRenderer<ReasoningMessageCell>
 {
     public IComponent Create(AgentTuiTranscriptRenderContext<ReasoningMessageCell> context)
-        => new TranscriptRenderComponent((in RenderContext renderContext, int maxWidth, ref SegmentWriter output) =>
+    {
+        var mutedTheme = context.Services.CreateMutedTheme(context.Theme);
+        var body = MarkdownProjectionView.Create(
+            context.Cell.Document,
+            context.Cell.Projection,
+            Math.Max(1, context.Width - context.DepthIndent.Length - 2),
+            mutedTheme,
+            context.ColorSystem);
+        return new TranscriptRenderComponent((in RenderContext renderContext, int maxWidth, ref SegmentWriter output) =>
         {
             output.Write(context.DepthIndent.AsSpan(), renderContext.Theme.Text);
             output.Write("reasoning".AsSpan(), AgentTuiTranscriptRenderServices.Muted);
@@ -42,11 +54,12 @@ internal sealed class ReasoningMessageCellRenderer : IAgentTuiTranscriptRenderer
                 renderContext.ColorSystem,
                 renderContext.Elapsed);
             context.Services.Prefix(
-                    context.Cell.Body,
+                    body,
                     $"{context.DepthIndent}  ",
                     $"{context.DepthIndent}  ")
                 .Render(in mutedContext, maxWidth, ref output);
         });
+    }
 }
 
 internal sealed class NoticeCellRenderer : IAgentTuiTranscriptRenderer<NoticeCell>
@@ -192,3 +205,18 @@ internal delegate void RenderTranscriptComponent(
     in RenderContext context,
     int maxWidth,
     ref SegmentWriter output);
+
+internal static class MarkdownProjectionView
+{
+    private static readonly IMarkdownLayoutEngine LayoutEngine = new MarkdownLayoutEngine();
+
+    internal static MarkdownView Create(
+        MarkdownMessageDocument document,
+        MarkdownMessageProjection projection,
+        int width,
+        Theme theme,
+        ColorSystem colorSystem) => new(projection.ResolveLayout(
+            document,
+            new(width, MarkdownTheme.FromTheme(theme), colorSystem),
+            LayoutEngine));
+}

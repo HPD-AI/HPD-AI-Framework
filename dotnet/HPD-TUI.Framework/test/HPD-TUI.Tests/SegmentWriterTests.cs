@@ -28,7 +28,7 @@ public sealed class SegmentWriterTests
 
         public int CursorY { get; private set; }
 
-        public bool Write(scoped ReadOnlySpan<char> text, Style style)
+        public bool Write(scoped ReadOnlySpan<char> text, Style style, TerminalRunMetadata metadata = default)
         {
             TextCount++;
             return true;

@@ -172,7 +172,7 @@ internal static class ConsoleAgentCommands
         => AppendOrUpdate(context, new TranscriptEntry(
                 Id: $"command-{Guid.NewGuid():N}",
                 EntryKey: entryKey,
-                Cell: new NoticeCell(title, new Markdown(markdown)),
+                Cell: new NoticeCell(title, HPD.TUI.Content.MarkdownBlock.Create(markdown)),
                 Metadata: Metadata(context)));
 
     private static void AppendOrUpdate(AgentTuiCommandContext context, TranscriptEntry entry)
@@ -219,7 +219,7 @@ internal static class ConsoleAgentCommands
         if (snapshot.Agents.Count == 0)
         {
             markdown.AppendLine("No stored agents found.");
-            return new Markdown(markdown.ToString());
+            return HPD.TUI.Content.MarkdownBlock.Create(markdown.ToString());
         }
 
         for (var i = 0; i < snapshot.Agents.Count; i++)
@@ -238,7 +238,7 @@ internal static class ConsoleAgentCommands
                 .AppendLine(EscapeMarkdown(FormatTime(agent.UpdatedAt)));
         }
 
-        return new Markdown(markdown.ToString());
+        return HPD.TUI.Content.MarkdownBlock.Create(markdown.ToString());
     }
 
     private static bool HandleAgentsPageInput(AgentTuiPageContext context, KeyEvent key)
@@ -277,7 +277,7 @@ internal static class ConsoleAgentCommands
         var agent = PageState.Snapshot().SelectedAgent;
         if (agent is null)
         {
-            return new Markdown("**Agent**\n\nNo agent selected.");
+            return HPD.TUI.Content.MarkdownBlock.Create("**Agent**\n\nNo agent selected.");
         }
 
         var markdown = new StringBuilder();
@@ -289,7 +289,7 @@ internal static class ConsoleAgentCommands
         markdown.Append("- current: ").AppendLine(agent.Id == context.Scope.AgentId ? "yes" : "no");
         markdown.AppendLine();
         markdown.AppendLine("Actions: `s` switch, Esc back.");
-        return new Markdown(markdown.ToString());
+        return HPD.TUI.Content.MarkdownBlock.Create(markdown.ToString());
     }
 
     private static bool HandleAgentDetailPageInput(AgentTuiPageContext context, KeyEvent key)

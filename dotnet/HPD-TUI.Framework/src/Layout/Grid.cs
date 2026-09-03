@@ -301,7 +301,7 @@ public sealed class Grid : IComponent
                 continue;
             }
 
-            if (cell.Rune.Value != ' ')
+            if (!grid.GetGrapheme(cell).SequenceEqual(" "))
             {
                 width = x + 1;
             }
@@ -317,7 +317,6 @@ public sealed class Grid : IComponent
             return;
         }
 
-        Span<char> runeBuffer = stackalloc char[2];
         var writtenWidth = 0;
         for (var x = 0; x < grid.Width && writtenWidth < maxWidth; x++)
         {
@@ -327,11 +326,11 @@ public sealed class Grid : IComponent
                 continue;
             }
 
-            if (cell.Rune.TryEncodeToUtf16(runeBuffer, out var written))
-            {
-                output.Write(runeBuffer[..written], cell.Style);
-                writtenWidth++;
-            }
+            output.Write(
+                grid.GetGrapheme(cell),
+                cell.Style,
+                new TerminalRunMetadata(grid.GetHyperlink(cell)));
+            writtenWidth += cell.DisplayWidth;
         }
     }
 }

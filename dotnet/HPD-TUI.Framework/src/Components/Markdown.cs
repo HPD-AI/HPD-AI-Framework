@@ -1,5 +1,6 @@
 using System.Text;
 using HPD.TUI.Core;
+using HPD.TUI.Markdown;
 using HPD.TUI.Rendering;
 using HPD.TUI.Terminal;
 using HPD.TUI.Utilities;
@@ -13,41 +14,34 @@ using Markdig.Syntax.Inlines;
 
 namespace HPD.TUI.Components;
 
-public sealed class Markdown : IComponent
+internal sealed class MarkdownLayoutComponent : IComponent
 {
     private const int MaxInlineRenderHeight = 16_384;
 
-    private static readonly Markdig.MarkdownPipeline Pipeline = new Markdig.MarkdownPipelineBuilder()
-        .UseEmphasisExtras()
-        .UseAutoLinks()
-        .UseTaskLists()
-        .UsePipeTables()
-        .Build();
-
-    private string _source;
+    private readonly string _source;
     private readonly Theme? _themeOverride;
     private readonly Dictionary<Table, MarkdownTableModel> _tableModels = [];
     private readonly Dictionary<Table, MarkdownTableLayout> _tableLayouts = [];
     private readonly Dictionary<Block, string> _blockText = [];
-    private MarkdownDocument? _document;
-    private bool _parseAttempted;
+    private readonly MarkdownDocument _document;
+    private readonly Block? _selectedBlock;
+    private readonly MarkdownTheme? _markdownTheme;
+    private readonly ICodeHighlighter _codeHighlighter;
 
-    public Markdown(string source, Theme? theme = null)
+    internal MarkdownLayoutComponent(
+        string source,
+        MarkdownDocument document,
+        Theme? theme = null,
+        Block? selectedBlock = null,
+        MarkdownTheme? markdownTheme = null,
+        ICodeHighlighter? codeHighlighter = null)
     {
         _source = source ?? throw new ArgumentNullException(nameof(source));
+        _document = document ?? throw new ArgumentNullException(nameof(document));
         _themeOverride = theme;
-    }
-
-    public string Source => _source;
-
-    public void SetSource(string source)
-    {
-        _source = source ?? throw new ArgumentNullException(nameof(source));
-        _document = null;
-        _parseAttempted = false;
-        _tableModels.Clear();
-        _tableLayouts.Clear();
-        _blockText.Clear();
+        _selectedBlock = selectedBlock;
+        _markdownTheme = markdownTheme;
+        _codeHighlighter = codeHighlighter ?? new BasicCodeHighlighter();
     }
 
     public Measurement Measure(in RenderContext context, int maxWidth)
@@ -64,17 +58,16 @@ public sealed class Markdown : IComponent
     public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
         var theme = _themeOverride ?? context.Theme;
-        var document = GetDocument();
-        if (document is null)
+        var state = new RenderState(theme, maxWidth, context.Height);
+        if (_selectedBlock is not null)
         {
-            output.Write(_source.AsSpan(), theme.Text);
+            RenderBlock(_selectedBlock, ref state, ref output);
             return;
         }
 
-        var state = new RenderState(theme, maxWidth, context.Height);
         var first = true;
 
-        foreach (var block in document)
+        foreach (var block in _document)
         {
             if (output.CursorY >= context.Height)
             {
@@ -97,33 +90,6 @@ public sealed class Markdown : IComponent
     public bool HandleInput(in TuiInputEvent key)
     {
         return false;
-    }
-
-    private MarkdownDocument? GetDocument()
-    {
-        if (!_parseAttempted)
-        {
-            ParseSource();
-        }
-
-        return _document;
-    }
-
-    private void ParseSource()
-    {
-        _parseAttempted = true;
-        _tableModels.Clear();
-        _tableLayouts.Clear();
-        _blockText.Clear();
-
-        try
-        {
-            _document = Markdig.Markdown.Parse(_source, Pipeline);
-        }
-        catch
-        {
-            _document = null;
-        }
     }
 
     private string GetBlockText(Block block, bool trim = false, bool trimEnd = false)
@@ -215,7 +181,7 @@ public sealed class Markdown : IComponent
         output.WriteLineBreak();
 
         var code = GetBlockText(codeBlock, trimEnd: true);
-        RenderCodeLines(code.AsSpan(), language, ref state, ref output);
+        RenderCodeLines(code, language.ToString(), ref state, ref output);
     }
 
     private void RenderCodeBlock(CodeBlock codeBlock, ref RenderState state, ref SegmentWriter output)
@@ -224,7 +190,7 @@ public sealed class Markdown : IComponent
         output.WriteLineBreak();
 
         var code = GetBlockText(codeBlock, trimEnd: true);
-        RenderCodeLines(code.AsSpan(), default, ref state, ref output);
+        RenderCodeLines(code, null, ref state, ref output);
     }
 
     private static void RenderCodeHeader(ReadOnlySpan<char> language, ref RenderState state, ref SegmentWriter output)
@@ -237,19 +203,15 @@ public sealed class Markdown : IComponent
         }
     }
 
-    private static void RenderCodeLines(ReadOnlySpan<char> code, ReadOnlySpan<char> language, ref RenderState state, ref SegmentWriter output)
+    private void RenderCodeLines(string code, string? language, ref RenderState state, ref SegmentWriter output)
     {
-        var first = true;
-        foreach (var line in EnumerateLines(code))
+        var highlighted = _codeHighlighter.Highlight(code.AsMemory(), language, _markdownTheme ?? MarkdownTheme.FromTheme(state.Theme));
+        for (var index = 0; index < highlighted.Lines.Length; index++)
         {
-            if (!first)
-            {
-                output.WriteLineBreak();
-            }
-
-            first = false;
+            if (index > 0) output.WriteLineBreak();
             output.Write("  ", state.Theme.Border);
-            RenderHighlightedCode(line, language, ref state, ref output);
+            foreach (var run in highlighted.Lines[index].Runs)
+                output.Write(run.Text, run.Style, new TerminalRunMetadata(run.Hyperlink));
         }
     }
 
@@ -376,7 +338,6 @@ public sealed class Markdown : IComponent
         bool trimLeadingBlankCells,
         ref SegmentWriter output)
     {
-        Span<char> runeBuffer = stackalloc char[2];
         var trimming = trimLeadingBlankCells;
         for (var x = 0; x < grid.Width; x++)
         {
@@ -386,16 +347,16 @@ public sealed class Markdown : IComponent
                 continue;
             }
 
-            if (trimming && cell.Rune.Value == ' ')
+            if (trimming && grid.GetGrapheme(cell).SequenceEqual(" "))
             {
                 continue;
             }
 
             trimming = false;
-            if (cell.Rune.TryEncodeToUtf16(runeBuffer, out var written))
-            {
-                output.Write(runeBuffer[..written], cell.Style);
-            }
+            output.Write(
+                grid.GetGrapheme(cell),
+                cell.Style,
+                new TerminalRunMetadata(grid.GetHyperlink(cell)));
         }
     }
 
@@ -902,7 +863,7 @@ public sealed class Markdown : IComponent
         }
     }
 
-    private static void RenderInlines(ContainerInline? container, Style baseStyle, ref RenderState state, ref SegmentWriter output)
+    private static void RenderInlines(ContainerInline? container, Style baseStyle, ref RenderState state, ref SegmentWriter output, TerminalRunMetadata metadata = default)
     {
         if (container is null)
         {
@@ -911,32 +872,34 @@ public sealed class Markdown : IComponent
 
         foreach (var inline in container)
         {
-            RenderInline(inline, baseStyle, ref state, ref output);
+            RenderInline(inline, baseStyle, ref state, ref output, metadata);
         }
     }
 
-    private static void RenderInline(Inline inline, Style baseStyle, ref RenderState state, ref SegmentWriter output)
+    private static void RenderInline(Inline inline, Style baseStyle, ref RenderState state, ref SegmentWriter output, TerminalRunMetadata metadata)
     {
         switch (inline)
         {
             case LiteralInline literal:
-                output.Write(literal.Content.AsSpan(), baseStyle);
+                output.Write(literal.Content.AsSpan(), baseStyle, metadata);
                 break;
             case EmphasisInline emphasis:
-                RenderEmphasis(emphasis, baseStyle, ref state, ref output);
+                RenderEmphasis(emphasis, baseStyle, ref state, ref output, metadata);
                 break;
             case CodeInline code:
-                output.Write(code.Content.AsSpan(), new Style(state.Theme.Accent.Foreground, baseStyle.Background));
+                output.Write(code.Content.AsSpan(), new Style(state.Theme.Accent.Foreground, baseStyle.Background), metadata);
                 break;
             case LinkInline { IsImage: true } image:
                 output.Write("[img] ", state.Theme.Border);
                 RenderInlines(image, state.Theme.Border, ref state, ref output);
                 break;
             case LinkInline link:
-                RenderInlines(link, new Style(state.Theme.Accent.Foreground, state.Theme.Accent.Background, TextAttributes.Underline), ref state, ref output);
+                TerminalHyperlinkPolicy.TryCreate(link.Url, out var hyperlink);
+                RenderInlines(link, new Style(state.Theme.Accent.Foreground, state.Theme.Accent.Background, TextAttributes.Underline), ref state, ref output, new TerminalRunMetadata(hyperlink));
                 break;
             case AutolinkInline autoLink:
-                output.Write(autoLink.Url.AsSpan(), new Style(state.Theme.Accent.Foreground, state.Theme.Accent.Background, TextAttributes.Underline));
+                TerminalHyperlinkPolicy.TryCreate(autoLink.Url, out var autoHyperlink);
+                output.Write(autoLink.Url.AsSpan(), new Style(state.Theme.Accent.Foreground, state.Theme.Accent.Background, TextAttributes.Underline), new TerminalRunMetadata(autoHyperlink));
                 break;
             case LineBreakInline lineBreak:
                 if (lineBreak.IsHard)
@@ -956,12 +919,12 @@ public sealed class Markdown : IComponent
                 output.Write(task.Checked ? "[x] " : "[ ] ", task.Checked ? state.Theme.Success : state.Theme.Border);
                 break;
             case ContainerInline nested:
-                RenderInlines(nested, baseStyle, ref state, ref output);
+                RenderInlines(nested, baseStyle, ref state, ref output, metadata);
                 break;
         }
     }
 
-    private static void RenderEmphasis(EmphasisInline emphasis, Style baseStyle, ref RenderState state, ref SegmentWriter output)
+    private static void RenderEmphasis(EmphasisInline emphasis, Style baseStyle, ref RenderState state, ref SegmentWriter output, TerminalRunMetadata metadata)
     {
         var attributes = emphasis.DelimiterChar == '~'
             ? baseStyle.Attributes | TextAttributes.Strikethrough
@@ -973,68 +936,7 @@ public sealed class Markdown : IComponent
                 _ => baseStyle.Attributes
             };
 
-        RenderInlines(emphasis, new Style(baseStyle.Foreground, baseStyle.Background, attributes), ref state, ref output);
-    }
-
-    private static void RenderHighlightedCode(ReadOnlySpan<char> line, ReadOnlySpan<char> language, ref RenderState state, ref SegmentWriter output)
-    {
-        var pos = 0;
-        var commentPrefix = GetCommentPrefix(language);
-
-        while (pos < line.Length)
-        {
-            if (!commentPrefix.IsEmpty && line[pos..].StartsWith(commentPrefix, StringComparison.Ordinal))
-            {
-                output.Write(line[pos..], state.Theme.Border);
-                return;
-            }
-
-            var ch = line[pos];
-            if (char.IsWhiteSpace(ch))
-            {
-                output.Write(line[pos..(pos + 1)], state.Theme.Text);
-                pos++;
-                continue;
-            }
-
-            if (ch is '"' or '\'' or '`')
-            {
-                var end = FindQuotedStringEnd(line, pos, ch);
-                output.Write(line[pos..end], state.Theme.Warning);
-                pos = end;
-                continue;
-            }
-
-            if (char.IsAsciiDigit(ch) || (ch == '-' && pos + 1 < line.Length && char.IsAsciiDigit(line[pos + 1])))
-            {
-                var end = pos + 1;
-                while (end < line.Length && IsNumberChar(line[end]))
-                {
-                    end++;
-                }
-
-                output.Write(line[pos..end], state.Theme.Success);
-                pos = end;
-                continue;
-            }
-
-            if (char.IsLetter(ch) || ch == '_')
-            {
-                var end = pos + 1;
-                while (end < line.Length && (char.IsLetterOrDigit(line[end]) || line[end] == '_'))
-                {
-                    end++;
-                }
-
-                var word = line[pos..end];
-                output.Write(word, IsKeyword(word, language) ? state.Theme.Accent : state.Theme.Text);
-                pos = end;
-                continue;
-            }
-
-            output.Write(line[pos..(pos + 1)], IsPunctuation(ch) ? state.Theme.Border : state.Theme.Text);
-            pos++;
-        }
+        RenderInlines(emphasis, new Style(baseStyle.Foreground, baseStyle.Background, attributes), ref state, ref output, metadata);
     }
 
     private static void RenderRule(ref RenderState state, ref SegmentWriter output)
@@ -1068,102 +970,6 @@ public sealed class Markdown : IComponent
         }
 
         return line;
-    }
-
-    private static ReadOnlySpan<char> GetCommentPrefix(ReadOnlySpan<char> language)
-    {
-        if (EqualsLanguage(language, "python") || EqualsLanguage(language, "py") ||
-            EqualsLanguage(language, "bash") || EqualsLanguage(language, "sh") ||
-            EqualsLanguage(language, "shell") || EqualsLanguage(language, "zsh") ||
-            EqualsLanguage(language, "yaml") || EqualsLanguage(language, "yml"))
-        {
-            return "#";
-        }
-
-        if (EqualsLanguage(language, "sql"))
-        {
-            return "--";
-        }
-
-        return "//";
-    }
-
-    private static bool IsKeyword(ReadOnlySpan<char> word, ReadOnlySpan<char> language)
-    {
-        if (EqualsLanguage(language, "python") || EqualsLanguage(language, "py"))
-        {
-            return IsOneOf(word, "False", "None", "True", "and", "as", "assert", "async", "await", "break", "class", "continue", "def", "elif", "else", "except", "finally", "for", "from", "if", "import", "in", "is", "lambda", "not", "or", "pass", "raise", "return", "try", "while", "with", "yield");
-        }
-
-        if (EqualsLanguage(language, "javascript") || EqualsLanguage(language, "js") ||
-            EqualsLanguage(language, "typescript") || EqualsLanguage(language, "ts"))
-        {
-            return IsOneOf(word, "async", "await", "break", "case", "catch", "class", "const", "continue", "default", "else", "export", "extends", "false", "finally", "for", "function", "if", "import", "in", "let", "new", "null", "return", "switch", "this", "throw", "true", "try", "typeof", "undefined", "var", "while");
-        }
-
-        if (EqualsLanguage(language, "sql"))
-        {
-            return IsOneOfIgnoreCase(word, "SELECT", "FROM", "WHERE", "INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "ALTER", "TABLE", "JOIN", "LEFT", "RIGHT", "INNER", "OUTER", "ON", "AND", "OR", "NOT", "NULL", "ORDER", "BY", "GROUP", "LIMIT", "AS");
-        }
-
-        return IsOneOf(word, "abstract", "as", "base", "bool", "break", "case", "catch", "class", "const", "continue", "default", "delegate", "do", "else", "enum", "event", "false", "finally", "for", "foreach", "if", "in", "int", "interface", "internal", "is", "lock", "namespace", "new", "null", "object", "out", "override", "params", "private", "protected", "public", "readonly", "ref", "return", "sealed", "static", "string", "struct", "switch", "this", "throw", "true", "try", "typeof", "using", "var", "void", "while", "async", "await", "record", "yield");
-    }
-
-    private static bool IsOneOf(ReadOnlySpan<char> word, params string[] values)
-    {
-        foreach (var value in values)
-        {
-            if (word.Equals(value, StringComparison.Ordinal))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static bool IsOneOfIgnoreCase(ReadOnlySpan<char> word, params string[] values)
-    {
-        foreach (var value in values)
-        {
-            if (word.Equals(value, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static bool EqualsLanguage(ReadOnlySpan<char> language, string value) =>
-        language.Equals(value, StringComparison.OrdinalIgnoreCase);
-
-    private static bool IsNumberChar(char ch) =>
-        char.IsAsciiDigit(ch) || ch is '.' or 'e' or 'E' or 'f' or 'F' or 'd' or 'D' or 'l' or 'L' or 'm' or 'M' or 'x' or 'X' ||
-        (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F');
-
-    private static bool IsPunctuation(char ch) => "+-*/%=<>!&|^~?:;,.()[]{}".Contains(ch);
-
-    private static int FindQuotedStringEnd(ReadOnlySpan<char> line, int start, char delimiter)
-    {
-        var pos = start + 1;
-        while (pos < line.Length)
-        {
-            if (line[pos] == '\\' && pos + 1 < line.Length)
-            {
-                pos += 2;
-                continue;
-            }
-
-            if (line[pos] == delimiter)
-            {
-                return pos + 1;
-            }
-
-            pos++;
-        }
-
-        return line.Length;
     }
 
     private static LineEnumerable EnumerateLines(ReadOnlySpan<char> source) => new(source);

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using HPD.TUI.Components;
+using HPD.TUI.Content;
 using HPD.TUI.Core;
 using HPD.TUI.Rendering;
 using HPD.TUI.Utilities;
@@ -38,7 +39,7 @@ public sealed class TuiFrameworkPerformanceGuardrailTests
     [Fact]
     public void Markdown_Render_RepeatedSameWidth_IsStableAndBounded()
     {
-        var markdown = new HPD.TUI.Components.Markdown(string.Join(
+        var markdown = MarkdownBlock.Create(string.Join(
             "\n",
             Enumerable.Range(0, 200).Select(static i => $"- item {i:D4} with enough words to wrap at narrow widths")));
 
@@ -58,7 +59,7 @@ public sealed class TuiFrameworkPerformanceGuardrailTests
     [Fact]
     public void Markdown_Render_WidthChange_InvalidatesOnlyWidthDependentCache()
     {
-        var markdown = new HPD.TUI.Components.Markdown(string.Join(
+        var markdown = MarkdownBlock.Create(string.Join(
             "\n",
             Enumerable.Range(0, 200).Select(static i => $"- item {i:D4} with enough words to wrap at narrow widths")));
         TuiCapture.RenderToString(markdown, width: 80, height: 80, trimTrailingBlankLines: true);
@@ -163,7 +164,7 @@ public sealed class TuiFrameworkPerformanceGuardrailTests
 
         public int CursorY { get; private set; }
 
-        public bool Write(scoped ReadOnlySpan<char> text, Style style)
+        public bool Write(scoped ReadOnlySpan<char> text, Style style, TerminalRunMetadata metadata = default)
         {
             CharactersWritten += text.Length;
             CursorX += text.Length;

@@ -266,7 +266,7 @@ public sealed class TableAndTreeTests
         Span<char> buffer = stackalloc char[grid.Width];
         for (var x = 0; x < grid.Width; x++)
         {
-            buffer[x] = (char)grid.GetCell(x, y).Rune.Value;
+            buffer[x] = (char)grid.GetLeadingRune(grid.GetCell(x, y)).Value;
         }
 
         return new string(buffer);

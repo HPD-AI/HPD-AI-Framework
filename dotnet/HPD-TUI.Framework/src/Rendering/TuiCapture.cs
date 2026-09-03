@@ -109,7 +109,6 @@ public static class TuiCapture
         }
 
         var builder = new StringBuilder(grid.Width);
-        Span<char> runeBuffer = stackalloc char[2];
         for (var x = 0; x < grid.Width; x++)
         {
             var cell = grid.GetCell(x, y);
@@ -118,10 +117,7 @@ public static class TuiCapture
                 continue;
             }
 
-            if (cell.Rune.TryEncodeToUtf16(runeBuffer, out var written))
-            {
-                builder.Append(runeBuffer[..written]);
-            }
+            builder.Append(grid.GetGrapheme(cell));
         }
 
         return builder.ToString();
@@ -149,7 +145,6 @@ public static class TuiCapture
             throw new ArgumentOutOfRangeException(nameof(y));
         }
 
-        Span<char> runeBuffer = stackalloc char[2];
         for (var x = 0; x < grid.Width; x++)
         {
             var cell = grid.GetCell(x, y);
@@ -158,10 +153,10 @@ public static class TuiCapture
                 continue;
             }
 
-            if (cell.Rune.TryEncodeToUtf16(runeBuffer, out var written))
-            {
-                output.Write(runeBuffer[..written], cell.Style);
-            }
+            output.Write(
+                grid.GetGrapheme(cell),
+                cell.Style,
+                new TerminalRunMetadata(grid.GetHyperlink(cell)));
         }
     }
 
@@ -184,7 +179,7 @@ public static class TuiCapture
                 continue;
             }
 
-            if (cell.Rune.Value != ' ')
+            if (!grid.GetGrapheme(cell).SequenceEqual(" "))
             {
                 return false;
             }

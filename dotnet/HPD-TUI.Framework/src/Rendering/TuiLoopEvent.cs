@@ -4,12 +4,14 @@ namespace HPD.TUI.Rendering;
 
 internal readonly record struct TuiLoopEvent(
     TuiLoopEventKind Kind,
-    TerminalInputEvent Input = default);
+    TerminalInputEvent Input = default,
+    Func<ValueTask>? Callback = null);
 
 internal enum TuiLoopEventKind
 {
     Input,
     RenderRequested,
     Tick,
-    Stop
+    Stop,
+    Callback
 }

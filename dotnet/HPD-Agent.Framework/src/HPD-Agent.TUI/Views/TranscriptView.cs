@@ -21,7 +21,7 @@ public sealed class TranscriptView : IComponent
     private readonly List<VisibleTranscriptRow> _visibleRows = [];
     private int _modelVersion = -1;
     private int _renderWidth;
-    private Theme? _renderTheme;
+    private ThemeKey _renderThemeKey;
     private ColorSystem _renderColorSystem;
     private bool _cacheInitialized;
     private bool _disposed;
@@ -161,7 +161,7 @@ public sealed class TranscriptView : IComponent
         if (_cacheInitialized &&
             modelVersion == _modelVersion &&
             maxWidth == _renderWidth &&
-            ReferenceEquals(context.Theme, _renderTheme) &&
+            context.Theme.Key == _renderThemeKey &&
             context.ColorSystem == _renderColorSystem)
         {
             return;
@@ -170,7 +170,7 @@ public sealed class TranscriptView : IComponent
         var resetRenderedEntries =
             !_cacheInitialized ||
             maxWidth != _renderWidth ||
-            !ReferenceEquals(context.Theme, _renderTheme) ||
+            context.Theme.Key != _renderThemeKey ||
             context.ColorSystem != _renderColorSystem;
 
         if (resetRenderedEntries)
@@ -207,7 +207,7 @@ public sealed class TranscriptView : IComponent
 
         _modelVersion = modelVersion;
         _renderWidth = maxWidth;
-        _renderTheme = context.Theme;
+        _renderThemeKey = context.Theme.Key;
         _renderColorSystem = context.ColorSystem;
         _cacheInitialized = true;
     }
@@ -381,7 +381,7 @@ internal sealed class RenderedTranscriptEntry : IDisposable
     {
         Source = source;
         Width = width;
-        Theme = theme;
+        ThemeKey = theme.Key;
         ColorSystem = colorSystem;
         _grid = grid;
         LineCount = lineCount;
@@ -391,7 +391,7 @@ internal sealed class RenderedTranscriptEntry : IDisposable
 
     public int Width { get; }
 
-    public Theme Theme { get; }
+    public ThemeKey ThemeKey { get; }
 
     public ColorSystem ColorSystem { get; }
 
@@ -403,7 +403,7 @@ internal sealed class RenderedTranscriptEntry : IDisposable
         in RenderContext context,
         int maxWidth)
     {
-        var component = renderers.Create(entry);
+        var component = renderers.Create(entry, maxWidth, context.Theme, context.ColorSystem);
         var measuredHeight = Math.Max(1, component.Measure(in context, maxWidth).Height);
         var grid = CaptureCompleteEntry(component, measuredHeight, maxWidth, in context);
         var lineCount = Math.Max(1, TuiCapture.GetUsedLineCount(grid));
@@ -443,7 +443,7 @@ internal sealed class RenderedTranscriptEntry : IDisposable
         ColorSystem colorSystem)
         => ReferenceEquals(Source, source) &&
            Width == width &&
-           ReferenceEquals(Theme, theme) &&
+           ThemeKey == theme.Key &&
            ColorSystem == colorSystem;
 
     public void WriteLine(int line, ref SegmentWriter output)
