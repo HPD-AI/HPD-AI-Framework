@@ -172,6 +172,7 @@ public sealed class TerminalGrid : ISegmentSink, IDisposable
             if (TerminalTextSafety.IsUnsafe(ch)) return WriteGrapheme("�", style, link);
         var width = GetWidth(grapheme);
         if (width == 0) return AppendToPrevious(grapheme);
+        if (width > Width) return WriteGrapheme("�", style, link);
         if (_cursorX + width > Width) { _cursorX = 0; _cursorY++; }
         if (_cursorY >= Height) return false;
         var offset = Append(grapheme);

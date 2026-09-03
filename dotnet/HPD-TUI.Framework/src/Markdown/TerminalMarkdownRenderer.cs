@@ -76,8 +76,7 @@ internal sealed class TerminalMarkdownRenderer : RendererBase
         ActiveHyperlink = null;
         ListDepth = QuoteDepth = 0;
         PendingListMarker = string.Empty;
-        if (_options.Mode == MarkdownPresentationMode.Raw) WriteExact(block.Syntax, _options.Theme.Body);
-        else Write(block.Syntax);
+        Write(block.Syntax);
         return _builder.Freeze(block.SourceStart, block.SourceEndExclusive);
     }
 
@@ -104,6 +103,28 @@ internal sealed class TerminalMarkdownRenderer : RendererBase
         ActiveHyperlink = hyperlink;
         try { action(); }
         finally { CurrentStyle = oldStyle; ActiveHyperlink = oldLink; }
+    }
+
+    internal MarkdownBlockLayout RenderNested(ContainerBlock container, int width, Style style)
+    {
+        var previousBuilder = _builder;
+        var previousStyle = CurrentStyle;
+        var previousLink = ActiveHyperlink;
+        _builder = new(Math.Max(1, width));
+        CurrentStyle = style;
+        ActiveHyperlink = null;
+        try
+        {
+            foreach (var child in container) Write(child);
+            var (start, end) = NormalizeSpan(container);
+            return _builder.Freeze(start, end);
+        }
+        finally
+        {
+            _builder = previousBuilder;
+            CurrentStyle = previousStyle;
+            ActiveHyperlink = previousLink;
+        }
     }
 }
 
@@ -277,26 +298,36 @@ internal sealed class TableRenderer : TerminalObjectRenderer<Table>
 {
     protected override void Write(TerminalMarkdownRenderer r, Table table)
     {
-        var rows = table.OfType<TableRow>().Select(row => row.OfType<TableCell>().Select(Extract).ToArray()).ToArray();
+        var rows = table.OfType<TableRow>().Select(row => row.OfType<TableCell>().ToArray()).ToArray();
         var columns = rows.Length == 0 ? 0 : rows.Max(row => row.Length);
         if (columns == 0) return;
-        var widths = Widths(rows, columns, r.Options.Width);
+        var naturalLayouts = rows.Select((row, rowIndex) => row.Select(cell =>
+            r.RenderNested(cell, 4096, rowIndex == 0 ? r.Options.Theme.TableHeader : r.Options.Theme.Body)).ToArray()).ToArray();
+        var natural = naturalLayouts.Select(row => row.Select(PlainText).ToArray()).ToArray();
+        var widths = Widths(natural, columns, r.Options.Width);
         if (widths is null) { r.WriteExact(table, r.Options.Theme.Body); return; }
         Border(r, '┌', '┬', '┐', widths); r.Builder.NewLine();
         for (var row = 0; row < rows.Length; row++)
         {
             if (row > 0) { Border(r, '├', '┼', '┤', widths); r.Builder.NewLine(); }
-            var cells = Enumerable.Range(0, columns).Select(column => Wrap(column < rows[row].Length ? rows[row][column] : "", widths[column])).ToArray();
-            for (var line = 0; line < cells.Max(cell => cell.Length); line++)
+            var cells = Enumerable.Range(0, columns).Select(column => column < rows[row].Length
+                ? WrapCell(naturalLayouts[row][column], widths[column])
+                : new MarkdownBlockLayout { SourceStart = table.Span.Start, SourceEndExclusive = table.Span.Start, Lines = [StyledTerminalLine.Empty] }).ToArray();
+            for (var line = 0; line < cells.Max(cell => cell.Lines.Length); line++)
             {
                 if (line > 0) r.Builder.NewLine();
                 r.Builder.Write("│", r.Options.Theme.TableBorder, decorative: true);
                 for (var column = 0; column < columns; column++)
                 {
-                    var value = line < cells[column].Length ? cells[column][line] : "";
+                    var cellLine = line < cells[column].Lines.Length ? cells[column].Lines[line] : StyledTerminalLine.Empty;
                     r.Builder.Write(" ", r.Options.Theme.Body, decorative: true);
-                    r.Builder.Write(value, row == 0 ? r.Options.Theme.TableHeader : r.Options.Theme.Body, sourceStart: table.Span.Start, sourceEndExclusive: table.Span.End + 1);
-                    r.Builder.WriteRepeated(' ', widths[column] - UnicodeWidth.GetWidth(value.AsSpan()) + 1, r.Options.Theme.Body);
+                    var used = 0;
+                    foreach (var run in cellLine.Runs)
+                    {
+                        r.Builder.Write(run.Text, run.Style, run.Hyperlink, run.SourceStart, run.SourceEndExclusive, run.IsDecorative);
+                        used += UnicodeWidth.GetWidth(run.Text.AsSpan());
+                    }
+                    r.Builder.WriteRepeated(' ', Math.Max(0, widths[column] - used) + 1, r.Options.Theme.Body);
                     r.Builder.Write("│", r.Options.Theme.TableBorder, decorative: true);
                 }
             }
@@ -305,12 +336,41 @@ internal sealed class TableRenderer : TerminalObjectRenderer<Table>
         Border(r, '└', '┴', '┘', widths);
     }
 
-    private static string Extract(TableCell cell)
+    private static string PlainText(MarkdownBlockLayout cell) => string.Join(' ', cell.Lines
+        .Select(line => string.Concat(line.Runs.Where(static run => !run.IsDecorative).Select(static run => run.Text))))
+        .Trim();
+
+    private static MarkdownBlockLayout WrapCell(MarkdownBlockLayout source, int width)
     {
-        var text = new StringBuilder();
-        foreach (var literal in cell.Descendants<LiteralInline>()) text.Append(literal.Content);
-        foreach (var code in cell.Descendants<CodeInline>()) text.Append(code.Content);
-        return string.Join(' ', text.ToString().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        var builder = new TerminalLayoutBuilder(width);
+        for (var lineIndex = 0; lineIndex < source.Lines.Length; lineIndex++)
+        {
+            if (lineIndex > 0) builder.NewLine();
+            foreach (var run in source.Lines[lineIndex].Runs)
+            {
+                var index = 0;
+                var pendingSpace = false;
+                while (index < run.Text.Length)
+                {
+                    while (index < run.Text.Length && char.IsWhiteSpace(run.Text[index])) { pendingSpace = true; index++; }
+                    var start = index;
+                    while (index < run.Text.Length && !char.IsWhiteSpace(run.Text[index])) index++;
+                    if (start == index) continue;
+                    var word = run.Text[start..index];
+                    var wordWidth = UnicodeWidth.GetWidth(word.AsSpan());
+                    if (builder.Column > 0 && builder.Column + (pendingSpace ? 1 : 0) + wordWidth > width)
+                    {
+                        builder.NewLine();
+                        pendingSpace = false;
+                    }
+                    if (pendingSpace && builder.Column > 0)
+                        builder.Write(" ", run.Style, run.Hyperlink, run.SourceStart, run.SourceEndExclusive, run.IsDecorative);
+                    builder.Write(word, run.Style, run.Hyperlink, run.SourceStart, run.SourceEndExclusive, run.IsDecorative);
+                    pendingSpace = false;
+                }
+            }
+        }
+        return builder.Freeze(source.SourceStart, source.SourceEndExclusive);
     }
 
     private static int[]? Widths(string[][] rows, int count, int maxWidth)
@@ -332,21 +392,6 @@ internal sealed class TableRenderer : TerminalObjectRenderer<Table>
             widths[index]--;
         }
         return widths;
-    }
-
-    private static string[] Wrap(string value, int width)
-    {
-        if (value.Length == 0) return [""];
-        var lines = new List<string>(); var current = new StringBuilder();
-        foreach (var word in value.Split(' ', StringSplitOptions.RemoveEmptyEntries))
-        {
-            if (current.Length > 0 && UnicodeWidth.GetWidth(current.ToString().AsSpan()) + 1 + UnicodeWidth.GetWidth(word.AsSpan()) > width) { lines.Add(current.ToString()); current.Clear(); }
-            if (UnicodeWidth.GetWidth(word.AsSpan()) > width)
-                foreach (var ch in word) { if (current.Length >= width) { lines.Add(current.ToString()); current.Clear(); } current.Append(ch); }
-            else { if (current.Length > 0) current.Append(' '); current.Append(word); }
-        }
-        if (current.Length > 0) lines.Add(current.ToString());
-        return lines.ToArray();
     }
 
     private static void Border(TerminalMarkdownRenderer r, char left, char join, char right, int[] widths)

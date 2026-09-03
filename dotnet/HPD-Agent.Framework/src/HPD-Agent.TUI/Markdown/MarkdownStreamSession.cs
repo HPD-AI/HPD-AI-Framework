@@ -1,4 +1,5 @@
 using System.Text;
+using System.Collections.Immutable;
 using HPD.TUI.Markdown;
 
 namespace HPD.Agent.TUI.Markdown;
@@ -23,16 +24,19 @@ public sealed class MarkdownStreamSession
     private readonly IMarkdownDocumentParser _parser;
     private readonly MarkdownParseOptions _parseOptions;
     private readonly MarkdownMessagePresentation _presentation;
+    private readonly ImmutableDictionary<string, object?> _additionalProperties;
     private MarkdownDocumentSnapshot _snapshot;
     private int _parseableSourceLength;
     private int _stableSourceLength;
     private string? _failureDetail;
+    private bool _documentGlobal;
 
     public MarkdownStreamSession(
         MarkdownStreamIdentity identity,
         MarkdownMessagePresentation? presentation = null,
         IMarkdownDocumentParser? parser = null,
-        MarkdownPipelineDescriptor? pipeline = null)
+        MarkdownPipelineDescriptor? pipeline = null,
+        IReadOnlyDictionary<string, object?>? additionalProperties = null)
     {
         if (string.IsNullOrWhiteSpace(identity.MessageId)) throw new ArgumentException("A message ID is required.", nameof(identity));
         Identity = identity;
@@ -40,6 +44,10 @@ public sealed class MarkdownStreamSession
         LineageId = Guid.NewGuid();
         Projection = new(identity, LineageId);
         _presentation = presentation ?? new();
+        if (_presentation.Visibility == AgentMessageVisibility.Hidden)
+            throw new ArgumentException("Hidden streams must use lifecycle-only coordination and cannot own source.", nameof(presentation));
+        _additionalProperties = additionalProperties?.ToImmutableDictionary(StringComparer.Ordinal)
+            ?? ImmutableDictionary<string, object?>.Empty;
         _parser = parser ?? new MarkdownDocumentParser();
         _parseOptions = new() { Pipeline = pipeline ?? MarkdownPipelineFactory.CreateDefault() };
         _snapshot = _parser.Parse(string.Empty, _parseOptions);
@@ -105,7 +113,8 @@ public sealed class MarkdownStreamSession
 
         var global = (_snapshot.Features & (MarkdownDocumentFeatures.ReferenceDefinitions | MarkdownDocumentFeatures.ExtensionGlobalState)) != 0;
         _stableSourceLength = terminal ? _snapshot.Source.Length : global ? 0 : FindStableBoundary(_snapshot, terminal: false);
-        if (global && previousStable > 0) Epoch++;
+        if (global && !_documentGlobal) Epoch++;
+        _documentGlobal = global;
         Projection.Revision = Revision;
         Projection.Epoch = Epoch;
         var tail = _source.ToString(parsedLength, _source.Length - parsedLength);
@@ -121,7 +130,8 @@ public sealed class MarkdownStreamSession
             FailureDetail = _failureDetail,
             Presentation = _presentation,
             Revision = Revision,
-            Epoch = Epoch
+            Epoch = Epoch,
+            AdditionalProperties = _additionalProperties
         };
         var invalidation = terminal ? MarkdownInvalidationKind.Finalized
             : global ? MarkdownInvalidationKind.FullMessage

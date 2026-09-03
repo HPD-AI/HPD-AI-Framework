@@ -21,6 +21,8 @@ public interface IMarkdownLayoutEngine
 {
     /// <summary>Lays out a parsed document.</summary>
     MarkdownLayout Layout(MarkdownDocumentSnapshot document, MarkdownLayoutOptions options);
+    /// <summary>Lays out exact canonical source as sanitized literal text without AST reconstruction.</summary>
+    MarkdownLayout LayoutRaw(string canonicalSource, string pipelineId, MarkdownLayoutOptions options);
     /// <summary>Lays out one selected block with its full document context available.</summary>
     MarkdownBlockLayout LayoutBlock(MarkdownDocumentSnapshot document, MarkdownTopLevelBlock block, MarkdownLayoutOptions options);
 }
@@ -35,6 +37,8 @@ public sealed class MarkdownLayoutEngine : IMarkdownLayoutEngine
     {
         ArgumentNullException.ThrowIfNull(document);
         Validate(options);
+        if (options.Mode == MarkdownPresentationMode.Raw)
+            return LayoutRaw(document.Source, document.PipelineId, options);
         var blockLayouts = ImmutableArray.CreateBuilder<MarkdownBlockLayout>(document.Blocks.Count);
         var rows = ImmutableArray.CreateBuilder<MarkdownLayoutRow>();
         MarkdownTopLevelBlock? previous = null;
@@ -59,11 +63,32 @@ public sealed class MarkdownLayoutEngine : IMarkdownLayoutEngine
     }
 
     /// <inheritdoc />
+    public MarkdownLayout LayoutRaw(string canonicalSource, string pipelineId, MarkdownLayoutOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(canonicalSource);
+        ArgumentException.ThrowIfNullOrWhiteSpace(pipelineId);
+        Validate(options);
+        var builder = new TerminalLayoutBuilder(options.Width);
+        builder.Write(canonicalSource, options.Theme.Body, sourceStart: 0, sourceEndExclusive: canonicalSource.Length);
+        var block = builder.Freeze(0, canonicalSource.Length);
+        return new MarkdownLayout
+        {
+            Key = new(pipelineId, "terminal-v1", options.Width, options.Theme.ThemeKey, options.ColorSystem,
+                MarkdownPresentationMode.Raw, options.SyntaxThemeRevision, (options.Spacing ?? new MarkdownSpacing()).Key),
+            Blocks = [block],
+            Rows = block.Lines.Select(line => new MarkdownLayoutRow(
+                MarkdownLayoutRowKind.BlockContent, line, null, 0, canonicalSource.Length, false)).ToImmutableArray()
+        };
+    }
+
+    /// <inheritdoc />
     public MarkdownBlockLayout LayoutBlock(MarkdownDocumentSnapshot document, MarkdownTopLevelBlock block, MarkdownLayoutOptions options)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(block);
         Validate(options);
+        if (options.Mode == MarkdownPresentationMode.Raw)
+            throw new InvalidOperationException("Raw presentation must be laid out from the complete canonical source.");
         var renderer = new TerminalMarkdownRenderer(document, options);
         return renderer.RenderBlock(block);
     }

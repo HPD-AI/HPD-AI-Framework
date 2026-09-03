@@ -52,7 +52,8 @@ public sealed class MarkdownStreamCoordinator
     }
 
     /// <summary>Starts a new lineage for a stream identity.</summary>
-    public void Start(MarkdownStreamIdentity identity, MarkdownMessagePresentation? presentation = null)
+    public void Start(MarkdownStreamIdentity identity, MarkdownMessagePresentation? presentation = null,
+        IReadOnlyDictionary<string, object?>? additionalProperties = null)
         => Dispatch(() =>
         {
             if (_sessions.Remove(identity, out var previous))
@@ -65,22 +66,26 @@ public sealed class MarkdownStreamCoordinator
             _refreshQueued.Remove(identity);
             _lifecycleOnly.Remove(identity);
             _terminal.Remove(identity);
-            var session = new MarkdownStreamSession(identity, presentation);
-            _sessions.Add(identity, session);
             if (presentation?.Visibility == AgentMessageVisibility.Hidden)
+            {
                 _lifecycleOnly.Add(identity);
+                return;
+            }
+            var session = new MarkdownStreamSession(identity, presentation, additionalProperties: additionalProperties);
+            session.Projection.BindDispatcher(_dispatcher);
+            _sessions.Add(identity, session);
         });
 
     /// <summary>Appends exact source and schedules at most one refresh for the pending batch.</summary>
     public void Append(MarkdownStreamIdentity identity, string delta)
         => Dispatch(() =>
         {
+            if (_lifecycleOnly.Contains(identity)) return;
             if (!_sessions.TryGetValue(identity, out var session))
             {
                 _diagnostic?.Invoke($"Markdown delta arrived before start for '{identity.Kind}:{identity.MessageId}'.");
                 return;
             }
-            if (_lifecycleOnly.Contains(identity)) return;
             var change = session.Append(delta);
             if (!change.SourceChanged || !_refreshQueued.Add(identity)) return;
             _dispatcher.Post(() =>
@@ -126,6 +131,11 @@ public sealed class MarkdownStreamCoordinator
         => Dispatch(() =>
         {
             _refreshQueued.Remove(identity);
+            if (_lifecycleOnly.Remove(identity))
+            {
+                _terminal[identity] = MarkdownMessageState.Completed;
+                return;
+            }
             if (!_sessions.Remove(identity, out var session))
             {
                 if (!_terminal.ContainsKey(identity))
@@ -136,7 +146,7 @@ public sealed class MarkdownStreamCoordinator
                 return;
             }
             var update = transition(session);
-            if (!_lifecycleOnly.Remove(identity) && !string.IsNullOrWhiteSpace(update.Document.GetCanonicalSource()))
+            if (!string.IsNullOrWhiteSpace(update.Document.GetCanonicalSource()))
                 _publish(update, session.Projection);
             _terminal[identity] = update.Document.State;
         });
@@ -146,6 +156,12 @@ public sealed class MarkdownStreamCoordinator
     {
         if (!_dispatcher.CheckAccess())
             throw new InvalidOperationException("Markdown stream state may only be discarded on the TUI dispatcher.");
+        DiscardAllAfterProducerStopped();
+    }
+
+    /// <summary>Discards retained state after the event producer has been joined and can no longer race mutation.</summary>
+    internal void DiscardAllAfterProducerStopped()
+    {
         _refreshQueued.Clear();
         _lifecycleOnly.Clear();
         _sessions.Clear();

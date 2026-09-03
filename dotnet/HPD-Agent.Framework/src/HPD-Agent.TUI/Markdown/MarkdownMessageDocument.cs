@@ -30,8 +30,7 @@ public sealed record MarkdownMessagePresentation(
     IReadOnlyList<string>? AgentChain = null,
     int AgentDepth = 0,
     string? SessionId = null,
-    string? ThreadId = null,
-    IReadOnlyDictionary<string, object?>? AdditionalProperties = null);
+    string? ThreadId = null);
 
 /// <summary>Represents one immutable publication of canonical agent Markdown.</summary>
 public sealed record MarkdownMessageDocument
@@ -56,11 +55,17 @@ public sealed record MarkdownMessageDocument
     public required long Revision { get; init; }
     /// <summary>Gets the global-invalidation epoch.</summary>
     public required long Epoch { get; init; }
+    internal ImmutableDictionary<string, object?> AdditionalProperties { get; init; } = ImmutableDictionary<string, object?>.Empty;
 
     internal string GetCanonicalSource() => Parsed.Source + UnparsedTail;
 
     /// <summary>Gets control-neutralized text suitable for ordinary display, clipboard, and export surfaces.</summary>
-    public string GetSafeDisplayText() => SanitizeForDisclosure(GetCanonicalSource());
+    public string GetSafeDisplayText()
+    {
+        if (Presentation.Visibility == AgentMessageVisibility.Hidden)
+            throw new UnauthorizedAccessException("Hidden Markdown has no display projection.");
+        return SanitizeForDisclosure(GetCanonicalSource());
+    }
 
     /// <summary>Exports exact accepted UTF-16 source after validating explicit authority for this lineage.</summary>
     public string ExportExact(MarkdownExactSourceAuthority authority)
@@ -90,13 +95,12 @@ public sealed class MarkdownExactSourceAuthority
 }
 
 /// <summary>Applies visibility and privilege policy before granting forensic exact-source access.</summary>
-public static class MarkdownExportPolicy
+internal static class MarkdownExportPolicy
 {
-    /// <summary>Creates lineage-bound authority when exact export is privileged and disclosure is permitted.</summary>
-    public static MarkdownExactSourceAuthority AuthorizeExact(MarkdownMessageDocument document, bool privileged)
+    internal static MarkdownExactSourceAuthority AuthorizeExact(MarkdownMessageDocument document)
     {
         ArgumentNullException.ThrowIfNull(document);
-        if (!privileged || document.Presentation.Visibility == AgentMessageVisibility.Hidden)
+        if (document.Presentation.Visibility == AgentMessageVisibility.Hidden)
             throw new UnauthorizedAccessException("This Markdown source is not authorized for exact export.");
         return new(document.Identity, document.LineageId);
     }
@@ -114,6 +118,7 @@ public sealed class MarkdownMessageProjection
     private readonly Dictionary<BlockCacheKey, CacheEntry> _blocks = [];
     private readonly LinkedList<BlockCacheKey> _lru = [];
     private readonly Dictionary<PreparedKey, MarkdownLayout> _prepared = [];
+    private IAgentTuiDispatcher? _dispatcher;
     private long _cacheBytes;
     private long _cachedEpoch = -1;
     internal MarkdownMessageProjection(MarkdownStreamIdentity identity, Guid lineageId)
@@ -131,11 +136,21 @@ public sealed class MarkdownMessageProjection
     /// <summary>Gets the most recently projected epoch.</summary>
     public long Epoch { get; internal set; }
 
+    internal void BindDispatcher(IAgentTuiDispatcher dispatcher)
+    {
+        ArgumentNullException.ThrowIfNull(dispatcher);
+        if (_dispatcher is not null && !ReferenceEquals(_dispatcher, dispatcher))
+            throw new InvalidOperationException("A Markdown projection cannot change dispatcher ownership.");
+        _dispatcher = dispatcher;
+    }
+
     internal MarkdownLayout ResolveLayout(
         MarkdownMessageDocument document,
         MarkdownLayoutOptions options,
         IMarkdownLayoutEngine engine)
     {
+        if (options.Mode == MarkdownPresentationMode.Raw)
+            return engine.LayoutRaw(document.GetCanonicalSource(), document.Parsed.PipelineId, options);
         if (_cachedEpoch != document.Epoch)
         {
             _blocks.Clear();
@@ -189,11 +204,14 @@ public sealed class MarkdownMessageProjection
         if (document.UnparsedTail.Length > 0)
         {
             if (rows.Count > 0) rows.Add(new(MarkdownLayoutRowKind.Separator, StyledTerminalLine.Empty, null, null, null, true));
-            var safeTail = Sanitize(document.UnparsedTail);
-            foreach (var line in PrepareLiteralTail(safeTail, options.Width, options.Theme.Body,
-                         document.Parsed.Source.Length, document.GetCanonicalSource().Length))
+            var sourceOffset = document.Parsed.Source.Length;
+            var tailLayout = engine.LayoutRaw(document.UnparsedTail, document.Parsed.PipelineId, options with
+            {
+                Mode = MarkdownPresentationMode.Raw
+            });
+            foreach (var tailRow in tailLayout.Rows)
                 rows.Add(new(MarkdownLayoutRowKind.LiteralTail,
-                    line, null,
+                    ShiftSourceOffsets(tailRow.Line, sourceOffset), null,
                     document.Parsed.Source.Length, document.GetCanonicalSource().Length, false));
         }
 
@@ -207,11 +225,13 @@ public sealed class MarkdownMessageProjection
     }
 
     /// <summary>Prepares and retains an immutable layout at a dispatcher publication boundary.</summary>
-    public MarkdownLayout Prepare(
+    internal MarkdownLayout Prepare(
         MarkdownMessageDocument document,
         MarkdownLayoutOptions options,
         IMarkdownLayoutEngine engine)
     {
+        if (_dispatcher is not null && !_dispatcher.CheckAccess())
+            throw new InvalidOperationException("Markdown layout preparation must run on the owning TUI dispatcher.");
         var expectedKey = new MarkdownLayoutKey(document.Parsed.PipelineId, "terminal-v1", options.Width,
             options.Theme.ThemeKey, options.ColorSystem, options.Mode, options.SyntaxThemeRevision,
             (options.Spacing ?? new MarkdownSpacing()).Key);
@@ -264,48 +284,14 @@ public sealed class MarkdownMessageProjection
         return MarkdownMessageDocument.SanitizeForDisclosure(result.ToString().TrimEnd());
     }
 
-    private static string Sanitize(string source)
-    {
-        source = source.Replace("\r\n", "\n", StringComparison.Ordinal);
-        var chars = source.ToCharArray();
-        for (var i = 0; i < chars.Length; i++)
-            if (chars[i] != '\t' && chars[i] != '\n' && TerminalTextSafety.IsUnsafe(chars[i])) chars[i] = '�';
-        return new string(chars);
-    }
-
-    private static IEnumerable<StyledTerminalLine> PrepareLiteralTail(
-        string source, int width, Style style, int sourceStart, int sourceEndExclusive)
-    {
-        var height = source.Length >= 16_376 ? 16_384 : Math.Max(1, source.Length + 8);
-        using var grid = new HPD.TUI.Terminal.TerminalGrid(width, height);
-        grid.Write(source, style);
-        var used = HPD.TUI.Rendering.TuiCapture.GetUsedLineCount(grid);
-        for (var y = 0; y < used; y++) yield return CaptureLine(grid, y, sourceStart, sourceEndExclusive);
-    }
-
-    private static StyledTerminalLine CaptureLine(HPD.TUI.Terminal.TerminalGrid grid, int y, int sourceStart, int sourceEndExclusive)
-    {
-        var runs = ImmutableArray.CreateBuilder<StyledTerminalRun>();
-        StringBuilder? text = null;
-        Style style = default;
-        TerminalHyperlink? hyperlink = null;
-        for (var x = 0; x < grid.Width; x++)
-        {
-            var cell = grid.GetCell(x, y);
-            if (cell.IsContinuation) continue;
-            var nextLink = grid.GetHyperlink(cell);
-            if (text is null || cell.Style != style || nextLink != hyperlink)
-            {
-                if (text is not null) runs.Add(new(text.ToString().TrimEnd(), style, hyperlink, sourceStart, sourceEndExclusive));
-                text = new StringBuilder();
-                style = cell.Style;
-                hyperlink = nextLink;
-            }
-            text.Append(grid.GetGrapheme(cell));
-        }
-        if (text is not null) runs.Add(new(text.ToString().TrimEnd(), style, hyperlink, sourceStart, sourceEndExclusive));
-        return new(runs.ToImmutable());
-    }
+    private static StyledTerminalLine ShiftSourceOffsets(StyledTerminalLine line, int offset) =>
+        new(line.Runs.Select(run => new StyledTerminalRun(
+            run.Text,
+            run.Style,
+            run.Hyperlink,
+            run.SourceStart is { } start ? start + offset : null,
+            run.SourceEndExclusive is { } end ? end + offset : null,
+            run.IsDecorative)).ToImmutableArray());
 
     private void EvictOldest()
     {

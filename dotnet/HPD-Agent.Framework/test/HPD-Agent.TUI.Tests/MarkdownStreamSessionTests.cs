@@ -99,6 +99,19 @@ public sealed class MarkdownStreamSessionTests
     }
 
     [Fact]
+    public void EnteringDocumentGlobalModeAdvancesEpochEvenWithoutPublishedStablePrefix()
+    {
+        var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "global"));
+        session.Append("[id]: https://example.com\n");
+
+        var update = session.Refresh();
+
+        Assert.Equal(1, update.Document.Epoch);
+        Assert.Equal(0, update.Document.StableSourceLength);
+        Assert.Equal(MarkdownInvalidationKind.FullMessage, update.Invalidation);
+    }
+
+    [Fact]
     public void Coordinator_EndBeforeQueuedRefresh_PublishesOneExactTerminalDocument()
     {
         var dispatcher = new QueuedDispatcher();
@@ -215,8 +228,7 @@ public sealed class MarkdownStreamSessionTests
         second.Append("replacement");
         var secondDocument = second.Complete().Document;
 
-        Assert.Throws<UnauthorizedAccessException>(() => MarkdownExportPolicy.AuthorizeExact(firstDocument, privileged: false));
-        var authority = MarkdownExportPolicy.AuthorizeExact(firstDocument, privileged: true);
+        var authority = MarkdownExportPolicy.AuthorizeExact(firstDocument);
         Assert.Equal("exact\u001bsource", firstDocument.ExportExact(authority));
         Assert.Throws<UnauthorizedAccessException>(() => secondDocument.ExportExact(authority));
     }
@@ -224,12 +236,18 @@ public sealed class MarkdownStreamSessionTests
     [Fact]
     public void ExactExport_HiddenPresentationCannotBeAuthorized()
     {
-        var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "hidden"),
-            new MarkdownMessagePresentation(Visibility: AgentMessageVisibility.Hidden));
+        var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "hidden"));
         session.Append("secret");
-        var document = session.Complete().Document;
+        var document = session.Complete().Document with
+        {
+            Presentation = new MarkdownMessagePresentation(Visibility: AgentMessageVisibility.Hidden)
+        };
 
-        Assert.Throws<UnauthorizedAccessException>(() => MarkdownExportPolicy.AuthorizeExact(document, privileged: true));
+        Assert.Throws<UnauthorizedAccessException>(() => MarkdownExportPolicy.AuthorizeExact(document));
+        Assert.Throws<UnauthorizedAccessException>(() => document.GetSafeDisplayText());
+        Assert.Throws<ArgumentException>(() => new MarkdownStreamSession(
+            new(MarkdownStreamKind.Assistant, "hidden-source"),
+            new MarkdownMessagePresentation(Visibility: AgentMessageVisibility.Hidden)));
     }
 
     [Fact]

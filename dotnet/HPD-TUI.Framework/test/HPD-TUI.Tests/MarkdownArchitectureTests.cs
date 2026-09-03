@@ -52,6 +52,32 @@ public sealed class MarkdownArchitectureTests
     }
 
     [Fact]
+    public void MarkdownView_WarmedRenderIsAllocationFree()
+    {
+        var snapshot = new MarkdownDocumentParser().Parse("prepared", new MarkdownParseOptions
+        {
+            Pipeline = MarkdownPipelineFactory.CreateDefault()
+        });
+        var layout = new MarkdownLayoutEngine().Layout(snapshot,
+            new(24, MarkdownTheme.FromTheme(Theme.Default)));
+        var view = new MarkdownView(layout);
+        var context = new RenderContext(24, 4, Theme.Default);
+        using var grid = new TerminalGrid(24, 4);
+        var warmWriter = new SegmentWriter(grid);
+        view.Render(in context, 24, ref warmWriter);
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var index = 0; index < 100; index++)
+        {
+            grid.Clear();
+            var writer = new SegmentWriter(grid);
+            view.Render(in context, 24, ref writer);
+        }
+
+        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+    }
+
+    [Fact]
     public void StructuralLink_EmitsBalancedOsc8WithoutAcceptingEscapes()
     {
         Assert.True(TerminalHyperlinkPolicy.TryCreate("https://example.com/path", out var link));
@@ -136,6 +162,68 @@ public sealed class MarkdownArchitectureTests
         Assert.Equal(spacing.Key, layout.Key.SpacingKey);
         Assert.Equal(2, layout.Rows.Count(static row => row.Kind == MarkdownLayoutRowKind.Separator));
     }
+
+    [Fact]
+    public void RawLayout_PreservesCanonicalInterBlockTriviaInsteadOfSemanticSpacing()
+    {
+        const string source = "# heading\r\n\r\nparagraph";
+        var document = new MarkdownDocumentParser().Parse(source,
+            new MarkdownParseOptions { Pipeline = MarkdownPipelineFactory.CreateDefault() });
+        var layout = new MarkdownLayoutEngine().Layout(document,
+            new(40, MarkdownTheme.FromTheme(Theme.Default), Mode: MarkdownPresentationMode.Raw));
+
+        Assert.Equal(["# heading", "", "paragraph"], layout.Rows.Select(RowText));
+        Assert.DoesNotContain(layout.Rows, static row => row.Kind == MarkdownLayoutRowKind.Separator);
+    }
+
+    [Fact]
+    public void RawLayout_PreservesPreciseUtf16MappingsAcrossCrlfWrappingAndSanitization()
+    {
+        const string source = "ab\r\n界c\u001b";
+        var layout = new MarkdownLayoutEngine().LayoutRaw(source, "test-pipeline",
+            new(2, MarkdownTheme.FromTheme(Theme.Default), Mode: MarkdownPresentationMode.Raw));
+        var runs = layout.Rows.SelectMany(static row => row.Line.Runs)
+            .Where(static run => !run.IsDecorative).ToArray();
+
+        Assert.Contains(runs, static run => run.Text == "ab" && run.SourceStart == 0 && run.SourceEndExclusive == 2);
+        Assert.Contains(runs, static run => run.Text == "界" && run.SourceStart == 4 && run.SourceEndExclusive == 5);
+        Assert.Contains(runs, static run => run.Text == "c�" && run.SourceStart == 5 && run.SourceEndExclusive == 7);
+    }
+
+    [Fact]
+    public void TableCells_PreserveTypedInlineOrderStylesAndHyperlinks()
+    {
+        const string source = "| Value |\n|---|\n| [**bold** and `code`](https://example.com) |";
+        var document = new MarkdownDocumentParser().Parse(source,
+            new MarkdownParseOptions { Pipeline = MarkdownPipelineFactory.CreateDefault() });
+        var layout = new MarkdownLayoutEngine().Layout(document,
+            new(60, MarkdownTheme.FromTheme(Theme.Default)));
+        var runs = layout.Rows.SelectMany(static row => row.Line.Runs).ToArray();
+
+        Assert.True(Array.FindIndex(runs, static run => run.Text.Contains("bold", StringComparison.Ordinal)) <
+                    Array.FindIndex(runs, static run => run.Text.Contains("code", StringComparison.Ordinal)));
+        Assert.Contains(runs, static run => run.Text.Contains("bold", StringComparison.Ordinal) &&
+            run.Style.Attributes.HasFlag(TextAttributes.Bold) && run.Hyperlink is not null);
+        Assert.Contains(runs, static run => run.Text.Contains("code", StringComparison.Ordinal) && run.Hyperlink is not null);
+    }
+
+    [Fact]
+    public void WidthOneGrid_ReplacesUnrepresentableWideGraphemeWithoutOverrun()
+    {
+        using var grid = new TerminalGrid(1, 1);
+
+        Assert.True(grid.Write("界", Style.Default));
+        Assert.Equal("�", grid.GetGrapheme(grid.GetCell(0, 0)).ToString());
+    }
+
+    [Fact]
+    public void MarkdownTheme_HasOnlyFactoryDerivedStructuralIdentity()
+    {
+        Assert.Empty(typeof(MarkdownTheme).GetConstructors());
+        Assert.False(typeof(MarkdownTheme).GetProperty(nameof(MarkdownTheme.ThemeKey))!.CanWrite);
+    }
+
+    private static string RowText(MarkdownLayoutRow row) => string.Concat(row.Line.Runs.Select(static run => run.Text));
 
     [Theory]
     [InlineData("plain\u001b[31mred")]

@@ -36,6 +36,8 @@ internal sealed class TerminalLayoutBuilder
         bool decorative = false)
     {
         if (string.IsNullOrEmpty(value)) return;
+        var hasExactSourceRange = sourceStart.HasValue && sourceEndExclusive.HasValue &&
+            sourceEndExclusive.Value - sourceStart.Value == value.Length;
         var offset = 0;
         while (offset < value.Length)
         {
@@ -51,7 +53,9 @@ internal sealed class TerminalLayoutBuilder
             if (grapheme.SequenceEqual("\t"))
             {
                 var spaces = 4 - (_column & 3);
-                Write(new string(' ', spaces), style, hyperlink, sourceStart, sourceEndExclusive, decorative);
+                var tabStart = hasExactSourceRange ? sourceStart + offset : sourceStart;
+                var tabEnd = hasExactSourceRange ? tabStart + length : sourceEndExclusive;
+                Write(new string(' ', spaces), style, hyperlink, tabStart, tabEnd, decorative);
                 offset += length;
                 continue;
             }
@@ -66,7 +70,9 @@ internal sealed class TerminalLayoutBuilder
                 NewLine(wrapped: true);
                 if (text == " ") { offset += length; continue; }
             }
-            Append(text, style, hyperlink, sourceStart, sourceEndExclusive, decorative);
+            var graphemeStart = hasExactSourceRange ? sourceStart + offset : sourceStart;
+            var graphemeEnd = hasExactSourceRange ? graphemeStart + length : sourceEndExclusive;
+            Append(text, style, hyperlink, graphemeStart, graphemeEnd, decorative);
             _column += displayWidth;
             offset += length;
         }
@@ -108,21 +114,33 @@ internal sealed class TerminalLayoutBuilder
     private void Append(string text, Style style, TerminalHyperlink? hyperlink, int? sourceStart, int? sourceEndExclusive, bool decorative)
     {
         var line = _lines[^1];
-        if (line.Count > 0 && line[^1].Matches(style, hyperlink, sourceStart, sourceEndExclusive, decorative))
+        if (line.Count > 0 && line[^1].CanAppend(style, hyperlink, sourceStart, sourceEndExclusive, decorative))
+        {
             line[^1].Text.Append(text);
+            if (line[^1].SourceEndExclusive == sourceStart)
+                line[^1].SourceEndExclusive = sourceEndExclusive;
+        }
         else
             line.Add(new(new StringBuilder(text), style, hyperlink, sourceStart, sourceEndExclusive, decorative));
     }
 
-    private sealed record MutableRun(
-        StringBuilder Text,
-        Style Style,
-        TerminalHyperlink? Hyperlink,
-        int? SourceStart,
-        int? SourceEndExclusive,
-        bool Decorative)
+    private sealed class MutableRun(
+        StringBuilder text,
+        Style style,
+        TerminalHyperlink? hyperlink,
+        int? sourceStart,
+        int? sourceEndExclusive,
+        bool decorative)
     {
-        internal bool Matches(Style style, TerminalHyperlink? hyperlink, int? start, int? end, bool decorative) =>
-            Style == style && Hyperlink == hyperlink && SourceStart == start && SourceEndExclusive == end && Decorative == decorative;
+        internal StringBuilder Text { get; } = text;
+        internal Style Style { get; } = style;
+        internal TerminalHyperlink? Hyperlink { get; } = hyperlink;
+        internal int? SourceStart { get; } = sourceStart;
+        internal int? SourceEndExclusive { get; set; } = sourceEndExclusive;
+        internal bool Decorative { get; } = decorative;
+
+        internal bool CanAppend(Style nextStyle, TerminalHyperlink? nextHyperlink, int? nextStart, int? nextEnd, bool nextDecorative) =>
+            Style == nextStyle && Hyperlink == nextHyperlink && Decorative == nextDecorative &&
+            (SourceEndExclusive == nextStart || SourceStart == nextStart && SourceEndExclusive == nextEnd);
     }
 }

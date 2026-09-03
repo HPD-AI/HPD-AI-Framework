@@ -314,6 +314,8 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     {
         if (_observeCancellation is null)
         {
+            _markdownStreams.DiscardAllAfterProducerStopped();
+            _activeMarkdownStreams.Clear();
             return;
         }
 
@@ -336,6 +338,11 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             DiscardMarkdownState();
         else if (_application.IsRunning)
             await _application.InvokeAsync(DiscardMarkdownState).ConfigureAwait(false);
+        else
+        {
+            _markdownStreams.DiscardAllAfterProducerStopped();
+            _activeMarkdownStreams.Clear();
+        }
     }
 
     private void SubmitPrompt(ReadOnlyMemory<char> value)
@@ -1199,10 +1206,10 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                         start.Metadata?.AgentChain,
                         start.Metadata?.Depth ?? 0,
                         start.SessionId,
-                        start.ThreadId,
-                        start.AdditionalProperties is null
-                            ? null
-                            : new Dictionary<string, object?>(start.AdditionalProperties, StringComparer.Ordinal)));
+                        start.ThreadId),
+                    start.AdditionalProperties is null
+                        ? null
+                        : new Dictionary<string, object?>(start.AdditionalProperties, StringComparer.Ordinal));
                 break;
             case TextDeltaEvent delta:
                 _markdownStreams.Append(new(MarkdownStreamKind.Assistant, delta.MessageId), delta.Text);
@@ -1269,7 +1276,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 ThreadId: document.Presentation.ThreadId ?? _scope?.ThreadId,
                 MessageId: document.MessageId,
                 MessageRole: document.Presentation.Role,
-                AdditionalProperties: document.Presentation.AdditionalProperties));
+                AdditionalProperties: document.AdditionalProperties));
         if (document.State == MarkdownMessageState.Streaming)
             _state.Shell.Transcript.UpsertLive(entry);
         else
@@ -1566,9 +1573,9 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         _activeMarkdownStreams.Clear();
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
+        await StopObserverAsync().ConfigureAwait(false);
         _application.Dispose();
-        return ValueTask.CompletedTask;
     }
 }
