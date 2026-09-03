@@ -131,6 +131,26 @@ public sealed class MarkdownStreamSessionTests
     }
 
     [Fact]
+    public void CoordinatorReplayBurstCoalescesToOneNewestRefreshWithoutDroppingSource()
+    {
+        var dispatcher = new QueuedDispatcher();
+        var updates = new List<MarkdownStreamUpdate>();
+        var coordinator = new MarkdownStreamCoordinator(dispatcher, (update, _) => updates.Add(update));
+        var identity = new MarkdownStreamIdentity(MarkdownStreamKind.Assistant, "replay");
+        coordinator.Start(identity);
+        dispatcher.Drain();
+        for (var index = 0; index < 100; index++) coordinator.Append(identity, $"{index}\n");
+
+        dispatcher.Drain();
+
+        var update = Assert.Single(updates);
+        Assert.Equal(string.Concat(Enumerable.Range(0, 100).Select(static index => $"{index}\n")),
+            update.Document.GetCanonicalSource());
+        Assert.Equal(99, update.Diagnostics.DeltasCoalesced);
+        Assert.Equal(1, update.Diagnostics.ParseCount);
+    }
+
+    [Fact]
     public void Coordinator_DuplicateStartInterruptsOldLineageAndIsolatesReplacement()
     {
         var dispatcher = new QueuedDispatcher();
@@ -383,6 +403,8 @@ public sealed class MarkdownStreamSessionTests
     [InlineData("| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n\nafter", 7)]
     [InlineData("[use][id]\n\n[id]: https://example.com\n", 5)]
     [InlineData("<div>html</div>\n\nparagraph\r\n\r\n~~strike~~", 3)]
+    [InlineData("- bullet\n\n1. ordered\n\n> first quote\n\n> second quote", 2)]
+    [InlineData("| h |\n|---|\n| v |\n\n```text\ncode\n```\n\nparagraph", 4)]
     public void EveryPublicationStableRegionAndEveryResizeMatchColdOracle(string source, int partition)
     {
         var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "oracle"));
@@ -509,6 +531,11 @@ public sealed class MarkdownStreamSessionTests
             Assert.DoesNotContain('\u0007', visible);
             Assert.DoesNotContain('\u202e', visible);
             Assert.DoesNotContain('\0', visible);
+            Assert.DoesNotContain('\u001b', document.GetSafeDisplayText());
+            var copied = session.Projection.GetSafeClipboardText(layout,
+                new(0, 0, Math.Max(0, layout.Height - 1), 200));
+            Assert.DoesNotContain('\u001b', copied);
+            Assert.DoesNotContain('\u0007', copied);
         }
     }
 
@@ -521,6 +548,25 @@ public sealed class MarkdownStreamSessionTests
 
         Assert.Throws<ArgumentException>(() => session.Append("x"));
         Assert.Equal("safe", session.Complete().Document.GetCanonicalSource());
+    }
+
+    [Fact]
+    public void OversizeStableBlockBypassesWeightedCacheInsteadOfAccumulating()
+    {
+        var source = new string('x', 600_000) + "\n\nnext\n";
+        var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "oversize-cache"));
+        session.Append(source);
+        var document = session.Refresh().Document;
+        var options = new MarkdownLayoutOptions(100, MarkdownTheme.FromTheme(Theme.Default));
+        var engine = new MarkdownLayoutEngine();
+
+        _ = session.Projection.ResolveLayout(document, options, engine);
+        var first = session.Projection.Diagnostics;
+        _ = session.Projection.ResolveLayout(document, options, engine);
+        var second = session.Projection.Diagnostics;
+
+        Assert.Equal(0, second.CacheHits - first.CacheHits);
+        Assert.True(second.CacheMisses > first.CacheMisses);
     }
 
     private static IReadOnlyList<string> LayoutFingerprint(MarkdownLayout layout) => layout.Rows

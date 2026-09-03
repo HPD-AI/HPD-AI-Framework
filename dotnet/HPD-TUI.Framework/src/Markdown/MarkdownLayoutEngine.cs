@@ -142,7 +142,8 @@ public sealed class MarkdownLayoutEngine : IMarkdownLayoutEngine
         var builder = new TerminalLayoutBuilder(options.Width, limits.MaximumLayoutRows);
         builder.Write(canonicalSource[sourceOffset..], options.Theme.Body,
             sourceStart: sourceOffset, sourceEndExclusive: canonicalSource.Length);
-        var block = builder.Freeze(sourceOffset, canonicalSource.Length);
+        var pageEnd = builder.LimitExceeded ? builder.ConsumedSourceEndExclusive : canonicalSource.Length;
+        var block = builder.Freeze(sourceOffset, pageEnd);
         var effectiveReason = builder.LimitExceeded ? MarkdownDegradationReason.LayoutRows : degradationReason;
         return new MarkdownLayout
         {
@@ -150,7 +151,7 @@ public sealed class MarkdownLayoutEngine : IMarkdownLayoutEngine
                 options.Mode, options.SyntaxThemeRevision, (options.Spacing ?? new MarkdownSpacing()).Key, limits.Key),
             Blocks = [block],
             Rows = block.Lines.Select(line => new MarkdownLayoutRow(
-                MarkdownLayoutRowKind.BlockContent, line, null, sourceOffset, canonicalSource.Length, false)).ToImmutableArray(),
+                MarkdownLayoutRowKind.BlockContent, line, null, sourceOffset, pageEnd, false)).ToImmutableArray(),
             DegradationReason = effectiveReason,
             NextSourceOffset = builder.LimitExceeded
                 ? Math.Max(sourceOffset + 1, builder.ConsumedSourceEndExclusive)

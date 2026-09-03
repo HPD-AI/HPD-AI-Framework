@@ -19,7 +19,7 @@ public readonly record struct MarkdownLayoutKey(
     MarkdownResourceLimitsKey ResourceLimitsKey = default);
 
 /// <summary>Identifies why a prepared layout used a deterministic simplified presentation.</summary>
-public enum MarkdownDegradationReason { None, SourceLength, LayoutRows, TableShape, CodeHighlightLength, LayoutFailure }
+public enum MarkdownDegradationReason { None, SourceLength, LayoutRows, TableShape, CodeHighlightLength, CodeHighlightFailure, LayoutFailure }
 
 /// <summary>Represents an immutable, prepared terminal layout.</summary>
 public sealed class MarkdownLayout

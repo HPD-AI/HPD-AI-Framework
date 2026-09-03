@@ -20,23 +20,24 @@ retain its CSV/JSON output before tightening percentile or regression thresholds
 | Stable prefix / mutable tail | 8.333 ms | 20,564.80 KB | 0.191 |
 | Long code block | 2.412 ms | 6,813.18 KB | 0.055 |
 | Growing tables | 125.556 ms | 254,186.87 KB | 2.873 |
-| Finalized history, plain-text baseline | 0.044 ms | 85.80 KB | 0.001 |
-| Finalized history, source-backed | 0.037 ms | 86.61 KB | 0.001 |
-| Isolated active update over 1,000 finalized rows | 0.049 ms | 107.48 KB | 0.001 |
+| Finalized history, equivalent assistant plain-text baseline | 0.043 ms | 85.80 KB | 0.001 |
+| Finalized history, source-backed (1,000 independent lineages) | 0.042 ms | 86.67 KB | 0.001 |
+| Isolated active update over 1,000 finalized rows | 0.048 ms | 107.57 KB | 0.001 |
 | Repeated resize publication source | 3.925 ms | 11,362.67 KB | 0.090 |
 | Very large adversarial message | 153.391 ms | 9,632.52 KB | 3.510 |
-| Serialized bounded event-loop overload | 3.433 ms | 7,956.48 KB | 0.079 |
+| Serialized saturated event-loop overload | 69.089 ms | 102,000.35 KB | 1.581 |
 
 The serialized overload run records callback queue latency independently of its
-end-to-end workload time: p50 **9 μs**, p95 **132 μs**. Its dispatcher owns a
-bounded 256-item queue, executes on a dedicated event-loop thread, periodically
-drains nested refresh work, and measures enqueue-to-execution latency for input,
-stream, repaint, and terminal work. The initial stall budget is p95 <= 1 ms on
-this hardware.
+end-to-end workload time: p50 **790 μs**, p95 **4,538 μs**. Its dispatcher owns a
+bounded 64-item external mailbox, executes on a dedicated event-loop thread,
+accepts a burst beyond capacity, mixes simulated repaint and priority-input
+sentinels, and drains coalesced nested refresh work through a non-blocking local
+queue. The initial saturated-load stall budget is p95 <= 8 ms on this hardware.
 
-The finalized source-backed path is 16.4% faster than the plain-text history
-baseline (within the <=10% regression gate) with a 0.9% allocation increase.
-The isolated active update allocates 107.48 KB while retaining 1,000 finalized
+The finalized source-backed path is 3.3% faster than the equivalent assistant
+plain-text history baseline (within the <=10% regression gate) with a 1.0%
+allocation increase. Every source-backed row owns an independent real
+message/lineage/projection. The isolated active update allocates 107.57 KB while retaining 1,000 finalized
 rows; the benchmark invocation creates only the new message session/document and
 does not reconstruct the finalized transcript.
 

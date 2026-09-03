@@ -2,6 +2,7 @@ using BenchmarkDotNet.Attributes;
 using HPD.Agent.TUI.Markdown;
 using HPD.TUI.Markdown;
 using HPD.TUI.Core;
+using HPD.TUI.Components;
 using HPD.TUI.Rendering;
 using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Models;
@@ -33,18 +34,22 @@ public class MarkdownStreamingBenchmark
     [GlobalSetup]
     public void PrepareTranscriptFixtures()
     {
-        _transcriptRenderers = new HpdAgentTuiBuilder().AddDefaultTranscriptRenderers().Build().TranscriptRenderers;
+        _transcriptRenderers = new HpdAgentTuiBuilder().AddDefaultTranscriptRenderers()
+            .AddTranscriptRenderer<LegacyAssistantCell>("benchmark-legacy-assistant", context =>
+                context.Services.Prefix(context.Cell.Body, context.DepthIndent, context.DepthIndent))
+            .Build().TranscriptRenderers;
         _plainHistory = new TranscriptModel();
         _sourceBackedHistory = new TranscriptModel();
         _activeHistory = new TranscriptModel();
-        var finalizedSession = CompletedSession("finalized **source-backed** row");
-        var finalizedDocument = finalizedSession.Complete().Document;
-        _ = finalizedSession.Projection.Prepare(finalizedDocument, Options(100), new MarkdownLayoutEngine());
         for (var index = 0; index < 1_000; index++)
         {
             var text = $"row {index} {new string('x', 80)}";
-            _plainHistory.AddFinal(new TranscriptEntry($"plain-{index}", null, new UserMessageCell(text), new()));
+            _plainHistory.AddFinal(new TranscriptEntry($"plain-{index}", null,
+                new LegacyAssistantCell(new Text(text)), new()));
             _activeHistory.AddFinal(new TranscriptEntry($"active-final-{index}", null, new UserMessageCell(text), new()));
+            var finalizedSession = CompletedSession(text);
+            var finalizedDocument = finalizedSession.Complete().Document;
+            _ = finalizedSession.Projection.Prepare(finalizedDocument, Options(100), new MarkdownLayoutEngine());
             _sourceBackedHistory.AddFinal(new TranscriptEntry($"markdown-{index}", null,
                 new AssistantMessageCell("assistant", finalizedDocument, finalizedSession.Projection), new()));
         }
@@ -120,7 +125,7 @@ public class MarkdownStreamingBenchmark
     [Benchmark]
     public long SerializedEventLoopOverloadP95Microseconds()
     {
-        using var dispatcher = new SerializedBenchmarkDispatcher(capacity: 256);
+        using var dispatcher = new SerializedBenchmarkDispatcher(capacity: 64);
         MarkdownMessageProjection? published = null;
         var coordinator = new MarkdownStreamCoordinator(dispatcher, (update, projection) =>
         {
@@ -133,7 +138,12 @@ public class MarkdownStreamingBenchmark
         for (var offset = 0; offset < Representative.Length; offset += 8)
         {
             coordinator.Append(identity, Representative.Substring(offset, Math.Min(8, Representative.Length - offset)));
-            if (++chunks % 64 == 0) dispatcher.Flush();
+            if (++chunks % 32 == 0)
+            {
+                // Mix input/repaint sentinels into a producer burst larger than the bounded mailbox.
+                dispatcher.Post(static () => System.Threading.Thread.SpinWait(20_000));
+                dispatcher.Post(static () => { });
+            }
         }
         coordinator.Complete(identity);
         dispatcher.Flush();
@@ -206,9 +216,12 @@ public class MarkdownStreamingBenchmark
         return session.Diagnostics;
     }
 
+    private sealed record LegacyAssistantCell(IComponent Body) : TranscriptCell;
+
     private sealed class SerializedBenchmarkDispatcher : IAgentTuiDispatcher, IDisposable
     {
         private readonly BlockingCollection<(Action Callback, long QueuedAt)> _queue;
+        private readonly Queue<(Action Callback, long QueuedAt)> _local = [];
         private readonly System.Threading.Thread _thread;
         private readonly List<long> _latencies = [];
         private readonly ManualResetEventSlim _idle = new(initialState: true);
@@ -228,7 +241,9 @@ public class MarkdownStreamingBenchmark
         {
             Interlocked.Increment(ref _pending);
             _idle.Reset();
-            _queue.Add((callback, Stopwatch.GetTimestamp()));
+            var work = (callback, Stopwatch.GetTimestamp());
+            if (CheckAccess()) _local.Enqueue(work);
+            else _queue.Add(work);
         }
         public ValueTask InvokeAsync(Action callback, CancellationToken cancellationToken = default)
         { Post(callback); return ValueTask.CompletedTask; }
@@ -249,12 +264,17 @@ public class MarkdownStreamingBenchmark
             Volatile.Write(ref _threadId, System.Environment.CurrentManagedThreadId);
             foreach (var work in _queue.GetConsumingEnumerable())
             {
-                _latencies.Add(Stopwatch.GetElapsedTime(work.QueuedAt).Ticks);
-                try { work.Callback(); }
-                finally
-                {
-                    if (Interlocked.Decrement(ref _pending) == 0) _idle.Set();
-                }
+                Execute(work);
+                while (_local.TryDequeue(out var nested)) Execute(nested);
+            }
+        }
+        private void Execute((Action Callback, long QueuedAt) work)
+        {
+            _latencies.Add(Stopwatch.GetElapsedTime(work.QueuedAt).Ticks);
+            try { work.Callback(); }
+            finally
+            {
+                if (Interlocked.Decrement(ref _pending) == 0) _idle.Set();
             }
         }
 

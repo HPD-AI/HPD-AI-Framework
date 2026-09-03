@@ -250,6 +250,8 @@ public sealed class MarkdownMessageProjection
             if (degradationReason == MarkdownDegradationReason.None)
                 degradationReason = layout.DegradationReason;
             previous = block;
+            if (rows.Count > (options.ResourceLimits ?? new MarkdownResourceLimits()).MaximumLayoutRows)
+                return engine.LayoutRaw(document.GetCanonicalSource(), document.Parsed.PipelineId, options);
         }
 
         if (document.UnparsedTail.Length > 0)
@@ -264,6 +266,8 @@ public sealed class MarkdownMessageProjection
                 rows.Add(new(MarkdownLayoutRowKind.LiteralTail,
                     ShiftSourceOffsets(tailRow.Line, sourceOffset), null,
                     document.Parsed.Source.Length, document.GetCanonicalSource().Length, false));
+            if (rows.Count > (options.ResourceLimits ?? new MarkdownResourceLimits()).MaximumLayoutRows)
+                return engine.LayoutRaw(document.GetCanonicalSource(), document.Parsed.PipelineId, options);
         }
 
         return new MarkdownLayout

@@ -6,10 +6,19 @@ namespace HPD.TUI.Components;
 /// <summary>Renders one immutable Markdown layout without parsing or recomputing layout.</summary>
 public sealed class MarkdownView : IComponent
 {
-    private readonly MarkdownLayout _layout;
+    private MarkdownLayout _layout;
+    private readonly Func<int, MarkdownLayout>? _loadRawPage;
+    private readonly Stack<MarkdownLayout> _previousPages = [];
 
     /// <summary>Creates a view over a prepared layout.</summary>
     public MarkdownView(MarkdownLayout layout) => _layout = layout ?? throw new ArgumentNullException(nameof(layout));
+
+    /// <summary>Creates a view that can disclose bounded raw continuation pages with PageDown/PageUp.</summary>
+    public MarkdownView(MarkdownLayout layout, Func<int, MarkdownLayout> loadRawPage)
+    {
+        _layout = layout ?? throw new ArgumentNullException(nameof(layout));
+        _loadRawPage = loadRawPage ?? throw new ArgumentNullException(nameof(loadRawPage));
+    }
 
     /// <inheritdoc />
     public Measurement Measure(in RenderContext context, int maxWidth)
@@ -32,7 +41,21 @@ public sealed class MarkdownView : IComponent
     }
 
     /// <inheritdoc />
-    public bool HandleInput(in TuiInputEvent input) => false;
+    public bool HandleInput(in TuiInputEvent input)
+    {
+        if (input.Key == KeyCode.PageDown && _layout.NextSourceOffset is { } offset && _loadRawPage is not null)
+        {
+            _previousPages.Push(_layout);
+            _layout = _loadRawPage(offset);
+            return true;
+        }
+        if (input.Key == KeyCode.PageUp && _previousPages.TryPop(out var previous))
+        {
+            _layout = previous;
+            return true;
+        }
+        return false;
+    }
 
     private void Validate(in RenderContext context, int maxWidth)
     {

@@ -10,6 +10,38 @@ namespace HPD.TUI.Tests;
 public sealed class MarkdownArchitectureTests
 {
     [Fact]
+    public void CommittedMarkdownGridSnapshotsMatchAtNarrowNormalAndWideWidths()
+    {
+        var sources = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["heading"] = "# Heading",
+            ["list"] = "- one\n- two",
+            ["quote"] = "> quote",
+            ["code"] = "```text\nvalue\n```",
+            ["link"] = "[label](https://example.com)",
+            ["table"] = "| A |\n|---|\n| B |"
+        };
+        var expected = File.ReadAllLines(Path.Combine(AppContext.BaseDirectory, "Snapshots", "markdown-grid.snap"))
+            .Where(static line => !line.StartsWith('#') && !string.IsNullOrWhiteSpace(line))
+            .Select(static line => line.Split('|', 3))
+            .ToDictionary(static fields => (fields[0], int.Parse(fields[1])),
+                static fields => fields[2].Replace("\\n", "\n", StringComparison.Ordinal));
+        var parser = new MarkdownDocumentParser();
+        var engine = new MarkdownLayoutEngine();
+        foreach (var pair in expected)
+        {
+            var snapshot = parser.Parse(sources[pair.Key.Item1],
+                new MarkdownParseOptions { Pipeline = MarkdownPipelineFactory.CreateDefault() });
+            var layout = engine.Layout(snapshot,
+                new(pair.Key.Item2, MarkdownTheme.FromTheme(Theme.Default)));
+            var actual = TuiCapture.RenderToString(new MarkdownView(layout), pair.Key.Item2,
+                Math.Max(1, layout.Height), trimTrailingBlankLines: true);
+            actual = string.Join('\n', actual.Split('\n').Select(static row => row.TrimEnd()));
+            Assert.Equal(pair.Value, actual);
+        }
+    }
+
+    [Fact]
     public void Parser_PreservesExactSourceAndNormalizesExclusiveBlockSpans()
     {
         const string source = "# heading\n\nparagraph";
@@ -239,12 +271,20 @@ public sealed class MarkdownArchitectureTests
 
     private static int ExpectedPairwiseGap(MarkdownBlockKind previous, MarkdownBlockKind current, MarkdownSpacing spacing)
     {
-        if (previous is MarkdownBlockKind.Html or MarkdownBlockKind.ThematicBreak or MarkdownBlockKind.Other ||
-            current is MarkdownBlockKind.Html or MarkdownBlockKind.ThematicBreak or MarkdownBlockKind.Other) return 0;
-        if (current == MarkdownBlockKind.Heading) return spacing.HeadingTopGap;
-        if (previous == MarkdownBlockKind.Heading) return spacing.HeadingBottomGap;
-        if (previous == current && previous is MarkdownBlockKind.List or MarkdownBlockKind.Quote) return 0;
-        return spacing.ParagraphGap;
+        int[,] golden =
+        {
+            { 3, 4, 3, 3, 3, 3, 0, 0, 0 },
+            { 5, 4, 5, 5, 5, 5, 0, 0, 0 },
+            { 3, 4, 0, 3, 3, 3, 0, 0, 0 },
+            { 3, 4, 3, 0, 3, 3, 0, 0, 0 },
+            { 3, 4, 3, 3, 3, 3, 0, 0, 0 },
+            { 3, 4, 3, 3, 3, 3, 0, 0, 0 },
+            { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+            { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+            { 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+        };
+        var token = golden[(int)previous, (int)current];
+        return token switch { 3 => spacing.ParagraphGap, 4 => spacing.HeadingTopGap, 5 => spacing.HeadingBottomGap, _ => 0 };
     }
 
     [Fact]
@@ -325,6 +365,16 @@ public sealed class MarkdownArchitectureTests
             rowLimited.NextSourceOffset!.Value);
         Assert.Equal("three", Assert.Single(nextPage.Rows).Line.Runs[0].Text);
         Assert.False(nextPage.HasMoreSource);
+        var view = new MarkdownView(rowLimited, offset => engine.LayoutRawPage(source, document.PipelineId,
+            new(20, theme, Mode: MarkdownPresentationMode.Raw, ResourceLimits: new() { MaximumLayoutRows = 2 }), offset));
+        Assert.True(view.HandleInput(new KeyEvent(KeyCode.PageDown)));
+        var context = new RenderContext(20, 2, Theme.Default);
+        using var grid = new TerminalGrid(20, 2);
+        var writer = new SegmentWriter(grid);
+        view.Render(in context, 20, ref writer);
+        Assert.StartsWith("three", string.Concat(MarkdownLayoutEngine.CaptureLine(grid, 0).Runs
+            .Select(static run => run.Text)), StringComparison.Ordinal);
+        Assert.True(view.HandleInput(new KeyEvent(KeyCode.PageUp)));
     }
 
     [Fact]
@@ -420,6 +470,22 @@ public sealed class MarkdownArchitectureTests
     }
 
     [Fact]
+    public void MalformedHighlighterMapsFallBackToExactBuiltInHighlighting()
+    {
+        const string source = "```text\na\tb\n```";
+        var document = new MarkdownDocumentParser().Parse(source,
+            new MarkdownParseOptions { Pipeline = MarkdownPipelineFactory.CreateDefault() });
+        var layout = new MarkdownLayoutEngine(new MalformedHighlighter()).Layout(document,
+            new(40, MarkdownTheme.FromTheme(Theme.Default)));
+
+        Assert.Equal(MarkdownDegradationReason.CodeHighlightFailure, layout.DegradationReason);
+        Assert.DoesNotContain(layout.Rows.SelectMany(static row => row.Line.Runs),
+            static run => run.Text.Contains("forged", StringComparison.Ordinal));
+        Assert.Contains(layout.Rows.SelectMany(static row => row.Line.Runs),
+            static run => run.Text.Contains('a') || run.Text.Contains('b'));
+    }
+
+    [Fact]
     public void ParserRejectsOversizeAndDelimiterAdversarialWorkBeforeSemanticParsing()
     {
         var parser = new MarkdownDocumentParser();
@@ -470,6 +536,13 @@ public sealed class MarkdownArchitectureTests
         public CodeHighlightResult Highlight(ReadOnlyMemory<char> source, string? language, MarkdownTheme theme) =>
             new([new StyledTerminalLine([new StyledTerminalRun("A⇥B", theme.Body, SourceMap:
                 [new(0, 1, 0, 1), new(1, 2, 1, 2), new(2, 3, 2, 3)])])], "text");
+    }
+
+    private sealed class MalformedHighlighter : ICodeHighlighter
+    {
+        public CodeHighlightResult Highlight(ReadOnlyMemory<char> source, string? language, MarkdownTheme theme) =>
+            new([new StyledTerminalLine([new StyledTerminalRun("forged", theme.Body, SourceMap:
+                [new(1, 99, -1, 500)])])], "text");
     }
 
     [Theory]

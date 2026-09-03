@@ -18,4 +18,8 @@
     <ProjectReference Include="../../src/HPD-TUI.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="Snapshots/**/*.snap" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

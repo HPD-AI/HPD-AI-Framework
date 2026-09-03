@@ -336,6 +336,11 @@ internal sealed class FencedCodeRenderer : TerminalObjectRenderer<FencedCodeBloc
                 .Select(line => new StyledTerminalLine([new StyledTerminalRun(line, r.Options.Theme.Body)]))
                 .ToImmutableArray(), null);
         var inputLines = code.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        if (!IsValidHighlightResult(result, inputLines))
+        {
+            r.DegradationReason = MarkdownDegradationReason.CodeHighlightFailure;
+            result = new BasicCodeHighlighter().Highlight(code.AsMemory(), language, r.Options.Theme);
+        }
         var inputLineStart = 0;
         for (var index = 0; index < result.Lines.Length; index++)
         {
@@ -372,6 +377,45 @@ internal sealed class FencedCodeRenderer : TerminalObjectRenderer<FencedCodeBloc
             }
             inputLineStart += index < inputLines.Length - 1 ? inputLines[index].Length + 1 : 0;
         }
+    }
+
+    private static bool IsValidHighlightResult(CodeHighlightResult result, string[] sourceLines)
+    {
+        if (result.Lines.Length != sourceLines.Length) return false;
+        var absoluteLineStart = 0;
+        for (var lineIndex = 0; lineIndex < result.Lines.Length; lineIndex++)
+        {
+            var sourceLine = sourceLines[lineIndex];
+            foreach (var run in result.Lines[lineIndex].Runs)
+            {
+                if (run.IsDecorative) continue;
+                if (run.SourceMap.IsDefaultOrEmpty)
+                {
+                    // Unmapped highlighters may style only; their text must remain source-exact.
+                    continue;
+                }
+                var cursor = 0;
+                foreach (var segment in run.SourceMap)
+                {
+                    if (segment.VisualStart != cursor || segment.VisualEndExclusive <= segment.VisualStart ||
+                        segment.VisualEndExclusive > run.Text.Length ||
+                        segment.SourceStart < absoluteLineStart ||
+                        segment.SourceEndExclusive < segment.SourceStart ||
+                        segment.SourceEndExclusive > absoluteLineStart + sourceLine.Length)
+                        return false;
+                    cursor = segment.VisualEndExclusive;
+                }
+                if (cursor != run.Text.Length) return false;
+            }
+            var unmapped = string.Concat(result.Lines[lineIndex].Runs
+                .Where(static run => !run.IsDecorative && run.SourceMap.IsDefaultOrEmpty)
+                .Select(static run => run.Text));
+            var hasMapped = result.Lines[lineIndex].Runs.Any(static run => !run.SourceMap.IsDefaultOrEmpty);
+            if (hasMapped && unmapped.Length > 0) return false;
+            if (!hasMapped && !string.Equals(unmapped, sourceLine, StringComparison.Ordinal)) return false;
+            absoluteLineStart += sourceLine.Length + (lineIndex < sourceLines.Length - 1 ? 1 : 0);
+        }
+        return true;
     }
 }
 

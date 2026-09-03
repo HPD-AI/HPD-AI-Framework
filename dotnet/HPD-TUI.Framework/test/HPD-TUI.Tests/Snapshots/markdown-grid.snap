@@ -1,0 +1,19 @@
+# category|width|observable grid (\n is a row boundary)
+heading|8|Heading
+heading|20|Heading
+heading|40|Heading
+list|8|• one\n• two
+list|20|• one\n• two
+list|40|• one\n• two
+quote|8|| quote
+quote|20|| quote
+quote|40|| quote
+code|8|code tex\nt\n  value
+code|20|code text\n  value
+code|40|code text\n  value
+link|8|label
+link|20|label
+link|40|label
+table|8|┌───┐\n│ A │\n├───┤\n│ B │\n└───┘
+table|20|┌───┐\n│ A │\n├───┤\n│ B │\n└───┘
+table|40|┌───┐\n│ A │\n├───┤\n│ B │\n└───┘
