@@ -1,6 +1,11 @@
 using BenchmarkDotNet.Attributes;
 using HPD.Agent.TUI.Markdown;
 using HPD.TUI.Markdown;
+using HPD.TUI.Core;
+using HPD.TUI.Rendering;
+using HPD.Agent.TUI.Composition;
+using HPD.Agent.TUI.Models;
+using HPD.Agent.TUI.Views;
 using System.Text;
 
 namespace HPD.Agent.TUI.Benchmarks;
@@ -38,25 +43,99 @@ public class MarkdownStreamingBenchmark
     public MarkdownStreamDiagnosticsSnapshot NewlineGated() => Stream(Representative, 8, refreshEveryDelta: false, refreshOnNewline: true);
 
     [Benchmark]
-    public MarkdownStreamDiagnosticsSnapshot StablePrefixMutableTail() => Stream(Representative, 32, refreshEveryDelta: false, refreshOnNewline: true);
+    public MarkdownProjectionDiagnosticsSnapshot StablePrefixMutableTail() => StreamAndLayout(Representative, 32, [80]);
 
     [Benchmark]
-    public MarkdownStreamDiagnosticsSnapshot LongCodeBlock() => Stream(LongCode, 64, refreshEveryDelta: false, refreshOnNewline: true);
+    public MarkdownLayout LongCodeBlock() => FinalLayout(LongCode, 96);
 
     [Benchmark]
-    public MarkdownStreamDiagnosticsSnapshot GrowingTables() => Stream(GrowingTable, 24, refreshEveryDelta: false, refreshOnNewline: true);
+    public MarkdownProjectionDiagnosticsSnapshot GrowingTables() => StreamAndLayout(GrowingTable, 24, [100], serviceEveryCompletedLine: 16);
 
     [Benchmark]
-    public MarkdownStreamDiagnosticsSnapshot LongTranscriptActiveMessage() => Stream(Representative + Representative, 64, false, true);
+    public string LongTranscriptActiveMessage()
+    {
+        var model = new TranscriptModel();
+        for (var index = 0; index < 1_000; index++)
+            model.AddFinal(new TranscriptEntry($"row-{index}", null, new UserMessageCell($"row {index} {new string('x', 80)}"), new()));
+        var session = CompletedSession(Representative);
+        var document = session.Complete().Document;
+        _ = session.Projection.Prepare(document, Options(100), new MarkdownLayoutEngine());
+        model.UpsertLive(new TranscriptEntry("active", "assistant:benchmark",
+            new AssistantMessageCell("assistant", document, session.Projection), new()));
+        var registry = new HpdAgentTuiBuilder().AddDefaultTranscriptRenderers().Build().TranscriptRenderers;
+        return TuiCapture.RenderToString(new TranscriptView(model, registry, 24), 100, 24,
+            trimTrailingBlankLines: false);
+    }
 
     [Benchmark]
-    public MarkdownStreamDiagnosticsSnapshot RepeatedResizePublicationSource() => Stream(Representative, 128, false, true);
+    public MarkdownProjectionDiagnosticsSnapshot RepeatedResizePublicationSource()
+    {
+        var session = CompletedSession(Representative);
+        var document = session.Complete().Document;
+        var engine = new MarkdownLayoutEngine();
+        foreach (var width in Enumerable.Repeat(new[] { 48, 72, 96, 120 }, 4).SelectMany(static widths => widths))
+            _ = session.Projection.Prepare(document, Options(width), engine);
+        return session.Projection.Diagnostics;
+    }
 
     [Benchmark]
-    public MarkdownStreamDiagnosticsSnapshot VeryLargeAdversarialMessage() => Stream(Adversarial, 256, false, true);
+    public MarkdownLayout VeryLargeAdversarialMessage() => FinalLayout(Adversarial, 80);
 
     [Benchmark]
-    public MarkdownStreamDiagnosticsSnapshot OverBudgetEventLoopWorkload() => Stream(Representative, 1, false, true);
+    public MarkdownProjectionDiagnosticsSnapshot OverBudgetEventLoopWorkload()
+    {
+        var dispatcher = new BenchmarkDispatcher();
+        MarkdownMessageProjection? published = null;
+        var coordinator = new MarkdownStreamCoordinator(dispatcher, (update, projection) =>
+        {
+            _ = projection.Prepare(update.Document, Options(80), new MarkdownLayoutEngine());
+            published = projection;
+        });
+        var identity = new MarkdownStreamIdentity(MarkdownStreamKind.Assistant, "event-loop");
+        coordinator.Start(identity);
+        foreach (var character in Representative) coordinator.Append(identity, character.ToString());
+        coordinator.Complete(identity);
+        dispatcher.Drain();
+        return published!.Diagnostics;
+    }
+
+    private static MarkdownProjectionDiagnosticsSnapshot StreamAndLayout(
+        string source,
+        int deltaLength,
+        int[] widths,
+        int serviceEveryCompletedLine = 1)
+    {
+        var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "layout"));
+        var engine = new MarkdownLayoutEngine();
+        var completedLines = 0;
+        for (var offset = 0; offset < source.Length; offset += deltaLength)
+        {
+            var delta = source.Substring(offset, Math.Min(deltaLength, source.Length - offset));
+            if (!session.Append(delta).CompletedPhysicalLine || ++completedLines % serviceEveryCompletedLine != 0) continue;
+            var document = session.Refresh().Document;
+            foreach (var width in widths) _ = session.Projection.Prepare(document, Options(width), engine);
+        }
+        var final = session.Complete().Document;
+        foreach (var width in widths) _ = session.Projection.Prepare(final, Options(width), engine);
+        return session.Projection.Diagnostics;
+    }
+
+    private static MarkdownLayout FinalLayout(string source, int width)
+    {
+        var session = CompletedSession(source);
+        var document = session.Complete().Document;
+        return session.Projection.Prepare(document, Options(width), new MarkdownLayoutEngine());
+    }
+
+    private static MarkdownStreamSession CompletedSession(string source)
+    {
+        var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "complete"));
+        session.Append(source);
+        return session;
+    }
+
+    private static MarkdownLayoutOptions Options(int width) =>
+        new(width, MarkdownTheme.FromTheme(Theme.Default));
 
     private static MarkdownStreamDiagnosticsSnapshot Stream(
         string source,
@@ -74,5 +153,17 @@ public class MarkdownStreamingBenchmark
         }
         _ = session.Complete();
         return session.Diagnostics;
+    }
+
+    private sealed class BenchmarkDispatcher : IAgentTuiDispatcher
+    {
+        private readonly Queue<Action> _queue = [];
+        public bool CheckAccess() => true;
+        public void Post(Action callback) => _queue.Enqueue(callback);
+        public ValueTask InvokeAsync(Action callback, CancellationToken cancellationToken = default)
+        { Post(callback); return ValueTask.CompletedTask; }
+        public ValueTask InvokeAsync(Func<ValueTask> callback, CancellationToken cancellationToken = default)
+        { Post(() => callback().GetAwaiter().GetResult()); return ValueTask.CompletedTask; }
+        public void Drain() { while (_queue.TryDequeue(out var callback)) callback(); }
     }
 }

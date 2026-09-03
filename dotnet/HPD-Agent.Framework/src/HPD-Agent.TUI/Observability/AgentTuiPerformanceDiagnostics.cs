@@ -3,6 +3,8 @@ using HPD.Agent.TUI.Runtime;
 using HPD.Events;
 using HPD.Agent.Serialization;
 using HPD.TUI.Observability;
+using HPD.Agent.TUI.Markdown;
+using HPD.TUI.Markdown;
 
 namespace HPD.Agent.TUI.Observability;
 
@@ -98,4 +100,22 @@ public sealed record AgentTuiEventBatchApplied(
 {
     public override string FormatSummary()
         => $"event batch {DeliveryMode} {Duration.TotalMilliseconds:0.###}ms events={EventCount} cursor={FirstCursor.Generation}:{FirstCursor.SequenceNumber}-{LastCursor.Generation}:{LastCursor.SequenceNumber}";
+}
+
+[EventType("MARKDOWN_PROJECTION_MEASURED")]
+public sealed record MarkdownProjectionMeasured(
+    string? AgentId,
+    string MessageId,
+    MarkdownStreamKind StreamKind,
+    MarkdownMessageState State,
+    MarkdownInvalidationKind Invalidation,
+    MarkdownDegradationReason DegradationReason,
+    MarkdownStreamDiagnosticsSnapshot Stream,
+    MarkdownProjectionDiagnosticsSnapshot Projection) : AgentTuiPerformanceEvent
+{
+    public override string FormatSummary()
+        => $"markdown projection state={State} invalidation={Invalidation} degradation={DegradationReason} " +
+           $"deltas={Stream.DeltasAccepted} coalesced={Stream.DeltasCoalesced} parses={Stream.ParseCount} " +
+           $"layouts={Projection.LayoutCount} reuse={Projection.StableBlocksReused} " +
+           $"cache={Projection.CacheHits}/{Projection.CacheMisses}/{Projection.CacheEvictions}";
 }

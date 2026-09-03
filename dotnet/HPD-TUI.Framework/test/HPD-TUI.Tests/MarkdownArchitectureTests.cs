@@ -283,6 +283,52 @@ public sealed class MarkdownArchitectureTests
     }
 
     [Fact]
+    public void CodeHighlightAndTableWrappingPreserveExactSourceSegments()
+    {
+        const string source = "| Value |\n|---|\n| [**bold** and \\*star](https://example.com) |\n\n```csharp\nvar x = 42;\nreturn x;\n```";
+        var document = new MarkdownDocumentParser().Parse(source,
+            new MarkdownParseOptions { Pipeline = MarkdownPipelineFactory.CreateDefault() });
+        var layout = new MarkdownLayoutEngine().Layout(document,
+            new(18, MarkdownTheme.FromTheme(Theme.Default)));
+        var runs = layout.Rows.SelectMany(static row => row.Line.Runs).ToArray();
+
+        foreach (var expected in new[] { "var", "42", "return" })
+        {
+            var matching = runs.Where(run => run.Text == expected).ToArray();
+            Assert.True(matching.Length > 0, $"Missing '{expected}' in: {string.Join('|', runs.Select(static run => run.Text))}");
+            Assert.All(matching, run =>
+            {
+                Assert.Equal(expected, source[run.SourceStart!.Value..run.SourceEndExclusive!.Value]);
+                Assert.All(run.SourceMap, segment => Assert.Equal(
+                    run.Text[segment.VisualStart..segment.VisualEndExclusive],
+                    source[segment.SourceStart..segment.SourceEndExclusive]));
+            });
+        }
+        var codeStart = source.IndexOf("var x", StringComparison.Ordinal);
+        foreach (var run in runs.Where(run => !run.IsDecorative && run.SourceStart >= codeStart))
+            Assert.All(run.SourceMap, segment => Assert.Equal(
+                run.Text[segment.VisualStart..segment.VisualEndExclusive],
+                source[segment.SourceStart..segment.SourceEndExclusive]));
+        var tableStar = Assert.Single(runs.Where(static run => run.Text.Contains("star", StringComparison.Ordinal)));
+        Assert.Contains(tableStar.SourceMap, segment =>
+            tableStar.Text[segment.VisualStart..segment.VisualEndExclusive] == "*" &&
+            source[segment.SourceStart..segment.SourceEndExclusive] == "\\*");
+    }
+
+    [Fact]
+    public void TrimmingVisualWhitespaceAlsoTrimsExactSourceMapExtent()
+    {
+        const string source = "abc   ";
+        var layout = new MarkdownLayoutEngine().LayoutRaw(source, "trim-test",
+            new(20, MarkdownTheme.FromTheme(Theme.Default), Mode: MarkdownPresentationMode.Raw));
+        var run = Assert.Single(Assert.Single(layout.Rows).Line.Runs);
+
+        Assert.Equal("abc", run.Text);
+        Assert.Equal(3, run.SourceEndExclusive);
+        Assert.All(run.SourceMap, segment => Assert.InRange(segment.VisualEndExclusive, 0, run.Text.Length));
+    }
+
+    [Fact]
     public void TableCells_PreserveTypedInlineOrderStylesAndHyperlinks()
     {
         const string source = "| Value |\n|---|\n| [**bold** and `code`](https://example.com) |";

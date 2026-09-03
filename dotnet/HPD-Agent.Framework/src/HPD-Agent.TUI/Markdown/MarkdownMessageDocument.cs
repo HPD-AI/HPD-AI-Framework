@@ -132,6 +132,8 @@ public readonly record struct MarkdownProjectionDiagnosticsSnapshot(
     long CacheHits,
     long CacheMisses,
     long CacheEvictions,
+    long MutableBlocksRerendered,
+    long LayoutFallbacks,
     long Degradations);
 
 /// <summary>Retains prepared block projections across immutable document publications.</summary>
@@ -152,6 +154,8 @@ public sealed class MarkdownMessageProjection
     private long _cacheHits;
     private long _cacheMisses;
     private long _cacheEvictions;
+    private long _mutableBlocksRerendered;
+    private long _layoutFallbacks;
     private long _degradations;
     internal MarkdownMessageProjection(MarkdownStreamIdentity identity, Guid lineageId)
     {
@@ -170,7 +174,8 @@ public sealed class MarkdownMessageProjection
     /// <summary>Gets structured measurements that never include model source.</summary>
     public MarkdownProjectionDiagnosticsSnapshot Diagnostics => new(
         _layoutCount, TimeSpan.FromTicks(_layoutTicks), _stableBlocksReused,
-        _cacheHits, _cacheMisses, _cacheEvictions, _degradations);
+        _cacheHits, _cacheMisses, _cacheEvictions, _mutableBlocksRerendered,
+        _layoutFallbacks, _degradations);
 
     internal void BindDispatcher(IAgentTuiDispatcher dispatcher)
     {
@@ -223,6 +228,8 @@ public sealed class MarkdownMessageProjection
                 _cacheMisses++;
                 layout = engine.LayoutBlock(document.Parsed, block, options);
                 var isStable = block.SourceEndExclusive <= document.StableSourceLength;
+                if (!isStable) _mutableBlocksRerendered++;
+                if (layout.DegradationReason == MarkdownDegradationReason.LayoutFailure) _layoutFallbacks++;
                 var weight = EstimateBytes(exactSource, layout);
                 if (isStable && weight <= MaximumEntryBytes)
                 {

@@ -91,6 +91,42 @@ internal sealed class TerminalLayoutBuilder
         if (count > 0) Write(new string(value, count), style, decorative: decorative);
     }
 
+    internal void WriteRun(StyledTerminalRun run) => WriteSlice(run, 0, run.Text.Length);
+
+    internal void WriteSlice(StyledTerminalRun run, int visualStart, int visualLength)
+    {
+        if (visualLength <= 0) return;
+        if (run.SourceMap.IsDefaultOrEmpty)
+        {
+            Write(run.Text.Substring(visualStart, visualLength), run.Style, run.Hyperlink,
+                run.SourceStart, run.SourceEndExclusive, run.IsDecorative);
+            return;
+        }
+
+        var visualEnd = visualStart + visualLength;
+        var cursor = visualStart;
+        foreach (var segment in run.SourceMap)
+        {
+            var start = Math.Max(cursor, segment.VisualStart);
+            var end = Math.Min(visualEnd, segment.VisualEndExclusive);
+            if (start >= end) continue;
+            if (cursor < start)
+                Write(run.Text[cursor..start], run.Style, run.Hyperlink, decorative: run.IsDecorative);
+            var sourceStart = segment.SourceStart;
+            var sourceEnd = segment.SourceEndExclusive;
+            if (segment.SourceEndExclusive - segment.SourceStart == segment.VisualEndExclusive - segment.VisualStart)
+            {
+                sourceStart += start - segment.VisualStart;
+                sourceEnd = sourceStart + end - start;
+            }
+            Write(run.Text[start..end], run.Style, run.Hyperlink, sourceStart, sourceEnd, run.IsDecorative);
+            cursor = end;
+            if (cursor >= visualEnd) break;
+        }
+        if (cursor < visualEnd)
+            Write(run.Text[cursor..visualEnd], run.Style, run.Hyperlink, decorative: run.IsDecorative);
+    }
+
     internal void NewLine(bool wrapped = false)
     {
         if (_lines.Count >= _maximumRows) { LimitExceeded = true; return; }
@@ -161,9 +197,18 @@ internal sealed class TerminalLayoutBuilder
         internal void TrimSourceMap(int visualLength)
         {
             SourceMap.RemoveAll(segment => segment.VisualStart >= visualLength);
-            if (SourceMap.Count == 0 || SourceMap[^1].VisualEndExclusive <= visualLength) return;
+            if (SourceMap.Count == 0) return;
+            if (SourceMap[^1].VisualEndExclusive <= visualLength)
+            {
+                SourceEndExclusive = SourceMap[^1].SourceEndExclusive;
+                return;
+            }
             var final = SourceMap[^1];
-            SourceMap[^1] = final with { VisualEndExclusive = visualLength };
+            var sourceEnd = final.SourceEndExclusive;
+            if (final.SourceEndExclusive - final.SourceStart == final.VisualEndExclusive - final.VisualStart)
+                sourceEnd = final.SourceStart + visualLength - final.VisualStart;
+            SourceMap[^1] = final with { VisualEndExclusive = visualLength, SourceEndExclusive = sourceEnd };
+            SourceEndExclusive = sourceEnd;
         }
 
         internal bool CanAppend(Style nextStyle, TerminalHyperlink? nextHyperlink, int? nextStart, int? nextEnd, bool nextDecorative) =>

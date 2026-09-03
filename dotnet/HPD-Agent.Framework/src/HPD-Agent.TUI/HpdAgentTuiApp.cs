@@ -1258,7 +1258,26 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         if (_state is null || update.Document.Presentation.Visibility == AgentMessageVisibility.Hidden) return;
         var document = update.Document;
         var reasoning = document.Identity.Kind == MarkdownStreamKind.Reasoning;
-        PrepareMarkdown(document, projection, _application.Size.Width, _application.Theme, reasoning);
+        var layout = PrepareMarkdown(document, projection, _application.Size.Width, _application.Theme, reasoning);
+        if (AgentTuiPerformanceDiagnostics.TryGetSink(_state.State, out var performanceSink))
+            performanceSink.Publish(new MarkdownProjectionMeasured(
+                _scope?.AgentId,
+                document.MessageId,
+                document.Identity.Kind,
+                document.State,
+                update.Invalidation,
+                layout.DegradationReason,
+                update.Diagnostics,
+                projection.Diagnostics)
+            {
+                SessionId = _scope?.SessionId,
+                ThreadId = _scope?.ThreadId,
+                Metadata = _scope is null ? null : new AgentMetadata
+                {
+                    AgentId = _scope.AgentId,
+                    AgentName = _scope.AgentId
+                }
+            });
         var entryKey = $"{(reasoning ? "reasoning" : "assistant")}:{document.MessageId}";
         var entry = new TranscriptEntry(
             Id: $"{(reasoning ? "reasoning" : "assistant")}-{document.MessageId}",
@@ -1296,7 +1315,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         }
     }
 
-    private static void PrepareMarkdown(
+    private static MarkdownLayout PrepareMarkdown(
         MarkdownMessageDocument document,
         MarkdownMessageProjection projection,
         int outerWidth,
@@ -1308,7 +1327,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             ? AgentTuiTranscriptRenderServices.Default.CreateMutedTheme(theme)
             : theme;
         var width = Math.Max(1, outerWidth - depthIndent - (reasoning ? 2 : 0));
-        projection.Prepare(
+        return projection.Prepare(
             document,
             new(width, MarkdownTheme.FromTheme(effectiveTheme), ColorSystem.TrueColor),
             MarkdownLayoutEngine);

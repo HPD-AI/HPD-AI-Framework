@@ -37,10 +37,24 @@ public sealed class MarkdownDocumentSnapshot
 }
 
 /// <summary>Declares the audited terminal handling selected for one parser runtime node type.</summary>
-public sealed record MarkdownNodeCapability(string RuntimeType, MarkdownTerminalNodeHandling TerminalHandling);
+/// <param name="RuntimeType">The fully qualified Markdig runtime-node type.</param>
+/// <param name="TerminalHandling">The handling selected from the frozen terminal registry.</param>
+/// <param name="RendererType">The renderer responsible for the node, when known.</param>
+public sealed record MarkdownNodeCapability(
+    string RuntimeType,
+    MarkdownTerminalNodeHandling TerminalHandling,
+    string? RendererType = null);
 
 /// <summary>Identifies whether a parser node has typed terminal behavior or sanitized span fallback.</summary>
-public enum MarkdownTerminalNodeHandling { TypedRenderer, SanitizedSourceFallback }
+public enum MarkdownTerminalNodeHandling
+{
+    /// <summary>A registered object renderer directly accepts the node.</summary>
+    TypedRenderer,
+    /// <summary>A registered parent renderer consumes the node structurally.</summary>
+    OwnedByParentRenderer,
+    /// <summary>The terminal's sanitized canonical-source fallback handles the node.</summary>
+    SanitizedSourceFallback
+}
 
 /// <summary>Describes one top-level parsed block and its canonical-source range.</summary>
 public sealed record MarkdownTopLevelBlock(int SourceStart, int SourceEndExclusive, MarkdownBlockKind Kind, int Ordinal)

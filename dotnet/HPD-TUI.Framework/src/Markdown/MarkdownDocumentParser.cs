@@ -65,12 +65,14 @@ public interface ITerminalMarkdownExtension
 public sealed class MarkdownPipelineDescriptor
 {
     internal MarkdownPipelineDescriptor(string stableId, MarkdownPipelineConfiguration configuration, Markdig.MarkdownPipeline pipeline,
-        IReadOnlyList<RegisteredTerminalMarkdownExtension> terminalExtensions)
+        IReadOnlyList<RegisteredTerminalMarkdownExtension> terminalExtensions,
+        IReadOnlyList<TerminalRendererRegistration> rendererRegistrations)
     {
         StableId = stableId;
         Configuration = configuration;
         Pipeline = pipeline;
         TerminalExtensions = terminalExtensions;
+        RendererRegistrations = rendererRegistrations;
     }
 
     /// <summary>Gets the stable structural pipeline identity.</summary>
@@ -81,6 +83,7 @@ public sealed class MarkdownPipelineDescriptor
 
     internal Markdig.MarkdownPipeline Pipeline { get; }
     internal IReadOnlyList<RegisteredTerminalMarkdownExtension> TerminalExtensions { get; }
+    internal IReadOnlyList<TerminalRendererRegistration> RendererRegistrations { get; }
 }
 
 internal sealed record RegisteredTerminalMarkdownExtension(
@@ -140,7 +143,9 @@ public static class MarkdownPipelineFactory
             string.Join(';', extensions.Select(e => e.Id + ':' + e.Invalidation + ':' + registry[e.Id].RendererPolicyId + ':' +
                 string.Join(',', e.NormalizedOptions.Select(static p => p.Key + '=' + p.Value)))));
         var stableId = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity)));
-        return new MarkdownPipelineDescriptor(stableId, normalized, pipeline, registrations.AsReadOnly());
+        var frozenExtensions = registrations.AsReadOnly();
+        return new MarkdownPipelineDescriptor(stableId, normalized, pipeline, frozenExtensions,
+            TerminalMarkdownRenderer.DescribeObjectRenderers(frozenExtensions));
     }
 
     private static MarkdownExtensionConfiguration[] DefaultExtensions() =>
@@ -183,30 +188,40 @@ public sealed class MarkdownDocumentParser : IMarkdownDocumentParser
         if (options.Pipeline.Configuration.Extensions?.Any(static extension =>
                 extension.Invalidation == MarkdownExtensionInvalidation.DocumentGlobal) == true)
             features |= MarkdownDocumentFeatures.ExtensionGlobalState;
-        var nodes = syntax.Descendants()
-            .Prepend(syntax)
-            .ToArray();
+        var nodes = syntax.Descendants().ToArray();
         var maximumDepth = GetMaximumDepth(syntax, 0);
         if (maximumDepth > options.Pipeline.Configuration.MaximumNestingDepth)
             throw new InvalidOperationException("Markdown nesting exceeds the configured parser and terminal-renderer limit.");
         var capabilities = nodes
-            .Select(static node => new MarkdownNodeCapability(
-                node.GetType().FullName ?? node.GetType().Name,
-                HasTypedTerminalRenderer(node) ? MarkdownTerminalNodeHandling.TypedRenderer : MarkdownTerminalNodeHandling.SanitizedSourceFallback))
+            .Select(node => DescribeCapability(node.GetType(), options.Pipeline.RendererRegistrations))
+            .Append(new MarkdownNodeCapability(
+                syntax.GetType().FullName ?? syntax.GetType().Name,
+                MarkdownTerminalNodeHandling.OwnedByParentRenderer,
+                typeof(TerminalMarkdownRenderer).FullName))
             .Distinct()
             .OrderBy(static capability => capability.RuntimeType, StringComparer.Ordinal)
             .ToArray();
         return new MarkdownDocumentSnapshot(source, blocks, features, Array.AsReadOnly(capabilities), maximumDepth, options.Pipeline, syntax);
     }
 
-    private static bool HasTypedTerminalRenderer(MarkdownObject node) => node is
-        Markdig.Syntax.MarkdownDocument or HeadingBlock or ParagraphBlock or FencedCodeBlock or CodeBlock or
-        ListBlock or ListItemBlock or QuoteBlock or ThematicBreakBlock or HtmlBlock or Table or
-        Markdig.Extensions.Tables.TableRow or Markdig.Extensions.Tables.TableCell or
-        Markdig.Syntax.Inlines.LiteralInline or Markdig.Syntax.Inlines.EmphasisInline or
-        Markdig.Syntax.Inlines.CodeInline or Markdig.Syntax.Inlines.LinkInline or
-        Markdig.Syntax.Inlines.LineBreakInline or Markdig.Syntax.Inlines.HtmlInline or
-        Markdig.Syntax.Inlines.AutolinkInline or Markdig.Extensions.TaskLists.TaskList;
+    private static MarkdownNodeCapability DescribeCapability(Type nodeType,
+        IReadOnlyList<TerminalRendererRegistration> registrations)
+    {
+        foreach (var registration in registrations)
+        {
+            if (registration.OwnedNodeTypes.Any(owned => owned.IsAssignableFrom(nodeType)))
+                return new MarkdownNodeCapability(
+                    nodeType.FullName ?? nodeType.Name,
+                    MarkdownTerminalNodeHandling.OwnedByParentRenderer,
+                    registration.RendererType);
+            if (registration.AcceptedNodeType.IsAssignableFrom(nodeType))
+                return new MarkdownNodeCapability(
+                    nodeType.FullName ?? nodeType.Name,
+                    registration.IsFallback ? MarkdownTerminalNodeHandling.SanitizedSourceFallback : MarkdownTerminalNodeHandling.TypedRenderer,
+                    registration.RendererType);
+        }
+        throw new InvalidOperationException($"Frozen terminal registry cannot handle '{nodeType.FullName}'.");
+    }
 
     private static int GetMaximumDepth(MarkdownObject node, int depth)
     {

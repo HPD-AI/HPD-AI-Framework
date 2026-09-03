@@ -1,4 +1,5 @@
 using System.Text;
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Net;
 using HPD.TUI.Core;
@@ -27,28 +28,54 @@ internal sealed class TerminalMarkdownRenderer : RendererBase
         _options = options;
         _highlighter = highlighter ?? new BasicCodeHighlighter();
         CurrentStyle = options.Theme.Body;
-        foreach (var extension in document.Pipeline.TerminalExtensions)
-            extension.Extension.ConfigureTerminal(ObjectRenderers, extension.Options);
-        ObjectRenderers.Add(new TableRenderer());
-        ObjectRenderers.Add(new TaskListRenderer());
-        ObjectRenderers.Add(new AutolinkRenderer());
-        ObjectRenderers.Add(new HeadingRenderer());
-        ObjectRenderers.Add(new ParagraphRenderer());
-        ObjectRenderers.Add(new FencedCodeRenderer());
-        ObjectRenderers.Add(new CodeBlockRenderer());
-        ObjectRenderers.Add(new ListRenderer());
-        ObjectRenderers.Add(new ListItemRenderer());
-        ObjectRenderers.Add(new QuoteRenderer());
-        ObjectRenderers.Add(new ThematicBreakRenderer());
-        ObjectRenderers.Add(new HtmlBlockRenderer());
-        ObjectRenderers.Add(new LiteralInlineRenderer());
-        ObjectRenderers.Add(new EmphasisRenderer());
-        ObjectRenderers.Add(new CodeInlineRenderer());
-        ObjectRenderers.Add(new LinkRenderer());
-        ObjectRenderers.Add(new LineBreakRenderer());
-        ObjectRenderers.Add(new HtmlInlineRenderer());
-        ObjectRenderers.Add(new LiteralFallbackRenderer());
+        RegisterObjectRenderers(ObjectRenderers, document.Pipeline.TerminalExtensions);
         _registrationSignature = RegistrationSignature();
+    }
+
+    internal static IReadOnlyList<TerminalRendererRegistration> DescribeObjectRenderers(
+        IReadOnlyList<RegisteredTerminalMarkdownExtension> extensions)
+    {
+        var renderers = new ObjectRendererCollection();
+        RegisterObjectRenderers(renderers, extensions);
+        return renderers.Select(static renderer => new TerminalRendererRegistration(
+                GetAcceptedNodeType(renderer.GetType()), renderer.GetType().FullName ?? renderer.GetType().Name,
+                renderer is LiteralFallbackRenderer,
+                renderer is TableRenderer ? [typeof(TableRow), typeof(TableCell)] : []))
+            .ToArray();
+    }
+
+    private static void RegisterObjectRenderers(ObjectRendererCollection renderers,
+        IReadOnlyList<RegisteredTerminalMarkdownExtension> extensions)
+    {
+        foreach (var extension in extensions)
+            extension.Extension.ConfigureTerminal(renderers, extension.Options);
+        renderers.Add(new TableRenderer());
+        renderers.Add(new TaskListRenderer());
+        renderers.Add(new AutolinkRenderer());
+        renderers.Add(new HeadingRenderer());
+        renderers.Add(new ParagraphRenderer());
+        renderers.Add(new FencedCodeRenderer());
+        renderers.Add(new CodeBlockRenderer());
+        renderers.Add(new ListRenderer());
+        renderers.Add(new ListItemRenderer());
+        renderers.Add(new QuoteRenderer());
+        renderers.Add(new ThematicBreakRenderer());
+        renderers.Add(new HtmlBlockRenderer());
+        renderers.Add(new LiteralInlineRenderer());
+        renderers.Add(new EmphasisRenderer());
+        renderers.Add(new CodeInlineRenderer());
+        renderers.Add(new LinkRenderer());
+        renderers.Add(new LineBreakRenderer());
+        renderers.Add(new HtmlInlineRenderer());
+        renderers.Add(new LiteralFallbackRenderer());
+    }
+
+    private static Type GetAcceptedNodeType(Type rendererType)
+    {
+        for (var type = rendererType; type is not null; type = type.BaseType)
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(MarkdownObjectRenderer<,>))
+                return type.GetGenericArguments()[1];
+        throw new InvalidOperationException($"Terminal renderer '{rendererType.FullName}' does not declare a Markdig node type.");
     }
 
     internal TerminalLayoutBuilder Builder => _builder;
@@ -202,6 +229,12 @@ internal sealed class TerminalMarkdownRenderer : RendererBase
 
 internal abstract class TerminalObjectRenderer<T> : MarkdownObjectRenderer<TerminalMarkdownRenderer, T> where T : MarkdownObject;
 
+internal sealed record TerminalRendererRegistration(
+    Type AcceptedNodeType,
+    string RendererType,
+    bool IsFallback,
+    IReadOnlyList<Type> OwnedNodeTypes);
+
 internal sealed class HeadingRenderer : TerminalObjectRenderer<HeadingBlock>
 {
     protected override void Write(TerminalMarkdownRenderer r, HeadingBlock n)
@@ -299,13 +332,23 @@ internal sealed class FencedCodeRenderer : TerminalObjectRenderer<FencedCodeBloc
         if (!highlightEligible) r.DegradationReason = MarkdownDegradationReason.CodeHighlightLength;
         var result = highlightEligible
             ? r.Highlighter.Highlight(code.AsMemory(), language, r.Options.Theme)
-            : new CodeHighlightResult([new StyledTerminalLine([new StyledTerminalRun(code, r.Options.Theme.Body)])], null);
+            : new CodeHighlightResult(code.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n')
+                .Select(line => new StyledTerminalLine([new StyledTerminalRun(line, r.Options.Theme.Body)]))
+                .ToImmutableArray(), null);
         for (var index = 0; index < result.Lines.Length; index++)
         {
             if (index > 0) r.Builder.NewLine();
             r.Builder.WriteRepeated(' ', (r.Options.Spacing ?? new MarkdownSpacing()).CodeIndent, r.Options.Theme.CodeBorder);
+            var sourceCursor = index < n.Lines.Count ? n.Lines.Lines[index].Position : n.Span.Start;
+            var sourceLineEnd = index < n.Lines.Count
+                ? Math.Max(sourceCursor, n.Lines.Lines[index].Slice.End + 1)
+                : n.Span.End + 1;
             foreach (var run in result.Lines[index].Runs)
-                r.Builder.Write(run.Text, run.Style, run.Hyperlink, n.Span.Start, n.Span.End + 1);
+            {
+                var runEnd = Math.Min(sourceLineEnd, sourceCursor + run.Text.Length);
+                r.Builder.Write(run.Text, run.Style, run.Hyperlink, sourceCursor, runEnd);
+                sourceCursor = runEnd;
+            }
         }
     }
 }
@@ -414,7 +457,7 @@ internal sealed class TableRenderer : TerminalObjectRenderer<Table>
                     var used = 0;
                     foreach (var run in cellLine.Runs)
                     {
-                        r.Builder.Write(run.Text, run.Style, run.Hyperlink, run.SourceStart, run.SourceEndExclusive, run.IsDecorative);
+                        r.Builder.WriteRun(run);
                         used += UnicodeWidth.GetWidth(run.Text.AsSpan());
                     }
                     r.Builder.WriteRepeated(' ', Math.Max(0, widths[column] - used) + 1, r.Options.Theme.Body);
@@ -454,8 +497,8 @@ internal sealed class TableRenderer : TerminalObjectRenderer<Table>
                         pendingSpace = false;
                     }
                     if (pendingSpace && builder.Column > 0)
-                        builder.Write(" ", run.Style, run.Hyperlink, run.SourceStart, run.SourceEndExclusive, run.IsDecorative);
-                    builder.Write(word, run.Style, run.Hyperlink, run.SourceStart, run.SourceEndExclusive, run.IsDecorative);
+                        builder.WriteSlice(run, Math.Max(0, start - 1), 1);
+                    builder.WriteSlice(run, start, word.Length);
                     pendingSpace = false;
                 }
             }

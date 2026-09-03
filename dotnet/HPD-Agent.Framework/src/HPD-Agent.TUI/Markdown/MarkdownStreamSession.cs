@@ -16,7 +16,8 @@ public sealed record MarkdownStreamUpdate(
     MarkdownMessageDocument Document,
     MarkdownInvalidationKind Invalidation,
     int PreviousStableSourceLength,
-    int StableSourceLength);
+    int StableSourceLength,
+    MarkdownStreamDiagnosticsSnapshot Diagnostics);
 
 /// <summary>Reports source-safe streaming parser measurements for one message lineage.</summary>
 public readonly record struct MarkdownStreamDiagnosticsSnapshot(
@@ -28,6 +29,7 @@ public readonly record struct MarkdownStreamDiagnosticsSnapshot(
     long ParseFallbacks,
     long PublicationCount,
     long FullMessageInvalidations,
+    long TableHoldbackActivations,
     TimeSpan FinalizationDuration);
 
 /// <summary>Owns canonical source and newline-gated parsing for one agent message.</summary>
@@ -52,6 +54,7 @@ public sealed class MarkdownStreamSession
     private long _parseFallbacks;
     private long _publicationCount;
     private long _fullMessageInvalidations;
+    private long _tableHoldbackActivations;
     private long _finalizationTicks;
 
     public MarkdownStreamSession(
@@ -94,7 +97,8 @@ public sealed class MarkdownStreamSession
     public MarkdownStreamDiagnosticsSnapshot Diagnostics => new(
         _utf16CodeUnitsAppended, _deltasAccepted, _deltasCoalesced,
         _parseCount, TimeSpan.FromTicks(_parseTicks), _parseFallbacks,
-        _publicationCount, _fullMessageInvalidations, TimeSpan.FromTicks(_finalizationTicks));
+        _publicationCount, _fullMessageInvalidations, _tableHoldbackActivations,
+        TimeSpan.FromTicks(_finalizationTicks));
 
     /// <summary>Appends exact source without parsing it.</summary>
     public MarkdownSourceChange Append(string delta)
@@ -164,6 +168,8 @@ public sealed class MarkdownStreamSession
         var parseFallback = parsedLength != requestedParsedLength;
         var global = (_snapshot.Features & (MarkdownDocumentFeatures.ReferenceDefinitions | MarkdownDocumentFeatures.ExtensionGlobalState)) != 0;
         _stableSourceLength = terminal ? _snapshot.Source.Length : global ? 0 : FindStableBoundary(_snapshot, terminal: false);
+        if (!terminal && _snapshot.Blocks.LastOrDefault()?.Kind == MarkdownBlockKind.Table)
+            _tableHoldbackActivations++;
         if (global && !_documentGlobal) Epoch++;
         _documentGlobal = global;
         Projection.Revision = Revision;
@@ -191,7 +197,7 @@ public sealed class MarkdownStreamSession
             : MarkdownInvalidationKind.MutableTail;
         _publicationCount++;
         if (invalidation == MarkdownInvalidationKind.FullMessage) _fullMessageInvalidations++;
-        return new(document, invalidation, previousStable, _stableSourceLength);
+        return new(document, invalidation, previousStable, _stableSourceLength, Diagnostics);
     }
 
     private static int FindStableBoundary(MarkdownDocumentSnapshot snapshot, bool terminal)
