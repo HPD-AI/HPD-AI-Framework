@@ -34,7 +34,7 @@ public static class AgentTuiMessageSelection
         if (threadState.ObservedCursor.SequenceNumber > 0)
         {
             await foreach (var batch in context.Runtime.ObserveAsync(
-                    context.Scope,
+                    context.Target,
                     ThreadJournalCursor.Start(threadState.ObservedCursor.Generation),
                     threadState.ObservedCursor,
                     cancellationToken)

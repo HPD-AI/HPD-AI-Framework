@@ -132,7 +132,7 @@ public sealed class SlashCommandTests
 
         registry.TryFindSlashCommand("/clear", out var command, out var arguments).Should().BeTrue();
         await command.ExecuteAsync(new AgentTuiCommandContext(
-            shell.Scope,
+            new DirectAgentTuiExecutionTarget(shell.Scope),
             shell,
             shell.Navigation,
             new NoopRuntime(),
@@ -158,7 +158,7 @@ public sealed class SlashCommandTests
 
         registry.TryFindSlashCommand("/help", out var command, out var arguments).Should().BeTrue();
         await command.ExecuteAsync(new AgentTuiCommandContext(
-            shell.Scope,
+            new DirectAgentTuiExecutionTarget(shell.Scope),
             shell,
             shell.Navigation,
             new NoopRuntime(),
@@ -187,20 +187,20 @@ public sealed class SlashCommandTests
 
     private sealed class NoopRuntime : IHpdAgentTuiRuntime
     {
-        public Task<AgentTuiScopeResolution> ResolveInitialScopeAsync(
-            AgentTuiRuntimeScope? requested,
+        public Task<AgentTuiTargetResolution> ResolveInitialTargetAsync(
+            AgentTuiExecutionTarget? requested,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(new AgentTuiScopeResolution(
-                requested ?? new AgentTuiRuntimeScope("agent", "session", "main"),
+            => Task.FromResult(new AgentTuiTargetResolution(
+                requested ?? new DirectAgentTuiExecutionTarget(new AgentTuiRuntimeScope("agent", "session", "main")),
                 IsDurable: true));
 
-        public Task<AgentTuiRuntimeScope> EnsureDurableScopeAsync(
-            AgentTuiRuntimeScope scope,
+        public Task<AgentTuiExecutionTarget> EnsureDurableTargetAsync(
+            AgentTuiExecutionTarget target,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(scope);
+            => Task.FromResult(target);
 
         public async IAsyncEnumerable<AgentTuiEventBatch> ObserveAsync(
-            AgentTuiRuntimeScope scope,
+            AgentTuiExecutionTarget target,
             ThreadJournalCursor after,
             ThreadJournalCursor initialObservedCursor,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
@@ -210,10 +210,10 @@ public sealed class SlashCommandTests
         }
 
         public Task<AgentTuiSubmitResult> SubmitInputAsync(
-            AgentTuiRuntimeScope scope,
+            AgentTuiExecutionTarget target,
             AgentInputEvent input,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(Submitted(scope));
+            => Task.FromResult(Submitted(target.Scope));
 
         public Task<AgentRespondResult> AnswerRequestAsync(
             AgentTuiRuntimeScope scope,

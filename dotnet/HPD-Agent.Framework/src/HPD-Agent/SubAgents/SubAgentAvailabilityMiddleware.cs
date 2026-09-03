@@ -42,7 +42,6 @@ internal sealed class SubAgentAvailabilityMiddleware : IAgentMiddleware
             context.RunConfig.SubAgentCatalogPin = pin;
         }
         var catalog = pin.Catalog;
-        catalog.ValidateOverrides(context.RunConfig.SubAgents);
         var depth = context.GetParentAgentMetadata()?.Depth ?? 0;
         var maximumDepth = context.Base.Config?.MaxSubAgentDepth ?? 4;
         var expanded = context.GetMiddlewareState<ContainerMiddlewareState>()?.ExpandedContainers

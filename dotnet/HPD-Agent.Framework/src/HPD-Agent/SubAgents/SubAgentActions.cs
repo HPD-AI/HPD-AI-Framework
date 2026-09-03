@@ -42,8 +42,6 @@ public sealed record SubAgentDeclarationCatalog
             value.Definition.AgentId,
             value.Definition.Name,
             value.Description,
-            value.Definition.RunConfig.CompilePolicy().Fingerprint,
-            AllowanceFingerprint(value.Definition.RunConfig.OverrideAllowance),
             value.InvocationModePolicy,
             value.InvocationModeHandling,
             value.ContextPolicy,
@@ -57,33 +55,6 @@ public sealed record SubAgentDeclarationCatalog
         };
     }
 
-    private static string AllowanceFingerprint(SubAgentRunPolicyOverrideAllowance allowance) => string.Join(',',
-        (int)allowance.MayEnableInheritedFields,
-        (int)allowance.MayDisableInheritedFields,
-        allowance.Clients.Chat,
-        allowance.Clients.TextToSpeech,
-        allowance.Clients.SpeechToText,
-        allowance.Clients.Realtime,
-        allowance.Clients.ImageGeneration,
-        allowance.Clients.Embeddings,
-        allowance.Clients.HostedFiles,
-        allowance.Clients.VoiceActivityDetection,
-        allowance.Clients.EndOfTurnDetection);
-
-    internal void ValidateOverrides(SubAgentRunOverrides overrides)
-    {
-        ArgumentNullException.ThrowIfNull(overrides);
-        var seen = new HashSet<CapabilityId>();
-        foreach (var runOverride in overrides.Capabilities)
-        {
-            ArgumentNullException.ThrowIfNull(runOverride);
-            if (!seen.Add(runOverride.CapabilityId))
-                throw new InvalidOperationException("subagent_override_capability_duplicate");
-            if (!Declarations.TryGetValue(runOverride.CapabilityId, out var declaration))
-                throw new InvalidOperationException("subagent_override_capability_unknown");
-            declaration.Definition.RunConfig.Compile(runOverride).Validate();
-        }
-    }
 }
 
 internal sealed record SubAgentDeclarationCatalogPin(

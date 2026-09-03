@@ -12,6 +12,7 @@ using EventChannel = HPD.Events.EventChannel;
 using EventDirection = HPD.Events.EventDirection;
 
 namespace HPD.Agent;
+
 /// <summary>
 /// Provides hierarchical metadata about which agent emitted an event.
 /// Enables event attribution and filtering in multi-agent systems.
@@ -198,6 +199,11 @@ public abstract record AgentInputEvent
 
     /// <summary>Per-run configuration carried with the input event.</summary>
     public AgentRunConfig? RunConfig { get; init; }
+
+    /// <summary>
+    /// Per-run configuration applied to every direct subagent invoked while processing this input.
+    /// </summary>
+    public SubAgentRunConfig? SubAgentRunConfig { get; init; }
 
     /// <summary>Identifier of the accepted input execution assigned by the coordinating runtime.</summary>
     public string? ThreadExecutionId { get; init; }
@@ -450,11 +456,6 @@ public sealed record UserMessagesInputEvent : AgentInputEvent
     [JsonIgnore]
     public Thread? Thread { get; init; }
 
-    [JsonIgnore]
-    internal AgentChatClientHandle? InheritedChatClient { get; init; }
-
-    [JsonIgnore]
-    internal ClientFamilyInheritanceMode InheritedChatMode { get; init; } = ClientFamilyInheritanceMode.UseOwn;
 }
 
 /// <summary>Explicitly compacts the scoped thread without creating a user message or model turn.</summary>
@@ -1971,21 +1972,19 @@ public sealed record MiddlewareStateEntrySnapshot(
 
 /// <summary>
 /// Emitted at stable lifecycle phases with the current internal middleware state.
+/// Canonical session, thread, and timestamp attribution is inherited from <see cref="AgentEvent"/>.
 /// </summary>
 [HPD.Agent.Serialization.DurableEvent]
 [HPD.Agent.Serialization.EventType("MIDDLEWARE_STATE_SNAPSHOT")]
 public record MiddlewareStateSnapshotEvent(
     string AgentName,
-    string? SessionId,
-    string? ThreadId,
     int Iteration,
     string Phase,
     string? BatchId,
     string? FunctionCallId,
     int? ToolCallIndex,
     int StateCount,
-    IReadOnlyList<MiddlewareStateEntrySnapshot> States,
-    DateTimeOffset Timestamp
+    IReadOnlyList<MiddlewareStateEntrySnapshot> States
 ) : AgentEvent, IObservabilityEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
@@ -2010,21 +2009,19 @@ public sealed record MiddlewareStateChange(
 
 /// <summary>
 /// Emitted when middleware state changes across a stable lifecycle phase.
+/// Canonical session, thread, and timestamp attribution is inherited from <see cref="AgentEvent"/>.
 /// </summary>
 [HPD.Agent.Serialization.DurableEvent]
 [HPD.Agent.Serialization.EventType("MIDDLEWARE_STATE_CHANGED")]
 public record MiddlewareStateChangedEvent(
     string AgentName,
-    string? SessionId,
-    string? ThreadId,
     int Iteration,
     string Phase,
     string? BatchId,
     string? FunctionCallId,
     int? ToolCallIndex,
     int ChangeCount,
-    IReadOnlyList<MiddlewareStateChange> Changes,
-    DateTimeOffset Timestamp
+    IReadOnlyList<MiddlewareStateChange> Changes
 ) : AgentEvent, IObservabilityEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;

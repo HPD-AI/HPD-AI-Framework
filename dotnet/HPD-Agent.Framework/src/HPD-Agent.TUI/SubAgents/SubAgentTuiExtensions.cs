@@ -60,8 +60,11 @@ public static class SubAgentTuiExtensions
                 AddNotice(context, child.Reason ?? "This subagent is unavailable.", TranscriptSeverity.Warning);
                 return null;
             }
-            await context.SwitchScopeAsync(
-                new AgentTuiRuntimeScope(child.AgentId, child.SessionId, child.ThreadId),
+            await context.SwitchTargetAsync(
+                new ControlledSubAgentTuiExecutionTarget(
+                    new AgentTuiRuntimeScope(child.AgentId, child.SessionId, child.ThreadId),
+                    context.Scope,
+                    new SubAgentLocalId(child.LocalId)),
                 cancellationToken).ConfigureAwait(false);
             return null;
         }, CancellationToken.None).ConfigureAwait(false);

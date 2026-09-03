@@ -46,11 +46,21 @@ public sealed class AgentInputCodec
         var prefix = $"\"version\":{JsonSerializer.Serialize(version, AgentEventJsonContext.Default.String)}," +
             $"\"type\":{JsonSerializer.Serialize(entry.Discriminator, AgentEventJsonContext.Default.String)}";
         var envelope = payload == "{}" ? $"{{{prefix}}}" : payload.Insert(1, prefix + ",");
-        if (input.RunConfig is null)
+        if (input.RunConfig is null && input.SubAgentRunConfig is null)
             return envelope;
         var root = JsonNode.Parse(envelope) as JsonObject
             ?? throw new JsonException("Agent input did not serialize to an object.");
-        root["runConfig"] = JsonNode.Parse(HpdAgentConfigSerializer.Serialize(input.RunConfig, ProviderComposition));
+        if (input.RunConfig is not null)
+            root["runConfig"] = JsonNode.Parse(HpdAgentConfigSerializer.Serialize(input.RunConfig, ProviderComposition));
+        if (input.SubAgentRunConfig is not null)
+        {
+            var child = JsonNode.Parse(HpdAgentConfigSerializer.Serialize(input.SubAgentRunConfig, ProviderComposition))
+                as JsonObject ?? throw new JsonException("Subagent run configuration did not serialize to an object.");
+            child["clientPropagation"] = JsonSerializer.SerializeToNode(
+                input.SubAgentRunConfig.ClientPropagation,
+                AgentEventJsonContext.Default.SubAgentClientPropagation);
+            root["subAgentRunConfig"] = child;
+        }
         return root.ToJsonString(AgentEventJsonContext.Default.Options);
     }
 
@@ -67,12 +77,26 @@ public sealed class AgentInputCodec
         using var payload = StripEnvelope(document.RootElement, entry.TypeInfo);
         var input = payload.RootElement.Deserialize(entry.TypeInfo) as AgentInputEvent
             ?? throw new JsonException($"Agent input '{discriminator}' hydrated to an invalid value.");
-        if (!document.RootElement.TryGetProperty("runConfig", out var runConfig) ||
-            runConfig.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
-            return input;
+        AgentRunConfig? decodedRunConfig = null;
+        if (document.RootElement.TryGetProperty("runConfig", out var runConfig) &&
+            runConfig.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined))
+            decodedRunConfig = HpdAgentConfigSerializer.DeserializeRunConfig(
+                runConfig.GetRawText(), ProviderComposition);
+        SubAgentRunConfig? decodedSubAgentRunConfig = null;
+        if (document.RootElement.TryGetProperty("subAgentRunConfig", out var subAgentRunConfig) &&
+            subAgentRunConfig.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined))
+        {
+            var decoded = HpdAgentConfigSerializer.DeserializeRunConfig(
+                subAgentRunConfig.GetRawText(), ProviderComposition) ?? new AgentRunConfig();
+            var propagation = subAgentRunConfig.TryGetProperty("clientPropagation", out var propagationElement)
+                ? propagationElement.Deserialize(AgentEventJsonContext.Default.SubAgentClientPropagation)
+                : SubAgentClientPropagation.DirectChildren;
+            decodedSubAgentRunConfig = AgentRunConfigSnapshot.Promote(decoded, propagation);
+        }
         return input with
         {
-            RunConfig = HpdAgentConfigSerializer.DeserializeRunConfig(runConfig.GetRawText(), ProviderComposition)
+            RunConfig = decodedRunConfig,
+            SubAgentRunConfig = decodedSubAgentRunConfig
         };
     }
 
@@ -89,7 +113,8 @@ public sealed class AgentInputCodec
             writer.WriteStartObject();
             foreach (var property in root.EnumerateObject())
             {
-                if (property.NameEquals("version") || property.NameEquals("type") || property.NameEquals("runConfig"))
+                if (property.NameEquals("version") || property.NameEquals("type") ||
+                    property.NameEquals("runConfig") || property.NameEquals("subAgentRunConfig"))
                     continue;
                 if (known.Contains(property.Name))
                     property.WriteTo(writer);

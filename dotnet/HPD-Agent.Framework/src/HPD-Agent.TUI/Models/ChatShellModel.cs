@@ -22,7 +22,7 @@ public sealed class ChatShellModel
 
     public IHpdAgentTuiRuntime? Runtime { get; set; }
 
-    public Func<AgentTuiRuntimeScope, CancellationToken, ValueTask>? SwitchScopeAsync { get; set; }
+    public Func<AgentTuiExecutionTarget, CancellationToken, ValueTask>? SwitchTargetAsync { get; set; }
 
     public Func<string, CancellationToken, ValueTask>? SetPromptDraftAsync { get; set; }
 

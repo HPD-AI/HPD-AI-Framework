@@ -1643,9 +1643,7 @@ public sealed partial class Agent : IAsyncDisposable
                 eventCoordinator,
                 input.ClientInputId,
                 activeInput,
-                cancellationToken,
-                input.InheritedChatClient,
-                input.InheritedChatMode).ConfigureAwait(false))
+                cancellationToken).ConfigureAwait(false))
             {
                 result.Add(evt);
             }
@@ -1669,9 +1667,7 @@ public sealed partial class Agent : IAsyncDisposable
                 eventCoordinator,
                 input.ClientInputId,
                 activeInput,
-                cancellationToken,
-                input.InheritedChatClient,
-                input.InheritedChatMode).ConfigureAwait(false))
+                cancellationToken).ConfigureAwait(false))
             {
                 result.Add(evt);
             }
@@ -1693,9 +1689,7 @@ public sealed partial class Agent : IAsyncDisposable
             eventCoordinator,
             input.ClientInputId,
             activeInput,
-            cancellationToken,
-            input.InheritedChatClient,
-            input.InheritedChatMode).ConfigureAwait(false))
+            cancellationToken).ConfigureAwait(false))
         {
             unsessionedResult.Add(evt);
         }
@@ -2115,7 +2109,8 @@ public sealed partial class Agent : IAsyncDisposable
             if (_runtimeStarting || (!_runtimeStopping && _runtimeLoopTask is { IsCompleted: false }))
             {
                 _runtimeNotificationDispatcher?.UpdateRunConfig(
-                    AgentRunConfigSnapshot.Capture(runConfig, _chatClientResolver.Composition));
+                    AgentRunConfigSnapshot.Capture(runConfig, _chatClientResolver.Composition),
+                    null);
                 return;
             }
 
@@ -2170,7 +2165,8 @@ public sealed partial class Agent : IAsyncDisposable
                 _eventCoordinator,
                 runtimeThreadEvents,
                 input => PrepareOperationNotificationAdmission(input, runtimeWorkScheduler),
-                AgentRunConfigSnapshot.Capture(runConfig, _chatClientResolver.Composition));
+                AgentRunConfigSnapshot.Capture(runConfig, _chatClientResolver.Composition),
+                null);
 
             _runtimeCts = runtimeCts;
             _runtimeEventCoordinator = runtimeCoordinator;
@@ -2753,12 +2749,19 @@ public sealed partial class Agent : IAsyncDisposable
     /// <summary>
     /// Sends user text input to the agent.
     /// </summary>
+    /// <param name="userMessage">The user message to process.</param>
+    /// <param name="sessionId">Optional durable session identifier.</param>
+    /// <param name="threadId">Optional durable thread identifier.</param>
+    /// <param name="runConfig">Per-invocation configuration for this agent.</param>
+    /// <param name="subAgentRunConfig">Per-invocation configuration for every direct child invoked by this input.</param>
+    /// <param name="cancellationToken">Cancels input admission or execution.</param>
     /// <returns>The completed turn result, including final text, emitted events, and completion metadata.</returns>
     public Task<AgentTurnResult> RunAsync(
         string userMessage,
         string? sessionId = null,
         string? threadId = "main",
         AgentRunConfig? runConfig = null,
+        SubAgentRunConfig? subAgentRunConfig = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(userMessage);
@@ -2766,7 +2769,8 @@ public sealed partial class Agent : IAsyncDisposable
         return RunTextAsync(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, userMessage)],
             SessionId = sessionId,
             ThreadId = threadId,
-            RunConfig = runConfig
+            RunConfig = runConfig,
+            SubAgentRunConfig = subAgentRunConfig
         }, cancellationToken);
     }
 
@@ -2782,20 +2786,40 @@ public sealed partial class Agent : IAsyncDisposable
 
     private AgentInputEvent CaptureInput(AgentInputEvent input)
     {
+        if (input.SubAgentRunConfig is not null &&
+            input is not (UserMessagesInputEvent or AgentOperationNotificationInputEvent))
+        {
+            throw new AgentRunConfigurationException(
+                "subagent_run_config_not_supported_for_input",
+                nameof(AgentInputEvent.SubAgentRunConfig),
+                $"Input '{input.GetType().Name}' cannot invoke model tools and does not accept subagent run configuration.");
+        }
+        if (input.SubAgentRunConfig is { Clients.Chat: null, ClientPropagation: not DirectSubAgentClientPropagation })
+        {
+            throw new AgentRunConfigurationException(
+                "subagent_client_propagation_requires_explicit_chat",
+                nameof(SubAgentRunConfig.ClientPropagation),
+                "Non-default propagation requires an explicit Chat selection in the subagent run configuration.");
+        }
         var runConfig = AgentRunConfigSnapshot.Capture(input.RunConfig, _chatClientResolver.Composition);
+        var subAgentRunConfig = AgentRunConfigSnapshot.Capture(
+            input.SubAgentRunConfig,
+            _chatClientResolver.Composition);
         return input switch
         {
             UserMessagesInputEvent messages => messages with
             {
                 RunConfig = runConfig,
+                SubAgentRunConfig = subAgentRunConfig,
                 Messages = messages.Messages.ToArray()
             },
             AgentOperationNotificationInputEvent notification => notification with
             {
                 RunConfig = runConfig,
+                SubAgentRunConfig = subAgentRunConfig,
                 Notifications = notification.Notifications.ToArray()
             },
-            _ => input with { RunConfig = runConfig }
+            _ => input with { RunConfig = runConfig, SubAgentRunConfig = subAgentRunConfig }
         };
     }
 
@@ -3081,6 +3105,7 @@ public sealed partial class Agent : IAsyncDisposable
                 structEvents: GetActiveStructEvents(),
                 inputHandler: async (input, ct) =>
                     _ = await RunAsync(TargetActiveExecution(input), ct).ConfigureAwait(false),
+                subAgentRunConfig: activeInput?.Input.SubAgentRunConfig,
                 toolHarnessExecutionScope: toolHarnessExecutionScope,
                 agentResources: _agentResources.Resources);
 
@@ -8898,19 +8923,17 @@ public sealed partial class Agent : IAsyncDisposable
         var entries = BuildMiddlewareStateEntrySnapshots(stateFactories, state);
         return new MiddlewareStateSnapshotEvent(
             AgentName: agentName,
-            SessionId: sessionId,
-            ThreadId: threadId,
             Iteration: iteration,
             Phase: phase,
             BatchId: batchId,
             FunctionCallId: functionCallId,
             ToolCallIndex: toolCallIndex,
             StateCount: entries.Count,
-            States: entries,
-            Timestamp: DateTimeOffset.UtcNow)
+            States: entries)
         {
             SessionId = sessionId,
-            ThreadId = threadId
+            ThreadId = threadId,
+            Timestamp = DateTimeOffset.UtcNow
         };
     }
 
@@ -8931,19 +8954,17 @@ public sealed partial class Agent : IAsyncDisposable
 
         await context.PublishAsync(new MiddlewareStateChangedEvent(
             AgentName: agentName,
-            SessionId: context.Session?.Id,
-            ThreadId: context.Thread?.Id,
             Iteration: context.State.Iteration,
             Phase: phase,
             BatchId: batchId,
             FunctionCallId: functionCallId,
             ToolCallIndex: toolCallIndex,
             ChangeCount: changes.Count,
-            Changes: changes,
-            Timestamp: DateTimeOffset.UtcNow)
+            Changes: changes)
         {
             SessionId = context.Session?.Id,
-            ThreadId = context.Thread?.Id
+            ThreadId = context.Thread?.Id,
+            Timestamp = DateTimeOffset.UtcNow
         });
     }
 

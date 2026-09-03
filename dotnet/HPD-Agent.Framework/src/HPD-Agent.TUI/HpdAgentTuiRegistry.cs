@@ -43,7 +43,8 @@ public sealed class HpdAgentTuiRegistry
         bool includeSlashCommandAutocomplete,
         AgentTuiRunConfigComposer? runConfigComposer,
         IAgentTuiThreadStateReconciler? threadStateReconciler,
-        TranscriptHistoryPresentation transcriptHistoryPresentation)
+        TranscriptHistoryPresentation transcriptHistoryPresentation,
+        bool showReasoning)
     {
         _commands = commands.ToDictionary(command => command.SlashName, StringComparer.OrdinalIgnoreCase);
         _commandList = _commands.Values
@@ -100,6 +101,7 @@ public sealed class HpdAgentTuiRegistry
         RunConfigComposer = runConfigComposer;
         ThreadStateReconciler = threadStateReconciler;
         TranscriptHistoryPresentation = transcriptHistoryPresentation;
+        ShowReasoning = showReasoning;
     }
 
     public IReadOnlyList<HpdAgentTuiCommandDescriptor> Commands => _commandList;
@@ -131,6 +133,9 @@ public sealed class HpdAgentTuiRegistry
     public IAgentTuiThreadStateReconciler? ThreadStateReconciler { get; }
 
     public TranscriptHistoryPresentation TranscriptHistoryPresentation { get; }
+
+    /// <summary>Gets whether reasoning events are projected into the transcript.</summary>
+    public bool ShowReasoning { get; }
 
     public AgentTuiTranscriptRendererRegistry TranscriptRenderers { get; }
 

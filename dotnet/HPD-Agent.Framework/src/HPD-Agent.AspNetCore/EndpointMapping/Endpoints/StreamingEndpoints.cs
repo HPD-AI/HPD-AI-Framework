@@ -38,6 +38,17 @@ internal static class StreamingEndpoints
             .WithName("SubmitAgentInput")
             .WithSummary("Submit an agent input event to the runtime");
 
+        endpoints.MapPost("/agents/{agentId}/sessions/{sid}/threads/{bid}/subagents/{localId}/inputs",
+                async (string agentId, string sid, string bid, string localId, string childAgentId,
+                    string childSessionId, string childThreadId, JsonElement request, CancellationToken ct) =>
+                    await SubmitSubAgentInput(
+                        RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid),
+                        RouteValue.Decode(localId), RouteValue.Decode(childAgentId),
+                        RouteValue.Decode(childSessionId), RouteValue.Decode(childThreadId),
+                        request, streaming, inputCodec, ct))
+            .WithName("SubmitControlledSubAgentInput")
+            .WithSummary("Submit input to a child through its durable controller registry entry");
+
         endpoints.MapPost("/agents/{agentId}/sessions/{sid}/threads/{bid}/context-usage",
                 async (string agentId, string sid, string bid, JsonElement? request, CancellationToken ct) =>
                     await EstimateContextUsage(RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid), request, streaming, ct))
@@ -73,6 +84,35 @@ internal static class StreamingEndpoints
             return TypedResults.BadRequest();
 
         var result = await streaming.SubmitInputAsync(agentId, sid, bid, input, ct);
+        return ToSubmissionHttpResult(result);
+    }
+
+    private static async Task<IResult> SubmitSubAgentInput(
+        string controllerAgentId,
+        string controllerSessionId,
+        string controllerThreadId,
+        string localId,
+        string childAgentId,
+        string childSessionId,
+        string childThreadId,
+        JsonElement request,
+        IAgentStreamingService streaming,
+        AgentInputCodec inputCodec,
+        CancellationToken ct)
+    {
+        var input = ParseInputEvent(request, inputCodec);
+        if (input is null)
+            return TypedResults.BadRequest();
+        var result = await streaming.SubmitSubAgentInputAsync(
+            controllerAgentId,
+            controllerSessionId,
+            controllerThreadId,
+            new SubAgentLocalId(localId),
+            childAgentId,
+            childSessionId,
+            childThreadId,
+            input,
+            ct).ConfigureAwait(false);
         return ToSubmissionHttpResult(result);
     }
 

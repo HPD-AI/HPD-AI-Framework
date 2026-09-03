@@ -100,7 +100,7 @@ public sealed class SubAgentContinuationConcurrencyTests
             CreationContext = SubAgentCreationContext.Fresh,
             CreationInvocationId = "create-worker",
             ParentToolCallId = "call-worker",
-            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
+            ExecutionPolicy = SubAgentTestPolicies.Default,
             CreatedAt = DateTimeOffset.UtcNow
         });
         var resolver = new BlockingResolver();

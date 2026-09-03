@@ -12,7 +12,6 @@ internal static class AgentRunConfigSnapshot
     internal static IReadOnlySet<string> CapturedPropertyNames { get; } = new HashSet<string>(StringComparer.Ordinal)
     {
         nameof(AgentRunConfig.Security),
-        nameof(AgentRunConfig.SubAgents),
         nameof(AgentRunConfig.Clients),
         nameof(AgentRunConfig.SystemInstructions),
         nameof(AgentRunConfig.Tools),
@@ -35,45 +34,100 @@ internal static class AgentRunConfigSnapshot
         if (source is null)
             return null;
 
-        var snapshot = AgentRunConfigInheritance.CreateSnapshot(
-            source,
-            SubAgentRunConfigFields.All,
-            composition);
+        var snapshot = CloneCore(source, composition);
         snapshot.Clients = CloneClients(source.Clients);
-        snapshot.SubAgentClientInheritance = source.SubAgentClientInheritance;
-        snapshot.SubAgents = CloneSubAgentOverrides(source.SubAgents);
         SnapshotProviderPayloads(snapshot.Clients, composition);
         snapshot.Evaluations = SnapshotEvaluations(source.Evaluations);
         return snapshot;
     }
 
-    private static SubAgentRunOverrides CloneSubAgentOverrides(SubAgentRunOverrides source)
+    internal static SubAgentRunConfig? Capture(SubAgentRunConfig? source, ProviderComposition? composition)
     {
-        ArgumentNullException.ThrowIfNull(source);
-        var seen = new HashSet<CapabilityId>();
-        var values = source.Capabilities
-            .Select(value =>
-            {
-                ArgumentNullException.ThrowIfNull(value);
-                if (string.IsNullOrWhiteSpace(value.CapabilityId.Value))
-                    throw new AgentRunConfigurationException(
-                        "subagent_override_capability_unknown",
-                        "SubAgents.Capabilities",
-                        "A subagent override requires a non-empty CapabilityId.");
-                if (!seen.Add(value.CapabilityId))
-                    throw new AgentRunConfigurationException(
-                        "subagent_override_capability_duplicate",
-                        "SubAgents.Capabilities",
-                        $"Capability '{value.CapabilityId}' has more than one subagent override.");
-                return value with
-                {
-                    Clients = value.Clients is null ? null : value.Clients with { }
-                };
-            })
-            .OrderBy(static value => value.CapabilityId.Value, StringComparer.Ordinal)
-            .ToArray();
-        return new SubAgentRunOverrides { Capabilities = values };
+        if (source is null) return null;
+        var core = Capture((AgentRunConfig)source, composition)!;
+        return Promote(core, source.ClientPropagation);
     }
+
+    internal static SubAgentRunConfig Promote(
+        AgentRunConfig core,
+        SubAgentClientPropagation? propagation = null)
+    {
+        ArgumentNullException.ThrowIfNull(core);
+        return new SubAgentRunConfig
+        {
+            Security = core.Security,
+            Clients = core.Clients,
+            SystemInstructions = core.SystemInstructions,
+            Tools = core.Tools,
+            Context = core.Context,
+            BackgroundResponses = core.BackgroundResponses,
+            Streaming = core.Streaming,
+            RuntimeMiddleware = core.RuntimeMiddleware,
+            UploadStrategy = core.UploadStrategy,
+            Audio = core.Audio,
+            Compaction = core.Compaction,
+            Collapsing = core.Collapsing,
+            StructuredOutput = core.StructuredOutput,
+            Evaluations = core.Evaluations,
+            ClientPropagation = propagation ?? SubAgentClientPropagation.DirectChildren
+        };
+    }
+
+    private static AgentRunConfig CloneCore(AgentRunConfig source, ProviderComposition? composition) => new()
+    {
+        Security = source.Security with
+        {
+            PermissionOverrides = source.Security.PermissionOverrides?.Select(static value => value with
+            {
+                Selector = value.Selector with { }
+            }).ToArray(),
+            Sandbox = source.Security.Sandbox with
+            {
+                Capabilities = source.Security.Sandbox.Capabilities with
+                {
+                    Filesystem = source.Security.Sandbox.Capabilities.Filesystem
+                        .Select(static grant => grant with { }).ToArray()
+                }
+            }
+        },
+        SystemInstructions = source.SystemInstructions is null ? null : new SystemInstructionsRunConfig
+        {
+            Override = source.SystemInstructions.Override,
+            Append = source.SystemInstructions.Append
+        },
+        Tools = source.Tools is null ? null : new AgentToolsRunConfig
+        {
+            ClientInput = source.Tools.ClientInput,
+            ClientAppProviders = source.Tools.ClientAppProviders?.ToArray(),
+            Additional = source.Tools.Additional?.ToArray(),
+            Mode = source.Tools.Mode
+        },
+        Context = source.Context is null ? null : new AgentContextRunConfig
+        {
+            Properties = source.Context.Properties is null ? null : new Dictionary<string, object>(source.Context.Properties),
+            ToolInstances = source.Context.ToolInstances is null ? null : new Dictionary<string, IToolMetadata>(source.Context.ToolInstances)
+        },
+        BackgroundResponses = source.BackgroundResponses is null ? null : new BackgroundResponsesRunConfig
+        {
+            Allow = source.BackgroundResponses.Allow,
+            ContinuationToken = source.BackgroundResponses.ContinuationToken,
+            PollingInterval = source.BackgroundResponses.PollingInterval,
+            Timeout = source.BackgroundResponses.Timeout
+        },
+        Streaming = source.Streaming is null ? null : new StreamingRunConfig
+        {
+            CoalesceDeltas = source.Streaming.CoalesceDeltas,
+            Callback = source.Streaming.Callback
+        },
+        RuntimeMiddleware = source.RuntimeMiddleware?.ToArray(),
+        UploadStrategy = source.UploadStrategy,
+        Audio = CloneAudio(source.Audio),
+        Compaction = CloneCompaction(source.Compaction, composition),
+        Collapsing = CloneCollapsing(source.Collapsing),
+        StructuredOutput = CloneStructuredOutput(source.StructuredOutput),
+        RuntimeTools = source.RuntimeTools is null ? null : new(source.RuntimeTools),
+        RuntimeToolMode = source.RuntimeToolMode
+    };
 
     private static AgentClientsConfig CloneClients(AgentClientsConfig source) => new()
     {

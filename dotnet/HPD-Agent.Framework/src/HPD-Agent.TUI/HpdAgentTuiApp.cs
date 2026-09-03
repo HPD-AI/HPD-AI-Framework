@@ -35,7 +35,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
 
     private static readonly TimeSpan CancelConfirmationWindow = TimeSpan.FromSeconds(2);
     private readonly IHpdAgentTuiRuntime _runtime;
-    private readonly AgentTuiRuntimeScope? _requestedScope;
+    private readonly AgentTuiExecutionTarget? _requestedTarget;
     private readonly HpdAgentTuiRegistry _registry;
     private readonly ManagedTerminalTuiApplication _application;
     private readonly MarkdownStreamCoordinator _markdownStreams;
@@ -46,6 +46,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     private PromptView? _prompt;
     private AgentTuiSessionState? _state;
     private AgentTuiRuntimeScope? _scope;
+    private AgentTuiExecutionTarget? _target;
     private AgentTuiDialogService? _dialogs;
     private CancellationTokenSource? _observeCancellation;
     private Task? _observeTask;
@@ -56,7 +57,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _activeInteractionCancellations = new(StringComparer.Ordinal);
     private readonly HashSet<string> _sessionTitleUpdates = new(StringComparer.Ordinal);
     private readonly HashSet<string> _completedThreadExecutionIds = new(StringComparer.Ordinal);
-    private readonly Dictionary<AgentTuiRuntimeScope, PendingPromptQueue> _pendingPromptsByScope = [];
+    private readonly Dictionary<AgentTuiExecutionTarget, PendingPromptQueue> _pendingPromptsByTarget = [];
     private PendingPrompt? _queuedPromptBeingSubmitted;
     private string? _activeThreadExecutionId;
     private string? _cancelConfirmationExecutionId;
@@ -73,12 +74,12 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
 
     private HpdAgentTuiApp(
         IHpdAgentTuiRuntime runtime,
-        AgentTuiRuntimeScope? requestedScope,
+        AgentTuiExecutionTarget? requestedTarget,
         HpdAgentTuiRegistry registry,
         ITerminal terminal)
     {
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
-        _requestedScope = requestedScope;
+        _requestedTarget = requestedTarget;
         _registry = registry;
         _application = new ManagedTerminalTuiApplication(terminal);
         _markdownStreams = new MarkdownStreamCoordinator(
@@ -95,7 +96,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
 
     public static HpdAgentTuiApp Create(
         IHpdAgentTuiRuntime runtime,
-        AgentTuiRuntimeScope? scope = null,
+        AgentTuiExecutionTarget? target = null,
         Action<HpdAgentTuiBuilder>? configure = null,
         ITerminal? terminal = null)
     {
@@ -106,7 +107,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         var registry = builder.Build();
         _ = registry.PromptFactory;
         _ = registry.ShellLayout;
-        return new HpdAgentTuiApp(runtime, scope, registry, terminal ?? new ProcessTerminal());
+        return new HpdAgentTuiApp(runtime, target, registry, terminal ?? new ProcessTerminal());
     }
 
     public async Task RunAsync(
@@ -115,16 +116,16 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _runCancellationToken = linked.Token;
-        var initialScope = await _runtime.ResolveInitialScopeAsync(_requestedScope, linked.Token)
+        var initialTarget = await _runtime.ResolveInitialTargetAsync(_requestedTarget, linked.Token)
             .ConfigureAwait(false);
-        RebuildShell(initialScope.Scope, "Connected to agent runtime.");
-        if (initialScope.IsDurable)
+        RebuildShell(initialTarget.Target, "Connected to agent runtime.");
+        if (initialTarget.IsDurable)
         {
-            await NotifyDurableScopeEnsuredAsync(initialScope.Scope, linked.Token).ConfigureAwait(false);
-            if (await HydrateThreadAsync(initialScope.Scope, linked.Token).ConfigureAwait(false))
+            await NotifyDurableScopeEnsuredAsync(initialTarget.Target.Scope, linked.Token).ConfigureAwait(false);
+            if (await HydrateThreadAsync(initialTarget.Target.Scope, linked.Token).ConfigureAwait(false))
             {
                 _scopeIsDurable = true;
-                StartObserver(initialScope.Scope, linked.Token);
+                StartObserver(initialTarget.Target, linked.Token);
             }
         }
 
@@ -196,6 +197,8 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
 
     public AgentTuiRuntimeScope? CurrentScope => _scope;
 
+    public AgentTuiExecutionTarget? CurrentTarget => _target;
+
     public ValueTask ShowNoticeAsync(
         string title,
         string? detail = null,
@@ -224,9 +227,10 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     }
 
     private void RebuildShell(
-        AgentTuiRuntimeScope scope,
+        AgentTuiExecutionTarget target,
         string notice)
     {
+        var scope = target.Scope;
         foreach (var cancellation in _activeInteractionCancellations.Values)
             cancellation.Cancel();
         _activeInteractionCancellations.Clear();
@@ -240,12 +244,13 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         _activeThreadExecutionId = null;
         _scopeIsDurable = false;
         _scope = scope;
+        _target = target;
         _state = new AgentTuiSessionState(scope, _registry, RequestRender);
         AgentTuiPerformanceDiagnostics.ConfigureFromEnvironment(_state.State);
         _state.Shell.Runtime = _runtime;
-        _state.Shell.SwitchScopeAsync = SwitchScopeAsync;
+        _state.Shell.SwitchTargetAsync = SwitchTargetAsync;
         _state.Shell.SetPromptDraftAsync = SetPromptDraftAsync;
-        _state.Shell.AboveEditor.Add(new PendingPromptPreview(PendingPrompts(scope)));
+        _state.Shell.AboveEditor.Add(new PendingPromptPreview(PendingPrompts(target)));
         var autocomplete = new AutocompleteController()
             .Register(new AgentTuiAutocompleteProviderAdapter(_registry, () => _state));
         _prompt = _registry.PromptFactory.Create(
@@ -279,7 +284,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     }
 
     private void StartObserver(
-        AgentTuiRuntimeScope scope,
+        AgentTuiExecutionTarget target,
         CancellationToken cancellationToken)
     {
         _observeCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -294,12 +299,12 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         using (ExecutionContext.SuppressFlow())
         {
             _interactionTask = ProcessInteractionsAsync(_interactionQueue.Reader, _observeCancellation.Token);
-            _observeTask = ObserveAsync(scope, _appliedCursor, _observeCancellation.Token);
+            _observeTask = ObserveAsync(target, _appliedCursor, _observeCancellation.Token);
         }
     }
 
     private async ValueTask StartObserverIfNeededAsync(
-        AgentTuiRuntimeScope scope,
+        AgentTuiExecutionTarget target,
         CancellationToken cancellationToken)
     {
         if (_observeTask is { IsCompleted: false })
@@ -310,7 +315,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         if (_observeCancellation is not null)
             await StopObserverAsync().ConfigureAwait(false);
 
-        StartObserver(scope, cancellationToken);
+        StartObserver(target, cancellationToken);
     }
 
     private async ValueTask StopObserverAsync()
@@ -369,7 +374,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
 
         if (_activeThreadExecutionId is not null)
         {
-            var pendingPrompts = PendingPrompts(_scope);
+            var pendingPrompts = PendingPrompts(_target!);
             pendingPrompts.Enqueue(text);
             _state.Shell.PromptStatusText = PendingPromptFooter(pendingPrompts.Count);
             RequestRender();
@@ -381,11 +386,11 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             return;
         }
 
-        AgentRunConfig? runConfig;
+        AgentTuiInputRunConfig? runConfig;
         try
         {
             runConfig = _registry.RunConfigComposer?.Invoke(new AgentTuiRunConfigContext(
-                _scope,
+                _target ?? throw new InvalidOperationException("The TUI execution target is unavailable."),
                 _state.Shell,
                 text));
         }
@@ -428,54 +433,56 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         _state.Shell.PromptStatusText = "state: submitting";
         RequestRender();
         _ = SubmitInputWithQueuedPromptAsync(
-            _scope,
+            _target ?? throw new InvalidOperationException("The TUI execution target is unavailable."),
             new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, text)],
                 AgentId = _scope.AgentId,
                 SessionId = _scope.SessionId,
                 ThreadId = _scope.ThreadId,
                 ClientInputId = _queuedPromptBeingSubmitted?.ClientInputId ?? Guid.NewGuid().ToString("N"),
-                RunConfig = runConfig
+                RunConfig = runConfig?.RunConfig,
+                SubAgentRunConfig = runConfig?.SubAgentRunConfig
             },
             text,
             _queuedPromptBeingSubmitted);
     }
 
     private async Task SubmitInputAsync(
-        AgentTuiRuntimeScope scope,
+        AgentTuiExecutionTarget target,
         AgentInputEvent input,
         string? sessionTitleText = null)
-        => await SubmitInputWithQueuedPromptAsync(scope, input, sessionTitleText, queuedPrompt: null)
+        => await SubmitInputWithQueuedPromptAsync(target, input, sessionTitleText, queuedPrompt: null)
             .ConfigureAwait(false);
 
     private async Task SubmitInputWithQueuedPromptAsync(
-        AgentTuiRuntimeScope scope,
+        AgentTuiExecutionTarget target,
         AgentInputEvent input,
         string? sessionTitleText = null,
         PendingPrompt? queuedPrompt = null)
     {
-        _ = await SubmitInputCoreWithQueuedPromptAsync(scope, input, sessionTitleText, restoreRejectedDraft: true, queuedPrompt)
+        _ = await SubmitInputCoreWithQueuedPromptAsync(target, input, sessionTitleText, restoreRejectedDraft: true, queuedPrompt)
             .ConfigureAwait(false);
     }
 
     private async Task<AgentTuiSubmitResult?> SubmitInputCoreAsync(
-        AgentTuiRuntimeScope scope,
+        AgentTuiExecutionTarget target,
         AgentInputEvent input,
         string? sessionTitleText,
         bool restoreRejectedDraft)
         => await SubmitInputCoreWithQueuedPromptAsync(
-            scope,
+            target,
             input,
             sessionTitleText,
             restoreRejectedDraft,
             queuedPrompt: null).ConfigureAwait(false);
 
     private async Task<AgentTuiSubmitResult?> SubmitInputCoreWithQueuedPromptAsync(
-        AgentTuiRuntimeScope scope,
+        AgentTuiExecutionTarget target,
         AgentInputEvent input,
         string? sessionTitleText,
         bool restoreRejectedDraft,
         PendingPrompt? queuedPrompt)
     {
+        var scope = target.Scope;
         var rejectedDraft = restoreRejectedDraft
             ? input switch
             {
@@ -485,15 +492,15 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             : null;
         try
         {
-            var ensured = await _runtime.EnsureDurableScopeAsync(scope, CancellationToken.None)
+            var ensured = await _runtime.EnsureDurableTargetAsync(target, CancellationToken.None)
                 .ConfigureAwait(false);
-            await NotifyDurableScopeEnsuredAsync(ensured, CancellationToken.None).ConfigureAwait(false);
+            await NotifyDurableScopeEnsuredAsync(ensured.Scope, CancellationToken.None).ConfigureAwait(false);
             if (!_scopeIsDurable)
             {
-                if (!await HydrateThreadAsync(ensured, CancellationToken.None).ConfigureAwait(false))
+                if (!await HydrateThreadAsync(ensured.Scope, CancellationToken.None).ConfigureAwait(false))
                 {
                     throw new InvalidOperationException(
-                        $"Thread '{ensured.SessionId}/{ensured.ThreadId}' could not be promoted to durable state.");
+                        $"Thread '{ensured.Scope.SessionId}/{ensured.Scope.ThreadId}' could not be promoted to durable state.");
                 }
                 _scopeIsDurable = true;
             }
@@ -502,7 +509,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
 
             if (!string.IsNullOrWhiteSpace(sessionTitleText))
             {
-                await SetSessionTitleFromFirstMessageAsync(ensured, sessionTitleText, CancellationToken.None)
+                await SetSessionTitleFromFirstMessageAsync(ensured.Scope, sessionTitleText, CancellationToken.None)
                     .ConfigureAwait(false);
             }
 
@@ -519,7 +526,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 if (_awaitingRuntimeSubmissionId == submissionId)
                     _awaitingRuntimeSubmissionId = 0;
             }
-            if (_state is null || _scope != scope)
+            if (_state is null || _target != target)
                 return null;
 
             _inputSubmissionPending = false;
@@ -527,7 +534,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             {
                 if (queuedPrompt is not null)
                 {
-                    PendingPrompts(scope).Remove(queuedPrompt.ClientInputId);
+                    PendingPrompts(target).Remove(queuedPrompt.ClientInputId);
                     RequestRender();
                 }
             }
@@ -542,7 +549,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             {
                 if (queuedPrompt is not null && input is UserMessagesInputEvent)
                 {
-                    PendingPrompts(scope).Remove(queuedPrompt.ClientInputId);
+                    PendingPrompts(target).Remove(queuedPrompt.ClientInputId);
                     RequestRender();
                 }
                 if (!string.IsNullOrEmpty(rejectedDraft) &&
@@ -570,14 +577,14 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            if (_state is null || _scope != scope)
+            if (_state is null || _target != target)
             {
                 return null;
             }
 
             if (queuedPrompt is not null && input is UserMessagesInputEvent)
             {
-                PendingPrompts(scope).Remove(queuedPrompt.ClientInputId);
+                PendingPrompts(target).Remove(queuedPrompt.ClientInputId);
                 if (_prompt is not null && _prompt.Model.Text.Length == 0)
                     _prompt.Model.SetText(queuedPrompt.Text);
             }
@@ -618,7 +625,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
 
         if (key.Key == KeyCode.UpArrow && key.Modifiers == KeyModifiers.Alt)
         {
-            var pendingPrompts = PendingPrompts(_scope);
+            var pendingPrompts = PendingPrompts(_target!);
             if (pendingPrompts.Count == 0) return false;
             if (_prompt is null || _prompt.Model.Text.Length != 0)
             {
@@ -666,9 +673,9 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 return false;
             }
 
-            if (_activeThreadExecutionId is not null && PendingPrompts(_scope).Count > 0)
+            if (_activeThreadExecutionId is not null && PendingPrompts(_target!).Count > 0)
             {
-                _ = PromotePendingPromptToSteeringAsync(_scope, _state);
+                _ = PromotePendingPromptToSteeringAsync(_target!, _state);
                 return true;
             }
 
@@ -883,12 +890,12 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         try
         {
             await command.ExecuteAsync(new AgentTuiCommandContext(
-                    _scope,
+                    _target ?? throw new InvalidOperationException("The TUI execution target is unavailable."),
                     _state.Shell,
                     _state.Shell.Navigation,
                     _runtime,
                     _dialogs,
-                    SwitchScopeAsync,
+                    SwitchTargetAsync,
                     command,
                     arguments))
                 .ConfigureAwait(false);
@@ -911,19 +918,19 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         }
     }
 
-    public async ValueTask SwitchScopeAsync(
-        AgentTuiRuntimeScope scope,
+    public async ValueTask SwitchTargetAsync(
+        AgentTuiExecutionTarget target,
         CancellationToken cancellationToken)
     {
-        var ensured = await _runtime.EnsureDurableScopeAsync(scope, cancellationToken)
+        var ensured = await _runtime.EnsureDurableTargetAsync(target, cancellationToken)
             .ConfigureAwait(false);
-        await NotifyDurableScopeEnsuredAsync(ensured, cancellationToken).ConfigureAwait(false);
+        await NotifyDurableScopeEnsuredAsync(ensured.Scope, cancellationToken).ConfigureAwait(false);
         await StopObserverAsync().ConfigureAwait(false);
         _handledInteractionIds.Clear();
         RebuildShell(
             ensured,
-            $"Switched to agent `{ensured.AgentId}`, session `{ensured.SessionId}`, thread `{ensured.ThreadId}`.");
-        if (await HydrateThreadAsync(ensured, cancellationToken).ConfigureAwait(false))
+            $"Switched to agent `{ensured.Scope.AgentId}`, session `{ensured.Scope.SessionId}`, thread `{ensured.Scope.ThreadId}`.");
+        if (await HydrateThreadAsync(ensured.Scope, cancellationToken).ConfigureAwait(false))
         {
             _scopeIsDurable = true;
             StartObserver(ensured, _runCancellationToken);
@@ -1046,14 +1053,14 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     }
 
     private async Task ObserveAsync(
-        AgentTuiRuntimeScope scope,
+        AgentTuiExecutionTarget target,
         ThreadJournalCursor after,
         CancellationToken cancellationToken)
     {
         try
         {
             await foreach (var batch in _runtime.ObserveAsync(
-                    scope,
+                    target,
                     after,
                     _initialObservedCursor,
                     cancellationToken)
@@ -1075,16 +1082,16 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             {
                 DiscardMarkdownState();
                 _handledInteractionIds.Clear();
-                RebuildShell(scope,
+                RebuildShell(target,
                     $"Thread history was compacted into journal generation {rebased.CurrentCursor.Generation}; rehydrating.");
             }, cancellationToken).ConfigureAwait(false);
-            if (await HydrateThreadAsync(scope, cancellationToken).ConfigureAwait(false))
+            if (await HydrateThreadAsync(target.Scope, cancellationToken).ConfigureAwait(false))
             {
                 _scopeIsDurable = true;
                 foreach (var pendingRequest in _pendingRecoveryRequests)
                     _interactionQueue?.Writer.TryWrite(pendingRequest);
                 _pendingRecoveryRequests = [];
-                await ObserveAsync(scope, _appliedCursor, cancellationToken).ConfigureAwait(false);
+                await ObserveAsync(target, _appliedCursor, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (Exception ex)
@@ -1101,7 +1108,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                         $"Position {_appliedCursor.Generation}:{_appliedCursor.SequenceNumber + 1} was not applied: {ex.Message}"),
                     TranscriptSeverity.Error),
                 Metadata: new TranscriptEntryMetadata(
-                    AgentId: scope.AgentId,
+                    AgentId: target.Scope.AgentId,
                     AgentName: "tui",
                     AgentChain: ["tui"])));
             _state.Shell.PromptStatusText = "state: projection failed";
@@ -1222,7 +1229,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 _activeMarkdownStreams.Remove(new(MarkdownStreamKind.Assistant, end.MessageId));
                 _markdownStreams.Complete(new(MarkdownStreamKind.Assistant, end.MessageId));
                 break;
-            case ReasoningMessageStartEvent start:
+            case ReasoningMessageStartEvent start when _registry.ShowReasoning:
                 _activeMarkdownStreams.Add(new(MarkdownStreamKind.Reasoning, start.MessageId));
                 _markdownStreams.Start(
                     new(MarkdownStreamKind.Reasoning, start.MessageId),
@@ -1238,10 +1245,10 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                         SessionId: start.SessionId,
                         ThreadId: start.ThreadId));
                 break;
-            case ReasoningDeltaEvent delta:
+            case ReasoningDeltaEvent delta when _registry.ShowReasoning:
                 _markdownStreams.Append(new(MarkdownStreamKind.Reasoning, delta.MessageId), delta.Text);
                 break;
-            case ReasoningMessageEndEvent end:
+            case ReasoningMessageEndEvent end when _registry.ShowReasoning:
                 _activeMarkdownStreams.Remove(new(MarkdownStreamKind.Reasoning, end.MessageId));
                 _markdownStreams.Complete(new(MarkdownStreamKind.Reasoning, end.MessageId));
                 break;
@@ -1489,30 +1496,30 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     }
 
     private async Task PromotePendingPromptToSteeringAsync(
-        AgentTuiRuntimeScope scope,
+        AgentTuiExecutionTarget target,
         AgentTuiSessionState state)
     {
         if (_activeThreadExecutionId is not { } activeExecutionId ||
-            PendingPrompts(scope).Count == 0 ||
+            PendingPrompts(target).Count == 0 ||
             _inputSubmissionPending)
         {
             return;
         }
 
-        var pendingPrompts = PendingPrompts(scope);
+        var pendingPrompts = PendingPrompts(target);
         var pending = pendingPrompts.PeekOldest()!;
         var text = pending.Text;
         _inputSubmissionPending = true;
         state.Shell.PromptStatusText = "state: steering";
         RequestRender();
         var submitted = await SubmitInputCoreAsync(
-            scope,
+            target,
             new UserMessagesInputEvent
             {
                 Delivery = AgentInputDelivery.Steer,
-                AgentId = scope.AgentId,
-                SessionId = scope.SessionId,
-                ThreadId = scope.ThreadId,
+                AgentId = target.Scope.AgentId,
+                SessionId = target.Scope.SessionId,
+                ThreadId = target.Scope.ThreadId,
                 ThreadExecutionId = activeExecutionId,
                 ClientInputId = pending.ClientInputId,
                 Messages = [new ChatMessage(ChatRole.User, text)]
@@ -1539,13 +1546,13 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     private void SubmitNextPendingPrompt()
     {
         if (_activeThreadExecutionId is not null ||
-            PendingPrompts(_scope!).Count == 0 ||
+            PendingPrompts(_target!).Count == 0 ||
             _inputSubmissionPending)
         {
             return;
         }
 
-        var pending = PendingPrompts(_scope!).PeekOldest()!;
+        var pending = PendingPrompts(_target!).PeekOldest()!;
         _queuedPromptBeingSubmitted = pending;
         try
         {
@@ -1557,10 +1564,10 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         }
     }
 
-    private PendingPromptQueue PendingPrompts(AgentTuiRuntimeScope scope)
+    private PendingPromptQueue PendingPrompts(AgentTuiExecutionTarget target)
     {
-        if (!_pendingPromptsByScope.TryGetValue(scope, out var queue))
-            _pendingPromptsByScope[scope] = queue = new PendingPromptQueue();
+        if (!_pendingPromptsByTarget.TryGetValue(target, out var queue))
+            _pendingPromptsByTarget[target] = queue = new PendingPromptQueue();
         return queue;
     }
 

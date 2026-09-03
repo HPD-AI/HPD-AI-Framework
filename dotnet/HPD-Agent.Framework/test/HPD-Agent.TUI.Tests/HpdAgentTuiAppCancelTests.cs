@@ -24,7 +24,7 @@ public sealed class HpdAgentTuiAppCancelTests
         var received = new List<KeyEvent>();
         await using var app = HpdAgentTuiApp.Create(
             runtime,
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             builder => builder
                 .AddAgentTuiDefaults()
                 .TryAddPage(new HpdAgentTuiPageDescriptor(
@@ -38,7 +38,7 @@ public sealed class HpdAgentTuiAppCancelTests
                     },
                 }),
             new TestTerminal(80, 24));
-        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        InvokePrivate(app, "RebuildShell", new DirectAgentTuiExecutionTarget(scope), "Connected.");
         var state = GetPrivateField<AgentTuiSessionState>(app, "_state");
         state.Shell.Navigation.GoToPage("test.page");
         var application = GetPrivateField<HPD.TUI.Rendering.ManagedTerminalTuiApplication>(
@@ -60,10 +60,10 @@ public sealed class HpdAgentTuiAppCancelTests
         var runtime = new CancelRuntime(scope) { InitialIsDurable = false };
         await using var app = HpdAgentTuiApp.Create(
             runtime,
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             static builder => builder.AddAgentTuiDefaults(),
             new TestTerminal(80, 24));
-        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        InvokePrivate(app, "RebuildShell", new DirectAgentTuiExecutionTarget(scope), "Connected.");
         var input = new UserMessagesInputEvent
         {
             Messages = [new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.User, "hello")],
@@ -72,7 +72,7 @@ public sealed class HpdAgentTuiAppCancelTests
             ThreadId = scope.ThreadId
         };
 
-        await InvokePrivate<Task>(app, "SubmitInputAsync", scope, input, null!);
+        await InvokePrivate<Task>(app, "SubmitInputAsync", new DirectAgentTuiExecutionTarget(scope), input, null!);
         var observed = await runtime.ObserverStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
         observed.Should().Be(ThreadJournalCursor.Start(1));
@@ -96,12 +96,12 @@ public sealed class HpdAgentTuiAppCancelTests
         var reconciler = new RecordingThreadStateReconciler();
         await using var app = HpdAgentTuiApp.Create(
             runtime,
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             builder => builder
                 .AddAgentTuiDefaults()
                 .AddThreadStateReconciler(reconciler),
             new TestTerminal(80, 24));
-        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        InvokePrivate(app, "RebuildShell", new DirectAgentTuiExecutionTarget(scope), "Connected.");
 
         var hydrated = await InvokePrivate<Task<bool>>(
             app,
@@ -130,13 +130,13 @@ public sealed class HpdAgentTuiAppCancelTests
         var reconciler = new RecordingThreadStateReconciler();
         await using var app = HpdAgentTuiApp.Create(
             runtime,
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             builder => builder
                 .AddAgentTuiDefaults()
                 .AddEventHandler("test.stale-footer", new StaleHistoricalFooterHandler())
                 .AddThreadStateReconciler(reconciler),
             new TestTerminal(80, 24));
-        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        InvokePrivate(app, "RebuildShell", new DirectAgentTuiExecutionTarget(scope), "Connected.");
         (await InvokePrivate<Task<bool>>(
             app,
             "HydrateThreadAsync",
@@ -170,10 +170,10 @@ public sealed class HpdAgentTuiAppCancelTests
         var runtime = new CancelRuntime(scope) { DelaySubmission = true };
         await using var app = HpdAgentTuiApp.Create(
             runtime,
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             static builder => builder.AddAgentTuiDefaults(),
             new TestTerminal(80, 24));
-        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        InvokePrivate(app, "RebuildShell", new DirectAgentTuiExecutionTarget(scope), "Connected.");
         SetPrivateField(app, "_scopeIsDurable", true);
         var input = new UserMessagesInputEvent
         {
@@ -183,7 +183,7 @@ public sealed class HpdAgentTuiAppCancelTests
             ThreadId = scope.ThreadId
         };
 
-        var submission = InvokePrivate<Task>(app, "SubmitInputAsync", scope, input, null!);
+        var submission = InvokePrivate<Task>(app, "SubmitInputAsync", new DirectAgentTuiExecutionTarget(scope), input, null!);
         await runtime.SubmissionStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await InvokePrivate<Task>(
             app,
@@ -212,10 +212,10 @@ public sealed class HpdAgentTuiAppCancelTests
         var runtime = new CancelRuntime(scope);
         await using var app = HpdAgentTuiApp.Create(
             runtime,
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             static builder => builder.AddAgentTuiDefaults(),
             new TestTerminal(80, 24));
-        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        InvokePrivate(app, "RebuildShell", new DirectAgentTuiExecutionTarget(scope), "Connected.");
 
         await InvokePrivate<Task>(
             app,
@@ -250,13 +250,13 @@ public sealed class HpdAgentTuiAppCancelTests
         var handler = new BlockingInteractionHandler();
         await using var app = HpdAgentTuiApp.Create(
             runtime,
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             builder => builder
                 .AddAgentTuiDefaults()
                 .AddInteractionHandler<PermissionRequestEvent>("blocking", handler),
             new TestTerminal(80, 24));
-        InvokePrivate(app, "RebuildShell", scope, "Connected.");
-        InvokePrivate(app, "StartObserver", scope, CancellationToken.None);
+        InvokePrivate(app, "RebuildShell", new DirectAgentTuiExecutionTarget(scope), "Connected.");
+        InvokePrivate(app, "StartObserver", new DirectAgentTuiExecutionTarget(scope), CancellationToken.None);
         var request = new PermissionRequestEvent(
             "permission-1", "test", "function", null, "call-1", null)
         {
@@ -319,11 +319,11 @@ public sealed class HpdAgentTuiAppCancelTests
         };
         await using var app = HpdAgentTuiApp.Create(
             runtime,
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             static builder => builder.AddAgentTuiDefaults(),
             new TestTerminal(80, 24));
 
-        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        InvokePrivate(app, "RebuildShell", new DirectAgentTuiExecutionTarget(scope), "Connected.");
 
         var handled = InvokePrivate<bool>(
             app,
@@ -370,10 +370,10 @@ public sealed class HpdAgentTuiAppCancelTests
         };
         await using var app = HpdAgentTuiApp.Create(
             runtime,
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             static builder => builder.AddAgentTuiDefaults(),
             new TestTerminal(80, 24));
-        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        InvokePrivate(app, "RebuildShell", new DirectAgentTuiExecutionTarget(scope), "Connected.");
 
         InvokePrivate<bool>(app, "TryExecuteShortcut", new KeyEvent(KeyCode.Escape)).Should().BeTrue();
         await runtime.ActiveExecutionRequested.Task.WaitAsync(TimeSpan.FromSeconds(2));
@@ -394,11 +394,11 @@ public sealed class HpdAgentTuiAppCancelTests
         var runtime = new CancelRuntime(scope);
         await using var app = HpdAgentTuiApp.Create(
             runtime,
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             static builder => builder.AddAgentTuiDefaults(),
             new TestTerminal(80, 24));
 
-        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        InvokePrivate(app, "RebuildShell", new DirectAgentTuiExecutionTarget(scope), "Connected.");
 
         var handled = InvokePrivate<bool>(
             app,
@@ -421,11 +421,11 @@ public sealed class HpdAgentTuiAppCancelTests
         var runtime = new CancelRuntime(scope);
         await using var app = HpdAgentTuiApp.Create(
             runtime,
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             static builder => builder.AddAgentTuiDefaults(),
             new TestTerminal(80, 24));
 
-        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        InvokePrivate(app, "RebuildShell", new DirectAgentTuiExecutionTarget(scope), "Connected.");
         var state = GetPrivateField<AgentTuiSessionState>(app, "_state");
         state.Shell.Navigation.GoToPage("hpd.help");
 
@@ -447,11 +447,11 @@ public sealed class HpdAgentTuiAppCancelTests
         var runtime = new CancelRuntime(scope);
         await using var app = HpdAgentTuiApp.Create(
             runtime,
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             static builder => builder.AddAgentTuiDefaults(),
             new TestTerminal(80, 24));
 
-        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        InvokePrivate(app, "RebuildShell", new DirectAgentTuiExecutionTarget(scope), "Connected.");
         var state = GetPrivateField<AgentTuiSessionState>(app, "_state");
         var dialogs = GetPrivateField<AgentTuiDialogService>(app, "_dialogs");
         var pending = dialogs.InputAsync("Session title (optional)", allowEmpty: true);
@@ -486,11 +486,11 @@ public sealed class HpdAgentTuiAppCancelTests
         };
         await using var app = HpdAgentTuiApp.Create(
             runtime,
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             static builder => builder.AddAgentTuiDefaults(),
             new TestTerminal(80, 24));
 
-        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        InvokePrivate(app, "RebuildShell", new DirectAgentTuiExecutionTarget(scope), "Connected.");
         var prompt = GetPrivateField<PromptView>(app, "_prompt");
         prompt.Controller.SetDraft("/");
         prompt.Controller.Autocomplete.Should().NotBeNull();
@@ -590,21 +590,22 @@ public sealed class HpdAgentTuiAppCancelTests
         public TaskCompletionSource Interrupted { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public Task<AgentTuiScopeResolution> ResolveInitialScopeAsync(
-            AgentTuiRuntimeScope? requested,
+        public Task<AgentTuiTargetResolution> ResolveInitialTargetAsync(
+            AgentTuiExecutionTarget? requested,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(new AgentTuiScopeResolution(requested ?? _scope, InitialIsDurable));
+            => Task.FromResult(new AgentTuiTargetResolution(
+                requested ?? new DirectAgentTuiExecutionTarget(_scope), InitialIsDurable));
 
-        public Task<AgentTuiRuntimeScope> EnsureDurableScopeAsync(
-            AgentTuiRuntimeScope scope,
+        public Task<AgentTuiExecutionTarget> EnsureDurableTargetAsync(
+            AgentTuiExecutionTarget target,
             CancellationToken cancellationToken = default)
         {
             Calls.Add("ensure");
-            return Task.FromResult(scope);
+            return Task.FromResult(target);
         }
 
         public async IAsyncEnumerable<AgentTuiEventBatch> ObserveAsync(
-            AgentTuiRuntimeScope scope,
+            AgentTuiExecutionTarget target,
             ThreadJournalCursor after,
             ThreadJournalCursor initialObservedCursor,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
@@ -622,10 +623,11 @@ public sealed class HpdAgentTuiAppCancelTests
         }
 
         public Task<AgentTuiSubmitResult> SubmitInputAsync(
-            AgentTuiRuntimeScope scope,
+            AgentTuiExecutionTarget target,
             AgentInputEvent input,
             CancellationToken cancellationToken = default)
         {
+            var scope = target.Scope;
             Calls.Add("submit");
             SubmissionStarted.TrySetResult();
             if (DelaySubmission)

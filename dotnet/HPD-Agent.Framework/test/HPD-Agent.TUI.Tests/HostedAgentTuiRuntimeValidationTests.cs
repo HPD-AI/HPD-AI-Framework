@@ -206,9 +206,10 @@ public sealed class HostedAgentTuiRuntimeValidationTests
         });
         var scope = new AgentTuiRuntimeScope("agent", "session", "main");
 
-        var result = await runtime.EnsureDurableScopeAsync(scope);
+        var target = new DirectAgentTuiExecutionTarget(scope);
+        var result = await runtime.EnsureDurableTargetAsync(target);
 
-        result.Should().Be(scope);
+        result.Should().Be(target);
         handler.Requests.Should().Equal(
             "GET sessions/session",
             "GET sessions/session/threads/main",
@@ -233,9 +234,10 @@ public sealed class HostedAgentTuiRuntimeValidationTests
             DefaultScope = scope
         });
 
-        var resolution = await runtime.ResolveInitialScopeAsync(requested: null);
+        var resolution = await runtime.ResolveInitialTargetAsync(requested: null);
 
-        resolution.Should().Be(new AgentTuiScopeResolution(scope, IsDurable: false));
+        resolution.Should().Be(new AgentTuiTargetResolution(
+            new DirectAgentTuiExecutionTarget(scope), IsDurable: false));
         handler.Requests.Should().Equal(
             "GET sessions/session",
             "GET sessions/session/threads/main");
@@ -286,7 +288,7 @@ public sealed class HostedAgentTuiRuntimeValidationTests
         var scope = new AgentTuiRuntimeScope("agent", "session", "main");
 
         var result = await runtime.SubmitInputAsync(
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             new UserMessagesInputEvent
             {
                 Delivery = AgentInputDelivery.Steer,
@@ -331,7 +333,7 @@ public sealed class HostedAgentTuiRuntimeValidationTests
         var observed = new List<AgentEvent>();
 
         await foreach (var batch in runtime.ObserveAsync(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
+            new DirectAgentTuiExecutionTarget(new AgentTuiRuntimeScope("agent", "session", "main")),
             after: ThreadJournalCursor.Start(1),
             initialObservedCursor: new ThreadJournalCursor(1, 2),
             cancellationToken: timeout.Token))
@@ -379,7 +381,7 @@ public sealed class HostedAgentTuiRuntimeValidationTests
         var batches = new List<AgentTuiEventBatch>();
 
         await foreach (var batch in runtime.ObserveAsync(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
+            new DirectAgentTuiExecutionTarget(new AgentTuiRuntimeScope("agent", "session", "main")),
             after: new ThreadJournalCursor(1, 4),
             initialObservedCursor: new ThreadJournalCursor(1, 4),
             cancellationToken: timeout.Token))
@@ -428,7 +430,7 @@ public sealed class HostedAgentTuiRuntimeValidationTests
         var batches = new List<AgentTuiEventBatch>();
 
         await foreach (var batch in runtime.ObserveAsync(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
+            new DirectAgentTuiExecutionTarget(new AgentTuiRuntimeScope("agent", "session", "main")),
             after: new ThreadJournalCursor(1, 5),
             initialObservedCursor: new ThreadJournalCursor(1, 5),
             cancellationToken: timeout.Token))

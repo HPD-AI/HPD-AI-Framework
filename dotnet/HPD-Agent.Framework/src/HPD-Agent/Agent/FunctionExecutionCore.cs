@@ -595,6 +595,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 Arguments = preparation.Arguments,
                 State = agentContext.State,
                 RunConfig = beforeFunctionContext.RunConfig,
+                SubAgentRunConfig = beforeFunctionContext.SubAgentRunConfig,
                 Invocation = preparation.Invocation,
                 InvocationMode = preparation.ResolvedInvocation,
                 PermissionGrant = beforeFunctionContext.PermissionGrant,

@@ -24,7 +24,7 @@ public sealed class SubAgentControlBehaviorTests
             CreationContext = SubAgentCreationContext.Fresh,
             CreationInvocationId = "create-3",
             ParentToolCallId = "call-3",
-            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
+            ExecutionPolicy = SubAgentTestPolicies.Default,
             CreatedAt = DateTimeOffset.UtcNow
         });
         await store.AppendThreadEventsAsync(parent,
@@ -142,7 +142,7 @@ public sealed class SubAgentControlBehaviorTests
             CreationContext = SubAgentCreationContext.Fresh,
             CreationInvocationId = $"create-{localId}",
             ParentToolCallId = $"call-{localId}",
-            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
+            ExecutionPolicy = SubAgentTestPolicies.Default,
             CreatedAt = DateTimeOffset.UtcNow
         });
         return route;

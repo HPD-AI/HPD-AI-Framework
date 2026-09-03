@@ -36,6 +36,31 @@ public sealed partial class AgentEventCodecTests
     }
 
     [Fact]
+    public void MiddlewareStateSnapshotEvent_RoundTripsCanonicalAttribution()
+    {
+        var timestamp = DateTimeOffset.Parse("2026-09-03T09:17:55Z");
+        using var state = JsonDocument.Parse("{\"expandedContainers\":[]}");
+        var value = new MiddlewareStateSnapshotEvent(
+            "agent", 1, "before_model_call", null, null, null, 1,
+            [new MiddlewareStateEntrySnapshot(
+                "state", "State", "State", StateScope.Thread, false, 1,
+                state.RootElement.Clone(), null, false)])
+        {
+            SessionId = "session-1",
+            ThreadId = "main",
+            ThreadSequenceNumber = 11,
+            Timestamp = timestamp
+        };
+
+        var roundTrip = CoreCodec.DeserializeEvent(CoreCodec.Serialize(value));
+
+        roundTrip.SessionId.Should().Be("session-1");
+        roundTrip.ThreadId.Should().Be("main");
+        roundTrip.ThreadSequenceNumber.Should().Be(11);
+        roundTrip.Timestamp.Should().Be(timestamp);
+    }
+
+    [Fact]
     public void ThreadExecutionFinishedEvent_IsAScalarDurableFact()
     {
         var value = new ThreadExecutionFinishedEvent(

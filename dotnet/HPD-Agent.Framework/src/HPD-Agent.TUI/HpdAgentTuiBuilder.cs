@@ -34,6 +34,14 @@ public sealed class HpdAgentTuiBuilder
     private AgentTuiRunConfigComposer? _runConfigComposer;
     private IAgentTuiThreadStateReconciler? _threadStateReconciler;
     private TranscriptHistoryPresentation _transcriptHistoryPresentation;
+    private bool _showReasoning = true;
+
+    /// <summary>Controls whether reasoning events are projected into the transcript.</summary>
+    public HpdAgentTuiBuilder ShowReasoning(bool show = true)
+    {
+        _showReasoning = show;
+        return this;
+    }
 
     public HpdAgentTuiBuilder UseTranscriptHistoryPresentation(
         TranscriptHistoryPresentation presentation)
@@ -498,7 +506,7 @@ public sealed class HpdAgentTuiBuilder
         AgentTuiModelSelectionState selection)
     {
         ArgumentNullException.ThrowIfNull(selection);
-        return SetRunConfigComposer(_ => selection.ToRunConfig());
+        return SetRunConfigComposer(_ => new AgentTuiInputRunConfig(selection.ToRunConfig()));
     }
 
     public HpdAgentTuiBuilder AddModelSelectionCommand(
@@ -1043,7 +1051,8 @@ public sealed class HpdAgentTuiBuilder
             _includeSlashCommandAutocomplete,
             _runConfigComposer,
             _threadStateReconciler,
-            _transcriptHistoryPresentation);
+            _transcriptHistoryPresentation,
+            _showReasoning);
     }
 
 }

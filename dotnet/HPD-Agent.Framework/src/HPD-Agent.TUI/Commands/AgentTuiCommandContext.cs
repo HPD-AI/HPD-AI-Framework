@@ -7,24 +7,27 @@ namespace HPD.Agent.TUI.Commands;
 public sealed class AgentTuiCommandContext
 {
     public AgentTuiCommandContext(
-        AgentTuiRuntimeScope scope,
+        AgentTuiExecutionTarget target,
         ChatShellModel shell,
         AgentTuiNavigationModel navigation,
         IHpdAgentTuiRuntime runtime,
         IAgentTuiDialogService dialogs,
-        Func<AgentTuiRuntimeScope, CancellationToken, ValueTask> switchScopeAsync,
+        Func<AgentTuiExecutionTarget, CancellationToken, ValueTask> switchTargetAsync,
         HpdAgentTuiCommandDescriptor command,
         string arguments)
     {
-        Scope = scope ?? throw new ArgumentNullException(nameof(scope));
+        Target = target ?? throw new ArgumentNullException(nameof(target));
+        Scope = target.Scope;
         Shell = shell ?? throw new ArgumentNullException(nameof(shell));
         Navigation = navigation ?? throw new ArgumentNullException(nameof(navigation));
         Runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         Dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
-        SwitchScopeAsync = switchScopeAsync ?? throw new ArgumentNullException(nameof(switchScopeAsync));
+        SwitchTargetAsync = switchTargetAsync ?? throw new ArgumentNullException(nameof(switchTargetAsync));
         Command = command ?? throw new ArgumentNullException(nameof(command));
         Arguments = arguments ?? "";
     }
+
+    public AgentTuiExecutionTarget Target { get; }
 
     public AgentTuiRuntimeScope Scope { get; }
 
@@ -36,7 +39,7 @@ public sealed class AgentTuiCommandContext
 
     public IAgentTuiDialogService Dialogs { get; }
 
-    public Func<AgentTuiRuntimeScope, CancellationToken, ValueTask> SwitchScopeAsync { get; }
+    public Func<AgentTuiExecutionTarget, CancellationToken, ValueTask> SwitchTargetAsync { get; }
 
     public HpdAgentTuiCommandDescriptor Command { get; }
 

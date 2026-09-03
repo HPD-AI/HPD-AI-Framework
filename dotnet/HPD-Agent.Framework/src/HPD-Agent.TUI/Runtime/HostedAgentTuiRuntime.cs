@@ -55,23 +55,29 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
 
     public bool CanSwitchAgents => true;
 
-    public async Task<AgentTuiScopeResolution> ResolveInitialScopeAsync(
-        AgentTuiRuntimeScope? requested,
+    public async Task<AgentTuiTargetResolution> ResolveInitialTargetAsync(
+        AgentTuiExecutionTarget? requested,
         CancellationToken cancellationToken = default)
     {
-        var scope = requested ?? _defaultScope;
+        var target = requested ?? new DirectAgentTuiExecutionTarget(_defaultScope);
+        var scope = target.Scope;
         if (await ScopeExistsAsync(scope, cancellationToken).ConfigureAwait(false))
         {
-            return new AgentTuiScopeResolution(scope, IsDurable: true);
+            return new AgentTuiTargetResolution(target, IsDurable: true);
         }
 
-        return new AgentTuiScopeResolution(scope, IsDurable: false);
+        return new AgentTuiTargetResolution(target, IsDurable: false);
     }
 
-    public async Task<AgentTuiRuntimeScope> EnsureDurableScopeAsync(
-        AgentTuiRuntimeScope scope,
+    public async Task<AgentTuiExecutionTarget> EnsureDurableTargetAsync(
+        AgentTuiExecutionTarget target,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(target);
+        var scope = target.Scope;
+        if (target is ControlledSubAgentTuiExecutionTarget &&
+            !await ScopeExistsAsync(scope, cancellationToken).ConfigureAwait(false))
+            throw new InvalidOperationException("The controlled subagent target is not durable.");
         if (!await SessionExistsAsync(scope.SessionId, cancellationToken).ConfigureAwait(false))
         {
             var createJson = $$"""{"sessionId":{{JsonString(scope.SessionId)}}}""";
@@ -102,7 +108,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             }
         }
 
-        return scope;
+        return target;
     }
 
     private async Task<bool> ScopeExistsAsync(
@@ -612,11 +618,12 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
     }
 
     public async IAsyncEnumerable<AgentTuiEventBatch> ObserveAsync(
-        AgentTuiRuntimeScope scope,
+        AgentTuiExecutionTarget target,
         ThreadJournalCursor after,
         ThreadJournalCursor initialObservedCursor,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        var scope = target.Scope;
         ArgumentNullException.ThrowIfNull(scope);
         await ValidateBackendEventCatalogAsync(cancellationToken).ConfigureAwait(false);
         var cursor = after;
@@ -809,16 +816,26 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
     }
 
     public async Task<AgentTuiSubmitResult> SubmitInputAsync(
-        AgentTuiRuntimeScope scope,
+        AgentTuiExecutionTarget target,
         AgentInputEvent input,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(scope);
+        ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(input);
+        var scope = target.Scope;
 
         var json = _inputCodec.Serialize(input);
-        using var response = await PostJsonEnvelopeAsync(
+        var path = target switch
+        {
+            DirectAgentTuiExecutionTarget =>
                 $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/threads/{Escape(scope.ThreadId)}/inputs",
+            ControlledSubAgentTuiExecutionTarget controlled =>
+                $"agents/{Escape(controlled.ControllerScope.AgentId)}/sessions/{Escape(controlled.ControllerScope.SessionId)}/threads/{Escape(controlled.ControllerScope.ThreadId)}/subagents/{Escape(controlled.LocalId.Value)}/inputs" +
+                $"?childAgentId={Escape(controlled.ChildScope.AgentId)}&childSessionId={Escape(controlled.ChildScope.SessionId)}&childThreadId={Escape(controlled.ChildScope.ThreadId)}",
+            _ => throw new InvalidOperationException("Unknown TUI execution target.")
+        };
+        using var response = await PostJsonEnvelopeAsync(
+                path,
                 json,
                 cancellationToken)
             .ConfigureAwait(false);

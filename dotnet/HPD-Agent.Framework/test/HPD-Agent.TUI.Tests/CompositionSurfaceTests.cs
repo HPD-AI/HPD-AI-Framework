@@ -373,14 +373,14 @@ public sealed class CompositionSurfaceTests
     [Fact]
     public void SetRunConfigComposer_StoresComposerInRegistry()
     {
-        AgentTuiRunConfigComposer composer = context => new AgentRunConfig
+        AgentTuiRunConfigComposer composer = context => new AgentTuiInputRunConfig(new AgentRunConfig
         {
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig
             {
                 Provider = new ProviderReference { Key = context.Scope.AgentId },
                 ModelName = context.Prompt
             } }
-        };
+        }, null);
 
         var registry = new HpdAgentTuiBuilder()
             .SetRunConfigComposer(composer)

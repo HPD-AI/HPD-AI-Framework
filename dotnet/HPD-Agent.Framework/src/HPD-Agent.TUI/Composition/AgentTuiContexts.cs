@@ -4,7 +4,15 @@ using HPD.TUI.Controllers;
 
 namespace HPD.Agent.TUI.Composition;
 
-public delegate AgentRunConfig? AgentTuiRunConfigComposer(AgentTuiRunConfigContext context);
+/// <summary>Composes the independent current-agent and direct-child run lanes for one submitted input.</summary>
+public delegate AgentTuiInputRunConfig? AgentTuiRunConfigComposer(AgentTuiRunConfigContext context);
+
+/// <summary>Contains the two sibling run-configuration lanes emitted by the TUI.</summary>
+/// <param name="RunConfig">Configuration for the agent receiving the input.</param>
+/// <param name="SubAgentRunConfig">Configuration for every direct child invoked by the input.</param>
+public sealed record AgentTuiInputRunConfig(
+    AgentRunConfig? RunConfig = null,
+    SubAgentRunConfig? SubAgentRunConfig = null);
 
 public sealed class AgentTuiRunConfigRejectedException : Exception
 {
@@ -29,14 +37,17 @@ public sealed class AgentTuiRunConfigRejectedException : Exception
 public sealed class AgentTuiRunConfigContext
 {
     public AgentTuiRunConfigContext(
-        AgentTuiRuntimeScope scope,
+        AgentTuiExecutionTarget target,
         ChatShellModel shell,
         string prompt)
     {
-        Scope = scope ?? throw new ArgumentNullException(nameof(scope));
+        Target = target ?? throw new ArgumentNullException(nameof(target));
+        Scope = target.Scope;
         Shell = shell ?? throw new ArgumentNullException(nameof(shell));
         Prompt = prompt ?? throw new ArgumentNullException(nameof(prompt));
     }
+
+    public AgentTuiExecutionTarget Target { get; }
 
     public AgentTuiRuntimeScope Scope { get; }
 

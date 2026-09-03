@@ -14,8 +14,7 @@ public sealed partial class Agent
         var agent = Config ?? throw new InvalidOperationException("Agent configuration is not available.");
         var hasConfiguredFamily = Enum.GetValues<ProviderClientFamily>()
             .Where(static family => family is not ProviderClientFamily.Chat)
-            .Any(family => runConfig.SubAgentClientInheritance?.GetMode(family) is not ClientFamilyInheritanceMode.UseOwn ||
-                runConfig.Clients.GetFamilyConfig(family) is not null ||
+            .Any(family => runConfig.Clients.GetFamilyConfig(family) is not null ||
                 agent.Clients.GetFamilyConfig(family) is not null ||
                 agent.ProviderDefaults.Any(value => value.Family == family));
         if (!hasConfiguredFamily)
@@ -30,7 +29,6 @@ public sealed partial class Agent
         };
         result.SetOwnedClients(new HashSet<object>(ReferenceEqualityComparer.Instance));
         result.SetLeases(leases);
-        result.SetComponentInheritance(runConfig.SubAgentClientInheritance);
         result.SetFamilyResolver((family, token) => ResolveRequestedFamilyAsync(
             family, runConfig, leases, resolved, identities, token));
         return result;
@@ -45,27 +43,27 @@ public sealed partial class Agent
         CancellationToken cancellationToken) => family switch
     {
         ProviderClientFamily.TextToSpeech => await ResolveFamilyAsync(
-            family, runConfig.SubAgentClientInheritance, runConfig.Clients.TextToSpeech,
+            family, runConfig.Clients.TextToSpeech,
             _clientSet?.TextToSpeech, Config!.ClientMiddleware?.TextToSpeech,
             _textToSpeechClientManager, leases, resolved, identities, cancellationToken).ConfigureAwait(false),
         ProviderClientFamily.SpeechToText => await ResolveFamilyAsync(
-            family, runConfig.SubAgentClientInheritance, runConfig.Clients.SpeechToText,
+            family, runConfig.Clients.SpeechToText,
             _clientSet?.SpeechToText, Config!.ClientMiddleware?.SpeechToText,
             _speechToTextClientManager, leases, resolved, identities, cancellationToken).ConfigureAwait(false),
         ProviderClientFamily.Realtime => await ResolveFamilyAsync(
-            family, runConfig.SubAgentClientInheritance, runConfig.Clients.Realtime,
+            family, runConfig.Clients.Realtime,
             _clientSet?.Realtime, Config!.ClientMiddleware?.Realtime,
             _realtimeClientManager, leases, resolved, identities, cancellationToken).ConfigureAwait(false),
         ProviderClientFamily.ImageGeneration => await ResolveFamilyAsync(
-            family, runConfig.SubAgentClientInheritance, runConfig.Clients.ImageGeneration,
+            family, runConfig.Clients.ImageGeneration,
             _clientSet?.ImageGenerator, Config!.ClientMiddleware?.ImageGeneration,
             _imageGeneratorManager, leases, resolved, identities, cancellationToken).ConfigureAwait(false),
         ProviderClientFamily.Embeddings => await ResolveFamilyAsync(
-            family, runConfig.SubAgentClientInheritance, runConfig.Clients.Embeddings,
+            family, runConfig.Clients.Embeddings,
             _clientSet?.EmbeddingGenerator, Config!.ClientMiddleware?.Embeddings,
             _embeddingGeneratorManager, leases, resolved, identities, cancellationToken).ConfigureAwait(false),
         ProviderClientFamily.HostedFiles => await ResolveFamilyAsync(
-            family, runConfig.SubAgentClientInheritance, runConfig.Clients.HostedFiles,
+            family, runConfig.Clients.HostedFiles,
             _clientSet?.HostedFiles, Config!.ClientMiddleware?.HostedFiles,
             _hostedFileClientManager, leases, resolved, identities, cancellationToken).ConfigureAwait(false),
         ProviderClientFamily.VoiceActivityDetection or ProviderClientFamily.EndOfTurnDetection => null,
@@ -74,7 +72,6 @@ public sealed partial class Agent
 
     private async ValueTask<TClient?> ResolveFamilyAsync<TClient>(
         ProviderClientFamily family,
-        SubAgentClientInheritanceSource? inheritance,
         ProviderClientConfig? runConfig,
         TClient? builderDefault,
         IReadOnlyList<Func<TClient, IServiceProvider?, TClient>>? middleware,
@@ -85,31 +82,6 @@ public sealed partial class Agent
         CancellationToken cancellationToken)
         where TClient : class
     {
-        var inheritanceMode = inheritance?.GetMode(family) ?? ClientFamilyInheritanceMode.UseOwn;
-        if (inheritanceMode == ClientFamilyInheritanceMode.InheritResolved)
-            return await GetRequiredParentClientAsync<TClient>(
-                family, inheritance, resolved, identities, cancellationToken).ConfigureAwait(false);
-
-        if (inheritanceMode == ClientFamilyInheritanceMode.FallbackToParent)
-        {
-            var hasOwnPlan = runConfig is not null || builderDefault is not null ||
-                Config!.Clients.GetFamilyConfig(family) is not null ||
-                Config.ProviderDefaults.Any(value => value.Family == family);
-            if (!hasOwnPlan)
-                return await GetRequiredParentClientAsync<TClient>(
-                    family, inheritance, resolved, identities, cancellationToken).ConfigureAwait(false);
-            try
-            {
-                return await ResolveOwnFamilyAsync().ConfigureAwait(false);
-            }
-            catch (AgentRunConfigurationException exception) when (
-                exception.Code is "ProviderDefaultRequired" or "ProviderProfileRequired")
-            {
-                return await GetRequiredParentClientAsync<TClient>(
-                    family, inheritance, resolved, identities, cancellationToken).ConfigureAwait(false);
-            }
-        }
-
         return await ResolveOwnFamilyAsync().ConfigureAwait(false);
 
         async ValueTask<TClient?> ResolveOwnFamilyAsync()
@@ -275,32 +247,6 @@ public sealed partial class Agent
             if (_clientSet?.GetExecutionIdentity(family) is { } identity)
                 identities[family] = identity;
         }
-    }
-
-    private static async ValueTask<TClient> GetRequiredParentClientAsync<TClient>(
-        ProviderClientFamily family,
-        SubAgentClientInheritanceSource? inheritance,
-        ConcurrentDictionary<ProviderClientFamily, ProviderClientConfig> resolved,
-        ConcurrentDictionary<ProviderClientFamily, ProviderClientExecutionIdentity> identities,
-        CancellationToken cancellationToken)
-        where TClient : class
-    {
-        var parent = inheritance?.ParentClients;
-        var client = parent is null ? null : await parent.ResolveFamilyAsync<TClient>(
-            family, cancellationToken).ConfigureAwait(false);
-        if (client is null)
-            throw new AgentRunConfigurationException(
-                "subagent_parent_client_unavailable",
-                $"clients.{family}",
-                $"The controlling execution has no resolved {family} client.");
-        lock (resolved)
-        {
-            if (parent!.GetResolvedConfig(family) is { } config)
-                resolved[family] = config;
-            if (parent.GetExecutionIdentity(family) is { } identity)
-                identities[family] = identity;
-        }
-        return client;
     }
 
     private static Func<CancellationToken, ValueTask<ProviderClientConstruction<TClient>>>

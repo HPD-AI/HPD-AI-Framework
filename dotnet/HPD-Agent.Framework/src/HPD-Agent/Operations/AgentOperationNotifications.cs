@@ -84,6 +84,7 @@ internal sealed class AgentOperationNotificationDispatcher : IDisposable
     private readonly Dictionary<string, TaskCompletionSource<bool>> _pendingReservations = new(StringComparer.Ordinal);
     private TaskCompletionSource _admissionsDrained = CompletedDrain();
     private AgentRunConfig? _runConfig;
+    private SubAgentRunConfig? _subAgentRunConfig;
     private int _inflightAdmissions;
     private bool _stopping;
     private int _disposed;
@@ -92,19 +93,26 @@ internal sealed class AgentOperationNotificationDispatcher : IDisposable
         HPD.Events.IEventCoordinator events,
         IAgentEventPublisher? threadEvents,
         Func<AgentOperationNotificationInputEvent, PreparedAgentWorkAdmission> prepareInput,
-        AgentRunConfig? runConfig)
+        AgentRunConfig? runConfig,
+        SubAgentRunConfig? subAgentRunConfig)
     {
         _events = events ?? throw new ArgumentNullException(nameof(events));
         _threadEvents = threadEvents;
         _prepareInput = prepareInput ?? throw new ArgumentNullException(nameof(prepareInput));
         _runConfig = runConfig;
+        _subAgentRunConfig = subAgentRunConfig;
         _subscription = events.Subscribe<AgentOperationTransitionedEvent>(DispatchAsync);
     }
 
-    internal void UpdateRunConfig(AgentRunConfig? runConfig)
+    internal void UpdateRunConfig(AgentRunConfig? runConfig, SubAgentRunConfig? subAgentRunConfig)
     {
-        if (runConfig is not null)
-            lock (_lock) _runConfig = runConfig;
+        lock (_lock)
+        {
+            if (runConfig is not null)
+                _runConfig = runConfig;
+            if (subAgentRunConfig is not null)
+                _subAgentRunConfig = subAgentRunConfig;
+        }
     }
 
     private async ValueTask DispatchAsync(AgentOperationTransitionedEvent evt)
@@ -179,7 +187,12 @@ internal sealed class AgentOperationNotificationDispatcher : IDisposable
             return;
         }
         AgentRunConfig? runConfig;
-        lock (_lock) runConfig = _runConfig;
+        SubAgentRunConfig? subAgentRunConfig;
+        lock (_lock)
+        {
+            runConfig = _runConfig;
+            subAgentRunConfig = _subAgentRunConfig;
+        }
         try
         {
             using var prepared = _prepareInput(new AgentOperationNotificationInputEvent([notification])
@@ -187,7 +200,8 @@ internal sealed class AgentOperationNotificationDispatcher : IDisposable
                 AgentId = operation.Address.AgentId,
                 SessionId = evt.SessionId,
                 ThreadId = evt.ThreadId,
-                RunConfig = runConfig
+                RunConfig = runConfig,
+                SubAgentRunConfig = subAgentRunConfig
             });
             await PublishAsync(new AgentOperationNotificationQueuedEvent
             {
@@ -285,7 +299,8 @@ internal sealed class AgentOperationNotificationDispatcher : IDisposable
         SessionId = input.SessionId,
         ThreadId = input.ThreadId,
         ThreadExecutionId = input.ThreadExecutionId,
-        RunConfig = input.RunConfig
+        RunConfig = input.RunConfig,
+        SubAgentRunConfig = input.SubAgentRunConfig
     };
 
     internal static string FormatNotifications(IReadOnlyList<AgentOperationNotification> notifications)

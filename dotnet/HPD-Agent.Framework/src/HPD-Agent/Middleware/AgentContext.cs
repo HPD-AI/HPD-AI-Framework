@@ -52,6 +52,7 @@ public sealed class AgentContext
     private readonly IRuntimeCapabilityRegistry _runtimeCapabilities;
     private readonly ToolHarnessExecutionScope? _toolHarnessExecutionScope;
     private readonly IReadOnlyDictionary<Type, object> _agentResources;
+    private readonly SubAgentRunConfig? _subAgentRunConfig;
 
     //
     // INTERNAL ACCESS (for adapters)
@@ -68,6 +69,7 @@ public sealed class AgentContext
     internal ToolHarnessExecutionScope? ToolHarnessExecutionScope => _toolHarnessExecutionScope;
     internal string? CanonicalWorkspaceIdentity => _toolHarnessExecutionScope?.CanonicalWorkspaceIdentity;
     internal IReadOnlyDictionary<Type, object> AgentResources => _agentResources;
+    internal SubAgentRunConfig? SubAgentRunConfig => _subAgentRunConfig;
 
     /// <summary>
     /// Effective chat-client handle for this invocation.
@@ -570,6 +572,7 @@ public sealed class AgentContext
         IContentStore? contentStore = null,
         IStructEventHub? structEvents = null,
         Func<AgentInputEvent, CancellationToken, ValueTask>? inputHandler = null,
+        SubAgentRunConfig? subAgentRunConfig = null,
         ToolHarnessExecutionScope? toolHarnessExecutionScope = null,
         IReadOnlyDictionary<Type, object>? agentResources = null)
     {
@@ -587,6 +590,7 @@ public sealed class AgentContext
         _session = session;
         _thread = thread;
         _inputHandler = inputHandler;
+        _subAgentRunConfig = subAgentRunConfig;
         _cancellationToken = cancellationToken;
         _effectiveChatClient = effectiveChatClient;
         _chatClientResolver = chatClientResolver;

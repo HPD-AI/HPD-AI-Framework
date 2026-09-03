@@ -51,7 +51,6 @@ public class SubAgentContextPolicyTests
         updated.Availability.Should().BeSameAs(SubAgentAvailability.AnyAllowedDepth);
         updated.AgentId.Should().Be(original.AgentId);
         updated.Configuration.Should().BeSameAs(original.Configuration);
-        updated.RunConfig.Should().BeSameAs(original.RunConfig);
     }
 
     [Theory]

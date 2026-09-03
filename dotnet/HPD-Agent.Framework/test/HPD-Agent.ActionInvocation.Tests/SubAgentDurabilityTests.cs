@@ -21,7 +21,7 @@ public sealed class SubAgentDurabilityTests
             RoleName = "reviewer",
             ChildAgentId = "reviewer-agent",
             Context = SubAgentCreationContext.Fresh,
-            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
+            ExecutionPolicy = SubAgentTestPolicies.Default,
             InputFingerprint = "ABC"
         });
         var terminal = reserved.Record with
@@ -148,7 +148,7 @@ public sealed class SubAgentDurabilityTests
             CreationContext = SubAgentCreationContext.Fresh,
             CreationInvocationId = "old-invocation",
             ParentToolCallId = "old-call",
-            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
+            ExecutionPolicy = SubAgentTestPolicies.Default,
             CreatedAt = DateTimeOffset.UtcNow
         });
 
@@ -159,7 +159,7 @@ public sealed class SubAgentDurabilityTests
                 RoleName = "reviewer",
                 ChildAgentId = "reviewer-agent",
                 Context = SubAgentCreationContext.Fresh,
-                ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
+                ExecutionPolicy = SubAgentTestPolicies.Default,
                 InputFingerprint = "ABC"
             });
 
@@ -321,7 +321,7 @@ public sealed class SubAgentDurabilityTests
             CreationContext = SubAgentCreationContext.Fresh,
             CreationInvocationId = "create-reviewer",
             ParentToolCallId = "call-reviewer",
-            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
+            ExecutionPolicy = SubAgentTestPolicies.Default,
             CreatedAt = DateTimeOffset.UtcNow
         };
         await new SubAgentChildRegistry(store).RegisterAsync(sourceKey, original);

@@ -131,6 +131,7 @@ public sealed class FunctionExecutionContext
         };
         _stateSnapshot = request.State;
         RunConfig = request.RunConfig;
+        SubAgentRunConfig = request.SubAgentRunConfig;
         InvocationMode = request.InvocationMode;
         Permission = new FunctionExecutionPermission(request.PermissionRequired, request.PermissionGrant);
         ResultMetadata = request.ResultMetadata;
@@ -157,6 +158,7 @@ public sealed class FunctionExecutionContext
         Permission = source.Permission;
         _stateSnapshot = source._stateSnapshot;
         RunConfig = source.RunConfig;
+        SubAgentRunConfig = source.SubAgentRunConfig;
         ResultMetadata = new ToolResultMetadata();
         EventCoordinator = source.EventCoordinator;
         ThreadEvents = source.ThreadEvents;
@@ -173,6 +175,9 @@ public sealed class FunctionExecutionContext
         _toolHarnessExecutionScope = null;
         _operationCommitGate = source._operationCommitGate;
     }
+
+    /// <summary>Gets the captured configuration for direct subagents invoked during this input.</summary>
+    public SubAgentRunConfig? SubAgentRunConfig { get; }
 
     /// <summary>Creates an operation-owned context projection and acquires its client lifetime lease.</summary>
     /// <param name="executionOwner">Receives the lease that must be owned by the operation.</param>

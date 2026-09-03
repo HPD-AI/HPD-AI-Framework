@@ -7,6 +7,7 @@ namespace HPD.Agent.TUI.Runtime;
 public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessionThreadRuntime, IAgentTuiAgentRuntime, IAsyncDisposable
 {
     private readonly Agent _agent;
+    private readonly IAgentRuntimeResolver? _runtimeResolver;
     private readonly AgentTuiRuntimeScope _defaultScope;
     private readonly object _gate = new();
     private AgentTuiThreadExecution? _activeExecution;
@@ -14,9 +15,11 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
 
     public InMemoryAgentTuiRuntime(
         Agent agent,
-        AgentTuiRuntimeScope? defaultScope = null)
+        AgentTuiRuntimeScope? defaultScope = null,
+        IAgentRuntimeResolver? runtimeResolver = null)
     {
         _agent = agent ?? throw new ArgumentNullException(nameof(agent));
+        _runtimeResolver = runtimeResolver;
         _defaultScope = defaultScope ?? new AgentTuiRuntimeScope(
             _agent.AgentId,
             "local-session",
@@ -25,28 +28,36 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
 
     public bool CanSwitchAgents => false;
 
-    public async Task<AgentTuiScopeResolution> ResolveInitialScopeAsync(
-        AgentTuiRuntimeScope? requested,
+    public async Task<AgentTuiTargetResolution> ResolveInitialTargetAsync(
+        AgentTuiExecutionTarget? requested,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var scope = requested ?? _defaultScope;
+        var target = requested ?? new DirectAgentTuiExecutionTarget(_defaultScope);
+        var scope = target.Scope;
         var store = _agent.Config?.SessionStore;
+        if (target is ControlledSubAgentTuiExecutionTarget &&
+            (store is null ||
+             await store.LoadSessionAsync(scope.SessionId, cancellationToken).ConfigureAwait(false) is null ||
+             await store.GetThreadAsync(new ThreadKey(scope.SessionId, scope.ThreadId), cancellationToken).ConfigureAwait(false) is null))
+            throw new InvalidOperationException("The controlled subagent target is not durable.");
         if (store is not null &&
             await store.LoadSessionAsync(scope.SessionId, cancellationToken).ConfigureAwait(false) is not null &&
             await store.GetThreadAsync(new ThreadKey(scope.SessionId, scope.ThreadId), cancellationToken).ConfigureAwait(false) is not null)
         {
-            return new AgentTuiScopeResolution(scope, IsDurable: true);
+            return new AgentTuiTargetResolution(target, IsDurable: true);
         }
 
-        return new AgentTuiScopeResolution(scope, IsDurable: store is null);
+        return new AgentTuiTargetResolution(target, IsDurable: store is null);
     }
 
-    public async Task<AgentTuiRuntimeScope> EnsureDurableScopeAsync(
-        AgentTuiRuntimeScope scope,
+    public async Task<AgentTuiExecutionTarget> EnsureDurableTargetAsync(
+        AgentTuiExecutionTarget target,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(target);
         cancellationToken.ThrowIfCancellationRequested();
+        var scope = target.Scope;
         var store = _agent.Config?.SessionStore;
         if (store is not null &&
             await store.LoadSessionAsync(scope.SessionId, cancellationToken).ConfigureAwait(false) is null)
@@ -64,7 +75,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
                 .ConfigureAwait(false);
         }
 
-        return scope;
+        return target;
     }
 
     public async Task<IReadOnlyList<AgentTuiAgentInfo>> ListAgentsAsync(
@@ -691,11 +702,12 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
     }
 
     public async IAsyncEnumerable<AgentTuiEventBatch> ObserveAsync(
-        AgentTuiRuntimeScope scope,
+        AgentTuiExecutionTarget target,
         ThreadJournalCursor after,
         ThreadJournalCursor initialObservedCursor,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        var scope = target.Scope;
         var cursor = after;
         var catchUpMode = after.SequenceNumber == 0
             ? AgentTuiEventDeliveryMode.Historical
@@ -795,12 +807,36 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
     }
 
     public async Task<AgentTuiSubmitResult> SubmitInputAsync(
-        AgentTuiRuntimeScope scope,
+        AgentTuiExecutionTarget target,
         AgentInputEvent input,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(scope);
+        ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(input);
+        var scope = target.Scope;
+        if (target is ControlledSubAgentTuiExecutionTarget controlled)
+        {
+            var store = _agent.Config.SessionStore
+                ?? throw new InvalidOperationException("Controlled subagent submission requires a durable session store.");
+            var resolver = _runtimeResolver
+                ?? throw new InvalidOperationException("Controlled subagent submission requires a registered runtime resolver.");
+            var submission = await SubAgentRuntime.SubmitControlledInputAsync(
+                store,
+                resolver,
+                new ThreadKey(controlled.ControllerScope.SessionId, controlled.ControllerScope.ThreadId),
+                controlled.LocalId,
+                controlled.ChildScope.AgentId,
+                new ThreadKey(controlled.ChildScope.SessionId, controlled.ChildScope.ThreadId),
+                input,
+                cancellationToken).ConfigureAwait(false);
+            return new AgentTuiSubmitResult(
+                submission.Disposition,
+                submission.ThreadExecutionId,
+                submission.ThreadExecutionId is { } id
+                    ? new AgentTuiThreadExecution(
+                        id, scope.AgentId, scope.SessionId, scope.ThreadId, "active", DateTimeOffset.UtcNow)
+                    : null);
+        }
 
         var registration = AgentInputDispatcher.GetBuiltInRegistration(input.GetType());
         if (registration.RoutingClass == AgentInputRoutingClass.ActiveControl)

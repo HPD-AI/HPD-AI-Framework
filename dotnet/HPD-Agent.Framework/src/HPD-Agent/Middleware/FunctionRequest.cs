@@ -84,6 +84,9 @@ public sealed record FunctionRequest
     /// </summary>
     public AgentRunConfig RunConfig { get; init; } = new();
 
+    /// <summary>Gets the captured configuration for subagents invoked by this function.</summary>
+    public SubAgentRunConfig? SubAgentRunConfig { get; init; }
+
     /// <summary>
     /// Runtime-assigned invocation metadata, if this request belongs to a model tool-call batch.
     /// </summary>

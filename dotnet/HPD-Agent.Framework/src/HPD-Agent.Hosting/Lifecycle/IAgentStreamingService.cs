@@ -29,6 +29,18 @@ public interface IAgentStreamingService
         AgentInputEvent input,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Submits input to a durable child through its controller-local registry identity.</summary>
+    Task<AgentServiceResult<InputSubmissionDto>> SubmitSubAgentInputAsync(
+        string controllerAgentId,
+        string controllerSessionId,
+        string controllerThreadId,
+        SubAgentLocalId localId,
+        string childAgentId,
+        string childSessionId,
+        string childThreadId,
+        AgentInputEvent input,
+        CancellationToken cancellationToken = default);
+
     Task<AgentServiceResult<ThreadRuntimeStateDto>> GetThreadStateAsync(
         string agentId,
         string sessionId,

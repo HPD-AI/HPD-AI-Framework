@@ -14,7 +14,7 @@ public sealed class SubAgentCreationCrashRecoveryTests
         var store = new InMemorySessionStore(CoreAgentEventComposition.Instance.Codec);
         var parent = new ThreadKey("session", "parent");
         await CreateParentAsync(store, parent);
-        var policy = SubAgentRunConfig.Inherit().CompilePolicy();
+        var policy = SubAgentTestPolicies.Default;
         var key = new SubAgentCreationKey(parent, "call", CapabilityId.Create("test:worker"));
         var record = new SubAgentCreationRecord
         {
@@ -94,7 +94,7 @@ public sealed class SubAgentCreationCrashRecoveryTests
             RoleName = "worker",
             ChildAgentId = "worker-agent",
             Context = SubAgentCreationContext.Fresh,
-            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
+            ExecutionPolicy = SubAgentTestPolicies.Default,
             InputFingerprint = Convert.ToHexString(
                 System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("work")))
         });
@@ -129,7 +129,7 @@ public sealed class SubAgentCreationCrashRecoveryTests
             RoleName = "worker",
             ChildAgentId = "worker-agent",
             Context = SubAgentCreationContext.Fresh,
-            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
+            ExecutionPolicy = SubAgentTestPolicies.Default,
             InputFingerprint = Convert.ToHexString(
                 System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("work")))
         });
@@ -182,7 +182,7 @@ public sealed class SubAgentCreationCrashRecoveryTests
             RoleName = "worker",
             ChildAgentId = "worker-agent",
             Context = SubAgentCreationContext.Fresh,
-            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
+            ExecutionPolicy = SubAgentTestPolicies.Default,
             InputFingerprint = Convert.ToHexString(
                 System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("work")))
         });
@@ -280,7 +280,18 @@ public sealed class SubAgentCreationCrashRecoveryTests
         var state = AgentLoopState.InitialSafe([], "run", "conversation", "parent-agent");
         var agentContext = new AgentContext(
             "parent-agent", "conversation", state, new HPD.Events.Core.EventCoordinator(),
-            session, thread, CancellationToken.None, services: services);
+            session, thread, CancellationToken.None, services: services,
+            subAgentRunConfig: new SubAgentRunConfig
+            {
+                Clients = new AgentClientsConfig
+                {
+                    Chat = new ChatClientConfig
+                    {
+                        Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" },
+                        ModelName = "test-model"
+                    }
+                }
+            });
         var before = agentContext.AsBeforeFunction(
             function, "tool-call", new Dictionary<string, object?>(), new AgentRunConfig(), null, null);
         return new FunctionExecutionContext(before, new FunctionRequest
@@ -290,7 +301,18 @@ public sealed class SubAgentCreationCrashRecoveryTests
             Arguments = new Dictionary<string, object?>(),
             State = state,
             ResultMetadata = new ToolResultMetadata(),
-            EventCoordinator = agentContext.EventCoordinator
+            EventCoordinator = agentContext.EventCoordinator,
+            SubAgentRunConfig = new SubAgentRunConfig
+            {
+                Clients = new AgentClientsConfig
+                {
+                    Chat = new ChatClientConfig
+                    {
+                        Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" },
+                        ModelName = "test-model"
+                    }
+                }
+            }
         });
     }
 

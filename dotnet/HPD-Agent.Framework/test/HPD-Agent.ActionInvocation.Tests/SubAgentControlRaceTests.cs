@@ -148,7 +148,7 @@ public sealed class SubAgentControlRaceTests
             CreationContext = SubAgentCreationContext.Fresh,
             CreationInvocationId = $"create-{localId}",
             ParentToolCallId = $"call-{localId}",
-            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
+            ExecutionPolicy = SubAgentTestPolicies.Default,
             CreatedAt = DateTimeOffset.UtcNow
         });
         return route;

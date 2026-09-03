@@ -477,7 +477,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
     {
         var runConfig = agent.CaptureRunConfig(options.RunConfig);
         var parentContext = graphContext?.ParentExecutionContext;
-        SubAgentRunConfig.ApplyClientInheritance(
+        ApplyComponentClientInheritance(
             runConfig,
             parentContext?.ClientSet,
             agent.Config,
@@ -486,6 +486,97 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
 
         return runConfig;
     }
+
+#pragma warning disable MEAI001
+    private static void ApplyComponentClientInheritance(
+        AgentRunConfig runConfig,
+        AgentClientSet? parentClients,
+        AgentConfig? childDefaults,
+        AgentClientInheritance inheritance)
+    {
+        if (parentClients is null)
+            return;
+
+        Apply(
+            ProviderClientFamily.Realtime,
+            inheritance.Realtime,
+            runConfig.Clients.Realtime,
+            childDefaults?.ResolveClientConfig(ProviderClientFamily.Realtime),
+            parentClients.Realtime,
+            inherited => runConfig.Clients.Realtime = new RealtimeClientConfig
+            {
+                Override = ClientOverride<IRealtimeClient>.Borrow(inherited)
+            });
+        Apply(
+            ProviderClientFamily.ImageGeneration,
+            inheritance.ImageGeneration,
+            runConfig.Clients.ImageGeneration,
+            childDefaults?.ResolveClientConfig(ProviderClientFamily.ImageGeneration),
+            parentClients.ImageGenerator,
+            inherited => runConfig.Clients.ImageGeneration = new ImageGenerationClientConfig
+            {
+                Override = ClientOverride<IImageGenerator>.Borrow(inherited)
+            });
+        Apply(
+            ProviderClientFamily.Embeddings,
+            inheritance.Embeddings,
+            runConfig.Clients.Embeddings,
+            childDefaults?.ResolveClientConfig(ProviderClientFamily.Embeddings),
+            parentClients.EmbeddingGenerator,
+            inherited => runConfig.Clients.Embeddings = new EmbeddingsClientConfig
+            {
+                Override = ClientOverride<IEmbeddingGenerator>.Borrow(inherited)
+            });
+        Apply(
+            ProviderClientFamily.TextToSpeech,
+            inheritance.TextToSpeech,
+            runConfig.Clients.TextToSpeech,
+            childDefaults?.ResolveClientConfig(ProviderClientFamily.TextToSpeech),
+            parentClients.TextToSpeech,
+            inherited => runConfig.Clients.TextToSpeech = new TextToSpeechClientConfig
+            {
+                Override = ClientOverride<ITextToSpeechClient>.Borrow(inherited)
+            });
+        Apply(
+            ProviderClientFamily.SpeechToText,
+            inheritance.SpeechToText,
+            runConfig.Clients.SpeechToText,
+            childDefaults?.ResolveClientConfig(ProviderClientFamily.SpeechToText),
+            parentClients.SpeechToText,
+            inherited => runConfig.Clients.SpeechToText = new SpeechToTextClientConfig
+            {
+                Override = ClientOverride<ISpeechToTextClient>.Borrow(inherited)
+            });
+        Apply(
+            ProviderClientFamily.HostedFiles,
+            inheritance.HostedFiles,
+            runConfig.Clients.HostedFiles,
+            childDefaults?.ResolveClientConfig(ProviderClientFamily.HostedFiles),
+            parentClients.HostedFiles,
+            inherited => runConfig.Clients.HostedFiles = new HostedFilesClientConfig
+            {
+                Override = ClientOverride<IHostedFileClient>.Borrow(inherited)
+            });
+
+        static void Apply<TClient>(
+            ProviderClientFamily family,
+            ClientFamilyInheritanceMode mode,
+            ProviderClientConfig? runSelection,
+            ProviderClientConfig? childSelection,
+            TClient? parentClient,
+            Action<TClient> install)
+            where TClient : class
+        {
+            _ = family;
+            if (mode == ClientFamilyInheritanceMode.UseOwn || parentClient is null)
+                return;
+            if (mode == ClientFamilyInheritanceMode.FallbackToParent &&
+                (runSelection is not null || childSelection is not null))
+                return;
+            install(parentClient);
+        }
+    }
+#pragma warning restore MEAI001
 
     private static void ApplyChatInheritance(
         AgentRunConfig runConfig,

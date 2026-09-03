@@ -112,7 +112,7 @@ public sealed class SubAgentToolHarnessVisibilityTests
             CreationContext = SubAgentCreationContext.Fresh,
             CreationInvocationId = "creation",
             ParentToolCallId = "call",
-            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
+            ExecutionPolicy = SubAgentTestPolicies.Default,
             CreatedAt = DateTimeOffset.UtcNow
         });
         var research = CreateDescriptor("researcher", "ResearchHarness", requiresActivation: true);
@@ -140,50 +140,6 @@ public sealed class SubAgentToolHarnessVisibilityTests
         await middleware.BeforeIterationAsync(context, CancellationToken.None);
 
         Assert.Empty(context.Options.Tools!);
-    }
-
-    [Fact]
-    public async Task CollapsedDeclarationStillAuthorizesCapabilityTargetedOverride()
-    {
-        var research = CreateDescriptor("researcher", "ResearchHarness", requiresActivation: true);
-        var declared = SubAgentsFunctionFactory.Create([research]);
-        var middleware = new SubAgentAvailabilityMiddleware([declared], toolHarnessActivationEnabled: true);
-        var runConfig = new AgentRunConfig
-        {
-            SubAgents = new SubAgentRunOverrides
-            {
-                Capabilities = [new SubAgentRunPolicyOverride { CapabilityId = research.CapabilityId }]
-            }
-        };
-        var context = CreateIterationContext([declared], runConfig: runConfig);
-
-        await middleware.BeforeIterationAsync(context, CancellationToken.None);
-
-        Assert.Empty(context.Options.Tools!);
-    }
-
-    [Fact]
-    public async Task UnknownOverrideCapabilityFailsBeforeToolProjection()
-    {
-        var research = CreateDescriptor("researcher", "ResearchHarness", requiresActivation: true);
-        var declared = SubAgentsFunctionFactory.Create([research]);
-        var middleware = new SubAgentAvailabilityMiddleware([declared], toolHarnessActivationEnabled: true);
-        var runConfig = new AgentRunConfig
-        {
-            SubAgents = new SubAgentRunOverrides
-            {
-                Capabilities = [new SubAgentRunPolicyOverride
-                {
-                    CapabilityId = CapabilityId.Create("test:unknown")
-                }]
-            }
-        };
-        var context = CreateIterationContext([declared], runConfig: runConfig);
-
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => middleware.BeforeIterationAsync(context, CancellationToken.None));
-
-        Assert.Equal("subagent_override_capability_unknown", exception.Message);
     }
 
     private static SubAgentActionDescriptor CreateDescriptor(

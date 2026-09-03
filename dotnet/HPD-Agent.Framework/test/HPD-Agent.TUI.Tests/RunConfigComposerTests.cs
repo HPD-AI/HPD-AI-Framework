@@ -1,6 +1,7 @@
 using FluentAssertions;
 using HPD.Agent;
 using HPD.Agent.Providers;
+using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Models;
 using HPD.Agent.TUI.Runtime;
 using HPD.Agent.TUI.Views;
@@ -21,7 +22,7 @@ public sealed class RunConfigComposerTests
         var runtime = new CapturingRuntime(scope);
         await using var app = HpdAgentTuiApp.Create(
             runtime,
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             builder => builder
                 .AddAgentTuiDefaults()
                 .SetRunConfigComposer(context =>
@@ -29,18 +30,18 @@ public sealed class RunConfigComposerTests
                     context.Scope.Should().BeSameAs(scope);
                     context.Prompt.Should().Be("hello");
 
-                    return new AgentRunConfig
+                    return new AgentTuiInputRunConfig(new AgentRunConfig
                     {
                         Clients = new AgentClientsConfig { Chat = new ChatClientConfig
                         {
                             Provider = new ProviderReference { Key = "openrouter" },
                             ModelName = "deepseek/deepseek-chat"
                         } }
-                    };
+                    }, null);
                 }),
             new TestTerminal(80, 24));
 
-        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        InvokePrivate(app, "RebuildShell", new DirectAgentTuiExecutionTarget(scope), "Connected.");
         InvokePrivate(app, "SubmitPrompt", "hello".AsMemory());
 
         runtime.LastInput.Should().BeOfType<UserMessagesInputEvent>()
@@ -56,11 +57,11 @@ public sealed class RunConfigComposerTests
         var runtime = new CapturingRuntime(scope);
         await using var app = HpdAgentTuiApp.Create(
             runtime,
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             static builder => builder.AddAgentTuiDefaults(),
             new TestTerminal(80, 24));
 
-        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        InvokePrivate(app, "RebuildShell", new DirectAgentTuiExecutionTarget(scope), "Connected.");
         InvokePrivate(app, "SubmitPrompt", "hello".AsMemory());
 
         runtime.SubmitCount.Should().Be(1);
@@ -79,11 +80,11 @@ public sealed class RunConfigComposerTests
         var runtime = new CapturingRuntime(scope);
         await using var app = HpdAgentTuiApp.Create(
             runtime,
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             static builder => builder.AddAgentTuiDefaults(),
             new TestTerminal(80, 24));
 
-        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        InvokePrivate(app, "RebuildShell", new DirectAgentTuiExecutionTarget(scope), "Connected.");
         await InvokePrivateAsync(
             app,
             "OnAgentEventAsync",
@@ -115,11 +116,11 @@ public sealed class RunConfigComposerTests
         var runtime = new CapturingRuntime(scope);
         await using var app = HpdAgentTuiApp.Create(
             runtime,
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             static builder => builder.AddAgentTuiDefaults(),
             new TestTerminal(80, 24));
 
-        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        InvokePrivate(app, "RebuildShell", new DirectAgentTuiExecutionTarget(scope), "Connected.");
         await InvokePrivateAsync(
             app,
             "OnAgentEventAsync",
@@ -170,11 +171,11 @@ public sealed class RunConfigComposerTests
         };
         await using var app = HpdAgentTuiApp.Create(
             runtime,
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             static builder => builder.AddAgentTuiDefaults(),
             new TestTerminal(80, 24));
 
-        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        InvokePrivate(app, "RebuildShell", new DirectAgentTuiExecutionTarget(scope), "Connected.");
         await InvokePrivateAsync(
             app,
             "OnAgentEventAsync",
@@ -187,7 +188,7 @@ public sealed class RunConfigComposerTests
             CancellationToken.None);
         InvokePrivate(app, "SubmitPrompt", "keep this".AsMemory());
         var state = GetPrivateField<HPD.Agent.TUI.Application.AgentTuiSessionState>(app, "_state");
-        await InvokePrivateAsync(app, "PromotePendingPromptToSteeringAsync", scope, state);
+        await InvokePrivateAsync(app, "PromotePendingPromptToSteeringAsync", new DirectAgentTuiExecutionTarget(scope), state);
         PendingPrompts(app, scope).Snapshot()
             .Should().ContainSingle().Which.Text.Should().Be("keep this");
     }
@@ -198,9 +199,9 @@ public sealed class RunConfigComposerTests
         var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
         var runtime = new CapturingRuntime(scope);
         await using var app = HpdAgentTuiApp.Create(
-            runtime, scope, static builder => builder.AddAgentTuiDefaults(), new TestTerminal(80, 24));
+            runtime, new DirectAgentTuiExecutionTarget(scope), static builder => builder.AddAgentTuiDefaults(), new TestTerminal(80, 24));
 
-        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        InvokePrivate(app, "RebuildShell", new DirectAgentTuiExecutionTarget(scope), "Connected.");
         await StartExecutionAsync(app, scope);
         InvokePrivate(app, "SubmitPrompt", "first".AsMemory());
         InvokePrivate(app, "SubmitPrompt", "second".AsMemory());
@@ -218,9 +219,9 @@ public sealed class RunConfigComposerTests
         var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
         var runtime = new CapturingRuntime(scope);
         await using var app = HpdAgentTuiApp.Create(
-            runtime, scope, static builder => builder.AddAgentTuiDefaults(), new TestTerminal(80, 24));
+            runtime, new DirectAgentTuiExecutionTarget(scope), static builder => builder.AddAgentTuiDefaults(), new TestTerminal(80, 24));
 
-        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        InvokePrivate(app, "RebuildShell", new DirectAgentTuiExecutionTarget(scope), "Connected.");
         await StartExecutionAsync(app, scope);
         InvokePrivate(app, "SubmitPrompt", "queued".AsMemory());
         GetPrivateField<HPD.TUI.Views.PromptView>(app, "_prompt").Model.SetText("current draft");
@@ -238,9 +239,9 @@ public sealed class RunConfigComposerTests
         var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
         var runtime = new CapturingRuntime(scope) { SubmissionError = new InvalidOperationException("offline") };
         await using var app = HpdAgentTuiApp.Create(
-            runtime, scope, static builder => builder.AddAgentTuiDefaults(), new TestTerminal(80, 24));
+            runtime, new DirectAgentTuiExecutionTarget(scope), static builder => builder.AddAgentTuiDefaults(), new TestTerminal(80, 24));
 
-        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        InvokePrivate(app, "RebuildShell", new DirectAgentTuiExecutionTarget(scope), "Connected.");
         await StartExecutionAsync(app, scope);
         InvokePrivate(app, "SubmitPrompt", "do not lose me".AsMemory());
         await FinishExecutionAsync(app, scope);
@@ -255,20 +256,22 @@ public sealed class RunConfigComposerTests
     {
         var firstScope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
         var secondScope = new AgentTuiRuntimeScope("agent-a", "session-b", "main");
+        var firstTarget = new DirectAgentTuiExecutionTarget(firstScope);
+        var secondTarget = new DirectAgentTuiExecutionTarget(secondScope);
         var runtime = new CapturingRuntime(firstScope);
         await using var app = HpdAgentTuiApp.Create(
-            runtime, firstScope, static builder => builder.AddAgentTuiDefaults(), new TestTerminal(80, 24));
+            runtime, firstTarget, static builder => builder.AddAgentTuiDefaults(), new TestTerminal(80, 24));
 
-        InvokePrivate(app, "RebuildShell", firstScope, "First");
+        InvokePrivate(app, "RebuildShell", firstTarget, "First");
         await StartExecutionAsync(app, firstScope);
         InvokePrivate(app, "SubmitPrompt", "first scope".AsMemory());
-        InvokePrivate(app, "RebuildShell", secondScope, "Second");
+        InvokePrivate(app, "RebuildShell", secondTarget, "Second");
         await StartExecutionAsync(app, secondScope);
         InvokePrivate(app, "SubmitPrompt", "second scope".AsMemory());
-        InvokePrivate(app, "RebuildShell", firstScope, "First again");
+        InvokePrivate(app, "RebuildShell", firstTarget, "First again");
 
-        PendingPrompts(app, firstScope).Snapshot().Should().ContainSingle().Which.Text.Should().Be("first scope");
-        PendingPrompts(app, secondScope).Snapshot().Should().ContainSingle().Which.Text.Should().Be("second scope");
+        PendingPrompts(app, firstTarget).Snapshot().Should().ContainSingle().Which.Text.Should().Be("first scope");
+        PendingPrompts(app, secondTarget).Snapshot().Should().ContainSingle().Which.Text.Should().Be("second scope");
     }
 
     [Fact]
@@ -291,7 +294,10 @@ public sealed class RunConfigComposerTests
     }
 
     private static PendingPromptQueue PendingPrompts(HpdAgentTuiApp app, AgentTuiRuntimeScope scope)
-        => InvokePrivate<PendingPromptQueue>(app, "PendingPrompts", scope);
+        => PendingPrompts(app, new DirectAgentTuiExecutionTarget(scope));
+
+    private static PendingPromptQueue PendingPrompts(HpdAgentTuiApp app, AgentTuiExecutionTarget target)
+        => InvokePrivate<PendingPromptQueue>(app, "PendingPrompts", target);
 
     private static Task StartExecutionAsync(HpdAgentTuiApp app, AgentTuiRuntimeScope scope)
         => InvokePrivateAsync(
@@ -375,18 +381,19 @@ public sealed class RunConfigComposerTests
         public TaskCompletionSource Submitted { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public Task<AgentTuiScopeResolution> ResolveInitialScopeAsync(
-            AgentTuiRuntimeScope? requested,
+        public Task<AgentTuiTargetResolution> ResolveInitialTargetAsync(
+            AgentTuiExecutionTarget? requested,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(new AgentTuiScopeResolution(requested ?? _scope, IsDurable: true));
+            => Task.FromResult(new AgentTuiTargetResolution(
+                requested ?? new DirectAgentTuiExecutionTarget(_scope), IsDurable: true));
 
-        public Task<AgentTuiRuntimeScope> EnsureDurableScopeAsync(
-            AgentTuiRuntimeScope scope,
+        public Task<AgentTuiExecutionTarget> EnsureDurableTargetAsync(
+            AgentTuiExecutionTarget target,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(scope);
+            => Task.FromResult(target);
 
         public async IAsyncEnumerable<AgentTuiEventBatch> ObserveAsync(
-            AgentTuiRuntimeScope scope,
+            AgentTuiExecutionTarget target,
             ThreadJournalCursor after,
             ThreadJournalCursor initialObservedCursor,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
@@ -396,10 +403,11 @@ public sealed class RunConfigComposerTests
         }
 
         public Task<AgentTuiSubmitResult> SubmitInputAsync(
-            AgentTuiRuntimeScope scope,
+            AgentTuiExecutionTarget target,
             AgentInputEvent input,
             CancellationToken cancellationToken = default)
         {
+            var scope = target.Scope;
             SubmitCount++;
             LastInput = input;
             Submitted.TrySetResult();

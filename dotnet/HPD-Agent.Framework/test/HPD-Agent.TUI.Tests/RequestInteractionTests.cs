@@ -3,6 +3,7 @@ using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Interactions;
 using HPD.Agent.TUI.Models;
 using HPD.Agent.TUI.Runtime;
+using HPD.Agent.Permissions;
 using HPD.TUI.Core;
 
 namespace HPD.Agent.TUI.Tests;
@@ -141,15 +142,15 @@ public sealed class RequestInteractionTests
                     "shell.exec",
                     "Run command",
                     "call-1",
-                    new Dictionary<string, object?> { ["cmd"] = "dotnet test" })),
+                    CreatePermissionEvaluation())),
             CancellationToken.None);
 
         result.Kind.Should().Be(AgentTuiInteractionResultKind.AnswerRequest);
         result.Response.Should().BeOfType<PermissionResponseEvent>()
             .Which.Should().Match<PermissionResponseEvent>(evt =>
                 evt.PermissionId == "permission-1" &&
-                evt.Approved &&
-                evt.Choice == PermissionChoice.AlwaysAllow);
+                evt.ChoiceId == "always_allow" &&
+                evt.Feedback == null);
     }
 
     [Fact]
@@ -171,17 +172,15 @@ public sealed class RequestInteractionTests
                     "shell.exec",
                     "Run command",
                     "call-1",
-                    new Dictionary<string, object?> { ["cmd"] = "dotnet test" })),
+                    CreatePermissionEvaluation())),
             CancellationToken.None);
 
         result.Kind.Should().Be(AgentTuiInteractionResultKind.AnswerRequest);
         result.Response.Should().BeOfType<PermissionResponseEvent>()
             .Which.Should().Match<PermissionResponseEvent>(evt =>
                 evt.PermissionId == "permission-1" &&
-                !evt.Approved &&
-                evt.Choice == PermissionChoice.Ask &&
-                evt.Reason == "Use the read-only status tool instead." &&
-                evt.DeniedBehavior == PermissionDeniedBehavior.ReturnToModel);
+                evt.ChoiceId == "feedback" &&
+                evt.Feedback == "Use the read-only status tool instead.");
     }
 
     [Fact]
@@ -203,17 +202,15 @@ public sealed class RequestInteractionTests
                     "shell.exec",
                     "Run command",
                     "call-1",
-                    new Dictionary<string, object?> { ["cmd"] = "dotnet test" })),
+                    CreatePermissionEvaluation())),
             CancellationToken.None);
 
         result.Kind.Should().Be(AgentTuiInteractionResultKind.AnswerRequest);
         result.Response.Should().BeOfType<PermissionResponseEvent>()
             .Which.Should().Match<PermissionResponseEvent>(evt =>
                 evt.PermissionId == "permission-1" &&
-                !evt.Approved &&
-                evt.Choice == PermissionChoice.Ask &&
-                evt.Reason == "Permission dialog was canceled." &&
-                evt.DeniedBehavior == PermissionDeniedBehavior.ReturnToModel);
+                evt.ChoiceId == "feedback" &&
+                evt.Feedback == "Permission dialog was canceled.");
     }
 
     [Fact]
@@ -365,22 +362,42 @@ public sealed class RequestInteractionTests
                 : AgentTuiDialogResult<string>.Submitted(Input));
     }
 
+    private static PermissionEvaluationEnvelope CreatePermissionEvaluation() => new()
+    {
+        PolicyId = "test",
+        PolicyRevision = "1",
+        Key = new PermissionKey("shell.exec", "Run command", "test", "test", "1"),
+        Title = "Run command",
+        Risk = PermissionRisk.Medium,
+        Choices = new PermissionChoiceSet
+        {
+            Items =
+            [
+                new PermissionChoiceDescriptor { Id = "allow_once", Label = "Allow once", Decision = PermissionDecisionKind.Allow },
+                new PermissionChoiceDescriptor { Id = "always_allow", Label = "Always allow", Decision = PermissionDecisionKind.Allow },
+                new PermissionChoiceDescriptor { Id = "deny_once", Label = "Deny", Decision = PermissionDecisionKind.Deny },
+                new PermissionChoiceDescriptor { Id = "feedback", Label = "Tell agent", Decision = PermissionDecisionKind.Feedback,
+                    DeniedBehavior = PermissionDeniedBehavior.ReturnToModel }
+            ]
+        }
+    };
+
     private sealed class NoopRuntime : IHpdAgentTuiRuntime
     {
-        public Task<AgentTuiScopeResolution> ResolveInitialScopeAsync(
-            AgentTuiRuntimeScope? requested,
+        public Task<AgentTuiTargetResolution> ResolveInitialTargetAsync(
+            AgentTuiExecutionTarget? requested,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(new AgentTuiScopeResolution(
-                requested ?? new AgentTuiRuntimeScope("agent", "session", "main"),
+            => Task.FromResult(new AgentTuiTargetResolution(
+                requested ?? new DirectAgentTuiExecutionTarget(new AgentTuiRuntimeScope("agent", "session", "main")),
                 IsDurable: true));
 
-        public Task<AgentTuiRuntimeScope> EnsureDurableScopeAsync(
-            AgentTuiRuntimeScope scope,
+        public Task<AgentTuiExecutionTarget> EnsureDurableTargetAsync(
+            AgentTuiExecutionTarget target,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(scope);
+            => Task.FromResult(target);
 
         public async IAsyncEnumerable<AgentTuiEventBatch> ObserveAsync(
-            AgentTuiRuntimeScope scope,
+            AgentTuiExecutionTarget target,
             ThreadJournalCursor after,
             ThreadJournalCursor initialObservedCursor,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
@@ -390,10 +407,10 @@ public sealed class RequestInteractionTests
         }
 
         public Task<AgentTuiSubmitResult> SubmitInputAsync(
-            AgentTuiRuntimeScope scope,
+            AgentTuiExecutionTarget target,
             AgentInputEvent input,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(Submitted(scope));
+            => Task.FromResult(Submitted(target.Scope));
 
         public Task<AgentRespondResult> AnswerRequestAsync(
             AgentTuiRuntimeScope scope,

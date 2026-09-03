@@ -147,6 +147,63 @@ public sealed class AgentStreamingService : IAgentStreamingService
                 execution.StartedAt));
     }
 
+    /// <inheritdoc />
+    public async Task<AgentServiceResult<InputSubmissionDto>> SubmitSubAgentInputAsync(
+        string controllerAgentId,
+        string controllerSessionId,
+        string controllerThreadId,
+        SubAgentLocalId localId,
+        string childAgentId,
+        string childSessionId,
+        string childThreadId,
+        AgentInputEvent input,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(controllerAgentId) ||
+            string.IsNullOrWhiteSpace(childAgentId) ||
+            string.IsNullOrWhiteSpace(controllerSessionId) ||
+            string.IsNullOrWhiteSpace(controllerThreadId) ||
+            string.IsNullOrWhiteSpace(childSessionId) ||
+            string.IsNullOrWhiteSpace(childThreadId))
+            return AgentServiceResult<InputSubmissionDto>.Validation(
+                "SubAgentRouteRequired", "A complete controller and child route is required.");
+
+        try
+        {
+            var controllerThread = new ThreadKey(controllerSessionId, controllerThreadId);
+            var controllerDescriptor = await _sessionManager.Store
+                .GetThreadAsync(controllerThread, cancellationToken)
+                .ConfigureAwait(false);
+            if (controllerDescriptor is null || !string.Equals(
+                    controllerDescriptor.DefaultAgent.AgentId,
+                    controllerAgentId,
+                    StringComparison.Ordinal))
+                return AgentServiceResult<InputSubmissionDto>.Validation(
+                    "subagent_controller_route_mismatch",
+                    "The claimed controller agent does not own the controller thread.");
+
+            var submission = await SubAgentRuntime.SubmitControlledInputAsync(
+                _sessionManager.Store,
+                new HostedAgentRuntimeResolver(_agentManager),
+                controllerThread,
+                localId,
+                childAgentId,
+                new ThreadKey(childSessionId, childThreadId),
+                input,
+                cancellationToken).ConfigureAwait(false);
+            return AgentServiceResult<InputSubmissionDto>.Success(new InputSubmissionDto(
+                ToWireDisposition(submission.Disposition),
+                submission.ThreadExecutionId,
+                DateTimeOffset.UtcNow));
+        }
+        catch (InvalidOperationException exception) when (exception.Message is
+            "subagent_unknown" or "subagent_route_mismatch" or "subagent_controller_grant_required" or
+            "subagent_locked_client_override_forbidden" or "subagent_locked_propagation_override_forbidden")
+        {
+            return AgentServiceResult<InputSubmissionDto>.Validation(exception.Message, exception.Message);
+        }
+    }
+
     private async Task<AgentServiceResult<InputSubmissionDto>> SubmitActiveControlAsync(
         string routeAgentId,
         string sessionId,

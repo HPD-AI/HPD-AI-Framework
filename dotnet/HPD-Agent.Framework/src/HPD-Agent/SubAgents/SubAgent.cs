@@ -101,12 +101,6 @@ public sealed class SubAgent
     public SubAgentContextPolicy ContextPolicy { get; init; } = SubAgentContextPolicy.Fork;
 
     /// <summary>
-    /// Controls which values the child run inherits from the invoking parent's
-    /// <see cref="AgentRunConfig"/>, including declaration-owned permission for targeted parent-run policy changes.
-    /// </summary>
-    public SubAgentRunConfig RunConfig { get; init; } = SubAgentRunConfig.Inherit();
-
-    /// <summary>
     /// Controls the depths at which this subagent appears as an invocable tool.
     /// Defaults to <see cref="SubAgentAvailability.RootOnly"/>, which prevents accidental recursive delegation.
     /// </summary>
@@ -140,31 +134,6 @@ public sealed class SubAgent
     public Dictionary<string, object>? Metadata { get; init; }
 
     /// <summary>
-    /// Returns an equivalent subagent declaration with the supplied parent run-configuration inheritance.
-    /// </summary>
-    /// <param name="runConfig">The immutable inheritance selection and parent-run override allowance.</param>
-    /// <returns>A new subagent declaration.</returns>
-    public SubAgent WithRunConfig(SubAgentRunConfig runConfig)
-    {
-        ArgumentNullException.ThrowIfNull(runConfig);
-        return new SubAgent
-        {
-            Name = Name,
-            Description = Description,
-            AgentId = AgentId,
-            Configuration = Configuration,
-            ContextPolicy = ContextPolicy,
-            RunConfig = runConfig,
-            Availability = Availability,
-            ForkCompaction = ForkCompaction,
-            InvocationModePolicy = InvocationModePolicy,
-            OperationNotification = OperationNotification,
-            ToolHarnessTypes = ToolHarnessTypes,
-            Metadata = Metadata
-        };
-    }
-
-    /// <summary>
     /// Returns an equivalent declaration with the supplied depth availability.
     /// </summary>
     public SubAgent WithAvailability(SubAgentAvailability availability)
@@ -177,7 +146,6 @@ public sealed class SubAgent
             AgentId = AgentId,
             Configuration = Configuration,
             ContextPolicy = ContextPolicy,
-            RunConfig = RunConfig,
             Availability = availability,
             ForkCompaction = ForkCompaction,
             InvocationModePolicy = InvocationModePolicy,

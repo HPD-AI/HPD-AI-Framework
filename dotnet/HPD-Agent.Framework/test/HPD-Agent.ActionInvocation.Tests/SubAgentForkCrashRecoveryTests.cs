@@ -28,7 +28,7 @@ public sealed class SubAgentForkCrashRecoveryTests
             CreationContext = SubAgentCreationContext.Fresh,
             CreationInvocationId = "create-reviewer",
             ParentToolCallId = "call-reviewer",
-            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
+            ExecutionPolicy = SubAgentTestPolicies.Default,
             CreatedAt = DateTimeOffset.UtcNow
         };
         await new SubAgentChildRegistry(firstStore).RegisterAsync(sourceKey, childReference);

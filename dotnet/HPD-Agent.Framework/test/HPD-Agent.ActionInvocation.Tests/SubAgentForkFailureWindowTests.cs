@@ -195,7 +195,7 @@ public sealed class SubAgentForkFailureWindowTests
             CreationContext = SubAgentCreationContext.Fresh,
             CreationInvocationId = "create-reviewer",
             ParentToolCallId = "call-reviewer",
-            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
+            ExecutionPolicy = SubAgentTestPolicies.Default,
             CreatedAt = DateTimeOffset.UtcNow
         };
         await new SubAgentChildRegistry(store).RegisterAsync(sourceKey, child);
