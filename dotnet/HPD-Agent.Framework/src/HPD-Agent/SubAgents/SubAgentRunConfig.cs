@@ -120,6 +120,12 @@ public sealed record SubAgentExecutionPolicy
         ArgumentNullException.ThrowIfNull(authority);
         ArgumentNullException.ThrowIfNull(propagation);
         ValidatePortableInitialRun(initialRunConfig);
+        var initialSnapshot = initialRunConfig is null
+            ? null
+            : JsonSerializer.Deserialize(
+                JsonSerializer.Serialize(initialRunConfig, AgentEventJsonContext.Default.AgentRunConfig),
+                AgentEventJsonContext.Default.AgentRunConfig)
+              ?? throw new InvalidOperationException("subagent_run_config_not_portable");
         var lockedSnapshot = CloneClients(lockedClients);
         var sourceSnapshot = new Dictionary<ProviderClientFamily, SubAgentClientSelectionSource>(clientSources);
         var authoritySnapshot = authority with
@@ -136,11 +142,11 @@ public sealed record SubAgentExecutionPolicy
                 }
             }
         };
-        var fingerprint = ComputeFingerprint(initialRunConfig, lockedSnapshot, sourceSnapshot, authoritySnapshot, propagation);
+        var fingerprint = ComputeFingerprint(initialSnapshot, lockedSnapshot, sourceSnapshot, authoritySnapshot, propagation);
         return new SubAgentExecutionPolicy
         {
             ContractVersion = CurrentContractVersion,
-            InitialRunConfig = initialRunConfig,
+            InitialRunConfig = initialSnapshot,
             LockedClients = lockedSnapshot,
             ClientSources = sourceSnapshot,
             Authority = authoritySnapshot,
@@ -216,8 +222,74 @@ public sealed record SubAgentExecutionPolicy
         var clone = new AgentClientsConfig { Transport = source.Transport };
         foreach (var family in Enum.GetValues<ProviderClientFamily>())
             if (source.GetFamilyConfig(family) is { } config)
-                clone.SetFamilyConfig(family, ProviderClientConfigSnapshot.Clone(config));
+            {
+                var snapshot = ProviderClientConfigSnapshot.Clone(config);
+                snapshot.CustomHeaders = snapshot.CustomHeaders is null
+                    ? null
+                    : snapshot.CustomHeaders.OrderBy(static pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+                        .ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.OrdinalIgnoreCase);
+                clone.SetFamilyConfig(family, snapshot);
+            }
         return clone;
+    }
+
+    internal AgentClientsConfig ApplyLockedSelections(AgentClientsConfig requested)
+    {
+        if (requested.Transport is not AgentModelTransportMode.Auto && requested.Transport != LockedClients.Transport)
+            throw new InvalidOperationException("subagent_locked_client_override_forbidden");
+        var result = new AgentClientsConfig { Transport = LockedClients.Transport };
+        foreach (var family in Enum.GetValues<ProviderClientFamily>())
+        {
+            var locked = LockedClients.GetFamilyConfig(family);
+            var turn = requested.GetFamilyConfig(family);
+            if (locked is null)
+            {
+                if (turn is not null)
+                    throw new InvalidOperationException("subagent_locked_client_override_forbidden");
+                continue;
+            }
+            var merged = turn is null
+                ? ProviderClientConfigSnapshot.Clone(locked)
+                : ProviderClientConfigSnapshot.Clone(turn);
+            if (turn is not null && !HasSameSelection(locked, turn))
+                throw new InvalidOperationException("subagent_locked_client_override_forbidden");
+            merged.Provider = ProviderClientConfigSnapshot.CloneProviderReference(locked.Provider);
+            merged.ModelName = locked.ModelName;
+            merged.Endpoint = locked.Endpoint;
+            merged.CustomHeaders = locked.CustomHeaders is null
+                ? null
+                : new Dictionary<string, string>(locked.CustomHeaders, StringComparer.OrdinalIgnoreCase);
+            merged.ProviderConfig = locked.ProviderConfig;
+            result.SetFamilyConfig(family, merged);
+        }
+        return result;
+    }
+
+    private static bool HasSameSelection(ProviderClientConfig left, ProviderClientConfig right)
+    {
+        static string Authentication(ProviderReference? provider) => provider?.Authentication switch
+        {
+            null => "",
+            ApiKeyProviderAuthentication value => $"api-key:{value.SecretKey}",
+            OAuthProviderAuthentication value => string.Join(':', "oauth", value.AccountId,
+                value.AuthorizationProfile, value.StoreKey,
+                value.Scopes is null ? "" : string.Join(',', value.Scopes)),
+            ExternalIdentityProviderAuthentication value => $"external:{value.CredentialName}",
+            AnonymousProviderAuthentication => "anonymous",
+            _ => "nonportable"
+        };
+        static string Headers(Dictionary<string, string>? headers) => headers is null
+            ? ""
+            : string.Join('\n', headers.OrderBy(static pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(static pair => $"{pair.Key}:{pair.Value}"));
+        return left.GetType() == right.GetType() &&
+            (right.Provider is null ||
+             string.Equals(left.Provider?.Key, right.Provider.Key, StringComparison.Ordinal) &&
+             string.Equals(left.Provider?.Backend, right.Provider.Backend, StringComparison.Ordinal) &&
+             string.Equals(Authentication(left.Provider), Authentication(right.Provider), StringComparison.Ordinal)) &&
+            (right.ModelName is null || string.Equals(left.ModelName, right.ModelName, StringComparison.Ordinal)) &&
+            (right.Endpoint is null || string.Equals(left.Endpoint, right.Endpoint, StringComparison.Ordinal)) &&
+            (right.CustomHeaders is null || string.Equals(Headers(left.CustomHeaders), Headers(right.CustomHeaders), StringComparison.Ordinal));
     }
 
     internal static bool HasRuntimeOverride(ProviderClientConfig config) => config switch

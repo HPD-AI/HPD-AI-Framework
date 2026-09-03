@@ -128,4 +128,43 @@ public sealed class SubAgentRunConfigTests
         Assert.NotEqual(baseline.Fingerprint,
             Create("personal", AgentApprovalPolicy.AutoApprove).Fingerprint);
     }
+
+    [Fact]
+    public void LockedSelectionAllowsPerTurnOptionsButRejectsSelectionChangesAndUnavailableFamilies()
+    {
+        var policy = SubAgentExecutionPolicy.Create(
+            null,
+            new AgentClientsConfig
+            {
+                Transport = AgentModelTransportMode.Chat,
+                Chat = new ChatClientConfig
+                {
+                    Provider = new ProviderReference { Key = "test" },
+                    ModelName = "locked-model"
+                }
+            },
+            new Dictionary<ProviderClientFamily, SubAgentClientSelectionSource>
+            {
+                [ProviderClientFamily.Chat] = SubAgentClientSelectionSource.InputSubAgentRun
+            },
+            new AgentSecurityRunConfig(),
+            new NoSubAgentClientPropagation());
+
+        var applied = policy.ApplyLockedSelections(new AgentClientsConfig
+        {
+            Chat = new ChatClientConfig { Temperature = 0.25, MaxOutputTokens = 512 }
+        });
+        Assert.Equal("locked-model", applied.Chat!.ModelName);
+        Assert.Equal(0.25, applied.Chat.Temperature);
+        Assert.Equal(512, applied.Chat.MaxOutputTokens);
+
+        Assert.Throws<InvalidOperationException>(() => policy.ApplyLockedSelections(new AgentClientsConfig
+        {
+            Chat = new ChatClientConfig { ModelName = "different" }
+        }));
+        Assert.Throws<InvalidOperationException>(() => policy.ApplyLockedSelections(new AgentClientsConfig
+        {
+            Embeddings = new EmbeddingsClientConfig { ModelName = "new-family" }
+        }));
+    }
 }

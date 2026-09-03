@@ -264,6 +264,7 @@ public sealed class FunctionExecutionContext
     public IContentStore? ContentStore => _contentStore;
 
     internal AgentClientSet? ClientSet => _clientSet;
+    internal AgentConfig? ParentConfig => _parentConfig;
     internal ToolHarnessExecutionScope? ToolHarnessExecutionScope => _toolHarnessExecutionScope;
 
     /// <summary>Gets the unified operation registry owned by the active runtime.</summary>

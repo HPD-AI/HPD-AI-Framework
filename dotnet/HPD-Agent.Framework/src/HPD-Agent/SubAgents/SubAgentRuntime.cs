@@ -5,7 +5,10 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using HPD.Agent.Middleware;
+using HPD.Agent.Permissions;
 using HPD.Agent.Providers;
+using HPD.Agent.Security;
+using HPD.Environment.Contracts;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -1106,8 +1109,8 @@ public static class SubAgentRuntime
     private static void ValidateContinuationInput(AgentInputEvent input, SubAgentExecutionPolicy policy)
     {
         policy.Validate();
-        if (input.RunConfig?.Clients.Chat is not null)
-            throw new InvalidOperationException("subagent_locked_client_override_forbidden");
+        if (input.RunConfig is { } runConfig)
+            _ = policy.ApplyLockedSelections(runConfig.Clients);
     }
 
     private static async Task<string?> ContinueChildAsync(
@@ -1157,7 +1160,7 @@ public static class SubAgentRuntime
         policy.Validate();
         var runConfig = AgentRunConfigSnapshot.Capture(policy.InitialRunConfig, childAgent.ProviderComposition)
             ?? new AgentRunConfig();
-        runConfig.Clients = SubAgentExecutionPolicy.CloneClients(policy.LockedClients);
+        runConfig.Clients = policy.ApplyLockedSelections(runConfig.Clients);
         runConfig.Security = policy.Authority;
         var childInput = new UserMessagesInputEvent
         {
@@ -1194,8 +1197,8 @@ public static class SubAgentRuntime
     {
         var runConfig = AgentRunConfigSnapshot.Capture(input.RunConfig, childAgent.ProviderComposition)
             ?? new AgentRunConfig();
-        runConfig.Clients = SubAgentExecutionPolicy.CloneClients(policy.LockedClients);
-        runConfig.Security = policy.Authority;
+        runConfig.Clients = policy.ApplyLockedSelections(runConfig.Clients);
+        runConfig.Security = IntersectAuthority(policy.Authority, runConfig.Security);
         var childInput = input with
         {
             SessionId = childThread.SessionId,
@@ -1872,7 +1875,16 @@ public static class SubAgentRuntime
     {
         var childRun = context.SubAgentRunConfig;
         var childConfig = (definition.Configuration as SuppliedAgentConfiguration)?.Config;
-        var lockedClients = new AgentClientsConfig { Transport = childRun?.Clients.Transport ?? AgentModelTransportMode.Auto };
+        var lockedClients = new AgentClientsConfig
+        {
+            Transport = childRun?.Clients.Transport is { } explicitTransport and not AgentModelTransportMode.Auto
+                ? explicitTransport
+                : childConfig?.Clients.Transport is { } childTransport and not AgentModelTransportMode.Auto
+                    ? childTransport
+                    : context.RunConfig?.Clients.Transport is { } runTransport and not AgentModelTransportMode.Auto
+                        ? runTransport
+                        : context.ParentConfig?.Clients.Transport ?? AgentModelTransportMode.Auto
+        };
         var sources = new Dictionary<ProviderClientFamily, SubAgentClientSelectionSource>();
         foreach (var family in Enum.GetValues<ProviderClientFamily>())
         {
@@ -1897,7 +1909,9 @@ public static class SubAgentRuntime
         if (lockedClients.Chat is null)
             throw new InvalidOperationException("subagent_client_selection_not_portable");
         var initialRun = childRun;
-        var authority = context.RunConfig?.Security ?? new AgentSecurityRunConfig();
+        var authority = IntersectAuthority(
+            context.RunConfig?.Security ?? new AgentSecurityRunConfig(),
+            childRun?.Security ?? new AgentSecurityRunConfig());
         if (initialRun is not null)
             initialRun.Security = authority;
         var policy = SubAgentExecutionPolicy.Create(
@@ -1909,6 +1923,90 @@ public static class SubAgentRuntime
         policy.Validate();
         return policy;
     }
+
+    private static AgentSecurityRunConfig IntersectAuthority(
+        AgentSecurityRunConfig controller,
+        AgentSecurityRunConfig requested)
+    {
+        if (IsDefaultSecurity(requested))
+            return controller with
+            {
+                PermissionOverrides = controller.PermissionOverrides?.Select(static value => value with
+                {
+                    Selector = value.Selector with { }
+                }).ToArray(),
+                Sandbox = controller.Sandbox with
+                {
+                    Capabilities = controller.Sandbox.Capabilities with
+                    {
+                        Filesystem = controller.Sandbox.Capabilities.Filesystem
+                            .Select(static value => value with { }).ToArray()
+                    }
+                }
+            };
+        var permissions = (controller.PermissionOverrides ?? [])
+            .Concat(requested.PermissionOverrides ?? [])
+            .GroupBy(static value => (value.Selector.FunctionName, value.Selector.Action, value.Selector.Authority))
+            .Select(static group => new PermissionOverride(
+                group.First().Selector with { },
+                group.Any(static value => value.RequiresPermission)))
+            .ToArray();
+        var requestedPaths = requested.Sandbox.Capabilities.Filesystem
+            .Select(static value => (value.Path, value.Access))
+            .ToHashSet();
+        var filesystem = controller.Sandbox.Capabilities.Filesystem
+            .Where(value => requestedPaths.Contains((value.Path, value.Access)))
+            .Select(static value => value with { })
+            .ToArray();
+        var controllerInteractive = controller.Sandbox.Capabilities.Interactive;
+        var requestedInteractive = requested.Sandbox.Capabilities.Interactive;
+        return new AgentSecurityRunConfig
+        {
+            Approval = controller.Approval == AgentApprovalPolicy.ReviewProtectedActions ||
+                       requested.Approval == AgentApprovalPolicy.ReviewProtectedActions
+                ? AgentApprovalPolicy.ReviewProtectedActions
+                : AgentApprovalPolicy.AutoApprove,
+            PermissionOverrides = permissions.Length == 0 ? null : permissions,
+            Sandbox = new AgentSandboxRunConfig
+            {
+                Mode = controller.Sandbox.Mode == AgentSandboxPolicy.Enforced ||
+                       requested.Sandbox.Mode == AgentSandboxPolicy.Enforced
+                    ? AgentSandboxPolicy.Enforced
+                    : AgentSandboxPolicy.Disabled,
+                Escape = controller.Sandbox.Escape == AgentSandboxEscapePolicy.Deny ||
+                         requested.Sandbox.Escape == AgentSandboxEscapePolicy.Deny
+                    ? AgentSandboxEscapePolicy.Deny
+                    : AgentSandboxEscapePolicy.Ask,
+                Capabilities = new AgentSandboxConfiguration
+                {
+                    Filesystem = filesystem,
+                    Network = NetworkEgressPolicy.Blocked,
+                    Interactive = new ProcessInteractivePolicy
+                    {
+                        AllowPty = controllerInteractive.AllowPty && requestedInteractive.AllowPty,
+                        AllowStdin = controllerInteractive.AllowStdin && requestedInteractive.AllowStdin,
+                        AllowLocalBinding = controllerInteractive.AllowLocalBinding && requestedInteractive.AllowLocalBinding,
+                        AllowedMachLookups = controllerInteractive.AllowedMachLookups
+                            .Intersect(requestedInteractive.AllowedMachLookups, StringComparer.Ordinal)
+                            .Order(StringComparer.Ordinal)
+                            .ToArray()
+                    }
+                }
+            }
+        };
+    }
+
+    private static bool IsDefaultSecurity(AgentSecurityRunConfig value) =>
+        value.Approval == AgentApprovalPolicy.ReviewProtectedActions &&
+        value.PermissionOverrides is null or { Count: 0 } &&
+        value.Sandbox.Mode == AgentSandboxPolicy.Enforced &&
+        value.Sandbox.Escape == AgentSandboxEscapePolicy.Ask &&
+        value.Sandbox.Capabilities.Filesystem.Count == 0 &&
+        value.Sandbox.Capabilities.Network.Mode == NetworkEgressMode.Blocked &&
+        !value.Sandbox.Capabilities.Interactive.AllowPty &&
+        value.Sandbox.Capabilities.Interactive.AllowStdin &&
+        !value.Sandbox.Capabilities.Interactive.AllowLocalBinding &&
+        value.Sandbox.Capabilities.Interactive.AllowedMachLookups.Count == 0;
 
     private static SubAgentClientPropagationState ResolvePropagation(
         SubAgentRunConfig? runConfig,
