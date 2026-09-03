@@ -8,9 +8,13 @@ public sealed class ChatShellModel
     public ChatShellModel(AgentTuiRuntimeScope scope)
     {
         Scope = scope ?? throw new ArgumentNullException(nameof(scope));
+        Target = new DirectAgentTuiExecutionTarget(scope);
     }
 
     public AgentTuiRuntimeScope Scope { get; }
+
+    /// <summary>Gets or sets the complete execution target represented by this shell.</summary>
+    public AgentTuiExecutionTarget Target { get; internal set; }
 
     public string HeaderText { get; set; } = "";
 

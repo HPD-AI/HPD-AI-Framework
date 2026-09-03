@@ -64,7 +64,8 @@ public static class SubAgentTuiExtensions
                 new ControlledSubAgentTuiExecutionTarget(
                     new AgentTuiRuntimeScope(child.AgentId, child.SessionId, child.ThreadId),
                     context.Scope,
-                    new SubAgentLocalId(child.LocalId)),
+                    new SubAgentLocalId(child.LocalId),
+                    new AgentTuiClientSelectionSummary(child.ProviderKey, child.ModelName)),
                 cancellationToken).ConfigureAwait(false);
             return null;
         }, CancellationToken.None).ConfigureAwait(false);

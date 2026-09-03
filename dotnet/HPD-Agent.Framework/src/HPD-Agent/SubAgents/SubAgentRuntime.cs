@@ -1108,8 +1108,6 @@ public static class SubAgentRuntime
         policy.Validate();
         if (input.RunConfig?.Clients.Chat is not null)
             throw new InvalidOperationException("subagent_locked_client_override_forbidden");
-        if (input.SubAgentRunConfig is not null)
-            throw new InvalidOperationException("subagent_locked_propagation_override_forbidden");
     }
 
     private static async Task<string?> ContinueChildAsync(
@@ -1159,7 +1157,8 @@ public static class SubAgentRuntime
         policy.Validate();
         var runConfig = AgentRunConfigSnapshot.Capture(policy.InitialRunConfig, childAgent.ProviderComposition)
             ?? new AgentRunConfig();
-        runConfig.Clients.Chat = (ChatClientConfig)ProviderClientConfigSnapshot.Clone(policy.LockedChat);
+        runConfig.Clients = SubAgentExecutionPolicy.CloneClients(policy.LockedClients);
+        runConfig.Security = policy.Authority;
         var childInput = new UserMessagesInputEvent
         {
             Messages = [new ChatMessage(ChatRole.User, input)],
@@ -1195,7 +1194,8 @@ public static class SubAgentRuntime
     {
         var runConfig = AgentRunConfigSnapshot.Capture(input.RunConfig, childAgent.ProviderComposition)
             ?? new AgentRunConfig();
-        runConfig.Clients.Chat = (ChatClientConfig)ProviderClientConfigSnapshot.Clone(policy.LockedChat);
+        runConfig.Clients = SubAgentExecutionPolicy.CloneClients(policy.LockedClients);
+        runConfig.Security = policy.Authority;
         var childInput = input with
         {
             SessionId = childThread.SessionId,
@@ -1203,7 +1203,7 @@ public static class SubAgentRuntime
             AgentId = childAgent.AgentId,
             ThreadExecutionId = threadExecutionId,
             RunConfig = runConfig,
-            SubAgentRunConfig = CreateDescendantRunConfig(policy)
+            SubAgentRunConfig = input.SubAgentRunConfig ?? CreateDescendantRunConfig(policy)
         };
         var reservation = new CoordinatorWorkReservation(
             childAgent.AgentId, childThread.SessionId, childThread.ThreadId, threadExecutionId);
@@ -1871,23 +1871,41 @@ public static class SubAgentRuntime
         FunctionExecutionContext context)
     {
         var childRun = context.SubAgentRunConfig;
-        var explicitChat = childRun?.Clients.Chat;
-        var childChat = (definition.Configuration as SuppliedAgentConfiguration)?.Config.Clients.Chat;
-        var parentChat = context.GetEffectiveChatClientHandle()?.ResolvedConfig as ChatClientConfig;
-        var selected = explicitChat ?? childChat ?? parentChat
-            ?? throw new InvalidOperationException("subagent_client_selection_not_portable");
-        if (selected.Override is not null)
+        var childConfig = (definition.Configuration as SuppliedAgentConfiguration)?.Config;
+        var lockedClients = new AgentClientsConfig { Transport = childRun?.Clients.Transport ?? AgentModelTransportMode.Auto };
+        var sources = new Dictionary<ProviderClientFamily, SubAgentClientSelectionSource>();
+        foreach (var family in Enum.GetValues<ProviderClientFamily>())
+        {
+            var explicitSelection = childRun?.Clients.GetFamilyConfig(family);
+            var childSelection = childConfig?.Clients.GetFamilyConfig(family);
+            var controllerSelection = family == ProviderClientFamily.Chat
+                ? context.GetEffectiveChatClientHandle()?.ResolvedConfig
+                : context.ClientSet?.GetResolvedConfig(family);
+            var selected = explicitSelection ?? childSelection ?? controllerSelection;
+            if (selected is null)
+                continue;
+            if (SubAgentExecutionPolicy.HasRuntimeOverride(selected) ||
+                SubAgentExecutionPolicy.HasProviderPayload(selected))
+                throw new InvalidOperationException("subagent_client_selection_not_portable");
+            lockedClients.SetFamilyConfig(family, ProviderClientConfigSnapshot.Clone(selected));
+            sources[family] = explicitSelection is not null
+                ? SubAgentClientSelectionSource.InputSubAgentRun
+                : childSelection is not null
+                    ? SubAgentClientSelectionSource.ChildAgentConfig
+                    : SubAgentClientSelectionSource.ControllerResolved;
+        }
+        if (lockedClients.Chat is null)
             throw new InvalidOperationException("subagent_client_selection_not_portable");
-        var source = explicitChat is not null
-            ? SubAgentClientSelectionSource.InputSubAgentRun
-            : childChat is not null
-                ? SubAgentClientSelectionSource.ChildAgentConfig
-                : SubAgentClientSelectionSource.ControllerResolved;
+        var initialRun = childRun;
+        var authority = context.RunConfig?.Security ?? new AgentSecurityRunConfig();
+        if (initialRun is not null)
+            initialRun.Security = authority;
         var policy = SubAgentExecutionPolicy.Create(
-            childRun,
-            selected,
-            source,
-            ResolvePropagation(childRun, explicitChat is not null));
+            initialRun,
+            lockedClients,
+            sources,
+            authority,
+            ResolvePropagation(childRun, childRun?.Clients.Chat is not null));
         policy.Validate();
         return policy;
     }
@@ -1915,7 +1933,7 @@ public static class SubAgentRuntime
             {
                 Clients = new AgentClientsConfig
                 {
-                    Chat = (ChatClientConfig)ProviderClientConfigSnapshot.Clone(policy.LockedChat)
+                    Chat = (ChatClientConfig)ProviderClientConfigSnapshot.Clone(policy.LockedClients.Chat!)
                 },
                 ClientPropagation = SubAgentClientPropagation.ThroughDepth(bounded.RemainingDepth)
             },
@@ -1923,7 +1941,7 @@ public static class SubAgentRuntime
             {
                 Clients = new AgentClientsConfig
                 {
-                    Chat = (ChatClientConfig)ProviderClientConfigSnapshot.Clone(policy.LockedChat)
+                    Chat = (ChatClientConfig)ProviderClientConfigSnapshot.Clone(policy.LockedClients.Chat!)
                 },
                 ClientPropagation = SubAgentClientPropagation.EntireTree
             },

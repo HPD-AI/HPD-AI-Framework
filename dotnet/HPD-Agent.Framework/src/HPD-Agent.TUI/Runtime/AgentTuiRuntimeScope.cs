@@ -46,11 +46,16 @@ public sealed record DirectAgentTuiExecutionTarget : AgentTuiExecutionTarget
 /// <param name="ChildScope">The displayed child scope.</param>
 /// <param name="ControllerScope">The controller scope that owns the registry entry.</param>
 /// <param name="LocalId">The controller-local child identifier.</param>
+/// <param name="ClientSelection">Redacted admitted model identity for presentation.</param>
 public sealed record ControlledSubAgentTuiExecutionTarget(
     AgentTuiRuntimeScope ChildScope,
     AgentTuiRuntimeScope ControllerScope,
-    SubAgentLocalId LocalId) : AgentTuiExecutionTarget
+    SubAgentLocalId LocalId,
+    AgentTuiClientSelectionSummary? ClientSelection = null) : AgentTuiExecutionTarget
 {
     /// <inheritdoc />
     public override AgentTuiRuntimeScope Scope => ChildScope;
 }
+
+/// <summary>Redacted model identity safe for controlled-child presentation.</summary>
+public sealed record AgentTuiClientSelectionSummary(string? ProviderKey, string? ModelName);

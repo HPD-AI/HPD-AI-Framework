@@ -55,13 +55,15 @@ public sealed class SubAgentRunConfigTests
         };
         var first = SubAgentExecutionPolicy.Create(
             new AgentRunConfig { SystemInstructions = new() { Append = "first" } },
-            chat,
-            SubAgentClientSelectionSource.InputSubAgentRun,
+            new AgentClientsConfig { Chat = chat },
+            new Dictionary<ProviderClientFamily, SubAgentClientSelectionSource> { [ProviderClientFamily.Chat] = SubAgentClientSelectionSource.InputSubAgentRun },
+            new AgentSecurityRunConfig(),
             new NoSubAgentClientPropagation());
         var second = SubAgentExecutionPolicy.Create(
             new AgentRunConfig { SystemInstructions = new() { Append = "second" } },
-            chat,
-            SubAgentClientSelectionSource.InputSubAgentRun,
+            new AgentClientsConfig { Chat = chat },
+            new Dictionary<ProviderClientFamily, SubAgentClientSelectionSource> { [ProviderClientFamily.Chat] = SubAgentClientSelectionSource.InputSubAgentRun },
+            new AgentSecurityRunConfig(),
             new NoSubAgentClientPropagation());
 
         Assert.NotEqual(first.Fingerprint, second.Fingerprint);
@@ -83,10 +85,47 @@ public sealed class SubAgentRunConfigTests
         var error = Assert.Throws<InvalidOperationException>(() =>
             SubAgentExecutionPolicy.Create(
                 run,
-                chat,
-                SubAgentClientSelectionSource.InputSubAgentRun,
+                new AgentClientsConfig { Chat = chat },
+                new Dictionary<ProviderClientFamily, SubAgentClientSelectionSource> { [ProviderClientFamily.Chat] = SubAgentClientSelectionSource.InputSubAgentRun },
+                new AgentSecurityRunConfig(),
                 new NoSubAgentClientPropagation()));
 
         Assert.Equal("subagent_run_config_not_portable", error.Message);
+    }
+
+    [Fact]
+    public void DurablePolicyFingerprintIncludesAuthenticationAndAuthority()
+    {
+        SubAgentExecutionPolicy Create(string accountId, AgentApprovalPolicy approval)
+        {
+            var clients = new AgentClientsConfig
+            {
+                Chat = new ChatClientConfig
+                {
+                    Provider = new ProviderReference
+                    {
+                        Key = "openai",
+                        Authentication = new OAuthProviderAuthentication { AccountId = accountId }
+                    },
+                    ModelName = "child-model"
+                }
+            };
+            return SubAgentExecutionPolicy.Create(
+                null,
+                clients,
+                new Dictionary<ProviderClientFamily, SubAgentClientSelectionSource>
+                {
+                    [ProviderClientFamily.Chat] = SubAgentClientSelectionSource.InputSubAgentRun
+                },
+                new AgentSecurityRunConfig { Approval = approval },
+                new NoSubAgentClientPropagation());
+        }
+
+        var baseline = Create("personal", AgentApprovalPolicy.ReviewProtectedActions);
+
+        Assert.NotEqual(baseline.Fingerprint,
+            Create("work", AgentApprovalPolicy.ReviewProtectedActions).Fingerprint);
+        Assert.NotEqual(baseline.Fingerprint,
+            Create("personal", AgentApprovalPolicy.AutoApprove).Fingerprint);
     }
 }

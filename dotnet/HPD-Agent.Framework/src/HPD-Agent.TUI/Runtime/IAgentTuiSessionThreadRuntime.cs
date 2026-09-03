@@ -140,7 +140,9 @@ public sealed record AgentTuiSubAgentInfo(
     string? ThreadId,
     string? Status,
     int MessageCount,
-    string? Reason);
+    string? Reason,
+    string? ProviderKey = null,
+    string? ModelName = null);
 
 public sealed record AgentTuiThreadUpdate(
     string? Name = null,

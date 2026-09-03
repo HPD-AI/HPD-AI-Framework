@@ -66,6 +66,9 @@ public sealed class AgentTuiShellContext
 
     public AgentTuiRuntimeScope Scope { get; }
 
+    /// <summary>Gets the complete direct or controlled execution target.</summary>
+    public AgentTuiExecutionTarget Target => Shell.Target;
+
     public ChatShellModel Shell { get; }
 }
 

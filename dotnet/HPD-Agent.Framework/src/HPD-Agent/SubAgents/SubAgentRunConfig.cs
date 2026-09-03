@@ -92,11 +92,14 @@ public sealed record SubAgentExecutionPolicy
     /// <summary>Gets the portable initial child run configuration.</summary>
     public AgentRunConfig? InitialRunConfig { get; init; }
 
-    /// <summary>Gets the complete portable Chat plan locked at admission.</summary>
-    public required ChatClientConfig LockedChat { get; init; }
+    /// <summary>Gets the complete portable client-family selections locked at admission.</summary>
+    public required AgentClientsConfig LockedClients { get; init; }
 
-    /// <summary>Gets the source that supplied <see cref="LockedChat"/>.</summary>
-    public required SubAgentClientSelectionSource ChatSource { get; init; }
+    /// <summary>Gets the winning source for every available locked client family.</summary>
+    public required IReadOnlyDictionary<ProviderClientFamily, SubAgentClientSelectionSource> ClientSources { get; init; }
+
+    /// <summary>Gets the controller-bounded security authority locked at admission.</summary>
+    public required AgentSecurityRunConfig Authority { get; init; }
 
     /// <summary>Gets the remaining descendant Chat propagation state.</summary>
     public required SubAgentClientPropagationState Propagation { get; init; }
@@ -107,20 +110,40 @@ public sealed record SubAgentExecutionPolicy
     /// <summary>Creates a validated durable policy from an admitted child run and locked chat selection.</summary>
     public static SubAgentExecutionPolicy Create(
         AgentRunConfig? initialRunConfig,
-        ChatClientConfig lockedChat,
-        SubAgentClientSelectionSource chatSource,
+        AgentClientsConfig lockedClients,
+        IReadOnlyDictionary<ProviderClientFamily, SubAgentClientSelectionSource> clientSources,
+        AgentSecurityRunConfig authority,
         SubAgentClientPropagationState propagation)
     {
-        ArgumentNullException.ThrowIfNull(lockedChat);
+        ArgumentNullException.ThrowIfNull(lockedClients);
+        ArgumentNullException.ThrowIfNull(clientSources);
+        ArgumentNullException.ThrowIfNull(authority);
         ArgumentNullException.ThrowIfNull(propagation);
         ValidatePortableInitialRun(initialRunConfig);
-        var fingerprint = ComputeFingerprint(initialRunConfig, lockedChat, chatSource, propagation);
+        var lockedSnapshot = CloneClients(lockedClients);
+        var sourceSnapshot = new Dictionary<ProviderClientFamily, SubAgentClientSelectionSource>(clientSources);
+        var authoritySnapshot = authority with
+        {
+            PermissionOverrides = authority.PermissionOverrides?.Select(static value => value with
+            {
+                Selector = value.Selector with { }
+            }).ToArray(),
+            Sandbox = authority.Sandbox with
+            {
+                Capabilities = authority.Sandbox.Capabilities with
+                {
+                    Filesystem = authority.Sandbox.Capabilities.Filesystem.Select(static value => value with { }).ToArray()
+                }
+            }
+        };
+        var fingerprint = ComputeFingerprint(initialRunConfig, lockedSnapshot, sourceSnapshot, authoritySnapshot, propagation);
         return new SubAgentExecutionPolicy
         {
             ContractVersion = CurrentContractVersion,
             InitialRunConfig = initialRunConfig,
-            LockedChat = (ChatClientConfig)ProviderClientConfigSnapshot.Clone(lockedChat),
-            ChatSource = chatSource,
+            LockedClients = lockedSnapshot,
+            ClientSources = sourceSnapshot,
+            Authority = authoritySnapshot,
             Propagation = propagation,
             Fingerprint = fingerprint
         };
@@ -128,11 +151,23 @@ public sealed record SubAgentExecutionPolicy
 
     internal void Validate()
     {
-        if (ContractVersion != CurrentContractVersion || LockedChat.Override is not null)
+        if (ContractVersion != CurrentContractVersion || LockedClients.Chat is null)
             throw new InvalidOperationException("subagent_execution_policy_invalid");
+        foreach (var family in Enum.GetValues<ProviderClientFamily>())
+        {
+            var config = LockedClients.GetFamilyConfig(family);
+            if (config is null)
+            {
+                if (ClientSources.ContainsKey(family))
+                    throw new InvalidOperationException("subagent_execution_policy_invalid");
+                continue;
+            }
+            if (!ClientSources.ContainsKey(family) || HasRuntimeOverride(config) || HasProviderPayload(config))
+                throw new InvalidOperationException("subagent_execution_policy_invalid");
+        }
         ValidatePropagation(Propagation);
         ValidatePortableInitialRun(InitialRunConfig);
-        if (!string.Equals(Fingerprint, ComputeFingerprint(InitialRunConfig, LockedChat, ChatSource, Propagation), StringComparison.Ordinal))
+        if (!string.Equals(Fingerprint, ComputeFingerprint(InitialRunConfig, LockedClients, ClientSources, Authority, Propagation), StringComparison.Ordinal))
             throw new InvalidOperationException("subagent_execution_policy_mismatch");
     }
 
@@ -147,8 +182,9 @@ public sealed record SubAgentExecutionPolicy
 
     private static string ComputeFingerprint(
         AgentRunConfig? initialRunConfig,
-        ChatClientConfig chat,
-        SubAgentClientSelectionSource source,
+        AgentClientsConfig lockedClients,
+        IReadOnlyDictionary<ProviderClientFamily, SubAgentClientSelectionSource> clientSources,
+        AgentSecurityRunConfig authority,
         SubAgentClientPropagationState propagation)
     {
         var propagationValue = propagation switch
@@ -161,17 +197,55 @@ public sealed record SubAgentExecutionPolicy
         var initialRun = initialRunConfig is null
             ? "null"
             : JsonSerializer.Serialize(initialRunConfig, AgentEventJsonContext.Default.AgentRunConfig);
+        var clients = JsonSerializer.Serialize(lockedClients, AgentEventJsonContext.Default.AgentClientsConfig);
+        var sources = string.Join(',', clientSources.OrderBy(static pair => pair.Key)
+            .Select(static pair => $"{pair.Key}:{pair.Value}"));
+        var lockedAuthority = JsonSerializer.Serialize(authority, AgentEventJsonContext.Default.AgentSecurityRunConfig);
         var canonical = string.Join('|',
             "hpd.subagent.execution-policy.v2",
             initialRun,
-            source,
-            chat.Provider?.Key,
-            chat.Provider?.Backend,
-            chat.ModelName,
-            chat.Endpoint,
+            clients,
+            sources,
+            lockedAuthority,
             propagationValue);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
     }
+
+    internal static AgentClientsConfig CloneClients(AgentClientsConfig source)
+    {
+        var clone = new AgentClientsConfig { Transport = source.Transport };
+        foreach (var family in Enum.GetValues<ProviderClientFamily>())
+            if (source.GetFamilyConfig(family) is { } config)
+                clone.SetFamilyConfig(family, ProviderClientConfigSnapshot.Clone(config));
+        return clone;
+    }
+
+    internal static bool HasRuntimeOverride(ProviderClientConfig config) => config switch
+    {
+        ChatClientConfig value => value.Override is not null,
+        RealtimeClientConfig value => value.Override is not null,
+        ImageGenerationClientConfig value => value.Override is not null,
+        EmbeddingsClientConfig value => value.Override is not null,
+        TextToSpeechClientConfig value => value.Override is not null,
+        SpeechToTextClientConfig value => value.Override is not null,
+        HostedFilesClientConfig value => value.Override is not null,
+        VoiceActivityClientConfig => false,
+        EndOfTurnClientConfig => false,
+        _ => true
+    };
+
+    internal static bool HasProviderPayload(ProviderClientConfig config) =>
+        config.ProviderConfig is not null || config switch
+        {
+            ChatClientConfig value => value.ProviderOptions is not null,
+            RealtimeClientConfig value => value.ProviderOptions is not null,
+            ImageGenerationClientConfig value => value.ProviderOptions is not null,
+            EmbeddingsClientConfig value => value.ProviderOptions is not null,
+            TextToSpeechClientConfig value => value.ProviderOptions is not null,
+            SpeechToTextClientConfig value => value.ProviderOptions is not null,
+            HostedFilesClientConfig value => value.ProviderOptions is not null,
+            _ => false
+        };
 
     private static void ValidatePortableInitialRun(AgentRunConfig? runConfig)
     {

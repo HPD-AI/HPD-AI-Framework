@@ -6,11 +6,15 @@ internal static class SubAgentTestPolicies
 {
     internal static SubAgentExecutionPolicy Default => SubAgentExecutionPolicy.Create(
         initialRunConfig: null,
-        new ChatClientConfig
+        new AgentClientsConfig { Chat = new ChatClientConfig
         {
             Provider = new ProviderReference { Key = "test" },
             ModelName = "test-model"
+        } },
+        new Dictionary<ProviderClientFamily, SubAgentClientSelectionSource>
+        {
+            [ProviderClientFamily.Chat] = SubAgentClientSelectionSource.ControllerResolved
         },
-        SubAgentClientSelectionSource.ControllerResolved,
+        new AgentSecurityRunConfig(),
         new NoSubAgentClientPropagation());
 }

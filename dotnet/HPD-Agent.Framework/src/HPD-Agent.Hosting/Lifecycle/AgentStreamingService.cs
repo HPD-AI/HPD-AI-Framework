@@ -198,7 +198,7 @@ public sealed class AgentStreamingService : IAgentStreamingService
         }
         catch (InvalidOperationException exception) when (exception.Message is
             "subagent_unknown" or "subagent_route_mismatch" or "subagent_controller_grant_required" or
-            "subagent_locked_client_override_forbidden" or "subagent_locked_propagation_override_forbidden")
+            "subagent_locked_client_override_forbidden")
         {
             return AgentServiceResult<InputSubmissionDto>.Validation(exception.Message, exception.Message);
         }

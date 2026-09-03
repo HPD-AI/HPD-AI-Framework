@@ -55,6 +55,7 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(CompactionPreservationDescriptor))]
 [JsonSerializable(typeof(CompactionStrategyDescriptor))]
 [JsonSerializable(typeof(AgentRunConfig))]
+[JsonSerializable(typeof(AgentClientsConfig))]
 [JsonSerializable(typeof(AgentSecurityRunConfig))]
 [JsonSerializable(typeof(AgentSandboxRunConfig))]
 [JsonSerializable(typeof(AgentApprovalPolicy))]
