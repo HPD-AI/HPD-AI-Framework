@@ -225,12 +225,6 @@ internal static class MarkdownProjectionView
             0,
             new MarkdownSpacing().Key,
             new MarkdownResourceLimits().Key);
-        var layout = projection.RequirePrepared(document.Revision, key);
-        return layout.HasMoreSource
-            ? new MarkdownView(layout, offset => new MarkdownLayoutEngine().LayoutRawPage(
-                document.GetCanonicalSource(), document.Parsed.PipelineId,
-                new MarkdownLayoutOptions(width, MarkdownTheme.FromTheme(theme), colorSystem,
-                    MarkdownPresentationMode.Raw, ResourceLimits: new MarkdownResourceLimits()), offset))
-            : new MarkdownView(layout);
+        return new MarkdownView(projection.RequireVisiblePrepared(document.Revision, key));
     }
 }

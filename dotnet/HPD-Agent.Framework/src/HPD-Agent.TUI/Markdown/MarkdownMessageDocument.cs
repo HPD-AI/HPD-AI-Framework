@@ -145,6 +145,7 @@ public sealed class MarkdownMessageProjection
     private readonly Dictionary<BlockCacheKey, CacheEntry> _blocks = [];
     private readonly LinkedList<BlockCacheKey> _lru = [];
     private readonly Dictionary<PreparedKey, MarkdownLayout> _prepared = [];
+    private readonly Dictionary<PreparedKey, RawPageState> _rawPages = [];
     private IAgentTuiDispatcher? _dispatcher;
     private long _cacheBytes;
     private long _cachedEpoch = -1;
@@ -304,7 +305,12 @@ public sealed class MarkdownMessageProjection
         }
         if (layout.DegradationReason != MarkdownDegradationReason.None) _degradations++;
         _prepared[new(document.Revision, layout.Key)] = layout;
-        if (_prepared.Count > 8) _prepared.Remove(_prepared.Keys.First());
+        if (_prepared.Count > 8)
+        {
+            var oldest = _prepared.Keys.First();
+            _prepared.Remove(oldest);
+            _rawPages.Remove(oldest);
+        }
         return layout;
     }
 
@@ -313,6 +319,45 @@ public sealed class MarkdownMessageProjection
         _prepared.TryGetValue(new(revision, key), out var layout)
             ? layout
             : throw new InvalidOperationException("Markdown layout was not prepared for this publication context.");
+
+    /// <summary>Gets the persisted raw page currently visible for a prepared publication.</summary>
+    public MarkdownLayout RequireVisiblePrepared(long revision, MarkdownLayoutKey key)
+    {
+        var preparedKey = new PreparedKey(revision, key);
+        return _rawPages.TryGetValue(preparedKey, out var page)
+            ? page.Current
+            : RequirePrepared(revision, key);
+    }
+
+    internal bool TryNavigateRawPage(
+        MarkdownMessageDocument document,
+        MarkdownLayoutOptions options,
+        IMarkdownLayoutEngine engine,
+        bool forward)
+    {
+        var key = new MarkdownLayoutKey(document.Parsed.PipelineId, "terminal-v1", options.Width,
+            options.Theme.ThemeKey, options.ColorSystem, MarkdownPresentationMode.Rich,
+            options.SyntaxThemeRevision, (options.Spacing ?? new MarkdownSpacing()).Key,
+            (options.ResourceLimits ?? new MarkdownResourceLimits()).Key);
+        var preparedKey = new PreparedKey(document.Revision, key);
+        var state = _rawPages.GetValueOrDefault(preparedKey);
+        var current = state?.Current ?? RequirePrepared(document.Revision, key);
+        if (forward)
+        {
+            if (current.NextSourceOffset is not { } offset) return false;
+            state ??= new RawPageState(current);
+            state.Previous.Push(current);
+            state.Current = engine.LayoutRawPage(document.GetCanonicalSource(), document.Parsed.PipelineId,
+                options with { Mode = MarkdownPresentationMode.Raw }, offset);
+            _rawPages[preparedKey] = state;
+            return true;
+        }
+        if (state is null || !state.Previous.TryPop(out var previous)) return false;
+        state.Current = previous;
+        if (state.Previous.Count == 0 && ReferenceEquals(previous, RequirePrepared(document.Revision, key)))
+            _rawPages.Remove(preparedKey);
+        return true;
+    }
 
     /// <summary>Copies a visual range semantically, excluding decorative borders, rails, markers, and padding.</summary>
     public string GetSafeClipboardText(MarkdownLayout layout, MarkdownVisualSelection selection)
@@ -393,6 +438,12 @@ public sealed class MarkdownMessageProjection
         MarkdownBlockLayout Layout,
         LinkedListNode<BlockCacheKey> Node,
         long Weight);
+
+    private sealed class RawPageState(MarkdownLayout current)
+    {
+        internal MarkdownLayout Current { get; set; } = current;
+        internal Stack<MarkdownLayout> Previous { get; } = [];
+    }
 
     private readonly record struct BlockCacheKey(
         int Ordinal, int Start, int End, string ExactSource, string PipelineId, int Width,

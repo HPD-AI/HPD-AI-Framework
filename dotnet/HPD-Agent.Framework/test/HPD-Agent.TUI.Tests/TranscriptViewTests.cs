@@ -5,11 +5,42 @@ using HPD.Agent.TUI.Views;
 using HPD.TUI.Components;
 using HPD.TUI.Core;
 using HPD.TUI.Rendering;
+using HPD.Agent.TUI.Markdown;
+using HPD.TUI.Markdown;
 
 namespace HPD.Agent.TUI.Tests;
 
 public sealed class TranscriptViewTests
 {
+    [Fact]
+    public void TranscriptPagingPersistsAcrossRecaptureAndClipboardTracksVisiblePage()
+    {
+        var source = string.Concat(Enumerable.Range(0, 8_200).Select(static index => $"item-{index:D5}\n\n"));
+        var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "paged"));
+        session.Append(source);
+        var document = session.Complete().Document;
+        var options = new MarkdownLayoutOptions(40, MarkdownTheme.FromTheme(Theme.Default));
+        _ = session.Projection.Prepare(document, options, new MarkdownLayoutEngine());
+        var model = new TranscriptModel();
+        model.AddFinal(new TranscriptEntry("paged-entry", "assistant:paged",
+            new AssistantMessageCell("assistant", document, session.Projection), new()));
+        var view = CreateView(model, height: 5);
+
+        var first = TuiCapture.RenderToString(view, 40, 5, trimTrailingBlankLines: true);
+        view.HandleInput(new KeyEvent(KeyCode.PageDown)).Should().BeTrue("handled input requests repaint");
+        var second = TuiCapture.RenderToString(view, 40, 5, trimTrailingBlankLines: true);
+        var recaptured = TuiCapture.RenderToString(view, 40, 5, trimTrailingBlankLines: true);
+
+        second.Should().Be(recaptured);
+        second.Should().Contain("item-08199");
+        first.Should().NotContain("item-08199");
+        view.TryGetSemanticClipboardText("paged-entry", new(0, 0, 100, 80), out var copied).Should().BeTrue();
+        copied.Should().Contain("item-08192").And.Contain("item-08199");
+        view.HandleInput(new KeyEvent(KeyCode.PageUp)).Should().BeTrue();
+        var restored = TuiCapture.RenderToString(view, 40, 5, trimTrailingBlankLines: true);
+        restored.Should().Be(first);
+    }
+
     [Fact]
     public void Render_ShowsTranscriptTailEntries()
     {

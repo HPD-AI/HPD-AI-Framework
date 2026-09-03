@@ -70,6 +70,9 @@ public sealed class TranscriptView : IComponent
         if (_model.HistoryPresentation == TranscriptHistoryPresentation.TerminalScrollback)
             return false;
 
+        if (key.Key is KeyCode.PageUp or KeyCode.PageDown && TryNavigateFocusedMarkdownPage(key.Key == KeyCode.PageDown))
+            return true;
+
         switch (key.Key)
         {
             case KeyCode.PageUp:
@@ -83,6 +86,32 @@ public sealed class TranscriptView : IComponent
             default:
                 return false;
         }
+    }
+
+    private bool TryNavigateFocusedMarkdownPage(bool forward)
+    {
+        if (!_cacheInitialized) return false;
+        for (var index = _entries.Count - 1; index >= 0; index--)
+        {
+            var entry = _entries[index];
+            var reasoning = entry.Cell is ReasoningMessageCell;
+            if (entry.Cell is not AssistantMessageCell && !reasoning) continue;
+            var document = reasoning ? ((ReasoningMessageCell)entry.Cell).Document : ((AssistantMessageCell)entry.Cell).Document;
+            var projection = reasoning ? ((ReasoningMessageCell)entry.Cell).Projection : ((AssistantMessageCell)entry.Cell).Projection;
+            var theme = reasoning
+                ? AgentTuiTranscriptRenderServices.Default.CreateMutedTheme(_renderTheme)
+                : _renderTheme;
+            var depth = Math.Max(0, entry.Metadata.AgentDepth) * 2;
+            var options = new MarkdownLayoutOptions(
+                Math.Max(1, _renderWidth - depth - (reasoning ? 2 : 0)),
+                MarkdownTheme.FromTheme(theme), _renderColorSystem);
+            if (!projection.TryNavigateRawPage(document, options, new MarkdownLayoutEngine(), forward))
+                continue;
+            _renderedEntries[index]?.Dispose();
+            _renderedEntries[index] = null;
+            return true; // Handled input is the shell's repaint request.
+        }
+        return false;
     }
 
     /// <summary>Routes a source-backed entry selection through its semantic Markdown projection.</summary>
@@ -115,7 +144,7 @@ public sealed class TranscriptView : IComponent
             HPD.TUI.Markdown.MarkdownPresentationMode.Rich, 0, new HPD.TUI.Markdown.MarkdownSpacing().Key,
             new HPD.TUI.Markdown.MarkdownResourceLimits().Key);
         MarkdownLayout layout;
-        try { layout = projection.RequirePrepared(document.Revision, key); }
+        try { layout = projection.RequireVisiblePrepared(document.Revision, key); }
         catch (InvalidOperationException) { return false; }
         text = projection.GetSafeClipboardText(layout, selection);
         return true;
