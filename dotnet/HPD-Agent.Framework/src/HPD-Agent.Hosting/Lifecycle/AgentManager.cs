@@ -225,7 +225,6 @@ public abstract class AgentManager : IAsyncDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
-
         var cacheKey = RuntimeCacheKey(agentId, sessionId, threadId);
         return _agents.TryGetValue(cacheKey, out var entry) ? entry.Agent : null;
     }
@@ -262,6 +261,8 @@ public abstract class AgentManager : IAsyncDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
+        if (hierarchy is < AgentEventHierarchy.ExactThread or > AgentEventHierarchy.ThreadAndDescendants)
+            throw new ArgumentOutOfRangeException(nameof(hierarchy), hierarchy, "Unknown agent event hierarchy.");
 
         var cacheKey = RuntimeCacheKey(agentId, sessionId, threadId);
         var hub = _runtimeEventHubs.GetOrAdd(cacheKey, static _ => new EventCoordinator());

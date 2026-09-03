@@ -303,6 +303,19 @@ public sealed class AgentStreamingServiceTests : IAsyncLifetime
         result.ErrorCode.Should().Be("InvalidEventHierarchy");
     }
 
+    [Theory]
+    [InlineData("", "thread")]
+    [InlineData("session", " ")]
+    public async Task ObserveThreadEventsAsync_RejectsIncompleteThreadKey(string sessionId, string threadId)
+    {
+        var result = await _service.ObserveThreadEventsAsync(
+            "agent-1",
+            new ThreadKey(sessionId, threadId));
+
+        result.Status.Should().Be(AgentServiceStatus.ValidationError);
+        result.ErrorCode.Should().Be("InvalidThreadKey");
+    }
+
     [Fact]
     public async Task SubmitInputAsync_AllowsSelectedAgentDifferentFromThreadDefault_AndRecordsExecutingAgent()
     {

@@ -40,6 +40,10 @@ public sealed class AgentStreamingService : IAgentStreamingService
         AgentEventHierarchy hierarchy = AgentEventHierarchy.ExactThread,
         CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(anchor.SessionId) || string.IsNullOrWhiteSpace(anchor.ThreadId))
+            return AgentServiceResult<ThreadEventObservationLease>.Validation(
+                "InvalidThreadKey",
+                "A complete non-empty session/thread key is required.");
         if (hierarchy is < AgentEventHierarchy.ExactThread or > AgentEventHierarchy.ThreadAndDescendants)
             return AgentServiceResult<ThreadEventObservationLease>.Validation(
                 "InvalidEventHierarchy",

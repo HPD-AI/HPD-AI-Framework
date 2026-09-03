@@ -1,6 +1,7 @@
 using System.Text.Json;
 using HPD.Agent.Serialization;
 using HPD.Agent.Hosting.Lifecycle;
+using HPD.Agent.AspNetCore.Serialization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -11,7 +12,6 @@ namespace HPD.Agent.AspNetCore.Streaming;
 internal static class SseEventHandler
 {
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(15);
-    private static readonly JsonSerializerOptions DeliveryJson = new(JsonSerializerDefaults.Web);
 
     public static async Task StreamEventsAsync(
         HttpContext context,
@@ -176,7 +176,9 @@ internal static class SseEventHandler
     private static string SerializeDelivery(AgentEventCodec codec, AgentEventDelivery delivery)
     {
         var eventJson = codec.Serialize(delivery.Event);
-        var routeJson = JsonSerializer.Serialize(delivery.Route, DeliveryJson);
+        var routeJson = JsonSerializer.Serialize(
+            delivery.Route,
+            HPDAgentAspNetCoreJsonSerializerContext.Default.AgentEventRoute);
         return $"{{\"event\":{eventJson},\"route\":{routeJson}}}";
     }
 

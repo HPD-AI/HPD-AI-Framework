@@ -723,6 +723,7 @@ public sealed partial class Agent : IAsyncDisposable
     /// <summary>
     /// Registers a removable ordered task subscriber for same-owner events, including threadless events but excluding independently owned descendants.
     /// </summary>
+    /// <remarks>The callback runs on the subscription pump in delivery order; publication does not await it. Disposal stops observation without stopping execution or bubbling.</remarks>
     public IDisposable Subscribe<TEvent>(Func<TEvent, Task> handler)
         where TEvent : AgentEvent
     {
@@ -743,6 +744,7 @@ public sealed partial class Agent : IAsyncDisposable
     /// <summary>
     /// Registers a removable ordered action subscriber for same-owner events, including threadless events but excluding independently owned descendants.
     /// </summary>
+    /// <remarks>The action runs on the subscription pump in delivery order; publication does not await it. Disposal stops observation without stopping execution or bubbling.</remarks>
     public IDisposable Subscribe<TEvent>(Action<TEvent> handler)
         where TEvent : AgentEvent
     {
@@ -791,6 +793,7 @@ public sealed partial class Agent : IAsyncDisposable
     /// <summary>
     /// Registers a removable ordered catch-all task subscriber for same-owner events.
     /// </summary>
+    /// <remarks>Threadless same-owner events are included and independently owned descendants are excluded. The callback runs on the ordered pump; disposal affects observation only.</remarks>
     public IDisposable SubscribeAny(Func<AgentEvent, Task> handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
@@ -810,6 +813,7 @@ public sealed partial class Agent : IAsyncDisposable
     /// <summary>
     /// Registers a removable ordered catch-all action subscriber for same-owner events.
     /// </summary>
+    /// <remarks>Threadless same-owner events are included and independently owned descendants are excluded. The action runs on the ordered pump; disposal affects observation only.</remarks>
     public IDisposable SubscribeAny(Action<AgentEvent> handler)
     {
         ArgumentNullException.ThrowIfNull(handler);

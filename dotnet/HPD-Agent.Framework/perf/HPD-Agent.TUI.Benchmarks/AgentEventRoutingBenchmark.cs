@@ -6,7 +6,7 @@ namespace HPD.Agent.TUI.Benchmarks;
 
 /// <summary>Compares allocation and throughput for the supported agent-event scopes.</summary>
 [MemoryDiagnoser]
-public sealed class AgentEventRoutingBenchmark
+public class AgentEventRoutingBenchmark
 {
     private EventCoordinator _localCoordinator = null!;
     private EventCoordinator _exactCoordinator = null!;
@@ -14,6 +14,7 @@ public sealed class AgentEventRoutingBenchmark
     private EventInbox<TextDeltaEvent> _local;
     private DeliveryInbox<AgentEventDelivery> _exact = null!;
     private DeliveryInbox<AgentEventDelivery> _subtree = null!;
+    private AgentEventRouteDescriptor _localRoute = null!;
     private AgentEventRouteDescriptor _rootRoute = null!;
     private AgentEventRouteDescriptor _leafRoute = null!;
     private TextDeltaEvent _rootEvent = null!;
@@ -38,6 +39,7 @@ public sealed class AgentEventRoutingBenchmark
         _subtree = AgentEventRoutes.CreateDeliveryInbox(_subtreeCoordinator, root, AgentEventHierarchy.ThreadAndDescendants);
         _rootEvent = CreateEvent(root);
         _leafEvent = CreateEvent(leaf);
+        _localRoute = AgentEventRoutes.Create(_localCoordinator, _rootEvent)!;
         _rootRoute = AgentEventRoutes.Create(_exactCoordinator, _rootEvent)!;
         _leafRoute = AgentEventRoutes.Create(_subtreeCoordinator, _leafEvent)!;
     }
@@ -45,7 +47,7 @@ public sealed class AgentEventRoutingBenchmark
     [Benchmark(Baseline = true)]
     public bool LocalOnly()
     {
-        _localCoordinator.Emit(_rootEvent, AgentEventRoutes.Create(_localCoordinator, _rootEvent));
+        _localCoordinator.Emit(_rootEvent, _localRoute);
         return _local.Reader.TryRead(out _);
     }
 
