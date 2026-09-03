@@ -251,6 +251,13 @@ public abstract class AgentManager : IAsyncDisposable
     /// runtime. Once that runtime exists, all of its agent events are forwarded into this hub;
     /// descendant events arrive through normal coordinator bubbling.
     /// </summary>
+    /// <remarks>
+    /// The session and thread identifiers form one complete key. Keyed delivery excludes threadless events and
+    /// sibling branches; descendants require an explicit transitive hierarchy. Each origin retains its own route,
+    /// delivery order, and journal cursor. <paramref name="options"/> controls mailbox capacity and backpressure.
+    /// The caller owns and must asynchronously dispose the returned inbox; disposal stops observation only and
+    /// does not stop the runtime or bubbling.
+    /// </remarks>
     public DeliveryInbox<AgentEventDelivery> CreateRuntimeEventInbox(
         string agentId,
         string sessionId,

@@ -34,6 +34,7 @@ public sealed class AgentStreamingService : IAgentStreamingService
         });
     }
 
+    /// <inheritdoc />
     public async Task<AgentServiceResult<ThreadEventObservationLease>> ObserveThreadEventsAsync(
         string agentId,
         ThreadKey anchor,

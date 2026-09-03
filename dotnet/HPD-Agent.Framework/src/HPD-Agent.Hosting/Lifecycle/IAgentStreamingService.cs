@@ -5,8 +5,17 @@ namespace HPD.Agent.Hosting.Lifecycle;
 
 public interface IAgentStreamingService
 {
-    /// <summary>Creates a live observation lease rooted at one complete thread key.</summary>
-    /// <remarks>Omission selects only the anchor. Descendant delivery is explicit and never merges descendant journals into the anchor cursor.</remarks>
+    /// <summary>Creates a live observation lease rooted at one complete, non-empty thread key.</summary>
+    /// <param name="agentId">The hosted agent definition whose runtime graph is observed.</param>
+    /// <param name="anchor">The complete session/thread key selecting the exact thread or hierarchy root.</param>
+    /// <param name="hierarchy">The explicit branch-relative scope; omission selects only <paramref name="anchor"/>.</param>
+    /// <param name="cancellationToken">Cancels lease creation without affecting agent execution.</param>
+    /// <remarks>
+    /// Keyed observation excludes threadless events and sibling branches. Transitive selections preserve each
+    /// origin's route and journal cursor rather than merging descendant journals. The returned inbox retains
+    /// per-origin delivery order and its configured backpressure policy; publication does not wait for a consumer.
+    /// Disposing the lease completes observation without stopping execution or event bubbling.
+    /// </remarks>
     Task<AgentServiceResult<ThreadEventObservationLease>> ObserveThreadEventsAsync(
         string agentId,
         ThreadKey anchor,
