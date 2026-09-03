@@ -391,7 +391,7 @@ public sealed class FunctionExecutionContext
         if (!codec.TryGetByType(scoped.GetType(), out _))
             throw new InvalidOperationException($"Agent event type '{scoped.GetType().FullName}' is not present in codec '{codec.Digest}'.");
         scoped = scoped with { ThreadSequenceNumber = 0 };
-        await EventCoordinator.EmitAsync(scoped, AgentEventRoutes.Create(scoped), cancellationToken).ConfigureAwait(false);
+        await EventCoordinator.EmitAsync(scoped, AgentEventRoutes.Create(EventCoordinator, scoped), cancellationToken).ConfigureAwait(false);
         return scoped;
     }
 
@@ -421,7 +421,7 @@ public sealed class FunctionExecutionContext
             throw new InvalidOperationException("Function execution context does not have an event coordinator.");
 
         var tracedRequest = WithInvocationScope(request);
-        var route = AgentEventRoutes.Create(tracedRequest);
+        var route = AgentEventRoutes.Create(EventCoordinator, tracedRequest);
         var handle = EventCoordinator.RegisterRequest<TRequest, TResponse>(
             tracedRequest,
             route,

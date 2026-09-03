@@ -88,7 +88,7 @@ public sealed class AgentEventPublisher : IAgentEventPublisher
         if (result.Outbox is not { State: PermissionPreferenceOutboxState.Claimed, ClaimToken: { } claimToken } outbox ||
             !string.Equals(outbox.ClaimantId, commit.PublisherClaimantId, StringComparison.Ordinal))
             return result;
-        await _coordinator.EmitAsync(outbox.CommittedEvent, AgentEventRoutes.Create(outbox.CommittedEvent), cancellationToken).ConfigureAwait(false);
+        await _coordinator.EmitAsync(outbox.CommittedEvent, AgentEventRoutes.Create(_coordinator, outbox.CommittedEvent), cancellationToken).ConfigureAwait(false);
         await _archiver.ArchiveAsync(EventCodec, outbox.CommittedEvent, cancellationToken).ConfigureAwait(false);
         if (!await preferences.AcknowledgePublicationAsync(
                 outbox.SettlementId, claimToken, cancellationToken).ConfigureAwait(false))
@@ -127,7 +127,7 @@ public sealed class AgentEventPublisher : IAgentEventPublisher
         if (!EventCodec.TryGetByType(value.GetType(), out _))
             throw new InvalidOperationException($"Agent event type '{value.GetType().FullName}' is not present in codec '{EventCodec.Digest}'.");
         var live = value with { ThreadSequenceNumber = 0 };
-        await _coordinator.EmitAsync(live, AgentEventRoutes.Create(live), cancellationToken).ConfigureAwait(false);
+        await _coordinator.EmitAsync(live, AgentEventRoutes.Create(_coordinator, live), cancellationToken).ConfigureAwait(false);
         await _archiver.ArchiveAsync(EventCodec, live, cancellationToken).ConfigureAwait(false);
         return live;
     }
@@ -161,7 +161,7 @@ public sealed class AgentEventPublisher : IAgentEventPublisher
             .ConfigureAwait(false);
         foreach (var committed in result.CommittedEvents)
         {
-            await _coordinator.EmitAsync(committed, AgentEventRoutes.Create(committed), cancellationToken).ConfigureAwait(false);
+            await _coordinator.EmitAsync(committed, AgentEventRoutes.Create(_coordinator, committed), cancellationToken).ConfigureAwait(false);
             await _archiver.ArchiveAsync(EventCodec, committed, cancellationToken).ConfigureAwait(false);
         }
         return result;
@@ -181,7 +181,7 @@ public sealed class AgentEventPublisher : IAgentEventPublisher
             ThreadSequenceNumber = 0
         };
         await deltaStore.StageThreadDeltaAsync(thread, scoped, cancellationToken).ConfigureAwait(false);
-        await _coordinator.EmitAsync(scoped, AgentEventRoutes.Create(scoped), cancellationToken).ConfigureAwait(false);
+        await _coordinator.EmitAsync(scoped, AgentEventRoutes.Create(_coordinator, scoped), cancellationToken).ConfigureAwait(false);
         return scoped;
     }
 
@@ -203,7 +203,7 @@ public sealed class AgentEventPublisher : IAgentEventPublisher
         // replay; publishing it again would append the complete message to observers
         // that already consumed the live chunks.
         var committedEnd = result.CommittedEvents[^1];
-        await _coordinator.EmitAsync(committedEnd, AgentEventRoutes.Create(committedEnd), cancellationToken).ConfigureAwait(false);
+        await _coordinator.EmitAsync(committedEnd, AgentEventRoutes.Create(_coordinator, committedEnd), cancellationToken).ConfigureAwait(false);
         await _archiver.ArchiveAsync(EventCodec, committedEnd, cancellationToken).ConfigureAwait(false);
         return result;
     }
@@ -226,7 +226,7 @@ public sealed class AgentEventPublisher : IAgentEventPublisher
             .ConfigureAwait(false);
         foreach (var committed in result.CommittedEvents)
         {
-            await _coordinator.EmitAsync(committed, AgentEventRoutes.Create(committed), cancellationToken).ConfigureAwait(false);
+            await _coordinator.EmitAsync(committed, AgentEventRoutes.Create(_coordinator, committed), cancellationToken).ConfigureAwait(false);
             await _archiver.ArchiveAsync(EventCodec, committed, cancellationToken).ConfigureAwait(false);
         }
         return result;

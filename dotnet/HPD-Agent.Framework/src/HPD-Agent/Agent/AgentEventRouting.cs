@@ -1,5 +1,5 @@
-using System.Collections.Concurrent;
 using System.Collections.Immutable;
+using System.Runtime.CompilerServices;
 using HPD.Events;
 
 namespace HPD.Agent;
@@ -54,25 +54,25 @@ internal sealed class AgentEventRouteDescriptor : EventRouteDescriptor
 
 internal static class AgentEventRoutes
 {
-    private static readonly ConcurrentDictionary<ThreadKey, ThreadKey> Parents = new();
+    private static readonly ConditionalWeakTable<IEventCoordinator, ResolverBinding> Bindings = new();
 
-    internal static void RegisterChild(ThreadKey child, ThreadKey parent)
+    internal static void Initialize(IEventCoordinator coordinator) =>
+        Bindings.GetValue(coordinator, static _ => new ResolverBinding(new AgentEventLineageResolver()));
+
+    internal static void AttachCoordinator(IEventCoordinator coordinator, IEventCoordinator parent)
     {
+        ArgumentNullException.ThrowIfNull(coordinator);
+        ArgumentNullException.ThrowIfNull(parent);
+        var parentResolver = GetResolver(parent);
+        Bindings.GetValue(coordinator, static _ => new ResolverBinding(new AgentEventLineageResolver())).Resolver = parentResolver;
+    }
+
+    internal static void RegisterChild(IEventCoordinator coordinator, ThreadKey child, ThreadKey parent)
+    {
+        ArgumentNullException.ThrowIfNull(coordinator);
         Validate(child, nameof(child));
         Validate(parent, nameof(parent));
-        if (child == parent)
-            throw new InvalidOperationException("A thread cannot be its own runtime parent.");
-        var cursor = parent;
-        var visited = new HashSet<ThreadKey> { child };
-        while (true)
-        {
-            if (!visited.Add(cursor))
-                throw new InvalidOperationException("Registering this runtime parent would create a thread lineage cycle.");
-            if (!Parents.TryGetValue(cursor, out cursor))
-                break;
-        }
-        if (!Parents.TryAdd(child, parent) && Parents[child] != parent)
-            throw new InvalidOperationException("A child thread already has a different runtime parent.");
+        GetResolver(coordinator).RegisterChild(child, parent);
     }
 
     internal static ThreadKey? ValidateParentPair(string? parentSessionId, string? parentThreadId)
@@ -90,18 +90,32 @@ internal static class AgentEventRoutes
         ArgumentException.ThrowIfNullOrWhiteSpace(key.ThreadId, parameterName);
     }
 
-    internal static AgentEventRouteDescriptor? Create(AgentEvent evt)
+    internal static AgentEventRouteDescriptor? Create(IEventCoordinator coordinator, AgentEvent evt)
     {
+        ArgumentNullException.ThrowIfNull(coordinator);
         if (string.IsNullOrWhiteSpace(evt.SessionId) || string.IsNullOrWhiteSpace(evt.ThreadId))
             return null;
+        var origin = new ThreadKey(evt.SessionId, evt.ThreadId);
+        return new AgentEventRouteDescriptor(origin, GetResolver(coordinator).Resolve(origin), evt.ThreadExecutionId);
+    }
+
+    internal static async ValueTask<AgentEventRouteDescriptor> CreateFromStoreAsync(
+        ISessionStore store,
+        AgentEvent evt,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        if (string.IsNullOrWhiteSpace(evt.SessionId) || string.IsNullOrWhiteSpace(evt.ThreadId))
+            throw new InvalidOperationException("A keyed delivery requires complete thread attribution.");
         var origin = new ThreadKey(evt.SessionId, evt.ThreadId);
         var reversed = new List<ThreadKey> { origin };
         var seen = new HashSet<ThreadKey> { origin };
         var current = origin;
-        while (Parents.TryGetValue(current, out var parent))
+        while (await store.GetThreadAsync(current, cancellationToken).ConfigureAwait(false) is { } descriptor &&
+            ValidateParentPair(descriptor.RuntimeChild?.ParentSessionId, descriptor.RuntimeChild?.ParentThreadId) is { } parent)
         {
             if (!seen.Add(parent))
-                throw new InvalidOperationException("A cycle was detected in runtime thread lineage.");
+                throw new InvalidOperationException("A cycle was detected in persisted runtime thread lineage.");
             reversed.Add(parent);
             current = parent;
         }
@@ -119,6 +133,66 @@ internal static class AgentEventRoutes
             new AgentHierarchyDeliveryPolicy(anchor, hierarchy),
             AgentDeliveryProjector.Instance,
             options);
+
+    private static AgentEventLineageResolver GetResolver(IEventCoordinator coordinator) =>
+        Bindings.GetValue(coordinator, static _ => new ResolverBinding(new AgentEventLineageResolver())).Resolver;
+
+    private sealed class ResolverBinding(AgentEventLineageResolver resolver)
+    {
+        private AgentEventLineageResolver _resolver = resolver;
+
+        internal AgentEventLineageResolver Resolver
+        {
+            get => Volatile.Read(ref _resolver);
+            set => Volatile.Write(ref _resolver, value);
+        }
+    }
+}
+
+internal sealed class AgentEventLineageResolver
+{
+    private readonly object _gate = new();
+    private readonly Dictionary<ThreadKey, ThreadKey> _parents = [];
+
+    internal void RegisterChild(ThreadKey child, ThreadKey parent)
+    {
+        lock (_gate)
+        {
+            if (child == parent)
+                throw new InvalidOperationException("A thread cannot be its own runtime parent.");
+            var cursor = parent;
+            var visited = new HashSet<ThreadKey> { child };
+            while (true)
+            {
+                if (!visited.Add(cursor))
+                    throw new InvalidOperationException("Registering this runtime parent would create a thread lineage cycle.");
+                if (!_parents.TryGetValue(cursor, out cursor))
+                    break;
+            }
+            if (_parents.TryGetValue(child, out var existing) && existing != parent)
+                throw new InvalidOperationException("A child thread already has a different runtime parent.");
+            _parents[child] = parent;
+        }
+    }
+
+    internal ImmutableArray<ThreadKey> Resolve(ThreadKey origin)
+    {
+        lock (_gate)
+        {
+            var reversed = new List<ThreadKey> { origin };
+            var seen = new HashSet<ThreadKey> { origin };
+            var current = origin;
+            while (_parents.TryGetValue(current, out var parent))
+            {
+                if (!seen.Add(parent))
+                    throw new InvalidOperationException("A cycle was detected in runtime thread lineage.");
+                reversed.Add(parent);
+                current = parent;
+            }
+            reversed.Reverse();
+            return [.. reversed];
+        }
+    }
 }
 
 internal sealed class AgentHierarchyDeliveryPolicy(ThreadKey anchor, AgentEventHierarchy hierarchy)

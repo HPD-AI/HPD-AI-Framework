@@ -374,6 +374,7 @@ public sealed partial class Agent : IAsyncDisposable
         // Create event coordinator for Middleware events and human-in-the-loop
         // Direct use of HPD.Events.EventCoordinator (no wrapper)
         _eventCoordinator = new HPD.Events.Core.EventCoordinator();
+        AgentEventRoutes.Initialize(_eventCoordinator);
         var operationThreadEvents = Config.SessionStore is null
             ? null
             : CreateEventPublisher(Config.SessionStore, _eventCoordinator);
@@ -565,7 +566,7 @@ public sealed partial class Agent : IAsyncDisposable
 
         var previousEpoch = CapabilityEpoch;
         var refreshStarted = EnrichOutputEvent(new AgentCapabilityRefreshStartedEvent(previousEpoch, reason));
-        await _eventCoordinator.EmitAsync(refreshStarted, AgentEventRoutes.Create(refreshStarted), cancellationToken).ConfigureAwait(false);
+        await _eventCoordinator.EmitAsync(refreshStarted, AgentEventRoutes.Create(_eventCoordinator, refreshStarted), cancellationToken).ConfigureAwait(false);
         var result = await _capabilityCatalog.RefreshAsync(reason, cancellationToken).ConfigureAwait(false);
         if (!result.Published)
         {
@@ -573,7 +574,7 @@ public sealed partial class Agent : IAsyncDisposable
                     result.Epoch,
                     BoundCapabilityRefreshError(result.Error),
                     reason));
-            await _eventCoordinator.EmitAsync(refreshRejected, AgentEventRoutes.Create(refreshRejected), cancellationToken).ConfigureAwait(false);
+            await _eventCoordinator.EmitAsync(refreshRejected, AgentEventRoutes.Create(_eventCoordinator, refreshRejected), cancellationToken).ConfigureAwait(false);
             return result;
         }
 
@@ -584,7 +585,7 @@ public sealed partial class Agent : IAsyncDisposable
                 previousEpoch,
                 result.Epoch,
                 reason));
-        await _eventCoordinator.EmitAsync(refreshPublished, AgentEventRoutes.Create(refreshPublished), cancellationToken).ConfigureAwait(false);
+        await _eventCoordinator.EmitAsync(refreshPublished, AgentEventRoutes.Create(_eventCoordinator, refreshPublished), cancellationToken).ConfigureAwait(false);
         return result;
     }
 
@@ -730,10 +731,12 @@ public sealed partial class Agent : IAsyncDisposable
     }
 
     /// <summary>Subscribes a task callback to events originating from exactly <paramref name="thread"/>.</summary>
+    /// <remarks>Matching uses the complete thread key; threadless and descendant events are excluded. The callback runs on a pump, and disposal stops observation only.</remarks>
     public IDisposable Subscribe<TEvent>(ThreadKey thread, Func<TEvent, Task> handler)
         where TEvent : AgentEvent => Subscribe<TEvent>(thread, AgentEventHierarchy.ExactThread, evt => new ValueTask(handler(evt)));
 
     /// <summary>Subscribes a task callback to an explicitly selected thread hierarchy.</summary>
+    /// <remarks>Transitive scopes exclude sibling branches and retain each origin's journal identity. The callback runs on a pump; disposal does not stop execution or bubbling.</remarks>
     public IDisposable Subscribe<TEvent>(ThreadKey anchor, AgentEventHierarchy hierarchy, Func<TEvent, Task> handler)
         where TEvent : AgentEvent => Subscribe<TEvent>(anchor, hierarchy, evt => new ValueTask(handler(evt)));
 
@@ -752,10 +755,12 @@ public sealed partial class Agent : IAsyncDisposable
     }
 
     /// <summary>Subscribes an action to events originating from exactly <paramref name="thread"/>.</summary>
+    /// <remarks>Matching uses the complete thread key; threadless and descendant events are excluded. Publication does not wait for the action, and disposal stops observation only.</remarks>
     public IDisposable Subscribe<TEvent>(ThreadKey thread, Action<TEvent> handler)
         where TEvent : AgentEvent => Subscribe<TEvent>(thread, AgentEventHierarchy.ExactThread, evt => handler(evt));
 
     /// <summary>Subscribes an action to an explicitly selected thread hierarchy.</summary>
+    /// <remarks>Transitive scopes exclude sibling branches and retain each origin's journal identity. Publication does not wait for the action; disposal affects observation only.</remarks>
     public IDisposable Subscribe<TEvent>(ThreadKey anchor, AgentEventHierarchy hierarchy, Action<TEvent> handler)
         where TEvent : AgentEvent => Subscribe<TEvent>(anchor, hierarchy, evt =>
         {
@@ -774,10 +779,12 @@ public sealed partial class Agent : IAsyncDisposable
     }
 
     /// <summary>Subscribes to every agent event originating from exactly <paramref name="thread"/>.</summary>
+    /// <remarks>Threadless and descendant events are excluded. Callbacks run on a pump, and disposal stops observation without stopping execution.</remarks>
     public IDisposable SubscribeAny(ThreadKey thread, Func<AgentEvent, ValueTask> handler) =>
         SubscribeAny(thread, AgentEventHierarchy.ExactThread, handler);
 
     /// <summary>Subscribes to every agent event in an explicitly selected thread hierarchy.</summary>
+    /// <remarks>Transitive scopes exclude sibling branches and do not merge child journal cursors. Callbacks run on a pump; disposal affects observation only.</remarks>
     public IDisposable SubscribeAny(ThreadKey anchor, AgentEventHierarchy hierarchy, Func<AgentEvent, ValueTask> handler) =>
         Subscribe(anchor, hierarchy, handler);
 
@@ -791,10 +798,12 @@ public sealed partial class Agent : IAsyncDisposable
     }
 
     /// <summary>Subscribes a task callback to every event from exactly one thread.</summary>
+    /// <remarks>Complete-key matching excludes threadless events and descendants. Disposal stops observation only.</remarks>
     public IDisposable SubscribeAny(ThreadKey thread, Func<AgentEvent, Task> handler) =>
         SubscribeAny(thread, AgentEventHierarchy.ExactThread, evt => new ValueTask(handler(evt)));
 
     /// <summary>Subscribes a task callback to every event in a selected hierarchy.</summary>
+    /// <remarks>Transitive scopes exclude siblings and preserve per-origin ordering/cursors. Disposal stops observation only.</remarks>
     public IDisposable SubscribeAny(ThreadKey anchor, AgentEventHierarchy hierarchy, Func<AgentEvent, Task> handler) =>
         SubscribeAny(anchor, hierarchy, evt => new ValueTask(handler(evt)));
 
@@ -812,10 +821,12 @@ public sealed partial class Agent : IAsyncDisposable
     }
 
     /// <summary>Subscribes an action to every event from exactly one thread.</summary>
+    /// <remarks>Complete-key matching excludes threadless events and descendants. Publication does not await the action.</remarks>
     public IDisposable SubscribeAny(ThreadKey thread, Action<AgentEvent> handler) =>
         SubscribeAny(thread, AgentEventHierarchy.ExactThread, handler);
 
     /// <summary>Subscribes an action to every event in a selected hierarchy.</summary>
+    /// <remarks>Transitive scopes exclude siblings and preserve per-origin ordering/cursors. Publication does not await the action.</remarks>
     public IDisposable SubscribeAny(ThreadKey anchor, AgentEventHierarchy hierarchy, Action<AgentEvent> handler) =>
         SubscribeAny(anchor, hierarchy, evt =>
         {
@@ -2053,7 +2064,7 @@ public sealed partial class Agent : IAsyncDisposable
             if (!codec.TryGetByType(evt.GetType(), out _))
                 throw new InvalidOperationException($"Agent event type '{evt.GetType().FullName}' is not present in codec '{codec.Digest}'.");
             var live = evt with { ThreadSequenceNumber = 0 };
-            await runtimeCoordinator.EmitAsync(live, AgentEventRoutes.Create(live), cancellationToken).ConfigureAwait(false);
+            await runtimeCoordinator.EmitAsync(live, AgentEventRoutes.Create(runtimeCoordinator, live), cancellationToken).ConfigureAwait(false);
             return live;
         }
 
@@ -2068,7 +2079,7 @@ public sealed partial class Agent : IAsyncDisposable
                 ?? throw new InvalidOperationException("Agent runtime has no event composition authority.");
             if (!codec.TryGetByType(stateless.GetType(), out _))
                 throw new InvalidOperationException($"Agent event type '{stateless.GetType().FullName}' is not present in codec '{codec.Digest}'.");
-            await runtimeCoordinator.EmitAsync(stateless, AgentEventRoutes.Create(stateless), cancellationToken).ConfigureAwait(false);
+            await runtimeCoordinator.EmitAsync(stateless, AgentEventRoutes.Create(runtimeCoordinator, stateless), cancellationToken).ConfigureAwait(false);
             return stateless;
         }
 
@@ -2108,6 +2119,7 @@ public sealed partial class Agent : IAsyncDisposable
             _runtimeCts?.Dispose();
             runtimeCts = new CancellationTokenSource();
             runtimeCoordinator = _eventCoordinator.CreateChild(HPD.Events.EventChildOwnership.InheritOwner);
+            AgentEventRoutes.AttachCoordinator(runtimeCoordinator, _eventCoordinator);
             runtimeThreadEvents = Config?.SessionStore is { } store
                 ? CreateEventPublisher(store, runtimeCoordinator)
                 : null;
@@ -5106,7 +5118,7 @@ public sealed partial class Agent : IAsyncDisposable
             cancellationToken: cancellationToken))
         {
             var outputEvent = EnrichOutputEvent(evt);
-            await _eventCoordinator.EmitAsync(outputEvent, AgentEventRoutes.Create(outputEvent), cancellationToken).ConfigureAwait(false);
+            await _eventCoordinator.EmitAsync(outputEvent, AgentEventRoutes.Create(_eventCoordinator, outputEvent), cancellationToken).ConfigureAwait(false);
             yield return outputEvent;
         }
     }

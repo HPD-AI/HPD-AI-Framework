@@ -127,11 +127,13 @@ public sealed record FfiAgentOperation
 
 internal sealed class FfiEventSubscription : IDisposable
 {
+    private static readonly JsonSerializerOptions RouteJson = new(JsonSerializerDefaults.Web);
     private readonly object _gate = new();
     private readonly EventDeliveryCallback _callback;
     private readonly IntPtr _userData;
     private readonly ManualResetEventSlim _quiescent = new(initialState: true);
-    private IDisposable? _managedSubscription;
+    private HPD.Events.DeliveryInbox<AgentEventDelivery>? _inbox;
+    private Task? _pump;
     private bool _accepting = true;
     private int _callbacks;
     private int _callbackThreadId;
@@ -142,8 +144,21 @@ internal sealed class FfiEventSubscription : IDisposable
         _userData = userData;
     }
 
-    internal void Attach(IDisposable managedSubscription) =>
-        _managedSubscription = managedSubscription;
+    internal void Start(
+        HPD.Events.DeliveryInbox<AgentEventDelivery> inbox,
+        AgentEventCodec codec)
+    {
+        _inbox = inbox;
+        _pump = Task.Run(async () =>
+        {
+            await foreach (var delivery in inbox.Reader.ReadAllAsync().ConfigureAwait(false))
+            {
+                var json = $"{{\"event\":{codec.Serialize(delivery.Event)}," +
+                    $"\"route\":{JsonSerializer.Serialize(delivery.Route, RouteJson)}}}";
+                Invoke(json);
+            }
+        });
+    }
 
     internal bool IsCallbackThread =>
         Volatile.Read(ref _callbackThreadId) == System.Environment.CurrentManagedThreadId &&
@@ -182,7 +197,10 @@ internal sealed class FfiEventSubscription : IDisposable
                 return;
             _accepting = false;
         }
-        Interlocked.Exchange(ref _managedSubscription, null)?.Dispose();
+        var inbox = Interlocked.Exchange(ref _inbox, null);
+        if (inbox is not null)
+            inbox.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        Interlocked.Exchange(ref _pump, null)?.GetAwaiter().GetResult();
         _quiescent.Wait();
         _quiescent.Dispose();
     }
@@ -1101,18 +1119,11 @@ public static partial class NativeExports
         try
         {
             var nativeSubscription = new FfiEventSubscription(callback, userData);
-            var managedSubscription = agent.SubscribeAny(
+            var inbox = agent.CreateEventDeliveryInbox(
                 new ThreadKey(session, thread),
                 (AgentEventHierarchy)hierarchyValue,
-                evt =>
-                {
-                    var route = AgentEventRoutes.Create(evt)
-                        ?? throw new InvalidOperationException("A keyed native delivery requires thread attribution.");
-                    var json = $"{{\"event\":{agent.Config.EventComposition!.Codec.Serialize(evt)}," +
-                        $"\"route\":{JsonSerializer.Serialize(route.ToPublic(), DeliveryJson)}}}";
-                    nativeSubscription.Invoke(json);
-                });
-            nativeSubscription.Attach(managedSubscription);
+                HPD.Events.EventInboxOptions.Deterministic());
+            nativeSubscription.Start(inbox, agent.Config.EventComposition!.Codec);
             subscription = ObjectManager.Add(nativeSubscription);
             return HpdSubscribeStatus.Ok;
         }
@@ -1168,31 +1179,28 @@ public static partial class NativeExports
             var task = Task.Run(async () =>
             {
                 var threadKey = new ThreadKey(thread.Session.Id, thread.Thread.Id);
-                using var subscription = agent.SubscribeAny(threadKey, evt =>
+                await using var inbox = agent.CreateEventDeliveryInbox(
+                    threadKey,
+                    AgentEventHierarchy.ExactThread,
+                    HPD.Events.EventInboxOptions.Deterministic());
+                var consume = Task.Run(async () =>
                 {
-                    var route = AgentEventRoutes.Create(evt)
-                        ?? throw new InvalidOperationException("A keyed FFI delivery requires thread attribution.");
-                    var eventJson = $"{{\"event\":{agent.Config.EventComposition!.Codec.Serialize(evt)}," +
-                        $"\"route\":{JsonSerializer.Serialize(route.ToPublic())}}}";
-                    var eventPtr = MarshalString(eventJson);
-
-                    try
+                    await foreach (var delivery in inbox.Reader.ReadAllAsync().ConfigureAwait(false))
                     {
-                        // Invoke callback
-                        callback(context, eventPtr);
+                        var eventJson = $"{{\"event\":{agent.Config.EventComposition!.Codec.Serialize(delivery.Event)}," +
+                            $"\"route\":{JsonSerializer.Serialize(delivery.Route, DeliveryJson)}}}";
+                        var eventPtr = MarshalString(eventJson);
+                        try { callback(context, eventPtr); }
+                        finally { Marshal.FreeHGlobal(eventPtr); }
                     }
-                    finally
-                    {
-                        // Free the event string
-                        Marshal.FreeHGlobal(eventPtr);
-                    }
-                    return ValueTask.CompletedTask;
                 });
 
                 await agent.RunAsync(new UserMessagesInputEvent { Messages = messages,
                     Session = thread?.Session,
                     Thread = thread?.Thread
                 });
+                await inbox.DisposeAsync().ConfigureAwait(false);
+                await consume.ConfigureAwait(false);
 
                 // Signal end of stream with null pointer
                 callback(context, IntPtr.Zero);

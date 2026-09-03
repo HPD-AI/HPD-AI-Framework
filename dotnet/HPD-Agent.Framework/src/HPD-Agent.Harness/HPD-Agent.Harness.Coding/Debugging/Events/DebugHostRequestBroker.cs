@@ -111,7 +111,7 @@ internal sealed class DebugHostRequestBroker : IDebugHostRequestBroker
             ThreadId = scope.ThreadId,
             TraceId = scope.TraceId
         };
-        var route = AgentEventRoutes.Create(request);
+        var route = AgentEventRoutes.Create(_events, request);
         var handle = _events.RegisterRequest<DebugRunInTerminalRequestEvent, DebugRunInTerminalResponseEvent>(
             request, route, new RequestOptions { Timeout = _timeout, CancellationToken = cancellationToken });
         try

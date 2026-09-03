@@ -628,7 +628,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             var pendingCatchUp = new List<AgentEvent>(256);
             using var request = new HttpRequestMessage(
                 HttpMethod.Get,
-                $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/threads/{Escape(scope.ThreadId)}/events?after={cursor.Generation}:{cursor.SequenceNumber}");
+                $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/threads/{Escape(scope.ThreadId)}/events?after={cursor.Generation}:{cursor.SequenceNumber}&hierarchy=threadAndDescendants");
             using var response = await _http.SendAsync(
                     request,
                     HttpCompletionOption.ResponseHeadersRead,

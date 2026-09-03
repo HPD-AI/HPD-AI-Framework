@@ -361,7 +361,7 @@ public static class ThreadProjector
         List<string> childThreads,
         Dictionary<string, string>? ancestors)
     {
-        var parent = AgentEventRoutes.ValidateParentPair(parentSessionId, parentThreadId);
+        AgentEventRoutes.ValidateParentPair(parentSessionId, parentThreadId);
         thread.DefaultAgentId = defaultAgentId;
         thread.Name = name;
         thread.Description = description;
@@ -378,8 +378,6 @@ public static class ThreadProjector
         thread.ContextPolicy = contextPolicy;
         thread.SetForkMetadata(forkedFrom, forkedAtMessageId, forkedAtMessageIndex, ancestors);
         thread.SetTreeMetadata(forkedFrom, forkedAtMessageId, forkedAtMessageIndex, childThreads);
-        if (parent is { } parentKey)
-            AgentEventRoutes.RegisterChild(new ThreadKey(thread.SessionId, thread.Id), parentKey);
     }
 
     private static void ReplaceMetadata(

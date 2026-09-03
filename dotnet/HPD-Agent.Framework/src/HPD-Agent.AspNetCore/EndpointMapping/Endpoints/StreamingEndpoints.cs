@@ -100,7 +100,7 @@ internal static class StreamingEndpoints
         if (!TryParseHierarchy(context.Request.Query["hierarchy"].ToString(), out var hierarchy))
             return TypedResults.BadRequest();
 
-        var leaseResult = await streaming.ObserveThreadEventsAsync(agentId, sid, bid, hierarchy, ct);
+        var leaseResult = await streaming.ObserveThreadEventsAsync(agentId, new ThreadKey(sid, bid), hierarchy, ct);
         if (leaseResult.Status == AgentServiceStatus.NotFound)
             return TypedResults.NotFound();
 
@@ -111,17 +111,22 @@ internal static class StreamingEndpoints
 
     private static bool TryParseHierarchy(string value, out AgentEventHierarchy hierarchy)
     {
-        hierarchy = value switch
+        if (value.Length == 0 || value.Equals("exactThread", StringComparison.OrdinalIgnoreCase))
+            hierarchy = AgentEventHierarchy.ExactThread;
+        else if (value.Equals("directChildren", StringComparison.OrdinalIgnoreCase))
+            hierarchy = AgentEventHierarchy.DirectChildren;
+        else if (value.Equals("threadAndDirectChildren", StringComparison.OrdinalIgnoreCase))
+            hierarchy = AgentEventHierarchy.ThreadAndDirectChildren;
+        else if (value.Equals("descendants", StringComparison.OrdinalIgnoreCase))
+            hierarchy = AgentEventHierarchy.Descendants;
+        else if (value.Equals("threadAndDescendants", StringComparison.OrdinalIgnoreCase))
+            hierarchy = AgentEventHierarchy.ThreadAndDescendants;
+        else
         {
-            "" or "exactThread" => AgentEventHierarchy.ExactThread,
-            "directChildren" => AgentEventHierarchy.DirectChildren,
-            "threadAndDirectChildren" => AgentEventHierarchy.ThreadAndDirectChildren,
-            "descendants" => AgentEventHierarchy.Descendants,
-            "threadAndDescendants" => AgentEventHierarchy.ThreadAndDescendants,
-            _ => (AgentEventHierarchy)(-1)
-        };
-        return hierarchy >= AgentEventHierarchy.ExactThread &&
-            hierarchy <= AgentEventHierarchy.ThreadAndDescendants;
+            hierarchy = default;
+            return false;
+        }
+        return true;
     }
 
     private static AgentInputEvent? ParseInputEvent(

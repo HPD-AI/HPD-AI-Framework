@@ -115,7 +115,7 @@ public sealed class AgentRuntimeContext :
         if (!codec.TryGetByType(evt.GetType(), out _))
             throw new InvalidOperationException($"Agent event type '{evt.GetType().FullName}' is not present in codec '{codec.Digest}'.");
         var live = evt with { ThreadSequenceNumber = 0 };
-        await EventCoordinator.EmitAsync(live, AgentEventRoutes.Create(live), cancellationToken).ConfigureAwait(false);
+        await EventCoordinator.EmitAsync(live, AgentEventRoutes.Create(EventCoordinator, live), cancellationToken).ConfigureAwait(false);
         return live;
     }
 

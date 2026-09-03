@@ -31,7 +31,7 @@ internal static class SseEventHandler
 
         var store = observation.Store;
         var eventCodec = store.EventCodec;
-        var thread = observation.Thread;
+        var thread = observation.Anchor;
 
         context.Response.ContentType = "text/event-stream";
         context.Response.Headers.CacheControl = "no-cache";
@@ -54,7 +54,7 @@ internal static class SseEventHandler
             {
                 foreach (var evt in batch.Events)
                 {
-                    await WriteJournalEventAsync(context, eventCodec, batch.Generation, evt, streamCancellationToken)
+                    await WriteJournalEventAsync(context, store, eventCodec, batch.Generation, evt, streamCancellationToken)
                         .ConfigureAwait(false);
                     cursor = new ThreadJournalCursor(batch.Generation, evt.ThreadSequenceNumber);
                 }
@@ -157,16 +157,14 @@ internal static class SseEventHandler
 
     private static async Task WriteJournalEventAsync(
         HttpContext context,
+        ISessionStore store,
         AgentEventCodec eventCodec,
         long generation,
         AgentEvent evt,
         CancellationToken cancellationToken)
     {
-        var route = new AgentEventRoute(
-            new ThreadKey(evt.SessionId!, evt.ThreadId!),
-            [new ThreadKey(evt.SessionId!, evt.ThreadId!)],
-            evt.ThreadExecutionId);
-        var json = SerializeDelivery(eventCodec, new AgentEventDelivery(evt, route));
+        var route = await AgentEventRoutes.CreateFromStoreAsync(store, evt, cancellationToken).ConfigureAwait(false);
+        var json = SerializeDelivery(eventCodec, new AgentEventDelivery(evt, route.ToPublic()));
         await context.Response.WriteAsync(
                 $"id: {generation}:{evt.ThreadSequenceNumber}\n",
                 cancellationToken)

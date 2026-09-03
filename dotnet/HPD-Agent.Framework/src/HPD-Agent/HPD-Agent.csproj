@@ -82,7 +82,9 @@
     <InternalsVisibleTo Include="HPD.Agent.Audio" />
     <InternalsVisibleTo Include="HPD-Agent.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.EventRouting.Tests" />
+    <InternalsVisibleTo Include="HPD-Agent.TUI.Benchmarks" />
     <InternalsVisibleTo Include="HPD-Agent.AspNetCore.Tests" />
+    <InternalsVisibleTo Include="HPD-Agent.AspNetCore" />
     <InternalsVisibleTo Include="HPD-Agent.ToolHarness.Runtime.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.Authority.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.LiveAudio.Contracts.Tests" />

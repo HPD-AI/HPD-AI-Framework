@@ -273,7 +273,7 @@ public sealed class AgentStreamingServiceTests : IAsyncLifetime
             }
         }, "agent-1");
 
-        var result = await _service.ObserveThreadEventsAsync(stored.Id, sessionId, threadId);
+        var result = await _service.ObserveThreadEventsAsync(stored.Id, new ThreadKey(sessionId, threadId));
 
         result.Status.Should().Be(AgentServiceStatus.Success);
         _agentManager.GetRuntimeAgent(stored.Id, sessionId, threadId).Should().BeNull();

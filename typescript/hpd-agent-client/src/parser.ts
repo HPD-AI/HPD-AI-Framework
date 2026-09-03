@@ -144,5 +144,7 @@ function isAgentEventDelivery(value: unknown): value is AgentEventDelivery {
 function isThreadKey(value: unknown): boolean {
   return value !== null && typeof value === 'object' &&
     typeof (value as { sessionId?: unknown }).sessionId === 'string' &&
-    typeof (value as { threadId?: unknown }).threadId === 'string';
+    (value as { sessionId: string }).sessionId.trim().length > 0 &&
+    typeof (value as { threadId?: unknown }).threadId === 'string' &&
+    (value as { threadId: string }).threadId.trim().length > 0;
 }

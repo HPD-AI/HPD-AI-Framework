@@ -128,6 +128,17 @@ describe('SseParser', () => {
     expect(events).toHaveLength(0);
   });
 
+  it('should reject delivery routes with empty or whitespace thread keys', () => {
+    const parser = new SseParser();
+    const event = '{"version":"1.0","type":"TEXT_DELTA","text":"x","messageId":"m"}';
+    const chunk = new TextEncoder().encode(
+      `data: {"event":${event},"route":{"origin":{"sessionId":"","threadId":"main"},"path":[{"sessionId":"","threadId":"main"}]}}\n\n` +
+      `data: {"event":${event},"route":{"origin":{"sessionId":"session","threadId":"   "},"path":[{"sessionId":"session","threadId":"   "}]}}\n\n`
+    );
+
+    expect(parser.processChunk(chunk)).toHaveLength(0);
+  });
+
   it('should parse durable thread update events with threadMetadata payloads', () => {
     const parser = new SseParser();
     const chunk = new TextEncoder().encode(

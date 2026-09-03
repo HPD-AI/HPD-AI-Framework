@@ -44,6 +44,7 @@ public sealed class SseEventHandlerReplayTests
         await using var observation = new ThreadEventObservationLease(
             store,
             new ThreadKey("session-1", "main"),
+            AgentEventHierarchy.ExactThread,
             AgentEventRoutes.CreateDeliveryInbox(coordinator, new ThreadKey("session-1", "main"), AgentEventHierarchy.ExactThread));
         var streamTask = SseEventHandler.StreamEventsAsync(context, observation, timeout.Token);
         while (context.Response.Body.Length < 20)
@@ -70,6 +71,7 @@ public sealed class SseEventHandlerReplayTests
         await using var observation = new ThreadEventObservationLease(
             store,
             new ThreadKey("session-1", "main"),
+            AgentEventHierarchy.ExactThread,
             AgentEventRoutes.CreateDeliveryInbox(coordinator, new ThreadKey("session-1", "main"), AgentEventHierarchy.ExactThread));
         var context = CreateContext(after: "1:1");
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
@@ -80,7 +82,7 @@ public sealed class SseEventHandlerReplayTests
             ThreadId = "main"
         };
 
-        await coordinator.EmitAsync(live, AgentEventRoutes.Create(live), timeout.Token);
+        await coordinator.EmitAsync(live, AgentEventRoutes.Create(coordinator, live), timeout.Token);
         await WaitForBodyAsync(context, live.EventId, timeout.Token);
         await timeout.CancelAsync();
         await streamTask;
@@ -99,10 +101,12 @@ public sealed class SseEventHandlerReplayTests
         var child = (EventCoordinator)parent.CreateChild(EventChildOwnership.NewOwner);
         var root = new ThreadKey("session-1", "main");
         var childKey = new ThreadKey("session-1", "subagent/explore/invocation-1");
-        AgentEventRoutes.RegisterChild(childKey, root);
+        AgentEventRoutes.AttachCoordinator(child, parent);
+        AgentEventRoutes.RegisterChild(parent, childKey, root);
         await using var observation = new ThreadEventObservationLease(
             store,
             new ThreadKey("session-1", "main"),
+            AgentEventHierarchy.ThreadAndDescendants,
             AgentEventRoutes.CreateDeliveryInbox(parent, root, AgentEventHierarchy.ThreadAndDescendants));
         var context = CreateContext(after: "1:1");
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
@@ -114,7 +118,7 @@ public sealed class SseEventHandlerReplayTests
             ThreadSequenceNumber = 7
         };
 
-        await child.EmitAsync(childEvent, AgentEventRoutes.Create(childEvent), timeout.Token);
+        await child.EmitAsync(childEvent, AgentEventRoutes.Create(child, childEvent), timeout.Token);
         await WaitForBodyAsync(context, childEvent.EventId, timeout.Token);
         await timeout.CancelAsync();
         await streamTask;
@@ -133,6 +137,7 @@ public sealed class SseEventHandlerReplayTests
         await using var observation = new ThreadEventObservationLease(
             store,
             new ThreadKey("session-1", "main"),
+            AgentEventHierarchy.ExactThread,
             AgentEventRoutes.CreateDeliveryInbox(coordinator, new ThreadKey("session-1", "main"), AgentEventHierarchy.ExactThread));
         var context = CreateContext(after: "1:1");
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));

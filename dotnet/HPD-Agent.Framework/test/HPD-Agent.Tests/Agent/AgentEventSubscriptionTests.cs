@@ -25,8 +25,8 @@ public sealed class AgentEventSubscriptionTests
             }
         });
 
-        runtime.Emit(EventFor(new ThreadKey("session", "main"), "runtime"), AgentEventRoutes.Create(EventFor(new ThreadKey("session", "main"), "route")));
-        subagent.Emit(EventFor(new ThreadKey("session", "child"), "subagent"), AgentEventRoutes.Create(EventFor(new ThreadKey("session", "child"), "route")));
+        runtime.Emit(EventFor(new ThreadKey("session", "main"), "runtime"), AgentEventRoutes.Create(agent.EventCoordinator, EventFor(new ThreadKey("session", "main"), "route")));
+        subagent.Emit(EventFor(new ThreadKey("session", "child"), "subagent"), AgentEventRoutes.Create(agent.EventCoordinator, EventFor(new ThreadKey("session", "child"), "route")));
 
         await runtimeSeen.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await Task.Delay(75);
@@ -61,9 +61,9 @@ public sealed class AgentEventSubscriptionTests
         var childB = new ThreadKey(root.SessionId, "child-b");
         var grandchild = new ThreadKey(root.SessionId, "grandchild");
         var unrelated = new ThreadKey(root.SessionId, "unrelated");
-        AgentEventRoutes.RegisterChild(childA, root);
-        AgentEventRoutes.RegisterChild(childB, root);
-        AgentEventRoutes.RegisterChild(grandchild, childA);
+        AgentEventRoutes.RegisterChild(agent.EventCoordinator, childA, root);
+        AgentEventRoutes.RegisterChild(agent.EventCoordinator, childB, root);
+        AgentEventRoutes.RegisterChild(agent.EventCoordinator, grandchild, childA);
         await using var inbox = agent.CreateEventInbox<TextDeltaEvent>(root, hierarchy);
 
         Emit(agent, root, "root");
@@ -91,10 +91,10 @@ public sealed class AgentEventSubscriptionTests
         var right = new ThreadKey(session, "right");
         var leftLeaf = new ThreadKey(session, "left-leaf");
         var rightLeaf = new ThreadKey(session, "right-leaf");
-        AgentEventRoutes.RegisterChild(left, root);
-        AgentEventRoutes.RegisterChild(right, root);
-        AgentEventRoutes.RegisterChild(leftLeaf, left);
-        AgentEventRoutes.RegisterChild(rightLeaf, right);
+        AgentEventRoutes.RegisterChild(agent.EventCoordinator, left, root);
+        AgentEventRoutes.RegisterChild(agent.EventCoordinator, right, root);
+        AgentEventRoutes.RegisterChild(agent.EventCoordinator, leftLeaf, left);
+        AgentEventRoutes.RegisterChild(agent.EventCoordinator, rightLeaf, right);
         await using var inbox = agent.CreateEventDeliveryInbox(
             root,
             AgentEventHierarchy.Descendants,
@@ -130,7 +130,7 @@ public sealed class AgentEventSubscriptionTests
         await using var agent = await BuildAgentAsync();
         var root = new ThreadKey("parent-session-" + Guid.NewGuid().ToString("N"), "root");
         var child = new ThreadKey("isolated-child-session-" + Guid.NewGuid().ToString("N"), "child");
-        AgentEventRoutes.RegisterChild(child, root);
+        AgentEventRoutes.RegisterChild(agent.EventCoordinator, child, root);
         await using var inbox = agent.CreateEventDeliveryInbox(root, AgentEventHierarchy.Descendants);
 
         Emit(agent, child, "cross-session");
@@ -149,16 +149,16 @@ public sealed class AgentEventSubscriptionTests
         var left = new ThreadKey(session, "left");
         var right = new ThreadKey(session, "right");
         var leaf = new ThreadKey(session, "leaf");
-        AgentEventRoutes.RegisterChild(left, root);
-        AgentEventRoutes.RegisterChild(right, root);
-        AgentEventRoutes.RegisterChild(leaf, left);
+        AgentEventRoutes.RegisterChild(agent.EventCoordinator, left, root);
+        AgentEventRoutes.RegisterChild(agent.EventCoordinator, right, root);
+        AgentEventRoutes.RegisterChild(agent.EventCoordinator, leaf, left);
         await using var inbox = agent.CreateEventDeliveryInbox(left, AgentEventHierarchy.ThreadAndDescendants);
         var leftEvent = EventFor(left, "left");
         var leafEvent = EventFor(leaf, "leaf");
 
-        agent.EventCoordinator.Emit(leftEvent, AgentEventRoutes.Create(leftEvent));
+        agent.EventCoordinator.Emit(leftEvent, AgentEventRoutes.Create(agent.EventCoordinator, leftEvent));
         Emit(agent, right, "right");
-        agent.EventCoordinator.Emit(leafEvent, AgentEventRoutes.Create(leafEvent));
+        agent.EventCoordinator.Emit(leafEvent, AgentEventRoutes.Create(agent.EventCoordinator, leafEvent));
 
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
         Assert.Same(leftEvent, (await inbox.Reader.ReadAsync(timeout.Token)).Event);
@@ -174,12 +174,52 @@ public sealed class AgentEventSubscriptionTests
         Assert.Throws<InvalidOperationException>(() => AgentEventRoutes.ValidateParentPair(sessionId, threadId));
     }
 
+    [Fact]
+    public async Task RuntimeLineage_IsOwnedByAgentGraph()
+    {
+        await using var first = await BuildAgentAsync();
+        await using var second = await BuildAgentAsync();
+        var child = new ThreadKey("shared-session", "child");
+        var firstRoot = new ThreadKey("first-session", "root");
+        var secondRoot = new ThreadKey("second-session", "root");
+        AgentEventRoutes.RegisterChild(first.EventCoordinator, child, firstRoot);
+        AgentEventRoutes.RegisterChild(second.EventCoordinator, child, secondRoot);
+        var evt = EventFor(child, "owned");
+
+        var firstRoute = AgentEventRoutes.Create(first.EventCoordinator, evt)!;
+        var secondRoute = AgentEventRoutes.Create(second.EventCoordinator, evt)!;
+
+        Assert.True(firstRoute.Path.SequenceEqual([firstRoot, child]));
+        Assert.True(secondRoute.Path.SequenceEqual([secondRoot, child]));
+    }
+
+    [Fact]
+    public async Task RuntimeLineage_ConcurrentCycleRegistrationIsAtomic()
+    {
+        await using var agent = await BuildAgentAsync();
+        var left = new ThreadKey("cycle-session", "left");
+        var right = new ThreadKey("cycle-session", "right");
+        var failures = 0;
+
+        await Task.WhenAll(
+            Task.Run(() => TryRegister(left, right)),
+            Task.Run(() => TryRegister(right, left)));
+
+        Assert.Equal(1, failures);
+
+        void TryRegister(ThreadKey child, ThreadKey parent)
+        {
+            try { AgentEventRoutes.RegisterChild(agent.EventCoordinator, child, parent); }
+            catch (InvalidOperationException) { Interlocked.Increment(ref failures); }
+        }
+    }
+
     internal static void EmitForFfi(HPD.Agent.Agent agent, ThreadKey key, string text) => Emit(agent, key, text);
 
     private static void Emit(HPD.Agent.Agent agent, ThreadKey key, string text)
     {
         var evt = EventFor(key, text);
-        agent.EventCoordinator.Emit(evt, AgentEventRoutes.Create(evt));
+        agent.EventCoordinator.Emit(evt, AgentEventRoutes.Create(agent.EventCoordinator, evt));
     }
 
     private static TextDeltaEvent EventFor(ThreadKey key, string text) =>

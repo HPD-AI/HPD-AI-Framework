@@ -1381,7 +1381,10 @@ public class AgentBuilder
         {
             var telemetryObserver = new TelemetryEventObserver(effectiveSourceName);
             return new CompositeDisposable(
-                coordinator.Subscribe<AgentEvent>(telemetryObserver.HandleAsync),
+                coordinator.Subscribe<AgentEvent>(telemetryObserver.HandleAsync, new HPD.Events.EventSubscriptionOptions
+                {
+                    OwnerScope = HPD.Events.EventOwnerScope.SameOwner
+                }),
                 telemetryObserver);
         });
 
@@ -1418,7 +1421,10 @@ public class AgentBuilder
         {
             var tracing = new TracingObserver(sourceName ?? "HPD.Agent", sanitizerOptions);
             return new CompositeDisposable(
-                coordinator.Subscribe<AgentEvent>(tracing.HandleAsync),
+                coordinator.Subscribe<AgentEvent>(tracing.HandleAsync, new HPD.Events.EventSubscriptionOptions
+                {
+                    OwnerScope = HPD.Events.EventOwnerScope.AllOwners
+                }),
                 tracing);
         });
         return this;
@@ -1520,7 +1526,10 @@ public class AgentBuilder
                 _logger.CreateLogger<LoggingEventObserver>(),
                 enableSensitiveData);
             _eventSubscriptionFactories.Add(coordinator =>
-                coordinator.Subscribe<AgentEvent>(loggingObserver.HandleAsync));
+                coordinator.Subscribe<AgentEvent>(loggingObserver.HandleAsync, new HPD.Events.EventSubscriptionOptions
+                {
+                    OwnerScope = HPD.Events.EventOwnerScope.SameOwner
+                }));
         }
 
         // 3. Store logging options - LoggingMiddleware will be added LAST in RegisterAutoMiddleware()

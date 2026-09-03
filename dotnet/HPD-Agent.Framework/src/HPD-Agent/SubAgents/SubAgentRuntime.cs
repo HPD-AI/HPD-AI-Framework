@@ -1492,11 +1492,15 @@ public static class SubAgentRuntime
     {
         var parentCoordinator = functionContext?.GetParentEventCoordinator();
         if (parentCoordinator != null)
+        {
+            AgentEventRoutes.AttachCoordinator(agent.EventCoordinator, parentCoordinator);
             agent.EventCoordinator.SetParent(parentCoordinator);
+        }
         if (functionContext?.SessionId is { Length: > 0 } parentSessionId &&
             functionContext.ThreadId is { Length: > 0 } parentThreadId)
         {
             AgentEventRoutes.RegisterChild(
+                parentCoordinator ?? agent.EventCoordinator,
                 new ThreadKey(route.SessionId, route.ThreadId),
                 new ThreadKey(parentSessionId, parentThreadId));
         }

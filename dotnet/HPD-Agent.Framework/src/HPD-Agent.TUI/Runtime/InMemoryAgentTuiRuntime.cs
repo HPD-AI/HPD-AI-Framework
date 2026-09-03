@@ -706,7 +706,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             var signals = Channel.CreateUnbounded<AgentEvent>();
             using var subscription = _agent.SubscribeAny(
                 new ThreadKey(scope.SessionId, scope.ThreadId),
-                AgentEventHierarchy.ExactThread,
+                AgentEventHierarchy.ThreadAndDescendants,
                 evt =>
             {
                 signals.Writer.TryWrite(evt);
@@ -723,7 +723,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         var liveSignals = Channel.CreateUnbounded<AgentEvent>();
         using var liveSubscription = _agent.SubscribeAny(
             new ThreadKey(scope.SessionId, scope.ThreadId),
-            AgentEventHierarchy.ExactThread,
+            AgentEventHierarchy.ThreadAndDescendants,
             evt =>
         {
             liveSignals.Writer.TryWrite(evt);
@@ -1115,7 +1115,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         var store = _agent.Config?.SessionStore;
         if (store is null || string.IsNullOrWhiteSpace(evt.SessionId) || string.IsNullOrWhiteSpace(evt.ThreadId))
         {
-            await _agent.EventCoordinator.EmitAsync(evt, AgentEventRoutes.Create(evt), cancellationToken).ConfigureAwait(false);
+            await _agent.EventCoordinator.EmitAsync(evt, AgentEventRoutes.Create(_agent.EventCoordinator, evt), cancellationToken).ConfigureAwait(false);
             return evt;
         }
 

@@ -1168,7 +1168,8 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             return;
         }
 
-        ProjectMarkdownEvent(evt);
+        if (AgentTuiEventScope.CurrentThread.Includes(evt, _scope))
+            ProjectMarkdownEvent(evt);
 
         await _state.ApplyEventAsync(evt, cancellationToken, deliveryMode).ConfigureAwait(false);
         if (deliveryMode != AgentTuiEventDeliveryMode.Historical &&
