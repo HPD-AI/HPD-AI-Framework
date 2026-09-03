@@ -126,6 +126,8 @@ public sealed record SubAgentExecutionPolicy
                 JsonSerializer.Serialize(initialRunConfig, AgentEventJsonContext.Default.AgentRunConfig),
                 AgentEventJsonContext.Default.AgentRunConfig)
               ?? throw new InvalidOperationException("subagent_run_config_not_portable");
+        if (initialSnapshot is not null)
+            initialSnapshot.Clients = CloneClients(initialSnapshot.Clients);
         var lockedSnapshot = CloneClients(lockedClients);
         var sourceSnapshot = new Dictionary<ProviderClientFamily, SubAgentClientSelectionSource>(clientSources);
         var authoritySnapshot = authority with
@@ -242,6 +244,8 @@ public sealed record SubAgentExecutionPolicy
         {
             var locked = LockedClients.GetFamilyConfig(family);
             var turn = requested.GetFamilyConfig(family);
+            if (turn is not null && HasRuntimeOverride(turn))
+                throw new InvalidOperationException("subagent_locked_client_override_forbidden");
             if (locked is null)
             {
                 if (turn is not null)

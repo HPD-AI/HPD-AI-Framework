@@ -1944,12 +1944,17 @@ public static class SubAgentRuntime
                     }
                 }
             };
+        var controllerPermissions = (controller.PermissionOverrides ?? [])
+            .GroupBy(static value => (value.Selector.FunctionName, value.Selector.Action, value.Selector.Authority))
+            .ToDictionary(static group => group.Key, static group => group.Any(static value => value.RequiresPermission));
         var permissions = (controller.PermissionOverrides ?? [])
             .Concat(requested.PermissionOverrides ?? [])
             .GroupBy(static value => (value.Selector.FunctionName, value.Selector.Action, value.Selector.Authority))
-            .Select(static group => new PermissionOverride(
+            .Select(group => new PermissionOverride(
                 group.First().Selector with { },
-                group.Any(static value => value.RequiresPermission)))
+                group.Any(static value => value.RequiresPermission) ||
+                !controllerPermissions.TryGetValue(group.Key, out var controllerRequiresPermission) ||
+                controllerRequiresPermission))
             .ToArray();
         var requestedPaths = requested.Sandbox.Capabilities.Filesystem
             .Select(static value => (value.Path, value.Access))
