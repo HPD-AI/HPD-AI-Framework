@@ -6,11 +6,14 @@ namespace HPD.TUI.Markdown;
 /// <summary>Immutable public metadata for one exact canonical-source parse.</summary>
 public sealed class MarkdownDocumentSnapshot
 {
-    internal MarkdownDocumentSnapshot(string source, IReadOnlyList<MarkdownTopLevelBlock> blocks, MarkdownDocumentFeatures features, MarkdownPipelineDescriptor pipeline, Markdig.Syntax.MarkdownDocument syntax)
+    internal MarkdownDocumentSnapshot(string source, IReadOnlyList<MarkdownTopLevelBlock> blocks,
+        MarkdownDocumentFeatures features, IReadOnlyList<string> nodeCapabilities,
+        MarkdownPipelineDescriptor pipeline, Markdig.Syntax.MarkdownDocument syntax)
     {
         Source = source;
         Blocks = blocks;
         Features = features;
+        NodeCapabilities = nodeCapabilities;
         PipelineId = pipeline.StableId;
         Pipeline = pipeline;
         Syntax = syntax;
@@ -22,6 +25,8 @@ public sealed class MarkdownDocumentSnapshot
     public IReadOnlyList<MarkdownTopLevelBlock> Blocks { get; }
     /// <summary>Gets document-wide semantic features.</summary>
     public MarkdownDocumentFeatures Features { get; }
+    /// <summary>Gets sorted runtime node capabilities encountered during semantic analysis.</summary>
+    public IReadOnlyList<string> NodeCapabilities { get; }
     /// <summary>Gets the structural pipeline identity.</summary>
     public string PipelineId { get; }
     internal Markdig.Syntax.MarkdownDocument Syntax { get; }

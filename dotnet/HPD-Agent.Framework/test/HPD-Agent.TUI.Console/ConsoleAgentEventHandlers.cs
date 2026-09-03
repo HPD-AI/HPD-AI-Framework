@@ -67,7 +67,7 @@ public sealed class ToolLifecycleHandler : IAgentTuiEventHandler
             Cell: new ToolCallCell(
                 row.Name,
                 ToRunState(row.State),
-                Summary: HPD.TUI.Content.MarkdownBlock.Create($"{args}{result}")),
+                Summary: HPD.TUI.Content.TextBlock.Create($"{args}{result}")),
             Metadata: new TranscriptEntryMetadata(
                 AgentId: evt.Metadata?.AgentId ?? $"{context.Scope.AgentId}/tool",
                 AgentName: evt.Metadata?.AgentName ?? "tool",

@@ -144,6 +144,8 @@ public sealed class MarkdownStreamCoordinator
     /// <summary>Discards all session-owned source after its producer has stopped.</summary>
     public void DiscardAll()
     {
+        if (!_dispatcher.CheckAccess())
+            throw new InvalidOperationException("Markdown stream state may only be discarded on the TUI dispatcher.");
         _refreshQueued.Clear();
         _lifecycleOnly.Clear();
         _sessions.Clear();

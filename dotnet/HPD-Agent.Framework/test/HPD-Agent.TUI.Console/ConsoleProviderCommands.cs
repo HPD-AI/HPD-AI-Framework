@@ -197,7 +197,7 @@ internal static class ConsoleProviderCommands
         => AppendOrUpdate(context, new TranscriptEntry(
                 Id: $"provider-command-{Guid.NewGuid():N}",
                 EntryKey: entryKey,
-                Cell: new NoticeCell(title, HPD.TUI.Content.MarkdownBlock.Create(markdown), severity),
+                Cell: new NoticeCell(title, HPD.TUI.Content.TextBlock.Create(markdown), severity),
                 Metadata: Metadata(context)));
 
     private static void AppendOrUpdate(AgentTuiCommandContext context, TranscriptEntry entry)
@@ -257,7 +257,7 @@ internal static class ConsoleProviderCommands
         if (snapshot.Providers.Count == 0)
         {
             markdown.AppendLine("No providers found.");
-            return HPD.TUI.Content.MarkdownBlock.Create(markdown.ToString());
+            return HPD.TUI.Content.TextBlock.Create(markdown.ToString());
         }
 
         for (var i = 0; i < snapshot.Providers.Count; i++)
@@ -284,7 +284,7 @@ internal static class ConsoleProviderCommands
                 .AppendLine(RequiredSecrets(status.Provider));
         }
 
-        return HPD.TUI.Content.MarkdownBlock.Create(markdown.ToString());
+        return HPD.TUI.Content.TextBlock.Create(markdown.ToString());
     }
 
     private static bool HandleProvidersPageInput(AgentTuiPageContext context, KeyEvent key)
@@ -320,7 +320,7 @@ internal static class ConsoleProviderCommands
         var status = PageState.Snapshot().SelectedProvider;
         if (status is null)
         {
-            return HPD.TUI.Content.MarkdownBlock.Create("**Provider**\n\nNo provider selected.");
+            return HPD.TUI.Content.TextBlock.Create("**Provider**\n\nNo provider selected.");
         }
 
         var provider = status.Provider;
@@ -334,7 +334,7 @@ internal static class ConsoleProviderCommands
         markdown.Append("- required secrets: ").AppendLine(RequiredSecrets(provider));
         markdown.AppendLine();
         markdown.AppendLine("Use `/provider <providerKey> setup` for setup details or `/model` to choose a model.");
-        return HPD.TUI.Content.MarkdownBlock.Create(markdown.ToString());
+        return HPD.TUI.Content.TextBlock.Create(markdown.ToString());
     }
 
     private static bool HandleProviderDetailPageInput(AgentTuiPageContext context, KeyEvent key)

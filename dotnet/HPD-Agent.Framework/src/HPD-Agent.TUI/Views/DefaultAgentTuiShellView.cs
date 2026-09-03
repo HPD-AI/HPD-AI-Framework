@@ -4,11 +4,12 @@ using HPD.Agent.TUI.Observability;
 using HPD.TUI.Components;
 using HPD.TUI.Core;
 using HPD.TUI.Layout;
+using HPD.TUI.Terminal;
 using HPD.TUI.Views;
 
 namespace HPD.Agent.TUI.Views;
 
-public sealed class DefaultAgentTuiShellView : IComponent
+public sealed class DefaultAgentTuiShellView : IComponent, IAgentTuiFramePreparable
 {
     private readonly ChatShellModel _model;
     private readonly PromptView _prompt;
@@ -17,6 +18,7 @@ public sealed class DefaultAgentTuiShellView : IComponent
     private readonly AgentTuiShellChrome _chrome;
     private readonly RetainedShellStack _shell;
     private readonly TranscriptView _transcript;
+    private readonly MainSectionView _mainSection;
     private int _lastTranscriptHeight;
 
     public DefaultAgentTuiShellView(AgentTuiShellLayoutContext context)
@@ -37,7 +39,16 @@ public sealed class DefaultAgentTuiShellView : IComponent
             _model.Scope,
             performanceSink);
         _model.Transcript.HistoryPresentation = _registry.TranscriptHistoryPresentation;
+        _mainSection = new MainSectionView(this);
         _shell = CreateShell();
+    }
+
+    /// <inheritdoc />
+    public void PrepareFrame(TerminalSize size, Theme theme, ColorSystem colorSystem)
+    {
+        var context = new RenderContext(size.Width, size.Height, theme, colorSystem);
+        UpdateTranscriptHeight(in context);
+        _mainSection.Prepare(size.Width, theme, colorSystem);
     }
 
     public Measurement Measure(in RenderContext context, int maxWidth)
@@ -81,7 +92,7 @@ public sealed class DefaultAgentTuiShellView : IComponent
             AddSection(shell, _chrome.Header, new ShellContributionView(_model, _registry.Header), isMain: false);
         }
 
-        AddSection(shell, _chrome.Transcript, new MainSectionView(this), isMain: true);
+        AddSection(shell, _chrome.Transcript, _mainSection, isMain: true);
         AddSection(shell, _chrome.Activity, BuildActivitySection(), isMain: false);
 
         AddSection(
@@ -285,6 +296,9 @@ public sealed class DefaultAgentTuiShellView : IComponent
         private string? _pageId;
         private int _pageHeight;
         private IComponent? _pageComponent;
+        private int _pageWidth;
+        private ThemeKey _pageThemeKey;
+        private ColorSystem _pageColorSystem;
 
         public MainSectionView(DefaultAgentTuiShellView owner)
         {
@@ -299,6 +313,29 @@ public sealed class DefaultAgentTuiShellView : IComponent
 
         public bool HandleInput(in TuiInputEvent key)
             => Resolve().HandleInput(in key);
+
+        internal void Prepare(int width, Theme theme, ColorSystem colorSystem)
+        {
+            var activePageId = _owner._model.Navigation.ActivePageId;
+            if (string.IsNullOrWhiteSpace(activePageId) ||
+                !_owner._registry.TryFindPage(activePageId, out var page))
+            {
+                _pageId = null;
+                _pageComponent = null;
+                return;
+            }
+            if (_pageComponent is not null && string.Equals(_pageId, activePageId, StringComparison.OrdinalIgnoreCase) &&
+                _pageHeight == _owner._lastTranscriptHeight && _pageWidth == width &&
+                _pageThemeKey == theme.Key && _pageColorSystem == colorSystem) return;
+            _pageId = activePageId;
+            _pageHeight = _owner._lastTranscriptHeight;
+            _pageWidth = width;
+            _pageThemeKey = theme.Key;
+            _pageColorSystem = colorSystem;
+            _pageComponent = page.Render(new AgentTuiPageContext(
+                _owner._model.Scope, _owner._model, _owner._model.Navigation, _owner._registry,
+                page, _pageHeight, _owner._state, width, theme, colorSystem));
+        }
 
         private IComponent Resolve()
         {
@@ -319,10 +356,7 @@ public sealed class DefaultAgentTuiShellView : IComponent
                 return _pageComponent;
             }
 
-            _pageId = activePageId;
-            _pageHeight = _owner._lastTranscriptHeight;
-            _pageComponent = _owner.BuildMainSection(_owner._lastTranscriptHeight);
-            return _pageComponent;
+            throw new InvalidOperationException("The active page was not prepared for this frame.");
         }
     }
 

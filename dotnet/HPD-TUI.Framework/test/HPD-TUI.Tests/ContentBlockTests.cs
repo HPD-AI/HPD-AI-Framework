@@ -19,7 +19,7 @@ public sealed class ContentBlockTests
     [Fact]
     public void MarkdownBlock_CachesParsedDocumentAndRenders()
     {
-        var block = MarkdownBlock.Create("# Title");
+        var block = MarkdownBlock.Prepare("# Title", 10, Theme.Default);
         using var grid = Render(block, 10, 1);
 
         Assert.Equal(ContentBlockKind.Markdown, block.Kind);

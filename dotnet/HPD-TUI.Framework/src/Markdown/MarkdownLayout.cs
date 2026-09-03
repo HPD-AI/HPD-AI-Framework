@@ -14,7 +14,8 @@ public readonly record struct MarkdownLayoutKey(
     ThemeKey ThemeKey,
     ColorSystem ColorSystem,
     MarkdownPresentationMode Mode,
-    long SyntaxThemeRevision);
+    long SyntaxThemeRevision,
+    MarkdownSpacingKey SpacingKey = default);
 
 /// <summary>Represents an immutable, prepared terminal layout.</summary>
 public sealed class MarkdownLayout
@@ -60,4 +61,10 @@ public sealed record StyledTerminalLine(ImmutableArray<StyledTerminalRun> Runs)
 }
 
 /// <summary>Represents one immutable styled text run with optional structural link metadata.</summary>
-public readonly record struct StyledTerminalRun(string Text, Style Style, TerminalHyperlink? Hyperlink = null);
+public readonly record struct StyledTerminalRun(
+    string Text,
+    Style Style,
+    TerminalHyperlink? Hyperlink = null,
+    int? SourceStart = null,
+    int? SourceEndExclusive = null,
+    bool IsDecorative = false);

@@ -12,7 +12,7 @@ public sealed class MarkdownTests
     [Fact]
     public void Render_StripsHeadingMarker()
     {
-        var markdown = MarkdownBlock.Create("# Title");
+        var markdown = MarkdownBlock.Prepare("# Title", 20, Theme.Default);
         var context = new RenderContext(20, 2, Theme.Default);
         using var grid = new TerminalGrid(20, 2);
         var writer = new SegmentWriter(grid);
@@ -25,7 +25,7 @@ public sealed class MarkdownTests
     [Fact]
     public void Render_UsesBulletGlyphForListItems()
     {
-        var markdown = MarkdownBlock.Create("- item");
+        var markdown = MarkdownBlock.Prepare("- item", 20, Theme.Default);
         var context = new RenderContext(20, 2, Theme.Default);
         using var grid = new TerminalGrid(20, 2);
         var writer = new SegmentWriter(grid);
@@ -39,7 +39,7 @@ public sealed class MarkdownTests
     [Fact]
     public void Render_WrappedListItemUsesHangingIndent()
     {
-        var markdown = MarkdownBlock.Create("- alpha beta gamma");
+        var markdown = MarkdownBlock.Prepare("- alpha beta gamma", 12, Theme.Default);
 
         var lines = TuiCapture.RenderToLines(markdown, 12, 4, trimTrailingBlankLines: true);
 
@@ -50,7 +50,7 @@ public sealed class MarkdownTests
     [Fact]
     public void Render_InlineCodeUsesAccentForeground()
     {
-        var markdown = MarkdownBlock.Create("Use `code` now");
+        var markdown = MarkdownBlock.Prepare("Use `code` now", 30, Theme.Default);
         var context = new RenderContext(30, 2, Theme.Default);
         using var grid = new TerminalGrid(30, 2);
         var writer = new SegmentWriter(grid);
@@ -65,11 +65,11 @@ public sealed class MarkdownTests
     [Fact]
     public void Render_FencedCodeUsesPlainHeaderAndHighlightsKeywords()
     {
-        var markdown = MarkdownBlock.Create("""
+        var markdown = MarkdownBlock.Prepare("""
 ```csharp
 public class Demo
 ```
-""");
+""", 40, Theme.Default);
         var context = new RenderContext(40, 4, Theme.Default);
         using var grid = new TerminalGrid(40, 4);
         var writer = new SegmentWriter(grid);
@@ -84,7 +84,7 @@ public class Demo
     [Fact]
     public void Render_QuoteUsesSuccessPrefix()
     {
-        var markdown = MarkdownBlock.Create("> quoted");
+        var markdown = MarkdownBlock.Prepare("> quoted", 30, Theme.Default);
         var context = new RenderContext(30, 2, Theme.Default);
         using var grid = new TerminalGrid(30, 2);
         var writer = new SegmentWriter(grid);
@@ -98,7 +98,7 @@ public class Demo
     [Fact]
     public void Render_AutolinkUsesUnderlinedAccent()
     {
-        var markdown = MarkdownBlock.Create("https://example.com");
+        var markdown = MarkdownBlock.Prepare("https://example.com", 40, Theme.Default);
         var context = new RenderContext(40, 2, Theme.Default);
         using var grid = new TerminalGrid(40, 2);
         var writer = new SegmentWriter(grid);
@@ -113,7 +113,7 @@ public class Demo
     [Fact]
     public void Render_StrikethroughUsesAnsiAttribute()
     {
-        var markdown = MarkdownBlock.Create("~~gone~~");
+        var markdown = MarkdownBlock.Prepare("~~gone~~", 20, Theme.Default);
         var context = new RenderContext(20, 2, Theme.Default);
         using var grid = new TerminalGrid(20, 2);
         var writer = new SegmentWriter(grid);
@@ -127,10 +127,10 @@ public class Demo
     [Fact]
     public void Render_NestedListUsesNestedBullet()
     {
-        var markdown = MarkdownBlock.Create("""
+        var markdown = MarkdownBlock.Prepare("""
 - parent
   - child
-""");
+""", 30, Theme.Default);
         var context = new RenderContext(30, 4, Theme.Default);
         using var grid = new TerminalGrid(30, 4);
         var writer = new SegmentWriter(grid);
@@ -144,11 +144,11 @@ public class Demo
     [Fact]
     public void Render_TableHeaderUsesBold()
     {
-        var markdown = MarkdownBlock.Create("""
+        var markdown = MarkdownBlock.Prepare("""
 | A | B |
 |---|---|
 | 1 | 2 |
-""");
+""", 40, Theme.Default);
         var context = new RenderContext(40, 4, Theme.Default);
         using var grid = new TerminalGrid(40, 4);
         var writer = new SegmentWriter(grid);
@@ -162,11 +162,11 @@ public class Demo
     [Fact]
     public void Render_TableUsesBoxLayout()
     {
-        var markdown = MarkdownBlock.Create("""
+        var markdown = MarkdownBlock.Prepare("""
 | Name | Kind |
 |---|---|
 | alpha | file |
-""");
+""", 32, Theme.Default);
 
         var lines = TuiCapture.RenderToLines(markdown, 32, 6, trimTrailingBlankLines: true);
 
@@ -180,11 +180,11 @@ public class Demo
     [Fact]
     public void Render_TableWrapsLongCells()
     {
-        var markdown = MarkdownBlock.Create("""
+        var markdown = MarkdownBlock.Prepare("""
 | Item | Notes |
 |---|---|
 | alpha | needs careful wrapping |
-""");
+""", 24, Theme.Default);
 
         var lines = TuiCapture.RenderToLines(markdown, 24, 8, trimTrailingBlankLines: true);
 
@@ -197,11 +197,11 @@ public class Demo
     [Fact]
     public void Render_TableFallsBackToRawMarkdownWhenTooNarrow()
     {
-        var markdown = MarkdownBlock.Create("""
+        var markdown = MarkdownBlock.Prepare("""
 | A | B | C |
 |---|---|---|
 | 1 | 2 | 3 |
-""");
+""", 8, Theme.Default);
 
         var lines = TuiCapture.RenderToLines(markdown, 8, 6, trimTrailingBlankLines: true);
         var rendered = string.Join('\n', lines);

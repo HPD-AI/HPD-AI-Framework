@@ -5,6 +5,7 @@ using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Models;
 using HPD.Agent.TUI.Runtime;
 using HPD.TUI.Components;
+using HPD.TUI.Core;
 using HPD.TUI.Models;
 
 namespace HPD.Agent.TUI.Tests;
@@ -228,6 +229,8 @@ public sealed class AgentTuiSessionStateTests
                 HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant(
                     messageId,
                     string.IsNullOrWhiteSpace(markdown) ? "_thinking..._" : markdown,
+                    80,
+                    Theme.Default,
                     "assistant"),
                 new TranscriptEntryMetadata(
                     AgentId: context.Scope.AgentId,

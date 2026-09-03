@@ -157,7 +157,7 @@ public sealed class HpdAgentTuiBuilder
 
     public HpdAgentTuiBuilder AddDefaultShellCommands()
     {
-        TryAddPage(new HpdAgentTuiPageDescriptor("hpd.help", _ =>
+        TryAddPage(new HpdAgentTuiPageDescriptor("hpd.help", context =>
         {
             var commands = string.Join("\n", _commands.Values
                 .Where(static command => !command.Hidden)
@@ -171,7 +171,8 @@ public sealed class HpdAgentTuiBuilder
                     return $"- `/{command.SlashName}` {description}";
                 }));
 
-            return HPD.TUI.Content.MarkdownBlock.Create($"**Commands**\n\n{commands}");
+            return HPD.TUI.Content.MarkdownBlock.Prepare(
+                $"**Commands**\n\n{commands}", context.Width, context.Theme, context.ColorSystem);
         })
         {
             Title = "Commands",

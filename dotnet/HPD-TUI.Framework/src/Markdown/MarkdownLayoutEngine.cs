@@ -13,7 +13,8 @@ public readonly record struct MarkdownLayoutOptions(
     MarkdownTheme Theme,
     ColorSystem ColorSystem = ColorSystem.TrueColor,
     MarkdownPresentationMode Mode = MarkdownPresentationMode.Rich,
-    long SyntaxThemeRevision = 0);
+    long SyntaxThemeRevision = 0,
+    MarkdownSpacing? Spacing = null);
 
 /// <summary>Prepares immutable Markdown layouts outside component measurement and rendering.</summary>
 public interface IMarkdownLayoutEngine
@@ -36,14 +37,17 @@ public sealed class MarkdownLayoutEngine : IMarkdownLayoutEngine
         Validate(options);
         var blockLayouts = ImmutableArray.CreateBuilder<MarkdownBlockLayout>(document.Blocks.Count);
         var rows = ImmutableArray.CreateBuilder<MarkdownLayoutRow>();
+        MarkdownTopLevelBlock? previous = null;
         foreach (var block in document.Blocks)
         {
             var blockLayout = LayoutBlock(document, block, options);
             if (rows.Count > 0)
-                rows.Add(new(MarkdownLayoutRowKind.Separator, StyledTerminalLine.Empty, null, null, null, true));
+                for (var gap = 0; gap < GetSeparatorRows(previous!, block, options.Spacing ?? new MarkdownSpacing()); gap++)
+                    rows.Add(new(MarkdownLayoutRowKind.Separator, StyledTerminalLine.Empty, null, null, null, true));
             foreach (var line in blockLayout.Lines)
                 rows.Add(new(MarkdownLayoutRowKind.BlockContent, line, block.Ordinal, block.SourceStart, block.SourceEndExclusive, false));
             blockLayouts.Add(blockLayout);
+            previous = block;
         }
 
         return new MarkdownLayout
@@ -65,7 +69,18 @@ public sealed class MarkdownLayoutEngine : IMarkdownLayoutEngine
     }
 
     private static MarkdownLayoutKey CreateKey(MarkdownDocumentSnapshot document, MarkdownLayoutOptions options) =>
-        new(document.PipelineId, "terminal-v1", options.Width, options.Theme.ThemeKey, options.ColorSystem, options.Mode, options.SyntaxThemeRevision);
+        new(document.PipelineId, "terminal-v1", options.Width, options.Theme.ThemeKey, options.ColorSystem, options.Mode,
+            options.SyntaxThemeRevision, (options.Spacing ?? new MarkdownSpacing()).Key);
+
+    /// <summary>Gets document-owned separator rows for an adjacent top-level block pair.</summary>
+    public static int GetSeparatorRows(MarkdownTopLevelBlock previous, MarkdownTopLevelBlock current, MarkdownSpacing spacing)
+    {
+        if (previous.Kind == MarkdownBlockKind.Html || current.Kind == MarkdownBlockKind.Html) return 0;
+        if (current.Kind == MarkdownBlockKind.Heading) return spacing.HeadingTopGap;
+        if (previous.Kind == MarkdownBlockKind.Heading) return spacing.HeadingBottomGap;
+        if (previous.Kind == MarkdownBlockKind.ThematicBreak || current.Kind == MarkdownBlockKind.ThematicBreak) return 0;
+        return spacing.ParagraphGap;
+    }
 
     private static void Validate(MarkdownLayoutOptions options)
     {

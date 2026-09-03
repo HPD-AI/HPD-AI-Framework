@@ -208,15 +208,22 @@ internal delegate void RenderTranscriptComponent(
 
 internal static class MarkdownProjectionView
 {
-    private static readonly IMarkdownLayoutEngine LayoutEngine = new MarkdownLayoutEngine();
-
     internal static MarkdownView Create(
         MarkdownMessageDocument document,
         MarkdownMessageProjection projection,
         int width,
         Theme theme,
-        ColorSystem colorSystem) => new(projection.ResolveLayout(
-            document,
-            new(width, MarkdownTheme.FromTheme(theme), colorSystem),
-            LayoutEngine));
+        ColorSystem colorSystem)
+    {
+        var key = new MarkdownLayoutKey(
+            document.Parsed.PipelineId,
+            "terminal-v1",
+            width,
+            theme.Key,
+            colorSystem,
+            MarkdownPresentationMode.Rich,
+            0,
+            new MarkdownSpacing().Key);
+        return new(projection.RequirePrepared(document.Revision, key));
+    }
 }

@@ -39,9 +39,9 @@ public sealed class TuiFrameworkPerformanceGuardrailTests
     [Fact]
     public void Markdown_Render_RepeatedSameWidth_IsStableAndBounded()
     {
-        var markdown = MarkdownBlock.Create(string.Join(
+        var markdown = MarkdownBlock.Prepare(string.Join(
             "\n",
-            Enumerable.Range(0, 200).Select(static i => $"- item {i:D4} with enough words to wrap at narrow widths")));
+            Enumerable.Range(0, 200).Select(static i => $"- item {i:D4} with enough words to wrap at narrow widths")), 48, Theme.Default);
 
         var expected = TuiCapture.RenderToString(markdown, width: 48, height: 80, trimTrailingBlankLines: true);
         var stopwatch = Stopwatch.StartNew();
@@ -59,18 +59,17 @@ public sealed class TuiFrameworkPerformanceGuardrailTests
     [Fact]
     public void Markdown_Render_WidthChange_InvalidatesOnlyWidthDependentCache()
     {
-        var markdown = MarkdownBlock.Create(string.Join(
-            "\n",
-            Enumerable.Range(0, 200).Select(static i => $"- item {i:D4} with enough words to wrap at narrow widths")));
-        TuiCapture.RenderToString(markdown, width: 80, height: 80, trimTrailingBlankLines: true);
+        var source = string.Join("\n", Enumerable.Range(0, 200).Select(static i => $"- item {i:D4} with enough words to wrap at narrow widths"));
+        var narrow = MarkdownBlock.Prepare(source, 40, Theme.Default);
+        var wide = MarkdownBlock.Prepare(source, 100, Theme.Default);
 
         var narrowElapsed = Measure(() => TuiCapture.RenderToString(
-            markdown,
+            narrow,
             width: 40,
             height: 80,
             trimTrailingBlankLines: true));
         var wideElapsed = Measure(() => TuiCapture.RenderToString(
-            markdown,
+            wide,
             width: 100,
             height: 80,
             trimTrailingBlankLines: true));

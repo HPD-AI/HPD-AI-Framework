@@ -84,4 +84,16 @@ public sealed record MarkdownSpacing
     public int QuoteIndent { get; init; } = 2;
     /// <summary>Gets code indentation columns.</summary>
     public int CodeIndent { get; init; } = 2;
+
+    /// <summary>Gets a structural identity containing every behavior-affecting spacing value.</summary>
+    public MarkdownSpacingKey Key => new(ParagraphGap, HeadingTopGap, HeadingBottomGap, ListIndent, QuoteIndent, CodeIndent);
 }
+
+/// <summary>Structurally identifies Markdown spacing inputs used by layout.</summary>
+public readonly record struct MarkdownSpacingKey(
+    int ParagraphGap,
+    int HeadingTopGap,
+    int HeadingBottomGap,
+    int ListIndent,
+    int QuoteIndent,
+    int CodeIndent);

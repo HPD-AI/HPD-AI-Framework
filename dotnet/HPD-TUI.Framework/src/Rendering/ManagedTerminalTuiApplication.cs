@@ -48,6 +48,18 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
 
     public Func<KeyEvent, bool>? ShortcutHandler { get; set; }
 
+    /// <summary>Gets the current physical terminal size.</summary>
+    public TerminalSize Size => _terminal.GetSize();
+
+    /// <summary>Gets or sets dispatcher-owned preparation performed before each dirty frame.</summary>
+    public Action<TerminalSize, Theme>? FramePreparing { get; set; }
+
+    /// <summary>Gets or sets dispatcher-owned cleanup invoked before the mailbox is detached.</summary>
+    public Action? Stopping { get; set; }
+
+    /// <summary>Gets whether the application mailbox is accepting dispatcher work.</summary>
+    public bool IsRunning => _mailbox is not null;
+
     public IHpdTuiPerformanceEventSink? PerformanceSink
     {
         get => _renderer.PerformanceSink;
@@ -100,6 +112,7 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
                 _eventLoopThreadId = Environment.CurrentManagedThreadId;
                 if (dirty)
                 {
+                    FramePreparing?.Invoke(_terminal.GetSize(), _theme);
                     Render();
                     dirty = false;
                 }
@@ -118,6 +131,10 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
         }
         finally
         {
+            _eventLoopThreadId = Environment.CurrentManagedThreadId;
+            _dispatcherDepth.Value++;
+            try { Stopping?.Invoke(); }
+            finally { _dispatcherDepth.Value--; }
             _mailbox = null;
             _eventLoopThreadId = 0;
             await loopCts.CancelAsync().ConfigureAwait(false);

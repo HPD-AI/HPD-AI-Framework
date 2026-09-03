@@ -188,6 +188,81 @@ public sealed class MarkdownStreamSessionTests
         Assert.Equal(LayoutFingerprint(coldLayout), LayoutFingerprint(streamedLayout));
     }
 
+    [Fact]
+    public void Selection_ExcludesDecorativeListMarkerAndNeutralizesControls()
+    {
+        var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "selection"));
+        session.Append("- safe\u001b[31m text");
+        var document = session.Complete().Document;
+        var layout = session.Projection.Prepare(document,
+            new(40, MarkdownTheme.FromTheme(Theme.Default)), new MarkdownLayoutEngine());
+
+        var copied = session.Projection.GetSafeClipboardText(layout, new(0, 0, layout.Height - 1, 40));
+
+        Assert.DoesNotContain('•', copied);
+        Assert.DoesNotContain('\u001b', copied);
+        Assert.Contains("safe�[", copied);
+        Assert.Equal("- safe�[31m text", document.GetSafeDisplayText());
+    }
+
+    [Fact]
+    public void ExactExport_RequiresPrivilegeAndIsBoundToOneLineage()
+    {
+        var first = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "same"));
+        first.Append("exact\u001bsource");
+        var firstDocument = first.Complete().Document;
+        var second = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "same"));
+        second.Append("replacement");
+        var secondDocument = second.Complete().Document;
+
+        Assert.Throws<UnauthorizedAccessException>(() => MarkdownExportPolicy.AuthorizeExact(firstDocument, privileged: false));
+        var authority = MarkdownExportPolicy.AuthorizeExact(firstDocument, privileged: true);
+        Assert.Equal("exact\u001bsource", firstDocument.ExportExact(authority));
+        Assert.Throws<UnauthorizedAccessException>(() => secondDocument.ExportExact(authority));
+    }
+
+    [Fact]
+    public void ExactExport_HiddenPresentationCannotBeAuthorized()
+    {
+        var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "hidden"),
+            new MarkdownMessagePresentation(Visibility: AgentMessageVisibility.Hidden));
+        session.Append("secret");
+        var document = session.Complete().Document;
+
+        Assert.Throws<UnauthorizedAccessException>(() => MarkdownExportPolicy.AuthorizeExact(document, privileged: true));
+    }
+
+    [Fact]
+    public void Prepare_IdenticalRevisionAndSemanticKeyReturnsSameLayout()
+    {
+        var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "memo"));
+        session.Append("# retained");
+        var document = session.Complete().Document;
+        var options = new MarkdownLayoutOptions(40, MarkdownTheme.FromTheme(Theme.Default));
+        var engine = new MarkdownLayoutEngine();
+
+        var first = session.Projection.Prepare(document, options, engine);
+        var second = session.Projection.Prepare(document, options, engine);
+
+        Assert.Same(first, second);
+    }
+
+    [Fact]
+    public void AppendOnlyGrowth_RetainsPreviouslyProvenStableBlockLayout()
+    {
+        var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "stable"));
+        var options = new MarkdownLayoutOptions(40, MarkdownTheme.FromTheme(Theme.Default));
+        var engine = new MarkdownLayoutEngine();
+        session.Append("first\n\nsecond\n");
+        var firstDocument = session.Refresh().Document;
+        var firstLayout = session.Projection.ResolveLayout(firstDocument, options, engine);
+        session.Append("\nthird\n");
+        var secondDocument = session.Refresh().Document;
+        var secondLayout = session.Projection.ResolveLayout(secondDocument, options, engine);
+
+        Assert.Same(firstLayout.Blocks[0], secondLayout.Blocks[0]);
+    }
+
     private static IReadOnlyList<string> LayoutFingerprint(MarkdownLayout layout) => layout.Rows
         .SelectMany(static row => row.Line.Runs.Length == 0
             ? new[] { $"{row.Kind}|{row.BlockOrdinal}|{row.SourceStart}|{row.SourceEndExclusive}|{row.IsDecorative}" }

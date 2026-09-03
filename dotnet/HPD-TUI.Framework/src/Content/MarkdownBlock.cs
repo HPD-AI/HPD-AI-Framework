@@ -4,22 +4,17 @@ using HPD.TUI.Markdown;
 
 namespace HPD.TUI.Content;
 
-/// <summary>Convenience content block that prepares a complete Markdown document for ordinary non-streaming use.</summary>
+/// <summary>Content block over a Markdown layout prepared at a publication boundary.</summary>
 public sealed class MarkdownBlock : IContentBlock
 {
-    private static readonly MarkdownPipelineDescriptor Pipeline = MarkdownPipelineFactory.CreateDefault();
-    private static readonly IMarkdownDocumentParser Parser = new MarkdownDocumentParser();
-    private static readonly IMarkdownLayoutEngine LayoutEngine = new MarkdownLayoutEngine();
-    private readonly MarkdownDocumentSnapshot _document;
-    private MarkdownView? _view;
-    private MarkdownLayoutKey _viewKey;
+    private readonly MarkdownView _view;
 
-    /// <summary>Creates a complete source-backed Markdown content block.</summary>
-    public MarkdownBlock(string source, Theme? theme = null)
+    private MarkdownBlock(string source, MarkdownDocumentSnapshot document, MarkdownLayout layout)
     {
-        Source = source ?? throw new ArgumentNullException(nameof(source));
-        ThemeOverride = theme;
-        _document = Parser.Parse(Source, new MarkdownParseOptions { Pipeline = Pipeline });
+        Source = source;
+        Document = document;
+        Layout = layout;
+        _view = new(layout);
     }
 
     /// <inheritdoc />
@@ -28,17 +23,17 @@ public sealed class MarkdownBlock : IContentBlock
     /// <summary>Gets the exact canonical source.</summary>
     public string Source { get; }
 
-    /// <summary>Gets the optional presentation theme override.</summary>
-    public Theme? ThemeOverride { get; }
-
     /// <summary>Gets the parsed immutable document snapshot.</summary>
-    public MarkdownDocumentSnapshot Document => _document;
+    public MarkdownDocumentSnapshot Document { get; }
+
+    /// <summary>Gets the immutable prepared terminal layout.</summary>
+    public MarkdownLayout Layout { get; }
 
     /// <inheritdoc />
-    public Measurement Measure(in RenderContext context, int maxWidth) => GetView(in context, maxWidth).Measure(in context, maxWidth);
+    public Measurement Measure(in RenderContext context, int maxWidth) => _view.Measure(in context, maxWidth);
 
     /// <inheritdoc />
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output) => GetView(in context, maxWidth).Render(in context, maxWidth, ref output);
+    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output) => _view.Render(in context, maxWidth, ref output);
 
     /// <inheritdoc />
     public bool HandleInput(in TuiInputEvent key)
@@ -46,17 +41,18 @@ public sealed class MarkdownBlock : IContentBlock
         return false;
     }
 
-    /// <summary>Creates a complete source-backed Markdown content block.</summary>
-    public static MarkdownBlock Create(string source, Theme? theme = null) => new(source, theme);
-
-    private MarkdownView GetView(in RenderContext context, int width)
+    /// <summary>Parses and prepares a complete document for an exact render context.</summary>
+    /// <remarks>Invoke this at a publication or frame-preparation boundary, never from component measurement or rendering.</remarks>
+    public static MarkdownBlock Prepare(string source, int width, Theme theme,
+        ColorSystem colorSystem = ColorSystem.TrueColor, MarkdownSpacing? spacing = null)
     {
-        var theme = ThemeOverride ?? context.Theme;
-        var markdownTheme = MarkdownTheme.FromTheme(theme);
-        var key = new MarkdownLayoutKey(_document.PipelineId, "terminal-v1", width, theme.Key, context.ColorSystem, MarkdownPresentationMode.Rich, 0);
-        if (_view is not null && _viewKey == key) return _view;
-        var layout = LayoutEngine.Layout(_document, new MarkdownLayoutOptions(width, markdownTheme, context.ColorSystem));
-        _viewKey = layout.Key;
-        return _view = new MarkdownView(layout);
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(theme);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
+        var pipeline = MarkdownPipelineFactory.CreateDefault();
+        var document = new MarkdownDocumentParser().Parse(source, new MarkdownParseOptions { Pipeline = pipeline });
+        var layout = new MarkdownLayoutEngine().Layout(document,
+            new MarkdownLayoutOptions(width, MarkdownTheme.FromTheme(theme), colorSystem, Spacing: spacing));
+        return new(source, document, layout);
     }
 }

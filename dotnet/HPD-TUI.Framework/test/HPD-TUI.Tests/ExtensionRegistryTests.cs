@@ -140,7 +140,7 @@ public sealed class ExtensionRegistryTests
         {
             if (contentType == "text/markdown")
             {
-                block = MarkdownBlock.Create(payload.ToString());
+                block = MarkdownBlock.Prepare(payload.ToString(), 80, Theme.Default);
                 return true;
             }
 

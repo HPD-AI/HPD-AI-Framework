@@ -3,8 +3,10 @@ using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Models;
 using HPD.Agent.TUI.Observability;
 using HPD.Agent.TUI.Runtime;
+using HPD.Agent.TUI.Markdown;
 using HPD.TUI.Core;
 using HPD.TUI.Observability;
+using HPD.TUI.Markdown;
 using HPD.TUI.Rendering;
 using HPD.TUI.Terminal;
 
@@ -22,6 +24,7 @@ public sealed class TranscriptView : IComponent
     private int _modelVersion = -1;
     private int _renderWidth;
     private ThemeKey _renderThemeKey;
+    private Theme _renderTheme = Theme.Default;
     private ColorSystem _renderColorSystem;
     private bool _cacheInitialized;
     private bool _disposed;
@@ -80,6 +83,41 @@ public sealed class TranscriptView : IComponent
             default:
                 return false;
         }
+    }
+
+    /// <summary>Routes a source-backed entry selection through its semantic Markdown projection.</summary>
+    /// <param name="entryId">The stable transcript entry identifier.</param>
+    /// <param name="selection">A visual range local to the Markdown body.</param>
+    /// <param name="text">Receives safe semantic clipboard text without presentation decoration.</param>
+    /// <returns><see langword="true"/> when the entry is source-backed and has a prepared layout.</returns>
+    public bool TryGetSemanticClipboardText(string entryId, MarkdownVisualSelection selection, out string text)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(entryId);
+        text = string.Empty;
+        if (!_cacheInitialized) return false;
+        var entry = _entries.FirstOrDefault(candidate => string.Equals(candidate.Id, entryId, StringComparison.Ordinal));
+        if (entry?.Cell is not (AssistantMessageCell or ReasoningMessageCell)) return false;
+        var depth = Math.Max(0, entry.Metadata.AgentDepth) * 2;
+        var reasoning = entry.Cell is ReasoningMessageCell;
+        var document = reasoning
+            ? ((ReasoningMessageCell)entry.Cell).Document
+            : ((AssistantMessageCell)entry.Cell).Document;
+        var projection = reasoning
+            ? ((ReasoningMessageCell)entry.Cell).Projection
+            : ((AssistantMessageCell)entry.Cell).Projection;
+        var theme = reasoning
+            ? AgentTuiTranscriptRenderServices.Default.CreateMutedTheme(_renderTheme)
+            : null;
+        // The structural theme key is captured from the last rendered context; RequirePrepared never computes layout.
+        var themeKey = reasoning && theme is not null ? theme.Key : _renderThemeKey;
+        var key = new HPD.TUI.Markdown.MarkdownLayoutKey(document.Parsed.PipelineId, "terminal-v1",
+            Math.Max(1, _renderWidth - depth - (reasoning ? 2 : 0)), themeKey, _renderColorSystem,
+            HPD.TUI.Markdown.MarkdownPresentationMode.Rich, 0, new HPD.TUI.Markdown.MarkdownSpacing().Key);
+        MarkdownLayout layout;
+        try { layout = projection.RequirePrepared(document.Revision, key); }
+        catch (InvalidOperationException) { return false; }
+        text = projection.GetSafeClipboardText(layout, selection);
+        return true;
     }
 
     private void RenderRows(
@@ -208,6 +246,7 @@ public sealed class TranscriptView : IComponent
         _modelVersion = modelVersion;
         _renderWidth = maxWidth;
         _renderThemeKey = context.Theme.Key;
+        _renderTheme = context.Theme;
         _renderColorSystem = context.ColorSystem;
         _cacheInitialized = true;
     }

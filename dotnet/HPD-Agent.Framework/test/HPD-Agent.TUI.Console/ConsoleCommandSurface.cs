@@ -65,7 +65,7 @@ internal static class ConsoleCommandSurface
             ? $"**{EscapeMarkdown(title)}**\n\n{markdown}"
             : $"**{EscapeMarkdown(title)}**\n\n{prefix}\n\n{markdown}";
 
-        return HPD.TUI.Content.MarkdownBlock.Create(body);
+        return HPD.TUI.Content.TextBlock.Create(body);
     }
 
     private static string EscapeMarkdown(string value)

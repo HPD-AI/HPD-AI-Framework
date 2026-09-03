@@ -3,6 +3,7 @@ using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Models;
 using HPD.Agent.TUI.Runtime;
 using HPD.TUI.Components;
+using HPD.TUI.Core;
 using HPD.TUI.Rendering;
 using HPD.TUI.Views;
 
@@ -101,7 +102,7 @@ public sealed class DefaultAgentTuiShellLayoutTests
 
         var registry = new HpdAgentTuiBuilder()
             .AddAgentTuiDefaults()
-            .ReplaceHeader(_ => HPD.TUI.Content.MarkdownBlock.Create("logo one\nlogo two\nlogo three\nlogo four\nlogo five\nlogo six"))
+            .ReplaceHeader(_ => HPD.TUI.Content.TextBlock.Create("logo one\nlogo two\nlogo three\nlogo four\nlogo five\nlogo six"))
             .Build();
         var shell = CreateShell(model, registry);
 
@@ -151,7 +152,7 @@ public sealed class DefaultAgentTuiShellLayoutTests
         => new(
             id,
             EntryKey: null,
-            HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant(id, text, label),
+            HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant(id, text, 96, Theme.Default, label),
             new TranscriptEntryMetadata());
 
     private static int CountMessages(string text)

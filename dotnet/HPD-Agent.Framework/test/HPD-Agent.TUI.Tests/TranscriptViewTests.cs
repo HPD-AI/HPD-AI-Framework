@@ -62,7 +62,7 @@ public sealed class TranscriptViewTests
         model.AddFinal(new TranscriptEntry(
             Id: "assistant-1",
             EntryKey: "assistant:1",
-            Cell: HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant("test-assistant", "hello", "assistant"),
+            Cell: HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant("test-assistant", "hello", 80, Theme.Default, "assistant"),
             Metadata: new TranscriptEntryMetadata(AgentName: "assistant")));
 
         var view = CreateView(model, height: 4);
@@ -71,6 +71,8 @@ public sealed class TranscriptViewTests
 
         rendered.Should().Contain("hello");
         rendered.Should().NotContain("assistant\n");
+        view.TryGetSemanticClipboardText("assistant-1", new(0, 0, 0, 80), out var copied).Should().BeTrue();
+        copied.Should().Be("hello");
     }
 
     [Fact]
@@ -281,8 +283,8 @@ public sealed class TranscriptViewTests
             id,
             entryKey,
             id.Contains("user", StringComparison.Ordinal)
-                ? new UserMessageCell(HPD.TUI.Content.MarkdownBlock.Create(text))
-                : HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant(id, text, "assistant"),
+                ? new UserMessageCell(HPD.TUI.Content.TextBlock.Create(text))
+                : HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant(id, text, 80, Theme.Default, "assistant"),
             new TranscriptEntryMetadata());
 
     private sealed record UnknownTranscriptCell : TranscriptCell;

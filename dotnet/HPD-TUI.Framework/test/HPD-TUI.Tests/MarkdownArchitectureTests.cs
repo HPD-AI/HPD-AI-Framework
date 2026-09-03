@@ -33,6 +33,25 @@ public sealed class MarkdownArchitectureTests
     }
 
     [Fact]
+    public void MarkdownView_UnchangedMeasureIsAllocationFree()
+    {
+        var snapshot = new MarkdownDocumentParser().Parse("prepared", new MarkdownParseOptions
+        {
+            Pipeline = MarkdownPipelineFactory.CreateDefault()
+        });
+        var layout = new MarkdownLayoutEngine().Layout(snapshot,
+            new(24, MarkdownTheme.FromTheme(Theme.Default)));
+        var view = new MarkdownView(layout);
+        var context = new RenderContext(24, 4, Theme.Default);
+        _ = view.Measure(in context, 24);
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var index = 0; index < 100; index++) _ = view.Measure(in context, 24);
+
+        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+    }
+
+    [Fact]
     public void StructuralLink_EmitsBalancedOsc8WithoutAcceptingEscapes()
     {
         Assert.True(TerminalHyperlinkPolicy.TryCreate("https://example.com/path", out var link));
@@ -64,15 +83,58 @@ public sealed class MarkdownArchitectureTests
     public void PipelineIdentity_DeepCopiesOptionsAndDefaultsUnknownExtensionsToGlobal()
     {
         var options = new Dictionary<string, string> { ["mode"] = "one" };
+        var implementation = new CustomTerminalExtension();
         var descriptor = MarkdownPipelineFactory.Create(new MarkdownPipelineConfiguration(
-            Extensions: [new MarkdownExtensionConfiguration("custom", options)]));
+            Extensions: [new MarkdownExtensionConfiguration("custom", options)]), [implementation]);
         options["mode"] = "two";
         var extension = Assert.Single(descriptor.Configuration.Extensions!);
 
         Assert.Equal("one", extension.NormalizedOptions["mode"]);
         Assert.Equal(MarkdownExtensionInvalidation.DocumentGlobal, extension.Invalidation);
+        Assert.Equal(1, implementation.ParserConfigurations);
+        var snapshot = new MarkdownDocumentParser().Parse("text", new MarkdownParseOptions { Pipeline = descriptor });
+        _ = new MarkdownLayoutEngine().Layout(snapshot, new(20, MarkdownTheme.FromTheme(Theme.Default)));
+        Assert.True(implementation.TerminalConfigurations > 0);
         Assert.NotEqual(descriptor.StableId, MarkdownPipelineFactory.Create(new MarkdownPipelineConfiguration(
-            Extensions: [new MarkdownExtensionConfiguration("custom", new Dictionary<string, string> { ["mode"] = "two" })])).StableId);
+            Extensions: [new MarkdownExtensionConfiguration("custom", new Dictionary<string, string> { ["mode"] = "two" })]), [new CustomTerminalExtension()]).StableId);
+    }
+
+    private sealed class CustomTerminalExtension : ITerminalMarkdownExtension
+    {
+        public int ParserConfigurations { get; private set; }
+        public int TerminalConfigurations { get; private set; }
+        public string Id => "custom";
+        public MarkdownExtensionInvalidation Invalidation => MarkdownExtensionInvalidation.DocumentGlobal;
+        public string RendererPolicyId => "test-noop-v1";
+        public void ConfigureParser(Markdig.MarkdownPipelineBuilder builder, IReadOnlyDictionary<string, string> options) => ParserConfigurations++;
+        public void ConfigureTerminal(Markdig.Renderers.ObjectRendererCollection renderers, IReadOnlyDictionary<string, string> options) => TerminalConfigurations++;
+    }
+
+    [Fact]
+    public void PipelineConfiguration_ControlsEnabledParserExtensions()
+    {
+        var parser = new MarkdownDocumentParser();
+        var plain = parser.Parse("~~gone~~", new MarkdownParseOptions
+        {
+            Pipeline = MarkdownPipelineFactory.Create(new MarkdownPipelineConfiguration(Extensions: []))
+        });
+        var extended = parser.Parse("~~gone~~", new MarkdownParseOptions { Pipeline = MarkdownPipelineFactory.CreateDefault() });
+
+        Assert.DoesNotContain(plain.NodeCapabilities, static name => name.Contains("EmphasisInline", StringComparison.Ordinal));
+        Assert.Contains(extended.NodeCapabilities, static name => name.Contains("EmphasisInline", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Layout_UsesPairwiseSpacingAndStructuralSpacingIdentity()
+    {
+        var document = new MarkdownDocumentParser().Parse("# heading\n\nparagraph\n\n<div>raw</div>\n",
+            new MarkdownParseOptions { Pipeline = MarkdownPipelineFactory.CreateDefault() });
+        var spacing = new MarkdownSpacing { HeadingBottomGap = 2, ParagraphGap = 3 };
+        var layout = new MarkdownLayoutEngine().Layout(document,
+            new(40, MarkdownTheme.FromTheme(Theme.Default), Spacing: spacing));
+
+        Assert.Equal(spacing.Key, layout.Key.SpacingKey);
+        Assert.Equal(2, layout.Rows.Count(static row => row.Kind == MarkdownLayoutRowKind.Separator));
     }
 
     [Theory]

@@ -14,15 +14,14 @@ public sealed class MarkdownView : IComponent
     /// <inheritdoc />
     public Measurement Measure(in RenderContext context, int maxWidth)
     {
-        var width = Math.Min(maxWidth, _layout.Key.Width);
-        return new(Math.Min(width, 1), width, _layout.Height);
+        Validate(in context, maxWidth);
+        return new(Math.Min(_layout.Key.Width, 1), _layout.Key.Width, _layout.Height);
     }
 
     /// <inheritdoc />
     public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
-        if (maxWidth != _layout.Key.Width || context.Theme.Key != _layout.Key.ThemeKey || context.ColorSystem != _layout.Key.ColorSystem)
-            throw new InvalidOperationException("MarkdownView render context does not match its prepared layout key.");
+        Validate(in context, maxWidth);
 
         for (var row = 0; row < _layout.Rows.Length && output.CursorY < context.Height; row++)
         {
@@ -34,4 +33,10 @@ public sealed class MarkdownView : IComponent
 
     /// <inheritdoc />
     public bool HandleInput(in TuiInputEvent input) => false;
+
+    private void Validate(in RenderContext context, int maxWidth)
+    {
+        if (maxWidth != _layout.Key.Width || context.Theme.Key != _layout.Key.ThemeKey || context.ColorSystem != _layout.Key.ColorSystem)
+            throw new InvalidOperationException("MarkdownView context does not match its prepared layout key.");
+    }
 }

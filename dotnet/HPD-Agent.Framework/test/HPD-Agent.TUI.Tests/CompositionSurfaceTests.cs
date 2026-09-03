@@ -168,7 +168,7 @@ public sealed class CompositionSurfaceTests
         model.Transcript.AddFinal(new TranscriptEntry(
             Id: "row",
             EntryKey: null,
-            HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant("test-assistant", "hello", "assistant"),
+            HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant("test-assistant", "hello", 96, Theme.Default, "assistant"),
             new TranscriptEntryMetadata()));
 
         var view = registry.ShellLayout.Create(new AgentTuiShellLayoutContext(

@@ -378,7 +378,7 @@ internal static class ConsoleSessionThreadCommands
         if (snapshot.Sessions.Count == 0)
         {
             markdown.AppendLine("No sessions found.");
-            return HPD.TUI.Content.MarkdownBlock.Create(markdown.ToString());
+            return HPD.TUI.Content.TextBlock.Create(markdown.ToString());
         }
 
         for (var i = 0; i < snapshot.Sessions.Count; i++)
@@ -401,7 +401,7 @@ internal static class ConsoleSessionThreadCommands
                 .AppendLine(EscapeMarkdown(FormatTime(session.LastActivity)));
         }
 
-        return HPD.TUI.Content.MarkdownBlock.Create(markdown.ToString());
+        return HPD.TUI.Content.TextBlock.Create(markdown.ToString());
     }
 
     private static bool HandleSessionsPageInput(AgentTuiPageContext context, KeyEvent key)
@@ -444,7 +444,7 @@ internal static class ConsoleSessionThreadCommands
         var session = snapshot.SelectedSession;
         if (session is null)
         {
-            return HPD.TUI.Content.MarkdownBlock.Create("**Session**\n\nNo session selected.");
+            return HPD.TUI.Content.TextBlock.Create("**Session**\n\nNo session selected.");
         }
 
         var markdown = new StringBuilder();
@@ -457,7 +457,7 @@ internal static class ConsoleSessionThreadCommands
         markdown.Append("- current: ").AppendLine(session.Id == context.Scope.SessionId ? "yes" : "no");
         markdown.AppendLine();
         markdown.AppendLine("Actions: `s` switch to session, `b` browse threads, Esc back.");
-        return HPD.TUI.Content.MarkdownBlock.Create(markdown.ToString());
+        return HPD.TUI.Content.TextBlock.Create(markdown.ToString());
     }
 
     private static bool HandleSessionDetailPageInput(AgentTuiPageContext context, KeyEvent key)
@@ -493,7 +493,7 @@ internal static class ConsoleSessionThreadCommands
         if (snapshot.Threads.Count == 0)
         {
             markdown.AppendLine("No threads found.");
-            return HPD.TUI.Content.MarkdownBlock.Create(markdown.ToString());
+            return HPD.TUI.Content.TextBlock.Create(markdown.ToString());
         }
 
         for (var i = 0; i < snapshot.Threads.Count; i++)
@@ -520,7 +520,7 @@ internal static class ConsoleSessionThreadCommands
             markdown.AppendLine();
         }
 
-        return HPD.TUI.Content.MarkdownBlock.Create(markdown.ToString());
+        return HPD.TUI.Content.TextBlock.Create(markdown.ToString());
     }
 
     private static bool HandleThreadsPageInput(AgentTuiPageContext context, KeyEvent key)
@@ -560,7 +560,7 @@ internal static class ConsoleSessionThreadCommands
         var thread = snapshot.SelectedThread;
         if (thread is null)
         {
-            return HPD.TUI.Content.MarkdownBlock.Create("**Thread**\n\nNo thread selected.");
+            return HPD.TUI.Content.TextBlock.Create("**Thread**\n\nNo thread selected.");
         }
 
         var markdown = new StringBuilder();
@@ -577,7 +577,7 @@ internal static class ConsoleSessionThreadCommands
         markdown.Append("- current: ").AppendLine(thread.Id == context.Scope.ThreadId && thread.SessionId == context.Scope.SessionId ? "yes" : "no");
         markdown.AppendLine();
         markdown.AppendLine("Actions: `s` switch, Esc back.");
-        return HPD.TUI.Content.MarkdownBlock.Create(markdown.ToString());
+        return HPD.TUI.Content.TextBlock.Create(markdown.ToString());
     }
 
     private static bool HandleThreadDetailPageInput(AgentTuiPageContext context, KeyEvent key)
@@ -651,7 +651,7 @@ internal static class ConsoleSessionThreadCommands
         => AppendOrUpdate(context, new TranscriptEntry(
                 Id: $"command-{Guid.NewGuid():N}",
                 EntryKey: entryKey,
-                Cell: new NoticeCell(title, HPD.TUI.Content.MarkdownBlock.Create(markdown)),
+                Cell: new NoticeCell(title, HPD.TUI.Content.TextBlock.Create(markdown)),
                 Metadata: Metadata(context)));
 
     private static void AppendOrUpdate(AgentTuiCommandContext context, TranscriptEntry entry)

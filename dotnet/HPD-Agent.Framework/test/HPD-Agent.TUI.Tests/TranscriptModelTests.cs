@@ -1,6 +1,7 @@
 using FluentAssertions;
 using HPD.Agent.TUI.Models;
 using HPD.TUI.Components;
+using HPD.TUI.Core;
 
 namespace HPD.Agent.TUI.Tests;
 
@@ -113,7 +114,7 @@ public sealed class TranscriptModelTests
             }
         };
 
-        var row = TranscriptEntry.FromEvent(evt, HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant("test-assistant", "hello", "assistant"));
+        var row = TranscriptEntry.FromEvent(evt, HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant("test-assistant", "hello", 80, Theme.Default, "assistant"));
 
         row.Metadata.AgentId.Should().Be("root/coder");
         row.Metadata.AgentName.Should().Be("coder");

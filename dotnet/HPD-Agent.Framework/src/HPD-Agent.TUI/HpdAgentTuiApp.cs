@@ -14,6 +14,7 @@ using HPD.Events;
 using HPD.TUI.Controllers;
 using HPD.TUI.Core;
 using HPD.TUI.Models;
+using HPD.TUI.Markdown;
 using HPD.TUI.Rendering;
 using HPD.TUI.Terminal;
 using HPD.TUI.Views;
@@ -23,6 +24,7 @@ namespace HPD.Agent.TUI;
 
 public sealed class HpdAgentTuiApp : IAsyncDisposable
 {
+    private static readonly IMarkdownLayoutEngine MarkdownLayoutEngine = new HPD.TUI.Markdown.MarkdownLayoutEngine();
     private sealed record QueuedCommand(
         string CommandLine,
         CancellationToken CancellationToken)
@@ -67,6 +69,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     private ThreadJournalCursor _initialObservedCursor;
     private IReadOnlyList<AgentEvent> _pendingRecoveryRequests = [];
     private AgentTuiThreadState? _hydratedThreadState;
+    private IAgentTuiFramePreparable? _framePreparable;
 
     private HpdAgentTuiApp(
         IHpdAgentTuiRuntime runtime,
@@ -82,6 +85,8 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             new AgentTuiDispatcher(_application),
             PublishMarkdownUpdate);
         _application.ShortcutHandler = TryExecuteShortcut;
+        _application.FramePreparing = PrepareMarkdownFrame;
+        _application.Stopping = DiscardMarkdownState;
         if (_registry.Theme is { } theme)
         {
             _application.Theme = theme;
@@ -260,6 +265,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             _registry,
             _registry.ShellChrome,
             _state.State));
+        _framePreparable = shell as IAgentTuiFramePreparable;
         var dialogHost = new DialogHost(shell, _application.Focus);
         _dialogs = new AgentTuiDialogService(
             dialogHost,
@@ -326,8 +332,10 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         _observeTask = null;
         _interactionTask = null;
         _interactionQueue = null;
-        _markdownStreams.DiscardAll();
-        _activeMarkdownStreams.Clear();
+        if (_application.CheckAccess())
+            DiscardMarkdownState();
+        else if (_application.IsRunning)
+            await _application.InvokeAsync(DiscardMarkdownState).ConfigureAwait(false);
     }
 
     private void SubmitPrompt(ReadOnlyMemory<char> value)
@@ -1053,10 +1061,13 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         }
         catch (ThreadJournalReplacedException rebased)
         {
-            _handledInteractionIds.Clear();
-            RebuildShell(
-                scope,
-                $"Thread history was compacted into journal generation {rebased.CurrentCursor.Generation}; rehydrating.");
+            await _application.InvokeAsync(() =>
+            {
+                DiscardMarkdownState();
+                _handledInteractionIds.Clear();
+                RebuildShell(scope,
+                    $"Thread history was compacted into journal generation {rebased.CurrentCursor.Generation}; rehydrating.");
+            }, cancellationToken).ConfigureAwait(false);
             if (await HydrateThreadAsync(scope, cancellationToken).ConfigureAwait(false))
             {
                 _scopeIsDurable = true;
@@ -1147,8 +1158,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             return;
         }
 
-        if (deliveryMode != AgentTuiEventDeliveryMode.Historical)
-            ProjectMarkdownEvent(evt);
+        ProjectMarkdownEvent(evt);
 
         await _state.ApplyEventAsync(evt, cancellationToken, deliveryMode).ConfigureAwait(false);
         if (deliveryMode != AgentTuiEventDeliveryMode.Historical &&
@@ -1189,7 +1199,10 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                         start.Metadata?.AgentChain,
                         start.Metadata?.Depth ?? 0,
                         start.SessionId,
-                        start.ThreadId));
+                        start.ThreadId,
+                        start.AdditionalProperties is null
+                            ? null
+                            : new Dictionary<string, object?>(start.AdditionalProperties, StringComparer.Ordinal)));
                 break;
             case TextDeltaEvent delta:
                 _markdownStreams.Append(new(MarkdownStreamKind.Assistant, delta.MessageId), delta.Text);
@@ -1238,9 +1251,11 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         if (_state is null || update.Document.Presentation.Visibility == AgentMessageVisibility.Hidden) return;
         var document = update.Document;
         var reasoning = document.Identity.Kind == MarkdownStreamKind.Reasoning;
-        _state.Shell.Transcript.UpsertLive(new TranscriptEntry(
+        PrepareMarkdown(document, projection, _application.Size.Width, _application.Theme, reasoning);
+        var entryKey = $"{(reasoning ? "reasoning" : "assistant")}:{document.MessageId}";
+        var entry = new TranscriptEntry(
             Id: $"{(reasoning ? "reasoning" : "assistant")}-{document.MessageId}",
-            EntryKey: $"{(reasoning ? "reasoning" : "assistant")}:{document.MessageId}",
+            EntryKey: entryKey,
             Cell: reasoning
                 ? new ReasoningMessageCell(document, projection)
                 : new AssistantMessageCell(document.Presentation.AuthorName, document, projection),
@@ -1253,7 +1268,43 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 SessionId: document.Presentation.SessionId ?? _scope?.SessionId,
                 ThreadId: document.Presentation.ThreadId ?? _scope?.ThreadId,
                 MessageId: document.MessageId,
-                MessageRole: document.Presentation.Role)));
+                MessageRole: document.Presentation.Role,
+                AdditionalProperties: document.Presentation.AdditionalProperties));
+        if (document.State == MarkdownMessageState.Streaming)
+            _state.Shell.Transcript.UpsertLive(entry);
+        else
+            _state.Shell.Transcript.FinalizeLive(entryKey, entry);
+    }
+
+    private void PrepareMarkdownFrame(TerminalSize size, Theme theme)
+    {
+        if (_state is null) return;
+        _framePreparable?.PrepareFrame(size, theme, ColorSystem.TrueColor);
+        foreach (var entry in _state.Shell.Transcript.Snapshot().Entries)
+        {
+            if (entry.Cell is AssistantMessageCell assistant)
+                PrepareMarkdown(assistant.Document, assistant.Projection, size.Width, theme, reasoning: false);
+            else if (entry.Cell is ReasoningMessageCell reasoning)
+                PrepareMarkdown(reasoning.Document, reasoning.Projection, size.Width, theme, reasoning: true);
+        }
+    }
+
+    private static void PrepareMarkdown(
+        MarkdownMessageDocument document,
+        MarkdownMessageProjection projection,
+        int outerWidth,
+        Theme theme,
+        bool reasoning)
+    {
+        var depthIndent = Math.Max(0, document.Presentation.AgentDepth) * 2;
+        var effectiveTheme = reasoning
+            ? AgentTuiTranscriptRenderServices.Default.CreateMutedTheme(theme)
+            : theme;
+        var width = Math.Max(1, outerWidth - depthIndent - (reasoning ? 2 : 0));
+        projection.Prepare(
+            document,
+            new(width, MarkdownTheme.FromTheme(effectiveTheme), ColorSystem.TrueColor),
+            MarkdownLayoutEngine);
     }
 
     private async Task ProcessInteractionsAsync(
@@ -1507,6 +1558,12 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     private void RequestRender()
     {
         _application.RequestRender();
+    }
+
+    private void DiscardMarkdownState()
+    {
+        _markdownStreams.DiscardAll();
+        _activeMarkdownStreams.Clear();
     }
 
     public ValueTask DisposeAsync()

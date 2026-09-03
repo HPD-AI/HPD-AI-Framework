@@ -72,7 +72,7 @@ public sealed class TranscriptViewPerformanceTests
             new TranscriptEntry(
                 Id: "assistant-1",
                 EntryKey: "assistant:1",
-                Cell: HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant("assistant-1", "assistant"),
+                Cell: HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant("assistant-1", "assistant", 80, Theme.Default),
                 Metadata: new TranscriptEntryMetadata(),
                 VerticalSpacing: 0),
             new TranscriptEntry(

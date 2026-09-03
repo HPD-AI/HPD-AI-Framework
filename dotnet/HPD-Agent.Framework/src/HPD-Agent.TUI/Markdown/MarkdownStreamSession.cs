@@ -134,7 +134,37 @@ public sealed class MarkdownStreamSession
     {
         if (terminal) return snapshot.Source.Length;
         if (snapshot.Blocks.Count < 2) return 0;
-        return snapshot.Blocks[^1].SourceStart;
+        var candidateIndex = snapshot.Blocks.Count - 1;
+        while (candidateIndex > 0)
+        {
+            var preceding = snapshot.Blocks[candidateIndex - 1];
+            var following = snapshot.Blocks[candidateIndex];
+            var blankSeparated = HasBlankLine(snapshot.Source, preceding.SourceEndExclusive, following.SourceStart);
+            var proven = preceding.Kind switch
+            {
+                MarkdownBlockKind.ThematicBreak => true,
+                MarkdownBlockKind.Paragraph or MarkdownBlockKind.Heading => blankSeparated,
+                MarkdownBlockKind.Quote => blankSeparated && following.Kind != MarkdownBlockKind.Quote,
+                MarkdownBlockKind.List => blankSeparated && following.Kind != MarkdownBlockKind.List,
+                MarkdownBlockKind.Table => following.Kind != MarkdownBlockKind.Table,
+                MarkdownBlockKind.Code => blankSeparated,
+                // HTML subtypes and extension/unknown blocks remain mutable by default.
+                _ => false
+            };
+            if (proven) return following.SourceStart;
+            candidateIndex--;
+        }
+        return 0;
+    }
+
+    private static bool HasBlankLine(string source, int start, int endExclusive)
+    {
+        var lineBreaks = 0;
+        for (var index = Math.Clamp(start, 0, source.Length);
+             index < Math.Clamp(endExclusive, 0, source.Length);
+             index++)
+            if (source[index] == '\n' && ++lineBreaks >= 2) return true;
+        return false;
     }
 
     private static int FindFinalNewline(StringBuilder source)
