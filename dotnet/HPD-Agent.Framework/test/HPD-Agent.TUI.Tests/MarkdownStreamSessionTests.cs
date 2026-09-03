@@ -44,6 +44,7 @@ public sealed class MarkdownStreamSessionTests
         Assert.Equal("final", update.Document.Parsed.Source);
         Assert.Empty(update.Document.UnparsedTail);
         Assert.Equal(MarkdownMessageState.Completed, update.Document.State);
+        Assert.True(update.Diagnostics.FinalizationDuration > TimeSpan.Zero);
         Assert.Throws<InvalidOperationException>(() => session.Append("late"));
     }
 
@@ -342,6 +343,28 @@ public sealed class MarkdownStreamSessionTests
     }
 
     [Fact]
+    public void RepresentativeTokenStreamMeetsParseCoalescingAndStableReuseCounters()
+    {
+        var source = string.Join("\n\n", Enumerable.Range(0, 40)
+            .Select(index => $"paragraph {index} {new string('x', 40)}")) + "\n";
+        var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "guardrail"));
+        var engine = new MarkdownLayoutEngine();
+        var options = new MarkdownLayoutOptions(40, MarkdownTheme.FromTheme(Theme.Default));
+        for (var offset = 0; offset < source.Length; offset += 4)
+        {
+            var change = session.Append(source.Substring(offset, Math.Min(4, source.Length - offset)));
+            if (change.CompletedPhysicalLine)
+                _ = session.Projection.Prepare(session.Refresh().Document, options, engine);
+        }
+        _ = session.Projection.Prepare(session.Complete().Document, options, engine);
+
+        Assert.True(session.Diagnostics.ParseCount * 5 <= session.Diagnostics.DeltasAccepted,
+            $"Expected at least 80% parse reduction; parses={session.Diagnostics.ParseCount}, deltas={session.Diagnostics.DeltasAccepted}.");
+        Assert.True(session.Diagnostics.ParseCount <= session.Diagnostics.PublicationCount);
+        Assert.True(session.Projection.Diagnostics.StableBlocksReused > 0);
+    }
+
+    [Fact]
     public void ExcessiveNestingFallsBackToLiteralCanonicalTailWithoutLosingSource()
     {
         var source = string.Concat(Enumerable.Repeat("> ", 140)) + "deep";
@@ -411,6 +434,93 @@ public sealed class MarkdownStreamSessionTests
 
         Assert.True(session.Projection.Diagnostics.CacheEvictions > 0);
         Assert.True(session.Projection.Diagnostics.CacheMisses > session.Projection.Diagnostics.CacheHits);
+    }
+
+    [Fact]
+    public void RandomizedPartitionsAcrossParserSeamsMatchColdLayoutsAtEveryWidth()
+    {
+        string[] corpus =
+        [
+            "title\n=====\n\nparagraph\n---\n",
+            "> lazy\ncontinuation\n\n    indented code\n",
+            "1. one\n\n2. two\n\n- outer\n  1. inner\n",
+            "| head | escaped \\| pipe |\n|---|---|\n| 界 | e\u0301 👨‍👩‍👧‍👦 |\n",
+            "[first][id]\n\n[id]: <https://example.com/a>\n  'title'\n\n[id]: /duplicate\n",
+            "~~~~lang\n`not a fence`\n~~~~\n\n<div>raw</div>\n",
+            "- [x] task\r\n\r\n<https://example.com> and [link](#fragment)"
+        ];
+        var engine = new MarkdownLayoutEngine();
+        var parser = new MarkdownDocumentParser();
+        var pipeline = MarkdownPipelineFactory.CreateDefault();
+        for (var fixture = 0; fixture < corpus.Length; fixture++)
+        for (var seed = 0; seed < 8; seed++)
+        {
+            var source = corpus[fixture];
+            var random = new Random(fixture * 101 + seed);
+            var streamed = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, $"f{fixture}-s{seed}"));
+            for (var offset = 0; offset < source.Length;)
+            {
+                var length = Math.Min(source.Length - offset, random.Next(1, 9));
+                streamed.Append(source.Substring(offset, length));
+                _ = streamed.Refresh();
+                offset += length;
+            }
+            var final = streamed.Complete().Document;
+            var cold = parser.Parse(source, new MarkdownParseOptions { Pipeline = pipeline });
+            foreach (var width in new[] { 8, 17, 41, 80 })
+            {
+                var options = new MarkdownLayoutOptions(width, MarkdownTheme.FromTheme(Theme.Default));
+                Assert.Equal(LayoutFingerprint(engine.Layout(cold, options)),
+                    LayoutFingerprint(streamed.Projection.ResolveLayout(final, options, engine)));
+            }
+        }
+    }
+
+    [Fact]
+    public async Task FrozenPipelineSupportsConcurrentCompleteParseStress()
+    {
+        var pipeline = MarkdownPipelineFactory.CreateDefault();
+        var parser = new MarkdownDocumentParser();
+        var source = "# heading\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n- [x] task";
+        var results = await Task.WhenAll(Enumerable.Range(0, 12).Select(_ => Task.Run(() =>
+            Enumerable.Range(0, 50).Select(_ => parser.Parse(source,
+                new MarkdownParseOptions { Pipeline = pipeline }).Blocks.Count).Sum())));
+
+        Assert.All(results, result => Assert.Equal(200, result));
+        Assert.Single(results.Distinct());
+    }
+
+    [Fact]
+    public void AnsiOscAndStringTerminatorPayloadsAreSafeAcrossEveryDeltaBoundary()
+    {
+        const string source = "left\u001b[31mred\u001b]8;;https://evil.example\u0007label\u001b\\right\u202erlo\0";
+        for (var split = 0; split <= source.Length; split++)
+        {
+            var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, $"security-{split}"));
+            session.Append(source[..split]);
+            session.Append(source[split..]);
+            var document = session.Complete().Document;
+            var layout = session.Projection.ResolveLayout(document,
+                new(80, MarkdownTheme.FromTheme(Theme.Default)), new MarkdownLayoutEngine());
+            var visible = string.Concat(layout.Rows.SelectMany(static row => row.Line.Runs)
+                .Select(static run => run.Text));
+            Assert.Equal(source, document.GetCanonicalSource());
+            Assert.DoesNotContain('\u001b', visible);
+            Assert.DoesNotContain('\u0007', visible);
+            Assert.DoesNotContain('\u202e', visible);
+            Assert.DoesNotContain('\0', visible);
+        }
+    }
+
+    [Fact]
+    public void CanonicalSourceLimitRejectsBeforeMutationAndPreservesAcceptedPrefix()
+    {
+        var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "bounded"),
+            maximumCanonicalSourceLength: 4);
+        session.Append("safe");
+
+        Assert.Throws<ArgumentException>(() => session.Append("x"));
+        Assert.Equal("safe", session.Complete().Document.GetCanonicalSource());
     }
 
     private static IReadOnlyList<string> LayoutFingerprint(MarkdownLayout layout) => layout.Rows

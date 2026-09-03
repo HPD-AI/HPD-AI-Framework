@@ -335,6 +335,8 @@ internal sealed class FencedCodeRenderer : TerminalObjectRenderer<FencedCodeBloc
             : new CodeHighlightResult(code.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n')
                 .Select(line => new StyledTerminalLine([new StyledTerminalRun(line, r.Options.Theme.Body)]))
                 .ToImmutableArray(), null);
+        var inputLines = code.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        var inputLineStart = 0;
         for (var index = 0; index < result.Lines.Length; index++)
         {
             if (index > 0) r.Builder.NewLine();
@@ -345,10 +347,30 @@ internal sealed class FencedCodeRenderer : TerminalObjectRenderer<FencedCodeBloc
                 : n.Span.End + 1;
             foreach (var run in result.Lines[index].Runs)
             {
-                var runEnd = Math.Min(sourceLineEnd, sourceCursor + run.Text.Length);
-                r.Builder.Write(run.Text, run.Style, run.Hyperlink, sourceCursor, runEnd);
-                sourceCursor = runEnd;
+                if (!run.SourceMap.IsDefaultOrEmpty)
+                {
+                    var mapped = run.SourceMap.Select(segment => segment with
+                    {
+                        SourceStart = Math.Min(sourceLineEnd, sourceCursor + segment.SourceStart - inputLineStart),
+                        SourceEndExclusive = Math.Min(sourceLineEnd, sourceCursor + segment.SourceEndExclusive - inputLineStart)
+                    }).ToImmutableArray();
+                    r.Builder.WriteRun(run with
+                    {
+                        SourceStart = mapped.Min(static segment => segment.SourceStart),
+                        SourceEndExclusive = mapped.Max(static segment => segment.SourceEndExclusive),
+                        SourceMap = mapped
+                    });
+                    continue;
+                }
+                if (!run.IsDecorative)
+                {
+                    var runEnd = Math.Min(sourceLineEnd, sourceCursor + run.Text.Length);
+                    r.Builder.Write(run.Text, run.Style, run.Hyperlink, sourceCursor, runEnd);
+                    sourceCursor = runEnd;
+                }
+                else r.Builder.WriteRun(run);
             }
+            inputLineStart += index < inputLines.Length - 1 ? inputLines[index].Length + 1 : 0;
         }
     }
 }
@@ -485,7 +507,9 @@ internal sealed class TableRenderer : TerminalObjectRenderer<Table>
                 var pendingSpace = false;
                 while (index < run.Text.Length)
                 {
+                    var whitespaceStart = index;
                     while (index < run.Text.Length && char.IsWhiteSpace(run.Text[index])) { pendingSpace = true; index++; }
+                    var whitespaceLength = index - whitespaceStart;
                     var start = index;
                     while (index < run.Text.Length && !char.IsWhiteSpace(run.Text[index])) index++;
                     if (start == index) continue;
@@ -497,13 +521,36 @@ internal sealed class TableRenderer : TerminalObjectRenderer<Table>
                         pendingSpace = false;
                     }
                     if (pendingSpace && builder.Column > 0)
-                        builder.WriteSlice(run, Math.Max(0, start - 1), 1);
+                    {
+                        var mapped = MapCollapsedWhitespace(run, whitespaceStart, whitespaceLength);
+                        builder.WriteRun(new StyledTerminalRun(" ", run.Style, run.Hyperlink,
+                            mapped?.SourceStart, mapped?.SourceEndExclusive, run.IsDecorative,
+                            mapped is null ? default : [new(0, 1, mapped.Value.SourceStart, mapped.Value.SourceEndExclusive)]));
+                    }
                     builder.WriteSlice(run, start, word.Length);
                     pendingSpace = false;
                 }
             }
         }
         return builder.Freeze(source.SourceStart, source.SourceEndExclusive);
+    }
+
+    private static (int SourceStart, int SourceEndExclusive)? MapCollapsedWhitespace(
+        StyledTerminalRun run, int visualStart, int visualLength)
+    {
+        if (visualLength <= 0) return null;
+        if (run.SourceMap.IsDefaultOrEmpty)
+            return run.SourceStart.HasValue && run.SourceEndExclusive.HasValue &&
+                   run.SourceEndExclusive - run.SourceStart == run.Text.Length
+                ? (run.SourceStart.Value + visualStart, run.SourceStart.Value + visualStart + visualLength)
+                : null;
+        var end = visualStart + visualLength;
+        var segments = run.SourceMap.Where(segment =>
+            segment.VisualStart < end && segment.VisualEndExclusive > visualStart).ToArray();
+        return segments.Length == 0
+            ? null
+            : (segments.Min(static segment => segment.SourceStart),
+                segments.Max(static segment => segment.SourceEndExclusive));
     }
 
     private static int[]? Widths(string[][] rows, int count, int maxWidth)

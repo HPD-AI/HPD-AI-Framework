@@ -6,7 +6,11 @@ namespace HPD.TUI.Markdown;
 /// <summary>Highlights fenced code independently from Markdown parsing and layout policy.</summary>
 public interface ICodeHighlighter
 {
-    /// <summary>Highlights source using a normalized optional language identifier.</summary>
+    /// <summary>
+    /// Highlights source using a normalized optional language identifier. Non-decorative output must either
+    /// concatenate to the exact input (with line endings normalized to lines) or provide per-run source maps
+    /// whose source offsets are relative to the supplied input.
+    /// </summary>
     CodeHighlightResult Highlight(ReadOnlyMemory<char> source, string? language, MarkdownTheme theme);
 }
 

@@ -24,6 +24,7 @@ internal sealed class TerminalLayoutBuilder
 
     internal int Column => _column;
     internal bool LimitExceeded { get; private set; }
+    internal int ConsumedSourceEndExclusive { get; private set; }
 
     internal void SetWrapPrefix(string prefix, Style style)
     {
@@ -52,6 +53,7 @@ internal sealed class TerminalLayoutBuilder
             if (grapheme.SequenceEqual("\r")) { offset += length; continue; }
             if (grapheme.SequenceEqual("\n") || grapheme.SequenceEqual("\r\n"))
             {
+                if (hasExactSourceRange) ConsumedSourceEndExclusive = sourceStart!.Value + offset + length;
                 NewLine();
                 if (LimitExceeded) return;
                 offset += length;
@@ -81,6 +83,7 @@ internal sealed class TerminalLayoutBuilder
             var graphemeStart = hasExactSourceRange ? sourceStart + offset : sourceStart;
             var graphemeEnd = hasExactSourceRange ? graphemeStart + length : sourceEndExclusive;
             Append(text, style, hyperlink, graphemeStart, graphemeEnd, decorative);
+            if (graphemeEnd.HasValue) ConsumedSourceEndExclusive = Math.Max(ConsumedSourceEndExclusive, graphemeEnd.Value);
             _column += displayWidth;
             offset += length;
         }

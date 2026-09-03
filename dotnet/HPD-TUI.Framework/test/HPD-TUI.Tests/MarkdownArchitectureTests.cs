@@ -3,6 +3,7 @@ using HPD.TUI.Core;
 using HPD.TUI.Markdown;
 using HPD.TUI.Rendering;
 using HPD.TUI.Terminal;
+using System.Collections.Immutable;
 
 namespace HPD.TUI.Tests;
 
@@ -119,6 +120,10 @@ public sealed class MarkdownArchitectureTests
         Assert.Equal(MarkdownExtensionInvalidation.DocumentGlobal, extension.Invalidation);
         Assert.Equal(1, implementation.ParserConfigurations);
         var snapshot = new MarkdownDocumentParser().Parse("text", new MarkdownParseOptions { Pipeline = descriptor });
+        var paragraph = Assert.Single(snapshot.NodeCapabilities,
+            static capability => capability.RuntimeType.EndsWith("ParagraphBlock", StringComparison.Ordinal));
+        Assert.Equal(MarkdownTerminalNodeHandling.TypedRenderer, paragraph.TerminalHandling);
+        Assert.Contains(nameof(CustomParagraphRenderer), paragraph.RendererType, StringComparison.Ordinal);
         _ = new MarkdownLayoutEngine().Layout(snapshot, new(20, MarkdownTheme.FromTheme(Theme.Default)));
         Assert.True(implementation.TerminalConfigurations > 0);
         Assert.NotEqual(descriptor.StableId, MarkdownPipelineFactory.Create(new MarkdownPipelineConfiguration(
@@ -133,7 +138,17 @@ public sealed class MarkdownArchitectureTests
         public MarkdownExtensionInvalidation Invalidation => MarkdownExtensionInvalidation.DocumentGlobal;
         public string RendererPolicyId => "test-noop-v1";
         public void ConfigureParser(Markdig.MarkdownPipelineBuilder builder, IReadOnlyDictionary<string, string> options) => ParserConfigurations++;
-        public void ConfigureTerminal(Markdig.Renderers.ObjectRendererCollection renderers, IReadOnlyDictionary<string, string> options) => TerminalConfigurations++;
+        public void ConfigureTerminal(Markdig.Renderers.ObjectRendererCollection renderers, IReadOnlyDictionary<string, string> options)
+        {
+            TerminalConfigurations++;
+            renderers.Add(new CustomParagraphRenderer());
+        }
+    }
+
+    private sealed class CustomParagraphRenderer : TerminalObjectRenderer<Markdig.Syntax.ParagraphBlock>
+    {
+        protected override void Write(TerminalMarkdownRenderer renderer, Markdig.Syntax.ParagraphBlock node) =>
+            renderer.WriteChildren(node.Inline!);
     }
 
     [Fact]
@@ -149,6 +164,46 @@ public sealed class MarkdownArchitectureTests
         Assert.DoesNotContain(plain.NodeCapabilities, static capability => capability.RuntimeType.Contains("EmphasisInline", StringComparison.Ordinal));
         Assert.Contains(extended.NodeCapabilities, static capability => capability.RuntimeType.Contains("EmphasisInline", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public void UnknownExtensionLeafAndContainerResolveToSanitizedRegistryFallback()
+    {
+        var extension = new UnknownNodeExtension();
+        var pipeline = MarkdownPipelineFactory.Create(new MarkdownPipelineConfiguration(
+            Extensions: [new MarkdownExtensionConfiguration(extension.Id,
+                new Dictionary<string, string>(), MarkdownExtensionInvalidation.BlockLocal)]), [extension]);
+        var snapshot = new MarkdownDocumentParser().Parse("safe",
+            new MarkdownParseOptions { Pipeline = pipeline });
+
+        Assert.Contains(snapshot.NodeCapabilities, capability =>
+            capability.RuntimeType.EndsWith(nameof(UnknownLeaf), StringComparison.Ordinal) &&
+            capability.TerminalHandling == MarkdownTerminalNodeHandling.SanitizedSourceFallback &&
+            capability.RendererType!.EndsWith("LiteralFallbackRenderer", StringComparison.Ordinal));
+        Assert.Contains(snapshot.NodeCapabilities, capability =>
+            capability.RuntimeType.EndsWith(nameof(UnknownContainer), StringComparison.Ordinal) &&
+            capability.TerminalHandling == MarkdownTerminalNodeHandling.SanitizedSourceFallback);
+        var layout = new MarkdownLayoutEngine().Layout(snapshot,
+            new(20, MarkdownTheme.FromTheme(Theme.Default)));
+        Assert.Contains(layout.Rows, row => RowText(row).Contains("safe", StringComparison.Ordinal));
+    }
+
+    private sealed class UnknownNodeExtension : ITerminalMarkdownExtension
+    {
+        public string Id => "unknown-node-test";
+        public MarkdownExtensionInvalidation Invalidation => MarkdownExtensionInvalidation.BlockLocal;
+        public string RendererPolicyId => "unknown-node-v1";
+        public void ConfigureParser(Markdig.MarkdownPipelineBuilder builder, IReadOnlyDictionary<string, string> options) =>
+            builder.DocumentProcessed += document =>
+            {
+                var container = new UnknownContainer { Span = new Markdig.Syntax.SourceSpan(0, 3) };
+                container.Add(new UnknownLeaf { Span = new Markdig.Syntax.SourceSpan(0, 3) });
+                document.Add(container);
+            };
+        public void ConfigureTerminal(Markdig.Renderers.ObjectRendererCollection renderers, IReadOnlyDictionary<string, string> options) { }
+    }
+
+    private sealed class UnknownLeaf() : Markdig.Syntax.LeafBlock(null);
+    private sealed class UnknownContainer() : Markdig.Syntax.ContainerBlock(null);
 
     [Fact]
     public void Layout_UsesPairwiseSpacingAndStructuralSpacingIdentity()
@@ -177,16 +232,19 @@ public sealed class MarkdownArchitectureTests
             var withBlank = MarkdownLayoutEngine.GetSeparatorRows(previous, current, spacing, "a\n\nb");
 
             Assert.Equal(0, withoutBlank);
-            var expected = previousKind is MarkdownBlockKind.Html or MarkdownBlockKind.ThematicBreak ||
-                currentKind is MarkdownBlockKind.Html or MarkdownBlockKind.ThematicBreak
-                    ? 0
-                    : currentKind == MarkdownBlockKind.Heading
-                        ? spacing.HeadingTopGap
-                        : previousKind == MarkdownBlockKind.Heading
-                            ? spacing.HeadingBottomGap
-                            : spacing.ParagraphGap;
+            var expected = ExpectedPairwiseGap(previousKind, currentKind, spacing);
             Assert.Equal(expected, withBlank);
         }
+    }
+
+    private static int ExpectedPairwiseGap(MarkdownBlockKind previous, MarkdownBlockKind current, MarkdownSpacing spacing)
+    {
+        if (previous is MarkdownBlockKind.Html or MarkdownBlockKind.ThematicBreak or MarkdownBlockKind.Other ||
+            current is MarkdownBlockKind.Html or MarkdownBlockKind.ThematicBreak or MarkdownBlockKind.Other) return 0;
+        if (current == MarkdownBlockKind.Heading) return spacing.HeadingTopGap;
+        if (previous == MarkdownBlockKind.Heading) return spacing.HeadingBottomGap;
+        if (previous == current && previous is MarkdownBlockKind.List or MarkdownBlockKind.Quote) return 0;
+        return spacing.ParagraphGap;
     }
 
     [Fact]
@@ -260,7 +318,13 @@ public sealed class MarkdownArchitectureTests
         Assert.Equal(MarkdownDegradationReason.LayoutRows, rowLimited.DegradationReason);
         Assert.Equal(source, document.Source);
         Assert.Equal(source, string.Join('\n', sourceLimited.Rows.Select(RowText)));
-        Assert.All(rowLimited.Rows, static row => Assert.True(row.IsDecorative));
+        Assert.Equal(["one", "two"], rowLimited.Rows.Select(RowText));
+        Assert.True(rowLimited.HasMoreSource);
+        var nextPage = engine.LayoutRawPage(source, document.PipelineId, new(20, theme,
+            Mode: MarkdownPresentationMode.Raw, ResourceLimits: new() { MaximumLayoutRows = 2 }),
+            rowLimited.NextSourceOffset!.Value);
+        Assert.Equal("three", Assert.Single(nextPage.Rows).Line.Runs[0].Text);
+        Assert.False(nextPage.HasMoreSource);
     }
 
     [Fact]
@@ -329,6 +393,44 @@ public sealed class MarkdownArchitectureTests
     }
 
     [Fact]
+    public void TransformedHighlighterAndCollapsedTableWhitespaceRetainExactSourceSegments()
+    {
+        const string codeSource = "```text\r\na\tb\r\n```";
+        var parser = new MarkdownDocumentParser();
+        var codeDocument = parser.Parse(codeSource,
+            new MarkdownParseOptions { Pipeline = MarkdownPipelineFactory.CreateDefault() });
+        var codeLayout = new MarkdownLayoutEngine(new TransformingHighlighter()).Layout(codeDocument,
+            new(40, MarkdownTheme.FromTheme(Theme.Default)));
+        var transformed = Assert.Single(codeLayout.Rows.SelectMany(static row => row.Line.Runs),
+            static run => run.Text == "A⇥B");
+        Assert.Equal("a", codeSource[transformed.SourceMap[0].SourceStart..transformed.SourceMap[0].SourceEndExclusive]);
+        Assert.Equal("\t", codeSource[transformed.SourceMap[1].SourceStart..transformed.SourceMap[1].SourceEndExclusive]);
+        Assert.Equal("b", codeSource[transformed.SourceMap[2].SourceStart..transformed.SourceMap[2].SourceEndExclusive]);
+
+        const string tableSource = "| value |\n|---|\n| a   b |";
+        var table = parser.Parse(tableSource,
+            new MarkdownParseOptions { Pipeline = MarkdownPipelineFactory.CreateDefault() });
+        var tableLayout = new MarkdownLayoutEngine().Layout(table,
+            new(30, MarkdownTheme.FromTheme(Theme.Default)));
+        var collapsed = tableLayout.Rows.SelectMany(static row => row.Line.Runs)
+            .SelectMany(run => run.SourceMap.Select(map => (run, map)))
+            .Single(pair => pair.run.Text[pair.map.VisualStart..pair.map.VisualEndExclusive] == " " &&
+                tableSource[pair.map.SourceStart..pair.map.SourceEndExclusive] == "   ");
+        Assert.Equal("   ", tableSource[collapsed.map.SourceStart..collapsed.map.SourceEndExclusive]);
+    }
+
+    [Fact]
+    public void ParserRejectsOversizeAndDelimiterAdversarialWorkBeforeSemanticParsing()
+    {
+        var parser = new MarkdownDocumentParser();
+        var pipeline = MarkdownPipelineFactory.CreateDefault();
+        Assert.Throws<ArgumentException>(() => parser.Parse("12345",
+            new MarkdownParseOptions { Pipeline = pipeline, MaximumSourceLength = 4 }));
+        Assert.Throws<ArgumentException>(() => parser.Parse("*****",
+            new MarkdownParseOptions { Pipeline = pipeline, MaximumDelimiterCharacters = 4 }));
+    }
+
+    [Fact]
     public void TableCells_PreserveTypedInlineOrderStylesAndHyperlinks()
     {
         const string source = "| Value |\n|---|\n| [**bold** and `code`](https://example.com) |";
@@ -362,6 +464,13 @@ public sealed class MarkdownArchitectureTests
     }
 
     private static string RowText(MarkdownLayoutRow row) => string.Concat(row.Line.Runs.Select(static run => run.Text));
+
+    private sealed class TransformingHighlighter : ICodeHighlighter
+    {
+        public CodeHighlightResult Highlight(ReadOnlyMemory<char> source, string? language, MarkdownTheme theme) =>
+            new([new StyledTerminalLine([new StyledTerminalRun("A⇥B", theme.Body, SourceMap:
+                [new(0, 1, 0, 1), new(1, 2, 1, 2), new(2, 3, 2, 3)])])], "text");
+    }
 
     [Theory]
     [InlineData("plain\u001b[31mred")]

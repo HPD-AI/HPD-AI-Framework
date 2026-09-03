@@ -52,6 +52,8 @@ public interface IMarkdownLayoutEngine
     MarkdownLayout Layout(MarkdownDocumentSnapshot document, MarkdownLayoutOptions options);
     /// <summary>Lays out exact canonical source as sanitized literal text without AST reconstruction.</summary>
     MarkdownLayout LayoutRaw(string canonicalSource, string pipelineId, MarkdownLayoutOptions options);
+    /// <summary>Lays out one bounded sanitized page beginning at an exact canonical-source offset.</summary>
+    MarkdownLayout LayoutRawPage(string canonicalSource, string pipelineId, MarkdownLayoutOptions options, int sourceOffset);
     /// <summary>Lays out one selected block with its full document context available.</summary>
     MarkdownBlockLayout LayoutBlock(MarkdownDocumentSnapshot document, MarkdownTopLevelBlock block, MarkdownLayoutOptions options);
 }
@@ -59,6 +61,15 @@ public interface IMarkdownLayoutEngine
 /// <summary>Default terminal Markdown layout engine.</summary>
 public sealed class MarkdownLayoutEngine : IMarkdownLayoutEngine
 {
+    private readonly ICodeHighlighter? _highlighter;
+
+    /// <summary>Creates an engine with the built-in highlighter.</summary>
+    public MarkdownLayoutEngine() { }
+
+    /// <summary>Creates an engine with an audited source-mapped code highlighter.</summary>
+    public MarkdownLayoutEngine(ICodeHighlighter highlighter) =>
+        _highlighter = highlighter ?? throw new ArgumentNullException(nameof(highlighter));
+
     /// <inheritdoc />
     public MarkdownLayout Layout(MarkdownDocumentSnapshot document, MarkdownLayoutOptions options)
     {
@@ -66,7 +77,7 @@ public sealed class MarkdownLayoutEngine : IMarkdownLayoutEngine
         Validate(options);
         var limits = options.ResourceLimits ?? new MarkdownResourceLimits();
         if (options.Mode == MarkdownPresentationMode.Rich && document.Source.Length > limits.MaximumRichSourceLength)
-            return LayoutLiteral(document.Source, document.PipelineId, options, MarkdownDegradationReason.SourceLength);
+            return LayoutLiteral(document.Source, document.PipelineId, options, MarkdownDegradationReason.SourceLength, 0);
         if (options.Mode == MarkdownPresentationMode.Raw)
             return LayoutRaw(document.Source, document.PipelineId, options);
         var blockLayouts = ImmutableArray.CreateBuilder<MarkdownBlockLayout>(document.Blocks.Count);
@@ -87,7 +98,7 @@ public sealed class MarkdownLayoutEngine : IMarkdownLayoutEngine
                 degradationReason = blockLayout.DegradationReason;
             previous = block;
             if (rows.Count > limits.MaximumLayoutRows)
-                return Simplified(document.PipelineId, options, MarkdownDegradationReason.LayoutRows);
+                return LayoutLiteral(document.Source, document.PipelineId, options, MarkdownDegradationReason.LayoutRows, 0);
         }
 
         return new MarkdownLayout
@@ -105,29 +116,45 @@ public sealed class MarkdownLayoutEngine : IMarkdownLayoutEngine
         ArgumentNullException.ThrowIfNull(canonicalSource);
         ArgumentException.ThrowIfNullOrWhiteSpace(pipelineId);
         Validate(options);
-        return LayoutLiteral(canonicalSource, pipelineId, options, MarkdownDegradationReason.None);
+        return LayoutLiteral(canonicalSource, pipelineId, options, MarkdownDegradationReason.None, 0);
+    }
+
+    /// <inheritdoc />
+    public MarkdownLayout LayoutRawPage(string canonicalSource, string pipelineId, MarkdownLayoutOptions options, int sourceOffset)
+    {
+        ArgumentNullException.ThrowIfNull(canonicalSource);
+        ArgumentException.ThrowIfNullOrWhiteSpace(pipelineId);
+        ArgumentOutOfRangeException.ThrowIfNegative(sourceOffset);
+        if (sourceOffset > canonicalSource.Length) throw new ArgumentOutOfRangeException(nameof(sourceOffset));
+        Validate(options);
+        return LayoutLiteral(canonicalSource, pipelineId, options with { Mode = MarkdownPresentationMode.Raw },
+            MarkdownDegradationReason.None, sourceOffset);
     }
 
     private static MarkdownLayout LayoutLiteral(
         string canonicalSource,
         string pipelineId,
         MarkdownLayoutOptions options,
-        MarkdownDegradationReason degradationReason)
+        MarkdownDegradationReason degradationReason,
+        int sourceOffset)
     {
         var limits = options.ResourceLimits ?? new MarkdownResourceLimits();
         var builder = new TerminalLayoutBuilder(options.Width, limits.MaximumLayoutRows);
-        builder.Write(canonicalSource, options.Theme.Body, sourceStart: 0, sourceEndExclusive: canonicalSource.Length);
-        if (builder.LimitExceeded)
-            return Simplified(pipelineId, options, MarkdownDegradationReason.LayoutRows);
-        var block = builder.Freeze(0, canonicalSource.Length);
+        builder.Write(canonicalSource[sourceOffset..], options.Theme.Body,
+            sourceStart: sourceOffset, sourceEndExclusive: canonicalSource.Length);
+        var block = builder.Freeze(sourceOffset, canonicalSource.Length);
+        var effectiveReason = builder.LimitExceeded ? MarkdownDegradationReason.LayoutRows : degradationReason;
         return new MarkdownLayout
         {
             Key = new(pipelineId, "terminal-v1", options.Width, options.Theme.ThemeKey, options.ColorSystem,
                 options.Mode, options.SyntaxThemeRevision, (options.Spacing ?? new MarkdownSpacing()).Key, limits.Key),
             Blocks = [block],
             Rows = block.Lines.Select(line => new MarkdownLayoutRow(
-                MarkdownLayoutRowKind.BlockContent, line, null, 0, canonicalSource.Length, false)).ToImmutableArray(),
-            DegradationReason = degradationReason
+                MarkdownLayoutRowKind.BlockContent, line, null, sourceOffset, canonicalSource.Length, false)).ToImmutableArray(),
+            DegradationReason = effectiveReason,
+            NextSourceOffset = builder.LimitExceeded
+                ? Math.Max(sourceOffset + 1, builder.ConsumedSourceEndExclusive)
+                : null
         };
     }
 
@@ -141,7 +168,7 @@ public sealed class MarkdownLayoutEngine : IMarkdownLayoutEngine
             throw new InvalidOperationException("Raw presentation must be laid out from the complete canonical source.");
         try
         {
-            var renderer = new TerminalMarkdownRenderer(document, options);
+            var renderer = new TerminalMarkdownRenderer(document, options, _highlighter);
             return renderer.RenderBlock(block);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
@@ -166,24 +193,6 @@ public sealed class MarkdownLayoutEngine : IMarkdownLayoutEngine
             options.SyntaxThemeRevision, (options.Spacing ?? new MarkdownSpacing()).Key,
             (options.ResourceLimits ?? new MarkdownResourceLimits()).Key);
 
-    private static MarkdownLayout Simplified(
-        string pipelineId,
-        MarkdownLayoutOptions options,
-        MarkdownDegradationReason reason)
-    {
-        var limits = options.ResourceLimits ?? new MarkdownResourceLimits();
-        var line = new StyledTerminalLine([new StyledTerminalRun(
-            "[Markdown presentation simplified by resource policy]", options.Theme.CodeBorder, IsDecorative: true)]);
-        return new MarkdownLayout
-        {
-            Key = new(pipelineId, "terminal-v1", options.Width, options.Theme.ThemeKey, options.ColorSystem,
-                options.Mode, options.SyntaxThemeRevision, (options.Spacing ?? new MarkdownSpacing()).Key, limits.Key),
-            Blocks = [],
-            Rows = [new(MarkdownLayoutRowKind.BlockContent, line, null, null, null, true)],
-            DegradationReason = reason
-        };
-    }
-
     /// <summary>Gets document-owned separator rows from an adjacent block pair and its exact source trivia.</summary>
     public static int GetSeparatorRows(
         MarkdownTopLevelBlock previous,
@@ -195,12 +204,23 @@ public sealed class MarkdownLayoutEngine : IMarkdownLayoutEngine
         ArgumentNullException.ThrowIfNull(current);
         ArgumentNullException.ThrowIfNull(spacing);
         ArgumentNullException.ThrowIfNull(canonicalSource);
-        if (previous.Kind == MarkdownBlockKind.Html || current.Kind == MarkdownBlockKind.Html) return 0;
-        if (previous.Kind == MarkdownBlockKind.ThematicBreak || current.Kind == MarkdownBlockKind.ThematicBreak) return 0;
         if (!HasBlankLine(canonicalSource, previous.SourceEndExclusive, current.SourceStart)) return 0;
-        if (current.Kind == MarkdownBlockKind.Heading) return spacing.HeadingTopGap;
-        if (previous.Kind == MarkdownBlockKind.Heading) return spacing.HeadingBottomGap;
-        return spacing.ParagraphGap;
+        return (previous.Kind, current.Kind) switch
+        {
+            (MarkdownBlockKind.Html, _) or (_, MarkdownBlockKind.Html) => 0,
+            (MarkdownBlockKind.ThematicBreak, _) or (_, MarkdownBlockKind.ThematicBreak) => 0,
+            (MarkdownBlockKind.Other, _) or (_, MarkdownBlockKind.Other) => 0,
+            (_, MarkdownBlockKind.Heading) => spacing.HeadingTopGap,
+            (MarkdownBlockKind.Heading, _) => spacing.HeadingBottomGap,
+            (MarkdownBlockKind.List, MarkdownBlockKind.List) => 0,
+            (MarkdownBlockKind.Quote, MarkdownBlockKind.Quote) => 0,
+            (MarkdownBlockKind.Paragraph, MarkdownBlockKind.Paragraph or MarkdownBlockKind.List or MarkdownBlockKind.Quote or MarkdownBlockKind.Code or MarkdownBlockKind.Table) => spacing.ParagraphGap,
+            (MarkdownBlockKind.List, MarkdownBlockKind.Paragraph or MarkdownBlockKind.Quote or MarkdownBlockKind.Code or MarkdownBlockKind.Table) => spacing.ParagraphGap,
+            (MarkdownBlockKind.Quote, MarkdownBlockKind.Paragraph or MarkdownBlockKind.List or MarkdownBlockKind.Code or MarkdownBlockKind.Table) => spacing.ParagraphGap,
+            (MarkdownBlockKind.Code, MarkdownBlockKind.Paragraph or MarkdownBlockKind.List or MarkdownBlockKind.Quote or MarkdownBlockKind.Code or MarkdownBlockKind.Table) => spacing.ParagraphGap,
+            (MarkdownBlockKind.Table, MarkdownBlockKind.Paragraph or MarkdownBlockKind.List or MarkdownBlockKind.Quote or MarkdownBlockKind.Code or MarkdownBlockKind.Table) => spacing.ParagraphGap,
+            _ => 0
+        };
     }
 
     private static bool HasBlankLine(string source, int start, int endExclusive)

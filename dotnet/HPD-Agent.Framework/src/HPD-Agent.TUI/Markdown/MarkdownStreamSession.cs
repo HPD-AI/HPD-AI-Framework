@@ -56,13 +56,15 @@ public sealed class MarkdownStreamSession
     private long _fullMessageInvalidations;
     private long _tableHoldbackActivations;
     private long _finalizationTicks;
+    private readonly int _maximumCanonicalSourceLength;
 
     public MarkdownStreamSession(
         MarkdownStreamIdentity identity,
         MarkdownMessagePresentation? presentation = null,
         IMarkdownDocumentParser? parser = null,
         MarkdownPipelineDescriptor? pipeline = null,
-        IReadOnlyDictionary<string, object?>? additionalProperties = null)
+        IReadOnlyDictionary<string, object?>? additionalProperties = null,
+        int maximumCanonicalSourceLength = 4_194_304)
     {
         if (string.IsNullOrWhiteSpace(identity.MessageId)) throw new ArgumentException("A message ID is required.", nameof(identity));
         Identity = identity;
@@ -75,6 +77,8 @@ public sealed class MarkdownStreamSession
         _additionalProperties = additionalProperties?.ToImmutableDictionary(StringComparer.Ordinal)
             ?? ImmutableDictionary<string, object?>.Empty;
         _parser = parser ?? new MarkdownDocumentParser();
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumCanonicalSourceLength);
+        _maximumCanonicalSourceLength = maximumCanonicalSourceLength;
         _parseOptions = new() { Pipeline = pipeline ?? MarkdownPipelineFactory.CreateDefault() };
         _snapshot = _parser.Parse(string.Empty, _parseOptions);
     }
@@ -106,6 +110,8 @@ public sealed class MarkdownStreamSession
         EnsureStreaming();
         ArgumentNullException.ThrowIfNull(delta);
         if (delta.Length == 0) return new(false, false, Revision);
+        if (delta.Length > _maximumCanonicalSourceLength - _source.Length)
+            throw new ArgumentException("The delta would exceed the configured canonical-source limit.", nameof(delta));
         _source.Append(delta);
         _utf16CodeUnitsAppended += delta.Length;
         _deltasAccepted++;
@@ -137,8 +143,9 @@ public sealed class MarkdownStreamSession
         EnsureStreaming();
         State = state;
         var started = Stopwatch.GetTimestamp();
-        try { return Publish(terminal: true, state); }
-        finally { _finalizationTicks += Stopwatch.GetElapsedTime(started).Ticks; }
+        var update = Publish(terminal: true, state);
+        _finalizationTicks += Stopwatch.GetElapsedTime(started).Ticks;
+        return update with { Diagnostics = Diagnostics };
     }
 
     private MarkdownStreamUpdate Publish(bool terminal, MarkdownMessageState state)

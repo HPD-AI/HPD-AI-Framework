@@ -26,6 +26,12 @@ public sealed record MarkdownParseOptions
 
     /// <summary>Gets whether streaming boundary metadata is analyzed.</summary>
     public bool AnalyzeStreamingBoundaries { get; init; } = true;
+
+    /// <summary>Gets the largest source admitted to one rich semantic parse.</summary>
+    public int MaximumSourceLength { get; init; } = 1_048_576;
+
+    /// <summary>Gets the maximum aggregate count of delimiter-like characters admitted to one parse.</summary>
+    public int MaximumDelimiterCharacters { get; init; } = 262_144;
 }
 
 /// <summary>Describes immutable parser and renderer-affecting configuration.</summary>
@@ -182,6 +188,15 @@ public sealed class MarkdownDocumentParser : IMarkdownDocumentParser
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.MaximumSourceLength);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.MaximumDelimiterCharacters);
+        if (source.Length > options.MaximumSourceLength)
+            throw new ArgumentException("Markdown source exceeds the configured semantic-parse limit.", nameof(source));
+        var delimiters = 0;
+        foreach (var character in source)
+            if (character is '`' or '*' or '_' or '[' or ']' or '(' or ')' or '|' or '<' or '>' or '&' &&
+                ++delimiters > options.MaximumDelimiterCharacters)
+                throw new ArgumentException("Markdown delimiter work exceeds the configured semantic-parse limit.", nameof(source));
         var syntax = Markdig.Markdown.Parse(source, options.Pipeline.Pipeline);
         var blocks = syntax.Select((block, ordinal) => MarkdownTopLevelBlock.From(block, ordinal, source.Length)).ToArray();
         var features = MarkdownSemanticAnalysis.GetFeatures(syntax);

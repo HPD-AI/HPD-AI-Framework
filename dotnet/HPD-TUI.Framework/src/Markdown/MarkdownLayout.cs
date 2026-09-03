@@ -32,6 +32,10 @@ public sealed class MarkdownLayout
     public required ImmutableArray<MarkdownLayoutRow> Rows { get; init; }
     /// <summary>Gets the resource limit that selected a simplified presentation.</summary>
     public MarkdownDegradationReason DegradationReason { get; init; }
+    /// <summary>Gets the next canonical-source offset available to bounded raw disclosure, or null when complete.</summary>
+    public int? NextSourceOffset { get; init; }
+    /// <summary>Gets whether additional canonical source can be disclosed with a subsequent raw page.</summary>
+    public bool HasMoreSource => NextSourceOffset.HasValue;
     /// <summary>Gets the rendered height.</summary>
     public int Height => Rows.Length;
 }
