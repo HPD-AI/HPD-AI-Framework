@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using HPD.TUI.Core;
 using HPD.TUI.Utilities;
 
@@ -50,6 +51,16 @@ public sealed class TerminalGrid : ISegmentSink, IDisposable
     public int TerminalCursorX { get; private set; }
     /// <summary>Gets the requested cursor row.</summary>
     public int TerminalCursorY { get; private set; }
+
+    /// <summary>Gets the bytes reserved by the pooled cell and grapheme arrays.</summary>
+    public long EstimatedByteSize
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return checked((long)_cells!.Length * Unsafe.SizeOf<Cell>() + (long)_graphemes!.Length * sizeof(char));
+        }
+    }
 
     /// <summary>Clears the frame while retaining pooled storage.</summary>
     public void Clear()

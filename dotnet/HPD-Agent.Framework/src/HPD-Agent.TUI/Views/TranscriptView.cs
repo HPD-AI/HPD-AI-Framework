@@ -33,26 +33,33 @@ public sealed class TranscriptView : Component, IScrollbackSource
     private long _committedRowSequence;
     private ScrollbackBatch? _pendingScrollback;
     private int _pendingEntryCount;
+    private long _cacheBytes;
 
     public TranscriptView(
         TranscriptModel model,
         AgentTuiTranscriptRendererRegistry renderers,
         int height = 15,
         AgentTuiRuntimeScope? scope = null,
-        IHpdTuiPerformanceEventSink? performanceSink = null)
+        IHpdTuiPerformanceEventSink? performanceSink = null,
+        long cacheByteBudget = 32 * 1024 * 1024)
     {
         ArgumentNullException.ThrowIfNull(model);
         ArgumentNullException.ThrowIfNull(renderers);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(cacheByteBudget);
 
         _model = model;
         _renderers = renderers;
         _scope = scope;
         _performanceSink = performanceSink;
         Height = height;
+        CacheByteBudget = cacheByteBudget;
     }
 
     public int Height { get; set; }
+
+    /// <summary>Gets the maximum retained transcript raster storage in bytes.</summary>
+    public long CacheByteBudget { get; }
 
     /// <summary>
     /// Gets the number of rendered transcript rows between the viewport and the newest row.
@@ -333,6 +340,7 @@ public sealed class TranscriptView : Component, IScrollbackSource
             if (rendered is not null &&
                 !rendered.CanReuse(_entries[i], maxWidth, context.Theme, context.ColorSystem))
             {
+                _cacheBytes -= rendered.EstimatedByteSize;
                 rendered.Dispose();
                 _renderedEntries[i] = null;
             }
@@ -341,7 +349,11 @@ public sealed class TranscriptView : Component, IScrollbackSource
         while (_renderedEntries.Count > _entries.Count)
         {
             var last = _renderedEntries.Count - 1;
-            _renderedEntries[last]?.Dispose();
+            if (_renderedEntries[last] is { } removed)
+            {
+                _cacheBytes -= removed.EstimatedByteSize;
+                removed.Dispose();
+            }
             _renderedEntries.RemoveAt(last);
         }
 
@@ -427,6 +439,8 @@ public sealed class TranscriptView : Component, IScrollbackSource
         diagnostics.RowsCaptured++;
         rendered = RenderedTranscriptEntry.Create(_entries[index], _renderers, in context, maxWidth);
         _renderedEntries[index] = rendered;
+        _cacheBytes += rendered.EstimatedByteSize;
+        EvictToBudget(index);
         diagnostics.RowsMeasured++;
         return rendered;
     }
@@ -465,6 +479,19 @@ public sealed class TranscriptView : Component, IScrollbackSource
         {
             _renderedEntries[i]?.Dispose();
             _renderedEntries[i] = null;
+        }
+        _cacheBytes = 0;
+    }
+
+    private void EvictToBudget(int protectedIndex)
+    {
+        if (_cacheBytes <= CacheByteBudget) return;
+        for (var index = 0; index < _renderedEntries.Count && _cacheBytes > CacheByteBudget; index++)
+        {
+            if (index == protectedIndex || _renderedEntries[index] is not { } entry) continue;
+            _cacheBytes -= entry.EstimatedByteSize;
+            entry.Dispose();
+            _renderedEntries[index] = null;
         }
     }
 }
@@ -535,6 +562,8 @@ internal sealed class RenderedTranscriptEntry : IDisposable
     public ColorSystem ColorSystem { get; }
 
     public int LineCount { get; }
+
+    public long EstimatedByteSize => _grid.EstimatedByteSize;
 
     public static RenderedTranscriptEntry Create(
         TranscriptEntry entry,
