@@ -7,7 +7,7 @@ const iterations = Number.parseInt(process.env.BENCHMARK_ITERATIONS ?? "1000", 1
 const warmup = Number.parseInt(process.env.BENCHMARK_WARMUP ?? "100", 10)
 const core = await import(pathToFileURL(`${reference}/packages/core/src/index.ts`).href)
 const testing = await import(pathToFileURL(`${reference}/packages/core/src/testing.ts`).href)
-const react = await import("react")
+const react = await import(pathToFileURL(`${reference}/packages/react/node_modules/react/index.js`).href)
 const reactHost = await import(pathToFileURL(`${reference}/packages/react/src/index.ts`).href)
 
 type Sample = { durationNs: number; outputBytes: number }
@@ -49,12 +49,29 @@ function summarize(adapter: Result["adapter"], scenario: string, width: number, 
 
 async function measure(adapter: Result["adapter"], scenario: string, width: number, height: number, setupNs: number, mutate: (i: number) => void, render: () => Promise<void>, captureBytes: () => number) {
   for (let i = 0; i < warmup; i++) { mutate(i); await render() }
+  captureBytes()
   Bun.gc(true)
   const before = process.memoryUsage().heapUsed
   const samples: Sample[] = []
   for (let i = 0; i < iterations; i++) {
     mutate(i)
     const start = Bun.nanoseconds()
+    await render()
+    samples.push({ durationNs: Bun.nanoseconds() - start, outputBytes: captureBytes() })
+  }
+  Bun.gc(true)
+  return summarize(adapter, scenario, width, height, setupNs, samples, process.memoryUsage().heapUsed - before)
+}
+
+async function measureEndToEnd(adapter: Result["adapter"], scenario: string, width: number, height: number, setupNs: number, mutate: (i: number) => void, render: () => Promise<void>, captureBytes: () => number) {
+  for (let i = 0; i < warmup; i++) { mutate(i); await render() }
+  captureBytes()
+  Bun.gc(true)
+  const before = process.memoryUsage().heapUsed
+  const samples: Sample[] = []
+  for (let i = 0; i < iterations; i++) {
+    const start = Bun.nanoseconds()
+    mutate(i)
     await render()
     samples.push({ durationNs: Bun.nanoseconds() - start, outputBytes: captureBytes() })
   }
@@ -95,33 +112,49 @@ async function runCore(width: number, height: number) {
 }
 
 async function runReact(width: number, height: number) {
+  ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
   const setupStart = Bun.nanoseconds()
   const stdout = new ByteSink(width, height)
   const setup = await testing.createTestRenderer({ width, height, stdout: stdout as any, bufferedOutput: "stdout", useThread: false, maxFps: Number.POSITIVE_INFINITY })
   const root = reactHost.createRoot(setup.renderer)
-  const renderTree = (first: string, last: string) => root.render(react.createElement(react.Fragment, null,
-    react.createElement("text", { position: "absolute", top: 0, left: 0 }, first),
-    react.createElement("text", { position: "absolute", top: height - 1, left: 0 }, last)))
-  renderTree("alpha", "omega"); await setup.renderOnce()
+  type View = { first: string; last: string; fg?: string }
+  let update!: (view: View) => void
+  function App() {
+    const [view, setView] = react.useState<View>({ first: "alpha", last: "omega" })
+    update = setView
+    return react.createElement(react.Fragment, null,
+      react.createElement("text", { position: "absolute", top: 0, left: 0, fg: view.fg }, view.first),
+      react.createElement("text", { position: "absolute", top: height - 1, left: 0 }, view.last))
+  }
+  react.act(() => root.render(react.createElement(App)))
+  await setup.renderOnce()
+  if (typeof update !== "function") throw new Error("OpenTUI React root did not commit the benchmark component.")
+  stdout.take()
   const setupNs = Bun.nanoseconds() - setupStart
   const results = []
-  const m = (name: string, mutate: (i: number) => void) => measure("opentui-react", name, width, height, setupNs, mutate, setup.renderOnce, () => stdout.take())
-  results.push(await m("warm-noop", () => renderTree("alpha", "omega")))
-  results.push(await m("one-cell", i => renderTree(i % 2 ? "alpha" : "Alpha", "omega")))
-  results.push(await m("one-row", i => renderTree((i % 2 ? "x" : "X").repeat(width), "omega")))
-  results.push(await m("two-disjoint-rows", i => renderTree(i % 2 ? "alpha" : "Alpha", i % 2 ? "omega" : "Omega")))
-  results.push(await m("full-screen", i => renderTree(((i % 2 ? "x" : "X").repeat(width) + "\n").repeat(height), "")))
-  results.push(await m("cursor-only", i => renderTree(`cursor-${i % 2}`, "omega")))
-  results.push(await m("style-only", i => root.render(react.createElement("text", { fg: i % 2 ? "#ff0000" : "#00ff00" }, "alpha"))))
-  results.push(await m("wide-grapheme", i => renderTree(i % 2 ? "界" : "語", "omega")))
-  results.push(await m("hyperlink", i => renderTree(i % 2 ? "https://a.example" : "https://b.example", "omega")))
-  results.push(await m("resize", i => setup.resize(i % 2 ? width : Math.max(40, width - 1), i % 2 ? height : Math.max(12, height - 1))))
-  root.unmount(); setup.renderer.destroy()
+  const state = (view: (i: number) => View) => (i: number) => react.act(() => update(view(i)))
+  const m = (name: string, mutate: (i: number) => void) => measureEndToEnd("opentui-react", name, width, height, setupNs, mutate, setup.renderOnce, () => stdout.take())
+  results.push(await m("warm-noop", state(() => ({ first: "alpha", last: "omega" }))))
+  results.push(await m("one-cell", state(i => ({ first: i % 2 ? "alpha" : "Alpha", last: "omega" }))))
+  results.push(await m("one-row", state(i => ({ first: (i % 2 ? "x" : "X").repeat(width), last: "omega" }))))
+  results.push(await m("two-disjoint-rows", state(i => ({ first: i % 2 ? "alpha" : "Alpha", last: i % 2 ? "omega" : "Omega" }))))
+  results.push(await m("full-screen", state(i => ({ first: ((i % 2 ? "x" : "X").repeat(width) + "\n").repeat(height), last: "" }))))
+  results.push(await m("cursor-only", i => react.act(() => setup.renderer.setCursorPosition(i % width, 0, true))))
+  results.push(await m("style-only", state(i => ({ first: "alpha", last: "omega", fg: i % 2 ? "#ff0000" : "#00ff00" }))))
+  results.push(await m("wide-grapheme", state(i => ({ first: i % 2 ? "界" : "語", last: "omega" }))))
+  results.push(await m("hyperlink", state(i => ({ first: i % 2 ? "https://a.example" : "https://b.example", last: "omega" }))))
+  results.push(await m("resize", i => react.act(() => setup.resize(i % 2 ? width : Math.max(40, width - 1), i % 2 ? height : Math.max(12, height - 1)))))
+  react.act(() => root.unmount()); setup.renderer.destroy()
+  delete (globalThis as any).IS_REACT_ACT_ENVIRONMENT
   return results
 }
 
 const dimensions = [[80, 24], [120, 40], [240, 80]] as const
-const results = (await Promise.all(dimensions.flatMap(([w, h]) => [runCore(w, h), runReact(w, h)]))).flat()
+const results: Result[] = []
+for (const [width, height] of dimensions) {
+  results.push(...await runCore(width, height))
+  results.push(...await runReact(width, height))
+}
 console.log(JSON.stringify({
   schema: "hpd.tui.framework-comparison.v1",
   runtime: Bun.version,
