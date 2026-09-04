@@ -82,10 +82,16 @@ internal sealed class VirtualTerminalOracle
             if (char.IsControl(current))
                 throw Unsupported($"control U+{(int)current:X4}");
 
-            var status = Rune.DecodeFromUtf16(input[index..], out var rune, out var consumed);
-            if (status != OperationStatus.Done) throw Unsupported("invalid UTF-16");
-            Write(rune);
-            index += consumed;
+            var runEnd = index + 1;
+            while (runEnd < input.Length && input[runEnd] != '\x1b' && !char.IsControl(input[runEnd])) runEnd++;
+            var printable = input[index..runEnd];
+            while (!printable.IsEmpty)
+            {
+                var length = StringInfo.GetNextTextElementLength(printable);
+                Write(printable[..length]);
+                printable = printable[length..];
+            }
+            index = runEnd;
         }
     }
 
@@ -171,14 +177,16 @@ internal sealed class VirtualTerminalOracle
         return input[end] == '\a' ? end + 1 : end + 2;
     }
 
-    private void Write(Rune rune)
+    private void Write(ReadOnlySpan<char> grapheme)
     {
-        var width = UnicodeWidth.GetWidth(rune);
+        var width = 0;
+        var runes = new RuneEnumerator(grapheme);
+        while (runes.MoveNext()) width = Math.Max(width, UnicodeWidth.GetWidth(runes.Current));
         if (width == 0)
         {
             var x = Math.Max(0, CursorX - 1);
             while (x > 0 && _cells[CursorY, x].Continuation) x--;
-            _cells[CursorY, x] = _cells[CursorY, x] with { Text = (_cells[CursorY, x].Text ?? "") + rune };
+            _cells[CursorY, x] = _cells[CursorY, x] with { Text = (_cells[CursorY, x].Text ?? "") + grapheme.ToString() };
             return;
         }
         if (width is not (1 or 2)) throw Unsupported($"rune width {width}");
@@ -194,7 +202,7 @@ internal sealed class VirtualTerminalOracle
             LineFeed();
         }
         ClearGlyphAt(CursorX, CursorY);
-        _cells[CursorY, CursorX] = new(rune.ToString(), false, ActiveHyperlink, _style);
+        _cells[CursorY, CursorX] = new(grapheme.ToString(), false, ActiveHyperlink, _style);
         if (width == 2) _cells[CursorY, CursorX + 1] = new(null, true, ActiveHyperlink, _style);
         CursorX += width;
         if (CursorX >= Width)

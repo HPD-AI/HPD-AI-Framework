@@ -125,12 +125,18 @@ public static class TuiCapture
     {
         ArgumentNullException.ThrowIfNull(grid);
 
-        var lineCount = Math.Clamp(grid.CursorY + 1, 1, grid.Height);
-        while (lineCount > 1 && IsBlankLine(grid, lineCount - 1))
-        {
-            lineCount--;
-        }
-
+        // CursorY is the segment sink's transient write head. Its final value depends on whether
+        // rasterization replayed the full display list or only damaged operations, so it cannot
+        // describe semantic screen extent.
+        var lineCount = grid.HasTerminalCursor
+            ? Math.Clamp(grid.TerminalCursorY + 1, 1, grid.Height)
+            : 1;
+        for (var row = grid.Height - 1; row >= lineCount; row--)
+            if (!IsBlankLine(grid, row))
+            {
+                lineCount = row + 1;
+                break;
+            }
         return lineCount;
     }
 
