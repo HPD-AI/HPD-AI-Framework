@@ -2,7 +2,7 @@ using HPD.TUI.Core;
 
 namespace HPD.TUI.Components;
 
-public sealed class OverlayHost : IComponent
+public sealed class OverlayHost : Component
 {
     private readonly IComponent _content;
     private readonly List<Overlay> _overlays = [];
@@ -32,12 +32,12 @@ public sealed class OverlayHost : IComponent
 
     public void ClearOverlays() => _overlays.Clear();
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
     {
         return _content.Measure(in context, maxWidth);
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
         _content.Render(in context, maxWidth, ref output);
 
@@ -47,7 +47,7 @@ public sealed class OverlayHost : IComponent
         }
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         if (_overlays.Count > 0)
         {

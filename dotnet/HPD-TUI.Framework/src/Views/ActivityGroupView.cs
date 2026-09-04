@@ -4,7 +4,7 @@ using HPD.TUI.Utilities;
 
 namespace HPD.TUI.Views;
 
-public sealed class ActivityGroupView : IComponent
+public sealed class ActivityGroupView : Component
 {
     private readonly ActivityGroupModel _model;
 
@@ -19,7 +19,7 @@ public sealed class ActivityGroupView : IComponent
 
     public bool AnimationsEnabled { get; init; } = true;
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
     {
         var width = string.IsNullOrEmpty(_model.Title) ? 0 : UnicodeWidth.GetWidth(_model.Title);
         var activities = _model.GetVisibleActivities();
@@ -39,7 +39,7 @@ public sealed class ActivityGroupView : IComponent
         return new Measurement(width, width, height);
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
         if (maxWidth <= 0)
         {
@@ -70,7 +70,7 @@ public sealed class ActivityGroupView : IComponent
         RenderDetailed(activities, in context, maxWidth, ref output);
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         return false;
     }

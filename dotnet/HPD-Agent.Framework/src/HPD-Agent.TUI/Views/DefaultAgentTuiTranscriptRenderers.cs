@@ -180,7 +180,7 @@ internal sealed class CustomComponentCellRenderer : IAgentTuiTranscriptRenderer<
         });
 }
 
-internal sealed class TranscriptRenderComponent : IComponent
+internal sealed class TranscriptRenderComponent : Component
 {
     private readonly RenderTranscriptComponent _render;
 
@@ -189,13 +189,13 @@ internal sealed class TranscriptRenderComponent : IComponent
         _render = render ?? throw new ArgumentNullException(nameof(render));
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
         => new(Math.Min(maxWidth, 20), maxWidth);
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
         => _render(in context, maxWidth, ref output);
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         return false;
     }

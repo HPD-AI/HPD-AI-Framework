@@ -103,15 +103,15 @@ public sealed class OverlayTests
         Assert.Equal(new Rune('c'), grid.GetLeadingRune(grid.GetCell(2, 0)));
     }
 
-    private sealed class ContextHeightComponent : IComponent
+    private sealed class ContextHeightComponent : Component
     {
-        public Measurement Measure(in RenderContext context, int maxWidth)
+        public override Measurement Measure(in RenderContext context, int maxWidth)
             => new(1, 1);
 
-        public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
             => output.Write(context.Height.ToString().AsSpan(), context.Theme.Text);
 
-        public bool HandleInput(in TuiInputEvent key)
+        public override bool HandleInput(in TuiInputEvent key)
         {
             return false;
         }

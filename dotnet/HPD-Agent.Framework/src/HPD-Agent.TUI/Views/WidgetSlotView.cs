@@ -4,7 +4,7 @@ using HPD.TUI.Core;
 
 namespace HPD.Agent.TUI.Views;
 
-public sealed class WidgetSlotView : IComponent
+public sealed class WidgetSlotView : Component
 {
     private readonly WidgetSlotModel _model;
     private readonly Text _empty;
@@ -17,7 +17,7 @@ public sealed class WidgetSlotView : IComponent
         _empty = new Text(emptyText ?? throw new ArgumentNullException(nameof(emptyText)));
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
     {
         RefreshComponents();
         if (_components.Count == 0)
@@ -40,7 +40,7 @@ public sealed class WidgetSlotView : IComponent
         return new Measurement(Math.Min(min, maxWidth), Math.Min(max, maxWidth), height);
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
         RefreshComponents();
         if (_components.Count == 0)
@@ -59,7 +59,7 @@ public sealed class WidgetSlotView : IComponent
         }
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         RefreshComponents();
         foreach (var component in _components)

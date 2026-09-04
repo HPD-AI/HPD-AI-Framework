@@ -3,7 +3,7 @@ using HPD.TUI.Rendering;
 
 namespace HPD.TUI.Layout;
 
-public sealed class Grid : IComponent
+public sealed class Grid : Component
 {
     private readonly List<GridColumn> _columns = [];
     private readonly List<GridRow> _rows = [];
@@ -53,7 +53,7 @@ public sealed class Grid : IComponent
         return this;
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
     {
         if (_columns.Count == 0)
         {
@@ -84,7 +84,7 @@ public sealed class Grid : IComponent
         return new Measurement(Math.Min(width, maxWidth), width, height);
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
         if (_columns.Count == 0 || _rows.Count == 0 || maxWidth <= 0)
         {
@@ -121,7 +121,7 @@ public sealed class Grid : IComponent
         }
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         foreach (var row in _rows)
         {

@@ -464,7 +464,7 @@ public sealed class ManagedTerminalTuiRendererTests
         }
     }
 
-    private sealed class LinesComponent : IComponent
+    private sealed class LinesComponent : Component
     {
         private readonly string[] _lines;
 
@@ -473,9 +473,9 @@ public sealed class ManagedTerminalTuiRendererTests
             _lines = lines;
         }
 
-        public Measurement Measure(in RenderContext context, int maxWidth) => new(maxWidth, _lines.Length);
+        public override Measurement Measure(in RenderContext context, int maxWidth) => new(maxWidth, _lines.Length);
 
-        public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
         {
             for (var i = 0; i < _lines.Length; i++)
             {
@@ -488,73 +488,73 @@ public sealed class ManagedTerminalTuiRendererTests
             }
         }
 
-        public bool HandleInput(in TuiInputEvent key)
+        public override bool HandleInput(in TuiInputEvent key)
         {
             return false;
         }
     }
 
-    private sealed class CursorComponent : IComponent
+    private sealed class CursorComponent : Component
     {
-        public Measurement Measure(in RenderContext context, int maxWidth) => new(4, 4);
+        public override Measurement Measure(in RenderContext context, int maxWidth) => new(4, 4);
 
-        public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
         {
             output.Write("text", context.Theme.Text);
             output.SetTerminalCursor(3, 0);
         }
 
-        public bool HandleInput(in TuiInputEvent key)
+        public override bool HandleInput(in TuiInputEvent key)
         {
             return false;
         }
     }
 
-    private sealed class ContextHeightComponent : IComponent
+    private sealed class ContextHeightComponent : Component
     {
         public int ObservedHeight { get; private set; }
 
-        public Measurement Measure(in RenderContext context, int maxWidth) => new(1, 1);
+        public override Measurement Measure(in RenderContext context, int maxWidth) => new(1, 1);
 
-        public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
         {
             ObservedHeight = context.Height;
             output.Write("x", context.Theme.Text);
         }
 
-        public bool HandleInput(in TuiInputEvent key) => false;
+        public override bool HandleInput(in TuiInputEvent key) => false;
     }
 
-    private sealed class StyledFillLineComponent : IComponent
+    private sealed class StyledFillLineComponent : Component
     {
         private static readonly Style Fill = new(Color.White, new Color(10, 20, 30));
 
-        public Measurement Measure(in RenderContext context, int maxWidth) => new(maxWidth, maxWidth);
+        public override Measurement Measure(in RenderContext context, int maxWidth) => new(maxWidth, maxWidth);
 
-        public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
         {
             output.Write("x", Fill);
             output.Write(new string(' ', Math.Max(0, maxWidth - 1)), Fill);
         }
 
-        public bool HandleInput(in TuiInputEvent key)
+        public override bool HandleInput(in TuiInputEvent key)
         {
             return false;
         }
     }
 
-    private sealed class InputCountingComponent : IComponent
+    private sealed class InputCountingComponent : Component
     {
         public int InputCount { get; private set; }
 
-        public Measurement Measure(in RenderContext context, int maxWidth) => new(1, 1);
+        public override Measurement Measure(in RenderContext context, int maxWidth) => new(1, 1);
 
-        public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
         {
             output.Write(InputCount.ToString(), context.Theme.Text);
         }
 
-        public bool HandleInput(in TuiInputEvent key)
+        public override bool HandleInput(in TuiInputEvent key)
         {
             InputCount++;
             return true;

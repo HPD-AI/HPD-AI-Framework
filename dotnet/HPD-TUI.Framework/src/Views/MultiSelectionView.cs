@@ -4,7 +4,7 @@ using HPD.TUI.Models;
 
 namespace HPD.TUI.Views;
 
-public sealed class MultiSelectionView<T> : IFocusable
+public sealed class MultiSelectionView<T> : Component, IFocusable
 {
     private readonly MultiSelectionModel<T> _model;
     private readonly MultiSelectionController<T> _controller;
@@ -34,10 +34,10 @@ public sealed class MultiSelectionView<T> : IFocusable
         set => _list.IsFocused = value;
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth) => _list.Measure(in context, maxWidth);
+    public override Measurement Measure(in RenderContext context, int maxWidth) => _list.Measure(in context, maxWidth);
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output) => _list.Render(in context, maxWidth, ref output);
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output) => _list.Render(in context, maxWidth, ref output);
 
-    public bool HandleInput(in TuiInputEvent key) => _list.HandleInput(in key);
+    public override bool HandleInput(in TuiInputEvent key) => _list.HandleInput(in key);
 
 }

@@ -4,7 +4,7 @@ using HPD.TUI.Models;
 
 namespace HPD.TUI.Views;
 
-public sealed class CommandPaletteView : IFocusable
+public sealed class CommandPaletteView : Component, IFocusable
 {
     private readonly CommandRouter _router;
     private readonly SelectionModel<CommandDescriptor> _selection = new() { EmptyText = "No commands" };
@@ -32,11 +32,11 @@ public sealed class CommandPaletteView : IFocusable
         set => _view.IsFocused = value;
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth) => _view.Measure(in context, maxWidth);
+    public override Measurement Measure(in RenderContext context, int maxWidth) => _view.Measure(in context, maxWidth);
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output) => _view.Render(in context, maxWidth, ref output);
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output) => _view.Render(in context, maxWidth, ref output);
 
-    public bool HandleInput(in TuiInputEvent key) => _view.HandleInput(in key);
+    public override bool HandleInput(in TuiInputEvent key) => _view.HandleInput(in key);
 
     public static CommandPaletteView Create(IEnumerable<CommandDescriptor> commands)
     {

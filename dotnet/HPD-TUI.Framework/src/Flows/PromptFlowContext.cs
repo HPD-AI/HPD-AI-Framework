@@ -35,7 +35,7 @@ public sealed class PromptFlowContext<T>
     }
 }
 
-internal sealed class PromptFlowComponent<T> : IComponent
+internal sealed class PromptFlowComponent<T> : Component
 {
     private readonly IComponent _inner;
     private readonly PromptFlowContext<T> _context;
@@ -48,7 +48,7 @@ internal sealed class PromptFlowComponent<T> : IComponent
 
     public IComponent Inner => _inner;
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
     {
         var inner = _inner.Measure(in context, maxWidth);
         if (string.IsNullOrEmpty(_context.ValidationMessage))
@@ -60,7 +60,7 @@ internal sealed class PromptFlowComponent<T> : IComponent
         return new Measurement(Math.Max(inner.MinWidth, messageWidth), Math.Max(inner.MaxWidth, messageWidth));
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
         _inner.Render(in context, maxWidth, ref output);
         if (!string.IsNullOrEmpty(_context.ValidationMessage))
@@ -70,13 +70,13 @@ internal sealed class PromptFlowComponent<T> : IComponent
         }
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         return _inner.HandleInput(in key);
     }
 }
 
-internal sealed class PromptFlowShell<T> : IComponent, IPromptFlowFocusProvider
+internal sealed class PromptFlowShell<T> : Component, IPromptFlowFocusProvider
 {
     private readonly IComponent _inner;
     private readonly IComponent _focus;
@@ -89,11 +89,11 @@ internal sealed class PromptFlowShell<T> : IComponent, IPromptFlowFocusProvider
 
     public IComponent InitialFocus => _focus;
 
-    public Measurement Measure(in RenderContext context, int maxWidth) => _inner.Measure(in context, maxWidth);
+    public override Measurement Measure(in RenderContext context, int maxWidth) => _inner.Measure(in context, maxWidth);
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output) => _inner.Render(in context, maxWidth, ref output);
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output) => _inner.Render(in context, maxWidth, ref output);
 
-    public bool HandleInput(in TuiInputEvent key) => _inner.HandleInput(in key);
+    public override bool HandleInput(in TuiInputEvent key) => _inner.HandleInput(in key);
 
 }
 

@@ -3,7 +3,7 @@ using HPD.TUI.Utilities;
 
 namespace HPD.TUI.Forms;
 
-public sealed class FormView : IFocusable
+public sealed class FormView : Component, IFocusable
 {
     private const int WideLayoutMinimum = 48;
     private readonly FormModel _model;
@@ -27,7 +27,7 @@ public sealed class FormView : IFocusable
 
     public int MaxVisibleRows { get; }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
     {
         _model.ReconcileActiveField();
         var visibleCount = _model.VisibleFieldCount;
@@ -64,7 +64,7 @@ public sealed class FormView : IFocusable
         return new Measurement(width, width, Math.Max(1, rowCount + extraRows));
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
         _model.ReconcileActiveField();
         var visibleCount = _model.VisibleFieldCount;
@@ -117,7 +117,7 @@ public sealed class FormView : IFocusable
         output.Write(Truncate(BuildHint(active, _updateMode), maxWidth).AsSpan(), context.Theme.Border);
     }
 
-    public bool HandleInput(in TuiInputEvent input)
+    public override bool HandleInput(in TuiInputEvent input)
     {
         var keyEvent = input.KeyEvent;
         return _controller.HandleInput(in keyEvent);

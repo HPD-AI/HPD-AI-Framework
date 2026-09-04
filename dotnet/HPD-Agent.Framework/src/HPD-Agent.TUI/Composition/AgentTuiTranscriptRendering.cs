@@ -164,7 +164,7 @@ public sealed class AgentTuiTranscriptRenderServices
     public static readonly Style Success = new(Color.Green, Color.Default);
     public static readonly Style Error = new(Color.Red, Color.Default);
 
-    private sealed class PrefixedComponent : IComponent
+    private sealed class PrefixedComponent : Component
     {
         private readonly IComponent _body;
         private readonly string _firstPrefix;
@@ -183,10 +183,10 @@ public sealed class AgentTuiTranscriptRenderServices
             _style = style;
         }
 
-        public Measurement Measure(in RenderContext context, int maxWidth)
+        public override Measurement Measure(in RenderContext context, int maxWidth)
             => new(Math.Min(maxWidth, 1), maxWidth);
 
-        public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
         {
             if (maxWidth <= 0)
             {
@@ -206,13 +206,13 @@ public sealed class AgentTuiTranscriptRenderServices
             _body.Render(in context, bodyWidth, ref prefixedOutput);
         }
 
-        public bool HandleInput(in TuiInputEvent key)
+        public override bool HandleInput(in TuiInputEvent key)
         {
             return _body.HandleInput(in key);
         }
     }
 
-    private sealed class PrefixedTextComponent : IComponent
+    private sealed class PrefixedTextComponent : Component
     {
         private readonly string _text;
         private readonly string _firstPrefix;
@@ -231,10 +231,10 @@ public sealed class AgentTuiTranscriptRenderServices
             _textStyle = textStyle;
         }
 
-        public Measurement Measure(in RenderContext context, int maxWidth)
+        public override Measurement Measure(in RenderContext context, int maxWidth)
             => new(Math.Min(maxWidth, 1), maxWidth);
 
-        public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
         {
             if (maxWidth <= 0)
             {
@@ -250,7 +250,7 @@ public sealed class AgentTuiTranscriptRenderServices
             WriteWrappedText(_text, bodyWidth, GetTextStyle(_textStyle, context.Theme), ref prefixedOutput);
         }
 
-        public bool HandleInput(in TuiInputEvent key)
+        public override bool HandleInput(in TuiInputEvent key)
         {
             return false;
         }

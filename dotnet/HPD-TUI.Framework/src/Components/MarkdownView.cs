@@ -4,7 +4,7 @@ using HPD.TUI.Markdown;
 namespace HPD.TUI.Components;
 
 /// <summary>Renders one immutable Markdown layout without parsing or recomputing layout.</summary>
-public sealed class MarkdownView : IComponent
+public sealed class MarkdownView : Component
 {
     private MarkdownLayout _layout;
     private readonly Func<int, MarkdownLayout>? _loadRawPage;
@@ -21,14 +21,14 @@ public sealed class MarkdownView : IComponent
     }
 
     /// <inheritdoc />
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
     {
         Validate(in context, maxWidth);
         return new(Math.Min(_layout.Key.Width, 1), _layout.Key.Width, _layout.Height);
     }
 
     /// <inheritdoc />
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
         Validate(in context, maxWidth);
 
@@ -41,7 +41,7 @@ public sealed class MarkdownView : IComponent
     }
 
     /// <inheritdoc />
-    public bool HandleInput(in TuiInputEvent input)
+    public override bool HandleInput(in TuiInputEvent input)
     {
         if (input.Key == KeyCode.PageDown && _layout.NextSourceOffset is { } offset && _loadRawPage is not null)
         {

@@ -10,7 +10,7 @@ using HPD.TUI.Views;
 
 namespace HPD.Agent.TUI.Views;
 
-public sealed class DefaultAgentTuiShellView : IComponent, IAgentTuiFramePreparable, IScrollbackSource
+public sealed class DefaultAgentTuiShellView : Component, IAgentTuiFramePreparable, IScrollbackSource
 {
     private readonly ChatShellModel _model;
     private readonly PromptView _prompt;
@@ -52,19 +52,19 @@ public sealed class DefaultAgentTuiShellView : IComponent, IAgentTuiFramePrepara
         _mainSection.Prepare(size.Width, theme, colorSystem);
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
     {
         UpdateTranscriptHeight(in context);
         return _shell.Measure(in context, maxWidth);
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
         UpdateTranscriptHeight(in context);
         _shell.Render(in context, maxWidth, ref output);
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         if (IsPageActive())
         {
@@ -303,7 +303,7 @@ public sealed class DefaultAgentTuiShellView : IComponent, IAgentTuiFramePrepara
         return Math.Max(1, context.Height - nonTranscriptRows - gapRows);
     }
 
-    private sealed class MainSectionView : IComponent
+    private sealed class MainSectionView : Component
     {
         private readonly DefaultAgentTuiShellView _owner;
         private string? _pageId;
@@ -318,13 +318,13 @@ public sealed class DefaultAgentTuiShellView : IComponent, IAgentTuiFramePrepara
             _owner = owner;
         }
 
-        public Measurement Measure(in RenderContext context, int maxWidth)
+        public override Measurement Measure(in RenderContext context, int maxWidth)
             => Resolve().Measure(in context, maxWidth);
 
-        public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
             => Resolve().Render(in context, maxWidth, ref output);
 
-        public bool HandleInput(in TuiInputEvent key)
+        public override bool HandleInput(in TuiInputEvent key)
             => Resolve().HandleInput(in key);
 
         internal void Prepare(int width, Theme theme, ColorSystem colorSystem)
@@ -373,7 +373,7 @@ public sealed class DefaultAgentTuiShellView : IComponent, IAgentTuiFramePrepara
         }
     }
 
-    private sealed class RetainedShellStack : IComponent
+    private sealed class RetainedShellStack : Component
     {
         private readonly List<RetainedShellSection> _sections = [];
 
@@ -389,7 +389,7 @@ public sealed class DefaultAgentTuiShellView : IComponent, IAgentTuiFramePrepara
         public void Add(RetainedShellSection section)
             => _sections.Add(section);
 
-        public Measurement Measure(in RenderContext context, int maxWidth)
+        public override Measurement Measure(in RenderContext context, int maxWidth)
         {
             var min = 0;
             var max = 0;
@@ -413,7 +413,7 @@ public sealed class DefaultAgentTuiShellView : IComponent, IAgentTuiFramePrepara
             return new Measurement(Math.Min(min, maxWidth), Math.Min(max, maxWidth), height);
         }
 
-        public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
         {
             var wrote = false;
             foreach (var section in _sections)
@@ -436,7 +436,7 @@ public sealed class DefaultAgentTuiShellView : IComponent, IAgentTuiFramePrepara
             }
         }
 
-        public bool HandleInput(in TuiInputEvent key)
+        public override bool HandleInput(in TuiInputEvent key)
         {
             var handled = false;
             foreach (var section in _sections)

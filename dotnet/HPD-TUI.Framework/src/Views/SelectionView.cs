@@ -5,7 +5,7 @@ using HPD.TUI.Utilities;
 
 namespace HPD.TUI.Views;
 
-public sealed class SelectionView<T> : IFocusable
+public sealed class SelectionView<T> : Component, IFocusable
 {
     private readonly SelectionModel<T> _model;
     private readonly SelectionController<T> _controller;
@@ -34,7 +34,7 @@ public sealed class SelectionView<T> : IFocusable
         set => _list.IsFocused = value;
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
     {
         var listMeasurement = _list.Measure(in context, maxWidth);
         if (!_model.AllowFilter)
@@ -49,7 +49,7 @@ public sealed class SelectionView<T> : IFocusable
             Math.Min(context.Height, listMeasurement.Height + 1));
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
         if (!_model.AllowFilter)
         {
@@ -73,7 +73,7 @@ public sealed class SelectionView<T> : IFocusable
         _list.Render(in listContext, maxWidth, ref output);
     }
 
-    public bool HandleInput(in TuiInputEvent key) => _list.HandleInput(in key);
+    public override bool HandleInput(in TuiInputEvent key) => _list.HandleInput(in key);
 
     private string GetSearchText()
         => string.IsNullOrEmpty(_model.Query)

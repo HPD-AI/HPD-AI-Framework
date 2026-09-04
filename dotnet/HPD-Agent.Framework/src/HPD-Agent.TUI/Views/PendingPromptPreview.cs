@@ -4,15 +4,15 @@ using HPD.TUI.Utilities;
 
 namespace HPD.Agent.TUI.Views;
 
-internal sealed class PendingPromptPreview(PendingPromptQueue queue) : IComponent
+internal sealed class PendingPromptPreview(PendingPromptQueue queue) : Component
 {
     private const int MaxVisibleItems = 3;
     private readonly PendingPromptQueue _queue = queue ?? throw new ArgumentNullException(nameof(queue));
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
         => _queue.Count == 0 ? new Measurement(0, 0, 0) : new Measurement(1, Math.Min(maxWidth, 100), Height());
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
         if (maxWidth <= 0 || _queue.Count == 0) return;
         var items = _queue.Snapshot();
@@ -34,7 +34,7 @@ internal sealed class PendingPromptPreview(PendingPromptQueue queue) : IComponen
         output.Write("  Alt+↑ edit latest · Esc steer next".AsSpan(), context.Theme.Border);
     }
 
-    public bool HandleInput(in TuiInputEvent input) => false;
+    public override bool HandleInput(in TuiInputEvent input) => false;
 
     private int Height() => 2 + Math.Min(_queue.Count, MaxVisibleItems) + (_queue.Count > MaxVisibleItems ? 1 : 0);
 

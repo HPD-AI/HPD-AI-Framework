@@ -12,7 +12,7 @@ using HPD.TUI.Terminal;
 
 namespace HPD.Agent.TUI.Views;
 
-public sealed class TranscriptView : IComponent, IScrollbackSource
+public sealed class TranscriptView : Component, IScrollbackSource
 {
     private readonly TranscriptModel _model;
     private readonly AgentTuiTranscriptRendererRegistry _renderers;
@@ -61,15 +61,15 @@ public sealed class TranscriptView : IComponent, IScrollbackSource
 
     public TranscriptViewDiagnostics LastDiagnostics { get; private set; } = TranscriptViewDiagnostics.Empty;
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
         => new(Math.Min(maxWidth, 20), maxWidth, Height);
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
         RenderRows(in context, maxWidth, ref output);
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         if (_model.HistoryPresentation == TranscriptHistoryPresentation.TerminalScrollback)
             return false;

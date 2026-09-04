@@ -2,7 +2,7 @@ using HPD.TUI.Core;
 
 namespace HPD.TUI.Components;
 
-public class Container : IComponent
+public class Container : Component
 {
     private readonly List<IComponent> _children = [];
 
@@ -11,14 +11,29 @@ public class Container : IComponent
     public void Add(IComponent child)
     {
         ArgumentNullException.ThrowIfNull(child);
+        child.Lifecycle.Adopt(((IComponent)this).Lifecycle.Id);
         _children.Add(child);
+        InvalidateLayout();
     }
 
-    public bool Remove(IComponent child) => _children.Remove(child);
+    public bool Remove(IComponent child)
+    {
+        if (!_children.Remove(child)) return false;
+        child.Lifecycle.Release(((IComponent)this).Lifecycle.Id);
+        InvalidateLayout();
+        return true;
+    }
 
-    public void Clear() => _children.Clear();
+    public void Clear()
+    {
+        var parent = ((IComponent)this).Lifecycle.Id;
+        foreach (var child in _children) child.Lifecycle.Release(parent);
+        if (_children.Count == 0) return;
+        _children.Clear();
+        InvalidateLayout();
+    }
 
-    public virtual Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(maxWidth);
 
@@ -35,7 +50,7 @@ public class Container : IComponent
         return new Measurement(minWidth, Math.Min(maxWidth, desiredWidth));
     }
 
-    public virtual void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
         for (var i = 0; i < _children.Count; i++)
         {
@@ -48,7 +63,7 @@ public class Container : IComponent
         }
     }
 
-    public virtual bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         foreach (var child in _children)
         {

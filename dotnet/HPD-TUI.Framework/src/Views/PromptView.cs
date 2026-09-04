@@ -4,7 +4,7 @@ using HPD.TUI.Models;
 
 namespace HPD.TUI.Views;
 
-public sealed class PromptView : IFocusable
+public sealed class PromptView : Component, IFocusable
 {
     private readonly PromptModel _model;
     private readonly PromptController _controller;
@@ -24,7 +24,7 @@ public sealed class PromptView : IFocusable
 
     public bool IsFocused { get; set; }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
     {
         var prefixWidth = GetPrefixWidth();
         var width = _model.ExpandToWidth
@@ -46,7 +46,7 @@ public sealed class PromptView : IFocusable
         return new Measurement(Math.Min(width, maxWidth), Math.Min(width, maxWidth), height);
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
         if (maxWidth <= 0)
         {
@@ -218,7 +218,7 @@ public sealed class PromptView : IFocusable
         output.Write(_model.Text[index], style);
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         var keyEvent = key.KeyEvent;
         return _controller.HandleInput(in keyEvent);

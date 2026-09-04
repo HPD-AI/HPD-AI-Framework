@@ -4,7 +4,7 @@ using HPD.TUI.Utilities;
 
 namespace HPD.TUI.Views;
 
-public sealed class ActivityView : IComponent
+public sealed class ActivityView : Component
 {
     private static readonly string[] SpinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
     private readonly ActivityModel _model;
@@ -20,7 +20,7 @@ public sealed class ActivityView : IComponent
 
     public bool AnimationsEnabled { get; init; } = true;
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
     {
         var width = 2 + UnicodeWidth.GetWidth(_model.Label);
         if (_model.Progress is not null)
@@ -32,7 +32,7 @@ public sealed class ActivityView : IComponent
         return new Measurement(Math.Min(width, maxWidth), width);
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
         if (maxWidth <= 0)
         {
@@ -51,7 +51,7 @@ public sealed class ActivityView : IComponent
         }
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         return false;
     }

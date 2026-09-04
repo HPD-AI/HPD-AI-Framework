@@ -5,7 +5,7 @@ using HPD.TUI.Utilities;
 
 namespace HPD.TUI.Views;
 
-public sealed class TreeView<T> : IFocusable
+public sealed class TreeView<T> : Component, IFocusable
 {
     private readonly TreeModel<T> _model;
     private readonly TreeController<T> _controller;
@@ -24,7 +24,7 @@ public sealed class TreeView<T> : IFocusable
 
     public TreeViewMode Mode { get; init; } = TreeViewMode.Outline;
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
     {
         var width = 0;
         foreach (var node in _controller.GetVisibleNodes())
@@ -35,7 +35,7 @@ public sealed class TreeView<T> : IFocusable
         return new Measurement(Math.Min(width, maxWidth), Math.Min(width, maxWidth));
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
         if (Mode == TreeViewMode.Breadcrumb)
         {
@@ -73,7 +73,7 @@ public sealed class TreeView<T> : IFocusable
         }
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         var keyEvent = key.KeyEvent;
         return _controller.HandleInput(in keyEvent);

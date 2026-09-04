@@ -5,7 +5,7 @@ using HPD.TUI.Core;
 
 namespace HPD.Agent.TUI.Views;
 
-public sealed class ShellContributionView : IComponent
+public sealed class ShellContributionView : Component
 {
     private readonly IComponent _component;
 
@@ -15,13 +15,13 @@ public sealed class ShellContributionView : IComponent
         _component = CreateContribution(shell, contribution);
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
         => _component.Measure(in context, maxWidth);
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
         => _component.Render(in context, maxWidth, ref output);
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         return _component.HandleInput(in key);
     }

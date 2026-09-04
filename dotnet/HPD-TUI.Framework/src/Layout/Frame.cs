@@ -4,7 +4,7 @@ using HPD.TUI.Utilities;
 
 namespace HPD.TUI.Layout;
 
-public sealed class Frame : IComponent
+public sealed class Frame : Component
 {
     private readonly IComponent _child;
     private Terminal.TerminalGrid? _childGrid;
@@ -87,7 +87,7 @@ public sealed class Frame : IComponent
         Height = height
     };
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
     {
         if (maxWidth <= 0)
         {
@@ -124,7 +124,7 @@ public sealed class Frame : IComponent
         return new Measurement(Math.Min(min, max), max, height);
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
         var frameWidth = ResolveWidth(maxWidth);
         if (frameWidth <= 0)
@@ -163,7 +163,7 @@ public sealed class Frame : IComponent
         }
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         return _child.HandleInput(in key);
     }

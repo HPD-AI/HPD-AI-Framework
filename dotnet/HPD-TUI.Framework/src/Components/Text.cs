@@ -3,7 +3,7 @@ using HPD.TUI.Utilities;
 
 namespace HPD.TUI.Components;
 
-public sealed class Text : IComponent
+public sealed class Text : Component
 {
     private string _value;
     private Style _style;
@@ -20,15 +20,15 @@ public sealed class Text : IComponent
 
     public void SetText(string value)
     {
-        _value = value ?? throw new ArgumentNullException(nameof(value));
+        SetLayout(ref _value, value ?? throw new ArgumentNullException(nameof(value)));
     }
 
     public void SetStyle(Style style)
     {
-        _style = style;
+        SetPaint(ref _style, style);
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
     {
         if (maxWidth <= 0)
         {
@@ -90,7 +90,7 @@ public sealed class Text : IComponent
             => currentLine > width && currentLine > maxWidth;
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
         if (maxWidth <= 0)
         {
@@ -146,7 +146,7 @@ public sealed class Text : IComponent
         }
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         return false;
     }

@@ -3,7 +3,7 @@ using HPD.TUI.Core;
 
 namespace HPD.TUI.Content;
 
-public sealed class TextBlock : IContentBlock
+public sealed class TextBlock : Component, IContentBlock
 {
     private readonly Text _component;
 
@@ -32,11 +32,11 @@ public sealed class TextBlock : IContentBlock
         _component.SetStyle(style);
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth) => _component.Measure(in context, maxWidth);
+    public override Measurement Measure(in RenderContext context, int maxWidth) => _component.Measure(in context, maxWidth);
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output) => _component.Render(in context, maxWidth, ref output);
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output) => _component.Render(in context, maxWidth, ref output);
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         return false;
     }

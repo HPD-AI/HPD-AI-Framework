@@ -5,7 +5,7 @@ using HPD.TUI.Core;
 
 namespace HPD.Agent.TUI.Views;
 
-public sealed class ContributionWidgetSlotView : IComponent
+public sealed class ContributionWidgetSlotView : Component
 {
     private readonly IComponent[] _components;
 
@@ -27,7 +27,7 @@ public sealed class ContributionWidgetSlotView : IComponent
         }
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
     {
         var min = 0;
         var max = 0;
@@ -51,7 +51,7 @@ public sealed class ContributionWidgetSlotView : IComponent
         return new Measurement(Math.Min(min, maxWidth), Math.Min(max, maxWidth), height);
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
         if (_components.Length == 0)
         {
@@ -76,7 +76,7 @@ public sealed class ContributionWidgetSlotView : IComponent
         }
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         foreach (var component in _components)
         {

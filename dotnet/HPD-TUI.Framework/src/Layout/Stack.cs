@@ -2,7 +2,7 @@ using HPD.TUI.Core;
 
 namespace HPD.TUI.Layout;
 
-public sealed class Stack : IComponent
+public sealed class Stack : Component
 {
     private readonly List<IComponent> _children = [];
 
@@ -19,11 +19,14 @@ public sealed class Stack : IComponent
 
     public Stack Add(IComponent child)
     {
-        _children.Add(child ?? throw new ArgumentNullException(nameof(child)));
+        ArgumentNullException.ThrowIfNull(child);
+        child.Lifecycle.Adopt(((IComponent)this).Lifecycle.Id);
+        _children.Add(child);
+        InvalidateLayout();
         return this;
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
     {
         if (_children.Count == 0)
         {
@@ -35,7 +38,7 @@ public sealed class Stack : IComponent
             : MeasureHorizontal(in context, maxWidth);
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
         if (Orientation == Orientation.Vertical)
         {
@@ -46,7 +49,7 @@ public sealed class Stack : IComponent
         RenderHorizontal(in context, maxWidth, ref output);
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         foreach (var child in _children)
         {

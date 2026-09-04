@@ -5,7 +5,7 @@ using HPD.TUI.Markdown;
 namespace HPD.TUI.Content;
 
 /// <summary>Content block over a Markdown layout prepared at a publication boundary.</summary>
-public sealed class MarkdownBlock : IContentBlock
+public sealed class MarkdownBlock : Component, IContentBlock
 {
     private readonly MarkdownView _view;
 
@@ -30,13 +30,13 @@ public sealed class MarkdownBlock : IContentBlock
     public MarkdownLayout Layout { get; }
 
     /// <inheritdoc />
-    public Measurement Measure(in RenderContext context, int maxWidth) => _view.Measure(in context, maxWidth);
+    public override Measurement Measure(in RenderContext context, int maxWidth) => _view.Measure(in context, maxWidth);
 
     /// <inheritdoc />
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output) => _view.Render(in context, maxWidth, ref output);
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output) => _view.Render(in context, maxWidth, ref output);
 
     /// <inheritdoc />
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         return false;
     }

@@ -2,7 +2,7 @@ using HPD.TUI.Core;
 
 namespace HPD.TUI.Components;
 
-public sealed class Overlay : IComponent
+public sealed class Overlay : Component
 {
     private readonly IComponent _child;
 
@@ -44,12 +44,12 @@ public sealed class Overlay : IComponent
 
     public bool ClearBackground { get; set; }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
     {
         return _child.Measure(in context, Math.Min(maxWidth, Width));
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
         var width = Math.Min(maxWidth, Width);
         var height = Math.Clamp(Height ?? context.Height, 1, context.Height);
@@ -70,7 +70,7 @@ public sealed class Overlay : IComponent
         _child.Render(in childContext, width, ref output);
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         return _child.HandleInput(in key);
     }

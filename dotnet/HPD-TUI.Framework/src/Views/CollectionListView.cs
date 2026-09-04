@@ -5,7 +5,7 @@ using HPD.TUI.Utilities;
 
 namespace HPD.TUI.Views;
 
-public sealed class CollectionListView<T> : IFocusable
+public sealed class CollectionListView<T> : Component, IFocusable
 {
     private readonly CollectionModel<T> _model;
     private readonly CollectionNavigationController<T> _navigation;
@@ -36,7 +36,7 @@ public sealed class CollectionListView<T> : IFocusable
 
     public bool IsFocused { get; set; }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
     {
         var width = 0;
         for (var i = 0; i < _model.Items.Count; i++)
@@ -69,7 +69,7 @@ public sealed class CollectionListView<T> : IFocusable
         return new Measurement(Math.Min(width, maxWidth), width, height);
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
         if (_model.VisibleCount == 0)
         {
@@ -114,7 +114,7 @@ public sealed class CollectionListView<T> : IFocusable
         }
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         return _handleInput?.Invoke(key.KeyEvent) == true;
     }

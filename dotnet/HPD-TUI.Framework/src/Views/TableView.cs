@@ -6,7 +6,7 @@ using HPD.TUI.Utilities;
 
 namespace HPD.TUI.Views;
 
-public sealed class TableView<T> : IFocusable
+public sealed class TableView<T> : Component, IFocusable
 {
     private readonly TableModel<T> _model;
     private readonly List<TableColumn<T>> _gridColumns = [];
@@ -27,7 +27,7 @@ public sealed class TableView<T> : IFocusable
 
     public int StackedBreakpoint { get; init; } = 40;
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
     {
         if (_model.Columns.Count == 0)
         {
@@ -46,7 +46,7 @@ public sealed class TableView<T> : IFocusable
         return new Measurement(Math.Min(natural, maxWidth), natural);
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
         if (maxWidth <= 0)
         {
@@ -75,7 +75,7 @@ public sealed class TableView<T> : IFocusable
         WriteCaption(in context, maxWidth, ref output);
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         if (!EnableCellNavigation)
         {

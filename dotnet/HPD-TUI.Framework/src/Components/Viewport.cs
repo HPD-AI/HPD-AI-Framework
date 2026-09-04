@@ -3,7 +3,7 @@ using HPD.TUI.Utilities;
 
 namespace HPD.TUI.Components;
 
-public sealed class Viewport : IComponent
+public sealed class Viewport : Component
 {
     private readonly List<string> _lines = [];
 
@@ -30,7 +30,7 @@ public sealed class Viewport : IComponent
         ScrollOffset = Math.Clamp(ScrollOffset + delta, 0, max);
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
     {
         var width = 0;
         foreach (var line in _lines)
@@ -41,7 +41,7 @@ public sealed class Viewport : IComponent
         return new Measurement(Math.Min(width, maxWidth), Math.Min(width, maxWidth));
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
         var visible = Math.Min(Height, Math.Max(0, _lines.Count - ScrollOffset));
 
@@ -55,7 +55,7 @@ public sealed class Viewport : IComponent
         }
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         switch (key.Key)
         {

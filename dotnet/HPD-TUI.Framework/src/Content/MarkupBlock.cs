@@ -3,7 +3,7 @@ using HPD.TUI.Utilities;
 
 namespace HPD.TUI.Content;
 
-public sealed class MarkupBlock : IContentBlock
+public sealed class MarkupBlock : Component, IContentBlock
 {
     private readonly MarkupParser _parser;
     private StyledTextRun[] _runs;
@@ -29,7 +29,7 @@ public sealed class MarkupBlock : IContentBlock
         _runs = _parser.Parse(Source);
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
     {
         var maxLine = 0;
         var currentLine = 0;
@@ -76,7 +76,7 @@ public sealed class MarkupBlock : IContentBlock
         return new Measurement(Math.Min(maxWidth, maxWord), Math.Min(maxWidth, maxLine));
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
         if (maxWidth <= 0)
         {
@@ -90,7 +90,7 @@ public sealed class MarkupBlock : IContentBlock
         }
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         return false;
     }
