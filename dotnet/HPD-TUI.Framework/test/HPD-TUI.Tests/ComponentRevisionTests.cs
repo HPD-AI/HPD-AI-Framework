@@ -1,11 +1,77 @@
 using HPD.TUI.Components;
 using HPD.TUI.Core;
 using HPD.TUI.Layout;
+using HPD.TUI.Models;
+using HPD.TUI.Controllers;
+using HPD.TUI.Views;
 
 namespace HPD.TUI.Tests;
 
 public sealed class ComponentRevisionTests
 {
+    [Fact]
+    public void OverlayMutations_TrackLayoutAndPaintCategories()
+    {
+        var overlay = new Overlay(new Text("child"), 0, 0, 10);
+        var layout = overlay.LayoutRevision;
+        var paint = overlay.PaintRevision;
+
+        overlay.ClearBackground = true;
+
+        Assert.Equal(layout, overlay.LayoutRevision);
+        Assert.NotEqual(paint, overlay.PaintRevision);
+        paint = overlay.PaintRevision;
+
+        overlay.X = 2;
+
+        Assert.NotEqual(layout, overlay.LayoutRevision);
+        Assert.NotEqual(paint, overlay.PaintRevision);
+    }
+
+    [Fact]
+    public void ViewportMutations_TrackContentLayoutAndScrollingPaint()
+    {
+        var viewport = new Viewport(2);
+        var layout = viewport.LayoutRevision;
+        var paint = viewport.PaintRevision;
+
+        viewport.AddLine("first");
+
+        Assert.NotEqual(layout, viewport.LayoutRevision);
+        Assert.NotEqual(paint, viewport.PaintRevision);
+        viewport.AddLine("second");
+        viewport.AddLine("third");
+        layout = viewport.LayoutRevision;
+        paint = viewport.PaintRevision;
+
+        viewport.ScrollBy(1);
+
+        Assert.Equal(layout, viewport.LayoutRevision);
+        Assert.NotEqual(paint, viewport.PaintRevision);
+    }
+
+    [Fact]
+    public void ViewProperties_TrackFocusPaintAndPresentationLayout()
+    {
+        var model = new CollectionModel<string>();
+        model.Add(new CollectionItem<string>("one", "one", "One"));
+        var navigation = new CollectionNavigationController<string>(model);
+        var view = new CollectionListView<string>(model, navigation);
+        var layout = view.LayoutRevision;
+        var paint = view.PaintRevision;
+
+        view.IsFocused = true;
+
+        Assert.Equal(layout, view.LayoutRevision);
+        Assert.NotEqual(paint, view.PaintRevision);
+        paint = view.PaintRevision;
+
+        view.Mode = CollectionListMode.Checklist;
+
+        Assert.NotEqual(layout, view.LayoutRevision);
+        Assert.NotEqual(paint, view.PaintRevision);
+    }
+
     [Fact]
     public void TextMutations_AdvanceOnlyRequiredRevisions()
     {

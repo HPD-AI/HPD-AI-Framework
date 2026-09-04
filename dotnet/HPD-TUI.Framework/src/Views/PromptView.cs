@@ -8,6 +8,8 @@ public sealed class PromptView : Component, IFocusable
 {
     private readonly PromptModel _model;
     private readonly PromptController _controller;
+    private int _maximumSuggestionRows = 8;
+    private bool _isFocused;
 
     public PromptView(PromptModel model, PromptController controller)
     {
@@ -20,9 +22,14 @@ public sealed class PromptView : Component, IFocusable
     public PromptController Controller => _controller;
 
     /// <summary>Gets or sets the maximum number of autocomplete suggestions shown at once.</summary>
-    public int MaximumSuggestionRows { get; set; } = 8;
+    public int MaximumSuggestionRows
+    {
+        get => _maximumSuggestionRows;
+        set { ArgumentOutOfRangeException.ThrowIfNegativeOrZero(value); SetLayout(ref _maximumSuggestionRows, value); }
+    }
 
-    public bool IsFocused { get; set; }
+    /// <inheritdoc />
+    public bool IsFocused { get => _isFocused; set => SetLayout(ref _isFocused, value); }
 
     public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
@@ -223,7 +230,9 @@ public sealed class PromptView : Component, IFocusable
     public override bool HandleInput(in TuiInputEvent key)
     {
         var keyEvent = key.KeyEvent;
-        return _controller.HandleInput(in keyEvent);
+        var handled = _controller.HandleInput(in keyEvent);
+        if (handled) InvalidateLayout();
+        return handled;
     }
 
     public static PromptView Create(

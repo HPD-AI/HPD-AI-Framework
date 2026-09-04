@@ -9,6 +9,7 @@ public sealed class TreeView<T> : Component, IFocusable
 {
     private readonly TreeModel<T> _model;
     private readonly TreeController<T> _controller;
+    private bool _isFocused;
 
     public TreeView(TreeModel<T> model, TreeController<T>? controller = null)
     {
@@ -20,7 +21,8 @@ public sealed class TreeView<T> : Component, IFocusable
 
     public TreeController<T> Controller => _controller;
 
-    public bool IsFocused { get; set; }
+    /// <inheritdoc />
+    public bool IsFocused { get => _isFocused; set => SetPaint(ref _isFocused, value); }
 
     public TreeViewMode Mode { get; init; } = TreeViewMode.Outline;
 
@@ -78,7 +80,9 @@ public sealed class TreeView<T> : Component, IFocusable
     public override bool HandleInput(in TuiInputEvent key)
     {
         var keyEvent = key.KeyEvent;
-        return _controller.HandleInput(in keyEvent);
+        var handled = _controller.HandleInput(in keyEvent);
+        if (handled) InvalidateLayout();
+        return handled;
     }
 
     public static TreeView<T> Create(IEnumerable<TreeNode<T>> roots)

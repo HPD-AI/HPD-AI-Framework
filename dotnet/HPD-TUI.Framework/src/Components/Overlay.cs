@@ -6,6 +6,12 @@ public sealed class Overlay : Component
 {
     public override ComponentDependencies Dependencies => ComponentDependencies.Static;
     private readonly IComponent _child;
+    private int _x;
+    private int _y;
+    private int _width;
+    private int? _height;
+    private OverlayVerticalPlacement _verticalPlacement;
+    private bool _clearBackground;
 
     public Overlay(
         IComponent child,
@@ -26,25 +32,31 @@ public sealed class Overlay : Component
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(value);
         }
 
-        X = x;
-        Y = y;
-        Width = width;
-        Height = height;
-        VerticalPlacement = verticalPlacement;
-        ClearBackground = clearBackground;
+        _x = x;
+        _y = y;
+        _width = width;
+        _height = height;
+        _verticalPlacement = verticalPlacement;
+        _clearBackground = clearBackground;
     }
 
-    public int X { get; set; }
+    /// <summary>Gets or sets the horizontal placement.</summary>
+    public int X { get => _x; set { ArgumentOutOfRangeException.ThrowIfNegative(value); SetLayout(ref _x, value); } }
 
-    public int Y { get; set; }
+    /// <summary>Gets or sets the vertical placement offset.</summary>
+    public int Y { get => _y; set { ArgumentOutOfRangeException.ThrowIfNegative(value); SetLayout(ref _y, value); } }
 
-    public int Width { get; set; }
+    /// <summary>Gets or sets the overlay width.</summary>
+    public int Width { get => _width; set { ArgumentOutOfRangeException.ThrowIfNegativeOrZero(value); SetLayout(ref _width, value); } }
 
-    public int? Height { get; set; }
+    /// <summary>Gets or sets the optional overlay height.</summary>
+    public int? Height { get => _height; set { if (value is { } height) ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height); SetLayout(ref _height, value); } }
 
-    public OverlayVerticalPlacement VerticalPlacement { get; set; }
+    /// <summary>Gets or sets how the vertical offset is interpreted.</summary>
+    public OverlayVerticalPlacement VerticalPlacement { get => _verticalPlacement; set => SetLayout(ref _verticalPlacement, value); }
 
-    public bool ClearBackground { get; set; }
+    /// <summary>Gets or sets whether the overlay clears its rectangle before painting.</summary>
+    public bool ClearBackground { get => _clearBackground; set => SetPaint(ref _clearBackground, value); }
 
     public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {

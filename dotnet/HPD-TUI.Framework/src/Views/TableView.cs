@@ -11,6 +11,8 @@ public sealed class TableView<T> : Component, IFocusable
     private readonly TableModel<T> _model;
     private readonly List<TableColumn<T>> _gridColumns = [];
     private readonly List<TableColumn<T>> _stackedColumns = [];
+    private bool _isFocused;
+    private bool _enableCellNavigation;
 
     public TableView(TableModel<T> model)
     {
@@ -21,9 +23,11 @@ public sealed class TableView<T> : Component, IFocusable
 
     public GridNavigationController Navigation { get; } = new(rowCount: 0, columnCount: 0);
 
-    public bool IsFocused { get; set; }
+    /// <inheritdoc />
+    public bool IsFocused { get => _isFocused; set => SetPaint(ref _isFocused, value); }
 
-    public bool EnableCellNavigation { get; set; }
+    /// <summary>Gets or sets whether directional input selects individual cells.</summary>
+    public bool EnableCellNavigation { get => _enableCellNavigation; set => SetPaint(ref _enableCellNavigation, value); }
 
     public int StackedBreakpoint { get; init; } = 40;
 
@@ -114,6 +118,7 @@ public sealed class TableView<T> : Component, IFocusable
                 return false;
         }
 
+        InvalidatePaint();
         return true;
     }
 

@@ -9,6 +9,7 @@ public sealed class FormView : Component, IFocusable
     private readonly FormModel _model;
     private readonly FormController _controller;
     private readonly FormUpdateMode _updateMode;
+    private bool _isFocused;
 
     public FormView(
         FormModel model,
@@ -23,7 +24,8 @@ public sealed class FormView : Component, IFocusable
         MaxVisibleRows = maxVisibleRows;
     }
 
-    public bool IsFocused { get; set; }
+    /// <inheritdoc />
+    public bool IsFocused { get => _isFocused; set => SetPaint(ref _isFocused, value); }
 
     public int MaxVisibleRows { get; }
 
@@ -122,7 +124,9 @@ public sealed class FormView : Component, IFocusable
     public override bool HandleInput(in TuiInputEvent input)
     {
         var keyEvent = input.KeyEvent;
-        return _controller.HandleInput(in keyEvent);
+        var handled = _controller.HandleInput(in keyEvent);
+        if (handled) InvalidateLayout();
+        return handled;
     }
 
     private static void RenderField(

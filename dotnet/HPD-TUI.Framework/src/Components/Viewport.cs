@@ -7,28 +7,42 @@ public sealed class Viewport : Component
 {
     public override ComponentDependencies Dependencies => ComponentDependencies.Static;
     private readonly List<string> _lines = [];
+    private int _height;
+    private int _scrollOffset;
 
     public Viewport(int height)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
-        Height = height;
+        _height = height;
     }
 
-    public int Height { get; set; }
+    /// <summary>Gets or sets the number of visible rows.</summary>
+    public int Height
+    {
+        get => _height;
+        set
+        {
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(value);
+            if (SetLayout(ref _height, value)) SetScrollOffset(_scrollOffset);
+        }
+    }
 
-    public int ScrollOffset { get; private set; }
+    /// <summary>Gets the zero-based first visible line.</summary>
+    public int ScrollOffset => _scrollOffset;
 
     public int Count => _lines.Count;
 
     public void AddLine(string line)
     {
-        _lines.Add(line ?? throw new ArgumentNullException(nameof(line)));
+        ArgumentNullException.ThrowIfNull(line);
+        InvalidateLayout();
+        _lines.Add(line);
     }
 
     public void ScrollBy(int delta)
     {
         var max = Math.Max(0, _lines.Count - Height);
-        ScrollOffset = Math.Clamp(ScrollOffset + delta, 0, max);
+        SetScrollOffset(Math.Clamp(_scrollOffset + delta, 0, max));
     }
 
     public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
@@ -75,13 +89,15 @@ public sealed class Viewport : Component
                 ScrollBy(Height);
                 return true;
             case KeyCode.Home:
-                ScrollOffset = 0;
+                SetScrollOffset(0);
                 return true;
             case KeyCode.End:
-                ScrollOffset = Math.Max(0, _lines.Count - Height);
+                SetScrollOffset(Math.Max(0, _lines.Count - Height));
                 return true;
             default:
                 return false;
         }
     }
+
+    private void SetScrollOffset(int value) => SetPaint(ref _scrollOffset, value);
 }
