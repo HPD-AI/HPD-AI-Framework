@@ -282,7 +282,8 @@ public abstract class Component : IComponent
         _layoutCache.Clear();
         _layoutRevision = NextRevision(_layoutRevision);
         _paintRevision = NextRevision(_paintRevision);
-        _ownerComponent?.PropagateDescendantLayoutInvalidation();
+        if (!EstablishesLayoutRoot)
+            _ownerComponent?.PropagateDescendantLayoutInvalidation();
     }
 
     /// <summary>Advances the retained subtree stamp along the owning dirty path.</summary>
