@@ -115,7 +115,7 @@ public sealed class ManagedTerminalTuiRendererTests
     }
 
     [Fact]
-    public void Render_FirstFrameWithLongContent_WritesWholeLogicalBuffer()
+    public void Render_FirstFrameWithLongContent_ClipsToPhysicalScreen()
     {
         using var terminal = new TestTerminal(40, 3);
         using var renderer = new ManagedTerminalTuiRenderer(terminal);
@@ -125,8 +125,8 @@ public sealed class ManagedTerminalTuiRendererTests
         Assert.Contains("one", terminal.Output);
         Assert.Contains("two", terminal.Output);
         Assert.Contains("three", terminal.Output);
-        Assert.Contains("four", terminal.Output);
-        Assert.Contains("five", terminal.Output);
+        Assert.DoesNotContain("four", terminal.Output);
+        Assert.DoesNotContain("five", terminal.Output);
     }
 
     [Fact]
@@ -175,7 +175,7 @@ public sealed class ManagedTerminalTuiRendererTests
     }
 
     [Fact]
-    public void Render_WhenTransientTallContentDisappears_ClearsStaleRows()
+    public void Render_WhenOnlyClippedContentChanges_EmitsNoFrame()
     {
         using var terminal = new TestTerminal(40, 10);
         using var renderer = new ManagedTerminalTuiRenderer(terminal);
@@ -191,9 +191,7 @@ public sealed class ManagedTerminalTuiRendererTests
             "Chat 5", "Chat 6", "Chat 7", "Chat 8", "Chat 9",
             "Chat 10", "Chat 11"), Theme.Default);
 
-        Assert.Contains("\x1b[2J\x1b[H", terminal.Output);
-        Assert.Contains("\x1b[3J", terminal.Output);
-        Assert.DoesNotContain("Selector", terminal.Output);
+        Assert.Empty(terminal.Output);
     }
 
     [Fact]

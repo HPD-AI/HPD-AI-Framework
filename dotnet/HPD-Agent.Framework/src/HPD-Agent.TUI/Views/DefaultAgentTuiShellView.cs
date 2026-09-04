@@ -4,12 +4,13 @@ using HPD.Agent.TUI.Observability;
 using HPD.TUI.Components;
 using HPD.TUI.Core;
 using HPD.TUI.Layout;
+using HPD.TUI.Rendering;
 using HPD.TUI.Terminal;
 using HPD.TUI.Views;
 
 namespace HPD.Agent.TUI.Views;
 
-public sealed class DefaultAgentTuiShellView : IComponent, IAgentTuiFramePreparable
+public sealed class DefaultAgentTuiShellView : IComponent, IAgentTuiFramePreparable, IScrollbackSource
 {
     private readonly ChatShellModel _model;
     private readonly PromptView _prompt;
@@ -82,6 +83,18 @@ public sealed class DefaultAgentTuiShellView : IComponent, IAgentTuiFramePrepara
 
         return _prompt.HandleInput(in key);
     }
+
+    /// <inheritdoc />
+    public ScrollbackBatch? PrepareScrollback(in RenderContext context, int maxRows)
+        => IsPageActive() ? null : _transcript.PrepareScrollback(in context, maxRows);
+
+    /// <inheritdoc />
+    public void CommitScrollback(ScrollbackBatch batch)
+        => _transcript.CommitScrollback(batch);
+
+    /// <inheritdoc />
+    public void RollbackScrollback(ScrollbackBatch batch)
+        => _transcript.RollbackScrollback(batch);
 
     private RetainedShellStack CreateShell()
     {

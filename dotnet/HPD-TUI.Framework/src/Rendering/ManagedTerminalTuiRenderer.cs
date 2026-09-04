@@ -7,7 +7,6 @@ namespace HPD.TUI.Rendering;
 
 public sealed class ManagedTerminalTuiRenderer : IDisposable
 {
-    private const int DefaultCaptureRows = 16_384;
     private static readonly char[] BeginSynchronizedOutput = ['\x1b', '[', '?', '2', '0', '2', '6', 'h'];
     private static readonly char[] EndSynchronizedOutput = ['\x1b', '[', '?', '2', '0', '2', '6', 'l'];
     private static readonly char[] ClearScreenAndCursorHome = ['\x1b', '[', '2', 'J', '\x1b', '[', 'H'];
@@ -16,8 +15,8 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
     private readonly ITerminalOutputTransport _transport;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly AnsiFrameWriter _output = new();
-    private TerminalGrid? _currentGrid;
-    private TerminalGrid? _previousGrid;
+    private ScreenBuffer? _currentBuffer;
+    private ScreenBuffer? _previousBuffer;
     private int _previousWidth;
     private int _previousHeight;
     private int _previousUsedLineCount;
@@ -36,7 +35,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
 
     public IHpdTuiPerformanceEventSink? PerformanceSink { get; set; }
 
-    public void Render(IComponent root, Theme? theme = null)
+    public void Render(IComponent root, Theme? theme = null, ScrollbackBatch? scrollback = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(root);
@@ -44,23 +43,26 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         var sink = PerformanceSink;
         var startTimestamp = sink is null ? 0 : Stopwatch.GetTimestamp();
         var size = _terminal.GetSize();
-        var captureHeight = Math.Max(size.Height, DefaultCaptureRows);
         var hadPreviousFrame = _hasPreviousFrame;
         var sizeChanged = _previousWidth != 0 && (
             _previousWidth != size.Width ||
             _previousHeight != size.Height);
-        EnsureGrid(size.Width, captureHeight);
+        EnsureBuffer(size.Width, size.Height);
 
-        _currentGrid!.Clear();
-        // The backing grid is deliberately taller than the viewport so a frame can
-        // retain logical scrollback. Layout, however, must be constrained by the
-        // physical terminal or viewport-filling components will size themselves to
-        // the capture buffer instead of the rows the user can actually see.
+        _currentBuffer!.Clear();
         var context = new RenderContext(size.Width, size.Height, theme ?? Theme.Default, elapsed: _clock.Elapsed);
-        var writer = new SegmentWriter(_currentGrid);
+        var writer = new SegmentWriter(_currentBuffer.Grid);
         root.Render(in context, size.Width, ref writer);
+        _currentBuffer.ComputeFinalRowFingerprints();
 
-        var usedLines = TuiCapture.GetUsedLineCount(_currentGrid);
+        var usedLines = TuiCapture.GetUsedLineCount(_currentBuffer.Grid);
+
+        if (scrollback is not null)
+        {
+            FullRender(size, usedLines, FullRenderClearMode.Screen, scrollback);
+            PublishRenderCompleted(sink, startTimestamp, usedLines, writer.Count);
+            return;
+        }
 
         if (!hadPreviousFrame && !sizeChanged)
         {
@@ -76,11 +78,11 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
             return;
         }
 
-        var changed = FindChangedLineRange(_previousGrid!, _currentGrid, _previousUsedLineCount, usedLines);
+        var changed = FindChangedLineRange(_previousBuffer!, _currentBuffer, _previousUsedLineCount, usedLines);
         if (changed.First < 0)
         {
-            PositionHardwareCursor(_currentGrid, usedLines);
-            CommitFrame(size, captureHeight, usedLines);
+            PositionHardwareCursor(_currentBuffer.Grid, usedLines);
+            CommitFrame(size, usedLines);
             PublishRenderCompleted(sink, startTimestamp, usedLines, writer.Count);
             return;
         }
@@ -116,19 +118,32 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
             CacheMisses: 0));
     }
 
-    private void FullRender(TerminalSize size, int usedLines, FullRenderClearMode clearMode)
+    private void FullRender(TerminalSize size, int usedLines, FullRenderClearMode clearMode, ScrollbackBatch? scrollback = null)
     {
         var viewportTop = GetViewportTop(usedLines, size.Height);
         WriteFrame(BuildFullFrame);
 
         _previousViewportTop = viewportTop;
         _hardwareCursorRow = Math.Max(0, usedLines - 1);
-        CommitFrame(size, _currentGrid!.Height, usedLines);
-        PositionHardwareCursor(_previousGrid!, usedLines);
+        CommitFrame(size, usedLines);
+        PositionHardwareCursor(_previousBuffer!.Grid, usedLines);
 
         void BuildFullFrame(AnsiFrameWriter output)
         {
             output.Write(BeginSynchronizedOutput);
+            if (scrollback is not null)
+            {
+                output.Write(ClearScreenAndCursorHome);
+                output.Write("\x1b[");
+                output.WriteInt(size.Height);
+                output.Write('H');
+                foreach (var row in scrollback.Rows)
+                {
+                    output.Write('\r');
+                    AnsiGridRenderer.WriteScrollbackRow(row, output);
+                    output.Write("\x1b[K\r\n");
+                }
+            }
             if (clearMode == FullRenderClearMode.Screen)
             {
                 output.Write(ClearScreenAndCursorHome);
@@ -138,7 +153,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
                 output.Write(ClearScreenCursorHomeAndScrollback);
             }
 
-            WriteLines(output, _currentGrid!, 0, usedLines - 1);
+            WriteLines(output, _currentBuffer!.Grid, 0, usedLines - 1);
             output.Write(EndSynchronizedOutput);
         }
     }
@@ -165,8 +180,8 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
 
         _hardwareCursorRow = renderEnd;
         _previousViewportTop = Math.Max(viewportTopAfterBuild, GetViewportTop(usedLines, size.Height));
-        CommitFrame(size, _currentGrid!.Height, usedLines);
-        PositionHardwareCursor(_previousGrid!, usedLines);
+        CommitFrame(size, usedLines);
+        PositionHardwareCursor(_previousBuffer!.Grid, usedLines);
 
         void BuildPatchFrame(AnsiFrameWriter output)
         {
@@ -204,7 +219,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
                 output.Write('\r');
             }
 
-            WriteLines(output, _currentGrid!, firstChanged, renderEnd);
+            WriteLines(output, _currentBuffer!.Grid, firstChanged, renderEnd);
             output.Write(EndSynchronizedOutput);
 
             viewportTopAfterBuild = frameViewportTop;
@@ -273,9 +288,9 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         _terminal.ShowCursor();
     }
 
-    private void CommitFrame(TerminalSize size, int captureHeight, int usedLines)
+    private void CommitFrame(TerminalSize size, int usedLines)
     {
-        (_currentGrid, _previousGrid) = (_previousGrid, _currentGrid);
+        (_currentBuffer, _previousBuffer) = (_previousBuffer, _currentBuffer);
         _previousWidth = size.Width;
         _previousHeight = size.Height;
         _previousUsedLineCount = usedLines;
@@ -333,8 +348,8 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
     }
 
     private static (int First, int Last) FindChangedLineRange(
-        TerminalGrid previous,
-        TerminalGrid current,
+        ScreenBuffer previous,
+        ScreenBuffer current,
         int previousUsedLines,
         int currentUsedLines)
     {
@@ -345,7 +360,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         {
             if (y < previousUsedLines &&
                 y < currentUsedLines &&
-                RowsEqual(previous, current, y))
+                current.RowEquals(previous, y))
             {
                 continue;
             }
@@ -357,33 +372,20 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         return (first, last);
     }
 
-    private static bool RowsEqual(TerminalGrid previous, TerminalGrid current, int y)
+    private void EnsureBuffer(int width, int height)
     {
-        for (var x = 0; x < current.Width; x++)
-        {
-            if (!current.CellEquals(previous, x, y))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private void EnsureGrid(int width, int virtualHeight)
-    {
-        if (_currentGrid is not null &&
-            _previousGrid is not null &&
-            _currentGrid.Width == width &&
-            _currentGrid.Height == virtualHeight)
+        if (_currentBuffer is not null &&
+            _previousBuffer is not null &&
+            _currentBuffer.Width == width &&
+            _currentBuffer.Height == height)
         {
             return;
         }
 
-        _currentGrid?.Dispose();
-        _previousGrid?.Dispose();
-        _currentGrid = new TerminalGrid(width, virtualHeight);
-        _previousGrid = new TerminalGrid(width, virtualHeight);
+        _currentBuffer?.Dispose();
+        _previousBuffer?.Dispose();
+        _currentBuffer = new ScreenBuffer(width, height);
+        _previousBuffer = new ScreenBuffer(width, height);
         _hasPreviousFrame = false;
     }
 
@@ -396,7 +398,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
 
         _disposed = true;
         _output.Dispose();
-        _currentGrid?.Dispose();
-        _previousGrid?.Dispose();
+        _currentBuffer?.Dispose();
+        _previousBuffer?.Dispose();
     }
 }

@@ -214,6 +214,24 @@ internal static class AnsiGridRenderer
         WriteHyperlinkTransition(null, ref currentHyperlink, output);
     }
 
+    public static void WriteScrollbackRow(ScrollbackRow row, AnsiFrameWriter output)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        ArgumentNullException.ThrowIfNull(output);
+        Style? currentStyle = null;
+        Span<char> styleBuffer = stackalloc char[64];
+        TerminalHyperlink? currentHyperlink = null;
+        foreach (var cell in row.Cells)
+        {
+            WriteStyleTransition(cell.Style, ref currentStyle, styleBuffer, output);
+            WriteHyperlinkTransition(cell.Metadata.Hyperlink, ref currentHyperlink, output);
+            output.Write(cell.Grapheme);
+        }
+        if (currentStyle is not null)
+            output.Write(ResetSequence);
+        WriteHyperlinkTransition(null, ref currentHyperlink, output);
+    }
+
     public static void WriteCursorMove(int x, int y, AnsiFrameWriter output)
     {
         output.Write("\x1b[");

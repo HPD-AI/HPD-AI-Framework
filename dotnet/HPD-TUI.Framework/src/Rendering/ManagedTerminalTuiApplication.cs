@@ -56,6 +56,9 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
     /// <summary>Gets or sets dispatcher-owned cleanup invoked before the mailbox is detached.</summary>
     public Action? Stopping { get; set; }
 
+    /// <summary>Gets or sets the source of immutable rows published into terminal-owned scrollback.</summary>
+    public IScrollbackSource? ScrollbackSource { get; set; }
+
     /// <summary>Gets whether the application mailbox is accepting dispatcher work.</summary>
     public bool IsRunning => _mailbox is not null;
 
@@ -154,7 +157,21 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
             return;
         }
 
-        _renderer.Render(_root, _theme);
+        var size = _terminal.GetSize();
+        var context = new RenderContext(size.Width, size.Height, _theme);
+        var batch = ScrollbackSource?.PrepareScrollback(in context, Math.Max(size.Height * 4, 64));
+        try
+        {
+            _renderer.Render(_root, _theme, batch);
+            if (batch is not null)
+                ScrollbackSource!.CommitScrollback(batch);
+        }
+        catch
+        {
+            if (batch is not null)
+                ScrollbackSource!.RollbackScrollback(batch);
+            throw;
+        }
     }
 
     public bool HandleInput(in TuiInputEvent key)

@@ -206,7 +206,7 @@ public sealed class TranscriptViewTests
     }
 
     [Fact]
-    public void Render_TerminalScrollback_EmitsHistoryBeyondViewportHeight()
+    public void Scrollback_TerminalMode_PreparesFinalPrefixAndRemovesItFromLiveProjection()
     {
         var model = new TranscriptModel
         {
@@ -216,10 +216,16 @@ public sealed class TranscriptViewTests
             model.AddFinal(Row($"row-{i}", $"row:{i}", $"row {i}"));
 
         var view = CreateView(model, height: 3);
-        var rendered = TuiCapture.RenderToString(
-            view, width: 80, height: 32, trimTrailingBlankLines: true);
+        var context = new RenderContext(80, 3, Theme.Default);
+        var batch = view.PrepareScrollback(in context, 64);
+        var rendered = TuiCapture.RenderToString(view, width: 80, height: 3, trimTrailingBlankLines: true);
 
-        rendered.Should().Contain("row 0").And.Contain("row 7");
+        batch.Should().NotBeNull();
+        batch!.Rows.SelectMany(static row => row.Cells).Select(static cell => cell.Grapheme)
+            .Should().Contain("r");
+        rendered.Should().NotContain("row 0").And.NotContain("row 7");
+        view.CommitScrollback(batch);
+        model.CommittedCount.Should().Be(8);
         view.HandleInput(new KeyEvent(KeyCode.PageUp)).Should().BeFalse();
     }
 

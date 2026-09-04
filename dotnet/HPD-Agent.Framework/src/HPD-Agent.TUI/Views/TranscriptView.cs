@@ -12,7 +12,7 @@ using HPD.TUI.Terminal;
 
 namespace HPD.Agent.TUI.Views;
 
-public sealed class TranscriptView : IComponent
+public sealed class TranscriptView : IComponent, IScrollbackSource
 {
     private readonly TranscriptModel _model;
     private readonly AgentTuiTranscriptRendererRegistry _renderers;
@@ -29,6 +29,10 @@ public sealed class TranscriptView : IComponent
     private bool _cacheInitialized;
     private bool _disposed;
     private int _scrollOffset;
+    private int _committedCount;
+    private long _committedRowSequence;
+    private ScrollbackBatch? _pendingScrollback;
+    private int _pendingEntryCount;
 
     public TranscriptView(
         TranscriptModel model,
@@ -86,6 +90,74 @@ public sealed class TranscriptView : IComponent
             default:
                 return false;
         }
+    }
+
+    /// <inheritdoc />
+    public ScrollbackBatch? PrepareScrollback(in RenderContext context, int maxRows)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxRows);
+        if (_pendingScrollback is not null)
+            return _pendingScrollback;
+
+        var diagnostics = new TranscriptViewDiagnosticsBuilder();
+        RefreshCache(in context, context.Width, ref diagnostics);
+        if (_model.HistoryPresentation != TranscriptHistoryPresentation.TerminalScrollback)
+            return null;
+
+        var rows = new List<ScrollbackRow>();
+        var entryCount = 0;
+        for (var index = _committedCount; index < _entries.Count; index++)
+        {
+            var source = _entries[index];
+            if (source.State != TranscriptEntryState.Final || source.CommitPolicy == TranscriptCommitPolicy.Never)
+                break;
+
+            var rendered = GetRenderedEntry(index, in context, context.Width, ref diagnostics);
+            var required = rendered.LineCount + source.VerticalSpacing;
+            if (rows.Count > 0 && rows.Count + required > maxRows)
+                break;
+
+            for (var line = 0; line < rendered.LineCount; line++)
+                rows.Add(rendered.CreateScrollbackRow($"{source.Id}:{line}", line));
+            for (var spacing = 0; spacing < source.VerticalSpacing; spacing++)
+                rows.Add(new ScrollbackRow($"{source.Id}:space:{spacing}", Array.Empty<ScrollbackCell>()));
+            entryCount++;
+        }
+
+        if (entryCount == 0)
+            return null;
+
+        _pendingEntryCount = entryCount;
+        _committedCount += entryCount;
+        _pendingScrollback = new ScrollbackBatch(
+            _model.HistoryEpoch,
+            _committedRowSequence,
+            rows.ToArray());
+        return _pendingScrollback;
+    }
+
+    /// <inheritdoc />
+    public void CommitScrollback(ScrollbackBatch batch)
+    {
+        ArgumentNullException.ThrowIfNull(batch);
+        if (!ReferenceEquals(batch, _pendingScrollback))
+            throw new InvalidOperationException("Only the currently prepared scrollback batch can be committed.");
+
+        _model.CommitPrefix(_committedCount - _pendingEntryCount, _pendingEntryCount);
+        _committedRowSequence += batch.Rows.Count;
+        _pendingEntryCount = 0;
+        _pendingScrollback = null;
+    }
+
+    /// <inheritdoc />
+    public void RollbackScrollback(ScrollbackBatch batch)
+    {
+        ArgumentNullException.ThrowIfNull(batch);
+        if (!ReferenceEquals(batch, _pendingScrollback))
+            throw new InvalidOperationException("Only the currently prepared scrollback batch can be rolled back.");
+        _committedCount -= _pendingEntryCount;
+        _pendingEntryCount = 0;
+        _pendingScrollback = null;
     }
 
     private bool TryNavigateFocusedMarkdownPage(bool forward)
@@ -249,6 +321,7 @@ public sealed class TranscriptView : IComponent
 
         var snapshot = _model.Snapshot();
         _entries = snapshot.Entries;
+        _committedCount = snapshot.CommittedCount;
         for (var i = 0; i < _entries.Count; i++)
         {
             if (i >= _renderedEntries.Count)
@@ -292,7 +365,7 @@ public sealed class TranscriptView : IComponent
         var visibleRowLimit = _model.HistoryPresentation == TranscriptHistoryPresentation.TerminalScrollback
             ? int.MaxValue
             : Height;
-        for (var index = _entries.Count - 1; index >= 0 && _visibleRows.Count < visibleRowLimit; index--)
+        for (var index = _entries.Count - 1; index >= _committedCount && _visibleRows.Count < visibleRowLimit; index--)
         {
             var entry = GetRenderedEntry(index, in context, maxWidth, ref diagnostics);
             for (var line = entry.LineCount - 1; line >= 0 && _visibleRows.Count < visibleRowLimit; line--)
@@ -523,6 +596,30 @@ internal sealed class RenderedTranscriptEntry : IDisposable
         }
 
         TuiCapture.WriteLineTo(_grid, line, ref output);
+    }
+
+    public ScrollbackRow CreateScrollbackRow(string id, int line)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(id);
+        ArgumentOutOfRangeException.ThrowIfNegative(line);
+        if (line >= LineCount)
+            throw new ArgumentOutOfRangeException(nameof(line));
+
+        var cells = new List<ScrollbackCell>();
+        for (var column = 0; column < _grid.Width; column++)
+        {
+            var cell = _grid.GetCell(column, line);
+            if (cell.IsContinuation)
+                continue;
+            cells.Add(new ScrollbackCell(
+                _grid.GetGrapheme(cell).ToString(),
+                cell.Style,
+                new TerminalRunMetadata(_grid.GetHyperlink(cell)),
+                cell.DisplayWidth));
+        }
+        while (cells.Count > 0 && cells[^1].Grapheme == " " && cells[^1].Metadata.Hyperlink is null)
+            cells.RemoveAt(cells.Count - 1);
+        return new ScrollbackRow(id, cells.ToArray());
     }
 
     public void Dispose()

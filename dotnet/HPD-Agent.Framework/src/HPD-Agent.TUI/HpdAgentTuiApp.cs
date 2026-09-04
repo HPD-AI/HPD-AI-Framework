@@ -272,6 +272,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             _registry.ShellChrome,
             _state.State));
         _framePreparable = shell as IAgentTuiFramePreparable;
+        _application.ScrollbackSource = shell as IScrollbackSource;
         var dialogHost = new DialogHost(shell, _application.Focus);
         _dialogs = new AgentTuiDialogService(
             dialogHost,

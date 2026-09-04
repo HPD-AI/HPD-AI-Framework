@@ -128,6 +128,36 @@ public sealed class TranscriptModelTests
     }
 
     [Fact]
+    public void CommitPrefix_AdvancesWatermarkAndProtectsCommittedEntries()
+    {
+        var model = new TranscriptModel();
+        model.AddFinal(Row("1", "row:1", "first"));
+        model.UpsertLive(Row("2", "row:2", "live"));
+
+        model.CommitPrefix(0, 1);
+
+        model.CommittedCount.Should().Be(1);
+        model.Snapshot().CommittedCount.Should().Be(1);
+        var mutate = () => model.UpsertLive(Row("replacement", "row:1", "changed"));
+        mutate.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void CommitPrefix_RejectsNoncontiguousOrLiveEntries()
+    {
+        var model = new TranscriptModel();
+        model.AddFinal(Row("1", null, "first"));
+        model.UpsertLive(Row("2", "row:2", "live"));
+
+        var noncontiguous = () => model.CommitPrefix(1, 1);
+        var includesLive = () => model.CommitPrefix(0, 2);
+
+        noncontiguous.Should().Throw<InvalidOperationException>();
+        includesLive.Should().Throw<InvalidOperationException>();
+        model.CommittedCount.Should().Be(0);
+    }
+
+    [Fact]
     public void TranscriptEntry_FromEvent_CarriesAgentMetadata()
     {
         var evt = new TextDeltaEvent("hello", "message")
