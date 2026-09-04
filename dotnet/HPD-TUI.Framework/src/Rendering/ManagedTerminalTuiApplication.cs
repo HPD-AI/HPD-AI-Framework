@@ -38,9 +38,25 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
     /// <param name="terminal">The terminal used for input, sizing, and cursor visibility.</param>
     /// <param name="transport">The backpressure-aware single-writer output transport.</param>
     public ManagedTerminalTuiApplication(ITerminal terminal, ITerminalOutputTransport transport)
+        : this(terminal, transport, ManagedTerminalCapabilityProfile.Detect(terminal))
+    {
+    }
+
+    /// <summary>Creates a managed-terminal application with explicit capabilities and failure policy.</summary>
+    /// <param name="terminal">The terminal used for input and sizing.</param>
+    /// <param name="transport">The only transport allowed to publish terminal bytes.</param>
+    /// <param name="capabilities">Capabilities detected or configured for this session.</param>
+    /// <param name="fallbackPolicy">Behavior when split-footer requirements are unavailable.</param>
+    /// <param name="recoveryPolicy">Behavior after uncertain output or committed-history mutation.</param>
+    public ManagedTerminalTuiApplication(
+        ITerminal terminal,
+        ITerminalOutputTransport transport,
+        ManagedTerminalCapabilityProfile capabilities,
+        ManagedTerminalFallbackPolicy fallbackPolicy = ManagedTerminalFallbackPolicy.BoundedScreen,
+        ManagedTerminalRecoveryPolicy recoveryPolicy = ManagedTerminalRecoveryPolicy.VisibleEpochBoundary)
     {
         _terminal = terminal ?? throw new ArgumentNullException(nameof(terminal));
-        _renderer = new ManagedTerminalTuiRenderer(terminal, transport)
+        _renderer = new ManagedTerminalTuiRenderer(terminal, transport, capabilities, fallbackPolicy, recoveryPolicy)
         {
             TrackHardwareCursor = true
         };
@@ -127,8 +143,6 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
         _dropIntermediateVisualStates = options.FramePolicy.DropIntermediateVisualStates;
         _owedVisualStates = options.RenderOnStart ? 1 : 0;
 
-        _terminal.HideCursor();
-
         using var mailbox = CreateMailbox(options);
         using var loopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _mailbox = mailbox;
@@ -204,9 +218,9 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
             finally { _dispatcherDepth.Value--; }
             _surface = null;
             _mailbox = null;
+            _renderer.Shutdown();
             await loopCts.CancelAsync().ConfigureAwait(false);
             await inputPump.ConfigureAwait(false);
-            _terminal.ShowCursor();
         }
     }
 
@@ -334,6 +348,15 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
         if (!mailbox.TryWrite(new TuiLoopEvent(TuiLoopEventKind.Callback, Callback: invocation)))
             throw new InvalidOperationException("The TUI event-loop mailbox rejected the callback.");
         return new ValueTask(completion.Task);
+    }
+
+    /// <summary>Queues external-process output behind all previously submitted frames and control traffic.</summary>
+    /// <param name="output">The immutable output to publish before managed rendering resumes.</param>
+    /// <param name="cancellationToken">Cancels the mailbox callback before publication begins.</param>
+    public ValueTask PublishExternalOutputAsync(string output, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(output);
+        return InvokeAsync(() => _renderer.PublishExternalOutput(output), cancellationToken);
     }
 
     private static async ValueTask<bool> WaitForEventOrFrameAsync(

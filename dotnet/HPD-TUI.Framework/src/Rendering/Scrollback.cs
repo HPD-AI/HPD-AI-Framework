@@ -1,4 +1,5 @@
 using HPD.TUI.Core;
+using HPD.TUI.Terminal;
 
 namespace HPD.TUI.Rendering;
 
@@ -43,8 +44,9 @@ public sealed class ScrollbackBatchLease : IDisposable
 }
 
 /// <summary>Controls recovery policy for one append-only scrollback commit.</summary>
-/// <param name="ClearAndReplayWhenUncertain">Whether uncertain prior output may be cleared and replayed.</param>
-public readonly record struct ScrollbackCommitOptions(bool ClearAndReplayWhenUncertain = true);
+/// <param name="RecoveryPolicy">The explicit response to uncertain terminal-visible state.</param>
+public readonly record struct ScrollbackCommitOptions(
+    ManagedTerminalRecoveryPolicy RecoveryPolicy = ManagedTerminalRecoveryPolicy.VisibleEpochBoundary);
 
 /// <summary>Identifies the transport outcome of a scrollback commit.</summary>
 public enum ScrollbackCommitStatus

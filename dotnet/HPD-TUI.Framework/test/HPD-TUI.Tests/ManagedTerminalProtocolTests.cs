@@ -22,6 +22,20 @@ public sealed class ManagedTerminalProtocolTests
     }
 
     [Fact]
+    public void DefaultConstructor_DoesNotAssumeUnreportedCapabilities()
+    {
+        using var terminal = new UnreportedTerminal();
+        using var renderer = new ManagedTerminalTuiRenderer(terminal);
+
+        renderer.Render(new Text("live"));
+
+        Assert.False(renderer.SupportsManagedScrollback);
+        Assert.DoesNotContain("\x1b[?2026h", terminal.Output);
+        Assert.DoesNotContain("\x1b[H", terminal.Output);
+        Assert.DoesNotContain("\x1b[1;", terminal.Output);
+    }
+
+    [Fact]
     public void RejectPolicy_FailsBeforeAnyTerminalMutation()
     {
         using var terminal = new ProtocolTerminal();
@@ -41,6 +55,69 @@ public sealed class ManagedTerminalProtocolTests
 
         Assert.Equal(8, renderer.StartPresentationEpoch());
         Assert.Throws<InvalidOperationException>(() => renderer.Render(new Text("live"), scrollback: Batch(7, 1)));
+    }
+
+    [Fact]
+    public void Resize_StartsNewPresentationEpoch()
+    {
+        using var terminal = new ResizableProtocolTerminal();
+        using var renderer = new ManagedTerminalTuiRenderer(terminal);
+        renderer.Render(new Text("live"), scrollback: Batch(4, 0));
+
+        terminal.Size = new(60, 10);
+
+        Assert.Throws<InvalidOperationException>(() => renderer.Render(new Text("live"), scrollback: Batch(4, 1)));
+        Assert.Equal(5, renderer.PresentationEpoch);
+    }
+
+    [Fact]
+    public void ClearAndReplay_WithoutClearCapability_RemainsUncertainAndEmitsNoCsi3J()
+    {
+        using var terminal = new CapturingProtocolTerminal();
+        var transport = new FailOnceCapturingTransport();
+        var features = ManagedTerminalCapabilityProfile.SplitFooterRequirements;
+        using var renderer = new ManagedTerminalTuiRenderer(
+            terminal, transport, new(features), recoveryPolicy: ManagedTerminalRecoveryPolicy.ClearAndReplay);
+
+        Assert.Throws<InvalidOperationException>(() => renderer.Render(new Text("live")));
+        Assert.Throws<InvalidOperationException>(() => renderer.Render(new Text("live")));
+
+        Assert.DoesNotContain("\x1b[3J", transport.AcceptedPayload);
+        Assert.Equal(1, transport.Attempts);
+    }
+
+    [Fact]
+    public void HistoryMutationPolicies_AreExternallyVisible()
+    {
+        using var terminal = new CapturingProtocolTerminal();
+        using var renderer = new ManagedTerminalTuiRenderer(terminal);
+        renderer.Render(new Text("live"));
+        terminal.Clear();
+
+        renderer.RebaseCommittedHistory(ManagedTerminalRecoveryPolicy.VisibleEpochBoundary);
+        Assert.Contains("new presentation epoch", terminal.Output);
+
+        terminal.Clear();
+        renderer.RebaseCommittedHistory(ManagedTerminalRecoveryPolicy.SwitchToAlternateScreen);
+        Assert.Contains("\x1b[?1049h", terminal.Output);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            renderer.RebaseCommittedHistory(ManagedTerminalRecoveryPolicy.Abort));
+    }
+
+    [Fact]
+    public void ExternalOutput_UsesPublisherAndRequiresRecoveryBeforeNextFrame()
+    {
+        using var terminal = new CapturingProtocolTerminal();
+        using var renderer = new ManagedTerminalTuiRenderer(terminal);
+        renderer.Render(new Text("before"));
+        terminal.Clear();
+
+        renderer.PublishExternalOutput("process\r\n");
+        renderer.Render(new Text("after"));
+
+        Assert.StartsWith("process\r\n", terminal.Output);
+        Assert.Contains("new presentation epoch", terminal.Output);
     }
 
     [Fact]
@@ -64,11 +141,65 @@ public sealed class ManagedTerminalProtocolTests
         new ScrollbackRow($"row-{sequence}", [new ScrollbackCell("history", default, default, 7)])
     ]);
 
-    private sealed class ProtocolTerminal : ITerminal, ITerminalInput
+    private sealed class ProtocolTerminal : ITerminal, ITerminalInput, IManagedTerminalCapabilitySource
     {
         public ITerminalInput Input => this;
+        public ManagedTerminalCapabilityProfile ManagedTerminalCapabilities => ManagedTerminalCapabilityProfile.Verified;
         public TerminalSize GetSize() => new(40, 8);
         public void Write(ReadOnlySpan<char> text) { }
+        public void Flush() { }
+        public void HideCursor() { }
+        public void ShowCursor() { }
+        public ValueTask<TerminalInputEvent> ReadAsync(CancellationToken cancellationToken = default)
+            => ValueTask.FromCanceled<TerminalInputEvent>(cancellationToken);
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        public void Dispose() { }
+    }
+
+    private class CapturingProtocolTerminal : ITerminal, ITerminalInput, IManagedTerminalCapabilitySource
+    {
+        private readonly StringWriter _output = new();
+        public string Output => _output.ToString();
+        public virtual TerminalSize Size { get; set; } = new(40, 8);
+        public ITerminalInput Input => this;
+        public ManagedTerminalCapabilityProfile ManagedTerminalCapabilities => ManagedTerminalCapabilityProfile.Verified;
+        public TerminalSize GetSize() => Size;
+        public void Clear() => _output.GetStringBuilder().Clear();
+        public void Write(ReadOnlySpan<char> text) => _output.Write(text);
+        public void Flush() { }
+        public void HideCursor() { }
+        public void ShowCursor() { }
+        public ValueTask<TerminalInputEvent> ReadAsync(CancellationToken cancellationToken = default)
+            => ValueTask.FromCanceled<TerminalInputEvent>(cancellationToken);
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        public void Dispose() { }
+    }
+
+    private sealed class ResizableProtocolTerminal : CapturingProtocolTerminal;
+
+    private sealed class FailOnceCapturingTransport : ITerminalOutputTransport
+    {
+        public int Attempts { get; private set; }
+        public string AcceptedPayload { get; private set; } = "";
+        public ValueTask<TerminalWriteResult> TryWriteFrameAsync(
+            TerminalFrameLease frame, CancellationToken cancellationToken = default)
+        {
+            Attempts++;
+            if (Attempts == 1)
+                return ValueTask.FromResult(new TerminalWriteResult(TerminalWriteStatus.Failed, new IOException("partial")));
+            AcceptedPayload += frame.Payload.ToString();
+            return ValueTask.FromResult(TerminalWriteResult.Written);
+        }
+        public ValueTask WaitUntilWritableAsync(CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+    }
+
+    private sealed class UnreportedTerminal : ITerminal, ITerminalInput
+    {
+        private readonly StringWriter _output = new();
+        public string Output => _output.ToString();
+        public ITerminalInput Input => this;
+        public TerminalSize GetSize() => new(40, 8);
+        public void Write(ReadOnlySpan<char> text) => _output.Write(text);
         public void Flush() { }
         public void HideCursor() { }
         public void ShowCursor() { }

@@ -59,7 +59,9 @@ public sealed class ManagedTerminalTuiRendererTests
     {
         using var terminal = new TestTerminal(40, 8);
         var transport = new FailOnceTransport();
-        using var renderer = new ManagedTerminalTuiRenderer(terminal, transport);
+        using var renderer = new ManagedTerminalTuiRenderer(
+            terminal, transport, ManagedTerminalCapabilityProfile.Verified,
+            recoveryPolicy: ManagedTerminalRecoveryPolicy.ClearAndReplay);
 
         Assert.Throws<InvalidOperationException>(() => renderer.Render(new Text("hello")));
         renderer.Render(new Text("hello"));
@@ -74,7 +76,9 @@ public sealed class ManagedTerminalTuiRendererTests
     {
         using var terminal = new TestTerminal(40, 8);
         var transport = new FailOnceTransport();
-        using var renderer = new ManagedTerminalTuiRenderer(terminal, transport);
+        using var renderer = new ManagedTerminalTuiRenderer(
+            terminal, transport, ManagedTerminalCapabilityProfile.Verified,
+            recoveryPolicy: ManagedTerminalRecoveryPolicy.ClearAndReplay);
         var batch = new ScrollbackBatch(1, 1,
         [
             new ScrollbackRow("row-1",
@@ -84,10 +88,9 @@ public sealed class ManagedTerminalTuiRendererTests
         ]);
 
         Assert.Throws<InvalidOperationException>(() => renderer.Render(new Text("live"), scrollback: batch));
-        renderer.Render(new Text("live"), scrollback: batch);
+        Assert.Throws<InvalidOperationException>(() => renderer.Render(new Text("live"), scrollback: batch));
 
         Assert.Contains("\x1b[3J", transport.AcceptedPayload);
-        Assert.Contains("history", transport.AcceptedPayload);
         Assert.Contains("live", transport.AcceptedPayload);
     }
 
@@ -364,7 +367,7 @@ public sealed class ManagedTerminalTuiRendererTests
 
         await app.RunAsync(cancellationToken: cancellation.Token);
 
-        Assert.Equal(2, transport.Attempts);
+        Assert.Equal(3, transport.Attempts);
         Assert.Equal(1, source.CommitCount);
         Assert.Equal(1, source.RollbackCount);
         Assert.Contains("history", transport.AcceptedPayload);
@@ -385,7 +388,7 @@ public sealed class ManagedTerminalTuiRendererTests
         Assert.Contains("display=4.25ms", writer.ToString());
     }
 
-    private sealed class TestTerminal : ITerminal, ITerminalInput
+    private sealed class TestTerminal : ITerminal, ITerminalInput, IManagedTerminalCapabilitySource
     {
         private readonly StringBuilder _output = new();
         private readonly Queue<TerminalInputEvent> _events = new();
@@ -403,6 +406,8 @@ public sealed class ManagedTerminalTuiRendererTests
         public int ShowCursorCount { get; private set; }
 
         public ITerminalInput Input => this;
+
+        public ManagedTerminalCapabilityProfile ManagedTerminalCapabilities => ManagedTerminalCapabilityProfile.Verified;
 
         public TerminalSize GetSize() => _size;
 
@@ -484,7 +489,7 @@ public sealed class ManagedTerminalTuiRendererTests
             Attempts++;
             if (Attempts == 1)
                 return ValueTask.FromResult(TerminalWriteResult.Backpressured);
-            AcceptedPayload = frame.Payload.ToString();
+            AcceptedPayload += frame.Payload.ToString();
             return ValueTask.FromResult(TerminalWriteResult.Written);
         }
 

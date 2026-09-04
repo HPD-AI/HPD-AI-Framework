@@ -35,6 +35,20 @@ public readonly record struct ManagedTerminalCapabilityProfile(ManagedTerminalFe
     /// <summary>Gets a profile suitable for a terminal whose complete managed protocol was verified.</summary>
     public static ManagedTerminalCapabilityProfile Verified { get; } = new(
         SplitFooterRequirements | ManagedTerminalFeatures.ClearScrollback);
+
+    /// <summary>Detects capabilities explicitly reported by the active terminal session.</summary>
+    public static ManagedTerminalCapabilityProfile Detect(ITerminal terminal)
+    {
+        ArgumentNullException.ThrowIfNull(terminal);
+        return terminal is IManagedTerminalCapabilitySource source ? source.ManagedTerminalCapabilities : default;
+    }
+}
+
+/// <summary>Reports managed-terminal behavior established for a concrete terminal session.</summary>
+public interface IManagedTerminalCapabilitySource
+{
+    /// <summary>Gets immutable capabilities detected or configured for this session.</summary>
+    ManagedTerminalCapabilityProfile ManagedTerminalCapabilities { get; }
 }
 
 /// <summary>Controls behavior when managed split-footer requirements are unavailable.</summary>
@@ -44,4 +58,17 @@ public enum ManagedTerminalFallbackPolicy
     BoundedScreen,
     /// <summary>Reject renderer construction rather than silently weakening history semantics.</summary>
     Reject
+}
+
+/// <summary>Controls recovery when terminal-visible history or cursor state becomes uncertain.</summary>
+public enum ManagedTerminalRecoveryPolicy
+{
+    /// <summary>Clear scrollback and replay durable history; requires explicit clear-scrollback capability.</summary>
+    ClearAndReplay,
+    /// <summary>Start a new visible epoch and preserve existing terminal history.</summary>
+    VisibleEpochBoundary,
+    /// <summary>Leave managed mode and initialize the alternate screen.</summary>
+    SwitchToAlternateScreen,
+    /// <summary>Refuse further output and terminate the managed presentation.</summary>
+    Abort
 }
