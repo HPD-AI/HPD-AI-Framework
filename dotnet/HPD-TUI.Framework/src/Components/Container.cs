@@ -8,6 +8,8 @@ public class Container : Component
 
     public IReadOnlyList<IComponent> Children => _children;
 
+    public override ComponentDependencies Dependencies => ComponentDependencies.Static;
+
     public void Add(IComponent child)
     {
         ArgumentNullException.ThrowIfNull(child);
@@ -18,8 +20,9 @@ public class Container : Component
 
     public bool Remove(IComponent child)
     {
-        if (!_children.Remove(child)) return false;
+        if (!_children.Contains(child)) return false;
         ReleaseChild(child);
+        _children.Remove(child);
         InvalidateLayout();
         return true;
     }

@@ -17,6 +17,8 @@ public sealed class Grid : Component
 
     public IReadOnlyList<GridRow> Rows => _rows;
 
+    public override ComponentDependencies Dependencies => ComponentDependencies.Static;
+
     public Grid AddColumn(SizePolicy width)
     {
         _columns.Add(new GridColumn(width));
@@ -51,7 +53,7 @@ public sealed class Grid : Component
             throw new InvalidOperationException("Row has more cells than the grid has columns.");
         }
 
-        foreach (var cell in row.Cells) AdoptChild(cell);
+        AdoptChildren(row.Cells);
         _rows.Add(row);
         InvalidateLayout();
         return this;

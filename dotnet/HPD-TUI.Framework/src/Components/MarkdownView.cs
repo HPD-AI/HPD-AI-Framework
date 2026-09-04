@@ -6,6 +6,7 @@ namespace HPD.TUI.Components;
 /// <summary>Renders one immutable Markdown layout without parsing or recomputing layout.</summary>
 public sealed class MarkdownView : Component
 {
+    public override ComponentDependencies Dependencies => ComponentDependencies.Static;
     private MarkdownLayout _layout;
     private readonly Func<int, MarkdownLayout>? _loadRawPage;
     private readonly Stack<MarkdownLayout> _previousPages = [];

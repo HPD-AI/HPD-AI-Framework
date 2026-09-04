@@ -6,6 +6,7 @@ namespace HPD.TUI.Layout;
 
 public sealed class Frame : Component
 {
+    public override ComponentDependencies Dependencies => ComponentDependencies.Static;
     private readonly IComponent _child;
     private Terminal.TerminalGrid? _childGrid;
     private BorderSpec _border = BorderSpec.Square;

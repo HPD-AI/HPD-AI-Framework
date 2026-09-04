@@ -38,6 +38,12 @@ public readonly record struct ComponentDependencies(RenderContextFields Layout, 
     /// <summary>Gets the safe dependency policy for components that have not opted into narrower caching.</summary>
     public static ComponentDependencies Conservative { get; } =
         new(RenderContextFields.All, RenderContextFields.All);
+
+    /// <summary>Gets the dependency policy for nonanimated components whose layout is constraint-driven and whose paint uses the theme.</summary>
+    public static ComponentDependencies Static { get; } =
+        new(RenderContextFields.Width | RenderContextFields.Height,
+            RenderContextFields.Width | RenderContextFields.Height | RenderContextFields.Theme |
+            RenderContextFields.ColorSystem | RenderContextFields.Capabilities);
 }
 
 /// <summary>Controls whether a component's measurements may be retained by an owning layout root.</summary>
@@ -81,6 +87,7 @@ public abstract class Component : IComponent
     protected bool SetPaint<T>(ref T field, T value)
     {
         if (EqualityComparer<T>.Default.Equals(field, value)) return false;
+        _lifecycle.AssertMutationAccess();
         field = value;
         InvalidatePaint();
         return true;
@@ -90,6 +97,7 @@ public abstract class Component : IComponent
     protected bool SetLayout<T>(ref T field, T value)
     {
         if (EqualityComparer<T>.Default.Equals(field, value)) return false;
+        _lifecycle.AssertMutationAccess();
         field = value;
         InvalidateLayout();
         return true;
@@ -99,22 +107,66 @@ public abstract class Component : IComponent
     protected void AdoptChild(IComponent child)
     {
         ArgumentNullException.ThrowIfNull(child);
+        _lifecycle.AssertMutationAccess();
         if (Contains(child, this))
             throw new InvalidOperationException("Adopting this component would create an ownership cycle.");
+        child.Lifecycle.ValidateAdopt(_lifecycle.Id);
         child.Lifecycle.Adopt(_lifecycle.Id);
-        _ownedChildren.Add(child);
-        if (_lifecycle.Attachment is { } attachment)
-            attachment.AttachChild(child, _lifecycle.Id);
+        try
+        {
+            if (_lifecycle.Attachment is { } attachment)
+                attachment.AttachChild(child, _lifecycle.Id);
+            _ownedChildren.Add(child);
+        }
+        catch
+        {
+            if (child.Lifecycle.Attachment is not null && _lifecycle.Attachment is { } attached)
+                attached.DetachChild(child);
+            child.Lifecycle.Release(_lifecycle.Id);
+            throw;
+        }
+    }
+
+    /// <summary>Transfers a collection of children atomically, rolling back earlier transfers if a later child is invalid.</summary>
+    protected void AdoptChildren(IEnumerable<IComponent> children)
+    {
+        ArgumentNullException.ThrowIfNull(children);
+        _lifecycle.AssertMutationAccess();
+        var candidates = children.ToArray();
+        var identities = new HashSet<ComponentId>();
+        foreach (var child in candidates)
+        {
+            ArgumentNullException.ThrowIfNull(child);
+            if (!identities.Add(child.Lifecycle.Id))
+                throw new InvalidOperationException("A child cannot occur more than once in an ownership operation.");
+            if (Contains(child, this))
+                throw new InvalidOperationException("Adopting this component would create an ownership cycle.");
+            child.Lifecycle.ValidateAdopt(_lifecycle.Id);
+        }
+        var adopted = new List<IComponent>();
+        try
+        {
+            foreach (var child in candidates)
+            {
+                AdoptChild(child);
+                adopted.Add(child);
+            }
+        }
+        catch
+        {
+            for (var index = adopted.Count - 1; index >= 0; index--) ReleaseChild(adopted[index]);
+            throw;
+        }
     }
 
     /// <summary>Releases an owned child after detaching its subtree from the current surface.</summary>
     protected void ReleaseChild(IComponent child)
     {
         ArgumentNullException.ThrowIfNull(child);
+        _lifecycle.AssertMutationAccess();
         if (!_ownedChildren.Contains(child))
             throw new InvalidOperationException("The component is not owned by this parent.");
-        if (_lifecycle.Attachment is { } attachment)
-            attachment.DetachChild(child);
+        if (_lifecycle.Attachment is { } attachment) attachment.DetachChild(child);
         child.Lifecycle.Release(_lifecycle.Id);
         _ownedChildren.Remove(child);
     }
@@ -129,15 +181,16 @@ public abstract class Component : IComponent
         ArgumentNullException.ThrowIfNull(child);
         if (child.LayoutCachePolicy == LayoutCachePolicy.None)
             return child.Measure(in context, constraints);
-        var maxWidth = constraints.MaxWidth;
         var fields = child.Dependencies.Layout;
         var key = new LayoutCacheKey(
             child.Lifecycle.Id,
             child.LayoutRevision,
-            maxWidth,
-            context.Height,
+            constraints,
+            (fields & RenderContextFields.Width) != 0 ? context.Width : default,
+            (fields & RenderContextFields.Height) != 0 ? context.Height : default,
             (fields & RenderContextFields.Theme) != 0 ? context.Theme.Key : default,
             (fields & RenderContextFields.ColorSystem) != 0 ? context.ColorSystem : default,
+            (fields & RenderContextFields.Capabilities) != 0 ? context.Capabilities : default,
             (fields & RenderContextFields.Elapsed) != 0 ? context.Elapsed : default);
         if (_layoutCache.TryGetValue(key, out var cached)) return cached;
         if (_layoutCache.Count >= 256) _layoutCache.Clear();
@@ -149,16 +202,18 @@ public abstract class Component : IComponent
     /// <summary>Advances the paint revision and reports paint damage to the attached surface.</summary>
     protected void InvalidatePaint()
     {
-        _paintRevision = Next(_paintRevision);
+        _lifecycle.AssertMutationAccess();
+        _paintRevision = NextRevision(_paintRevision);
         _lifecycle.Invalidate(layout: false);
     }
 
     /// <summary>Advances layout and paint revisions and invalidates the attached layout root.</summary>
     protected void InvalidateLayout()
     {
+        _lifecycle.AssertMutationAccess();
         _layoutCache.Clear();
-        _layoutRevision = Next(_layoutRevision);
-        _paintRevision = Next(_paintRevision);
+        _layoutRevision = NextRevision(_layoutRevision);
+        _paintRevision = NextRevision(_paintRevision);
         _lifecycle.Invalidate(layout: true);
     }
 
@@ -171,7 +226,20 @@ public abstract class Component : IComponent
     /// <inheritdoc />
     public virtual bool HandleInput(in TuiInputEvent input) => false;
 
-    private static ulong Next(ulong value) => value == ulong.MaxValue ? 1 : value + 1;
+    internal void PropagateDescendantLayoutInvalidation()
+    {
+        _layoutCache.Clear();
+        _layoutRevision = NextRevision(_layoutRevision);
+        _paintRevision = NextRevision(_paintRevision);
+    }
+
+    private ulong NextRevision(ulong value)
+    {
+        if (value != ulong.MaxValue) return value + 1;
+        _lifecycle.HandleRevisionOverflow();
+        _layoutCache.Clear();
+        return 1;
+    }
 
     private static bool Contains(IComponent root, IComponent sought)
     {
@@ -185,10 +253,12 @@ public abstract class Component : IComponent
     private readonly record struct LayoutCacheKey(
         ComponentId Component,
         TuiRevision Revision,
-        int Width,
+        Layout.LayoutConstraints Constraints,
+        int ContextWidth,
         int Height,
         ThemeKey Theme,
         ColorSystem ColorSystem,
+        TerminalCapabilities Capabilities,
         TimeSpan Elapsed);
 }
 
@@ -197,21 +267,30 @@ internal interface IComponentLifecycle
     ComponentId Id { get; }
     ComponentId? OwnerParent { get; }
     ComponentAttachment? Attachment { get; }
+    void AssertMutationAccess();
+    void ValidateAdopt(ComponentId parent);
     void Adopt(ComponentId parent);
+    void ValidateRelease(ComponentId expectedParent);
     void Release(ComponentId expectedParent);
     void Attach(in ComponentAttachment attachment);
-    void Detach(ulong expectedGeneration);
+    void Detach(AttachmentGeneration expectedGeneration);
+    void HandleRevisionOverflow();
 }
 
 internal readonly record struct ComponentId(long Value);
+internal readonly record struct SurfaceId(long Value);
+internal readonly record struct SurfaceGeneration(ulong Value);
+internal readonly record struct AttachmentGeneration(ulong Value);
 
 internal readonly record struct ComponentAttachment(
-    long SurfaceId,
-    ulong SurfaceGeneration,
-    ulong AttachmentGeneration,
+    SurfaceId SurfaceId,
+    SurfaceGeneration SurfaceGeneration,
+    AttachmentGeneration AttachmentGeneration,
     ComponentId? Parent,
     IMailboxAccessGuard Mailbox,
-    Action<ComponentId, ulong, bool> Invalidate,
+    Action<ComponentId, AttachmentGeneration, bool> Invalidate,
+    Action RevisionOverflow,
+    Func<SurfaceGeneration> CurrentSurfaceGeneration,
     Action<IComponent, ComponentId> AttachChild,
     Action<IComponent> DetachChild);
 
@@ -240,29 +319,53 @@ internal sealed class ComponentLifecycle(Component owner) : IComponentLifecycle
     public ComponentId? OwnerParent { get; private set; }
     public ComponentAttachment? Attachment { get; private set; }
 
-    public void Adopt(ComponentId parent)
+    public void AssertMutationAccess() => Attachment?.Mailbox.AssertAccess();
+
+    public void ValidateAdopt(ComponentId parent)
     {
+        AssertMutationAccess();
         if (parent == Id) throw new InvalidOperationException("A component cannot own itself.");
         if (OwnerParent is not null) throw new InvalidOperationException("A component can have only one owning parent.");
+    }
+
+    public void Adopt(ComponentId parent)
+    {
+        ValidateAdopt(parent);
         OwnerParent = parent;
+    }
+
+    public void ValidateRelease(ComponentId expectedParent)
+    {
+        AssertMutationAccess();
+        if (Attachment is not null) throw new InvalidOperationException("An attached component must be detached before release.");
+        if (OwnerParent != expectedParent) throw new InvalidOperationException("The component is not owned by the expected parent.");
     }
 
     public void Release(ComponentId expectedParent)
     {
-        if (Attachment is not null) throw new InvalidOperationException("An attached component must be detached before release.");
-        if (OwnerParent != expectedParent) throw new InvalidOperationException("The component is not owned by the expected parent.");
+        ValidateRelease(expectedParent);
         OwnerParent = null;
     }
 
     public void Attach(in ComponentAttachment attachment)
     {
+        attachment.Mailbox.AssertAccess();
         if (Attachment is not null) throw new InvalidOperationException("The component is already attached.");
         Attachment = attachment;
-        attachment.Invalidate(Id, attachment.AttachmentGeneration, true);
+        try
+        {
+            attachment.Invalidate(Id, attachment.AttachmentGeneration, true);
+        }
+        catch
+        {
+            Attachment = null;
+            throw;
+        }
     }
 
-    public void Detach(ulong expectedGeneration)
+    public void Detach(AttachmentGeneration expectedGeneration)
     {
+        Attachment?.Mailbox.AssertAccess();
         if (Attachment is not { } current || current.AttachmentGeneration != expectedGeneration)
             throw new InvalidOperationException("The component is not attached with the expected generation.");
         Attachment = null;
@@ -277,4 +380,6 @@ internal sealed class ComponentLifecycle(Component owner) : IComponentLifecycle
             attachment.Invalidate(Id, attachment.AttachmentGeneration, layout);
         }
     }
+
+    public void HandleRevisionOverflow() => Attachment?.RevisionOverflow();
 }

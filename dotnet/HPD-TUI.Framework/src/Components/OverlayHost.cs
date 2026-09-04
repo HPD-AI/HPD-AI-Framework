@@ -15,6 +15,8 @@ public sealed class OverlayHost : Component
 
     public IReadOnlyList<Overlay> Overlays => _overlays;
 
+    public override ComponentDependencies Dependencies => ComponentDependencies.Static;
+
     public void Push(Overlay overlay)
     {
         ArgumentNullException.ThrowIfNull(overlay);

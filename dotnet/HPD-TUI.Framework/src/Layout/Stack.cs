@@ -17,6 +17,8 @@ public sealed class Stack : Component
 
     public IReadOnlyList<IComponent> Children => _children;
 
+    public override ComponentDependencies Dependencies => ComponentDependencies.Static;
+
     public Stack Add(IComponent child)
     {
         ArgumentNullException.ThrowIfNull(child);

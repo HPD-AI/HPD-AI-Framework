@@ -5,6 +5,7 @@ namespace HPD.TUI.Layout;
 
 public sealed class Separator : Component
 {
+    public override ComponentDependencies Dependencies => ComponentDependencies.Static;
     private readonly string? _title;
 
     public Separator(string? title = null)

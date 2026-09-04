@@ -5,6 +5,7 @@ namespace HPD.TUI.Components;
 
 public sealed class Viewport : Component
 {
+    public override ComponentDependencies Dependencies => ComponentDependencies.Static;
     private readonly List<string> _lines = [];
 
     public Viewport(int height)

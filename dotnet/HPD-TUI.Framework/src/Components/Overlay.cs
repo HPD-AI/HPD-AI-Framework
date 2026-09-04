@@ -4,6 +4,7 @@ namespace HPD.TUI.Components;
 
 public sealed class Overlay : Component
 {
+    public override ComponentDependencies Dependencies => ComponentDependencies.Static;
     private readonly IComponent _child;
 
     public Overlay(

@@ -23,6 +23,7 @@ public interface IComponent
     /// <summary>Records paint commands into the bounded display-list builder.</summary>
     void Render(in RenderContext context, ref DisplayListBuilder output);
 
+    /// <summary>Handles an input event and reports whether it was consumed.</summary>
     bool HandleInput(in TuiInputEvent input);
 }
 
