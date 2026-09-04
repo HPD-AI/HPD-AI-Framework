@@ -530,11 +530,12 @@ public sealed class MarkdownStreamSessionTests
         var pipeline = MarkdownPipelineFactory.CreateDefault();
         var parser = new MarkdownDocumentParser();
         var source = "# heading\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n- [x] task";
+        var expected = parser.Parse(source, new MarkdownParseOptions { Pipeline = pipeline }).Blocks.Count * 50;
         var results = await Task.WhenAll(Enumerable.Range(0, 12).Select(_ => Task.Run(() =>
             Enumerable.Range(0, 50).Select(_ => parser.Parse(source,
                 new MarkdownParseOptions { Pipeline = pipeline }).Blocks.Count).Sum())));
 
-        Assert.All(results, result => Assert.Equal(200, result));
+        Assert.All(results, result => Assert.Equal(expected, result));
         Assert.Single(results.Distinct());
     }
 
