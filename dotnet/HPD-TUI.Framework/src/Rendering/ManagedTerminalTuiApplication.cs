@@ -19,6 +19,7 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
     private ComponentSurface? _surface;
     private bool _stopRequested;
     private bool _disposed;
+    private bool _urgentRender;
 
     public ManagedTerminalTuiApplication(ITerminal terminal)
         : this(terminal, new SynchronousTerminalOutputTransport(terminal))
@@ -121,10 +122,13 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
         try
         {
             var dirty = options.RenderOnStart;
+            var nextFrame = DateTimeOffset.MinValue;
             while (!loopCts.IsCancellationRequested && !_stopRequested)
             {
                 if (dirty)
                 {
+                    if (!(options.FramePolicy.RenderImmediatelyOnInput && _urgentRender) && DateTimeOffset.UtcNow < nextFrame)
+                        await Task.Delay(nextFrame - DateTimeOffset.UtcNow, loopCts.Token).ConfigureAwait(false);
                     _dispatcherDepth.Value++;
                     try
                     {
@@ -133,6 +137,8 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
                         {
                             Render();
                             dirty = false;
+                            _urgentRender = false;
+                            nextFrame = DateTimeOffset.UtcNow + options.FramePolicy.MinimumFrameInterval;
                         }
                         catch (TerminalBackpressureException)
                         {
@@ -150,7 +156,7 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
 
                 dirty |= await WaitForEventOrFrameAsync(
                         mailbox,
-                        options.AnimationTickInterval ?? options.MaxFrameInterval,
+                        options.AnimationTickInterval,
                         loopCts.Token)
                     .ConfigureAwait(false);
                 dirty |= await DrainEventsAsync(mailbox).ConfigureAwait(false);
@@ -393,7 +399,12 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
                     }
 
                     _dispatcherDepth.Value++;
-                    try { dirty |= HandleInput(in input, requestRender: false); }
+                    try
+                    {
+                        var handled = HandleInput(in input, requestRender: false);
+                        dirty |= handled;
+                        _urgentRender |= handled;
+                    }
                     finally { _dispatcherDepth.Value--; }
                 }
                 else if (evt.Kind == TuiLoopEventKind.Callback)

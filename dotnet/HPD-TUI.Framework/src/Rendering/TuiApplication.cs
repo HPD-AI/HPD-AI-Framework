@@ -21,6 +21,7 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
     private bool _stopRequested;
     private bool _disposed;
     private int _eventLoopThreadId;
+    private bool _urgentRender;
 
     public TuiApplication(ITerminal terminal)
     {
@@ -101,18 +102,23 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
         try
         {
             var dirty = options.RenderOnStart;
+            var nextFrame = DateTimeOffset.MinValue;
             while (!loopCts.IsCancellationRequested && !_stopRequested)
             {
                 _eventLoopThreadId = Environment.CurrentManagedThreadId;
                 if (dirty)
                 {
+                    if (!(options.FramePolicy.RenderImmediatelyOnInput && _urgentRender) && DateTimeOffset.UtcNow < nextFrame)
+                        await Task.Delay(nextFrame - DateTimeOffset.UtcNow, loopCts.Token).ConfigureAwait(false);
                     Render();
                     dirty = false;
+                    _urgentRender = false;
+                    nextFrame = DateTimeOffset.UtcNow + options.FramePolicy.MinimumFrameInterval;
                 }
 
                 dirty |= await WaitForEventOrFrameAsync(
                         mailbox,
-                        options.AnimationTickInterval ?? options.MaxFrameInterval,
+                        options.AnimationTickInterval,
                         loopCts.Token)
                     .ConfigureAwait(false);
                 _eventLoopThreadId = Environment.CurrentManagedThreadId;
@@ -302,7 +308,9 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
                         return false;
                     }
 
-                    dirty |= HandleInput(in input, requestRender: false);
+                    var handled = HandleInput(in input, requestRender: false);
+                    dirty |= handled;
+                    _urgentRender |= handled;
                 }
                 else if (evt.Kind == TuiLoopEventKind.Callback)
                 {
