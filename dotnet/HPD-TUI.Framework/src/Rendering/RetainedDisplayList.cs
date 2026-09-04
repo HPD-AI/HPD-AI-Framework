@@ -414,7 +414,24 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
         }
         for (var index = common; index < _operations.Count; index++) Mark(_operations[index]);
         for (var index = common; index < _building.Count; index++) Mark(_building[index]);
+        ExpandWrappedRows(_operations);
+        ExpandWrappedRows(_building);
         return;
+
+        void ExpandWrappedRows(List<DisplayOperation> operations)
+        {
+            if (_key.Width <= 0) return;
+            foreach (var operation in operations)
+            {
+                if (operation.Kind != DisplayOperationKind.Command ||
+                    operation.Command.Kind != DisplayCommandKind.TextRun) continue;
+                var bounds = operation.Command.Bounds;
+                if (bounds.Y < 0 || bounds.Y >= height || !_damagedRows[bounds.Y] || bounds.Right <= _key.Width) continue;
+                var lastRow = Math.Clamp(bounds.Y + ((bounds.Right - 1) / _key.Width), 0, height - 1);
+                for (var row = bounds.Y + 1; row <= lastRow; row++)
+                    if (!_damagedRows[row]) { _damagedRows[row] = true; DamagedRowCount++; }
+            }
+        }
 
         void Mark(DisplayOperation operation)
         {
@@ -427,7 +444,10 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
             }
             var bounds = operation.Command.Bounds;
             var start = Math.Clamp(bounds.Y, 0, height);
-            var end = Math.Clamp(Math.Max(bounds.Y + bounds.Height, bounds.Y + 1), 0, height);
+            var wrappedRows = operation.Command.Kind == DisplayCommandKind.TextRun && _key.Width > 0
+                ? Math.Max(1, (Math.Max(0, bounds.X) + Math.Max(1, bounds.Width) + _key.Width - 1) / _key.Width)
+                : Math.Max(bounds.Height, 1);
+            var end = Math.Clamp(bounds.Y + wrappedRows, 0, height);
             for (var row = start; row < end; row++)
                 if (!_damagedRows[row]) { _damagedRows[row] = true; DamagedRowCount++; }
         }
