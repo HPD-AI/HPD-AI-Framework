@@ -25,23 +25,30 @@ public enum DisplayCommandKind
 /// <summary>Contains the immutable payload referenced by a display command.</summary>
 public readonly record struct DisplayPayload
 {
-    private DisplayPayload(string? text, TuiSurface? surface)
+    private DisplayPayload(string? text, char? character, TuiSurface? surface)
     {
         Text = text;
+        Character = character;
         Surface = surface;
     }
 
     /// <summary>Gets text owned by the display-list generation, when applicable.</summary>
     public string? Text { get; }
 
+    /// <summary>Gets a single allocation-free character payload, when applicable.</summary>
+    public char? Character { get; }
+
     /// <summary>Gets the explicitly retained surface, when applicable.</summary>
     public TuiSurface? Surface { get; }
 
     /// <summary>Creates an immutable text payload.</summary>
-    public static DisplayPayload FromText(string text) => new(text ?? throw new ArgumentNullException(nameof(text)), null);
+    public static DisplayPayload FromText(string text) => new(text ?? throw new ArgumentNullException(nameof(text)), null, null);
+
+    /// <summary>Creates an allocation-free single-character payload.</summary>
+    public static DisplayPayload FromCharacter(char character) => new(null, character, null);
 
     /// <summary>Creates a retained-surface payload.</summary>
-    public static DisplayPayload FromSurface(TuiSurface surface) => new(null, surface ?? throw new ArgumentNullException(nameof(surface)));
+    public static DisplayPayload FromSurface(TuiSurface surface) => new(null, null, surface ?? throw new ArgumentNullException(nameof(surface)));
 }
 
 /// <summary>Describes one immutable command in a retained display-list generation.</summary>

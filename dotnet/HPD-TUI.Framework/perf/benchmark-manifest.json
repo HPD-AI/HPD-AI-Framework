@@ -1,0 +1,20 @@
+{
+  "schema": "hpd.tui.benchmark-manifest.v1",
+  "dimensions": ["80x24", "120x40", "240x80"],
+  "scenarios": [
+    "cold-start", "warm-noop", "one-cell", "one-row", "two-disjoint-rows",
+    "full-screen", "cursor-only", "style-only", "wide-grapheme", "hyperlink", "resize",
+    "1000-component-stack", "transcript-tail", "streaming-markdown-100kb",
+    "synchronous-transport", "delayed-transport", "backpressured-transport", "recovery"
+  ],
+  "reportedMetrics": [
+    "mean", "median", "p95", "allocated-bytes", "gen0", "gen1", "bytes-emitted",
+    "cells-compared", "rows-rasterized", "display-commands-built", "display-commands-reused"
+  ],
+  "environmentFields": [
+    "cpu", "os", "dotnet-sdk", "dotnet-runtime", "commit", "gc-mode", "tiered-compilation",
+    "dynamic-pgo", "ready-to-run", "native-aot", "warmup-count", "iteration-count", "corpus-seed"
+  ],
+  "baseline": "pre-compositor",
+  "comparison": ["hpd-tui", "opentui-core", "opentui-react"]
+}

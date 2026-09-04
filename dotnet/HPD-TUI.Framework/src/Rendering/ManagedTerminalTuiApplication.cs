@@ -115,7 +115,9 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
         using var loopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _mailbox = mailbox;
         _surface = new ComponentSurface(RequestRender, () => CheckAccess());
-        _surface.ReplaceRoot(_root);
+        _dispatcherDepth.Value++;
+        try { _surface.ReplaceRoot(_root); }
+        finally { _dispatcherDepth.Value--; }
         _stopRequested = false;
         var inputPump = PumpInputAsync(mailbox, loopCts.Token);
 
@@ -170,7 +172,9 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
             _dispatcherDepth.Value++;
             try { Stopping?.Invoke(); }
             finally { _dispatcherDepth.Value--; }
-            _surface.Detach();
+            _dispatcherDepth.Value++;
+            try { _surface.Detach(); }
+            finally { _dispatcherDepth.Value--; }
             _surface = null;
             _mailbox = null;
             await loopCts.CancelAsync().ConfigureAwait(false);

@@ -35,9 +35,25 @@ public ref struct DisplayListBuilder
     public bool Write(scoped ReadOnlySpan<char> text, Style style, TerminalRunMetadata metadata = default)
     { _count++; return _sink.Write(text, style, metadata); }
 
+    /// <summary>Appends component-owned immutable text without copying it into the display-list generation.</summary>
+    public bool Write(string text, Style style, TerminalRunMetadata metadata = default)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        _count++;
+        return _sink is IOwnedTextSink owned
+            ? owned.WriteOwned(text, style, metadata)
+            : _sink.Write(text.AsSpan(), style, metadata);
+    }
+
     /// <summary>Appends a one-character text-run command.</summary>
     public bool Write(char value, Style style)
-    { Span<char> text = stackalloc char[1]; text[0] = value; return Write(text, style); }
+    {
+        _count++;
+        if (_sink is IOwnedTextSink owned) return owned.WriteCharacter(value, style);
+        Span<char> text = stackalloc char[1];
+        text[0] = value;
+        return _sink.Write(text, style);
+    }
 
     /// <summary>Appends repeated glyphs without allocating a temporary string.</summary>
     public bool WriteRepeated(char value, int count, Style style)
@@ -63,6 +79,39 @@ public ref struct DisplayListBuilder
     /// <summary>Sets the requested terminal cursor position.</summary>
     public void SetTerminalCursor(int x, int y) => _sink.SetTerminalCursor(x, y);
 
+    /// <summary>Appends a rectangular fill command.</summary>
+    public void Fill(Layout.LayoutRect bounds, char glyph, Style style)
+    {
+        if (bounds.IsEmpty) return;
+        Record(new DisplayCommand(DisplayCommandKind.Fill, bounds, style, default,
+            DisplayPayload.FromCharacter(glyph)));
+    }
+
+    /// <summary>Appends a single-cell border command around a rectangular region.</summary>
+    public void Border(Layout.LayoutRect bounds, Style style, char glyph = '─')
+    {
+        if (bounds.IsEmpty) return;
+        Record(new DisplayCommand(DisplayCommandKind.Border, bounds, style, default,
+            DisplayPayload.FromCharacter(glyph)));
+    }
+
+    /// <summary>Pushes a rectangular clip for following display commands.</summary>
+    public void PushClip(Layout.LayoutRect bounds) =>
+        Record(new DisplayCommand(DisplayCommandKind.PushClip, bounds, default, default, default));
+
+    /// <summary>Restores the clip active before the latest <see cref="PushClip"/> call.</summary>
+    public void PopClip() =>
+        Record(new DisplayCommand(DisplayCommandKind.PopClip, default, default, default, default));
+
+    /// <summary>Appends an explicitly retained raster surface at the supplied screen origin.</summary>
+    public void ReplaySurface(Rendering.TuiSurface surface, int x, int y)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        Record(new DisplayCommand(DisplayCommandKind.ReplaySurface,
+            new Layout.LayoutRect(x, y, surface.Width, surface.Height), default, default,
+            DisplayPayload.FromSurface(surface)));
+    }
+
     /// <summary>Records a child into a nested builder bounded to its allocated width.</summary>
     public void Render(IComponent child, in RenderContext context, int maxWidth)
     {
@@ -80,6 +129,25 @@ public ref struct DisplayListBuilder
         retained?.End(child);
         _count += nested.Count;
     }
+
+    private void Record(DisplayCommand command)
+    {
+        if (_sink is not IDisplayCommandSink sink)
+            throw new InvalidOperationException("Structured display commands require a retained display-list destination.");
+        sink.RecordCommand(command);
+        _count++;
+    }
+}
+
+internal interface IDisplayCommandSink
+{
+    void RecordCommand(DisplayCommand command);
+}
+
+internal interface IOwnedTextSink
+{
+    bool WriteOwned(string text, Style style, TerminalRunMetadata metadata);
+    bool WriteCharacter(char value, Style style, TerminalRunMetadata metadata = default);
 }
 
 internal interface IRetainedDisplayListSink

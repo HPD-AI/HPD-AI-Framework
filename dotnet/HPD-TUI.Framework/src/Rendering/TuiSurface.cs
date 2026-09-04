@@ -26,6 +26,23 @@ public sealed class TuiSurface : IDisposable
     internal TerminalGrid Grid => _grid;
     internal long EstimatedByteSize => _grid.EstimatedByteSize;
 
+    internal void ReplayTo(ISegmentSink destination, int originX, int originY, HPD.TUI.Layout.LayoutRect? clip = null)
+    {
+        for (var row = 0; row < Height; row++)
+        for (var column = 0; column < Width; column++)
+        {
+            var cell = _grid.GetCell(column, row);
+            if (cell.IsContinuation) continue;
+            var x = originX + column;
+            var y = originY + row;
+            if (clip is { } region && (x < region.X || y < region.Y || x + cell.DisplayWidth > region.Right || y >= region.Bottom))
+                continue;
+            destination.MoveTo(x, y);
+            destination.Write(_grid.GetGrapheme(cell), cell.Style,
+                new TerminalRunMetadata(_grid.GetHyperlink(cell)));
+        }
+    }
+
     /// <summary>Replaces the surface contents with a component capture.</summary>
     /// <param name="component">Component whose output is captured.</param>
     /// <param name="context">Render context for the capture.</param>
@@ -33,8 +50,9 @@ public sealed class TuiSurface : IDisposable
     {
         ArgumentNullException.ThrowIfNull(component);
         _grid.Clear();
-        var writer = new DisplayListBuilder(_grid, Width);
-        component.Render(in context, ref writer);
+        var displayList = new RetainedDisplayList();
+        displayList.Prepare(component, in context, Width);
+        displayList.Replay(_grid);
         _revision = _revision == ulong.MaxValue ? 1 : _revision + 1;
     }
 

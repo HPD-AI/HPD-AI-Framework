@@ -94,8 +94,8 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
         using var loopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _mailbox = mailbox;
         _surface = new ComponentSurface(RequestRender, () => CheckAccess());
-        _surface.ReplaceRoot(_root);
         _eventLoopThreadId = Environment.CurrentManagedThreadId;
+        _surface.ReplaceRoot(_root);
         _stopRequested = false;
         var inputPump = PumpInputAsync(mailbox, loopCts.Token);
 
