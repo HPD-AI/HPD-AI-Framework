@@ -93,7 +93,7 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
         using var mailbox = CreateMailbox(options);
         using var loopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _mailbox = mailbox;
-        _surface = new ComponentSurface(RequestRender);
+        _surface = new ComponentSurface(RequestRender, () => CheckAccess());
         _surface.ReplaceRoot(_root);
         _eventLoopThreadId = Environment.CurrentManagedThreadId;
         _stopRequested = false;

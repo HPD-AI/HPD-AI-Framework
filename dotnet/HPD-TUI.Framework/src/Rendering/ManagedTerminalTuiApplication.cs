@@ -114,7 +114,7 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
         using var mailbox = CreateMailbox(options);
         using var loopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _mailbox = mailbox;
-        _surface = new ComponentSurface(RequestRender);
+        _surface = new ComponentSurface(RequestRender, () => CheckAccess());
         _surface.ReplaceRoot(_root);
         _stopRequested = false;
         var inputPump = PumpInputAsync(mailbox, loopCts.Token);

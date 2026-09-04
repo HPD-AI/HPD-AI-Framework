@@ -210,9 +210,27 @@ internal readonly record struct ComponentAttachment(
     ulong SurfaceGeneration,
     ulong AttachmentGeneration,
     ComponentId? Parent,
+    IMailboxAccessGuard Mailbox,
     Action<ComponentId, ulong, bool> Invalidate,
     Action<IComponent, ComponentId> AttachChild,
     Action<IComponent> DetachChild);
+
+internal interface IMailboxAccessGuard
+{
+    bool CheckAccess();
+    void AssertAccess();
+}
+
+internal sealed class MailboxAccessGuard(Func<bool> checkAccess) : IMailboxAccessGuard
+{
+    public bool CheckAccess() => checkAccess();
+
+    public void AssertAccess()
+    {
+        if (!CheckAccess())
+            throw new InvalidOperationException("Attached component state may be mutated only on its owning application mailbox.");
+    }
+}
 
 internal sealed class ComponentLifecycle(Component owner) : IComponentLifecycle
 {
@@ -254,6 +272,9 @@ internal sealed class ComponentLifecycle(Component owner) : IComponentLifecycle
     public void Invalidate(bool layout)
     {
         if (Attachment is { } attachment)
+        {
+            attachment.Mailbox.AssertAccess();
             attachment.Invalidate(Id, attachment.AttachmentGeneration, layout);
+        }
     }
 }

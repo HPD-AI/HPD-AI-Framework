@@ -1,12 +1,13 @@
 namespace HPD.TUI.Core;
 
-internal sealed class ComponentSurface(Action requestRender)
+internal sealed class ComponentSurface(Action requestRender, Func<bool>? checkAccess = null)
 {
     private static long _nextSurfaceId;
     private readonly long _surfaceId = Interlocked.Increment(ref _nextSurfaceId);
     private readonly Dictionary<ComponentId, ulong> _attachments = [];
     private ulong _surfaceGeneration;
     private ulong _attachmentGeneration;
+    private readonly IMailboxAccessGuard _mailbox = new MailboxAccessGuard(checkAccess ?? (() => true));
 
     public IComponent? Root { get; private set; }
 
@@ -35,6 +36,7 @@ internal sealed class ComponentSurface(Action requestRender)
             _surfaceGeneration,
             generation,
             parent,
+            _mailbox,
             Invalidate,
             AttachChild,
             DetachChild));
