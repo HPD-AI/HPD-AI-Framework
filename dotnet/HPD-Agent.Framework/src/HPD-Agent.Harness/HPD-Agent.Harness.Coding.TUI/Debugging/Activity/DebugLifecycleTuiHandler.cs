@@ -193,8 +193,8 @@ internal sealed class DebugLifecycleTuiHandler
             Metadata: TranscriptEntryMetadata.FromEvent(evt),
             VerticalSpacing: 1);
         if (state.Terminal || state.Status == "running")
-            context.Shell.Transcript.FinalizeLive(key, entry.AsFinal());
-        else context.Shell.Transcript.UpsertLive(entry.AsLive());
+            context.Shell.Transcript.FinalizeLive(key, entry.AsFinal(), CommittedHistoryMutationPolicy.Reject);
+        else context.Shell.Transcript.UpsertLive(entry.AsLive(), CommittedHistoryMutationPolicy.Reject);
     }
 
     internal static void ObserveToolResult(

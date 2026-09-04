@@ -197,7 +197,7 @@ public sealed class HpdAgentTuiBuilder
             Description = "Show available shell commands.",
             Order = 600
         });
-        TryAddSlashCommand(new HpdAgentTuiCommandDescriptor("clear", context => context.Shell.Transcript.ClearAll())
+        TryAddSlashCommand(new HpdAgentTuiCommandDescriptor("clear", context => context.Shell.Transcript.ClearAll(CommittedHistoryMutationPolicy.Reject))
         {
             Title = "/clear",
             Description = "Clear the transcript.",

@@ -43,11 +43,11 @@ internal abstract class ExecuteCommandTuiHandlerBase<TEvent> : AgentTuiEventHand
         var entryKey = CodingCommandTranscriptEntryFactory.EntryKey(cell.CommandId);
         if (IsFinal(cell.State))
         {
-            context.Shell.Transcript.FinalizeLive(entryKey, entry.AsFinal());
+            context.Shell.Transcript.FinalizeLive(entryKey, entry.AsFinal(), CommittedHistoryMutationPolicy.Reject);
         }
         else
         {
-            context.Shell.Transcript.UpsertLive(entry.AsLive());
+            context.Shell.Transcript.UpsertLive(entry.AsLive(), CommittedHistoryMutationPolicy.Reject);
         }
 
         PublishCommandUpdate(context, sink, state.CommandId, applied, cell, startTimestamp);

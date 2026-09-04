@@ -100,8 +100,9 @@ internal sealed class DebugToolCallTuiCoordinator : IAgentTuiEventHandler, IAgen
         var state = store.Start(toolCallId);
         state.Claim = claim;
         var entryKey = EntryKey(toolCallId);
-        context.Shell.Transcript.RemoveWhere(entry =>
-            string.Equals(entry.EntryKey, entryKey, StringComparison.Ordinal));
+        context.Shell.Transcript.RemoveWhere(
+            entry => string.Equals(entry.EntryKey, entryKey, StringComparison.Ordinal),
+            CommittedHistoryMutationPolicy.Reject);
     }
 
     private static void BindAction(DebugToolCallPresentationState state, string argsJson)
@@ -144,8 +145,8 @@ internal sealed class DebugToolCallTuiCoordinator : IAgentTuiEventHandler, IAgen
                 !active && !state.Succeeded),
             Metadata: TranscriptEntryMetadata.FromEvent(evt),
             VerticalSpacing: 1);
-        if (active) context.Shell.Transcript.UpsertLive(entry.AsLive());
-        else context.Shell.Transcript.FinalizeLive(entry.EntryKey, entry.AsFinal());
+        if (active) context.Shell.Transcript.UpsertLive(entry.AsLive(), CommittedHistoryMutationPolicy.Reject);
+        else context.Shell.Transcript.FinalizeLive(entry.EntryKey, entry.AsFinal(), CommittedHistoryMutationPolicy.Reject);
     }
 
     private static string Label(DebugToolCallPresentationState state, bool active)

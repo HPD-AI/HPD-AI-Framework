@@ -183,7 +183,7 @@ internal static class ConsoleAgentCommands
             return;
         }
 
-        context.Shell.Transcript.FinalizeLive(entry.EntryKey!, entry.AsFinal());
+        context.Shell.Transcript.FinalizeLive(entry.EntryKey!, entry.AsFinal(), CommittedHistoryMutationPolicy.Reject);
     }
 
     private static TranscriptEntryMetadata Metadata(AgentTuiCommandContext context)

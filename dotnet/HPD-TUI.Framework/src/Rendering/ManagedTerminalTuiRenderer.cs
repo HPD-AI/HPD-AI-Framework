@@ -46,6 +46,8 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
     private bool _alternateScreen;
     private bool _aborted;
     private bool _shutdown;
+    private int _epochWidth;
+    private int _epochHeight;
     private TimeSpan _schedulingDelay;
     private bool TerminalCertain => _publisher.State.Certainty == TerminalCertainty.Known;
 
@@ -116,7 +118,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         var sizeChanged = _previousWidth != 0 && (
             _previousWidth != size.Width ||
             _previousHeight != size.Height);
-        if (sizeChanged) StartPresentationEpoch();
+        SynchronizePresentation(size);
         if (scrollback is not null && !_hasPresentationEpoch)
         {
             _presentationEpoch = scrollback.PresentationEpoch;
@@ -234,6 +236,25 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         return _presentationEpoch;
     }
 
+    /// <summary>Synchronizes presentation state with a physical size before semantic history is prepared.</summary>
+    /// <param name="size">The current physical terminal size.</param>
+    /// <returns>The new epoch when the size started a presentation epoch; otherwise <see langword="null"/>.</returns>
+    public long? SynchronizePresentation(TerminalSize size)
+    {
+        if (_epochWidth == 0)
+        {
+            _epochWidth = size.Width;
+            _epochHeight = size.Height;
+            return null;
+        }
+        if (_epochWidth == size.Width && _epochHeight == size.Height)
+            return null;
+
+        _epochWidth = size.Width;
+        _epochHeight = size.Height;
+        return StartPresentationEpoch();
+    }
+
     /// <summary>Publishes external-process output through the same ordered lease queue and invalidates the live anchor.</summary>
     public void PublishExternalOutput(ReadOnlySpan<char> output)
     {
@@ -246,23 +267,38 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
     }
 
     /// <summary>Applies the explicit policy for a model edit that targets terminal-visible committed history.</summary>
-    public void RebaseCommittedHistory(ManagedTerminalRecoveryPolicy policy)
+    public ManagedHistoryRebaseResult RebaseCommittedHistory(ManagedTerminalRecoveryPolicy policy)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (_currentBuffer is null)
         {
             StartPresentationEpoch();
-            return;
+            return new(ManagedHistoryRebaseStatus.Written, _presentationEpoch);
         }
-        MarkUncertain();
-        Recover(_terminal.GetSize(), TuiCapture.GetUsedLineCount(_currentBuffer.Grid), policy);
+        try
+        {
+            MarkUncertain();
+            Recover(_terminal.GetSize(), TuiCapture.GetUsedLineCount(_currentBuffer.Grid), policy);
+            return new(ManagedHistoryRebaseStatus.Written, _presentationEpoch);
+        }
+        catch (TerminalBackpressureException exception)
+        {
+            return new(ManagedHistoryRebaseStatus.Backpressured, _presentationEpoch, exception);
+        }
+        catch (Exception exception) when (policy == ManagedTerminalRecoveryPolicy.Abort)
+        {
+            return new(ManagedHistoryRebaseStatus.Aborted, _presentationEpoch, exception);
+        }
+        catch (Exception exception)
+        {
+            return new(ManagedHistoryRebaseStatus.Failed, _presentationEpoch, exception);
+        }
     }
 
     /// <summary>Publishes terminal shutdown controls through the ordered publisher.</summary>
-    public void Shutdown()
+    public TerminalWriteResult Shutdown()
     {
-        if (_disposed || _shutdown) return;
-        _shutdown = true;
+        if (_shutdown) return TerminalWriteResult.Written;
         _output.Clear();
         if (_alternateScreen) _output.Write(LeaveAlternateScreen);
         if ((_capabilities.Features & ManagedTerminalFeatures.ControllableAutowrap) != 0) _output.Write(EnableAutowrap);
@@ -270,6 +306,9 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         var result = _publisher.TryPublish(_output.WrittenSpan,
             acceptedState: _publisher.State with { CursorVisible = true });
         _output.Clear();
+        if (result.Status == TerminalWriteStatus.Written)
+            _shutdown = true;
+        return result;
     }
 
     private void PatchChangedRuns(TerminalSize size, int usedLines)
@@ -417,15 +456,16 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
                 output.Write(HideHardwareCursor);
                 output.Write(DisableAutowrap);
                 output.Write(ClearScreenAndCursorHome);
-                output.Write("\x1b[");
-                output.WriteInt(size.Height);
-                output.Write('H');
                 foreach (var row in scrollback.Rows)
                 {
                     output.Write('\r');
                     AnsiGridRenderer.WriteScrollbackRow(row, output);
                     output.Write("\x1b[K\r\n");
                 }
+                // Push every semantic row above the physical viewport before rebuilding the live footer.
+                // The batch already ends with one line feed per row, so height - 1 more feeds are exact.
+                for (var row = 1; row < size.Height; row++)
+                    output.Write("\r\n");
                 output.Write(EnableAutowrap);
             }
             if (clearMode == FullRenderClearMode.Screen)
@@ -642,7 +682,11 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
             return;
         }
 
-        Shutdown();
+        var shutdown = Shutdown();
+        if (shutdown.Status == TerminalWriteStatus.Backpressured)
+            throw new InvalidOperationException("Managed terminal shutdown is backpressured; wait for writability and retry before disposing.");
+        if (shutdown.Status == TerminalWriteStatus.Failed)
+            throw new InvalidOperationException("Managed terminal shutdown failed; terminal state is uncertain.", shutdown.Error);
         _disposed = true;
         _displayList.Dispose();
         _output.Dispose();

@@ -35,6 +35,7 @@ public sealed class TranscriptView : Component, IScrollbackSource
     private long _committedRowSequence;
     private ScrollbackBatch? _pendingScrollback;
     private int _pendingEntryCount;
+    private long _presentationEpoch;
 
     /// <summary>Creates a bounded transcript viewport with retained entry layouts.</summary>
     /// <param name="model">The durable transcript model.</param>
@@ -63,6 +64,7 @@ public sealed class TranscriptView : Component, IScrollbackSource
         _scope = scope;
         _performanceSink = performanceSink;
         _height = height;
+        _presentationEpoch = model.HistoryEpoch;
         CacheByteBudget = cacheByteBudget;
         _layoutCache = new TranscriptLayoutCache(cacheByteBudget, PrepareEntry, performanceCounters);
     }
@@ -120,6 +122,22 @@ public sealed class TranscriptView : Component, IScrollbackSource
     }
 
     /// <inheritdoc />
+    public void ResetPresentation(long presentationEpoch, in RenderContext context)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(presentationEpoch);
+        if (_pendingScrollback is not null)
+        {
+            _committedCount -= _pendingEntryCount;
+            _pendingEntryCount = 0;
+            _pendingScrollback = null;
+        }
+        _presentationEpoch = presentationEpoch;
+        _committedRowSequence = 0;
+        var diagnostics = new TranscriptViewDiagnosticsBuilder();
+        RefreshCache(in context, context.Width, ref diagnostics);
+    }
+
+    /// <inheritdoc />
     public ScrollbackBatch? PrepareScrollback(in RenderContext context, int maxRows)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxRows);
@@ -159,7 +177,7 @@ public sealed class TranscriptView : Component, IScrollbackSource
         _pendingEntryCount = entryCount;
         _committedCount += entryCount;
         _pendingScrollback = new ScrollbackBatch(
-            _model.HistoryEpoch,
+            _presentationEpoch,
             _committedRowSequence,
             rows.ToArray());
         return _pendingScrollback;

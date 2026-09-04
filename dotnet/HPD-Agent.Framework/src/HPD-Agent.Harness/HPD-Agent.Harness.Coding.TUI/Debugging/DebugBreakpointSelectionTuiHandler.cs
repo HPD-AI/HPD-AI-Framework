@@ -52,7 +52,8 @@ internal sealed class DebugBreakpointSelectionTuiHandler
                 Id: $"debug-breakpoints-{Math.Abs(key.GetHashCode(StringComparison.Ordinal))}",
                 EntryKey: key,
                 Cell: cell,
-                Metadata: TranscriptEntryMetadata.FromEvent(evt)).AsFinal());
+                Metadata: TranscriptEntryMetadata.FromEvent(evt)).AsFinal(),
+            CommittedHistoryMutationPolicy.Reject);
     }
 
     private static string Label(DebugBreakpointPresentationState state)

@@ -42,8 +42,8 @@ internal sealed class DebugStoppedTuiHandler : AgentTuiEventHandler<DebugSession
                 state.StopReason ?? "stopped",
                 state.CurrentStop),
             Metadata: TranscriptEntryMetadata.FromEvent(evt));
-        if (final) context.Shell.Transcript.FinalizeLive(key, entry.AsFinal());
-        else context.Shell.Transcript.UpsertLive(entry.AsLive());
+        if (final) context.Shell.Transcript.FinalizeLive(key, entry.AsFinal(), CommittedHistoryMutationPolicy.Reject);
+        else context.Shell.Transcript.UpsertLive(entry.AsLive(), CommittedHistoryMutationPolicy.Reject);
     }
 }
 

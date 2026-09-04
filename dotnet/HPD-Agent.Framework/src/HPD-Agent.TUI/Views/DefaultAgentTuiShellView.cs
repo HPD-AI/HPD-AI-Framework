@@ -87,6 +87,10 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiFramePreparab
     }
 
     /// <inheritdoc />
+    public void ResetPresentation(long presentationEpoch, in RenderContext context)
+        => _transcript.ResetPresentation(presentationEpoch, in context);
+
+    /// <inheritdoc />
     public ScrollbackBatch? PrepareScrollback(in RenderContext context, int maxRows)
         => IsPageActive() ? null : _transcript.PrepareScrollback(in context, maxRows);
 

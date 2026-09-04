@@ -56,7 +56,8 @@ internal sealed class DebugExecutionCommandTuiHandler
                     IsActive: false,
                     IsError: isError),
                 Metadata: TranscriptEntryMetadata.FromEvent(evt),
-                VerticalSpacing: 1).AsFinal());
+                VerticalSpacing: 1).AsFinal(),
+            CommittedHistoryMutationPolicy.Reject);
     }
 
     private static string Display(DebugExecutionCommand command)

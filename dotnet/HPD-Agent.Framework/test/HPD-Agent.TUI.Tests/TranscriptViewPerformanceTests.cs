@@ -36,7 +36,7 @@ public sealed class TranscriptViewPerformanceTests
         var view = CreateView(model, height: 12);
         Render(view);
 
-        model.UpsertLive(Row(999, text: "updated visible row"));
+        model.UpsertLive(Row(999, text: "updated visible row"), CommittedHistoryMutationPolicy.Reject);
         Render(view);
 
         view.LastDiagnostics.RowsCaptured.Should().Be(1);
@@ -111,7 +111,7 @@ public sealed class TranscriptViewPerformanceTests
             registry);
         for (var i = 0; i < 100; i++)
         {
-            state.Shell.Transcript.UpsertLive(Row(i));
+            state.Shell.Transcript.UpsertLive(Row(i), CommittedHistoryMutationPolicy.Reject);
         }
 
         var sink = new RecordingSink();
@@ -145,7 +145,7 @@ public sealed class TranscriptViewPerformanceTests
         var model = new TranscriptModel();
         for (var i = 0; i < count; i++)
         {
-            model.UpsertLive(Row(i));
+            model.UpsertLive(Row(i), CommittedHistoryMutationPolicy.Reject);
         }
 
         return model;

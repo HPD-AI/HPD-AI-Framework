@@ -1311,9 +1311,9 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 MessageRole: document.Presentation.Role,
                 AdditionalProperties: document.AdditionalProperties));
         if (document.State == MarkdownMessageState.Streaming)
-            _state.Shell.Transcript.UpsertLive(entry);
+            _state.Shell.Transcript.UpsertLive(entry, CommittedHistoryMutationPolicy.Reject);
         else
-            _state.Shell.Transcript.FinalizeLive(entryKey, entry);
+            _state.Shell.Transcript.FinalizeLive(entryKey, entry, CommittedHistoryMutationPolicy.Reject);
     }
 
     private void PrepareMarkdownFrame(TerminalSize size, Theme theme)

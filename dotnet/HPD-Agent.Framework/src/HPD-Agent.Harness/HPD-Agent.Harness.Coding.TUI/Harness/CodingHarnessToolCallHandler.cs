@@ -106,11 +106,11 @@ internal sealed class CodingHarnessToolCallHandler : IAgentTuiEventHandler, IAge
 
         if (state.IsActive)
         {
-            context.Shell.Transcript.UpsertLive(entry);
+            context.Shell.Transcript.UpsertLive(entry, CommittedHistoryMutationPolicy.Reject);
             return;
         }
 
-        context.Shell.Transcript.FinalizeLive(EntryKey, entry);
+        context.Shell.Transcript.FinalizeLive(EntryKey, entry, CommittedHistoryMutationPolicy.Reject);
     }
 
     private static string SummarizeResult(ToolResultPayload result)

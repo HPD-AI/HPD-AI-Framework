@@ -106,7 +106,7 @@ public sealed class TranscriptViewTests
     {
         var model = new TranscriptModel();
         model.AddFinal(Row("final-user", "user", "already committed"));
-        model.UpsertLive(Row("live-assistant", "assistant:live", "still streaming"));
+        model.UpsertLive(Row("live-assistant", "assistant:live", "still streaming"), CommittedHistoryMutationPolicy.Reject);
 
         var view = CreateView(model, height: 6);
 
@@ -120,8 +120,8 @@ public sealed class TranscriptViewTests
     public void Render_UsesLatestLiveEntryVersion()
     {
         var model = new TranscriptModel();
-        model.UpsertLive(Row("assistant-1", "assistant:1", "first draft"));
-        model.UpsertLive(Row("assistant-2", "assistant:1", "second draft"));
+        model.UpsertLive(Row("assistant-1", "assistant:1", "first draft"), CommittedHistoryMutationPolicy.Reject);
+        model.UpsertLive(Row("assistant-2", "assistant:1", "second draft"), CommittedHistoryMutationPolicy.Reject);
 
         var view = CreateView(model, height: 6);
 
@@ -135,8 +135,8 @@ public sealed class TranscriptViewTests
     public void Render_FinalizedLiveEntryStaysInTailViewport()
     {
         var model = new TranscriptModel();
-        model.UpsertLive(Row("assistant-1", "assistant:1", "streaming"));
-        model.FinalizeLive("assistant:1", Row("assistant-1", "assistant:1", "done"));
+        model.UpsertLive(Row("assistant-1", "assistant:1", "streaming"), CommittedHistoryMutationPolicy.Reject);
+        model.FinalizeLive("assistant:1", Row("assistant-1", "assistant:1", "done"), CommittedHistoryMutationPolicy.Reject);
 
         var view = CreateView(model, height: 6);
 
@@ -177,7 +177,7 @@ public sealed class TranscriptViewTests
                 "run-123456789",
                 TranscriptRunState.Failed,
                 Duration: TimeSpan.FromSeconds(2.4)),
-            Metadata: new TranscriptEntryMetadata()));
+            Metadata: new TranscriptEntryMetadata()), CommittedHistoryMutationPolicy.Reject);
 
         var view = CreateView(model, height: 4);
 
@@ -202,7 +202,7 @@ public sealed class TranscriptViewTests
             Id: "run-run-123456789",
             EntryKey: "run:run-123456789",
             Cell: new RunStatusCell("run-123456789", TranscriptRunState.Completed),
-            Metadata: new TranscriptEntryMetadata()));
+            Metadata: new TranscriptEntryMetadata()), CommittedHistoryMutationPolicy.Reject);
 
         var view = new TranscriptView(model, registry.TranscriptRenderers, height: 4);
 
@@ -219,7 +219,7 @@ public sealed class TranscriptViewTests
             Id: "run-run-123456789",
             EntryKey: "run:run-123456789",
             Cell: new RunStatusCell("run-123456789", TranscriptRunState.Completed),
-            Metadata: new TranscriptEntryMetadata()));
+            Metadata: new TranscriptEntryMetadata()), CommittedHistoryMutationPolicy.Reject);
 
         var view = CreateView(model, height: 4);
 
@@ -236,7 +236,7 @@ public sealed class TranscriptViewTests
             Id: "unknown",
             EntryKey: "unknown:1",
             Cell: new UnknownTranscriptCell(),
-            Metadata: new TranscriptEntryMetadata()));
+            Metadata: new TranscriptEntryMetadata()), CommittedHistoryMutationPolicy.Reject);
 
         var view = CreateView(model, height: 4);
 
@@ -287,6 +287,29 @@ public sealed class TranscriptViewTests
         view.CommitScrollback(batch);
         model.CommittedCount.Should().Be(8);
         view.HandleInput(new KeyEvent(KeyCode.PageUp)).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Scrollback_ResizeReleasesPendingBatchAndReflowsTailInNewEpoch()
+    {
+        var model = new TranscriptModel { HistoryPresentation = TranscriptHistoryPresentation.TerminalScrollback };
+        model.AddFinal(Row("user-row", "row:key", "abcdefgh"));
+        var view = CreateView(model, height: 3);
+        var wide = new RenderContext(8, 3, Theme.Default);
+        var stale = view.PrepareScrollback(in wide, 64)!;
+
+        var narrow = new RenderContext(4, 3, Theme.Default);
+        view.ResetPresentation(9, in narrow);
+        var reflowed = view.PrepareScrollback(in narrow, 64)!;
+
+        reflowed.PresentationEpoch.Should().Be(9);
+        reflowed.FirstSequence.Should().Be(0);
+        reflowed.Rows.Should().HaveCountGreaterThan(stale.Rows.Count);
+        reflowed.Rows.SelectMany(row => row.Cells).Select(cell => cell.Grapheme)
+            .Should().Equal("›", " ", "a", "b", " ", " ", "c", "d",
+                " ", " ", "e", "f", " ", " ", "g", "h");
+        var commitStale = () => view.CommitScrollback(stale);
+        commitStale.Should().Throw<InvalidOperationException>();
     }
 
     [Fact]

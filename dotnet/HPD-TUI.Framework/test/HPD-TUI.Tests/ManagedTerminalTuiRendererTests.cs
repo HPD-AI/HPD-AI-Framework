@@ -554,6 +554,10 @@ public sealed class ManagedTerminalTuiRendererTests
         public int CommitCount { get; private set; }
         public int RollbackCount { get; private set; }
 
+        public void ResetPresentation(long presentationEpoch, in RenderContext context)
+        {
+        }
+
         public ScrollbackBatch? PrepareScrollback(in RenderContext context, int maxRows)
             => _committed ? null : _batch;
 

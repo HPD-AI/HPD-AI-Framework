@@ -81,6 +81,11 @@ public interface IScrollbackJournal
 /// <summary>Projects immutable application history into managed-terminal scrollback batches.</summary>
 public interface IScrollbackSource
 {
+    /// <summary>Starts a new terminal presentation epoch and releases any unaccepted batch.</summary>
+    /// <param name="presentationEpoch">The renderer epoch that subsequent batches must identify.</param>
+    /// <param name="context">The new physical viewport used to reflow the uncommitted tail.</param>
+    void ResetPresentation(long presentationEpoch, in RenderContext context);
+
     /// <summary>Prepares the next contiguous batch without advancing the source watermark.</summary>
     /// <param name="context">The current render context.</param>
     /// <param name="maxRows">The maximum number of rows to prepare.</param>

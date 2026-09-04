@@ -31,7 +31,7 @@ internal static class FileMutationTranscriptEntryFactory
     public static void Apply(AgentTuiEventContext context, FileMutationTranscriptModel model, AgentEvent evt)
     {
         var entry = Create(model, evt).AsFinal();
-        context.Shell.Transcript.FinalizeLive(model.EntryKey, entry);
+        context.Shell.Transcript.FinalizeLive(model.EntryKey, entry, CommittedHistoryMutationPolicy.Reject);
     }
 
     public static TranscriptEntry CreateStandaloneDiagnostics(LanguageServerDiagnosticsReceivedEvent diagnostics)
@@ -49,7 +49,7 @@ internal static class FileMutationTranscriptEntryFactory
         LanguageServerDiagnosticsReceivedEvent diagnostics)
     {
         var entry = CreateStandaloneDiagnostics(diagnostics).AsFinal();
-        context.Shell.Transcript.FinalizeLive(entry.EntryKey!, entry);
+        context.Shell.Transcript.FinalizeLive(entry.EntryKey!, entry, CommittedHistoryMutationPolicy.Reject);
     }
 
     public static FileMutationCell CreateCell(FileMutationTranscriptModel model)

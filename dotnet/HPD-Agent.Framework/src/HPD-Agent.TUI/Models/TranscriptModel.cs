@@ -1,5 +1,38 @@
 namespace HPD.Agent.TUI.Models;
 
+/// <summary>Controls a transcript mutation that may target terminal-visible committed history.</summary>
+public enum CommittedHistoryMutationPolicy
+{
+    /// <summary>Leave both the model and terminal history unchanged.</summary>
+    Reject,
+    /// <summary>Apply the model mutation and require a visible presentation-epoch boundary.</summary>
+    VisibleEpochBoundary,
+    /// <summary>Apply the model mutation and require terminal scrollback clearing plus durable replay.</summary>
+    ClearAndReplay,
+    /// <summary>Apply the model mutation and require transition to the alternate screen.</summary>
+    SwitchToAlternateScreen
+}
+
+/// <summary>Identifies whether a transcript mutation was applied and requires terminal recovery.</summary>
+public enum TranscriptMutationStatus
+{
+    /// <summary>The mutation affected only retractable model state.</summary>
+    Applied,
+    /// <summary>The mutation was rejected because terminal-visible history cannot be retracted.</summary>
+    CannotRetract,
+    /// <summary>The mutation was applied and the selected terminal recovery policy must run.</summary>
+    RequiresPresentationReset
+}
+
+/// <summary>Reports a transcript mutation without hiding committed-history consequences.</summary>
+/// <param name="Status">The mutation disposition.</param>
+/// <param name="AffectedCount">The number of entries added, removed, replaced, or finalized.</param>
+/// <param name="RecoveryPolicy">The selected recovery policy when a reset is required.</param>
+public readonly record struct TranscriptMutationResult(
+    TranscriptMutationStatus Status,
+    int AffectedCount,
+    CommittedHistoryMutationPolicy RecoveryPolicy = CommittedHistoryMutationPolicy.Reject);
+
 /// <summary>Owns the current immutable transcript sequence and its live-entry index.</summary>
 public sealed class TranscriptModel
 {
@@ -104,7 +137,9 @@ public sealed class TranscriptModel
         }
     }
 
-    public void UpsertLive(TranscriptEntry entry)
+    /// <summary>Adds or updates a keyed live entry under an explicit committed-history policy.</summary>
+    /// <returns>The mutation disposition and required presentation recovery.</returns>
+    public TranscriptMutationResult UpsertLive(TranscriptEntry entry, CommittedHistoryMutationPolicy committedHistoryPolicy)
     {
         ArgumentNullException.ThrowIfNull(entry);
         if (entry.EntryKey is null)
@@ -116,18 +151,23 @@ public sealed class TranscriptModel
         {
             if (_entryKeys.TryGetValue(entry.EntryKey, out var index))
             {
-                ThrowIfCommitted(index);
+                if (index < _committedCount && committedHistoryPolicy == CommittedHistoryMutationPolicy.Reject)
+                    return CannotRetract();
                 _entries = _entries.Replace(index, entry.AsLive());
+                var reset = ResetCommittedHistoryIfNeeded(index < _committedCount, committedHistoryPolicy);
                 MarkChanged();
-                return;
+                return reset;
             }
 
             AddEntry(entry.AsLive());
             MarkChanged();
+            return Applied();
         }
     }
 
-    public void FinalizeLive(string entryKey, TranscriptEntry finalEntry)
+    /// <summary>Finalizes or appends a keyed entry under an explicit committed-history policy.</summary>
+    /// <returns>The mutation disposition and required presentation recovery.</returns>
+    public TranscriptMutationResult FinalizeLive(string entryKey, TranscriptEntry finalEntry, CommittedHistoryMutationPolicy committedHistoryPolicy)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(entryKey);
         ArgumentNullException.ThrowIfNull(finalEntry);
@@ -137,14 +177,17 @@ public sealed class TranscriptModel
             var committed = finalEntry with { EntryKey = entryKey };
             if (_entryKeys.TryGetValue(entryKey, out var index))
             {
-                ThrowIfCommitted(index);
+                if (index < _committedCount && committedHistoryPolicy == CommittedHistoryMutationPolicy.Reject)
+                    return CannotRetract();
                 _entries = _entries.Replace(index, committed.AsFinal());
+                var reset = ResetCommittedHistoryIfNeeded(index < _committedCount, committedHistoryPolicy);
                 MarkChanged();
-                return;
+                return reset;
             }
 
             AddEntry(committed.AsFinal());
             MarkChanged();
+            return Applied();
         }
     }
 
@@ -193,28 +236,36 @@ public sealed class TranscriptModel
         }
     }
 
-    public int RemoveWhere(Func<TranscriptEntry, bool> predicate)
+    /// <summary>Removes matching entries under an explicit committed-history policy.</summary>
+    /// <returns>The mutation disposition and number of removed entries.</returns>
+    public TranscriptMutationResult RemoveWhere(Func<TranscriptEntry, bool> predicate, CommittedHistoryMutationPolicy committedHistoryPolicy)
     {
         ArgumentNullException.ThrowIfNull(predicate);
 
         lock (_gate)
         {
+            var touchesCommitted = false;
             for (var index = 0; index < _committedCount; index++)
             {
                 if (predicate(_entries[index]))
-                    throw new InvalidOperationException("Committed terminal scrollback entries cannot be removed.");
+                {
+                    touchesCommitted = true;
+                    if (committedHistoryPolicy == CommittedHistoryMutationPolicy.Reject)
+                        return CannotRetract();
+                }
             }
             var retained = _entries.Where(entry => !predicate(entry)).ToArray();
             var removed = _entries.Count - retained.Length;
             if (removed == 0)
             {
-                return 0;
+                return Applied(0);
             }
 
             _entries = TranscriptSequence.Create(retained);
             RebuildEntryKeyIndex();
+            var reset = ResetCommittedHistoryIfNeeded(touchesCommitted, committedHistoryPolicy, removed);
             MarkChanged();
-            return removed;
+            return reset;
         }
     }
 
@@ -222,9 +273,11 @@ public sealed class TranscriptModel
     /// Replaces every matching entry with one finalized entry at the position of the first match.
     /// If nothing matches, the replacement is appended.
     /// </summary>
-    public int ReplaceWhereWith(
+    /// <returns>The mutation disposition and number of affected entries.</returns>
+    public TranscriptMutationResult ReplaceWhereWith(
         Func<TranscriptEntry, bool> predicate,
-        TranscriptEntry replacement)
+        TranscriptEntry replacement,
+        CommittedHistoryMutationPolicy committedHistoryPolicy)
     {
         ArgumentNullException.ThrowIfNull(predicate);
         ArgumentNullException.ThrowIfNull(replacement);
@@ -233,29 +286,36 @@ public sealed class TranscriptModel
         {
             var current = _entries.ToArray();
             var first = Array.FindIndex(current, entry => predicate(entry));
-            if (first >= 0 && first < _committedCount)
-                throw new InvalidOperationException("Committed terminal scrollback entries cannot be replaced.");
+            var touchesCommitted = first >= 0 && first < _committedCount;
+            if (touchesCommitted && committedHistoryPolicy == CommittedHistoryMutationPolicy.Reject)
+                return CannotRetract();
             var retained = current.Where(entry => !predicate(entry)).ToList();
             var removed = current.Length - retained.Count;
             retained.Insert(first < 0 ? retained.Count : Math.Min(first, retained.Count), replacement.AsFinal());
             _entries = TranscriptSequence.Create(retained);
             RebuildEntryKeyIndex();
+            var reset = ResetCommittedHistoryIfNeeded(touchesCommitted, committedHistoryPolicy, Math.Max(1, removed));
             MarkChanged();
-            return removed;
+            return reset;
         }
     }
 
-    public void ClearAll()
+    /// <summary>Clears the transcript under an explicit committed-history policy.</summary>
+    /// <returns>The mutation disposition and number of cleared entries.</returns>
+    public TranscriptMutationResult ClearAll(CommittedHistoryMutationPolicy committedHistoryPolicy)
     {
         lock (_gate)
         {
-            if (_committedCount != 0)
-                throw new InvalidOperationException("Committed terminal scrollback cannot be cleared in the current presentation epoch.");
+            if (_committedCount != 0 && committedHistoryPolicy == CommittedHistoryMutationPolicy.Reject)
+                return CannotRetract();
+            var count = _entries.Count;
+            var hadCommitted = _committedCount != 0;
             _entries = TranscriptSequence.Empty;
             _entryKeys.Clear();
             _committedCount = 0;
             _historyEpoch++;
             MarkChanged();
+            return hadCommitted ? RequiresReset(count, committedHistoryPolicy) : Applied(count);
         }
     }
 
@@ -266,20 +326,23 @@ public sealed class TranscriptModel
     /// This is the boundary primitive for checkpoints that supersede every entry
     /// rendered before them, independent of the event or cell types involved.
     /// </remarks>
-    public void ReplaceHistoryWith(TranscriptEntry replacement)
+    /// <returns>The mutation disposition and required presentation recovery.</returns>
+    public TranscriptMutationResult ReplaceHistoryWith(TranscriptEntry replacement, CommittedHistoryMutationPolicy committedHistoryPolicy)
     {
         ArgumentNullException.ThrowIfNull(replacement);
 
         lock (_gate)
         {
-            if (_committedCount != 0)
-                throw new InvalidOperationException("Committed terminal scrollback cannot be replaced in the current presentation epoch.");
+            if (_committedCount != 0 && committedHistoryPolicy == CommittedHistoryMutationPolicy.Reject)
+                return CannotRetract();
+            var hadCommitted = _committedCount != 0;
             _entries = TranscriptSequence.Empty;
             _entryKeys.Clear();
             _committedCount = 0;
             AddEntry(replacement.AsFinal());
             _historyEpoch++;
             MarkChanged();
+            return hadCommitted ? RequiresReset(1, committedHistoryPolicy) : Applied();
         }
     }
 
@@ -349,6 +412,26 @@ public sealed class TranscriptModel
             _entryKeys[entry.EntryKey] = _entries.Count - 1;
         }
     }
+
+    private TranscriptMutationResult ResetCommittedHistoryIfNeeded(
+        bool touchesCommitted,
+        CommittedHistoryMutationPolicy policy,
+        int affectedCount = 1)
+    {
+        if (!touchesCommitted) return Applied(affectedCount);
+        _committedCount = 0;
+        _historyEpoch++;
+        return RequiresReset(affectedCount, policy);
+    }
+
+    private static TranscriptMutationResult Applied(int count = 1)
+        => new(TranscriptMutationStatus.Applied, count);
+
+    private static TranscriptMutationResult CannotRetract()
+        => new(TranscriptMutationStatus.CannotRetract, 0);
+
+    private static TranscriptMutationResult RequiresReset(int count, CommittedHistoryMutationPolicy policy)
+        => new(TranscriptMutationStatus.RequiresPresentationReset, count, policy);
 
     private void RebuildEntryKeyIndex()
     {

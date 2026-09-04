@@ -230,9 +230,16 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
             finally { _dispatcherDepth.Value--; }
             _surface = null;
             _mailbox = null;
-            _renderer.Shutdown();
+            var shutdown = _renderer.Shutdown();
+            while (shutdown.Status == TerminalWriteStatus.Backpressured)
+            {
+                await _renderer.WaitUntilWritableAsync(CancellationToken.None).ConfigureAwait(false);
+                shutdown = _renderer.Shutdown();
+            }
             await loopCts.CancelAsync().ConfigureAwait(false);
             await inputPump.ConfigureAwait(false);
+            if (shutdown.Status == TerminalWriteStatus.Failed)
+                throw new InvalidOperationException("Managed terminal shutdown failed; terminal state is uncertain.", shutdown.Error);
         }
     }
 
@@ -247,6 +254,8 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
 
         var size = _terminal.GetSize();
         var context = new RenderContext(size.Width, size.Height, _theme);
+        if (_renderer.SynchronizePresentation(size) is { } epoch)
+            ScrollbackSource?.ResetPresentation(epoch, in context);
         var batch = ScrollbackSource?.PrepareScrollback(in context, Math.Max(size.Height * 4, 64));
         try
         {
@@ -317,6 +326,12 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
     public TuiSchedulingDiagnostics GetSchedulingDiagnostics() => new(
         _renderRequestsReceived, _renderRequestsCoalesced, _framesAdmitted,
         _framesDeferredByPacing, _framesDeferredByBackpressure);
+
+    /// <summary>Applies the selected terminal policy after a model mutation reports committed-history impact.</summary>
+    /// <param name="policy">The explicit recovery policy selected for terminal-visible history.</param>
+    /// <returns>The structured publication outcome.</returns>
+    public ManagedHistoryRebaseResult RebaseCommittedHistory(ManagedTerminalRecoveryPolicy policy)
+        => _renderer.RebaseCommittedHistory(policy);
 
     /// <inheritdoc />
     public bool CheckAccess() => _dispatcherDepth.Value > 0;

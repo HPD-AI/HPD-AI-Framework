@@ -12,11 +12,11 @@ public sealed class TranscriptModelTests
     {
         var model = new TranscriptModel();
         model.AddFinal(Row("1", null, "first"));
-        model.UpsertLive(Row("2", "live:2", "running"));
+        model.UpsertLive(Row("2", "live:2", "running"), CommittedHistoryMutationPolicy.Reject);
         var before = model.Snapshot();
 
         model.AddFinal(Row("3", null, "third"));
-        model.UpsertLive(Row("4", "live:2", "updated"));
+        model.UpsertLive(Row("4", "live:2", "updated"), CommittedHistoryMutationPolicy.Reject);
         var after = model.Snapshot();
 
         before.Entries.Select(static entry => entry.Id).Should().Equal("1", "2");
@@ -50,9 +50,9 @@ public sealed class TranscriptModelTests
     public void UpsertLive_ReplacesExistingKeyedLiveEntry()
     {
         var model = new TranscriptModel();
-        model.UpsertLive(Row("1", "tool:1", "running"));
+        model.UpsertLive(Row("1", "tool:1", "running"), CommittedHistoryMutationPolicy.Reject);
 
-        model.UpsertLive(Row("2", "tool:1", "still running"));
+        model.UpsertLive(Row("2", "tool:1", "still running"), CommittedHistoryMutationPolicy.Reject);
 
         var rows = model.Snapshot().Entries;
         rows.Should().ContainSingle();
@@ -66,9 +66,9 @@ public sealed class TranscriptModelTests
     public void FinalizeLive_ReplacesLiveEntryWithFinalEntry()
     {
         var model = new TranscriptModel();
-        model.UpsertLive(Row("1", "tool:1", "running"));
+        model.UpsertLive(Row("1", "tool:1", "running"), CommittedHistoryMutationPolicy.Reject);
 
-        model.FinalizeLive("tool:1", Row("2", "tool:1", "completed"));
+        model.FinalizeLive("tool:1", Row("2", "tool:1", "completed"), CommittedHistoryMutationPolicy.Reject);
 
         var rows = model.Snapshot().Entries;
         rows.Should().ContainSingle();
@@ -84,7 +84,7 @@ public sealed class TranscriptModelTests
         model.AddFinal(Row("1", null, "first"));
         var before = model.HistoryEpoch;
 
-        model.ClearAll();
+        model.ClearAll(CommittedHistoryMutationPolicy.Reject);
 
         model.Snapshot().Entries.Should().BeEmpty();
         model.HistoryEpoch.Should().Be(before + 1);
@@ -95,11 +95,11 @@ public sealed class TranscriptModelTests
     {
         var model = new TranscriptModel();
         model.AddFinal(Row("1", null, "message"));
-        model.UpsertLive(Row("2", "custom:live", "custom extension"));
+        model.UpsertLive(Row("2", "custom:live", "custom extension"), CommittedHistoryMutationPolicy.Reject);
         var beforeEpoch = model.HistoryEpoch;
         var beforeVersion = model.Version;
 
-        model.ReplaceHistoryWith(Row("checkpoint", "compaction:1", "compacted"));
+        model.ReplaceHistoryWith(Row("checkpoint", "compaction:1", "compacted"), CommittedHistoryMutationPolicy.Reject);
 
         var replacement = model.Snapshot().Entries.Should().ContainSingle().Subject;
         replacement.Id.Should().Be("checkpoint");
@@ -118,7 +118,7 @@ public sealed class TranscriptModelTests
         {
             model.AddFinal(Row("1", null, "first"));
             model.AddFinal(Row("2", null, "second"));
-            model.UpsertLive(Row("3", "live:3", "third"));
+            model.UpsertLive(Row("3", "live:3", "third"), CommittedHistoryMutationPolicy.Reject);
 
             model.Version.Should().Be(0);
         }
@@ -132,14 +132,16 @@ public sealed class TranscriptModelTests
     {
         var model = new TranscriptModel();
         model.AddFinal(Row("1", "row:1", "first"));
-        model.UpsertLive(Row("2", "row:2", "live"));
+        model.UpsertLive(Row("2", "row:2", "live"), CommittedHistoryMutationPolicy.Reject);
 
         model.CommitPrefix(0, 1);
 
         model.CommittedCount.Should().Be(1);
         model.Snapshot().CommittedCount.Should().Be(1);
-        var mutate = () => model.UpsertLive(Row("replacement", "row:1", "changed"));
-        mutate.Should().Throw<InvalidOperationException>();
+        var mutate = model.UpsertLive(
+            Row("replacement", "row:1", "changed"),
+            CommittedHistoryMutationPolicy.Reject);
+        mutate.Status.Should().Be(TranscriptMutationStatus.CannotRetract);
     }
 
     [Fact]
@@ -147,7 +149,7 @@ public sealed class TranscriptModelTests
     {
         var model = new TranscriptModel();
         model.AddFinal(Row("1", null, "first"));
-        model.UpsertLive(Row("2", "row:2", "live"));
+        model.UpsertLive(Row("2", "row:2", "live"), CommittedHistoryMutationPolicy.Reject);
 
         var noncontiguous = () => model.CommitPrefix(1, 1);
         var includesLive = () => model.CommitPrefix(0, 2);

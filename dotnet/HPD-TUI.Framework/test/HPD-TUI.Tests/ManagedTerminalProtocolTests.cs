@@ -58,7 +58,7 @@ public sealed class ManagedTerminalProtocolTests
     }
 
     [Fact]
-    public void Resize_StartsNewPresentationEpoch()
+    public void Resize_StartsNewPresentationEpochBeforeReflowedHistoryIsPrepared()
     {
         using var terminal = new ResizableProtocolTerminal();
         using var renderer = new ManagedTerminalTuiRenderer(terminal);
@@ -66,8 +66,41 @@ public sealed class ManagedTerminalProtocolTests
 
         terminal.Size = new(60, 10);
 
-        Assert.Throws<InvalidOperationException>(() => renderer.Render(new Text("live"), scrollback: Batch(4, 1)));
+        Assert.Equal(5, renderer.SynchronizePresentation(terminal.Size));
+        renderer.Render(new Text("live"), scrollback: Batch(5, 0));
         Assert.Equal(5, renderer.PresentationEpoch);
+    }
+
+    [Fact]
+    public void Shutdown_BackpressureDoesNotCloseRendererAndRetryPublishesByteExactCleanup()
+    {
+        using var terminal = new ProtocolTerminal();
+        var transport = new ShutdownScriptTransport(TerminalWriteStatus.Backpressured, TerminalWriteStatus.Written);
+        var renderer = new ManagedTerminalTuiRenderer(terminal, transport);
+
+        var first = renderer.Shutdown();
+        var second = renderer.Shutdown();
+
+        Assert.Equal(TerminalWriteStatus.Backpressured, first.Status);
+        Assert.Equal(TerminalWriteStatus.Written, second.Status);
+        Assert.Equal(["\x1b[?7h\x1b[?25h", "\x1b[?7h\x1b[?25h"], transport.Payloads);
+        renderer.Dispose();
+    }
+
+    [Fact]
+    public void Shutdown_FailurePropagatesAndDisposeRefusesToReleaseUncertainLifetime()
+    {
+        using var terminal = new ProtocolTerminal();
+        var error = new IOException("partial cleanup");
+        var transport = new ShutdownScriptTransport(new TerminalWriteResult(TerminalWriteStatus.Failed, error));
+        var renderer = new ManagedTerminalTuiRenderer(terminal, transport);
+
+        var result = renderer.Shutdown();
+
+        Assert.Equal(TerminalWriteStatus.Failed, result.Status);
+        Assert.Same(error, result.Error);
+        var thrown = Assert.Throws<InvalidOperationException>(() => renderer.Dispose());
+        Assert.Same(error, thrown.InnerException);
     }
 
     [Fact]
@@ -94,15 +127,17 @@ public sealed class ManagedTerminalProtocolTests
         renderer.Render(new Text("live"));
         terminal.Clear();
 
-        renderer.RebaseCommittedHistory(ManagedTerminalRecoveryPolicy.VisibleEpochBoundary);
+        Assert.Equal(ManagedHistoryRebaseStatus.Written,
+            renderer.RebaseCommittedHistory(ManagedTerminalRecoveryPolicy.VisibleEpochBoundary).Status);
         Assert.Contains("new presentation epoch", terminal.Output);
 
         terminal.Clear();
-        renderer.RebaseCommittedHistory(ManagedTerminalRecoveryPolicy.SwitchToAlternateScreen);
+        Assert.Equal(ManagedHistoryRebaseStatus.Written,
+            renderer.RebaseCommittedHistory(ManagedTerminalRecoveryPolicy.SwitchToAlternateScreen).Status);
         Assert.Contains("\x1b[?1049h", terminal.Output);
 
-        Assert.Throws<InvalidOperationException>(() =>
-            renderer.RebaseCommittedHistory(ManagedTerminalRecoveryPolicy.Abort));
+        Assert.Equal(ManagedHistoryRebaseStatus.Aborted,
+            renderer.RebaseCommittedHistory(ManagedTerminalRecoveryPolicy.Abort).Status);
     }
 
     [Fact]
@@ -235,6 +270,23 @@ public sealed class ManagedTerminalProtocolTests
             return ValueTask.FromResult(TerminalWriteResult.Written);
         }
 
+        public ValueTask WaitUntilWritableAsync(CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+    }
+
+    private sealed class ShutdownScriptTransport : ITerminalOutputTransport
+    {
+        private readonly Queue<TerminalWriteResult> _results;
+        private TerminalWriteResult _last;
+        public ShutdownScriptTransport(params TerminalWriteStatus[] statuses)
+            => _results = new(statuses.Select(status => new TerminalWriteResult(status)));
+        public ShutdownScriptTransport(TerminalWriteResult result) => _results = new([result]);
+        public List<string> Payloads { get; } = [];
+        public ValueTask<TerminalWriteResult> TryWriteFrameAsync(TerminalFrameLease frame, CancellationToken cancellationToken = default)
+        {
+            Payloads.Add(frame.Payload.ToString());
+            if (_results.Count > 0) _last = _results.Dequeue();
+            return ValueTask.FromResult(_last);
+        }
         public ValueTask WaitUntilWritableAsync(CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
     }
 }

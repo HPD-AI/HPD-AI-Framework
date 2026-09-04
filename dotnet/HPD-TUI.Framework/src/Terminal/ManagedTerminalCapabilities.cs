@@ -72,3 +72,25 @@ public enum ManagedTerminalRecoveryPolicy
     /// <summary>Refuse further output and terminate the managed presentation.</summary>
     Abort
 }
+
+/// <summary>Identifies the outcome of an explicit committed-history rebase.</summary>
+public enum ManagedHistoryRebaseStatus
+{
+    /// <summary>The recovery payload was completely accepted.</summary>
+    Written,
+    /// <summary>No recovery bytes were accepted and the caller may retry after writability.</summary>
+    Backpressured,
+    /// <summary>Recovery failed and terminal state remains uncertain.</summary>
+    Failed,
+    /// <summary>The selected policy deliberately aborted managed presentation.</summary>
+    Aborted
+}
+
+/// <summary>Reports the explicit terminal consequence of a committed-history mutation.</summary>
+/// <param name="Status">The recovery disposition.</param>
+/// <param name="PresentationEpoch">The active epoch after the attempt.</param>
+/// <param name="Error">The recovery error, when unsuccessful.</param>
+public readonly record struct ManagedHistoryRebaseResult(
+    ManagedHistoryRebaseStatus Status,
+    long PresentationEpoch,
+    Exception? Error = null);
