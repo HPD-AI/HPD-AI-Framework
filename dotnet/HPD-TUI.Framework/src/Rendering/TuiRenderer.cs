@@ -68,8 +68,11 @@ public sealed class TuiRenderer : IDisposable
         var context = new RenderContext(size.Width, size.Height, theme ?? Theme.Default, elapsed: _clock.Elapsed);
         var displayStart = sink is null ? 0 : Stopwatch.GetTimestamp();
         bool cacheHit;
-        using (TuiInstrumentationContext.Enter(frameInstrumentation, PerformanceCounters))
+        if (frameInstrumentation is null && PerformanceCounters is null)
             cacheHit = _displayList.Prepare(root, in context, size.Width);
+        else
+            using (TuiInstrumentationContext.Enter(frameInstrumentation, PerformanceCounters))
+                cacheHit = _displayList.Prepare(root, in context, size.Width);
         var displayDuration = sink is null ? TimeSpan.Zero : Stopwatch.GetElapsedTime(displayStart);
         if (cacheHit && _hasPreviousFrame && _terminalCertain)
         {

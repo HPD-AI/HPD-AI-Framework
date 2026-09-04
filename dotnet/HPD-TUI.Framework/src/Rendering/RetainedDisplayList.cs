@@ -614,6 +614,10 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
         }
         EnsurePooled(ref _candidateMarks, Math.Max(1, _operations.Count));
         EnsurePooled(ref _candidates, Math.Max(1, _operations.Count));
+        // ArrayPool contents are undefined. Reset stamps whenever the index generation is rebuilt;
+        // otherwise a stale value equal to the next epoch can incorrectly suppress a candidate.
+        Array.Clear(_candidateMarks, 0, _operations.Count);
+        _candidateEpoch = 0;
     }
 
     private int CollectDamagedOperations()

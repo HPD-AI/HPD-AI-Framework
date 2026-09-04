@@ -212,7 +212,7 @@ public sealed class ComponentRevisionTests
     }
 
     [Fact]
-    public void DescendantLayoutInvalidation_StopsAfterAdvancingNearestLayoutRoot()
+    public void DescendantLayoutInvalidation_AdvancesEveryAncestorRetainedStamp()
     {
         var leaf = new MeasuredComponent();
         var middle = new Container();
@@ -226,7 +226,7 @@ public sealed class ComponentRevisionTests
 
         leaf.ChangeLayout();
 
-        Assert.Equal(rootRevision, root.LayoutRevision);
+        Assert.NotEqual(rootRevision, root.LayoutRevision);
         Assert.NotEqual(middleRevision, middle.LayoutRevision);
     }
 
