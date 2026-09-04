@@ -89,7 +89,7 @@ internal static class AnsiGridRenderer
         }
     }
 
-    public static void WriteDifferential(ScreenBuffer previous, ScreenBuffer current, AnsiFrameWriter output)
+    public static ScreenDiffMetrics WriteDifferential(ScreenBuffer previous, ScreenBuffer current, AnsiFrameWriter output)
     {
         ArgumentNullException.ThrowIfNull(previous);
         ArgumentNullException.ThrowIfNull(current);
@@ -98,15 +98,25 @@ internal static class AnsiGridRenderer
         if (previous.Width != current.Width || previous.Height != current.Height)
         {
             WriteFull(current.Grid, output);
-            return;
+            return new(current.Height, 0, 0, current.Height, current.Width * current.Height);
         }
 
         Style? activeStyle = null;
         Span<char> styleBuffer = stackalloc char[64];
+        var rejectedRows = 0;
+        var comparedRows = 0;
+        var changedRows = 0;
+        var changedRuns = 0;
+        var changedCells = 0;
         for (var row = 0; row < current.Height; row++)
         {
+            comparedRows++;
             if (current.RowEquals(previous, row))
+            {
+                rejectedRows++;
                 continue;
+            }
+            changedRows++;
 
             var column = 0;
             while (column < current.Width)
@@ -119,6 +129,8 @@ internal static class AnsiGridRenderer
 
                 var start = FindLeadingColumn(previous.Grid, current.Grid, column, row);
                 var end = ExpandChangedRun(previous.Grid, current.Grid, start, row);
+                changedRuns++;
+                changedCells += end - start;
                 WriteCursorMove(start, row, output);
                 TerminalHyperlink? activeHyperlink = null;
                 for (var x = start; x < end; x++)
@@ -137,6 +149,7 @@ internal static class AnsiGridRenderer
 
         if (activeStyle is not null)
             output.Write(ResetSequence);
+        return new(changedRows, rejectedRows, comparedRows, changedRuns, changedCells);
     }
 
     private static int FindLeadingColumn(TerminalGrid previous, TerminalGrid current, int column, int row)
@@ -291,3 +304,10 @@ internal static class AnsiGridRenderer
         current = next;
     }
 }
+
+internal readonly record struct ScreenDiffMetrics(
+    int RowsChanged,
+    int RowsFingerprintRejected,
+    int RowsSemanticallyCompared,
+    int ChangedRuns,
+    int CellsChanged);
