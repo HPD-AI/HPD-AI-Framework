@@ -9,6 +9,15 @@ internal sealed class ManagedScrollbackJournal(
     private bool _hasWatermark;
     private bool _commitActive;
 
+    public void StartEpoch(long epoch)
+    {
+        if (_commitActive) throw new InvalidOperationException("A presentation epoch cannot change during a scrollback commit.");
+        if (epoch <= _epoch) throw new ArgumentOutOfRangeException(nameof(epoch), "Presentation epochs must increase monotonically.");
+        _epoch = epoch;
+        _watermark = 0;
+        _hasWatermark = false;
+    }
+
     public async ValueTask<ScrollbackCommitResult> CommitAsync(
         ScrollbackBatchLease lease,
         ScrollbackCommitOptions options,
@@ -17,6 +26,8 @@ internal sealed class ManagedScrollbackJournal(
         ArgumentNullException.ThrowIfNull(lease);
         if (_commitActive) throw new InvalidOperationException("Only one scrollback commit may be active.");
         var batch = lease.Batch;
+        if (_epoch != long.MinValue && batch.PresentationEpoch != _epoch)
+            throw new InvalidOperationException("The scrollback batch belongs to a stale presentation epoch.");
         if (batch.Rows.Count == 0)
             return new(ScrollbackCommitStatus.Written, _hasWatermark ? _watermark : batch.FirstSequence);
 

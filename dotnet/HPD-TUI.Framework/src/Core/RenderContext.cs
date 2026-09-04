@@ -60,8 +60,12 @@ public enum TerminalCapabilities
     SynchronizedOutput = 1 << 1,
     /// <summary>OSC 8 hyperlinks are available.</summary>
     Hyperlinks = 1 << 2,
+    /// <summary>Erase-in-line is available.</summary>
+    EraseInLine = 1 << 3,
+    /// <summary>Automatic wrapping can be disabled and restored.</summary>
+    ControllableAutowrap = 1 << 4,
     /// <summary>The terminal supports all capabilities known by this framework version.</summary>
-    All = AbsoluteCursorAddressing | SynchronizedOutput | Hyperlinks
+    All = AbsoluteCursorAddressing | SynchronizedOutput | Hyperlinks | EraseInLine | ControllableAutowrap
 }
 
 /// <summary>Identifies a terminal color encoding level.</summary>

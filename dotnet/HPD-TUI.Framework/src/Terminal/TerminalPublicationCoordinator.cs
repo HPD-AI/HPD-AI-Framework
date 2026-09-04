@@ -4,7 +4,9 @@ namespace HPD.TUI.Terminal;
 internal sealed class TerminalPublicationCoordinator
 {
     private readonly ITerminalOutputTransport _transport;
-    private int _publishing;
+    private readonly object _publicationGate = new();
+    private ulong _nextPublicationTicket;
+    private ulong _servingPublicationTicket;
     private int _waiting;
 
     public TerminalPublicationCoordinator(ITerminalOutputTransport transport)
@@ -12,10 +14,21 @@ internal sealed class TerminalPublicationCoordinator
 
     public TerminalWriteResult TryPublish(ReadOnlySpan<char> payload, CancellationToken cancellationToken = default)
     {
-        if (Interlocked.CompareExchange(ref _publishing, 1, 0) != 0)
-            throw new InvalidOperationException("Only one terminal payload publication may be active.");
+        var cancelledWhileQueued = false;
+        ulong ticket;
+        lock (_publicationGate)
+        {
+            ticket = _nextPublicationTicket++;
+            while (ticket != _servingPublicationTicket)
+            {
+                Monitor.Wait(_publicationGate, 50);
+                cancelledWhileQueued |= cancellationToken.IsCancellationRequested;
+            }
+        }
         try
         {
+            if (cancelledWhileQueued || cancellationToken.IsCancellationRequested)
+                return new TerminalWriteResult(TerminalWriteStatus.Failed, new OperationCanceledException(cancellationToken));
             if (_transport is ISynchronousTerminalOutputTransport synchronous)
                 return synchronous.TryWrite(payload, cancellationToken);
             using var lease = new TerminalFrameLease(payload);
@@ -31,7 +44,11 @@ internal sealed class TerminalPublicationCoordinator
         }
         finally
         {
-            Volatile.Write(ref _publishing, 0);
+            lock (_publicationGate)
+            {
+                _servingPublicationTicket++;
+                Monitor.PulseAll(_publicationGate);
+            }
         }
     }
 

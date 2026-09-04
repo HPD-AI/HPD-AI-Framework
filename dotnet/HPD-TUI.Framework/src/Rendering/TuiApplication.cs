@@ -22,6 +22,13 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
     private bool _disposed;
     private int _eventLoopThreadId;
     private bool _urgentRender;
+    private bool _dropIntermediateVisualStates;
+    private int _owedVisualStates;
+    private long _renderRequestsReceived;
+    private long _renderRequestsCoalesced;
+    private long _framesAdmitted;
+    private long _framesDeferredByPacing;
+    private long _framesDeferredByBackpressure;
 
     public TuiApplication(ITerminal terminal)
         : this(terminal, new SynchronousTerminalOutputTransport(terminal))
@@ -94,6 +101,8 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         options ??= new TuiRunOptions();
+        _dropIntermediateVisualStates = options.FramePolicy.DropIntermediateVisualStates;
+        _owedVisualStates = options.RenderOnStart ? 1 : 0;
 
         await PublishControlWithBackpressureAsync(EnterAlternateScreen, cancellationToken).ConfigureAwait(false);
         _terminal.HideCursor();
@@ -109,7 +118,7 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
 
         try
         {
-            var dirty = options.RenderOnStart;
+            var dirty = _owedVisualStates > 0;
             var nextFrame = DateTimeOffset.MinValue;
             while (!loopCts.IsCancellationRequested && !_stopRequested)
             {
@@ -117,16 +126,22 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
                 if (dirty)
                 {
                     if (!(options.FramePolicy.RenderImmediatelyOnInput && _urgentRender) && DateTimeOffset.UtcNow < nextFrame)
+                    {
+                        _framesDeferredByPacing++;
                         await Task.Delay(nextFrame - DateTimeOffset.UtcNow, loopCts.Token).ConfigureAwait(false);
+                    }
                     try
                     {
                         Render();
-                        dirty = false;
+                        _framesAdmitted++;
+                        if (_owedVisualStates > 0) _owedVisualStates--;
+                        dirty = _owedVisualStates > 0;
                         _urgentRender = false;
                         nextFrame = DateTimeOffset.UtcNow + options.FramePolicy.MinimumFrameInterval;
                     }
                     catch (TerminalBackpressureException)
                     {
+                        _framesDeferredByBackpressure++;
                         dirty = await WaitForWritableWhileDrainingAsync(mailbox, loopCts.Token).ConfigureAwait(false);
                     }
                     if (dirty)
@@ -218,6 +233,18 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
     {
         _mailbox?.TryWrite(new TuiLoopEvent(TuiLoopEventKind.RenderRequested));
     }
+
+    private void OweVisualState()
+    {
+        _renderRequestsReceived++;
+        if (_dropIntermediateVisualStates && _owedVisualStates > 0) _renderRequestsCoalesced++;
+        else _owedVisualStates++;
+    }
+
+    /// <summary>Gets an immutable snapshot of mailbox frame-admission counters.</summary>
+    public HPD.TUI.Observability.TuiSchedulingDiagnostics GetSchedulingDiagnostics() => new(
+        _renderRequestsReceived, _renderRequestsCoalesced, _framesAdmitted,
+        _framesDeferredByPacing, _framesDeferredByBackpressure);
 
     /// <inheritdoc />
     public bool CheckAccess() => _dispatcherDepth.Value > 0 ||
@@ -339,6 +366,7 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
                 var evt = events[i];
                 if (evt.Kind == TuiLoopEventKind.RenderRequested)
                 {
+                    OweVisualState();
                     dirty = true;
                 }
                 else if (evt.Kind == TuiLoopEventKind.Input)
@@ -346,6 +374,7 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
                     if (evt.Input.Kind == TerminalInputEventKind.Resize)
                     {
                         dirty = true;
+                        OweVisualState();
                         continue;
                     }
 
@@ -358,6 +387,7 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
 
                     var handled = HandleInput(in input, requestRender: false);
                     dirty |= handled;
+                    if (handled) OweVisualState();
                     _urgentRender |= handled;
                 }
                 else if (evt.Kind == TuiLoopEventKind.Callback)
@@ -366,6 +396,7 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
                     try { await evt.Callback!().ConfigureAwait(false); }
                     finally { _dispatcherDepth.Value--; }
                     dirty = true;
+                    OweVisualState();
                 }
             }
         }

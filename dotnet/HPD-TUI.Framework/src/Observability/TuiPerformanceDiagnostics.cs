@@ -122,3 +122,21 @@ public sealed record TuiFrameDiagnostics(
     public override string FormatSummary()
         => $"tui frame layout={LayoutDuration.TotalMilliseconds:0.###}ms display={DisplayListDuration.TotalMilliseconds:0.###}ms raster={RasterDuration.TotalMilliseconds:0.###}ms diff={DiffDuration.TotalMilliseconds:0.###}ms output={OutputDuration.TotalMilliseconds:0.###}ms damage={RowsDamaged} runs={ChangedRuns} cells={CellsChanged} commands={DisplayCommandsReused}/{DisplayCommandsBuilt} chars={OutputCharacters} full={FullRepaint} backpressured={Backpressured}";
 }
+
+/// <summary>Reports actual frame-admission decisions made by an application mailbox.</summary>
+/// <param name="RenderRequestsReceived">Render requests removed from the FIFO mailbox.</param>
+/// <param name="RenderRequestsCoalesced">Requests deliberately collapsed by the active frame policy.</param>
+/// <param name="FramesAdmitted">Frames passed to the renderer.</param>
+/// <param name="FramesDeferredByPacing">Admissions delayed until a frame deadline.</param>
+/// <param name="FramesDeferredByBackpressure">Admissions delayed until transport writability.</param>
+public sealed record TuiSchedulingDiagnostics(
+    long RenderRequestsReceived,
+    long RenderRequestsCoalesced,
+    long FramesAdmitted,
+    long FramesDeferredByPacing,
+    long FramesDeferredByBackpressure) : HpdTuiPerformanceEvent
+{
+    /// <inheritdoc />
+    public override string FormatSummary()
+        => $"tui scheduling requests={RenderRequestsReceived} coalesced={RenderRequestsCoalesced} admitted={FramesAdmitted} pacing={FramesDeferredByPacing} backpressure={FramesDeferredByBackpressure}";
+}

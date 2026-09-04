@@ -36,9 +36,19 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
     private ScreenDiffMetrics _lastDiffMetrics;
     private int _lastOutputCharacters;
     private bool _lastFullRepaint;
+    private readonly ManagedTerminalCapabilityProfile _capabilities;
+    private readonly bool _splitFooterEnabled;
+    private long _presentationEpoch;
+    private bool _hasPresentationEpoch;
+
+    /// <summary>Gets the active presentation epoch. It advances when terminal-visible history cannot be retracted.</summary>
+    public long PresentationEpoch => _presentationEpoch;
+
+    /// <summary>Gets whether verified capabilities permit append-only history with a pinned footer.</summary>
+    public bool SupportsManagedScrollback => _splitFooterEnabled;
 
     public ManagedTerminalTuiRenderer(ITerminal terminal)
-        : this(terminal, new SynchronousTerminalOutputTransport(terminal))
+        : this(terminal, new SynchronousTerminalOutputTransport(terminal), ManagedTerminalCapabilityProfile.Verified)
     {
     }
 
@@ -46,10 +56,24 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
     /// <param name="terminal">The terminal used for sizing and cursor visibility.</param>
     /// <param name="transport">The single-writer frame transport.</param>
     public ManagedTerminalTuiRenderer(ITerminal terminal, ITerminalOutputTransport transport)
+        : this(terminal, transport, ManagedTerminalCapabilityProfile.Verified)
+    {
+    }
+
+    /// <summary>Creates a renderer with an explicit, immutable capability profile.</summary>
+    public ManagedTerminalTuiRenderer(
+        ITerminal terminal,
+        ITerminalOutputTransport transport,
+        ManagedTerminalCapabilityProfile capabilities,
+        ManagedTerminalFallbackPolicy fallbackPolicy = ManagedTerminalFallbackPolicy.BoundedScreen)
     {
         _terminal = terminal ?? throw new ArgumentNullException(nameof(terminal));
         _publisher = new TerminalPublicationCoordinator(transport);
         _scrollbackJournal = new ManagedScrollbackJournal(PublishScrollbackAsync);
+        _capabilities = capabilities;
+        _splitFooterEnabled = capabilities.SupportsSplitFooter;
+        if (!_splitFooterEnabled && fallbackPolicy == ManagedTerminalFallbackPolicy.Reject)
+            throw new NotSupportedException("Managed split-footer publication requires absolute cursor addressing, erase-in-line, controllable autowrap, and synchronized output.");
     }
 
     internal ValueTask WaitUntilWritableAsync(CancellationToken cancellationToken)
@@ -63,6 +87,16 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(root);
+        if (scrollback is not null && !_splitFooterEnabled)
+            throw new NotSupportedException("Scrollback publication is disabled because the terminal capability profile does not satisfy the split-footer protocol.");
+        if (scrollback is not null && !_hasPresentationEpoch)
+        {
+            _presentationEpoch = scrollback.PresentationEpoch;
+            _hasPresentationEpoch = true;
+            _scrollbackJournal.StartEpoch(_presentationEpoch);
+        }
+        else if (scrollback is not null && scrollback.PresentationEpoch != _presentationEpoch)
+            throw new InvalidOperationException($"Scrollback batch epoch {scrollback.PresentationEpoch} does not match renderer epoch {_presentationEpoch}.");
 
         var sink = PerformanceSink;
         var startTimestamp = sink is null ? 0 : Stopwatch.GetTimestamp();
@@ -158,6 +192,17 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         }
     }
 
+    /// <summary>Starts a new visible history epoch after a resize, model rebase, or uncertain-output recovery.</summary>
+    /// <returns>The new nonnegative epoch.</returns>
+    public long StartPresentationEpoch()
+    {
+        _presentationEpoch = _hasPresentationEpoch ? checked(_presentationEpoch + 1) : 0;
+        _hasPresentationEpoch = true;
+        _scrollbackJournal.StartEpoch(_presentationEpoch);
+        _hasPreviousFrame = false;
+        return _presentationEpoch;
+    }
+
     private void PatchChangedRuns(TerminalSize size, int usedLines)
     {
         var acceptedHardwareCursorRow = _hardwareCursorRow;
@@ -227,7 +272,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         void BuildFullFrame(AnsiFrameWriter output)
         {
             output.Write(BeginSynchronizedOutput);
-            if (recovery && _scrollbackUncertain)
+            if (recovery && _scrollbackUncertain && (_capabilities.Features & ManagedTerminalFeatures.ClearScrollback) != 0)
                 output.Write(ClearScrollback);
             if (scrollback is not null)
             {
