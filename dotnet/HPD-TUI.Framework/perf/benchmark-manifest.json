@@ -17,7 +17,8 @@
   ],
   "environmentFields": [
     "cpu", "os", "dotnet-sdk", "dotnet-runtime", "commit", "gc-mode", "tiered-compilation",
-    "dynamic-pgo", "ready-to-run", "native-aot", "warmup-count", "iteration-count", "corpus-seed"
+    "dynamic-pgo", "ready-to-run", "native-aot", "affinity", "power-profile",
+    "warmup-count", "iteration-count", "corpus-seed"
   ],
   "baseline": {
     "architecture": "pre-compositor",
@@ -26,6 +27,7 @@
     "result": "results/hpd-before.json"
   },
   "result": "results/hpd-after.json",
+  "agentRunner": "HPD-Agent.Harness.Coding.TUI.Benchmarks --evidence",
   "budgets": {
     "warm-noop-120x40-p95-ns": 250000,
     "one-row-120x40-p95-ns": 1000000,

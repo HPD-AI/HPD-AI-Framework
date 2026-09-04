@@ -22,10 +22,16 @@ internal static class BenchmarkEvidenceRunner
         var warmups = ReadInt(args, "--warmup", 30);
         var output = ReadString(args, "--output") ?? Path.Combine("BenchmarkDotNet.Artifacts", "hpd-evidence.json");
         var cases = new List<EvidenceResult>();
-        foreach (var dimensions in new[] { (80, 24), (120, 40), (240, 80) })
+        var dimensions = new[] { (80, 24), (120, 40), (240, 80) };
+        // Run scenario-major so a construction-heavy cold-start corpus cannot distort
+        // a later steady-state mutation at another viewport size.
+        for (var scenarioIndex = 0; scenarioIndex < 11; scenarioIndex++)
         {
-            foreach (var scenario in CoreScenarios(dimensions.Item1, dimensions.Item2))
-                cases.Add(Measure(scenario, dimensions.Item1, dimensions.Item2, warmups, iterations));
+            foreach (var viewport in dimensions)
+            {
+                var scenario = CoreScenarios(viewport.Item1, viewport.Item2).ElementAt(scenarioIndex);
+                cases.Add(Measure(scenario, viewport.Item1, viewport.Item2, warmups, iterations));
+            }
         }
 
         foreach (var count in new[] { 10, 100, 1_000 })
@@ -52,10 +58,11 @@ internal static class BenchmarkEvidenceRunner
             Schema: "hpd.tui.framework-comparison.v1",
             Adapter: "hpd-tui",
             Commit: Git("rev-parse", "HEAD"),
-            Environment: new(RuntimeInformation.ProcessArchitecture.ToString(), RuntimeInformation.OSDescription,
-                RuntimeInformation.FrameworkDescription, Environment.Version.ToString(), GCSettings(),
+            Environment: new(RuntimeInformation.ProcessArchitecture.ToString(), CpuDescription(), RuntimeInformation.OSDescription,
+                DotnetSdk(), RuntimeInformation.FrameworkDescription, Environment.Version.ToString(), GCSettings(),
                 Environment.GetEnvironmentVariable("DOTNET_TieredPGO") ?? "runtime-default",
-                Environment.GetEnvironmentVariable("DOTNET_ReadyToRun") ?? "runtime-default", warmups, iterations, Seed),
+                Environment.GetEnvironmentVariable("DOTNET_ReadyToRun") ?? "runtime-default", NativeAot: false,
+                Affinity: "not-controlled", PowerProfile: "not-controlled", warmups, iterations, Seed),
             Results: cases);
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(output))!);
         await File.WriteAllTextAsync(output, JsonSerializer.Serialize(payload, JsonOptions));
@@ -64,7 +71,6 @@ internal static class BenchmarkEvidenceRunner
 
     private static IEnumerable<Scenario> CoreScenarios(int width, int height)
     {
-        yield return Scenario.Create("cold-start", () => new Scene(width, height), static (s, i) => s.ToggleFirst(i));
         yield return Scenario.Create("warm-noop", () => new Scene(width, height), static (_, _) => { });
         yield return Scenario.Create("one-cell", () => new Scene(width, height), static (s, i) => s.ToggleFirst(i));
         yield return Scenario.Create("one-row", () => new Scene(width, height), static (s, i) => s.ToggleRow(i));
@@ -75,6 +81,7 @@ internal static class BenchmarkEvidenceRunner
         yield return Scenario.Create("wide-grapheme", () => new Scene(width, height), static (s, i) => s.ToggleWide(i));
         yield return Scenario.Create("hyperlink", () => new Scene(width, height), static (s, i) => s.ToggleLink(i));
         yield return Scenario.Create("resize", () => new Scene(width, height), static (s, i) => s.Resize(i % 2 == 0 ? 80 : 120, i % 2 == 0 ? 24 : 40));
+        yield return Scenario.Create("cold-start", () => new Scene(width, height), static (_, _) => { });
     }
 
     private static IEnumerable<Scenario> ComponentScenarios(int count)
@@ -87,6 +94,8 @@ internal static class BenchmarkEvidenceRunner
 
     private static EvidenceResult Measure(Scenario scenario, int width, int height, int warmups, int iterations)
     {
+        if (scenario.Name == "cold-start")
+            return MeasureColdStart(scenario, width, height, warmups, iterations);
         var setupStart = Stopwatch.GetTimestamp();
         using var state = scenario.Factory();
         state.Render();
@@ -94,6 +103,7 @@ internal static class BenchmarkEvidenceRunner
         for (var i = 0; i < warmups; i++) { scenario.Mutate(state, i); state.Render(); }
         var samples = new long[iterations];
         var allocated = GC.GetAllocatedBytesForCurrentThread();
+        var gen0 = GC.CollectionCount(0); var gen1 = GC.CollectionCount(1);
         long bytes = 0, cells = 0, rows = 0, built = 0, reused = 0;
         for (var i = 0; i < iterations; i++)
         {
@@ -104,18 +114,46 @@ internal static class BenchmarkEvidenceRunner
             samples[i] = Ns(start);
             bytes += state.Transport.Bytes;
         }
+        var measuredAllocated = GC.GetAllocatedBytesForCurrentThread() - allocated;
+        var measuredGen0 = GC.CollectionCount(0) - gen0;
+        var measuredGen1 = GC.CollectionCount(1) - gen1;
         using (var metricState = scenario.Factory())
         {
             metricState.EnableDiagnostics(); metricState.Render();
             for (var i = 0; i < iterations; i++)
             {
                 scenario.Mutate(metricState, i); metricState.Render(); var d = metricState.Sink.Last;
-                cells += d?.CellsChanged ?? 0; rows += d?.RowsDamaged ?? 0;
+                cells += d?.CellsCompared ?? 0; rows += d?.RowsDamaged ?? 0;
                 built += d?.DisplayCommandsBuilt ?? 0; reused += d?.DisplayCommandsReused ?? 0;
             }
         }
         return Summarize("hpd-tui", scenario.Name, width, height, setupNs, samples,
-            GC.GetAllocatedBytesForCurrentThread() - allocated, bytes, cells, rows, built, reused, "memory");
+            measuredAllocated, bytes, cells, rows, built, reused, "memory", measuredGen0, measuredGen1);
+    }
+
+    private static EvidenceResult MeasureColdStart(Scenario scenario, int width, int height, int warmups, int iterations)
+    {
+        for (var i = 0; i < warmups; i++)
+        {
+            using var warm = scenario.Factory();
+            warm.Render();
+        }
+        var samples = new long[iterations];
+        long bytes = 0;
+        var allocated = GC.GetAllocatedBytesForCurrentThread();
+        var gen0 = GC.CollectionCount(0); var gen1 = GC.CollectionCount(1);
+        for (var i = 0; i < iterations; i++)
+        {
+            var start = Stopwatch.GetTimestamp();
+            using var state = scenario.Factory();
+            state.Render();
+            samples[i] = Ns(start);
+            bytes += state.Transport.TotalBytes;
+        }
+        return Summarize("hpd-tui", scenario.Name, width, height, 0, samples,
+            GC.GetAllocatedBytesForCurrentThread() - allocated, bytes,
+            (long)width * height * iterations, (long)height * iterations, 0, 0, "memory",
+            GC.CollectionCount(0) - gen0, GC.CollectionCount(1) - gen1);
     }
 
     private static async Task<IEnumerable<EvidenceResult>> TransportScenariosAsync(int warmups, int iterations)
@@ -147,18 +185,24 @@ internal static class BenchmarkEvidenceRunner
     }
 
     private static EvidenceResult Summarize(string adapter, string scenario, int width, int height, long setupNs,
-        long[] samples, long allocated, long bytes, long cells, long rows, long built, long reused, string sink)
+        long[] samples, long allocated, long bytes, long cells, long rows, long built, long reused, string sink,
+        long gen0Collections = 0, long gen1Collections = 0)
     {
         Array.Sort(samples);
         return new(adapter, scenario, width, height, setupNs, samples.Average(), samples[samples.Length / 2],
             samples[Math.Min(samples.Length - 1, (int)Math.Ceiling(samples.Length * .95) - 1)], allocated,
-            bytes, cells, rows, built, reused, sink);
+            gen0Collections, gen1Collections, bytes, cells, rows, built, reused, sink);
     }
 
     private static long Ns(long start) => (long)(Stopwatch.GetElapsedTime(start).TotalNanoseconds);
     private static int ReadInt(string[] args, string name, int fallback) => int.TryParse(ReadString(args, name), out var value) ? value : fallback;
     private static string? ReadString(string[] args, string name) { var i = Array.IndexOf(args, name); return i >= 0 && i + 1 < args.Length ? args[i + 1] : null; }
     private static string Git(params string[] args) { try { return Process.Start(new ProcessStartInfo("git", args) { RedirectStandardOutput = true })!.StandardOutput.ReadToEnd().Trim(); } catch { return "unknown"; } }
+    private static string DotnetSdk() => Run("dotnet", "--version");
+    private static string CpuDescription() => OperatingSystem.IsMacOS()
+        ? Run("sysctl", "-n", "machdep.cpu.brand_string")
+        : RuntimeInformation.ProcessArchitecture + " / " + Environment.ProcessorCount + " logical processors";
+    private static string Run(string file, params string[] args) { try { using var process = Process.Start(new ProcessStartInfo(file, args) { RedirectStandardOutput = true }); return process?.StandardOutput.ReadToEnd().Trim() is { Length: > 0 } value ? value : "unknown"; } catch { return "unknown"; } }
     private static string GCSettings() => System.Runtime.GCSettings.IsServerGC ? "server" : "workstation";
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
@@ -268,8 +312,8 @@ internal static class BenchmarkEvidenceRunner
     }
 
     private sealed record EvidenceDocument(string Schema, string Adapter, string Commit, EvidenceEnvironment Environment, IReadOnlyList<EvidenceResult> Results);
-    private sealed record EvidenceEnvironment(string Architecture, string Os, string Runtime, string RuntimeVersion, string GcMode, string TieredPgo, string ReadyToRun, int WarmupCount, int IterationCount, int CorpusSeed);
-    internal sealed record EvidenceResult(string Adapter, string Scenario, int Width, int Height, long SetupNs, double MeanNs, long MedianNs, long P95Ns, long AllocatedBytes, long OutputBytes, long CellsCompared, long RowsRasterized, long DisplayCommandsBuilt, long DisplayCommandsReused, string Sink);
+    private sealed record EvidenceEnvironment(string Architecture, string Cpu, string Os, string DotnetSdk, string Runtime, string RuntimeVersion, string GcMode, string TieredPgo, string ReadyToRun, bool NativeAot, string Affinity, string PowerProfile, int WarmupCount, int IterationCount, int CorpusSeed);
+    internal sealed record EvidenceResult(string Adapter, string Scenario, int Width, int Height, long SetupNs, double MeanNs, long MedianNs, long P95Ns, long AllocatedBytes, long Gen0Collections, long Gen1Collections, long OutputBytes, long CellsCompared, long RowsRasterized, long DisplayCommandsBuilt, long DisplayCommandsReused, string Sink);
 }
 
 internal static class CellRepresentationExperiment
@@ -282,7 +326,7 @@ internal static class CellRepresentationExperiment
         yield return Measure("cell-layout-soa", iterations, () => ScanSoa(glyph, style), (sizeof(int) * 2L) * cells);
     }
     private static BenchmarkEvidenceRunner.EvidenceResult Measure(string name, int iterations, Action action, long bytes)
-    { var samples = new long[iterations]; for (var i = 0; i < iterations; i++) { var s = Stopwatch.GetTimestamp(); action(); samples[i] = (long)Stopwatch.GetElapsedTime(s).TotalNanoseconds; } Array.Sort(samples); return new("hpd-tui", name, 240, 80, 0, samples.Average(), samples[iterations / 2], samples[Math.Min(iterations - 1, (int)Math.Ceiling(iterations * .95) - 1)], bytes, 0, 19_200L * iterations, 80L * iterations, 0, 0, "memory"); }
+    { var samples = new long[iterations]; var gen0 = GC.CollectionCount(0); var gen1 = GC.CollectionCount(1); for (var i = 0; i < iterations; i++) { var s = Stopwatch.GetTimestamp(); action(); samples[i] = (long)Stopwatch.GetElapsedTime(s).TotalNanoseconds; } Array.Sort(samples); return new("hpd-tui", name, 240, 80, 0, samples.Average(), samples[iterations / 2], samples[Math.Min(iterations - 1, (int)Math.Ceiling(iterations * .95) - 1)], bytes, GC.CollectionCount(0) - gen0, GC.CollectionCount(1) - gen1, 0, 19_200L * iterations, 80L * iterations, 0, 0, "memory"); }
     private static long ScanAos(Cell[] cells) { long n = 0; foreach (var c in cells) n += c.Glyph + c.Style; return n; }
     private static long ScanSoa(int[] glyph, int[] style) { long n = 0; for (var i = 0; i < glyph.Length; i++) n += glyph[i] + style[i]; return n; }
     [StructLayout(LayoutKind.Sequential)] private readonly record struct Cell(int Glyph, int Style, int Link, byte Width, byte Flags);
