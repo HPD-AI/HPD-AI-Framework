@@ -20,9 +20,17 @@ public sealed class TuiRenderer : IDisposable
     private bool _disposed;
 
     public TuiRenderer(ITerminal terminal)
+        : this(terminal, new SynchronousTerminalOutputTransport(terminal))
+    {
+    }
+
+    /// <summary>Creates an alternate-screen renderer with an explicit output transport.</summary>
+    /// <param name="terminal">The terminal used for sizing.</param>
+    /// <param name="transport">The single-writer output transport.</param>
+    public TuiRenderer(ITerminal terminal, ITerminalOutputTransport transport)
     {
         _terminal = terminal ?? throw new ArgumentNullException(nameof(terminal));
-        _transport = new SynchronousTerminalOutputTransport(terminal);
+        _transport = transport ?? throw new ArgumentNullException(nameof(transport));
     }
 
     public IHpdTuiPerformanceEventSink? PerformanceSink { get; set; }
@@ -56,7 +64,14 @@ public sealed class TuiRenderer : IDisposable
             AnsiGridRenderer.WriteDifferential(_previousScreen!, _currentScreen, _output);
         }
 
-        AppendCursorState(_currentScreen.Grid, _output);
+        if (!_hasPreviousFrame || CursorStateChanged(_previousScreen!.Grid, _currentScreen.Grid))
+            AppendCursorState(_currentScreen.Grid, _output);
+        if (_output.Length == 0)
+        {
+            PublishRenderCompleted(sink, "terminal-grid", startTimestamp, usedLines, writer.Count);
+            (_currentScreen, _previousScreen) = (_previousScreen, _currentScreen);
+            return;
+        }
         PublishFrame();
         PublishRenderCompleted(sink, "terminal-grid", startTimestamp, usedLines, writer.Count);
         (_currentScreen, _previousScreen) = (_previousScreen, _currentScreen);
@@ -103,6 +118,12 @@ public sealed class TuiRenderer : IDisposable
             AnsiGridRenderer.WriteCursorMove(grid.TerminalCursorX, grid.TerminalCursorY, output);
         }
     }
+
+    private static bool CursorStateChanged(TerminalGrid previous, TerminalGrid current)
+        => previous.HasTerminalCursor != current.HasTerminalCursor ||
+           (current.HasTerminalCursor &&
+            (previous.TerminalCursorX != current.TerminalCursorX ||
+             previous.TerminalCursorY != current.TerminalCursorY));
 
     public void Dispose()
     {

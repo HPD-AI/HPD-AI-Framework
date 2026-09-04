@@ -131,14 +131,16 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
                         }
                         catch (TerminalBackpressureException)
                         {
-                            await _renderer.WaitUntilWritableAsync(loopCts.Token).ConfigureAwait(false);
-                            dirty = true;
+                            dirty = await WaitForWritableWhileDrainingAsync(mailbox, loopCts.Token)
+                                .ConfigureAwait(false);
                         }
                     }
                     finally
                     {
                         _dispatcherDepth.Value--;
                     }
+                    if (dirty)
+                        continue;
                 }
 
                 dirty |= await WaitForEventOrFrameAsync(
@@ -315,6 +317,23 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
             Capacity = options.InputMailboxCapacity,
             OverflowMode = options.InputOverflowMode
         });
+
+    private async ValueTask<bool> WaitForWritableWhileDrainingAsync(
+        EventLoopMailbox<TuiLoopEvent> mailbox,
+        CancellationToken cancellationToken)
+    {
+        var readiness = _renderer.WaitUntilWritableAsync(cancellationToken).AsTask();
+        while (!readiness.IsCompleted)
+        {
+            var input = mailbox.WaitToReadAsync(cancellationToken).AsTask();
+            if (await Task.WhenAny(readiness, input).ConfigureAwait(false) == readiness)
+                break;
+            await input.ConfigureAwait(false);
+            _ = await DrainEventsAsync(mailbox).ConfigureAwait(false);
+        }
+        await readiness.ConfigureAwait(false);
+        return true;
+    }
 
     private async Task PumpInputAsync(
         EventLoopMailbox<TuiLoopEvent> mailbox,

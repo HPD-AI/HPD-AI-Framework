@@ -83,8 +83,8 @@ public sealed class ManagedTerminalTuiRendererTests
         renderer.Render(new Text("hello world"), Theme.Default);
 
         Assert.DoesNotContain("\x1b[2J\x1b[H", terminal.Output);
-        Assert.Contains("\x1b[2K", terminal.Output);
-        Assert.Contains("hello world", terminal.Output);
+        Assert.Contains("\x1b[1;7H", terminal.Output);
+        Assert.Contains("world", terminal.Output);
     }
 
     [Fact]
@@ -110,7 +110,7 @@ public sealed class ManagedTerminalTuiRendererTests
         renderer.Render(new LinesComponent("one", "two"), Theme.Default);
 
         Assert.DoesNotContain("\x1b[2J\x1b[H", terminal.Output);
-        Assert.Contains("\r\n", terminal.Output);
+        Assert.Contains("\x1b[2;1H", terminal.Output);
         Assert.Contains("two", terminal.Output);
     }
 
@@ -142,7 +142,7 @@ public sealed class ManagedTerminalTuiRendererTests
     }
 
     [Fact]
-    public void Render_WhenContentShrinks_ClearsAndRendersWholeBuffer()
+    public void Render_WhenContentShrinks_ErasesOnlyStaleRuns()
     {
         using var terminal = new TestTerminal(40, 5);
         using var renderer = new ManagedTerminalTuiRenderer(terminal);
@@ -152,10 +152,11 @@ public sealed class ManagedTerminalTuiRendererTests
 
         renderer.Render(new LinesComponent("zero", "one"), Theme.Default);
 
-        Assert.Contains("\x1b[2J\x1b[H", terminal.Output);
+        Assert.DoesNotContain("\x1b[2J\x1b[H", terminal.Output);
         Assert.DoesNotContain("\x1b[3J", terminal.Output);
-        Assert.Contains("zero", terminal.Output);
-        Assert.Contains("one", terminal.Output);
+        Assert.DoesNotContain("zero", terminal.Output);
+        Assert.DoesNotContain("one", terminal.Output);
+        Assert.Contains("\x1b[3;1H", terminal.Output);
     }
 
     [Fact]
@@ -293,6 +294,26 @@ public sealed class ManagedTerminalTuiRendererTests
     }
 
     [Fact]
+    public async Task Application_Backpressure_RetriesLatestFrameAndCommitsScrollbackOnce()
+    {
+        using var terminal = new TestTerminal(40, 8);
+        var transport = new BackpressureOnceTransport();
+        using var app = new ManagedTerminalTuiApplication(terminal, transport);
+        var source = new RecordingScrollbackSource();
+        app.ScrollbackSource = source;
+        app.SetRoot(new Text("live"));
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(40));
+
+        await app.RunAsync(cancellationToken: cancellation.Token);
+
+        Assert.Equal(2, transport.Attempts);
+        Assert.Equal(1, source.CommitCount);
+        Assert.Equal(1, source.RollbackCount);
+        Assert.Contains("history", transport.AcceptedPayload);
+        Assert.Contains("live", transport.AcceptedPayload);
+    }
+
+    [Fact]
     public void TextWriterSink_FormatsFrameSummary()
     {
         var writer = new StringWriter();
@@ -393,6 +414,53 @@ public sealed class ManagedTerminalTuiRendererTests
         public void Publish(Event evt)
         {
             Events.Add(evt);
+        }
+    }
+
+    private sealed class BackpressureOnceTransport : ITerminalOutputTransport
+    {
+        public int Attempts { get; private set; }
+        public string AcceptedPayload { get; private set; } = string.Empty;
+
+        public ValueTask<TerminalWriteResult> TryWriteFrameAsync(
+            TerminalFrameLease frame,
+            CancellationToken cancellationToken = default)
+        {
+            Attempts++;
+            if (Attempts == 1)
+                return ValueTask.FromResult(TerminalWriteResult.Backpressured);
+            AcceptedPayload = frame.Payload.ToString();
+            return ValueTask.FromResult(TerminalWriteResult.Written);
+        }
+
+        public ValueTask WaitUntilWritableAsync(CancellationToken cancellationToken = default)
+            => ValueTask.CompletedTask;
+    }
+
+    private sealed class RecordingScrollbackSource : IScrollbackSource
+    {
+        private readonly ScrollbackBatch _batch = new(
+            0,
+            0,
+            [new ScrollbackRow("row:0", [new ScrollbackCell("history", Style.Default, default, 7)])]);
+        private bool _committed;
+        public int CommitCount { get; private set; }
+        public int RollbackCount { get; private set; }
+
+        public ScrollbackBatch? PrepareScrollback(in RenderContext context, int maxRows)
+            => _committed ? null : _batch;
+
+        public void CommitScrollback(ScrollbackBatch batch)
+        {
+            Assert.Same(_batch, batch);
+            _committed = true;
+            CommitCount++;
+        }
+
+        public void RollbackScrollback(ScrollbackBatch batch)
+        {
+            Assert.Same(_batch, batch);
+            RollbackCount++;
         }
     }
 
