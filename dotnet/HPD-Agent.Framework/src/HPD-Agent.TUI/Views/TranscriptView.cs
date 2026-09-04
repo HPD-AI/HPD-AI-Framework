@@ -18,7 +18,7 @@ public sealed class TranscriptView : IComponent
     private readonly AgentTuiTranscriptRendererRegistry _renderers;
     private readonly AgentTuiRuntimeScope? _scope;
     private readonly IHpdTuiPerformanceEventSink? _performanceSink;
-    private readonly List<TranscriptEntry> _entries = [];
+    private TranscriptSequence _entries = TranscriptSequence.Empty;
     private readonly List<RenderedTranscriptEntry?> _renderedEntries = [];
     private readonly List<VisibleTranscriptRow> _visibleRows = [];
     private int _modelVersion = -1;
@@ -248,8 +248,7 @@ public sealed class TranscriptView : IComponent
         }
 
         var snapshot = _model.Snapshot();
-        _entries.Clear();
-        _entries.AddRange(snapshot.Entries);
+        _entries = snapshot.Entries;
         for (var i = 0; i < _entries.Count; i++)
         {
             if (i >= _renderedEntries.Count)

@@ -89,6 +89,82 @@ internal static class AnsiGridRenderer
         }
     }
 
+    public static void WriteDifferential(ScreenBuffer previous, ScreenBuffer current, AnsiFrameWriter output)
+    {
+        ArgumentNullException.ThrowIfNull(previous);
+        ArgumentNullException.ThrowIfNull(current);
+        ArgumentNullException.ThrowIfNull(output);
+
+        if (previous.Width != current.Width || previous.Height != current.Height)
+        {
+            WriteFull(current.Grid, output);
+            return;
+        }
+
+        Style? activeStyle = null;
+        Span<char> styleBuffer = stackalloc char[64];
+        for (var row = 0; row < current.Height; row++)
+        {
+            if (current.RowEquals(previous, row))
+                continue;
+
+            var column = 0;
+            while (column < current.Width)
+            {
+                if (current.Grid.CellEquals(previous.Grid, column, row))
+                {
+                    column++;
+                    continue;
+                }
+
+                var start = FindLeadingColumn(previous.Grid, current.Grid, column, row);
+                var end = ExpandChangedRun(previous.Grid, current.Grid, start, row);
+                WriteCursorMove(start, row, output);
+                TerminalHyperlink? activeHyperlink = null;
+                for (var x = start; x < end; x++)
+                {
+                    var cell = current.Grid.GetCell(x, row);
+                    if (cell.IsContinuation)
+                        continue;
+                    WriteStyleTransition(cell.Style, ref activeStyle, styleBuffer, output);
+                    WriteHyperlinkTransition(current.Grid.GetHyperlink(cell), ref activeHyperlink, output);
+                    output.Write(current.Grid.GetGrapheme(cell));
+                }
+                WriteHyperlinkTransition(null, ref activeHyperlink, output);
+                column = Math.Max(column + 1, end);
+            }
+        }
+
+        if (activeStyle is not null)
+            output.Write(ResetSequence);
+    }
+
+    private static int FindLeadingColumn(TerminalGrid previous, TerminalGrid current, int column, int row)
+    {
+        while (column > 0 &&
+               (previous.GetCell(column, row).IsContinuation || current.GetCell(column, row).IsContinuation))
+        {
+            column--;
+        }
+        return column;
+    }
+
+    private static int ExpandChangedRun(TerminalGrid previous, TerminalGrid current, int start, int row)
+    {
+        var end = start;
+        while (end < current.Width)
+        {
+            var differs = !current.CellEquals(previous, end, row);
+            if (!differs && end > start)
+                break;
+
+            var oldCell = previous.GetCell(end, row);
+            var newCell = current.GetCell(end, row);
+            end = Math.Min(current.Width, end + Math.Max(1, Math.Max((int)oldCell.DisplayWidth, newCell.DisplayWidth)));
+        }
+        return Math.Max(start + 1, end);
+    }
+
     public static void WriteLine(TerminalGrid grid, int y, AnsiFrameWriter output)
     {
         ArgumentNullException.ThrowIfNull(grid);

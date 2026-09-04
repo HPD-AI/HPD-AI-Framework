@@ -11,16 +11,18 @@ public sealed class TuiRenderer : IDisposable
     private static readonly char[] CursorHide = ['\x1b', '[', '?', '2', '5', 'l'];
     private static readonly char[] CursorShow = ['\x1b', '[', '?', '2', '5', 'h'];
     private readonly ITerminal _terminal;
+    private readonly ITerminalOutputTransport _transport;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly AnsiFrameWriter _output = new();
-    private TerminalGrid? _currentGrid;
-    private TerminalGrid? _previousGrid;
+    private ScreenBuffer? _currentScreen;
+    private ScreenBuffer? _previousScreen;
     private bool _hasPreviousFrame;
     private bool _disposed;
 
     public TuiRenderer(ITerminal terminal)
     {
         _terminal = terminal ?? throw new ArgumentNullException(nameof(terminal));
+        _transport = new SynchronousTerminalOutputTransport(terminal);
     }
 
     public IHpdTuiPerformanceEventSink? PerformanceSink { get; set; }
@@ -36,28 +38,40 @@ public sealed class TuiRenderer : IDisposable
         EnsureGrid(size);
 
         var context = new RenderContext(size.Width, size.Height, theme ?? Theme.Default, elapsed: _clock.Elapsed);
-        _currentGrid!.Clear();
+        _currentScreen!.Clear();
 
-        var writer = new SegmentWriter(_currentGrid);
+        var writer = new SegmentWriter(_currentScreen.Grid);
         root.Render(in context, size.Width, ref writer);
-        var usedLines = TuiCapture.GetUsedLineCount(_currentGrid);
+        _currentScreen.ComputeFinalRowFingerprints();
+        var usedLines = TuiCapture.GetUsedLineCount(_currentScreen.Grid);
 
         _output.Clear();
         if (!_hasPreviousFrame)
         {
             _output.Write(ClearScreenAndCursorHome);
-            AnsiGridRenderer.WriteFull(_currentGrid, _output);
+            AnsiGridRenderer.WriteFull(_currentScreen.Grid, _output);
         }
         else
         {
-            AnsiGridRenderer.WriteDifferential(_previousGrid!, _currentGrid, _output);
+            AnsiGridRenderer.WriteDifferential(_previousScreen!, _currentScreen, _output);
         }
 
-        AppendCursorState(_currentGrid, _output);
-        _output.FlushTo(_terminal);
+        AppendCursorState(_currentScreen.Grid, _output);
+        PublishFrame();
         PublishRenderCompleted(sink, "terminal-grid", startTimestamp, usedLines, writer.Count);
-        (_currentGrid, _previousGrid) = (_previousGrid, _currentGrid);
+        (_currentScreen, _previousScreen) = (_previousScreen, _currentScreen);
         _hasPreviousFrame = true;
+    }
+
+    private void PublishFrame()
+    {
+        using var lease = _output.CreateLease();
+        var result = _transport.TryWriteFrameAsync(lease).GetAwaiter().GetResult();
+        _output.Clear();
+        if (result.Status == TerminalWriteStatus.Failed)
+            throw new InvalidOperationException("Terminal frame publication failed; terminal state is uncertain.", result.Error);
+        if (result.Status == TerminalWriteStatus.Backpressured)
+            throw new InvalidOperationException("The synchronous terminal transport unexpectedly reported backpressure.");
     }
 
     private static void PublishRenderCompleted(
@@ -99,25 +113,25 @@ public sealed class TuiRenderer : IDisposable
 
         _disposed = true;
         _output.Dispose();
-        _currentGrid?.Dispose();
-        _previousGrid?.Dispose();
+        _currentScreen?.Dispose();
+        _previousScreen?.Dispose();
         _terminal.Dispose();
     }
 
     private void EnsureGrid(TerminalSize size)
     {
-        if (_currentGrid is not null &&
-            _previousGrid is not null &&
-            _currentGrid.Width == size.Width &&
-            _currentGrid.Height == size.Height)
+        if (_currentScreen is not null &&
+            _previousScreen is not null &&
+            _currentScreen.Width == size.Width &&
+            _currentScreen.Height == size.Height)
         {
             return;
         }
 
-        _currentGrid?.Dispose();
-        _previousGrid?.Dispose();
-        _currentGrid = new TerminalGrid(size.Width, size.Height);
-        _previousGrid = new TerminalGrid(size.Width, size.Height);
+        _currentScreen?.Dispose();
+        _previousScreen?.Dispose();
+        _currentScreen = new ScreenBuffer(size.Width, size.Height);
+        _previousScreen = new ScreenBuffer(size.Width, size.Height);
         _hasPreviousFrame = false;
     }
 }

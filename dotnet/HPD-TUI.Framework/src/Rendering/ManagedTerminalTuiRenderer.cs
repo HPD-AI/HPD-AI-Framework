@@ -13,6 +13,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
     private static readonly char[] ClearScreenAndCursorHome = ['\x1b', '[', '2', 'J', '\x1b', '[', 'H'];
     private static readonly char[] ClearScreenCursorHomeAndScrollback = ['\x1b', '[', '2', 'J', '\x1b', '[', 'H', '\x1b', '[', '3', 'J'];
     private readonly ITerminal _terminal;
+    private readonly ITerminalOutputTransport _transport;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly AnsiFrameWriter _output = new();
     private TerminalGrid? _currentGrid;
@@ -28,6 +29,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
     public ManagedTerminalTuiRenderer(ITerminal terminal)
     {
         _terminal = terminal ?? throw new ArgumentNullException(nameof(terminal));
+        _transport = new SynchronousTerminalOutputTransport(terminal);
     }
 
     public bool TrackHardwareCursor { get; set; }
@@ -289,7 +291,13 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
     {
         _output.Clear();
         builder(_output);
-        _output.FlushTo(_terminal);
+        using var lease = _output.CreateLease();
+        var result = _transport.TryWriteFrameAsync(lease).GetAwaiter().GetResult();
+        _output.Clear();
+        if (result.Status == TerminalWriteStatus.Failed)
+            throw new InvalidOperationException("Managed terminal publication failed; terminal state is uncertain.", result.Error);
+        if (result.Status == TerminalWriteStatus.Backpressured)
+            throw new InvalidOperationException("The synchronous terminal transport unexpectedly reported backpressure.");
     }
 
     private delegate void FrameBuilder(AnsiFrameWriter output);

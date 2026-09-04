@@ -52,6 +52,21 @@ public sealed class TuiRendererTests
         Assert.Contains("Hi", terminal.Output);
     }
 
+    [Fact]
+    public void Render_UnchangedSecondFrameEmitsNoCellContent()
+    {
+        using var terminal = new TestTerminal(20, 4);
+        using var renderer = new TuiRenderer(terminal);
+        var text = new Text("Hello");
+
+        renderer.Render(text);
+        terminal.ClearOutput();
+        renderer.Render(text);
+
+        Assert.DoesNotContain("Hello", terminal.Output);
+        Assert.DoesNotContain("\x1b[1;1H", terminal.Output);
+    }
+
     private sealed class TestTerminal : ITerminal, ITerminalInput
     {
         private readonly StringBuilder _output = new();
