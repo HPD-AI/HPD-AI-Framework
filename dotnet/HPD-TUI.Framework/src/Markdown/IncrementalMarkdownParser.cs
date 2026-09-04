@@ -82,7 +82,8 @@ public sealed class ConservativeIncrementalMarkdownParser : IIncrementalMarkdown
 
         if (RequiresFullParse(old, tail, appended))
         {
-            var full = _parser.Parse(source.Materialize(), previous.Options);
+            var parsed = _parser.Parse(source.Materialize(), previous.Options);
+            var full = RebindSource(parsed, source);
             return new(full, previous.Options, FindStableBoundary(full, terminal),
                 previous.ReparsedCharacters + source.Length, 0, previous.FallbackCount + 1,
                 Math.Max(previous.PeakParseStateBytes, source.RetainedBytes + (long)source.Length * sizeof(char)));
@@ -129,12 +130,13 @@ public sealed class ConservativeIncrementalMarkdownParser : IIncrementalMarkdown
                 document.Features, document.NodeCapabilities, document.MaximumObservedNestingDepth,
                 old.Pipeline, tail.Syntax);
         }
-        // Markdig can retain inline segmentation from arbitrarily small source deltas. A
-        // boundary parse canonicalizes a block exactly once as it becomes externally stable;
-        // ordinary mutable-tail publications remain suffix-only.
-        if (terminal || stableBoundary > previous.StableSourceLength)
+        // Finalization deliberately performs the clean parse required by the public semantic
+        // equivalence contract. Stable-boundary advancement remains suffix-only: each newly
+        // stable block was canonicalized independently above.
+        if (terminal)
         {
-            var canonical = _parser.Parse(source.Materialize(), previous.Options);
+            var parsed = _parser.Parse(source.Materialize(), previous.Options);
+            var canonical = RebindSource(parsed, source);
             return new(canonical, previous.Options, FindStableBoundary(canonical, terminal),
                 previous.ReparsedCharacters + tailText.Length + source.Length,
                 stableBlocks.Length, previous.FallbackCount,
@@ -144,6 +146,11 @@ public sealed class ConservativeIncrementalMarkdownParser : IIncrementalMarkdown
             previous.ReparsedCharacters + tailText.Length, stableBlocks.Length, previous.FallbackCount,
             Math.Max(previous.PeakParseStateBytes, source.RetainedBytes + (long)tailText.Length * sizeof(char)));
     }
+
+    private static MarkdownDocumentSnapshot RebindSource(
+        MarkdownDocumentSnapshot parsed, MarkdownSourceText canonicalSource) =>
+        new(canonicalSource, parsed.Blocks, parsed.Features, parsed.NodeCapabilities,
+            parsed.MaximumObservedNestingDepth, parsed.Pipeline, parsed.Syntax);
 
     private static bool RequiresFullParse(MarkdownDocumentSnapshot previous, MarkdownDocumentSnapshot tail, string suffix)
     {
