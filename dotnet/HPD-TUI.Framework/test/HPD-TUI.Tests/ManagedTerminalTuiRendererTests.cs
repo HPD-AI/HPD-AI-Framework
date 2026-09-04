@@ -55,7 +55,7 @@ public sealed class ManagedTerminalTuiRendererTests
     }
 
     [Fact]
-    public void Render_AfterResize_RedrawsAndClearsStaleScrollback()
+    public void Render_AfterResize_RedrawsWithoutDestroyingScrollback()
     {
         using var terminal = new TestTerminal(40, 8);
         using var renderer = new ManagedTerminalTuiRenderer(terminal);
@@ -67,7 +67,7 @@ public sealed class ManagedTerminalTuiRendererTests
         renderer.Render(new Text("hello"), Theme.Default);
 
         Assert.Contains("\x1b[2J\x1b[H", terminal.Output);
-        Assert.Contains("\x1b[3J", terminal.Output);
+        Assert.DoesNotContain("\x1b[3J", terminal.Output);
         Assert.DoesNotContain("\x1b[?1049h", terminal.Output);
     }
 
@@ -153,7 +153,7 @@ public sealed class ManagedTerminalTuiRendererTests
         renderer.Render(new LinesComponent("zero", "one"), Theme.Default);
 
         Assert.Contains("\x1b[2J\x1b[H", terminal.Output);
-        Assert.Contains("\x1b[3J", terminal.Output);
+        Assert.DoesNotContain("\x1b[3J", terminal.Output);
         Assert.Contains("zero", terminal.Output);
         Assert.Contains("one", terminal.Output);
     }
@@ -204,7 +204,8 @@ public sealed class ManagedTerminalTuiRendererTests
 
         Assert.DoesNotContain("\x1b[4G", terminal.Output);
         Assert.Equal(0, terminal.ShowCursorCount);
-        Assert.Equal(1, terminal.HideCursorCount);
+        Assert.Equal(0, terminal.HideCursorCount);
+        Assert.Contains("\x1b[?25l", terminal.Output);
     }
 
     [Fact]
@@ -218,8 +219,9 @@ public sealed class ManagedTerminalTuiRendererTests
 
         renderer.Render(new CursorComponent(), Theme.Default);
 
-        Assert.Contains("\x1b[4G", terminal.Output);
-        Assert.Equal(1, terminal.ShowCursorCount);
+        Assert.Contains("\x1b[1;4H", terminal.Output);
+        Assert.Contains("\x1b[?25h", terminal.Output);
+        Assert.Equal(0, terminal.ShowCursorCount);
     }
 
     [Fact]

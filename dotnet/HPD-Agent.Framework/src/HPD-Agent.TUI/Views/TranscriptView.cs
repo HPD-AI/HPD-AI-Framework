@@ -362,9 +362,7 @@ public sealed class TranscriptView : IComponent, IScrollbackSource
         var rowsToSkip = _scrollOffset;
         var totalRows = 0;
 
-        var visibleRowLimit = _model.HistoryPresentation == TranscriptHistoryPresentation.TerminalScrollback
-            ? int.MaxValue
-            : Height;
+        var visibleRowLimit = Height;
         for (var index = _entries.Count - 1; index >= _committedCount && _visibleRows.Count < visibleRowLimit; index--)
         {
             var entry = GetRenderedEntry(index, in context, maxWidth, ref diagnostics);

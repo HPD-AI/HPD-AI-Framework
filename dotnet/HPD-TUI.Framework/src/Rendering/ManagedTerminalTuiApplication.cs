@@ -20,9 +20,17 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
     private bool _disposed;
 
     public ManagedTerminalTuiApplication(ITerminal terminal)
+        : this(terminal, new SynchronousTerminalOutputTransport(terminal))
+    {
+    }
+
+    /// <summary>Creates a managed-terminal application with an explicit output transport.</summary>
+    /// <param name="terminal">The terminal used for input, sizing, and cursor visibility.</param>
+    /// <param name="transport">The backpressure-aware single-writer output transport.</param>
+    public ManagedTerminalTuiApplication(ITerminal terminal, ITerminalOutputTransport transport)
     {
         _terminal = terminal ?? throw new ArgumentNullException(nameof(terminal));
-        _renderer = new ManagedTerminalTuiRenderer(terminal)
+        _renderer = new ManagedTerminalTuiRenderer(terminal, transport)
         {
             TrackHardwareCursor = true
         };
@@ -116,13 +124,21 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
                     try
                     {
                         FramePreparing?.Invoke(_terminal.GetSize(), _theme);
-                        Render();
+                        try
+                        {
+                            Render();
+                            dirty = false;
+                        }
+                        catch (TerminalBackpressureException)
+                        {
+                            await _renderer.WaitUntilWritableAsync(loopCts.Token).ConfigureAwait(false);
+                            dirty = true;
+                        }
                     }
                     finally
                     {
                         _dispatcherDepth.Value--;
                     }
-                    dirty = false;
                 }
 
                 dirty |= await WaitForEventOrFrameAsync(

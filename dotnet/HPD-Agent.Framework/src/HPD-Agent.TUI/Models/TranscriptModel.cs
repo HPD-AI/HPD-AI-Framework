@@ -249,6 +249,8 @@ public sealed class TranscriptModel
     {
         lock (_gate)
         {
+            if (_committedCount != 0)
+                throw new InvalidOperationException("Committed terminal scrollback cannot be cleared in the current presentation epoch.");
             _entries = TranscriptSequence.Empty;
             _entryKeys.Clear();
             _committedCount = 0;
@@ -270,6 +272,8 @@ public sealed class TranscriptModel
 
         lock (_gate)
         {
+            if (_committedCount != 0)
+                throw new InvalidOperationException("Committed terminal scrollback cannot be replaced in the current presentation epoch.");
             _entries = TranscriptSequence.Empty;
             _entryKeys.Clear();
             _committedCount = 0;

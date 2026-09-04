@@ -9,8 +9,11 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
 {
     private static readonly char[] BeginSynchronizedOutput = ['\x1b', '[', '?', '2', '0', '2', '6', 'h'];
     private static readonly char[] EndSynchronizedOutput = ['\x1b', '[', '?', '2', '0', '2', '6', 'l'];
+    private static readonly char[] DisableAutowrap = ['\x1b', '[', '?', '7', 'l'];
+    private static readonly char[] EnableAutowrap = ['\x1b', '[', '?', '7', 'h'];
+    private static readonly char[] HideHardwareCursor = ['\x1b', '[', '?', '2', '5', 'l'];
+    private static readonly char[] ShowHardwareCursor = ['\x1b', '[', '?', '2', '5', 'h'];
     private static readonly char[] ClearScreenAndCursorHome = ['\x1b', '[', '2', 'J', '\x1b', '[', 'H'];
-    private static readonly char[] ClearScreenCursorHomeAndScrollback = ['\x1b', '[', '2', 'J', '\x1b', '[', 'H', '\x1b', '[', '3', 'J'];
     private readonly ITerminal _terminal;
     private readonly ITerminalOutputTransport _transport;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
@@ -23,13 +26,25 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
     private int _previousViewportTop;
     private int _hardwareCursorRow;
     private bool _hasPreviousFrame;
+    private bool _terminalCertain = true;
     private bool _disposed;
 
     public ManagedTerminalTuiRenderer(ITerminal terminal)
+        : this(terminal, new SynchronousTerminalOutputTransport(terminal))
+    {
+    }
+
+    /// <summary>Creates a renderer that publishes through the supplied output transport.</summary>
+    /// <param name="terminal">The terminal used for sizing and cursor visibility.</param>
+    /// <param name="transport">The single-writer frame transport.</param>
+    public ManagedTerminalTuiRenderer(ITerminal terminal, ITerminalOutputTransport transport)
     {
         _terminal = terminal ?? throw new ArgumentNullException(nameof(terminal));
-        _transport = new SynchronousTerminalOutputTransport(terminal);
+        _transport = transport ?? throw new ArgumentNullException(nameof(transport));
     }
+
+    internal ValueTask WaitUntilWritableAsync(CancellationToken cancellationToken)
+        => _transport.WaitUntilWritableAsync(cancellationToken);
 
     public bool TrackHardwareCursor { get; set; }
 
@@ -73,7 +88,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
 
         if (sizeChanged)
         {
-            FullRender(size, usedLines, FullRenderClearMode.ScreenAndScrollback);
+            FullRender(size, usedLines, FullRenderClearMode.Screen);
             PublishRenderCompleted(sink, startTimestamp, usedLines, writer.Count);
             return;
         }
@@ -81,7 +96,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         var changed = FindChangedLineRange(_previousBuffer!, _currentBuffer, _previousUsedLineCount, usedLines);
         if (changed.First < 0)
         {
-            PositionHardwareCursor(_currentBuffer.Grid, usedLines);
+            PublishCursorOnlyIfChanged(_currentBuffer.Grid, usedLines);
             CommitFrame(size, usedLines);
             PublishRenderCompleted(sink, startTimestamp, usedLines, writer.Count);
             return;
@@ -89,7 +104,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
 
         if (usedLines < _previousUsedLineCount || changed.First < _previousViewportTop)
         {
-            FullRender(size, usedLines, FullRenderClearMode.ScreenAndScrollback);
+            FullRender(size, usedLines, FullRenderClearMode.Screen);
             PublishRenderCompleted(sink, startTimestamp, usedLines, writer.Count);
             return;
         }
@@ -121,18 +136,20 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
     private void FullRender(TerminalSize size, int usedLines, FullRenderClearMode clearMode, ScrollbackBatch? scrollback = null)
     {
         var viewportTop = GetViewportTop(usedLines, size.Height);
+        var acceptedHardwareCursorRow = Math.Max(0, usedLines - 1);
         WriteFrame(BuildFullFrame);
 
         _previousViewportTop = viewportTop;
-        _hardwareCursorRow = Math.Max(0, usedLines - 1);
+        _hardwareCursorRow = acceptedHardwareCursorRow;
         CommitFrame(size, usedLines);
-        PositionHardwareCursor(_previousBuffer!.Grid, usedLines);
 
         void BuildFullFrame(AnsiFrameWriter output)
         {
             output.Write(BeginSynchronizedOutput);
             if (scrollback is not null)
             {
+                output.Write(HideHardwareCursor);
+                output.Write(DisableAutowrap);
                 output.Write(ClearScreenAndCursorHome);
                 output.Write("\x1b[");
                 output.WriteInt(size.Height);
@@ -143,17 +160,14 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
                     AnsiGridRenderer.WriteScrollbackRow(row, output);
                     output.Write("\x1b[K\r\n");
                 }
+                output.Write(EnableAutowrap);
             }
             if (clearMode == FullRenderClearMode.Screen)
             {
                 output.Write(ClearScreenAndCursorHome);
             }
-            else if (clearMode == FullRenderClearMode.ScreenAndScrollback)
-            {
-                output.Write(ClearScreenCursorHomeAndScrollback);
-            }
-
             WriteLines(output, _currentBuffer!.Grid, 0, usedLines - 1);
+            WriteCursorState(output, _currentBuffer.Grid, usedLines, viewportTop, ref acceptedHardwareCursorRow);
             output.Write(EndSynchronizedOutput);
         }
     }
@@ -166,7 +180,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
     {
         if (firstChanged >= usedLines)
         {
-            FullRender(size, usedLines, FullRenderClearMode.ScreenAndScrollback);
+            FullRender(size, usedLines, FullRenderClearMode.Screen);
             return;
         }
 
@@ -176,12 +190,12 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         var viewportBottom = viewportTop + size.Height - 1;
         var renderEnd = Math.Min(lastChanged, usedLines - 1);
         var viewportTopAfterBuild = viewportTop;
+        var acceptedHardwareCursorRow = _hardwareCursorRow;
         WriteFrame(BuildPatchFrame);
 
-        _hardwareCursorRow = renderEnd;
+        _hardwareCursorRow = acceptedHardwareCursorRow;
         _previousViewportTop = Math.Max(viewportTopAfterBuild, GetViewportTop(usedLines, size.Height));
         CommitFrame(size, usedLines);
-        PositionHardwareCursor(_previousBuffer!.Grid, usedLines);
 
         void BuildPatchFrame(AnsiFrameWriter output)
         {
@@ -220,9 +234,11 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
             }
 
             WriteLines(output, _currentBuffer!.Grid, firstChanged, renderEnd);
+            WriteCursorState(output, _currentBuffer.Grid, usedLines, frameViewportTop, ref frameHardwareCursorRow);
             output.Write(EndSynchronizedOutput);
 
             viewportTopAfterBuild = frameViewportTop;
+            acceptedHardwareCursorRow = frameHardwareCursorRow;
         }
     }
 
@@ -254,38 +270,43 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         hardwareCursorRow = targetRow;
     }
 
-    private void PositionHardwareCursor(TerminalGrid grid, int lineCount)
+    private void PublishCursorOnlyIfChanged(TerminalGrid grid, int lineCount)
+    {
+        var previous = _previousBuffer!.Grid;
+        var previousVisible = TrackHardwareCursor && previous.HasTerminalCursor;
+        var currentVisible = TrackHardwareCursor && grid.HasTerminalCursor;
+        if (previousVisible == currentVisible &&
+            (!currentVisible ||
+             (grid.TerminalCursorX == previous.TerminalCursorX && grid.TerminalCursorY == previous.TerminalCursorY)))
+            return;
+
+        var hardwareRow = _hardwareCursorRow;
+        WriteFrame(output =>
+        {
+            output.Write(BeginSynchronizedOutput);
+            WriteCursorState(output, grid, lineCount, _previousViewportTop, ref hardwareRow);
+            output.Write(EndSynchronizedOutput);
+        });
+        _hardwareCursorRow = hardwareRow;
+    }
+
+    private void WriteCursorState(
+        AnsiFrameWriter output,
+        TerminalGrid grid,
+        int lineCount,
+        int viewportTop,
+        ref int hardwareCursorRow)
     {
         if (!TrackHardwareCursor || !grid.HasTerminalCursor || lineCount <= 0)
         {
-            _terminal.HideCursor();
+            output.Write(HideHardwareCursor);
             return;
         }
 
         var targetRow = Math.Clamp(grid.TerminalCursorY, 0, Math.Max(0, lineCount - 1));
-        var currentScreenRow = _hardwareCursorRow - _previousViewportTop;
-        var targetScreenRow = targetRow - _previousViewportTop;
-        var rowDelta = targetScreenRow - currentScreenRow;
-        _output.Clear();
-        if (rowDelta > 0)
-        {
-            _output.Write("\x1b[");
-            _output.WriteInt(rowDelta);
-            _output.Write('B');
-        }
-        else if (rowDelta < 0)
-        {
-            _output.Write("\x1b[");
-            _output.WriteInt(-rowDelta);
-            _output.Write('A');
-        }
-
-        _output.Write("\x1b[");
-        _output.WriteInt(grid.TerminalCursorX + 1);
-        _output.Write('G');
-        _output.FlushTo(_terminal);
-        _hardwareCursorRow = targetRow;
-        _terminal.ShowCursor();
+        AnsiGridRenderer.WriteCursorMove(grid.TerminalCursorX, targetRow - viewportTop, output);
+        output.Write(ShowHardwareCursor);
+        hardwareCursorRow = targetRow;
     }
 
     private void CommitFrame(TerminalSize size, int usedLines)
@@ -304,15 +325,20 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
 
     private void WriteFrame(FrameBuilder builder)
     {
+        if (!_terminalCertain)
+            throw new InvalidOperationException("Terminal state is uncertain; this renderer cannot safely publish another frame.");
         _output.Clear();
         builder(_output);
         using var lease = _output.CreateLease();
         var result = _transport.TryWriteFrameAsync(lease).GetAwaiter().GetResult();
         _output.Clear();
         if (result.Status == TerminalWriteStatus.Failed)
+        {
+            _terminalCertain = false;
             throw new InvalidOperationException("Managed terminal publication failed; terminal state is uncertain.", result.Error);
+        }
         if (result.Status == TerminalWriteStatus.Backpressured)
-            throw new InvalidOperationException("The synchronous terminal transport unexpectedly reported backpressure.");
+            throw new TerminalBackpressureException();
     }
 
     private delegate void FrameBuilder(AnsiFrameWriter output);
@@ -320,8 +346,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
     private enum FullRenderClearMode
     {
         None,
-        Screen,
-        ScreenAndScrollback
+        Screen
     }
 
     private static void WriteLines(
@@ -402,3 +427,5 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         _previousBuffer?.Dispose();
     }
 }
+
+internal sealed class TerminalBackpressureException : Exception;
