@@ -8,84 +8,50 @@ public sealed class Frame : Component
 {
     private readonly IComponent _child;
     private Terminal.TerminalGrid? _childGrid;
+    private BorderSpec _border = BorderSpec.Square;
+    private Thickness _padding = Thickness.None;
+    private FrameHeader? _header;
+    private FrameFooter? _footer;
+    private OverflowPolicy _overflow = OverflowPolicy.Clip;
+    private int? _width;
+    private int? _height;
 
     public Frame(IComponent child)
     {
         _child = child ?? throw new ArgumentNullException(nameof(child));
+        AdoptChild(_child);
     }
 
-    public BorderSpec Border { get; init; } = BorderSpec.Square;
+    public BorderSpec Border { get => _border; set => SetLayout(ref _border, value); }
 
-    public Thickness Padding { get; init; } = Thickness.None;
+    public Thickness Padding { get => _padding; set => SetLayout(ref _padding, value); }
 
-    public FrameHeader? Header { get; init; }
+    public FrameHeader? Header { get => _header; set => SetLayout(ref _header, value); }
 
-    public FrameFooter? Footer { get; init; }
+    public FrameFooter? Footer { get => _footer; set => SetLayout(ref _footer, value); }
 
-    public OverflowPolicy Overflow { get; init; } = OverflowPolicy.Clip;
+    public OverflowPolicy Overflow { get => _overflow; set => SetLayout(ref _overflow, value); }
 
-    public int? Width { get; init; }
+    public int? Width { get => _width; set => SetLayout(ref _width, value); }
 
-    public int? Height { get; init; }
+    public int? Height { get => _height; set => SetLayout(ref _height, value); }
 
     public static Frame Create(IComponent child) => new(child);
 
-    public Frame WithBorder(BorderSpec border) => new(_child)
-    {
-        Border = border,
-        Padding = Padding,
-        Header = Header,
-        Footer = Footer,
-        Overflow = Overflow,
-        Width = Width,
-        Height = Height
-    };
+    public Frame WithBorder(BorderSpec border) { Border = border; return this; }
 
     public Frame WithPadding(int all) => WithPadding(new Thickness(all));
 
-    public Frame WithPadding(Thickness padding) => new(_child)
-    {
-        Border = Border,
-        Padding = padding,
-        Header = Header,
-        Footer = Footer,
-        Overflow = Overflow,
-        Width = Width,
-        Height = Height
-    };
+    public Frame WithPadding(Thickness padding) { Padding = padding; return this; }
 
-    public Frame WithHeader(string text, Alignment alignment = Alignment.Start) => new(_child)
-    {
-        Border = Border,
-        Padding = Padding,
-        Header = new FrameHeader(text, alignment),
-        Footer = Footer,
-        Overflow = Overflow,
-        Width = Width,
-        Height = Height
-    };
+    public Frame WithHeader(string text, Alignment alignment = Alignment.Start)
+    { Header = new FrameHeader(text, alignment); return this; }
 
-    public Frame WithFooter(string text, Alignment alignment = Alignment.Start) => new(_child)
-    {
-        Border = Border,
-        Padding = Padding,
-        Header = Header,
-        Footer = new FrameFooter(text, alignment),
-        Overflow = Overflow,
-        Width = Width,
-        Height = Height
-    };
+    public Frame WithFooter(string text, Alignment alignment = Alignment.Start)
+    { Footer = new FrameFooter(text, alignment); return this; }
 
-    public Frame WithSize(int? width = null, int? height = null) => new(_child)
-    {
-        Border = Border,
-        Padding = Padding,
-        Header = Header,
-        Footer = Footer,
-        Overflow = Overflow,
-        Width = width,
-        Height = height
-    };
+    public Frame WithSize(int? width = null, int? height = null)
+    { Width = width; Height = height; return this; }
 
     public override Measurement Measure(in RenderContext context, int maxWidth)
     {

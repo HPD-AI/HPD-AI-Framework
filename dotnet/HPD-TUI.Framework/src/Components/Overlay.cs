@@ -16,6 +16,7 @@ public sealed class Overlay : Component
         bool clearBackground = false)
     {
         _child = child ?? throw new ArgumentNullException(nameof(child));
+        AdoptChild(_child);
         ArgumentOutOfRangeException.ThrowIfNegative(x);
         ArgumentOutOfRangeException.ThrowIfNegative(y);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);

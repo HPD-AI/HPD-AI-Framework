@@ -20,7 +20,7 @@ public sealed class Stack : Component
     public Stack Add(IComponent child)
     {
         ArgumentNullException.ThrowIfNull(child);
-        child.Lifecycle.Adopt(((IComponent)this).Lifecycle.Id);
+        AdoptChild(child);
         _children.Add(child);
         InvalidateLayout();
         return this;

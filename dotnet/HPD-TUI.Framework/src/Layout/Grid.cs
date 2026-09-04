@@ -20,12 +20,14 @@ public sealed class Grid : Component
     public Grid AddColumn(SizePolicy width)
     {
         _columns.Add(new GridColumn(width));
+        InvalidateLayout();
         return this;
     }
 
     public Grid AddColumn(GridColumn column)
     {
         _columns.Add(column);
+        InvalidateLayout();
         return this;
     }
 
@@ -49,7 +51,9 @@ public sealed class Grid : Component
             throw new InvalidOperationException("Row has more cells than the grid has columns.");
         }
 
+        foreach (var cell in row.Cells) AdoptChild(cell);
         _rows.Add(row);
+        InvalidateLayout();
         return this;
     }
 

@@ -16,6 +16,7 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
     private IComponent? _root;
     private Theme _theme = Theme.Default;
     private EventLoopMailbox<TuiLoopEvent>? _mailbox;
+    private ComponentSurface? _surface;
     private bool _stopRequested;
     private bool _disposed;
 
@@ -80,6 +81,7 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         _root = root ?? throw new ArgumentNullException(nameof(root));
+        _surface?.ReplaceRoot(_root);
         RequestRender();
     }
 
@@ -87,6 +89,7 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         _root = null;
+        _surface?.ReplaceRoot(null);
         Focus.Clear();
         RequestRender();
     }
@@ -110,6 +113,8 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
         using var mailbox = CreateMailbox(options);
         using var loopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _mailbox = mailbox;
+        _surface = new ComponentSurface(RequestRender);
+        _surface.ReplaceRoot(_root);
         _stopRequested = false;
         var inputPump = PumpInputAsync(mailbox, loopCts.Token);
 
@@ -159,6 +164,8 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
             _dispatcherDepth.Value++;
             try { Stopping?.Invoke(); }
             finally { _dispatcherDepth.Value--; }
+            _surface.Detach();
+            _surface = null;
             _mailbox = null;
             await loopCts.CancelAsync().ConfigureAwait(false);
             await inputPump.ConfigureAwait(false);

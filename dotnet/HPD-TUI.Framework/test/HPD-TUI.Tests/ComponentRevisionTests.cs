@@ -37,4 +37,48 @@ public sealed class ComponentRevisionTests
         second.Add(child);
         Assert.Same(child, Assert.Single(second.Children));
     }
+
+    [Fact]
+    public void Surface_RecursivelyAttachesDynamicChildrenAndIgnoresDetachedInvalidation()
+    {
+        var renders = 0;
+        var root = new Container();
+        var child = new Text("first");
+        root.Add(child);
+        var surface = new ComponentSurface(() => renders++);
+
+        surface.ReplaceRoot(root);
+        var afterAttach = renders;
+        child.SetText("attached");
+        Assert.True(renders > afterAttach);
+
+        var added = new Text("second");
+        root.Add(added);
+        var afterAdd = renders;
+        added.SetText("attached too");
+        Assert.True(renders > afterAdd);
+
+        Assert.True(root.Remove(added));
+        var afterRemove = renders;
+        added.SetText("detached");
+        Assert.Equal(afterRemove, renders);
+    }
+
+    [Fact]
+    public void Surface_ReattachmentUsesANewAttachmentGeneration()
+    {
+        var renders = 0;
+        var root = new Text("root");
+        var surface = new ComponentSurface(() => renders++);
+
+        surface.ReplaceRoot(root);
+        var first = ((IComponent)root).Lifecycle.Attachment!.Value.AttachmentGeneration;
+        surface.ReplaceRoot(null);
+        surface.ReplaceRoot(root);
+        var second = ((IComponent)root).Lifecycle.Attachment!.Value.AttachmentGeneration;
+
+        Assert.NotEqual(first, second);
+        root.SetText("live");
+        Assert.True(renders > 0);
+    }
 }

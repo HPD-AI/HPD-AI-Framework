@@ -44,6 +44,7 @@ public readonly record struct ComponentDependencies(RenderContextFields Layout, 
 public abstract class Component : IComponent
 {
     private readonly ComponentLifecycle _lifecycle;
+    private readonly List<IComponent> _ownedChildren = [];
     private ulong _layoutRevision = 1;
     private ulong _paintRevision = 1;
 
@@ -51,6 +52,8 @@ public abstract class Component : IComponent
     protected Component() => _lifecycle = new ComponentLifecycle(this);
 
     IComponentLifecycle IComponent.Lifecycle => _lifecycle;
+
+    internal IReadOnlyList<IComponent> OwnedChildren => _ownedChildren;
 
     /// <inheritdoc />
     public TuiRevision LayoutRevision => new(_layoutRevision);
@@ -77,6 +80,28 @@ public abstract class Component : IComponent
         field = value;
         InvalidateLayout();
         return true;
+    }
+
+    /// <summary>Transfers exclusive ownership of a child to this component.</summary>
+    protected void AdoptChild(IComponent child)
+    {
+        ArgumentNullException.ThrowIfNull(child);
+        child.Lifecycle.Adopt(_lifecycle.Id);
+        _ownedChildren.Add(child);
+        if (_lifecycle.Attachment is { } attachment)
+            attachment.AttachChild(child, _lifecycle.Id);
+    }
+
+    /// <summary>Releases an owned child after detaching its subtree from the current surface.</summary>
+    protected void ReleaseChild(IComponent child)
+    {
+        ArgumentNullException.ThrowIfNull(child);
+        if (!_ownedChildren.Contains(child))
+            throw new InvalidOperationException("The component is not owned by this parent.");
+        if (_lifecycle.Attachment is { } attachment)
+            attachment.DetachChild(child);
+        child.Lifecycle.Release(_lifecycle.Id);
+        _ownedChildren.Remove(child);
     }
 
     /// <summary>Advances the paint revision and reports paint damage to the attached surface.</summary>
@@ -124,7 +149,9 @@ internal readonly record struct ComponentAttachment(
     ulong SurfaceGeneration,
     ulong AttachmentGeneration,
     ComponentId? Parent,
-    Action<ComponentId, ulong, bool> Invalidate);
+    Action<ComponentId, ulong, bool> Invalidate,
+    Action<IComponent, ComponentId> AttachChild,
+    Action<IComponent> DetachChild);
 
 internal sealed class ComponentLifecycle(Component owner) : IComponentLifecycle
 {

@@ -11,7 +11,7 @@ public class Container : Component
     public void Add(IComponent child)
     {
         ArgumentNullException.ThrowIfNull(child);
-        child.Lifecycle.Adopt(((IComponent)this).Lifecycle.Id);
+        AdoptChild(child);
         _children.Add(child);
         InvalidateLayout();
     }
@@ -19,16 +19,15 @@ public class Container : Component
     public bool Remove(IComponent child)
     {
         if (!_children.Remove(child)) return false;
-        child.Lifecycle.Release(((IComponent)this).Lifecycle.Id);
+        ReleaseChild(child);
         InvalidateLayout();
         return true;
     }
 
     public void Clear()
     {
-        var parent = ((IComponent)this).Lifecycle.Id;
-        foreach (var child in _children) child.Lifecycle.Release(parent);
         if (_children.Count == 0) return;
+        foreach (var child in _children.ToArray()) ReleaseChild(child);
         _children.Clear();
         InvalidateLayout();
     }

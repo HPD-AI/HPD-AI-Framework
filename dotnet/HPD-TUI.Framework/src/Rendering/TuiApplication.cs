@@ -17,6 +17,7 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
     private IComponent? _root;
     private Theme _theme = Theme.Default;
     private EventLoopMailbox<TuiLoopEvent>? _mailbox;
+    private ComponentSurface? _surface;
     private bool _stopRequested;
     private bool _disposed;
     private int _eventLoopThreadId;
@@ -47,6 +48,7 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         _root = root ?? throw new ArgumentNullException(nameof(root));
+        _surface?.ReplaceRoot(_root);
         RequestRender();
     }
 
@@ -54,6 +56,7 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         _root = null;
+        _surface?.ReplaceRoot(null);
         _focus.Clear();
         RequestRender();
     }
@@ -89,6 +92,8 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
         using var mailbox = CreateMailbox(options);
         using var loopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _mailbox = mailbox;
+        _surface = new ComponentSurface(RequestRender);
+        _surface.ReplaceRoot(_root);
         _eventLoopThreadId = Environment.CurrentManagedThreadId;
         _stopRequested = false;
         var inputPump = PumpInputAsync(mailbox, loopCts.Token);
@@ -119,6 +124,8 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
         }
         finally
         {
+            _surface.Detach();
+            _surface = null;
             _mailbox = null;
             _eventLoopThreadId = 0;
             await loopCts.CancelAsync().ConfigureAwait(false);

@@ -10,13 +10,17 @@ public sealed class OverlayHost : Component
     public OverlayHost(IComponent content)
     {
         _content = content ?? throw new ArgumentNullException(nameof(content));
+        AdoptChild(_content);
     }
 
     public IReadOnlyList<Overlay> Overlays => _overlays;
 
     public void Push(Overlay overlay)
     {
-        _overlays.Add(overlay ?? throw new ArgumentNullException(nameof(overlay)));
+        ArgumentNullException.ThrowIfNull(overlay);
+        AdoptChild(overlay);
+        _overlays.Add(overlay);
+        InvalidatePaint();
     }
 
     public bool Pop()
@@ -26,11 +30,20 @@ public sealed class OverlayHost : Component
             return false;
         }
 
+        var overlay = _overlays[^1];
+        ReleaseChild(overlay);
         _overlays.RemoveAt(_overlays.Count - 1);
+        InvalidatePaint();
         return true;
     }
 
-    public void ClearOverlays() => _overlays.Clear();
+    public void ClearOverlays()
+    {
+        if (_overlays.Count == 0) return;
+        foreach (var overlay in _overlays.ToArray()) ReleaseChild(overlay);
+        _overlays.Clear();
+        InvalidatePaint();
+    }
 
     public override Measurement Measure(in RenderContext context, int maxWidth)
     {
