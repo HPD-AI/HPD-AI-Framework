@@ -1,4 +1,5 @@
 using Markdig.Syntax;
+using HPD.TUI.Observability;
 
 namespace HPD.TUI.Markdown;
 
@@ -50,13 +51,26 @@ public sealed class MarkdownParseState
 public sealed class ConservativeIncrementalMarkdownParser : IIncrementalMarkdownParser
 {
     private readonly IMarkdownDocumentParser _parser;
+    private readonly TuiPerformanceCounters? _performanceCounters;
 
     /// <summary>Creates a parser using the default semantic Markdown parser.</summary>
-    public ConservativeIncrementalMarkdownParser() : this(new MarkdownDocumentParser()) { }
+    public ConservativeIncrementalMarkdownParser() : this(new MarkdownDocumentParser(), null) { }
 
     /// <summary>Creates a parser over a supplied full-document parser.</summary>
-    public ConservativeIncrementalMarkdownParser(IMarkdownDocumentParser parser) =>
+    public ConservativeIncrementalMarkdownParser(IMarkdownDocumentParser parser) : this(parser, null) { }
+
+    /// <summary>Creates a parser with optional common performance-counter recording.</summary>
+    /// <param name="parser">The full-document parser used for conservative suffix work.</param>
+    /// <param name="performanceCounters">
+    /// The recorder to update, or <see langword="null"/> to keep diagnostics allocation-free.
+    /// </param>
+    public ConservativeIncrementalMarkdownParser(
+        IMarkdownDocumentParser parser,
+        TuiPerformanceCounters? performanceCounters)
+    {
         _parser = parser ?? throw new ArgumentNullException(nameof(parser));
+        _performanceCounters = performanceCounters;
+    }
 
     /// <inheritdoc />
     public MarkdownParseState ParseInitial(ReadOnlyMemory<char> source, MarkdownParseOptions options)
@@ -64,7 +78,10 @@ public sealed class ConservativeIncrementalMarkdownParser : IIncrementalMarkdown
         ArgumentNullException.ThrowIfNull(options);
         var text = source.ToString();
         var document = _parser.Parse(text, options);
-        return new(document, options, FindStableBoundary(document, terminal: false), text.Length, 0, 0);
+        var result = new MarkdownParseState(
+            document, options, FindStableBoundary(document, terminal: false), text.Length, 0, 0);
+        _performanceCounters?.RecordMarkdownWork(0, text.Length);
+        return result;
     }
 
     /// <inheritdoc />
@@ -84,9 +101,9 @@ public sealed class ConservativeIncrementalMarkdownParser : IIncrementalMarkdown
         {
             var parsed = _parser.Parse(source.Materialize(), previous.Options);
             var full = RebindSource(parsed, source);
-            return new(full, previous.Options, FindStableBoundary(full, terminal),
+            return Record(previous, new(full, previous.Options, FindStableBoundary(full, terminal),
                 previous.ReparsedCharacters + source.Length, 0, previous.FallbackCount + 1,
-                Math.Max(previous.PeakParseStateBytes, source.RetainedBytes + (long)source.Length * sizeof(char)));
+                Math.Max(previous.PeakParseStateBytes, source.RetainedBytes + (long)source.Length * sizeof(char))));
         }
 
         var blocks = new List<MarkdownTopLevelBlock>(stableBlocks.Length + tail.Blocks.Count);
@@ -137,14 +154,22 @@ public sealed class ConservativeIncrementalMarkdownParser : IIncrementalMarkdown
         {
             var parsed = _parser.Parse(source.Materialize(), previous.Options);
             var canonical = RebindSource(parsed, source);
-            return new(canonical, previous.Options, FindStableBoundary(canonical, terminal),
+            return Record(previous, new(canonical, previous.Options, FindStableBoundary(canonical, terminal),
                 previous.ReparsedCharacters + tailText.Length + source.Length,
                 stableBlocks.Length, previous.FallbackCount,
-                Math.Max(previous.PeakParseStateBytes, source.RetainedBytes + (long)source.Length * sizeof(char)));
+                Math.Max(previous.PeakParseStateBytes, source.RetainedBytes + (long)source.Length * sizeof(char))));
         }
-        return new(document, previous.Options, stableBoundary,
+        return Record(previous, new(document, previous.Options, stableBoundary,
             previous.ReparsedCharacters + tailText.Length, stableBlocks.Length, previous.FallbackCount,
-            Math.Max(previous.PeakParseStateBytes, source.RetainedBytes + (long)tailText.Length * sizeof(char)));
+            Math.Max(previous.PeakParseStateBytes, source.RetainedBytes + (long)tailText.Length * sizeof(char))));
+    }
+
+    private MarkdownParseState Record(MarkdownParseState previous, MarkdownParseState current)
+    {
+        _performanceCounters?.RecordMarkdownWork(
+            current.StablePrefixNodes,
+            current.ReparsedCharacters - previous.ReparsedCharacters);
+        return current;
     }
 
     private static MarkdownDocumentSnapshot RebindSource(

@@ -27,6 +27,7 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
     private long _framesAdmitted;
     private long _framesDeferredByPacing;
     private long _framesDeferredByBackpressure;
+    private TuiPerformanceCounters? _performanceCounters;
 
     public ManagedTerminalTuiApplication(ITerminal terminal)
         : this(terminal, new SynchronousTerminalOutputTransport(terminal))
@@ -85,6 +86,14 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
         set => _renderer.PerformanceSink = value;
     }
 
+    /// <summary>Gets or sets the shared cumulative performance-counter recorder.</summary>
+    /// <remarks>Leave this property <see langword="null"/> to disable counter work on the hot path.</remarks>
+    public TuiPerformanceCounters? PerformanceCounters
+    {
+        get => _performanceCounters;
+        set => _performanceCounters = value;
+    }
+
     public void SetRoot(IComponent root)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -141,6 +150,7 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
                     if (!(options.FramePolicy.RenderImmediatelyOnInput && _urgentRender) && DateTimeOffset.UtcNow < nextFrame)
                     {
                         _framesDeferredByPacing++;
+                        _performanceCounters?.RecordPacingDeferral();
                         await Task.Delay(nextFrame - DateTimeOffset.UtcNow, loopCts.Token).ConfigureAwait(false);
                     }
                     _dispatcherDepth.Value++;
@@ -151,6 +161,7 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
                         {
                             Render();
                             _framesAdmitted++;
+                            _performanceCounters?.RecordFrameAdmitted();
                             if (_owedVisualStates > 0) _owedVisualStates--;
                             dirty = _owedVisualStates > 0;
                             _urgentRender = false;
@@ -159,6 +170,7 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
                         catch (TerminalBackpressureException)
                         {
                             _framesDeferredByBackpressure++;
+                            _performanceCounters?.RecordBackpressureDeferral();
                             dirty = await WaitForWritableWhileDrainingAsync(mailbox, loopCts.Token)
                                 .ConfigureAwait(false);
                         }
@@ -267,7 +279,9 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
     private void OweVisualState()
     {
         _renderRequestsReceived++;
-        if (_dropIntermediateVisualStates && _owedVisualStates > 0) _renderRequestsCoalesced++;
+        var coalesced = _dropIntermediateVisualStates && _owedVisualStates > 0;
+        _performanceCounters?.RecordRenderRequest(coalesced);
+        if (coalesced) _renderRequestsCoalesced++;
         else _owedVisualStates++;
     }
 

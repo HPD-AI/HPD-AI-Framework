@@ -29,6 +29,7 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
     private long _framesAdmitted;
     private long _framesDeferredByPacing;
     private long _framesDeferredByBackpressure;
+    private HPD.TUI.Observability.TuiPerformanceCounters? _performanceCounters;
 
     public TuiApplication(ITerminal terminal)
         : this(terminal, new SynchronousTerminalOutputTransport(terminal))
@@ -128,12 +129,14 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
                     if (!(options.FramePolicy.RenderImmediatelyOnInput && _urgentRender) && DateTimeOffset.UtcNow < nextFrame)
                     {
                         _framesDeferredByPacing++;
+                        _performanceCounters?.RecordPacingDeferral();
                         await Task.Delay(nextFrame - DateTimeOffset.UtcNow, loopCts.Token).ConfigureAwait(false);
                     }
                     try
                     {
                         Render();
                         _framesAdmitted++;
+                        _performanceCounters?.RecordFrameAdmitted();
                         if (_owedVisualStates > 0) _owedVisualStates--;
                         dirty = _owedVisualStates > 0;
                         _urgentRender = false;
@@ -142,6 +145,7 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
                     catch (TerminalBackpressureException)
                     {
                         _framesDeferredByBackpressure++;
+                        _performanceCounters?.RecordBackpressureDeferral();
                         dirty = await WaitForWritableWhileDrainingAsync(mailbox, loopCts.Token).ConfigureAwait(false);
                     }
                     if (dirty)
@@ -237,8 +241,18 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
     private void OweVisualState()
     {
         _renderRequestsReceived++;
-        if (_dropIntermediateVisualStates && _owedVisualStates > 0) _renderRequestsCoalesced++;
+        var coalesced = _dropIntermediateVisualStates && _owedVisualStates > 0;
+        _performanceCounters?.RecordRenderRequest(coalesced);
+        if (coalesced) _renderRequestsCoalesced++;
         else _owedVisualStates++;
+    }
+
+    /// <summary>Gets or sets the shared cumulative performance-counter recorder.</summary>
+    /// <remarks>Leave this property <see langword="null"/> to disable counter work on the hot path.</remarks>
+    public HPD.TUI.Observability.TuiPerformanceCounters? PerformanceCounters
+    {
+        get => _performanceCounters;
+        set => _performanceCounters = value;
     }
 
     /// <summary>Gets an immutable snapshot of mailbox frame-admission counters.</summary>

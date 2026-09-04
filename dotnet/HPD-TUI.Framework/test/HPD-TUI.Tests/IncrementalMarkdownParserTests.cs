@@ -1,4 +1,5 @@
 using HPD.TUI.Markdown;
+using HPD.TUI.Observability;
 
 namespace HPD.TUI.Tests;
 
@@ -95,6 +96,24 @@ public sealed class IncrementalMarkdownParserTests
         var second = appended.Document.Source;
         Assert.Equal(first, second);
         Assert.NotSame(first, second);
+    }
+
+    [Fact]
+    public void CommonCounters_RecordActualIncrementalParserWork()
+    {
+        var counters = new TuiPerformanceCounters();
+        var parser = new ConservativeIncrementalMarkdownParser(new MarkdownDocumentParser(), counters);
+        var options = new MarkdownParseOptions { Pipeline = MarkdownPipelineFactory.CreateDefault() };
+        var state = parser.ParseInitial("first\n\nsecond\n\nthird".AsMemory(), options);
+        var initial = counters.Snapshot();
+
+        state = parser.Append(state, " continues\n".AsMemory(), terminal: false);
+        var snapshot = counters.Snapshot();
+
+        Assert.Equal(initial.MarkdownCharactersReparsed +
+            state.ReparsedCharacters - "first\n\nsecond\n\nthird".Length,
+            snapshot.MarkdownCharactersReparsed);
+        Assert.Equal(state.StablePrefixNodes, snapshot.MarkdownStablePrefixNodesReused);
     }
 
     private sealed class RecordingParser(IMarkdownDocumentParser inner) : IMarkdownDocumentParser
