@@ -70,6 +70,28 @@ public sealed class ManagedTerminalTuiRendererTests
     }
 
     [Fact]
+    public void Render_AfterUncertainScrollbackWrite_ClearsHistoryBeforeReplay()
+    {
+        using var terminal = new TestTerminal(40, 8);
+        var transport = new FailOnceTransport();
+        using var renderer = new ManagedTerminalTuiRenderer(terminal, transport);
+        var batch = new ScrollbackBatch(1, 1,
+        [
+            new ScrollbackRow("row-1",
+            [
+                new ScrollbackCell("history", default, default, 7)
+            ])
+        ]);
+
+        Assert.Throws<InvalidOperationException>(() => renderer.Render(new Text("live"), scrollback: batch));
+        renderer.Render(new Text("live"), scrollback: batch);
+
+        Assert.Contains("\x1b[3J", transport.AcceptedPayload);
+        Assert.Contains("history", transport.AcceptedPayload);
+        Assert.Contains("live", transport.AcceptedPayload);
+    }
+
+    [Fact]
     public void Render_AfterResize_RedrawsWithoutDestroyingScrollback()
     {
         using var terminal = new TestTerminal(40, 8);

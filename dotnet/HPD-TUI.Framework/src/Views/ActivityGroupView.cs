@@ -4,7 +4,7 @@ using HPD.TUI.Utilities;
 
 namespace HPD.TUI.Views;
 
-public sealed class ActivityGroupView : Component
+public sealed class ActivityGroupView : Component, IAnimationParticipant
 {
     private readonly ActivityGroupModel _model;
 
@@ -18,6 +18,12 @@ public sealed class ActivityGroupView : Component
     public ActivityGroupDisplayMode Mode { get; init; } = ActivityGroupDisplayMode.Detailed;
 
     public bool AnimationsEnabled { get; init; } = true;
+
+    /// <inheritdoc />
+    public bool IsAnimationActive => AnimationsEnabled && _model.GetVisibleActivities().Any(static activity => activity.IsIndeterminate);
+
+    /// <inheritdoc />
+    public TimeSpan AnimationInterval => TimeSpan.FromMilliseconds(80);
 
     public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {

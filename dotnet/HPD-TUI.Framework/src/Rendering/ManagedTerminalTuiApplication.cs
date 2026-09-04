@@ -156,7 +156,7 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
 
                 dirty |= await WaitForEventOrFrameAsync(
                         mailbox,
-                        options.AnimationTickInterval,
+                        AnimationParticipants.ResolveInterval(_root, options.AnimationTickInterval),
                         loopCts.Token)
                     .ConfigureAwait(false);
                 dirty |= await DrainEventsAsync(mailbox).ConfigureAwait(false);

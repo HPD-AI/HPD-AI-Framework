@@ -4,7 +4,7 @@ using HPD.TUI.Utilities;
 
 namespace HPD.TUI.Views;
 
-public sealed class ActivityView : Component
+public sealed class ActivityView : Component, IAnimationParticipant
 {
     private static readonly string[] SpinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
     private readonly ActivityModel _model;
@@ -19,6 +19,12 @@ public sealed class ActivityView : Component
     public TimeSpan FrameInterval { get; init; } = TimeSpan.FromMilliseconds(80);
 
     public bool AnimationsEnabled { get; init; } = true;
+
+    /// <inheritdoc />
+    public bool IsAnimationActive => AnimationsEnabled && _model.IsIndeterminate;
+
+    /// <inheritdoc />
+    public TimeSpan AnimationInterval => FrameInterval;
 
     public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {

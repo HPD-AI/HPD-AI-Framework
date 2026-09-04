@@ -14,6 +14,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
     private static readonly char[] HideHardwareCursor = ['\x1b', '[', '?', '2', '5', 'l'];
     private static readonly char[] ShowHardwareCursor = ['\x1b', '[', '?', '2', '5', 'h'];
     private static readonly char[] ClearScreenAndCursorHome = ['\x1b', '[', '2', 'J', '\x1b', '[', 'H'];
+    private static readonly char[] ClearScrollback = ['\x1b', '[', '3', 'J'];
     private readonly ITerminal _terminal;
     private readonly ITerminalOutputTransport _transport;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
@@ -26,6 +27,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
     private int _hardwareCursorRow;
     private bool _hasPreviousFrame;
     private bool _terminalCertain = true;
+    private bool _scrollbackUncertain;
     private bool _disposed;
 
     public ManagedTerminalTuiRenderer(ITerminal terminal)
@@ -172,7 +174,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
     {
         const int viewportTop = 0;
         var acceptedHardwareCursorRow = Math.Max(0, usedLines - 1);
-        WriteFrame(BuildFullFrame, recovery);
+        WriteFrame(BuildFullFrame, recovery, containsScrollback: scrollback is not null);
 
         _hardwareCursorRow = acceptedHardwareCursorRow;
         CommitFrame(size, usedLines);
@@ -180,6 +182,8 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         void BuildFullFrame(AnsiFrameWriter output)
         {
             output.Write(BeginSynchronizedOutput);
+            if (recovery && _scrollbackUncertain)
+                output.Write(ClearScrollback);
             if (scrollback is not null)
             {
                 output.Write(HideHardwareCursor);
@@ -253,7 +257,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         _hasPreviousFrame = true;
     }
 
-    private void WriteFrame(FrameBuilder builder, bool recovery = false)
+    private void WriteFrame(FrameBuilder builder, bool recovery = false, bool containsScrollback = false)
     {
         if (!_terminalCertain && !recovery)
             throw new InvalidOperationException("Terminal state is uncertain; this renderer cannot safely publish another frame.");
@@ -265,11 +269,16 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         if (result.Status == TerminalWriteStatus.Failed)
         {
             _terminalCertain = false;
+            _scrollbackUncertain |= containsScrollback;
             throw new InvalidOperationException("Managed terminal publication failed; terminal state is uncertain.", result.Error);
         }
         if (result.Status == TerminalWriteStatus.Backpressured)
             throw new TerminalBackpressureException();
-        if (recovery) _terminalCertain = true;
+        if (recovery)
+        {
+            _terminalCertain = true;
+            _scrollbackUncertain = false;
+        }
     }
 
     private delegate void FrameBuilder(AnsiFrameWriter output);
