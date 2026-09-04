@@ -103,9 +103,16 @@ internal static class BenchmarkEvidenceRunner
             state.Render();
             samples[i] = Ns(start);
             bytes += state.Transport.Bytes;
-            var d = state.Sink.Last;
-            cells += d?.CellsChanged ?? 0; rows += d?.RowsDamaged ?? 0;
-            built += d?.DisplayCommandsBuilt ?? 0; reused += d?.DisplayCommandsReused ?? 0;
+        }
+        using (var metricState = scenario.Factory())
+        {
+            metricState.EnableDiagnostics(); metricState.Render();
+            for (var i = 0; i < iterations; i++)
+            {
+                scenario.Mutate(metricState, i); metricState.Render(); var d = metricState.Sink.Last;
+                cells += d?.CellsChanged ?? 0; rows += d?.RowsDamaged ?? 0;
+                built += d?.DisplayCommandsBuilt ?? 0; reused += d?.DisplayCommandsReused ?? 0;
+            }
         }
         return Summarize("hpd-tui", scenario.Name, width, height, setupNs, samples,
             GC.GetAllocatedBytesForCurrentThread() - allocated, bytes, cells, rows, built, reused, "memory");
@@ -161,6 +168,7 @@ internal static class BenchmarkEvidenceRunner
     private sealed class Scene : IDisposable
     {
         private readonly Stack _root = new(); private readonly Text _first; private readonly Text _last; private readonly Text _wide;
+        private readonly SceneSurface? _surface; private readonly IComponent _renderRoot;
         private readonly List<Text> _rows = []; private readonly TuiRenderer _renderer; private bool _visible = true;
         public CountingTransport Transport { get; } public CaptureSink Sink { get; } = new();
         public Scene(int width, int height, int components = 2, CountingTransport? transport = null)
@@ -168,21 +176,51 @@ internal static class BenchmarkEvidenceRunner
             Transport = transport ?? new CountingTransport(); Terminal = new MutableTerminal(width, height);
             for (var i = 0; i < Math.Max(2, components); i++) { var row = new Text($"row-{i:D4}"); _rows.Add(row); _root.Add(row); }
             _first = _rows[0]; _last = _rows[^1]; _wide = new Text("界"); _root.Add(_wide);
-            _renderer = new TuiRenderer(Terminal, Transport) { PerformanceSink = Sink };
+            _renderRoot = components == 2 ? _surface = new SceneSurface(width, height) : _root;
+            _renderer = new TuiRenderer(Terminal, Transport);
         }
         public MutableTerminal Terminal { get; }
-        public void Render() => _renderer.Render(_root);
-        public void ToggleFirst(int i) => _first.SetText(i % 2 == 0 ? "alpha" : "Alpha");
-        public void ToggleRow(int i) => _first.SetText(i % 2 == 0 ? new string('r', 100) : new string('R', 100));
-        public void ToggleDistant(int i) { ToggleFirst(i); _last.SetText(i % 2 == 0 ? "omega" : "Omega"); }
-        public void ToggleFull(int i) { foreach (var row in _rows) row.SetText(new string(i % 2 == 0 ? 'x' : 'X', Math.Max(1, Terminal.Width))); }
-        public void ToggleCursor(int i) { _first.SetText(i % 2 == 0 ? "cursor-a" : "cursor-b"); }
-        public void ToggleStyle(int i) => _first.SetStyle(i % 2 == 0 ? Theme.Default.Accent : Style.Default);
-        public void ToggleWide(int i) => _wide.SetText(i % 2 == 0 ? "界" : "語");
-        public void ToggleLink(int i) => _first.SetText(i % 2 == 0 ? "https://a.example" : "https://b.example");
+        public void Render() => _renderer.Render(_renderRoot);
+        public void EnableDiagnostics() => _renderer.PerformanceSink = Sink;
+        public void ToggleFirst(int i) { if (_surface is not null) _surface.Mutate(SceneMutation.OneCell, i); else _first.SetText(i % 2 == 0 ? "alpha" : "Alpha"); }
+        public void ToggleRow(int i) { if (_surface is not null) _surface.Mutate(SceneMutation.OneRow, i); else _first.SetText(i % 2 == 0 ? new string('r', 100) : new string('R', 100)); }
+        public void ToggleDistant(int i) { if (_surface is not null) _surface.Mutate(SceneMutation.Distant, i); else { ToggleFirst(i); _last.SetText(i % 2 == 0 ? "omega" : "Omega"); } }
+        public void ToggleFull(int i) { if (_surface is not null) _surface.Mutate(SceneMutation.Full, i); else foreach (var row in _rows) row.SetText(new string(i % 2 == 0 ? 'x' : 'X', Math.Max(1, Terminal.Width))); }
+        public void ToggleCursor(int i) => (_surface ?? throw new InvalidOperationException()).Mutate(SceneMutation.Cursor, i);
+        public void ToggleStyle(int i) { if (_surface is not null) _surface.Mutate(SceneMutation.Style, i); else _first.SetStyle(i % 2 == 0 ? Theme.Default.Accent : Style.Default); }
+        public void ToggleWide(int i) => (_surface ?? throw new InvalidOperationException()).Mutate(SceneMutation.Wide, i);
+        public void ToggleLink(int i) => (_surface ?? throw new InvalidOperationException()).Mutate(SceneMutation.Link, i);
         public void ToggleVisibility(int i) { _visible = !_visible; _last.SetText(_visible ? "visible" : string.Empty); }
         public void Resize(int width, int height) => Terminal.Resize(width, height);
         public void Dispose() => _renderer.Dispose();
+    }
+
+    private enum SceneMutation { OneCell, OneRow, Distant, Full, Cursor, Style, Wide, Link }
+    private sealed class SceneSurface(int width, int height) : Component
+    {
+        private SceneMutation _mutation; private int _version;
+        private readonly TerminalHyperlink _linkA = CreateLink("https://a.example");
+        private readonly TerminalHyperlink _linkB = CreateLink("https://b.example");
+        public override ComponentDependencies Dependencies => new(RenderContextFields.None, RenderContextFields.None);
+        public void Mutate(SceneMutation mutation, int version) { _mutation = mutation; _version = version; InvalidatePaint(); }
+        public override Measurement Measure(in RenderContext context, LayoutConstraints constraints) => new(width, width, height);
+        public override void Render(in RenderContext context, ref DisplayListBuilder output)
+        {
+            var upper = (_version & 1) != 0;
+            if (_mutation == SceneMutation.Full)
+            {
+                for (var y = 0; y < height; y++) { output.MoveTo(0, y); output.WriteRepeated(upper ? 'X' : 'x', width, context.Theme.Text); }
+                return;
+            }
+            output.MoveTo(0, 0);
+            if (_mutation == SceneMutation.OneRow) output.Write(new string(upper ? 'R' : 'r', width), context.Theme.Text);
+            else if (_mutation == SceneMutation.Wide) output.Write(upper ? "語" : "界", context.Theme.Text);
+            else if (_mutation == SceneMutation.Link) output.Write("link", context.Theme.Text, new TerminalRunMetadata(upper ? _linkB : _linkA));
+            else output.Write(upper ? "Alpha" : "alpha", _mutation == SceneMutation.Style && upper ? context.Theme.Accent : context.Theme.Text);
+            if (_mutation == SceneMutation.Distant) { output.MoveTo(0, height - 1); output.Write(upper ? "Omega" : "omega", context.Theme.Text); }
+            if (_mutation == SceneMutation.Cursor) output.SetTerminalCursor(upper ? 1 : 0, 0);
+        }
+        private static TerminalHyperlink CreateLink(string destination) { TerminalHyperlinkPolicy.TryCreate(destination, out var link); return link!; }
     }
 
     private sealed class CaptureSink : IHpdTuiPerformanceEventSink { public TuiFrameDiagnostics? Last { get; private set; } public void Publish(Event evt) { if (evt is TuiFrameDiagnostics d) Last = d; } }

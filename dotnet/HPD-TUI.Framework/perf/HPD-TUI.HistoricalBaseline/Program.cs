@@ -23,15 +23,17 @@ foreach (var scenario in new[] { "warm-noop", "one-cell", "one-row", "full-scree
     Array.Sort(samples);
     results.Add(new { adapter = "hpd-tui-baseline", scenario, width, height, setupNs = 0, meanNs = samples.Average(), medianNs = samples[iterations / 2], p95Ns = samples[Math.Min(iterations - 1, (int)Math.Ceiling(iterations * .95) - 1)], allocatedBytes = GC.GetAllocatedBytesForCurrentThread() - before, outputBytes, cellsCompared = 0, rowsRasterized = (long)height * iterations, displayCommandsBuilt = 0, displayCommandsReused = 0, sink = "memory" });
 }
-Console.WriteLine(JsonSerializer.Serialize(new { schema = "hpd.tui.framework-comparison.v1", adapter = "hpd-tui-baseline", commit, environment = new { architecture = RuntimeInformation.ProcessArchitecture.ToString(), os = RuntimeInformation.OSDescription, runtime = RuntimeInformation.FrameworkDescription, warmupCount = warmup, iterationCount = iterations, corpusSeed = 0x485044 }, results }, new JsonSerializerOptions { WriteIndented = true }));
+var json = JsonSerializer.Serialize(new { schema = "hpd.tui.framework-comparison.v1", adapter = "hpd-tui-baseline", commit, environment = new { architecture = RuntimeInformation.ProcessArchitecture.ToString(), os = RuntimeInformation.OSDescription, runtime = RuntimeInformation.FrameworkDescription, warmupCount = warmup, iterationCount = iterations, corpusSeed = 0x485044 }, results }, new JsonSerializerOptions { WriteIndented = true });
+var output = Environment.GetEnvironmentVariable("BENCHMARK_OUTPUT");
+if (string.IsNullOrWhiteSpace(output)) Console.WriteLine(json); else File.WriteAllText(output, json);
 
-sealed class CaptureTerminal(int width, int height) : ITerminal, ITerminalInput
+sealed class CaptureTerminal(int width, int height) : ITerminal
 {
-    private int _width = width, _height = height; public long Bytes { get; private set; } public ITerminalInput Input => this;
+    private int _width = width, _height = height; public long Bytes { get; private set; }
     public TerminalSize GetSize() => new(_width, _height); public void Resize(int w, int h) { _width = w; _height = h; } public void Reset() => Bytes = 0;
     public void Write(ReadOnlySpan<char> text) => Bytes += Encoding.UTF8.GetByteCount(text); public void Flush() { } public void HideCursor() { } public void ShowCursor() { }
-    public ValueTask<TerminalInputEvent> ReadAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(TerminalInputEvent.Stop);
-    public void Dispose() { } public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    public bool TryReadKey(out HPD.TUI.Core.KeyEvent key) { key = default; return false; }
+    public void Dispose() { }
 }
 
 static class StringExtensions { public static string Repeat(this string value, int count) => string.Concat(Enumerable.Repeat(value, count)); }
