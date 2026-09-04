@@ -9,6 +9,7 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
     private Dictionary<ComponentId, ComponentSlice> _slices = [];
     private Dictionary<ComponentId, ComponentSlice> _buildingSlices = [];
     private readonly Stack<PendingSlice> _pendingSlices = [];
+    private readonly List<Layout.LayoutRect> _replayClips = [];
     private readonly Dictionary<ComponentId, ComponentRevisions> _committedRevisions = [];
     private bool[] _damagedRows = [];
     private int _commandsBuilt;
@@ -41,7 +42,7 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
             context.ColorSystem,
             (dependencies & RenderContextFields.Capabilities) != 0 ? context.Capabilities : default,
             (dependencies & RenderContextFields.Elapsed) != 0 ? context.Elapsed : default);
-        if (_operations.Count > 0 && key == _key && TreeMatches(root))
+        if (_operations.Count > 0 && key == _key && TreeMatches(root) && SurfaceVersionsMatch(_operations, 0, _operations.Count))
         {
             _commandsBuilt = 0;
             _commandsReused = _operations.Count;
@@ -84,65 +85,60 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
     }
 
     public void Replay(ISegmentSink destination)
+        => ReplayCore(destination, damagedOnly: false);
+
+    public void ReplayDamaged(ISegmentSink destination)
     {
-        var clips = new Stack<Layout.LayoutRect>();
+        if (destination is HPD.TUI.Terminal.TerminalGrid grid) grid.ClearTerminalCursor();
+        ReplayCore(destination, damagedOnly: true);
+    }
+
+    private void ReplayCore(ISegmentSink destination, bool damagedOnly)
+    {
+        var clips = _replayClips;
+        clips.Clear();
         foreach (var operation in _operations)
         {
             switch (operation.Kind)
             {
                 case DisplayOperationKind.Command when operation.Command.Kind == DisplayCommandKind.TextRun:
-                    ReplayText(destination, operation.Command, CurrentClip(clips));
+                    if (!damagedOnly || IntersectsDamage(EffectiveBounds(operation.Command.Bounds, CurrentClip(clips))))
+                        ReplayText(destination, operation.Command, CurrentClip(clips), damagedOnly ? _damagedRows : null);
                     break;
                 case DisplayOperationKind.LineBreak:
-                    destination.WriteLineBreak();
+                    if (!damagedOnly) destination.WriteLineBreak();
                     break;
                 case DisplayOperationKind.Move:
-                    destination.MoveTo(operation.X, operation.Y);
+                    if (!damagedOnly) destination.MoveTo(operation.X, operation.Y);
                     break;
                 case DisplayOperationKind.Command when operation.Command.Kind == DisplayCommandKind.SetCursor:
                     destination.SetTerminalCursor(operation.Command.Bounds.X, operation.Command.Bounds.Y);
                     break;
                 case DisplayOperationKind.Command when operation.Command.Kind == DisplayCommandKind.Fill:
-                    ReplayFill(destination, operation.Command, CurrentClip(clips));
+                    if (!damagedOnly || IntersectsDamage(EffectiveBounds(operation.Command.Bounds, CurrentClip(clips))))
+                        ReplayFill(destination, operation.Command, CurrentClip(clips), damagedOnly ? _damagedRows : null);
                     break;
                 case DisplayOperationKind.Command when operation.Command.Kind == DisplayCommandKind.Border:
-                    ReplayBorder(destination, operation.Command, CurrentClip(clips));
+                    if (!damagedOnly || IntersectsDamage(EffectiveBounds(operation.Command.Bounds, CurrentClip(clips))))
+                        ReplayBorder(destination, operation.Command, CurrentClip(clips), damagedOnly ? _damagedRows : null);
                     break;
                 case DisplayOperationKind.Command when operation.Command.Kind == DisplayCommandKind.ReplaySurface:
-                    operation.Command.Payload.Surface!.ReplayTo(destination, operation.Command.Bounds.X,
-                        operation.Command.Bounds.Y, CurrentClip(clips));
+                    if (!damagedOnly || IntersectsDamage(EffectiveBounds(operation.Command.Bounds, CurrentClip(clips))))
+                        ReplaySurface(destination, operation.Command, CurrentClip(clips), damagedOnly ? _damagedRows : null);
                     break;
                 case DisplayOperationKind.Command when operation.Command.Kind == DisplayCommandKind.PushClip:
-                    clips.Push(clips.Count == 0 ? operation.Command.Bounds : Intersect(clips.Peek(), operation.Command.Bounds));
+                    clips.Add(clips.Count == 0 ? operation.Command.Bounds : Intersect(clips[^1], operation.Command.Bounds));
                     break;
                 case DisplayOperationKind.Command when operation.Command.Kind == DisplayCommandKind.PopClip:
                     if (clips.Count == 0) throw new InvalidOperationException("Display-list clip stack underflow.");
-                    clips.Pop();
+                    clips.RemoveAt(clips.Count - 1);
                     break;
             }
         }
         if (clips.Count != 0) throw new InvalidOperationException("Display-list clip stack was not balanced.");
     }
 
-    public void ReplayDamaged(ISegmentSink destination)
-    {
-        if (destination is HPD.TUI.Terminal.TerminalGrid grid) grid.ClearTerminalCursor();
-        foreach (var operation in _operations)
-        {
-            if (operation.Kind != DisplayOperationKind.Command) continue;
-            var command = operation.Command;
-            if (command.Kind == DisplayCommandKind.SetCursor)
-            {
-                destination.SetTerminalCursor(command.Bounds.X, command.Bounds.Y);
-                continue;
-            }
-            if (command.Kind != DisplayCommandKind.TextRun || !IntersectsDamage(command.Bounds)) continue;
-            destination.MoveTo(command.Bounds.X, command.Bounds.Y);
-            WritePayload(destination, command.Payload, command.Style, command.Metadata);
-        }
-    }
-
-    private static void ReplayFill(ISegmentSink destination, DisplayCommand command, Layout.LayoutRect? clip)
+    private static void ReplayFill(ISegmentSink destination, DisplayCommand command, Layout.LayoutRect? clip, bool[]? damagedRows)
     {
         var region = clip is { } clipping ? Intersect(command.Bounds, clipping) : command.Bounds;
         if (region.IsEmpty) return;
@@ -151,6 +147,7 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
         chunk.Fill(glyph);
         for (var row = region.Y; row < region.Bottom; row++)
         {
+            if (damagedRows is not null && (row < 0 || row >= damagedRows.Length || !damagedRows[row])) continue;
             destination.MoveTo(region.X, row);
             var remaining = region.Width;
             while (remaining > 0)
@@ -162,10 +159,13 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
         }
     }
 
-    private static void ReplayText(ISegmentSink destination, DisplayCommand command, Layout.LayoutRect? clip)
+    private static void ReplayText(ISegmentSink destination, DisplayCommand command, Layout.LayoutRect? clip, bool[]? damagedRows)
     {
+        if (damagedRows is not null && (command.Bounds.Y < 0 || command.Bounds.Y >= damagedRows.Length || !damagedRows[command.Bounds.Y]))
+            return;
         if (clip is null)
         {
+            destination.MoveTo(command.Bounds.X, command.Bounds.Y);
             WritePayload(destination, command.Payload, command.Style, command.Metadata);
             return;
         }
@@ -190,7 +190,7 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
         }
     }
 
-    private static void ReplayBorder(ISegmentSink destination, DisplayCommand command, Layout.LayoutRect? clip)
+    private static void ReplayBorder(ISegmentSink destination, DisplayCommand command, Layout.LayoutRect? clip, bool[]? damagedRows)
     {
         var bounds = command.Bounds;
         if (bounds.IsEmpty) return;
@@ -207,6 +207,7 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
         }
         void Write(int x, int y)
         {
+            if (damagedRows is not null && (y < 0 || y >= damagedRows.Length || !damagedRows[y])) return;
             if (clip is { } region && (x < region.X || x >= region.Right || y < region.Y || y >= region.Bottom)) return;
             destination.MoveTo(x, y);
             Span<char> text = stackalloc char[1];
@@ -215,7 +216,25 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
         }
     }
 
-    private static Layout.LayoutRect? CurrentClip(Stack<Layout.LayoutRect> clips) => clips.Count == 0 ? null : clips.Peek();
+    private static void ReplaySurface(ISegmentSink destination, DisplayCommand command, Layout.LayoutRect? clip, bool[]? damagedRows)
+    {
+        var effectiveClip = clip;
+        if (damagedRows is not null)
+        {
+            for (var row = Math.Max(0, command.Bounds.Y); row < Math.Min(damagedRows.Length, command.Bounds.Bottom); row++)
+            {
+                if (!damagedRows[row]) continue;
+                var rowClip = new Layout.LayoutRect(command.Bounds.X, row, command.Bounds.Width, 1);
+                rowClip = effectiveClip is { } clipping ? Intersect(rowClip, clipping) : rowClip;
+                if (!rowClip.IsEmpty)
+                    command.Payload.Surface!.ReplayTo(destination, command.Bounds.X, command.Bounds.Y, rowClip);
+            }
+            return;
+        }
+        command.Payload.Surface!.ReplayTo(destination, command.Bounds.X, command.Bounds.Y, effectiveClip);
+    }
+
+    private static Layout.LayoutRect? CurrentClip(List<Layout.LayoutRect> clips) => clips.Count == 0 ? null : clips[^1];
 
     private static void WritePayload(ISegmentSink destination, DisplayPayload payload, Style style, TerminalRunMetadata metadata)
     {
@@ -236,6 +255,9 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
         var bottom = Math.Min(left.Bottom, right.Bottom);
         return new Layout.LayoutRect(x, y, Math.Max(0, rightEdge - x), Math.Max(0, bottom - y));
     }
+
+    private static Layout.LayoutRect EffectiveBounds(Layout.LayoutRect bounds, Layout.LayoutRect? clip) =>
+        clip is { } clipping ? Intersect(bounds, clipping) : bounds;
 
     public bool Write(scoped ReadOnlySpan<char> text, Style style, TerminalRunMetadata metadata = default)
     {
@@ -308,7 +330,7 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
 
     public void RecordCommand(DisplayCommand command)
     {
-        _building.Add(new DisplayOperation(DisplayOperationKind.Command, command, 0, 0));
+        _building.Add(CreateOperation(command));
         _commandsBuilt++;
     }
 
@@ -316,7 +338,8 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
     {
         var key = CreateSliceKey(component, in context, maxWidth);
         if (!_slices.TryGetValue(component.Lifecycle.Id, out var slice) ||
-            slice.Key != key || slice.StartX != _cursorX || slice.StartY != _cursorY || !TreeMatches(component))
+            slice.Key != key || slice.StartX != _cursorX || slice.StartY != _cursorY || !TreeMatches(component) ||
+            !SurfaceVersionsMatch(_operations, slice.Start, slice.Count))
         {
             commandCount = 0;
             return false;
@@ -411,12 +434,23 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
         DamagedRowCount = 0;
         RequiresFullRaster = _building.Count == 0;
         if (RequiresFullRaster) { MarkAll(); return; }
+        // A surface payload is intentionally a live retained object. Its command value can remain
+        // structurally identical while the pixels behind it advance, so damage the old placement
+        // independently of ordinary command comparison.
+        foreach (var operation in _building)
+            if (operation.Command.Kind == DisplayCommandKind.ReplaySurface &&
+                operation.Command.Payload.Surface!.CacheRevision != operation.SurfaceRevision)
+                Mark(operation);
         var common = Math.Min(_operations.Count, _building.Count);
         for (var index = 0; index < common; index++)
         {
-            if (_operations[index] == _building[index]) continue;
-            Mark(_operations[index]);
-            Mark(_building[index]);
+            var current = _operations[index];
+            var previous = _building[index];
+            if (current == previous &&
+                (current.Command.Kind != DisplayCommandKind.ReplaySurface ||
+                 current.SurfaceRevision == previous.SurfaceRevision)) continue;
+            Mark(current);
+            Mark(previous);
         }
         for (var index = common; index < _operations.Count; index++) Mark(_operations[index]);
         for (var index = common; index < _building.Count; index++) Mark(_building[index]);
@@ -441,13 +475,7 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
 
         void Mark(DisplayOperation operation)
         {
-            if (operation.Kind != DisplayOperationKind.Command) { RequiresFullRaster = true; MarkAll(); return; }
-            if (operation.Command.Kind is not DisplayCommandKind.TextRun and not DisplayCommandKind.SetCursor)
-            {
-                RequiresFullRaster = true;
-                MarkAll();
-                return;
-            }
+            if (operation.Kind != DisplayOperationKind.Command) return;
             var bounds = operation.Command.Bounds;
             var start = Math.Clamp(bounds.Y, 0, height);
             var wrappedRows = operation.Command.Kind == DisplayCommandKind.TextRun && _key.Width > 0
@@ -463,6 +491,22 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
             Array.Fill(_damagedRows, true);
             DamagedRowCount = height;
         }
+    }
+
+    private static DisplayOperation CreateOperation(DisplayCommand command) =>
+        new(DisplayOperationKind.Command, command, 0, 0,
+            command.Kind == DisplayCommandKind.ReplaySurface ? command.Payload.Surface!.CacheRevision : default);
+
+    private static bool SurfaceVersionsMatch(List<DisplayOperation> operations, int start, int count)
+    {
+        for (var index = start; index < start + count; index++)
+        {
+            var operation = operations[index];
+            if (operation.Command.Kind == DisplayCommandKind.ReplaySurface &&
+                operation.Command.Payload.Surface!.CacheRevision != operation.SurfaceRevision)
+                return false;
+        }
+        return true;
     }
 
     private bool IntersectsDamage(Layout.LayoutRect bounds)
@@ -488,7 +532,8 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
         TerminalCapabilities Capabilities,
         TimeSpan Elapsed);
 
-    private readonly record struct DisplayOperation(DisplayOperationKind Kind, DisplayCommand Command, int X, int Y);
+    private readonly record struct DisplayOperation(
+        DisplayOperationKind Kind, DisplayCommand Command, int X, int Y, SurfaceRevisionIdentity SurfaceRevision = default);
 
     private readonly record struct ComponentSliceKey(
         ulong TreeRevision, SurfaceIdentity Surface, int Width, int Height, ThemeKey Theme,

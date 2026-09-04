@@ -8,6 +8,7 @@ public sealed class TuiSurface : IDisposable
 {
     private readonly TerminalGrid _grid;
     private ulong _revision = 1;
+    private ulong _revisionEpoch = 1;
 
     /// <summary>Creates an empty retained surface.</summary>
     /// <param name="width">Surface width in terminal columns.</param>
@@ -22,6 +23,8 @@ public sealed class TuiSurface : IDisposable
 
     /// <summary>Gets the revision of the currently captured pixels.</summary>
     public TuiRevision Revision => new(_revision);
+
+    internal SurfaceRevisionIdentity CacheRevision => new(_revisionEpoch, _revision);
 
     internal TerminalGrid Grid => _grid;
     internal long EstimatedByteSize => _grid.EstimatedByteSize;
@@ -53,9 +56,19 @@ public sealed class TuiSurface : IDisposable
         var displayList = new RetainedDisplayList();
         displayList.Prepare(component, in context, Width);
         displayList.Replay(_grid);
-        _revision = _revision == ulong.MaxValue ? 1 : _revision + 1;
+        if (_revision == ulong.MaxValue)
+        {
+            _revisionEpoch = _revisionEpoch == ulong.MaxValue ? 1 : _revisionEpoch + 1;
+            _revision = 1;
+        }
+        else
+        {
+            _revision++;
+        }
     }
 
     /// <summary>Returns the retained buffers to their pools.</summary>
     public void Dispose() => _grid.Dispose();
 }
+
+internal readonly record struct SurfaceRevisionIdentity(ulong Epoch, ulong Revision);
