@@ -67,6 +67,31 @@ public sealed class TuiRendererTests
         Assert.DoesNotContain("\x1b[1;1H", terminal.Output);
     }
 
+    [Fact]
+    public void Render_StableComponentReplaysRetainedDisplayList()
+    {
+        using var terminal = new TestTerminal(20, 4);
+        using var renderer = new TuiRenderer(terminal);
+        var component = new CountingComponent();
+
+        renderer.Render(component);
+        renderer.Render(component);
+
+        Assert.Equal(1, component.RenderCount);
+    }
+
+    private sealed class CountingComponent : Component
+    {
+        public int RenderCount { get; private set; }
+        public override ComponentDependencies Dependencies => new(RenderContextFields.None, RenderContextFields.None);
+        public override Measurement Measure(in RenderContext context, int maxWidth) => new(1, 1, 1);
+        public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        {
+            RenderCount++;
+            output.Write('x', context.Theme.Text);
+        }
+    }
+
     private sealed class TestTerminal : ITerminal, ITerminalInput
     {
         private readonly StringBuilder _output = new();

@@ -14,6 +14,7 @@ public sealed class TuiRenderer : IDisposable
     private readonly ITerminalOutputTransport _transport;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly AnsiFrameWriter _output = new();
+    private readonly RetainedDisplayList _displayList = new();
     private ScreenBuffer? _currentScreen;
     private ScreenBuffer? _previousScreen;
     private bool _hasPreviousFrame;
@@ -48,8 +49,8 @@ public sealed class TuiRenderer : IDisposable
         var context = new RenderContext(size.Width, size.Height, theme ?? Theme.Default, elapsed: _clock.Elapsed);
         _currentScreen!.Clear();
 
-        var writer = new SegmentWriter(_currentScreen.Grid);
-        root.Render(in context, size.Width, ref writer);
+        var cacheHit = _displayList.Prepare(root, in context, size.Width);
+        _displayList.Replay(_currentScreen.Grid);
         _currentScreen.ComputeFinalRowFingerprints();
         var usedLines = TuiCapture.GetUsedLineCount(_currentScreen.Grid);
 
@@ -68,12 +69,12 @@ public sealed class TuiRenderer : IDisposable
             AppendCursorState(_currentScreen.Grid, _output);
         if (_output.Length == 0)
         {
-            PublishRenderCompleted(sink, "terminal-grid", startTimestamp, usedLines, writer.Count);
+            PublishRenderCompleted(sink, "terminal-grid", startTimestamp, usedLines, _displayList.Count, cacheHit);
             (_currentScreen, _previousScreen) = (_previousScreen, _currentScreen);
             return;
         }
         PublishFrame();
-        PublishRenderCompleted(sink, "terminal-grid", startTimestamp, usedLines, writer.Count);
+        PublishRenderCompleted(sink, "terminal-grid", startTimestamp, usedLines, _displayList.Count, cacheHit);
         (_currentScreen, _previousScreen) = (_previousScreen, _currentScreen);
         _hasPreviousFrame = true;
     }
@@ -94,7 +95,8 @@ public sealed class TuiRenderer : IDisposable
         string surface,
         long startTimestamp,
         int rowsRendered,
-        int segmentsWritten)
+        int segmentsWritten,
+        bool cacheHit)
     {
         if (sink is null)
         {
@@ -106,8 +108,8 @@ public sealed class TuiRenderer : IDisposable
             Stopwatch.GetElapsedTime(startTimestamp),
             rowsRendered,
             segmentsWritten,
-            CacheHits: 0,
-            CacheMisses: 0));
+            CacheHits: cacheHit ? 1 : 0,
+            CacheMisses: cacheHit ? 0 : 1));
     }
 
     private static void AppendCursorState(TerminalGrid grid, AnsiFrameWriter output)

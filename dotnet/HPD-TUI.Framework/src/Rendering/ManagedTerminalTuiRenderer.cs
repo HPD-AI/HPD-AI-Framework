@@ -18,6 +18,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
     private readonly ITerminalOutputTransport _transport;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly AnsiFrameWriter _output = new();
+    private readonly RetainedDisplayList _displayList = new();
     private ScreenBuffer? _currentBuffer;
     private ScreenBuffer? _previousBuffer;
     private int _previousWidth;
@@ -64,8 +65,8 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
 
         _currentBuffer!.Clear();
         var context = new RenderContext(size.Width, size.Height, theme ?? Theme.Default, elapsed: _clock.Elapsed);
-        var writer = new SegmentWriter(_currentBuffer.Grid);
-        root.Render(in context, size.Width, ref writer);
+        var cacheHit = _displayList.Prepare(root, in context, size.Width);
+        _displayList.Replay(_currentBuffer.Grid);
         _currentBuffer.ComputeFinalRowFingerprints();
 
         var usedLines = TuiCapture.GetUsedLineCount(_currentBuffer.Grid);
@@ -73,21 +74,21 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         if (scrollback is not null)
         {
             FullRender(size, usedLines, FullRenderClearMode.Screen, scrollback);
-            PublishRenderCompleted(sink, startTimestamp, usedLines, writer.Count);
+            PublishRenderCompleted(sink, startTimestamp, usedLines, _displayList.Count, cacheHit);
             return;
         }
 
         if (!hadPreviousFrame && !sizeChanged)
         {
             FullRender(size, usedLines, FullRenderClearMode.Screen);
-            PublishRenderCompleted(sink, startTimestamp, usedLines, writer.Count);
+            PublishRenderCompleted(sink, startTimestamp, usedLines, _displayList.Count, cacheHit);
             return;
         }
 
         if (sizeChanged)
         {
             FullRender(size, usedLines, FullRenderClearMode.Screen);
-            PublishRenderCompleted(sink, startTimestamp, usedLines, writer.Count);
+            PublishRenderCompleted(sink, startTimestamp, usedLines, _displayList.Count, cacheHit);
             return;
         }
 
@@ -98,12 +99,12 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         {
             PublishCursorOnlyIfChanged(_currentBuffer.Grid, usedLines);
             CommitFrame(size, usedLines);
-            PublishRenderCompleted(sink, startTimestamp, usedLines, writer.Count);
+            PublishRenderCompleted(sink, startTimestamp, usedLines, _displayList.Count, cacheHit);
             return;
         }
 
         PatchChangedRuns(size, usedLines);
-        PublishRenderCompleted(sink, startTimestamp, usedLines, writer.Count);
+        PublishRenderCompleted(sink, startTimestamp, usedLines, _displayList.Count, cacheHit);
     }
 
     private void PatchChangedRuns(TerminalSize size, int usedLines)
@@ -124,7 +125,8 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         IHpdTuiPerformanceEventSink? sink,
         long startTimestamp,
         int rowsRendered,
-        int segmentsWritten)
+        int segmentsWritten,
+        bool cacheHit)
     {
         if (sink is null)
         {
@@ -136,8 +138,8 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
             Stopwatch.GetElapsedTime(startTimestamp),
             rowsRendered,
             segmentsWritten,
-            CacheHits: 0,
-            CacheMisses: 0));
+            CacheHits: cacheHit ? 1 : 0,
+            CacheMisses: cacheHit ? 0 : 1));
     }
 
     private void FullRender(TerminalSize size, int usedLines, FullRenderClearMode clearMode, ScrollbackBatch? scrollback = null)
