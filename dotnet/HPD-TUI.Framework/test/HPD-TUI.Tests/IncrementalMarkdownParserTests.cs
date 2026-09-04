@@ -80,6 +80,23 @@ public sealed class IncrementalMarkdownParserTests
         Assert.True(allocated >= source.Length * sizeof(char));
     }
 
+    [Fact]
+    public void InitialParse_PreservesCallerSourceIdentity_WithoutCachingAppendedMaterialization()
+    {
+        var original = new string("cold source".AsSpan());
+        var parser = new ConservativeIncrementalMarkdownParser();
+        var options = new MarkdownParseOptions { Pipeline = MarkdownPipelineFactory.CreateDefault() };
+        var initial = parser.ParseInitial(original.AsMemory(), options);
+
+        Assert.Same(original, initial.Document.Source);
+
+        var appended = parser.Append(initial, "\n\ntail".AsMemory(), terminal: false);
+        var first = appended.Document.Source;
+        var second = appended.Document.Source;
+        Assert.Equal(first, second);
+        Assert.NotSame(first, second);
+    }
+
     private sealed class RecordingParser(IMarkdownDocumentParser inner) : IMarkdownDocumentParser
     {
         public int MaximumSourceLength { get; private set; }

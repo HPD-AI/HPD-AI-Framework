@@ -6,10 +6,11 @@ internal sealed class MarkdownSourceText
     private readonly MarkdownSourceText? _left;
     private readonly MarkdownSourceText? _right;
     private readonly ReadOnlyMemory<char> _memory;
+    private readonly string? _originalSource;
     private readonly int _height;
 
-    private MarkdownSourceText(ReadOnlyMemory<char> memory)
-    { _memory = memory; Length = memory.Length; _height = 1; }
+    private MarkdownSourceText(ReadOnlyMemory<char> memory, string? originalSource = null)
+    { _memory = memory; _originalSource = originalSource; Length = memory.Length; _height = 1; }
 
     private MarkdownSourceText(MarkdownSourceText left, MarkdownSourceText right)
     { _left = left; _right = right; Length = checked(left.Length + right.Length); _height = Math.Max(left._height, right._height) + 1; }
@@ -18,7 +19,7 @@ internal sealed class MarkdownSourceText
     internal static MarkdownSourceText FromString(string source)
     {
         ArgumentNullException.ThrowIfNull(source);
-        return source.Length == 0 ? Empty : new(source.AsMemory());
+        return source.Length == 0 ? Empty : new(source.AsMemory(), source);
     }
     internal int Length { get; }
     internal long RetainedBytes => (long)Length * sizeof(char);
@@ -50,7 +51,7 @@ internal sealed class MarkdownSourceText
         return string.Create(length, (Text: this, Start: start), static (destination, state) => state.Text.CopyTo(state.Start, destination));
     }
 
-    internal string Materialize() => Slice(0, Length);
+    internal string Materialize() => _originalSource ?? Slice(0, Length);
 
     private static MarkdownSourceText Concat(MarkdownSourceText left, MarkdownSourceText right)
     {
@@ -59,12 +60,20 @@ internal sealed class MarkdownSourceText
         if (left._height > right._height + 1)
         {
             var ll = left._left!; var lr = left._right!;
-            return ll._height >= lr._height ? new(ll, new(lr, right)) : new(new(ll, lr._left!), new(lr._right!, right));
+            return ll._height >= lr._height
+                ? new MarkdownSourceText(ll, new MarkdownSourceText(lr, right))
+                : new MarkdownSourceText(
+                    new MarkdownSourceText(ll, lr._left!),
+                    new MarkdownSourceText(lr._right!, right));
         }
         if (right._height > left._height + 1)
         {
             var rl = right._left!; var rr = right._right!;
-            return rr._height >= rl._height ? new(new(left, rl), rr) : new(new(left, rl._left!), new(rl._right!, rr));
+            return rr._height >= rl._height
+                ? new MarkdownSourceText(new MarkdownSourceText(left, rl), rr)
+                : new MarkdownSourceText(
+                    new MarkdownSourceText(left, rl._left!),
+                    new MarkdownSourceText(rl._right!, rr));
         }
         return new(left, right);
     }
