@@ -9,6 +9,28 @@ namespace HPD.TUI.Tests;
 public sealed class RetainedDisplayListScalingTests
 {
     [Fact]
+    public void WarmingOneCellMutation_PrepareAndDamageReplayAllocateNothing()
+    {
+        var component = new MutableCharacter();
+        var context = new RenderContext(8, 2, Theme.Default);
+        using var list = new RetainedDisplayList();
+        using var grid = new TerminalGrid(8, 2);
+        list.Prepare(component, in context, 8);
+        list.Replay(grid);
+        component.Change();
+        list.Prepare(component, in context, 8);
+        list.ReplayDamaged(grid);
+        component.Change();
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        list.Prepare(component, in context, 8);
+        list.ReplayDamaged(grid);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
     public void WarmingLargeTree_NoOpReadsOnlyRootStamp()
     {
         var leaves = Enumerable.Range(0, 2_000).Select(_ => new Probe()).ToArray();
@@ -64,6 +86,15 @@ public sealed class RetainedDisplayListScalingTests
         public override ComponentDependencies Dependencies { get { DependencyReads++; return new(RenderContextFields.None, RenderContextFields.None); } }
         public override Measurement Measure(in RenderContext context, LayoutConstraints constraints) => new(1, 1, 1);
         public override void Render(in RenderContext context, ref DisplayListBuilder output) => output.Write('x', Style.Default);
+    }
+
+    private sealed class MutableCharacter : Component
+    {
+        private char _value = 'a';
+        public override ComponentDependencies Dependencies => new(RenderContextFields.None, RenderContextFields.None);
+        public void Change() { _value++; InvalidatePaint(); }
+        public override Measurement Measure(in RenderContext context, LayoutConstraints constraints) => new(1, 1, 1);
+        public override void Render(in RenderContext context, ref DisplayListBuilder output) => output.Write(_value, Style.Default);
     }
 
     private sealed class Row : Component
