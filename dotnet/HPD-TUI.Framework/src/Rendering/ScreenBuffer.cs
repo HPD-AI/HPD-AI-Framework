@@ -42,6 +42,15 @@ internal sealed class ScreenBuffer : IDisposable
         source._rowFingerprints!.AsSpan(0, Height).CopyTo(_rowFingerprints);
     }
 
+    public void CopyRowsFrom(ScreenBuffer source, ReadOnlySpan<int> rows)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ObjectDisposedException.ThrowIf(_rowFingerprints is null, this);
+        Grid.CopyRowsFrom(source.Grid, rows);
+        foreach (var row in rows)
+            _rowFingerprints[row] = source._rowFingerprints![row];
+    }
+
     public void ClearDamagedRows(ReadOnlySpan<bool> damagedRows)
     {
         ObjectDisposedException.ThrowIf(_rowFingerprints is null, this);

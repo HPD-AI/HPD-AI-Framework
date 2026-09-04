@@ -429,7 +429,7 @@ public sealed class ManagedTerminalTuiRendererTests
 
         sink.Publish(new TuiFrameDiagnostics(
             TimeSpan.Zero, TimeSpan.Zero, TimeSpan.FromMilliseconds(4.25), TimeSpan.Zero,
-            TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, 1, 1, 2, 0, 3, 0, 3, 2, 4,
+            TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, 1, 1, 2, 0, 3, 0, 3, 2, 12, 4,
             20, FullRepaint: false, Backpressured: false));
 
         Assert.Contains("display=4.25ms", writer.ToString());

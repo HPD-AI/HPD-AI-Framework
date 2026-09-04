@@ -208,7 +208,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
             }
             if (!screenChanged)
             {
-                _lastDiffMetrics = new(0, rejected, compared, 0, 0);
+                _lastDiffMetrics = new(0, rejected, compared, 0, 0, compared * size.Width);
                 PublishCursorOnlyIfChanged(_currentBuffer.Grid, usedLines);
                 CommitFrame(size, usedLines);
                 PublishRenderCompleted(sink, startTimestamp, displayDuration, rasterDuration, false, frameInstrumentation);
@@ -414,6 +414,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
             RowsFingerprintRejected: _lastDiffMetrics.RowsFingerprintRejected,
             RowsSemanticallyCompared: _lastDiffMetrics.RowsSemanticallyCompared,
             ChangedRuns: _lastDiffMetrics.ChangedRuns,
+            CellsCompared: _lastDiffMetrics.CellsCompared,
             CellsChanged: _lastDiffMetrics.CellsChanged,
             OutputCharacters: _lastOutputCharacters,
             FullRepaint: _lastFullRepaint,
@@ -429,7 +430,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
     {
         const int viewportTop = 0;
         _lastFullRepaint = true;
-        _lastDiffMetrics = new(size.Height, 0, 0, size.Height, size.Width * size.Height);
+        _lastDiffMetrics = new(size.Height, 0, 0, size.Height, size.Width * size.Height, size.Width * size.Height);
         var acceptedHardwareCursorRow = Math.Max(0, usedLines - 1);
         var watermark = scrollback is null
             ? _publisher.State.CommittedWatermark

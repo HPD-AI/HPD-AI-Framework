@@ -90,6 +90,14 @@ internal static class AnsiGridRenderer
     }
 
     public static ScreenDiffMetrics WriteDifferential(ScreenBuffer previous, ScreenBuffer current, AnsiFrameWriter output)
+        => WriteDifferential(previous, current, output, default);
+
+    /// <summary>Writes a differential for rows whose raster content may have changed.</summary>
+    public static ScreenDiffMetrics WriteDifferential(
+        ScreenBuffer previous,
+        ScreenBuffer current,
+        AnsiFrameWriter output,
+        ReadOnlySpan<bool> damagedRows)
     {
         ArgumentNullException.ThrowIfNull(previous);
         ArgumentNullException.ThrowIfNull(current);
@@ -98,7 +106,7 @@ internal static class AnsiGridRenderer
         if (previous.Width != current.Width || previous.Height != current.Height)
         {
             WriteFull(current.Grid, output);
-            return new(current.Height, 0, 0, current.Height, current.Width * current.Height);
+            return new(current.Height, 0, 0, current.Height, current.Width * current.Height, current.Width * current.Height);
         }
 
         Style? activeStyle = null;
@@ -110,6 +118,8 @@ internal static class AnsiGridRenderer
         var changedCells = 0;
         for (var row = 0; row < current.Height; row++)
         {
+            if (!damagedRows.IsEmpty && !damagedRows[row])
+                continue;
             comparedRows++;
             if (current.RowEquals(previous, row))
             {
@@ -149,7 +159,7 @@ internal static class AnsiGridRenderer
 
         if (activeStyle is not null)
             output.Write(ResetSequence);
-        return new(changedRows, rejectedRows, comparedRows, changedRuns, changedCells);
+        return new(changedRows, rejectedRows, comparedRows, changedRuns, changedCells, comparedRows * current.Width);
     }
 
     private static int FindLeadingColumn(TerminalGrid previous, TerminalGrid current, int column, int row)
@@ -310,4 +320,5 @@ internal readonly record struct ScreenDiffMetrics(
     int RowsFingerprintRejected,
     int RowsSemanticallyCompared,
     int ChangedRuns,
-    int CellsChanged);
+    int CellsChanged,
+    int CellsCompared);

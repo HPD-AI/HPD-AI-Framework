@@ -100,6 +100,51 @@ public sealed class TerminalGrid : ISegmentSink, IDisposable
         TerminalCursorY = source.TerminalCursorY;
     }
 
+    /// <summary>
+    /// Synchronizes selected rows from another equally sized grid without copying the
+    /// untouched frame. This is the double-buffer catch-up path used by the retained
+    /// compositor: a buffer reused on frame N only differs from frame N-1 in the rows
+    /// rasterized on frame N-1.
+    /// </summary>
+    internal void CopyRowsFrom(TerminalGrid source, ReadOnlySpan<int> rows)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ThrowIfDisposed();
+        source.ThrowIfDisposed();
+        if (Width != source.Width || Height != source.Height)
+            throw new ArgumentException("Terminal grids must have identical dimensions.", nameof(source));
+
+        CompactGraphemesIfNeeded(checked(Width * rows.Length * 4));
+        foreach (var row in rows)
+        {
+            if ((uint)row >= (uint)Height)
+                throw new ArgumentOutOfRangeException(nameof(rows));
+
+            var rowStart = row * Width;
+            for (var column = 0; column < Width; column++)
+            {
+                var sourceCell = source._cells![rowStart + column];
+                if (sourceCell.IsContinuation)
+                    continue;
+
+                var hyperlink = source.GetHyperlink(sourceCell);
+                var hyperlinkId = ResolveOrRegister(hyperlink);
+                var grapheme = source.GetGrapheme(sourceCell);
+                var offset = sourceCell.GraphemeLength == 0 ? 0 : Append(grapheme);
+                var copied = sourceCell with { GraphemeOffset = offset, HyperlinkId = hyperlinkId };
+                _cells![rowStart + column] = copied;
+                for (var continuation = 1; continuation < copied.DisplayWidth && column + continuation < Width; continuation++)
+                    _cells[rowStart + column + continuation] = copied with { IsContinuation = true };
+            }
+        }
+
+        _cursorX = source._cursorX;
+        _cursorY = source._cursorY;
+        HasTerminalCursor = source.HasTerminalCursor;
+        TerminalCursorX = source.TerminalCursorX;
+        TerminalCursorY = source.TerminalCursorY;
+    }
+
     internal void ClearRow(int row)
     {
         ThrowIfDisposed();
@@ -261,6 +306,40 @@ public sealed class TerminalGrid : ISegmentSink, IDisposable
         grapheme.CopyTo(_graphemes.AsSpan(offset));
         _graphemeLength += grapheme.Length;
         return offset;
+    }
+
+    private void CompactGraphemesIfNeeded(int additionalLength)
+    {
+        var retainedLimit = checked(Width * Height * 8);
+        if (_graphemeLength + additionalLength <= retainedLimit) return;
+
+        var replacement = _characterPool.Rent(Math.Max(256, checked(Width * Height * 2)));
+        var replacementLength = 0;
+        for (var row = 0; row < Height; row++)
+        {
+            var rowStart = row * Width;
+            for (var column = 0; column < Width; column++)
+            {
+                var cell = _cells![rowStart + column];
+                if (cell.IsContinuation || cell.GraphemeLength == 0) continue;
+                if (replacementLength + cell.GraphemeLength > replacement.Length)
+                {
+                    var grown = _characterPool.Rent(Math.Max(replacementLength + cell.GraphemeLength, replacement.Length * 2));
+                    replacement.AsSpan(0, replacementLength).CopyTo(grown);
+                    _characterPool.Return(replacement, clearArray: true);
+                    replacement = grown;
+                }
+                _graphemes!.AsSpan(cell.GraphemeOffset, cell.GraphemeLength).CopyTo(replacement.AsSpan(replacementLength));
+                var rewritten = cell with { GraphemeOffset = replacementLength };
+                _cells[rowStart + column] = rewritten;
+                for (var continuation = 1; continuation < rewritten.DisplayWidth && column + continuation < Width; continuation++)
+                    _cells[rowStart + column + continuation] = rewritten with { IsContinuation = true };
+                replacementLength += cell.GraphemeLength;
+            }
+        }
+        _characterPool.Return(_graphemes!, clearArray: true);
+        _graphemes = replacement;
+        _graphemeLength = replacementLength;
     }
 
     private void EnsureCapacity(int additional)

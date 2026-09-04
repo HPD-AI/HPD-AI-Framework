@@ -93,6 +93,7 @@ public abstract record HpdTuiPerformanceEvent : Event, IHpdTuiPerformanceSummary
 /// <param name="RowsFingerprintRejected">Rows rejected as unchanged by semantic fingerprints and equality.</param>
 /// <param name="RowsSemanticallyCompared">Rows subjected to semantic comparison.</param>
 /// <param name="ChangedRuns">Disjoint changed runs encoded by the frame.</param>
+/// <param name="CellsCompared">Cells covered by rows subjected to semantic comparison.</param>
 /// <param name="CellsChanged">Cells covered by changed runs.</param>
 /// <param name="OutputCharacters">Encoded characters offered to the transport.</param>
 /// <param name="FullRepaint">Whether publication rebuilt the complete physical screen.</param>
@@ -113,6 +114,7 @@ public sealed record TuiFrameDiagnostics(
     int RowsFingerprintRejected,
     int RowsSemanticallyCompared,
     int ChangedRuns,
+    int CellsCompared,
     int CellsChanged,
     int OutputCharacters,
     bool FullRepaint,

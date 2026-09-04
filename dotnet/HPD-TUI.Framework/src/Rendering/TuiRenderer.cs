@@ -17,6 +17,8 @@ public sealed class TuiRenderer : IDisposable
     private readonly RetainedDisplayList _displayList = new();
     private ScreenBuffer? _currentScreen;
     private ScreenBuffer? _previousScreen;
+    private int[] _previousDamagedRows = [];
+    private int _previousDamagedRowCount;
     private bool _hasPreviousFrame;
     private bool _terminalCertain = true;
     private bool _disposed;
@@ -83,7 +85,10 @@ public sealed class TuiRenderer : IDisposable
         var rasterStart = sink is null ? 0 : Stopwatch.GetTimestamp();
         if (_hasPreviousFrame && !_displayList.RequiresFullRaster)
         {
-            _currentScreen!.CopyFrom(_previousScreen!);
+            // The reusable buffer contains frame N-2. Only the rows rasterized for
+            // frame N-1 can differ, so catch those rows up instead of cloning the
+            // complete screen on every small mutation.
+            _currentScreen!.CopyRowsFrom(_previousScreen!, _previousDamagedRows.AsSpan(0, _previousDamagedRowCount));
             _currentScreen.ClearDamagedRows(_displayList.DamagedRows);
             _displayList.ReplayDamaged(_currentScreen.Grid);
             _currentScreen.ComputeFinalRowFingerprints(_displayList.DamagedRows);
@@ -106,11 +111,11 @@ public sealed class TuiRenderer : IDisposable
         {
             _output.Write(ClearScreenAndCursorHome);
             AnsiGridRenderer.WriteFull(_currentScreen.Grid, _output);
-            metrics = new(size.Height, 0, 0, size.Height, size.Width * size.Height);
+            metrics = new(size.Height, 0, 0, size.Height, size.Width * size.Height, size.Width * size.Height);
         }
         else
         {
-            metrics = AnsiGridRenderer.WriteDifferential(_previousScreen!, _currentScreen, _output);
+            metrics = AnsiGridRenderer.WriteDifferential(_previousScreen!, _currentScreen, _output, _displayList.DamagedRows);
         }
         var diffDuration = sink is null ? TimeSpan.Zero : Stopwatch.GetElapsedTime(diffStart);
 
@@ -119,7 +124,7 @@ public sealed class TuiRenderer : IDisposable
         if (_output.Length == 0)
         {
             PublishDiagnostics(sink, startTimestamp, displayDuration, rasterDuration, diffDuration, metrics, 0, fullRepaint, cacheHit, TimeSpan.Zero, frameInstrumentation);
-            (_currentScreen, _previousScreen) = (_previousScreen, _currentScreen);
+            CommitRenderedFrame(fullRaster: _displayList.RequiresFullRaster);
             return;
         }
         var outputCharacters = _output.Length;
@@ -127,8 +132,7 @@ public sealed class TuiRenderer : IDisposable
         PublishFrame(recovery);
         var outputDuration = sink is null ? TimeSpan.Zero : Stopwatch.GetElapsedTime(outputStart);
         PublishDiagnostics(sink, startTimestamp, displayDuration, rasterDuration, diffDuration, metrics, outputCharacters, fullRepaint, cacheHit, outputDuration, frameInstrumentation);
-        (_currentScreen, _previousScreen) = (_previousScreen, _currentScreen);
-        _hasPreviousFrame = true;
+        CommitRenderedFrame(fullRaster: _displayList.RequiresFullRaster);
     }
 
     private void PublishFrame(bool recovery)
@@ -180,6 +184,7 @@ public sealed class TuiRenderer : IDisposable
             RowsFingerprintRejected: metrics.RowsFingerprintRejected,
             RowsSemanticallyCompared: metrics.RowsSemanticallyCompared,
             ChangedRuns: metrics.ChangedRuns,
+            CellsCompared: metrics.CellsCompared,
             CellsChanged: metrics.CellsChanged,
             OutputCharacters: outputCharacters,
             FullRepaint: fullRepaint,
@@ -230,6 +235,26 @@ public sealed class TuiRenderer : IDisposable
         _previousScreen?.Dispose();
         _currentScreen = new ScreenBuffer(size.Width, size.Height);
         _previousScreen = new ScreenBuffer(size.Width, size.Height);
+        _previousDamagedRows = new int[size.Height];
+        _previousDamagedRowCount = 0;
         _hasPreviousFrame = false;
+    }
+
+    private void CommitRenderedFrame(bool fullRaster)
+    {
+        _previousDamagedRowCount = 0;
+        if (fullRaster)
+        {
+            for (var row = 0; row < _previousDamagedRows.Length; row++)
+                _previousDamagedRows[_previousDamagedRowCount++] = row;
+        }
+        else
+        {
+            var damage = _displayList.DamagedRows;
+            for (var row = 0; row < damage.Length; row++)
+                if (damage[row]) _previousDamagedRows[_previousDamagedRowCount++] = row;
+        }
+        (_currentScreen, _previousScreen) = (_previousScreen, _currentScreen);
+        _hasPreviousFrame = true;
     }
 }
