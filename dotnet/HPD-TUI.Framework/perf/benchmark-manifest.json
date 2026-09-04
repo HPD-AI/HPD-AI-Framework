@@ -1,10 +1,14 @@
 {
-  "schema": "hpd.tui.benchmark-manifest.v1",
+  "schema": "hpd.tui.benchmark-manifest.v2",
   "dimensions": ["80x24", "120x40", "240x80"],
   "scenarios": [
     "cold-start", "warm-noop", "one-cell", "one-row", "two-disjoint-rows",
     "full-screen", "cursor-only", "style-only", "wide-grapheme", "hyperlink", "resize",
-    "1000-component-stack", "transcript-tail", "streaming-markdown-100kb",
+    "component-stack-10", "component-stack-100", "component-stack-1000",
+    "paint-leaf", "layout-leaf", "nested-visibility", "text-grid", "buffered-surface",
+    "transcript-1000-viewport-16", "transcript-append-final", "transcript-live-tail",
+    "transcript-non-visible", "status-only", "streaming-markdown-100kb", "transcript-scroll",
+    "thread-switch-rehydrate", "normal-terminal-scrollback",
     "synchronous-transport", "delayed-transport", "backpressured-transport", "recovery"
   ],
   "reportedMetrics": [
@@ -15,6 +19,20 @@
     "cpu", "os", "dotnet-sdk", "dotnet-runtime", "commit", "gc-mode", "tiered-compilation",
     "dynamic-pgo", "ready-to-run", "native-aot", "warmup-count", "iteration-count", "corpus-seed"
   ],
-  "baseline": "pre-compositor",
+  "baseline": {
+    "architecture": "pre-compositor",
+    "commit": "1ab6a3517",
+    "runner": "HPD-TUI.HistoricalBaseline",
+    "result": "results/hpd-before.json"
+  },
+  "result": "results/hpd-after.json",
+  "budgets": {
+    "warm-noop-120x40-p95-ns": 250000,
+    "one-row-120x40-p95-ns": 1000000,
+    "full-screen-120x40-p95-ns": 4000000,
+    "relative-noop-improvement-minimum": 0.50,
+    "relative-one-row-improvement-minimum": 0.30,
+    "relative-full-repaint-regression-maximum": 0.10
+  },
   "comparison": ["hpd-tui", "opentui-core", "opentui-react"]
 }
