@@ -2,9 +2,14 @@ using HPD.TUI.Core;
 
 namespace HPD.TUI.Rendering;
 
-internal sealed class RetainedDisplayList : ISegmentSink
+internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSink
 {
-    private readonly List<DisplayOperation> _operations = [];
+    private List<DisplayOperation> _operations = [];
+    private List<DisplayOperation> _building = [];
+    private Dictionary<ComponentId, ComponentSlice> _slices = [];
+    private Dictionary<ComponentId, ComponentSlice> _buildingSlices = [];
+    private readonly Stack<PendingSlice> _pendingSlices = [];
+    private readonly Dictionary<ComponentId, ComponentRevisions> _committedRevisions = [];
     private DisplayListKey _key;
     private int _cursorX;
     private int _cursorY;
@@ -23,13 +28,31 @@ internal sealed class RetainedDisplayList : ISegmentSink
             context.Theme.Key,
             context.ColorSystem,
             (dependencies & RenderContextFields.Elapsed) != 0 ? context.Elapsed : default);
-        if (_operations.Count > 0 && key == _key) return true;
+        if (_operations.Count > 0 && key == _key && TreeMatches(root)) return true;
 
-        _operations.Clear();
+        _building.Clear();
+        _buildingSlices.Clear();
+        _pendingSlices.Clear();
         _cursorX = 0;
         _cursorY = 0;
         var writer = new DisplayListBuilder(this, maxWidth);
-        root.Render(in context, ref writer);
+        Begin(root, in context, maxWidth);
+        try
+        {
+            root.Render(in context, ref writer);
+            End(root);
+        }
+        catch
+        {
+            _building.Clear();
+            _buildingSlices.Clear();
+            _pendingSlices.Clear();
+            throw;
+        }
+        (_operations, _building) = (_building, _operations);
+        (_slices, _buildingSlices) = (_buildingSlices, _slices);
+        _committedRevisions.Clear();
+        RecordTreeRevisions(root);
         _key = key;
         return false;
     }
@@ -40,8 +63,8 @@ internal sealed class RetainedDisplayList : ISegmentSink
         {
             switch (operation.Kind)
             {
-                case DisplayOperationKind.Text:
-                    destination.Write(operation.Text.AsSpan(), operation.Style, operation.Metadata);
+                case DisplayOperationKind.Command when operation.Command.Kind == DisplayCommandKind.TextRun:
+                    destination.Write(operation.Command.Payload.Text.AsSpan(), operation.Command.Style, operation.Command.Metadata);
                     break;
                 case DisplayOperationKind.LineBreak:
                     destination.WriteLineBreak();
@@ -49,8 +72,8 @@ internal sealed class RetainedDisplayList : ISegmentSink
                 case DisplayOperationKind.Move:
                     destination.MoveTo(operation.X, operation.Y);
                     break;
-                case DisplayOperationKind.Cursor:
-                    destination.SetTerminalCursor(operation.X, operation.Y);
+                case DisplayOperationKind.Command when operation.Command.Kind == DisplayCommandKind.SetCursor:
+                    destination.SetTerminalCursor(operation.Command.Bounds.X, operation.Command.Bounds.Y);
                     break;
             }
         }
@@ -58,14 +81,22 @@ internal sealed class RetainedDisplayList : ISegmentSink
 
     public bool Write(scoped ReadOnlySpan<char> text, Style style, TerminalRunMetadata metadata = default)
     {
-        _operations.Add(new DisplayOperation(DisplayOperationKind.Text, text.ToString(), style, metadata, 0, 0));
-        _cursorX += Utilities.UnicodeWidth.GetWidth(text);
+        var ownedText = text.ToString();
+        var width = Utilities.UnicodeWidth.GetWidth(text);
+        var command = new DisplayCommand(
+            DisplayCommandKind.TextRun,
+            new Layout.LayoutRect(_cursorX, _cursorY, width, 1),
+            style,
+            metadata,
+            DisplayPayload.FromText(ownedText));
+        _building.Add(new DisplayOperation(DisplayOperationKind.Command, command, 0, 0));
+        _cursorX += width;
         return true;
     }
 
     public bool WriteLineBreak()
     {
-        _operations.Add(new DisplayOperation(DisplayOperationKind.LineBreak, string.Empty, default, default, 0, 0));
+        _building.Add(new DisplayOperation(DisplayOperationKind.LineBreak, default, 0, 0));
         _cursorX = 0;
         _cursorY++;
         return true;
@@ -73,13 +104,76 @@ internal sealed class RetainedDisplayList : ISegmentSink
 
     public void MoveTo(int x, int y)
     {
-        _operations.Add(new DisplayOperation(DisplayOperationKind.Move, string.Empty, default, default, x, y));
+        _building.Add(new DisplayOperation(DisplayOperationKind.Move, default, x, y));
         _cursorX = x;
         _cursorY = y;
     }
 
     public void SetTerminalCursor(int x, int y) =>
-        _operations.Add(new DisplayOperation(DisplayOperationKind.Cursor, string.Empty, default, default, x, y));
+        _building.Add(new DisplayOperation(DisplayOperationKind.Command,
+            new DisplayCommand(DisplayCommandKind.SetCursor, new Layout.LayoutRect(x, y, 0, 0), default, default, default), x, y));
+
+    public bool TryReuse(IComponent component, in RenderContext context, int maxWidth, out int commandCount)
+    {
+        var key = CreateSliceKey(component, in context, maxWidth);
+        if (!_slices.TryGetValue(component.Lifecycle.Id, out var slice) ||
+            slice.Key != key || slice.StartX != _cursorX || slice.StartY != _cursorY || !TreeMatches(component))
+        {
+            commandCount = 0;
+            return false;
+        }
+
+        var start = _building.Count;
+        for (var index = 0; index < slice.Count; index++)
+            _building.Add(_operations[slice.Start + index]);
+        _cursorX = slice.EndX;
+        _cursorY = slice.EndY;
+        _buildingSlices[component.Lifecycle.Id] = slice with { Start = start };
+        commandCount = slice.Count;
+        return true;
+    }
+
+    public void Begin(IComponent component, in RenderContext context, int maxWidth)
+        => _pendingSlices.Push(new PendingSlice(component.Lifecycle.Id, CreateSliceKey(component, in context, maxWidth),
+            _building.Count, _cursorX, _cursorY));
+
+    public void End(IComponent component)
+    {
+        if (_pendingSlices.Count == 0 || _pendingSlices.Peek().Component != component.Lifecycle.Id)
+            throw new InvalidOperationException("Display-list component slices must close in ownership order.");
+        var pending = _pendingSlices.Pop();
+        _buildingSlices[pending.Component] = new ComponentSlice(
+            pending.Key, pending.Start, _building.Count - pending.Start,
+            pending.StartX, pending.StartY, _cursorX, _cursorY);
+    }
+
+    private static ComponentSliceKey CreateSliceKey(IComponent component, in RenderContext context, int maxWidth)
+    {
+        var dependencies = RenderContextFields.None;
+        var treeRevision = ComputeTreeRevision(component, ref dependencies);
+        return new ComponentSliceKey(treeRevision, maxWidth, context.Height,
+            (dependencies & RenderContextFields.Theme) != 0 ? context.Theme.Key : default,
+            (dependencies & RenderContextFields.ColorSystem) != 0 ? context.ColorSystem : default,
+            (dependencies & RenderContextFields.Elapsed) != 0 ? context.Elapsed : default);
+    }
+
+    private bool TreeMatches(IComponent component)
+    {
+        if (!_committedRevisions.TryGetValue(component.Lifecycle.Id, out var revisions) ||
+            revisions.Layout != component.LayoutRevision || revisions.Paint != component.PaintRevision)
+            return false;
+        if (component is not Component owner) return true;
+        foreach (var child in owner.OwnedChildren)
+            if (!TreeMatches(child)) return false;
+        return true;
+    }
+
+    private void RecordTreeRevisions(IComponent component)
+    {
+        _committedRevisions[component.Lifecycle.Id] = new(component.LayoutRevision, component.PaintRevision);
+        if (component is not Component owner) return;
+        foreach (var child in owner.OwnedChildren) RecordTreeRevisions(child);
+    }
 
     private static ulong ComputeTreeRevision(IComponent component, ref RenderContextFields dependencies)
     {
@@ -106,13 +200,18 @@ internal sealed class RetainedDisplayList : ISegmentSink
         ColorSystem ColorSystem,
         TimeSpan Elapsed);
 
-    private readonly record struct DisplayOperation(
-        DisplayOperationKind Kind,
-        string Text,
-        Style Style,
-        TerminalRunMetadata Metadata,
-        int X,
-        int Y);
+    private readonly record struct DisplayOperation(DisplayOperationKind Kind, DisplayCommand Command, int X, int Y);
 
-    private enum DisplayOperationKind { Text, LineBreak, Move, Cursor }
+    private readonly record struct ComponentSliceKey(
+        ulong TreeRevision, int Width, int Height, ThemeKey Theme, ColorSystem ColorSystem, TimeSpan Elapsed);
+
+    private readonly record struct ComponentSlice(
+        ComponentSliceKey Key, int Start, int Count, int StartX, int StartY, int EndX, int EndY);
+
+    private readonly record struct PendingSlice(
+        ComponentId Component, ComponentSliceKey Key, int Start, int StartX, int StartY);
+
+    private readonly record struct ComponentRevisions(TuiRevision Layout, TuiRevision Paint);
+
+    private enum DisplayOperationKind { Command, LineBreak, Move }
 }

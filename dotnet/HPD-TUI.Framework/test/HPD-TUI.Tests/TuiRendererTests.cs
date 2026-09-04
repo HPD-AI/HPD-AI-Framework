@@ -80,6 +80,25 @@ public sealed class TuiRendererTests
         Assert.Equal(1, component.RenderCount);
     }
 
+    [Fact]
+    public void Render_OneChangedSibling_ReusesUnchangedSiblingCommandSlice()
+    {
+        using var terminal = new TestTerminal(20, 4);
+        using var renderer = new TuiRenderer(terminal);
+        var changed = new CountingComponent();
+        var stable = new CountingComponent();
+        var root = new Container();
+        root.Add(changed);
+        root.Add(stable);
+
+        renderer.Render(root);
+        changed.ChangePaint();
+        renderer.Render(root);
+
+        Assert.Equal(2, changed.RenderCount);
+        Assert.Equal(1, stable.RenderCount);
+    }
+
     private sealed class CountingComponent : Component
     {
         public int RenderCount { get; private set; }
@@ -91,6 +110,8 @@ public sealed class TuiRendererTests
             RenderCount++;
             output.Write('x', context.Theme.Text);
         }
+
+        public void ChangePaint() => InvalidatePaint();
     }
 
     private sealed class TestTerminal : ITerminal, ITerminalInput

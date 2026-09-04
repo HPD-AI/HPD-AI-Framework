@@ -67,8 +67,24 @@ public ref struct DisplayListBuilder
     public void Render(IComponent child, in RenderContext context, int maxWidth)
     {
         ArgumentNullException.ThrowIfNull(child);
+        var retained = _sink as IRetainedDisplayListSink;
+        if (retained is not null && retained.TryReuse(child, in context, maxWidth, out var reused))
+        {
+            _count += reused;
+            return;
+        }
+
+        retained?.Begin(child, in context, maxWidth);
         var nested = new DisplayListBuilder(_sink, maxWidth);
         child.Render(in context, ref nested);
+        retained?.End(child);
         _count += nested.Count;
     }
+}
+
+internal interface IRetainedDisplayListSink
+{
+    bool TryReuse(IComponent component, in RenderContext context, int maxWidth, out int commandCount);
+    void Begin(IComponent component, in RenderContext context, int maxWidth);
+    void End(IComponent component);
 }
