@@ -19,7 +19,8 @@ public sealed class TranscriptView : Component, IScrollbackSource
     private readonly AgentTuiRuntimeScope? _scope;
     private readonly IHpdTuiPerformanceEventSink? _performanceSink;
     private TranscriptSequence _entries = TranscriptSequence.Empty;
-    private readonly List<RenderedTranscriptEntry?> _renderedEntries = [];
+    private readonly List<PreparedTranscriptEntry?> _renderedEntries = [];
+    private readonly TranscriptLayoutCache _layoutCache;
     private readonly List<VisibleTranscriptRow> _visibleRows = [];
     private int _modelVersion = -1;
     private int _renderWidth;
@@ -33,7 +34,6 @@ public sealed class TranscriptView : Component, IScrollbackSource
     private long _committedRowSequence;
     private ScrollbackBatch? _pendingScrollback;
     private int _pendingEntryCount;
-    private long _cacheBytes;
 
     public TranscriptView(
         TranscriptModel model,
@@ -54,6 +54,7 @@ public sealed class TranscriptView : Component, IScrollbackSource
         _performanceSink = performanceSink;
         Height = height;
         CacheByteBudget = cacheByteBudget;
+        _layoutCache = new TranscriptLayoutCache(cacheByteBudget, PrepareEntry);
     }
 
     public int Height { get; set; }
@@ -114,6 +115,7 @@ public sealed class TranscriptView : Component, IScrollbackSource
 
         var rows = new List<ScrollbackRow>();
         var entryCount = 0;
+        _layoutCache.BeginProjection();
         for (var index = _committedCount; index < _entries.Count; index++)
         {
             var source = _entries[index];
@@ -131,6 +133,7 @@ public sealed class TranscriptView : Component, IScrollbackSource
                 rows.Add(new ScrollbackRow($"{source.Id}:space:{spacing}", Array.Empty<ScrollbackCell>()));
             entryCount++;
         }
+        _layoutCache.EndProjection();
 
         if (entryCount == 0)
             return null;
@@ -187,7 +190,7 @@ public sealed class TranscriptView : Component, IScrollbackSource
                 MarkdownTheme.FromTheme(theme), _renderColorSystem);
             if (!projection.TryNavigateRawPage(document, options, new MarkdownLayoutEngine(), forward))
                 continue;
-            _renderedEntries[index]?.Dispose();
+            _layoutCache.Remove(entry);
             _renderedEntries[index] = null;
             return true; // Handled input is the shell's repaint request.
         }
@@ -263,6 +266,7 @@ public sealed class TranscriptView : Component, IScrollbackSource
 
             WriteVisibleRow(_visibleRows[i], ref output);
         }
+        _layoutCache.EndProjection();
 
         diagnostics.RenderedRows = _visibleRows.Count;
         LastDiagnostics = diagnostics.ToDiagnostics();
@@ -323,7 +327,6 @@ public sealed class TranscriptView : Component, IScrollbackSource
 
         if (resetRenderedEntries)
         {
-            DisposeRenderedEntries();
             _renderedEntries.Clear();
         }
 
@@ -339,10 +342,10 @@ public sealed class TranscriptView : Component, IScrollbackSource
 
             var rendered = _renderedEntries[i];
             if (rendered is not null &&
-                !rendered.CanReuse(_entries[i], maxWidth, context.Theme, context.ColorSystem))
+                (!ReferenceEquals(rendered.Source, _entries[i]) ||
+                 rendered.Key != new TranscriptLayoutKey(maxWidth, context.Theme.Key, context.ColorSystem, 1) ||
+                 rendered.IsDisposed))
             {
-                _cacheBytes -= rendered.EstimatedByteSize;
-                rendered.Dispose();
                 _renderedEntries[i] = null;
             }
         }
@@ -350,11 +353,6 @@ public sealed class TranscriptView : Component, IScrollbackSource
         while (_renderedEntries.Count > _entries.Count)
         {
             var last = _renderedEntries.Count - 1;
-            if (_renderedEntries[last] is { } removed)
-            {
-                _cacheBytes -= removed.EstimatedByteSize;
-                removed.Dispose();
-            }
             _renderedEntries.RemoveAt(last);
         }
 
@@ -372,6 +370,7 @@ public sealed class TranscriptView : Component, IScrollbackSource
         ref TranscriptViewDiagnosticsBuilder diagnostics)
     {
         _visibleRows.Clear();
+        _layoutCache.BeginProjection();
         var rowsToSkip = _scrollOffset;
         var totalRows = 0;
 
@@ -421,7 +420,7 @@ public sealed class TranscriptView : Component, IScrollbackSource
         _visibleRows.Reverse();
     }
 
-    private RenderedTranscriptEntry GetRenderedEntry(
+    private PreparedTranscriptEntry GetRenderedEntry(
         int index,
         in RenderContext context,
         int maxWidth,
@@ -429,7 +428,7 @@ public sealed class TranscriptView : Component, IScrollbackSource
     {
         diagnostics.EntriesVisited++;
         var rendered = _renderedEntries[index];
-        if (rendered is not null)
+        if (rendered is not null && !rendered.IsDisposed)
         {
             diagnostics.CacheHits++;
             diagnostics.RowsMeasured++;
@@ -438,10 +437,15 @@ public sealed class TranscriptView : Component, IScrollbackSource
 
         diagnostics.CacheMisses++;
         diagnostics.RowsCaptured++;
-        rendered = RenderedTranscriptEntry.Create(_entries[index], _renderers, in context, maxWidth);
+        var key = new TranscriptLayoutKey(maxWidth, context.Theme.Key, context.ColorSystem, 1);
+        rendered = _layoutCache.Resolve(_entries[index], key);
         _renderedEntries[index] = rendered;
-        _cacheBytes += rendered.EstimatedByteSize;
-        EvictToBudget(index);
+        if (_layoutCache.LastResolveWasHit)
+        {
+            diagnostics.CacheHits++;
+            diagnostics.CacheMisses--;
+            diagnostics.RowsCaptured--;
+        }
         diagnostics.RowsMeasured++;
         return rendered;
     }
@@ -470,29 +474,25 @@ public sealed class TranscriptView : Component, IScrollbackSource
         }
 
         _disposed = true;
-        DisposeRenderedEntries();
+        _layoutCache.Dispose();
         _renderedEntries.Clear();
     }
 
-    private void DisposeRenderedEntries()
+    private PreparedTranscriptEntry PrepareEntry(TranscriptEntry entry, TranscriptLayoutKey key)
     {
-        for (var i = 0; i < _renderedEntries.Count; i++)
+        var context = new RenderContext(key.Width, Math.Max(1, Height), _renderTheme, key.ColorSystem);
+        var component = _renderers.Create(entry, key.Width, _renderTheme, key.ColorSystem);
+        var measuredHeight = Math.Max(1, component.Measure(in context,
+            HPD.TUI.Layout.LayoutConstraints.Loose(key.Width, context.Height)).Height);
+        var captureHeight = measuredHeight;
+        while (true)
         {
-            _renderedEntries[i]?.Dispose();
-            _renderedEntries[i] = null;
-        }
-        _cacheBytes = 0;
-    }
-
-    private void EvictToBudget(int protectedIndex)
-    {
-        if (_cacheBytes <= CacheByteBudget) return;
-        for (var index = 0; index < _renderedEntries.Count && _cacheBytes > CacheByteBudget; index++)
-        {
-            if (index == protectedIndex || _renderedEntries[index] is not { } entry) continue;
-            _cacheBytes -= entry.EstimatedByteSize;
-            entry.Dispose();
-            _renderedEntries[index] = null;
+            var grid = TuiCapture.RenderToGrid(component, key.Width, captureHeight,
+                _renderTheme, key.ColorSystem, context.Elapsed);
+            if (grid.CursorY < grid.Height)
+                return new PreparedTranscriptEntry(entry, key, grid, Math.Max(1, TuiCapture.GetUsedLineCount(grid)));
+            grid.Dispose();
+            captureHeight = checked(captureHeight * 2);
         }
     }
 }
@@ -532,124 +532,4 @@ internal readonly record struct VisibleTranscriptRow(int EntryIndex, int LineInd
     public static VisibleTranscriptRow Blank { get; } = new(-1, -1);
 
     public bool IsBlank => EntryIndex < 0;
-}
-
-internal sealed class RenderedTranscriptEntry : IDisposable
-{
-    private readonly TerminalGrid _grid;
-
-    private RenderedTranscriptEntry(
-        TranscriptEntry source,
-        int width,
-        Theme theme,
-        ColorSystem colorSystem,
-        TerminalGrid grid,
-        int lineCount)
-    {
-        Source = source;
-        Width = width;
-        ThemeKey = theme.Key;
-        ColorSystem = colorSystem;
-        _grid = grid;
-        LineCount = lineCount;
-    }
-
-    public TranscriptEntry Source { get; }
-
-    public int Width { get; }
-
-    public ThemeKey ThemeKey { get; }
-
-    public ColorSystem ColorSystem { get; }
-
-    public int LineCount { get; }
-
-    public long EstimatedByteSize => _grid.EstimatedByteSize;
-
-    public static RenderedTranscriptEntry Create(
-        TranscriptEntry entry,
-        AgentTuiTranscriptRendererRegistry renderers,
-        in RenderContext context,
-        int maxWidth)
-    {
-        var component = renderers.Create(entry, maxWidth, context.Theme, context.ColorSystem);
-        var measuredHeight = Math.Max(1, component.Measure(in context, HPD.TUI.Layout.LayoutConstraints.Loose(maxWidth, context.Height)).Height);
-        var grid = CaptureCompleteEntry(component, measuredHeight, maxWidth, in context);
-        var lineCount = Math.Max(1, TuiCapture.GetUsedLineCount(grid));
-        return new RenderedTranscriptEntry(entry, maxWidth, context.Theme, context.ColorSystem, grid, lineCount);
-    }
-
-    private static TerminalGrid CaptureCompleteEntry(
-        IComponent component,
-        int initialHeight,
-        int maxWidth,
-        in RenderContext context)
-    {
-        var captureHeight = initialHeight;
-        while (true)
-        {
-            var grid = TuiCapture.RenderToGrid(
-                component,
-                maxWidth,
-                captureHeight,
-                context.Theme,
-                context.ColorSystem,
-                context.Elapsed);
-            if (grid.CursorY < grid.Height)
-            {
-                return grid;
-            }
-
-            grid.Dispose();
-            captureHeight = checked(captureHeight * 2);
-        }
-    }
-
-    public bool CanReuse(
-        TranscriptEntry source,
-        int width,
-        Theme theme,
-        ColorSystem colorSystem)
-        => ReferenceEquals(Source, source) &&
-           Width == width &&
-           ThemeKey == theme.Key &&
-           ColorSystem == colorSystem;
-
-    public void WriteLine(int line, ref DisplayListBuilder output)
-    {
-        ArgumentOutOfRangeException.ThrowIfNegative(line);
-        if (line >= LineCount)
-        {
-            throw new ArgumentOutOfRangeException(nameof(line));
-        }
-
-        TuiCapture.WriteLineTo(_grid, line, ref output);
-    }
-
-    public ScrollbackRow CreateScrollbackRow(string id, int line)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(id);
-        ArgumentOutOfRangeException.ThrowIfNegative(line);
-        if (line >= LineCount)
-            throw new ArgumentOutOfRangeException(nameof(line));
-
-        var cells = new List<ScrollbackCell>();
-        for (var column = 0; column < _grid.Width; column++)
-        {
-            var cell = _grid.GetCell(column, line);
-            if (cell.IsContinuation)
-                continue;
-            cells.Add(new ScrollbackCell(
-                _grid.GetGrapheme(cell).ToString(),
-                cell.Style,
-                new TerminalRunMetadata(_grid.GetHyperlink(cell)),
-                cell.DisplayWidth));
-        }
-        while (cells.Count > 0 && cells[^1].Grapheme == " " && cells[^1].Metadata.Hyperlink is null)
-            cells.RemoveAt(cells.Count - 1);
-        return new ScrollbackRow(id, cells.ToArray());
-    }
-
-    public void Dispose()
-        => _grid.Dispose();
 }

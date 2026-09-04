@@ -16,7 +16,8 @@ public interface IIncrementalMarkdownParser
 public sealed class MarkdownParseState
 {
     internal MarkdownParseState(MarkdownDocumentSnapshot document, MarkdownParseOptions options,
-        int stableSourceLength, long reparsedCharacters, int stablePrefixNodes, long fallbackCount)
+        int stableSourceLength, long reparsedCharacters, int stablePrefixNodes, long fallbackCount,
+        long peakParseStateBytes = 0)
     {
         Document = document;
         Options = options;
@@ -24,6 +25,8 @@ public sealed class MarkdownParseState
         ReparsedCharacters = reparsedCharacters;
         StablePrefixNodes = stablePrefixNodes;
         FallbackCount = fallbackCount;
+        RetainedSourceBytes = document.CanonicalSource.RetainedBytes;
+        PeakParseStateBytes = Math.Max(peakParseStateBytes, RetainedSourceBytes);
     }
 
     /// <summary>Gets the immutable semantic document.</summary>
@@ -36,6 +39,10 @@ public sealed class MarkdownParseState
     public int StablePrefixNodes { get; }
     /// <summary>Gets the cumulative conservative full-parse fallback count.</summary>
     public long FallbackCount { get; }
+    /// <summary>Gets the bytes retained by canonical UTF-16 source chunks.</summary>
+    public long RetainedSourceBytes { get; }
+    /// <summary>Gets the maximum estimated bytes retained by parse state.</summary>
+    public long PeakParseStateBytes { get; }
     internal MarkdownParseOptions Options { get; }
 }
 
@@ -67,17 +74,18 @@ public sealed class ConservativeIncrementalMarkdownParser : IIncrementalMarkdown
         if (completeLineSuffix.IsEmpty && !terminal) return previous;
         var old = previous.Document;
         var appended = completeLineSuffix.ToString();
-        var source = string.Concat(old.Source, appended);
+        var source = old.CanonicalSource.Append(completeLineSuffix);
         var reparseStart = terminal ? previous.StableSourceLength : previous.StableSourceLength;
         var stableBlocks = old.Blocks.TakeWhile(block => block.SourceEndExclusive <= reparseStart).ToArray();
-        var tailText = source[reparseStart..];
+        var tailText = source.Slice(reparseStart, source.Length - reparseStart);
         var tail = _parser.Parse(tailText, previous.Options);
 
         if (RequiresFullParse(old, tail, appended))
         {
-            var full = _parser.Parse(source, previous.Options);
+            var full = _parser.Parse(source.Materialize(), previous.Options);
             return new(full, previous.Options, FindStableBoundary(full, terminal),
-                previous.ReparsedCharacters + source.Length, 0, previous.FallbackCount + 1);
+                previous.ReparsedCharacters + source.Length, 0, previous.FallbackCount + 1,
+                Math.Max(previous.PeakParseStateBytes, source.RetainedBytes + (long)source.Length * sizeof(char)));
         }
 
         var blocks = new List<MarkdownTopLevelBlock>(stableBlocks.Length + tail.Blocks.Count);
@@ -99,18 +107,42 @@ public sealed class ConservativeIncrementalMarkdownParser : IIncrementalMarkdown
             Math.Max(old.MaximumObservedNestingDepth, tail.MaximumObservedNestingDepth),
             old.Pipeline, tail.Syntax);
         var stableBoundary = FindStableBoundary(document, terminal);
-        // Canonicalize a block exactly once as it crosses into the stable prefix. Markdig may
-        // retain inline segmentation from a suffix parse; a boundary parse prevents chunking
-        // choices from becoming observable in immutable layout snapshots.
+        if (!terminal && stableBoundary > previous.StableSourceLength)
+        {
+            // A block crossing the stable boundary is reparsed once in isolation. This removes
+            // Markdig inline segmentation caused by arbitrarily small stream deltas without
+            // flattening or reparsing the complete accumulated document.
+            for (var index = 0; index < blocks.Count; index++)
+            {
+                var block = blocks[index];
+                if (block.SourceEndExclusive > stableBoundary ||
+                    block.SourceEndExclusive <= previous.StableSourceLength)
+                    continue;
+                var blockText = source.Slice(block.SourceStart, block.SourceEndExclusive - block.SourceStart);
+                var canonicalBlock = _parser.Parse(blockText, previous.Options);
+                if (canonicalBlock.Blocks.Count != 1) continue;
+                var parsed = canonicalBlock.Blocks[0];
+                ShiftTree(parsed.Syntax, block.SourceStart);
+                blocks[index] = block with { Syntax = parsed.Syntax };
+            }
+            document = new MarkdownDocumentSnapshot(source, blocks,
+                document.Features, document.NodeCapabilities, document.MaximumObservedNestingDepth,
+                old.Pipeline, tail.Syntax);
+        }
+        // Markdig can retain inline segmentation from arbitrarily small source deltas. A
+        // boundary parse canonicalizes a block exactly once as it becomes externally stable;
+        // ordinary mutable-tail publications remain suffix-only.
         if (terminal || stableBoundary > previous.StableSourceLength)
         {
-            var canonical = _parser.Parse(source, previous.Options);
+            var canonical = _parser.Parse(source.Materialize(), previous.Options);
             return new(canonical, previous.Options, FindStableBoundary(canonical, terminal),
                 previous.ReparsedCharacters + tailText.Length + source.Length,
-                stableBlocks.Length, previous.FallbackCount);
+                stableBlocks.Length, previous.FallbackCount,
+                Math.Max(previous.PeakParseStateBytes, source.RetainedBytes + (long)source.Length * sizeof(char)));
         }
         return new(document, previous.Options, stableBoundary,
-            previous.ReparsedCharacters + tailText.Length, stableBlocks.Length, previous.FallbackCount);
+            previous.ReparsedCharacters + tailText.Length, stableBlocks.Length, previous.FallbackCount,
+            Math.Max(previous.PeakParseStateBytes, source.RetainedBytes + (long)tailText.Length * sizeof(char)));
     }
 
     private static bool RequiresFullParse(MarkdownDocumentSnapshot previous, MarkdownDocumentSnapshot tail, string suffix)
@@ -139,11 +171,37 @@ public sealed class ConservativeIncrementalMarkdownParser : IIncrementalMarkdown
 
     private static int FindStableBoundary(MarkdownDocumentSnapshot snapshot, bool terminal)
     {
-        if (terminal) return snapshot.Source.Length;
+        if (terminal) return snapshot.SourceLength;
         if ((snapshot.Features & (MarkdownDocumentFeatures.ReferenceDefinitions |
                                   MarkdownDocumentFeatures.ExtensionGlobalState)) != 0) return 0;
         if (snapshot.Blocks.Count < 2) return 0;
-        // Keep the final top-level block mutable; its start is the conservative suffix boundary.
-        return snapshot.Blocks[^1].SourceStart;
+        for (var candidateIndex = snapshot.Blocks.Count - 1; candidateIndex > 0; candidateIndex--)
+        {
+            var preceding = snapshot.Blocks[candidateIndex - 1];
+            var following = snapshot.Blocks[candidateIndex];
+            var blankSeparated = HasBlankLine(snapshot.CanonicalSource,
+                preceding.SourceEndExclusive, following.SourceStart);
+            var proven = preceding.Kind switch
+            {
+                MarkdownBlockKind.ThematicBreak => true,
+                MarkdownBlockKind.Paragraph or MarkdownBlockKind.Heading => blankSeparated,
+                MarkdownBlockKind.Quote => blankSeparated && following.Kind != MarkdownBlockKind.Quote,
+                MarkdownBlockKind.List => blankSeparated && following.Kind != MarkdownBlockKind.List,
+                MarkdownBlockKind.Table => following.Kind != MarkdownBlockKind.Table,
+                MarkdownBlockKind.Code => blankSeparated,
+                _ => false
+            };
+            if (proven) return following.SourceStart;
+        }
+        return 0;
+    }
+
+    private static bool HasBlankLine(MarkdownSourceText source, int start, int endExclusive)
+    {
+        var lineBreaks = 0;
+        for (var index = Math.Clamp(start, 0, source.Length);
+             index < Math.Clamp(endExclusive, 0, source.Length); index++)
+            if (source[index] == '\n' && ++lineBreaks >= 2) return true;
+        return false;
     }
 }

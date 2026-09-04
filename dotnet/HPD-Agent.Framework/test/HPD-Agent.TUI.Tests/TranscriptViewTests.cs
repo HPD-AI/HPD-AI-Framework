@@ -13,6 +13,23 @@ namespace HPD.Agent.TUI.Tests;
 public sealed class TranscriptViewTests
 {
     [Fact]
+    public void Render_ReusesPreparedEntryThroughTranscriptLayoutCache()
+    {
+        var model = new TranscriptModel();
+        model.AddFinal(Row("cached-user", "cached", "retained row"));
+        var view = CreateView(model, height: 4);
+
+        _ = TuiCapture.RenderToString(view, 40, 4);
+        var first = view.LastDiagnostics;
+        _ = TuiCapture.RenderToString(view, 40, 4);
+        var second = view.LastDiagnostics;
+
+        first.CacheMisses.Should().Be(1);
+        second.CacheHits.Should().Be(1);
+        second.CacheMisses.Should().Be(0);
+    }
+
+    [Fact]
     public void TranscriptPagingPersistsAcrossRecaptureAndClipboardTracksVisiblePage()
     {
         var source = string.Concat(Enumerable.Range(0, 8_200).Select(static index => $"item-{index:D5}\n\n"));

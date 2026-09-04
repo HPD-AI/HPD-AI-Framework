@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace HPD.Agent.TUI.Markdown;
 
 internal sealed class ChunkedMarkdownSource
@@ -5,6 +7,21 @@ internal sealed class ChunkedMarkdownSource
     private readonly List<string> _chunks = [];
 
     public int Length { get; private set; }
+
+    public char this[int index]
+    {
+        get
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            if (index >= Length) throw new ArgumentOutOfRangeException(nameof(index));
+            foreach (var chunk in _chunks)
+            {
+                if (index < chunk.Length) return chunk[index];
+                index -= chunk.Length;
+            }
+            throw new UnreachableException();
+        }
+    }
 
     public void Append(string value)
     {

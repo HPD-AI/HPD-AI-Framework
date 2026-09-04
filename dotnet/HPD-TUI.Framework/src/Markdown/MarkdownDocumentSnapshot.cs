@@ -10,7 +10,21 @@ public sealed class MarkdownDocumentSnapshot
         MarkdownDocumentFeatures features, IReadOnlyList<MarkdownNodeCapability> nodeCapabilities,
         int maximumObservedNestingDepth, MarkdownPipelineDescriptor pipeline, Markdig.Syntax.MarkdownDocument syntax)
     {
-        Source = source;
+        CanonicalSource = MarkdownSourceText.Empty.Append(source.AsMemory());
+        Blocks = blocks;
+        Features = features;
+        NodeCapabilities = nodeCapabilities;
+        MaximumObservedNestingDepth = maximumObservedNestingDepth;
+        PipelineId = pipeline.StableId;
+        Pipeline = pipeline;
+        Syntax = syntax;
+    }
+
+    internal MarkdownDocumentSnapshot(MarkdownSourceText source, IReadOnlyList<MarkdownTopLevelBlock> blocks,
+        MarkdownDocumentFeatures features, IReadOnlyList<MarkdownNodeCapability> nodeCapabilities,
+        int maximumObservedNestingDepth, MarkdownPipelineDescriptor pipeline, Markdig.Syntax.MarkdownDocument syntax)
+    {
+        CanonicalSource = source;
         Blocks = blocks;
         Features = features;
         NodeCapabilities = nodeCapabilities;
@@ -21,7 +35,9 @@ public sealed class MarkdownDocumentSnapshot
     }
 
     /// <summary>Gets the exact parsed UTF-16 source.</summary>
-    public string Source { get; }
+    public string Source => CanonicalSource.Materialize();
+    /// <summary>Gets the exact canonical-source length without flattening shared chunks.</summary>
+    public int SourceLength => CanonicalSource.Length;
     /// <summary>Gets normalized top-level block spans.</summary>
     public IReadOnlyList<MarkdownTopLevelBlock> Blocks { get; }
     /// <summary>Gets document-wide semantic features.</summary>
@@ -34,6 +50,7 @@ public sealed class MarkdownDocumentSnapshot
     public string PipelineId { get; }
     internal Markdig.Syntax.MarkdownDocument Syntax { get; }
     internal MarkdownPipelineDescriptor Pipeline { get; }
+    internal MarkdownSourceText CanonicalSource { get; }
 }
 
 /// <summary>Declares the audited terminal handling selected for one parser runtime node type.</summary>

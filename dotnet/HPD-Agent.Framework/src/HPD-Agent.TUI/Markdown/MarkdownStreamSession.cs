@@ -29,7 +29,11 @@ public readonly record struct MarkdownStreamDiagnosticsSnapshot(
     long PublicationCount,
     long FullMessageInvalidations,
     long TableHoldbackActivations,
-    TimeSpan FinalizationDuration);
+    TimeSpan FinalizationDuration,
+    long RetainedSourceBytes = 0,
+    long ReparsedCharacters = 0,
+    int StablePrefixNodes = 0,
+    long PeakParseStateBytes = 0);
 
 /// <summary>Owns canonical source and newline-gated parsing for one agent message.</summary>
 public sealed class MarkdownStreamSession
@@ -105,7 +109,9 @@ public sealed class MarkdownStreamSession
         _utf16CodeUnitsAppended, _deltasAccepted, _deltasCoalesced,
         _parseCount, TimeSpan.FromTicks(_parseTicks), _parseFallbacks,
         _publicationCount, _fullMessageInvalidations, _tableHoldbackActivations,
-        TimeSpan.FromTicks(_finalizationTicks));
+        TimeSpan.FromTicks(_finalizationTicks), _parseState.RetainedSourceBytes,
+        _parseState.ReparsedCharacters, _parseState.StablePrefixNodes,
+        _parseState.PeakParseStateBytes);
 
     /// <summary>Appends exact source without parsing it.</summary>
     public MarkdownSourceChange Append(string delta)
@@ -158,16 +164,16 @@ public sealed class MarkdownStreamSession
         var requestedParsedLength = terminal ? _source.Length : _parseableSourceLength;
         var parsedLength = requestedParsedLength;
         var previousStable = _stableSourceLength;
-        if (_snapshot.Source.Length != requestedParsedLength || terminal && _parseState.StableSourceLength != requestedParsedLength)
+        if (_snapshot.SourceLength != requestedParsedLength || terminal && _parseState.StableSourceLength != requestedParsedLength)
         {
             var started = Stopwatch.GetTimestamp();
             var previousFallbacks = _parseState.FallbackCount;
             try
             {
-                var appendedLength = requestedParsedLength - _snapshot.Source.Length;
+                var appendedLength = requestedParsedLength - _snapshot.SourceLength;
                 if (appendedLength < 0)
                     throw new InvalidOperationException("Canonical Markdown source cannot shrink within a stream lineage.");
-                var suffix = _source.Slice(_snapshot.Source.Length, appendedLength);
+                var suffix = _source.Slice(_snapshot.SourceLength, appendedLength);
                 _parseState = _incrementalParser.Append(_parseState, suffix.AsMemory(), terminal);
                 _snapshot = _parseState.Document;
                 _parseFallbacks += _parseState.FallbackCount - previousFallbacks;
@@ -175,7 +181,7 @@ public sealed class MarkdownStreamSession
             catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
             {
                 _parseFallbacks++;
-                parsedLength = _snapshot.Source.Length;
+                parsedLength = _snapshot.SourceLength;
             }
             finally
             {
@@ -186,7 +192,7 @@ public sealed class MarkdownStreamSession
 
         var parseFallback = parsedLength != requestedParsedLength;
         var global = (_snapshot.Features & (MarkdownDocumentFeatures.ReferenceDefinitions | MarkdownDocumentFeatures.ExtensionGlobalState)) != 0;
-        _stableSourceLength = terminal ? _snapshot.Source.Length : global ? 0 : FindStableBoundary(_snapshot, terminal: false);
+        _stableSourceLength = terminal ? _snapshot.SourceLength : global ? 0 : FindStableBoundary(_snapshot, terminal: false);
         if (!terminal && _snapshot.Blocks.LastOrDefault()?.Kind == MarkdownBlockKind.Table)
             _tableHoldbackActivations++;
         if (global && !_documentGlobal) Epoch++;
@@ -219,16 +225,16 @@ public sealed class MarkdownStreamSession
         return new(document, invalidation, previousStable, _stableSourceLength, Diagnostics);
     }
 
-    private static int FindStableBoundary(MarkdownDocumentSnapshot snapshot, bool terminal)
+    private int FindStableBoundary(MarkdownDocumentSnapshot snapshot, bool terminal)
     {
-        if (terminal) return snapshot.Source.Length;
+        if (terminal) return snapshot.SourceLength;
         if (snapshot.Blocks.Count < 2) return 0;
         var candidateIndex = snapshot.Blocks.Count - 1;
         while (candidateIndex > 0)
         {
             var preceding = snapshot.Blocks[candidateIndex - 1];
             var following = snapshot.Blocks[candidateIndex];
-            var blankSeparated = HasBlankLine(snapshot.Source, preceding.SourceEndExclusive, following.SourceStart);
+            var blankSeparated = HasBlankLine(preceding.SourceEndExclusive, following.SourceStart);
             var proven = preceding.Kind switch
             {
                 MarkdownBlockKind.ThematicBreak => true,
@@ -246,13 +252,13 @@ public sealed class MarkdownStreamSession
         return 0;
     }
 
-    private static bool HasBlankLine(string source, int start, int endExclusive)
+    private bool HasBlankLine(int start, int endExclusive)
     {
         var lineBreaks = 0;
-        for (var index = Math.Clamp(start, 0, source.Length);
-             index < Math.Clamp(endExclusive, 0, source.Length);
+        for (var index = Math.Clamp(start, 0, _source.Length);
+             index < Math.Clamp(endExclusive, 0, _source.Length);
              index++)
-            if (source[index] == '\n' && ++lineBreaks >= 2) return true;
+            if (_source[index] == '\n' && ++lineBreaks >= 2) return true;
         return false;
     }
 

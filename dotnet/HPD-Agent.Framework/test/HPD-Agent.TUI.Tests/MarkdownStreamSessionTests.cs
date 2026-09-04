@@ -356,6 +356,11 @@ public sealed class MarkdownStreamSessionTests
         Assert.Equal(2, session.Diagnostics.DeltasAccepted);
         Assert.Equal("first\n\nsecond\n\nthird\n".Length, session.Diagnostics.Utf16CodeUnitsAppended);
         Assert.InRange(session.Diagnostics.ParseCount, 1, session.Diagnostics.DeltasAccepted);
+        Assert.Equal((long)session.Diagnostics.Utf16CodeUnitsAppended * sizeof(char),
+            session.Diagnostics.RetainedSourceBytes);
+        Assert.True(session.Diagnostics.ReparsedCharacters >= session.Diagnostics.Utf16CodeUnitsAppended);
+        Assert.True(session.Diagnostics.StablePrefixNodes >= 0);
+        Assert.True(session.Diagnostics.PeakParseStateBytes >= session.Diagnostics.RetainedSourceBytes);
         Assert.Equal(2, session.Projection.Diagnostics.LayoutCount);
         Assert.True(session.Projection.Diagnostics.CacheHits > 0);
         Assert.DoesNotContain("first", session.Diagnostics.ToString(), StringComparison.Ordinal);
