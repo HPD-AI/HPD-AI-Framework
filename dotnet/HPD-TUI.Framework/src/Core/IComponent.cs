@@ -14,6 +14,9 @@ public interface IComponent
     /// <summary>Gets the render-context fields observed by this component.</summary>
     ComponentDependencies Dependencies { get; }
 
+    /// <summary>Gets whether framework layout roots may cache this component's measurements.</summary>
+    LayoutCachePolicy LayoutCachePolicy { get; }
+
     /// <summary>Measures the component within two-dimensional layout constraints.</summary>
     Measurement Measure(in RenderContext context, Layout.LayoutConstraints constraints);
 

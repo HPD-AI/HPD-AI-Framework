@@ -27,6 +27,55 @@ public sealed record ScrollbackBatch(
     long FirstSequence,
     IReadOnlyList<ScrollbackRow> Rows);
 
+/// <summary>Owns an immutable scrollback batch for exactly one asynchronous commit attempt.</summary>
+public sealed class ScrollbackBatchLease : IDisposable
+{
+    private ScrollbackBatch? _batch;
+
+    /// <summary>Creates a lease over a prepared immutable batch.</summary>
+    public ScrollbackBatchLease(ScrollbackBatch batch) => _batch = batch ?? throw new ArgumentNullException(nameof(batch));
+
+    /// <summary>Gets the leased batch while the lease is active.</summary>
+    public ScrollbackBatch Batch => _batch ?? throw new ObjectDisposedException(nameof(ScrollbackBatchLease));
+
+    /// <summary>Releases the batch reference after the commit attempt completes.</summary>
+    public void Dispose() => _batch = null;
+}
+
+/// <summary>Controls recovery policy for one append-only scrollback commit.</summary>
+/// <param name="ClearAndReplayWhenUncertain">Whether uncertain prior output may be cleared and replayed.</param>
+public readonly record struct ScrollbackCommitOptions(bool ClearAndReplayWhenUncertain = true);
+
+/// <summary>Identifies the transport outcome of a scrollback commit.</summary>
+public enum ScrollbackCommitStatus
+{
+    /// <summary>The complete batch and reconstructed live screen were accepted.</summary>
+    Written,
+    /// <summary>No bytes were accepted because the transport was backpressured.</summary>
+    Backpressured,
+    /// <summary>The write failed and may have emitted a prefix.</summary>
+    Failed
+}
+
+/// <summary>Reports the result of one scrollback commit attempt.</summary>
+/// <param name="Status">The transport outcome.</param>
+/// <param name="CommittedThroughSequence">The exclusive committed sequence watermark after success.</param>
+/// <param name="Error">The publication error, when failed.</param>
+public readonly record struct ScrollbackCommitResult(
+    ScrollbackCommitStatus Status,
+    long CommittedThroughSequence,
+    Exception? Error = null);
+
+/// <summary>Publishes contiguous immutable rows into terminal-owned append-only history.</summary>
+public interface IScrollbackJournal
+{
+    /// <summary>Attempts one transactional history append and live-screen reconstruction.</summary>
+    ValueTask<ScrollbackCommitResult> CommitAsync(
+        ScrollbackBatchLease batch,
+        ScrollbackCommitOptions options,
+        CancellationToken cancellationToken = default);
+}
+
 /// <summary>Projects immutable application history into managed-terminal scrollback batches.</summary>
 public interface IScrollbackSource
 {

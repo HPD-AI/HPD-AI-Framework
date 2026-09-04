@@ -20,6 +20,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly AnsiFrameWriter _output = new();
     private readonly RetainedDisplayList _displayList = new();
+    private readonly ManagedScrollbackJournal _scrollbackJournal;
     private ScreenBuffer? _currentBuffer;
     private ScreenBuffer? _previousBuffer;
     private int _previousWidth;
@@ -42,6 +43,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
     {
         _terminal = terminal ?? throw new ArgumentNullException(nameof(terminal));
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
+        _scrollbackJournal = new ManagedScrollbackJournal(PublishScrollbackAsync);
     }
 
     internal ValueTask WaitUntilWritableAsync(CancellationToken cancellationToken)
@@ -82,7 +84,13 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
 
         if (scrollback is not null)
         {
-            FullRender(size, usedLines, FullRenderClearMode.Screen, scrollback);
+            using var lease = new ScrollbackBatchLease(scrollback);
+            var result = _scrollbackJournal.CommitAsync(lease, new ScrollbackCommitOptions())
+                .GetAwaiter().GetResult();
+            if (result.Status == ScrollbackCommitStatus.Backpressured)
+                throw new TerminalBackpressureException();
+            if (result.Status == ScrollbackCommitStatus.Failed)
+                throw new InvalidOperationException("Managed scrollback publication failed; terminal state is uncertain.", result.Error);
             PublishRenderCompleted(sink, startTimestamp, usedLines, _displayList.Count, cacheHit);
             return;
         }
@@ -207,6 +215,33 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
             WriteLines(output, _currentBuffer!.Grid, 0, usedLines - 1);
             WriteCursorState(output, _currentBuffer.Grid, usedLines, viewportTop, ref acceptedHardwareCursorRow);
             output.Write(EndSynchronizedOutput);
+        }
+    }
+
+    private ValueTask<ScrollbackCommitResult> PublishScrollbackAsync(
+        ScrollbackBatch batch,
+        ScrollbackCommitOptions options,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        try
+        {
+            if (!_terminalCertain && !options.ClearAndReplayWhenUncertain)
+                return ValueTask.FromResult(new ScrollbackCommitResult(
+                    ScrollbackCommitStatus.Failed, batch.FirstSequence,
+                    new InvalidOperationException("Terminal state is uncertain and clear-and-replay recovery is disabled.")));
+            FullRender(_terminal.GetSize(), TuiCapture.GetUsedLineCount(_currentBuffer!.Grid),
+                FullRenderClearMode.Screen, batch, recovery: !_terminalCertain);
+            return ValueTask.FromResult(new ScrollbackCommitResult(ScrollbackCommitStatus.Written,
+                checked(batch.FirstSequence + batch.Rows.Count)));
+        }
+        catch (TerminalBackpressureException)
+        {
+            return ValueTask.FromResult(new ScrollbackCommitResult(ScrollbackCommitStatus.Backpressured, batch.FirstSequence));
+        }
+        catch (Exception exception)
+        {
+            return ValueTask.FromResult(new ScrollbackCommitResult(ScrollbackCommitStatus.Failed, batch.FirstSequence, exception));
         }
     }
 

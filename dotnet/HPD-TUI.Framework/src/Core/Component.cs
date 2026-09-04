@@ -40,6 +40,15 @@ public readonly record struct ComponentDependencies(RenderContextFields Layout, 
         new(RenderContextFields.All, RenderContextFields.All);
 }
 
+/// <summary>Controls whether a component's measurements may be retained by an owning layout root.</summary>
+public enum LayoutCachePolicy
+{
+    /// <summary>Do not retain measurements; invoke <see cref="IComponent.Measure"/> for every layout pass.</summary>
+    None,
+    /// <summary>Retain measurements under complete revision, constraint, and dependency keys.</summary>
+    RevisionKeyed
+}
+
 /// <summary>Base class for attachable TUI components with framework-owned revision tracking.</summary>
 public abstract class Component : IComponent
 {
@@ -65,6 +74,9 @@ public abstract class Component : IComponent
     /// <inheritdoc />
     public virtual ComponentDependencies Dependencies => ComponentDependencies.Conservative;
 
+    /// <inheritdoc />
+    public virtual LayoutCachePolicy LayoutCachePolicy => LayoutCachePolicy.RevisionKeyed;
+
     /// <summary>Updates a paint-only field and invalidates visible output when its value changed.</summary>
     protected bool SetPaint<T>(ref T field, T value)
     {
@@ -87,6 +99,8 @@ public abstract class Component : IComponent
     protected void AdoptChild(IComponent child)
     {
         ArgumentNullException.ThrowIfNull(child);
+        if (Contains(child, this))
+            throw new InvalidOperationException("Adopting this component would create an ownership cycle.");
         child.Lifecycle.Adopt(_lifecycle.Id);
         _ownedChildren.Add(child);
         if (_lifecycle.Attachment is { } attachment)
@@ -113,6 +127,8 @@ public abstract class Component : IComponent
     protected Measurement MeasureChild(IComponent child, in RenderContext context, Layout.LayoutConstraints constraints)
     {
         ArgumentNullException.ThrowIfNull(child);
+        if (child.LayoutCachePolicy == LayoutCachePolicy.None)
+            return child.Measure(in context, constraints);
         var maxWidth = constraints.MaxWidth;
         var fields = child.Dependencies.Layout;
         var key = new LayoutCacheKey(
@@ -156,6 +172,15 @@ public abstract class Component : IComponent
     public virtual bool HandleInput(in TuiInputEvent input) => false;
 
     private static ulong Next(ulong value) => value == ulong.MaxValue ? 1 : value + 1;
+
+    private static bool Contains(IComponent root, IComponent sought)
+    {
+        if (ReferenceEquals(root, sought)) return true;
+        if (root is not Component owner) return false;
+        foreach (var child in owner._ownedChildren)
+            if (Contains(child, sought)) return true;
+        return false;
+    }
 
     private readonly record struct LayoutCacheKey(
         ComponentId Component,
