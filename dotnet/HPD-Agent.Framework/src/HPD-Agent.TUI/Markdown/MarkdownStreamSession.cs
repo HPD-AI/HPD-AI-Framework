@@ -1,4 +1,3 @@
-using System.Text;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using HPD.TUI.Markdown;
@@ -35,12 +34,14 @@ public readonly record struct MarkdownStreamDiagnosticsSnapshot(
 /// <summary>Owns canonical source and newline-gated parsing for one agent message.</summary>
 public sealed class MarkdownStreamSession
 {
-    private readonly StringBuilder _source = new();
+    private readonly ChunkedMarkdownSource _source = new();
     private readonly IMarkdownDocumentParser _parser;
+    private readonly IIncrementalMarkdownParser _incrementalParser;
     private readonly MarkdownParseOptions _parseOptions;
     private readonly MarkdownMessagePresentation _presentation;
     private readonly ImmutableDictionary<string, object?> _additionalProperties;
     private MarkdownDocumentSnapshot _snapshot;
+    private MarkdownParseState _parseState;
     private int _parseableSourceLength;
     private int _stableSourceLength;
     private string? _failureDetail;
@@ -77,10 +78,12 @@ public sealed class MarkdownStreamSession
         _additionalProperties = additionalProperties?.ToImmutableDictionary(StringComparer.Ordinal)
             ?? ImmutableDictionary<string, object?>.Empty;
         _parser = parser ?? new MarkdownDocumentParser();
+        _incrementalParser = new ConservativeIncrementalMarkdownParser(_parser);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumCanonicalSourceLength);
         _maximumCanonicalSourceLength = maximumCanonicalSourceLength;
         _parseOptions = new() { Pipeline = pipeline ?? MarkdownPipelineFactory.CreateDefault() };
-        _snapshot = _parser.Parse(string.Empty, _parseOptions);
+        _parseState = _incrementalParser.ParseInitial(ReadOnlyMemory<char>.Empty, _parseOptions);
+        _snapshot = _parseState.Document;
     }
 
     /// <summary>Gets the stream kind and external message identity.</summary>
@@ -118,7 +121,7 @@ public sealed class MarkdownStreamSession
         _pendingDeltas++;
         Revision++;
         var previousParseable = _parseableSourceLength;
-        var finalNewline = FindFinalNewline(_source);
+        var finalNewline = _source.FindFinalNewline();
         _parseableSourceLength = finalNewline < 0 ? 0 : finalNewline + 1;
         return new(true, _parseableSourceLength > previousParseable, Revision);
     }
@@ -154,12 +157,21 @@ public sealed class MarkdownStreamSession
         _pendingDeltas = 0;
         var requestedParsedLength = terminal ? _source.Length : _parseableSourceLength;
         var parsedLength = requestedParsedLength;
-        var parsedSource = _source.ToString(0, requestedParsedLength);
         var previousStable = _stableSourceLength;
-        if (_snapshot.Source != parsedSource)
+        if (_snapshot.Source.Length != requestedParsedLength || terminal && _parseState.StableSourceLength != requestedParsedLength)
         {
             var started = Stopwatch.GetTimestamp();
-            try { _snapshot = _parser.Parse(parsedSource, _parseOptions); }
+            var previousFallbacks = _parseState.FallbackCount;
+            try
+            {
+                var appendedLength = requestedParsedLength - _snapshot.Source.Length;
+                if (appendedLength < 0)
+                    throw new InvalidOperationException("Canonical Markdown source cannot shrink within a stream lineage.");
+                var suffix = _source.Slice(_snapshot.Source.Length, appendedLength);
+                _parseState = _incrementalParser.Append(_parseState, suffix.AsMemory(), terminal);
+                _snapshot = _parseState.Document;
+                _parseFallbacks += _parseState.FallbackCount - previousFallbacks;
+            }
             catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
             {
                 _parseFallbacks++;
@@ -181,7 +193,7 @@ public sealed class MarkdownStreamSession
         _documentGlobal = global;
         Projection.Revision = Revision;
         Projection.Epoch = Epoch;
-        var tail = _source.ToString(parsedLength, _source.Length - parsedLength);
+        var tail = _source.Slice(parsedLength, _source.Length - parsedLength);
         var document = new MarkdownMessageDocument
         {
             Identity = Identity,
@@ -242,12 +254,6 @@ public sealed class MarkdownStreamSession
              index++)
             if (source[index] == '\n' && ++lineBreaks >= 2) return true;
         return false;
-    }
-
-    private static int FindFinalNewline(StringBuilder source)
-    {
-        for (var index = source.Length - 1; index >= 0; index--) if (source[index] == '\n') return index;
-        return -1;
     }
 
     private void EnsureStreaming()
