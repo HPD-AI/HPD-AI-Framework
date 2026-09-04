@@ -11,7 +11,7 @@ public sealed class TuiRenderer : IDisposable
     private static readonly char[] CursorHide = ['\x1b', '[', '?', '2', '5', 'l'];
     private static readonly char[] CursorShow = ['\x1b', '[', '?', '2', '5', 'h'];
     private readonly ITerminal _terminal;
-    private readonly ITerminalOutputTransport _transport;
+    private readonly TerminalPublicationCoordinator _publisher;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly AnsiFrameWriter _output = new();
     private readonly RetainedDisplayList _displayList = new();
@@ -32,7 +32,18 @@ public sealed class TuiRenderer : IDisposable
     public TuiRenderer(ITerminal terminal, ITerminalOutputTransport transport)
     {
         _terminal = terminal ?? throw new ArgumentNullException(nameof(terminal));
-        _transport = transport ?? throw new ArgumentNullException(nameof(transport));
+        _publisher = new TerminalPublicationCoordinator(transport);
+    }
+
+    internal ValueTask WaitUntilWritableAsync(CancellationToken cancellationToken)
+        => _publisher.WaitUntilWritableAsync(cancellationToken);
+
+    internal void PublishControl(ReadOnlySpan<char> controlSequence)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        _output.Clear();
+        _output.Write(controlSequence);
+        PublishFrame(recovery: !_terminalCertain);
     }
 
     public IHpdTuiPerformanceEventSink? PerformanceSink { get; set; }
@@ -110,8 +121,7 @@ public sealed class TuiRenderer : IDisposable
 
     private void PublishFrame(bool recovery)
     {
-        using var lease = _output.CreateLease();
-        var result = _transport.TryWriteFrameAsync(lease).GetAwaiter().GetResult();
+        var result = _publisher.TryPublish(_output.WrittenSpan);
         _output.Clear();
         if (result.Status == TerminalWriteStatus.Failed)
         {
@@ -119,7 +129,7 @@ public sealed class TuiRenderer : IDisposable
             throw new InvalidOperationException("Terminal frame publication failed; terminal state is uncertain.", result.Error);
         }
         if (result.Status == TerminalWriteStatus.Backpressured)
-            throw new InvalidOperationException("The synchronous terminal transport unexpectedly reported backpressure.");
+            throw new TerminalBackpressureException();
         if (recovery) _terminalCertain = true;
     }
 

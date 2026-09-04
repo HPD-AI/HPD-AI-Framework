@@ -92,6 +92,43 @@ public sealed class TuiApplicationTests
         Assert.Equal([1, 2, 3], sequence);
     }
 
+    [Fact]
+    public async Task RunAsync_RoutesControlsAndFramesThroughOneBackpressureAwareTransport()
+    {
+        using var terminal = new TestTerminal();
+        var transport = new FrameBackpressureTransport();
+        using var app = new TuiApplication(terminal, transport);
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+        app.SetRoot(new Text("latest"));
+
+        await app.RunAsync(cancellationToken: cts.Token);
+
+        Assert.True(transport.WaitCount >= 1);
+        Assert.Equal(4, transport.Attempts.Count);
+        Assert.Contains("\x1b[?1049h", transport.Attempts[0]);
+        Assert.Contains("latest", transport.Attempts[2]);
+        Assert.Contains("\x1b[?1049l", transport.Attempts[3]);
+        Assert.Equal(string.Empty, terminal.Output);
+    }
+
+    private sealed class FrameBackpressureTransport : ITerminalOutputTransport
+    {
+        public List<string> Attempts { get; } = [];
+        public int WaitCount { get; private set; }
+        public ValueTask<TerminalWriteResult> TryWriteFrameAsync(TerminalFrameLease frame, CancellationToken cancellationToken = default)
+        {
+            Attempts.Add(frame.Payload.ToString());
+            return ValueTask.FromResult(Attempts.Count == 2
+                ? TerminalWriteResult.Backpressured
+                : TerminalWriteResult.Written);
+        }
+        public ValueTask WaitUntilWritableAsync(CancellationToken cancellationToken = default)
+        {
+            WaitCount++;
+            return ValueTask.CompletedTask;
+        }
+    }
+
     private sealed class TestTerminal : ITerminal, ITerminalInput
     {
         private readonly Queue<KeyEvent> _keys = new();

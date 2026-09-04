@@ -16,7 +16,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
     private static readonly char[] ClearScreenAndCursorHome = ['\x1b', '[', '2', 'J', '\x1b', '[', 'H'];
     private static readonly char[] ClearScrollback = ['\x1b', '[', '3', 'J'];
     private readonly ITerminal _terminal;
-    private readonly ITerminalOutputTransport _transport;
+    private readonly TerminalPublicationCoordinator _publisher;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly AnsiFrameWriter _output = new();
     private readonly RetainedDisplayList _displayList = new();
@@ -30,6 +30,12 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
     private bool _terminalCertain = true;
     private bool _scrollbackUncertain;
     private bool _disposed;
+    private TimeSpan _lastEncodeDuration;
+    private TimeSpan _lastDiffDuration;
+    private TimeSpan _lastOutputDuration;
+    private ScreenDiffMetrics _lastDiffMetrics;
+    private int _lastOutputCharacters;
+    private bool _lastFullRepaint;
 
     public ManagedTerminalTuiRenderer(ITerminal terminal)
         : this(terminal, new SynchronousTerminalOutputTransport(terminal))
@@ -42,12 +48,12 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
     public ManagedTerminalTuiRenderer(ITerminal terminal, ITerminalOutputTransport transport)
     {
         _terminal = terminal ?? throw new ArgumentNullException(nameof(terminal));
-        _transport = transport ?? throw new ArgumentNullException(nameof(transport));
+        _publisher = new TerminalPublicationCoordinator(transport);
         _scrollbackJournal = new ManagedScrollbackJournal(PublishScrollbackAsync);
     }
 
     internal ValueTask WaitUntilWritableAsync(CancellationToken cancellationToken)
-        => _transport.WaitUntilWritableAsync(cancellationToken);
+        => _publisher.WaitUntilWritableAsync(cancellationToken);
 
     public bool TrackHardwareCursor { get; set; }
 
@@ -68,12 +74,15 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         EnsureBuffer(size.Width, size.Height);
 
         var context = new RenderContext(size.Width, size.Height, theme ?? Theme.Default, elapsed: _clock.Elapsed);
+        var displayStart = sink is null ? 0 : Stopwatch.GetTimestamp();
         var cacheHit = _displayList.Prepare(root, in context, size.Width);
+        var displayDuration = sink is null ? TimeSpan.Zero : Stopwatch.GetElapsedTime(displayStart);
         if (cacheHit && hadPreviousFrame && !sizeChanged && _terminalCertain && scrollback is null)
         {
-            PublishRenderCompleted(sink, startTimestamp, 0, _displayList.Count, true);
+            PublishRenderCompleted(sink, startTimestamp, displayDuration, TimeSpan.Zero, false);
             return;
         }
+        var rasterStart = sink is null ? 0 : Stopwatch.GetTimestamp();
         if (hadPreviousFrame && !sizeChanged && !_displayList.RequiresFullRaster)
         {
             _currentBuffer!.CopyFrom(_previousBuffer!);
@@ -87,56 +96,66 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
             _displayList.Replay(_currentBuffer.Grid);
             _currentBuffer.ComputeFinalRowFingerprints();
         }
+        var rasterDuration = sink is null ? TimeSpan.Zero : Stopwatch.GetElapsedTime(rasterStart);
 
         var usedLines = TuiCapture.GetUsedLineCount(_currentBuffer.Grid);
+        ResetPublicationMetrics();
 
-        if (!_terminalCertain)
+        try
         {
-            FullRender(size, usedLines, FullRenderClearMode.Screen, scrollback, recovery: true);
-            PublishRenderCompleted(sink, startTimestamp, usedLines, _displayList.Count, cacheHit);
-            return;
-        }
+            if (!_terminalCertain)
+            {
+                FullRender(size, usedLines, FullRenderClearMode.Screen, scrollback, recovery: true);
+                PublishRenderCompleted(sink, startTimestamp, displayDuration, rasterDuration, false);
+                return;
+            }
 
-        if (scrollback is not null)
+            if (scrollback is not null)
+            {
+                using var lease = new ScrollbackBatchLease(scrollback);
+                var result = _scrollbackJournal.CommitAsync(lease, new ScrollbackCommitOptions())
+                    .GetAwaiter().GetResult();
+                if (result.Status == ScrollbackCommitStatus.Backpressured)
+                    throw new TerminalBackpressureException();
+                if (result.Status == ScrollbackCommitStatus.Failed)
+                    throw new InvalidOperationException("Managed scrollback publication failed; terminal state is uncertain.", result.Error);
+                PublishRenderCompleted(sink, startTimestamp, displayDuration, rasterDuration, false);
+                return;
+            }
+
+            if (!hadPreviousFrame || sizeChanged)
+            {
+                FullRender(size, usedLines, FullRenderClearMode.Screen);
+                PublishRenderCompleted(sink, startTimestamp, displayDuration, rasterDuration, false);
+                return;
+            }
+
+            var screenChanged = false;
+            var compared = 0;
+            var rejected = 0;
+            for (var row = 0; row < size.Height; row++)
+            {
+                compared++;
+                if (_currentBuffer.RowEquals(_previousBuffer!, row)) rejected++;
+                else screenChanged = true;
+            }
+            if (!screenChanged)
+            {
+                _lastDiffMetrics = new(0, rejected, compared, 0, 0);
+                PublishCursorOnlyIfChanged(_currentBuffer.Grid, usedLines);
+                CommitFrame(size, usedLines);
+                PublishRenderCompleted(sink, startTimestamp, displayDuration, rasterDuration, false);
+                return;
+            }
+
+            PatchChangedRuns(size, usedLines);
+            PublishRenderCompleted(sink, startTimestamp, displayDuration, rasterDuration, false);
+        }
+        catch (TerminalBackpressureException)
         {
-            using var lease = new ScrollbackBatchLease(scrollback);
-            var result = _scrollbackJournal.CommitAsync(lease, new ScrollbackCommitOptions())
-                .GetAwaiter().GetResult();
-            if (result.Status == ScrollbackCommitStatus.Backpressured)
-                throw new TerminalBackpressureException();
-            if (result.Status == ScrollbackCommitStatus.Failed)
-                throw new InvalidOperationException("Managed scrollback publication failed; terminal state is uncertain.", result.Error);
-            PublishRenderCompleted(sink, startTimestamp, usedLines, _displayList.Count, cacheHit);
-            return;
+            PublishRenderCompleted(sink, startTimestamp, displayDuration, rasterDuration, true);
+            throw;
         }
-
-        if (!hadPreviousFrame && !sizeChanged)
-        {
-            FullRender(size, usedLines, FullRenderClearMode.Screen);
-            PublishRenderCompleted(sink, startTimestamp, usedLines, _displayList.Count, cacheHit);
-            return;
-        }
-
-        if (sizeChanged)
-        {
-            FullRender(size, usedLines, FullRenderClearMode.Screen);
-            PublishRenderCompleted(sink, startTimestamp, usedLines, _displayList.Count, cacheHit);
-            return;
-        }
-
-        var screenChanged = false;
-        for (var row = 0; row < size.Height; row++)
-            screenChanged |= !_currentBuffer.RowEquals(_previousBuffer!, row);
-        if (!screenChanged)
-        {
-            PublishCursorOnlyIfChanged(_currentBuffer.Grid, usedLines);
-            CommitFrame(size, usedLines);
-            PublishRenderCompleted(sink, startTimestamp, usedLines, _displayList.Count, cacheHit);
-            return;
-        }
-
-        PatchChangedRuns(size, usedLines);
-        PublishRenderCompleted(sink, startTimestamp, usedLines, _displayList.Count, cacheHit);
     }
 
     private void PatchChangedRuns(TerminalSize size, int usedLines)
@@ -145,7 +164,9 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         WriteFrame(output =>
         {
             output.Write(BeginSynchronizedOutput);
-            AnsiGridRenderer.WriteDifferential(_previousBuffer!, _currentBuffer!, output);
+            var diffStart = PerformanceSink is null ? 0 : Stopwatch.GetTimestamp();
+            _lastDiffMetrics = AnsiGridRenderer.WriteDifferential(_previousBuffer!, _currentBuffer!, output);
+            _lastDiffDuration = PerformanceSink is null ? TimeSpan.Zero : Stopwatch.GetElapsedTime(diffStart);
             WriteCursorState(output, _currentBuffer!.Grid, usedLines, 0, ref acceptedHardwareCursorRow);
             output.Write(EndSynchronizedOutput);
         });
@@ -153,39 +174,38 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         CommitFrame(size, usedLines);
     }
 
-    private static void PublishRenderCompleted(
+    private void PublishRenderCompleted(
         IHpdTuiPerformanceEventSink? sink,
         long startTimestamp,
-        int rowsRendered,
-        int segmentsWritten,
-        bool cacheHit)
+        TimeSpan displayDuration,
+        TimeSpan rasterDuration,
+        bool backpressured)
     {
         if (sink is null)
         {
             return;
         }
 
-        var duration = Stopwatch.GetElapsedTime(startTimestamp);
         sink.Publish(new TuiFrameDiagnostics(
             SchedulingDelay: TimeSpan.Zero,
             LayoutDuration: TimeSpan.Zero,
-            DisplayListDuration: duration,
-            RasterDuration: TimeSpan.Zero,
-            DiffDuration: TimeSpan.Zero,
-            EncodeDuration: TimeSpan.Zero,
-            OutputDuration: TimeSpan.Zero,
-            ComponentsMeasured: cacheHit ? 0 : 1,
-            ComponentsPainted: cacheHit ? 0 : 1,
-            DisplayCommandsReused: cacheHit ? segmentsWritten : 0,
-            DisplayCommandsBuilt: cacheHit ? 0 : segmentsWritten,
-            RowsDamaged: rowsRendered,
-            RowsFingerprintRejected: 0,
-            RowsSemanticallyCompared: rowsRendered,
-            ChangedRuns: rowsRendered,
-            CellsChanged: 0,
-            OutputCharacters: 0,
-            FullRepaint: true,
-            Backpressured: false));
+            DisplayListDuration: displayDuration,
+            RasterDuration: rasterDuration,
+            DiffDuration: _lastDiffDuration,
+            EncodeDuration: _lastEncodeDuration - _lastDiffDuration,
+            OutputDuration: _lastOutputDuration,
+            ComponentsMeasured: 0,
+            ComponentsPainted: _displayList.ComponentsPainted,
+            DisplayCommandsReused: _displayList.CommandsReused,
+            DisplayCommandsBuilt: _displayList.CommandsBuilt,
+            RowsDamaged: _displayList.DamagedRowCount,
+            RowsFingerprintRejected: _lastDiffMetrics.RowsFingerprintRejected,
+            RowsSemanticallyCompared: _lastDiffMetrics.RowsSemanticallyCompared,
+            ChangedRuns: _lastDiffMetrics.ChangedRuns,
+            CellsChanged: _lastDiffMetrics.CellsChanged,
+            OutputCharacters: _lastOutputCharacters,
+            FullRepaint: _lastFullRepaint,
+            Backpressured: backpressured));
     }
 
     private void FullRender(
@@ -196,6 +216,8 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         bool recovery = false)
     {
         const int viewportTop = 0;
+        _lastFullRepaint = true;
+        _lastDiffMetrics = new(size.Height, 0, 0, size.Height, size.Width * size.Height);
         var acceptedHardwareCursorRow = Math.Max(0, usedLines - 1);
         WriteFrame(BuildFullFrame, recovery, containsScrollback: scrollback is not null);
 
@@ -312,9 +334,13 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         if (!_terminalCertain && !recovery)
             throw new InvalidOperationException("Terminal state is uncertain; this renderer cannot safely publish another frame.");
         _output.Clear();
+        var encodeStart = PerformanceSink is null ? 0 : Stopwatch.GetTimestamp();
         builder(_output);
-        using var lease = _output.CreateLease();
-        var result = _transport.TryWriteFrameAsync(lease).GetAwaiter().GetResult();
+        _lastEncodeDuration += PerformanceSink is null ? TimeSpan.Zero : Stopwatch.GetElapsedTime(encodeStart);
+        _lastOutputCharacters += _output.Length;
+        var outputStart = PerformanceSink is null ? 0 : Stopwatch.GetTimestamp();
+        var result = _publisher.TryPublish(_output.WrittenSpan);
+        _lastOutputDuration += PerformanceSink is null ? TimeSpan.Zero : Stopwatch.GetElapsedTime(outputStart);
         _output.Clear();
         if (result.Status == TerminalWriteStatus.Failed)
         {
@@ -329,6 +355,16 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
             _terminalCertain = true;
             _scrollbackUncertain = false;
         }
+    }
+
+    private void ResetPublicationMetrics()
+    {
+        _lastEncodeDuration = TimeSpan.Zero;
+        _lastDiffDuration = TimeSpan.Zero;
+        _lastOutputDuration = TimeSpan.Zero;
+        _lastDiffMetrics = default;
+        _lastOutputCharacters = 0;
+        _lastFullRepaint = false;
     }
 
     private delegate void FrameBuilder(AnsiFrameWriter output);

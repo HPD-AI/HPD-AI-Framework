@@ -99,6 +99,42 @@ public sealed class TuiRendererTests
         Assert.Equal(1, stable.RenderCount);
     }
 
+    [Fact]
+    public void Render_BackpressuredFrameDoesNotAdvanceCommittedScreen()
+    {
+        using var terminal = new TestTerminal(20, 4);
+        var transport = new BackpressureOnceTransport();
+        using var renderer = new TuiRenderer(terminal, transport);
+        var text = new Text("old");
+
+        Assert.Throws<TerminalBackpressureException>(() => renderer.Render(text));
+        text.SetText("newest");
+        renderer.Render(text);
+
+        Assert.Equal(2, transport.Attempts);
+        Assert.Contains("newest", transport.AcceptedPayload);
+        Assert.DoesNotContain("old", transport.AcceptedPayload);
+        Assert.Contains("\x1b[2J\x1b[H", transport.AcceptedPayload);
+    }
+
+    [Fact]
+    public void Render_WarmedOneCellUpdate_DoesNotAllocateForSynchronousPublication()
+    {
+        using var terminal = new TestTerminal(20, 4);
+        using var renderer = new TuiRenderer(terminal);
+        var component = new MutableCharacterComponent();
+        renderer.Render(component);
+        component.ChangeTo('y');
+        renderer.Render(component);
+        component.ChangeTo('z');
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        renderer.Render(component);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0, allocated);
+    }
+
     private sealed class CountingComponent : Component
     {
         public int RenderCount { get; private set; }
@@ -112,6 +148,29 @@ public sealed class TuiRendererTests
         }
 
         public void ChangePaint() => InvalidatePaint();
+    }
+
+    private sealed class MutableCharacterComponent : Component
+    {
+        private char _value = 'x';
+        public override ComponentDependencies Dependencies => new(RenderContextFields.None, RenderContextFields.None);
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints) => new(1, 1, 1);
+        public override void Render(in RenderContext context, ref DisplayListBuilder output) => output.Write(_value, Style.Default);
+        public void ChangeTo(char value) { _value = value; InvalidatePaint(); }
+    }
+
+    private sealed class BackpressureOnceTransport : ITerminalOutputTransport
+    {
+        public int Attempts { get; private set; }
+        public string AcceptedPayload { get; private set; } = string.Empty;
+        public ValueTask<TerminalWriteResult> TryWriteFrameAsync(TerminalFrameLease frame, CancellationToken cancellationToken = default)
+        {
+            Attempts++;
+            if (Attempts == 1) return ValueTask.FromResult(TerminalWriteResult.Backpressured);
+            AcceptedPayload = frame.Payload.ToString();
+            return ValueTask.FromResult(TerminalWriteResult.Written);
+        }
+        public ValueTask WaitUntilWritableAsync(CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
     }
 
     private sealed class TestTerminal : ITerminal, ITerminalInput

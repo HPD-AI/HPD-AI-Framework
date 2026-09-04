@@ -24,9 +24,17 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
     private bool _urgentRender;
 
     public TuiApplication(ITerminal terminal)
+        : this(terminal, new SynchronousTerminalOutputTransport(terminal))
+    {
+    }
+
+    /// <summary>Creates an alternate-screen application with an explicit backpressure-aware transport.</summary>
+    /// <param name="terminal">The terminal used for input, sizing, and cursor visibility.</param>
+    /// <param name="transport">The transport shared by frame and control-sequence publication.</param>
+    public TuiApplication(ITerminal terminal, ITerminalOutputTransport transport)
     {
         _terminal = terminal ?? throw new ArgumentNullException(nameof(terminal));
-        _renderer = new TuiRenderer(terminal);
+        _renderer = new TuiRenderer(terminal, transport);
     }
 
     public Theme Theme
@@ -87,7 +95,7 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
         ObjectDisposedException.ThrowIf(_disposed, this);
         options ??= new TuiRunOptions();
 
-        _terminal.Write(EnterAlternateScreen);
+        await PublishControlWithBackpressureAsync(EnterAlternateScreen, cancellationToken).ConfigureAwait(false);
         _terminal.HideCursor();
 
         using var mailbox = CreateMailbox(options);
@@ -110,10 +118,19 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
                 {
                     if (!(options.FramePolicy.RenderImmediatelyOnInput && _urgentRender) && DateTimeOffset.UtcNow < nextFrame)
                         await Task.Delay(nextFrame - DateTimeOffset.UtcNow, loopCts.Token).ConfigureAwait(false);
-                    Render();
-                    dirty = false;
-                    _urgentRender = false;
-                    nextFrame = DateTimeOffset.UtcNow + options.FramePolicy.MinimumFrameInterval;
+                    try
+                    {
+                        Render();
+                        dirty = false;
+                        _urgentRender = false;
+                        nextFrame = DateTimeOffset.UtcNow + options.FramePolicy.MinimumFrameInterval;
+                    }
+                    catch (TerminalBackpressureException)
+                    {
+                        dirty = await WaitForWritableWhileDrainingAsync(mailbox, loopCts.Token).ConfigureAwait(false);
+                    }
+                    if (dirty)
+                        continue;
                 }
 
                 dirty |= await WaitForEventOrFrameAsync(
@@ -130,15 +147,46 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
         }
         finally
         {
-            _surface.Detach();
+            _dispatcherDepth.Value++;
+            try { _surface.Detach(); }
+            finally { _dispatcherDepth.Value--; }
             _surface = null;
             _mailbox = null;
             _eventLoopThreadId = 0;
             await loopCts.CancelAsync().ConfigureAwait(false);
             await inputPump.ConfigureAwait(false);
             _terminal.ShowCursor();
-            _terminal.Write(LeaveAlternateScreen);
+            await PublishControlWithBackpressureAsync(LeaveAlternateScreen, CancellationToken.None).ConfigureAwait(false);
         }
+    }
+
+    private async ValueTask PublishControlWithBackpressureAsync(ReadOnlyMemory<char> payload, CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            try { _renderer.PublishControl(payload.Span); return; }
+            catch (TerminalBackpressureException)
+            {
+                await _renderer.WaitUntilWritableAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private async ValueTask<bool> WaitForWritableWhileDrainingAsync(
+        EventLoopMailbox<TuiLoopEvent> mailbox,
+        CancellationToken cancellationToken)
+    {
+        var readiness = _renderer.WaitUntilWritableAsync(cancellationToken).AsTask();
+        while (!readiness.IsCompleted)
+        {
+            var input = mailbox.WaitToReadAsync(cancellationToken).AsTask();
+            if (await Task.WhenAny(readiness, input).ConfigureAwait(false) == readiness)
+                break;
+            await input.ConfigureAwait(false);
+            _ = await DrainEventsAsync(mailbox).ConfigureAwait(false);
+        }
+        await readiness.ConfigureAwait(false);
+        return true;
     }
 
     public bool HandleInput(in TuiInputEvent key)

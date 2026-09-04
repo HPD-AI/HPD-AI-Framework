@@ -277,6 +277,10 @@ public sealed class ManagedTerminalTuiRendererTests
         Assert.Equal(EventChannel.Streaming, evt.Channel);
         Assert.True(evt.RowsDamaged > 0);
         Assert.True(evt.DisplayCommandsBuilt > 0);
+        Assert.True(evt.OutputCharacters > 0);
+        Assert.True(evt.FullRepaint);
+        Assert.True(evt.EncodeDuration >= TimeSpan.Zero);
+        Assert.True(evt.OutputDuration >= TimeSpan.Zero);
     }
 
     [Fact]
@@ -291,6 +295,24 @@ public sealed class ManagedTerminalTuiRendererTests
         app.Render();
 
         Assert.IsType<TuiFrameDiagnostics>(Assert.Single(sink.Events));
+    }
+
+    [Fact]
+    public void Render_BackpressurePublishesMeasuredDeferredFrame()
+    {
+        using var terminal = new TestTerminal(40, 8);
+        var transport = new BackpressureOnceTransport();
+        using var renderer = new ManagedTerminalTuiRenderer(terminal, transport);
+        var sink = new RecordingSink();
+        renderer.PerformanceSink = sink;
+
+        Assert.Throws<TerminalBackpressureException>(() => renderer.Render(new Text("hello")));
+
+        var diagnostics = Assert.IsType<TuiFrameDiagnostics>(Assert.Single(sink.Events));
+        Assert.True(diagnostics.Backpressured);
+        Assert.True(diagnostics.FullRepaint);
+        Assert.True(diagnostics.OutputCharacters > 0);
+        Assert.True(diagnostics.DisplayCommandsBuilt > 0);
     }
 
     [Fact]

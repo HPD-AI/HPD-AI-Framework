@@ -76,22 +76,34 @@ public interface ITerminalOutputTransport
     ValueTask WaitUntilWritableAsync(CancellationToken cancellationToken = default);
 }
 
-internal sealed class SynchronousTerminalOutputTransport(ITerminalDisplay terminal) : ITerminalOutputTransport
+internal interface ISynchronousTerminalOutputTransport
+{
+    TerminalWriteResult TryWrite(ReadOnlySpan<char> payload, CancellationToken cancellationToken);
+}
+
+internal sealed class SynchronousTerminalOutputTransport(ITerminalDisplay terminal) :
+    ITerminalOutputTransport,
+    ISynchronousTerminalOutputTransport
 {
     public ValueTask<TerminalWriteResult> TryWriteFrameAsync(
         TerminalFrameLease frame,
         CancellationToken cancellationToken = default)
     {
+        return ValueTask.FromResult(TryWrite(frame.Payload.Span, cancellationToken));
+    }
+
+    public TerminalWriteResult TryWrite(ReadOnlySpan<char> payload, CancellationToken cancellationToken)
+    {
         cancellationToken.ThrowIfCancellationRequested();
         try
         {
-            terminal.Write(frame.Payload.Span);
+            terminal.Write(payload);
             terminal.Flush();
-            return ValueTask.FromResult(TerminalWriteResult.Written);
+            return TerminalWriteResult.Written;
         }
         catch (Exception exception)
         {
-            return ValueTask.FromResult(new TerminalWriteResult(TerminalWriteStatus.Failed, exception));
+            return new TerminalWriteResult(TerminalWriteStatus.Failed, exception);
         }
     }
 

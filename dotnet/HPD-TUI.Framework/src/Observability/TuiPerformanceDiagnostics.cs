@@ -77,7 +77,26 @@ public abstract record HpdTuiPerformanceEvent : Event, IHpdTuiPerformanceSummary
         => $"tui {GetType().Name} kind={Kind} channel={Channel}";
 }
 
-/// <summary>Describes the work performed by one admitted compositor frame.</summary>
+/// <summary>Describes measured work performed by one admitted compositor frame.</summary>
+/// <param name="SchedulingDelay">Time between the requested and admitted frame, when supplied by the application scheduler.</param>
+/// <param name="LayoutDuration">Time spent in a distinct layout phase; zero when layout is performed inside display-list preparation.</param>
+/// <param name="DisplayListDuration">Time spent resolving or building the retained display list.</param>
+/// <param name="RasterDuration">Time spent replaying commands and fingerprinting the physical screen.</param>
+/// <param name="DiffDuration">Time spent semantically comparing rows and locating changed runs.</param>
+/// <param name="EncodeDuration">Time spent encoding terminal output outside semantic comparison.</param>
+/// <param name="OutputDuration">Time spent attempting transport publication.</param>
+/// <param name="ComponentsMeasured">Components measured by a separately instrumented layout phase.</param>
+/// <param name="ComponentsPainted">Components whose display-list slices were rebuilt.</param>
+/// <param name="DisplayCommandsReused">Retained commands reused by the frame.</param>
+/// <param name="DisplayCommandsBuilt">Commands built by the frame.</param>
+/// <param name="RowsDamaged">Physical rows conservatively damaged by display-list changes.</param>
+/// <param name="RowsFingerprintRejected">Rows rejected as unchanged by semantic fingerprints and equality.</param>
+/// <param name="RowsSemanticallyCompared">Rows subjected to semantic comparison.</param>
+/// <param name="ChangedRuns">Disjoint changed runs encoded by the frame.</param>
+/// <param name="CellsChanged">Cells covered by changed runs.</param>
+/// <param name="OutputCharacters">Encoded characters offered to the transport.</param>
+/// <param name="FullRepaint">Whether publication rebuilt the complete physical screen.</param>
+/// <param name="Backpressured">Whether the transport accepted zero characters due to backpressure.</param>
 public sealed record TuiFrameDiagnostics(
     TimeSpan SchedulingDelay,
     TimeSpan LayoutDuration,
