@@ -47,7 +47,7 @@ public sealed class OverlayHost : Component
 
     public override Measurement Measure(in RenderContext context, int maxWidth)
     {
-        return _content.Measure(in context, maxWidth);
+        return MeasureChild(_content, in context, maxWidth);
     }
 
     public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)

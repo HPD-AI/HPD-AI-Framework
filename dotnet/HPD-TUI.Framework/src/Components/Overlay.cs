@@ -47,7 +47,7 @@ public sealed class Overlay : Component
 
     public override Measurement Measure(in RenderContext context, int maxWidth)
     {
-        return _child.Measure(in context, Math.Min(maxWidth, Width));
+        return MeasureChild(_child, in context, Math.Min(maxWidth, Width));
     }
 
     public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)

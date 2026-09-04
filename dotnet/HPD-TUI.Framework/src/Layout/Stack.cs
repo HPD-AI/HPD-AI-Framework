@@ -69,7 +69,7 @@ public sealed class Stack : Component
         var height = 0;
         foreach (var child in _children)
         {
-            var measurement = child.Measure(in context, maxWidth);
+            var measurement = MeasureChild(child, in context, maxWidth);
             min = Math.Max(min, measurement.MinWidth);
             max = Math.Max(max, measurement.MaxWidth);
             height += measurement.Height;
@@ -86,7 +86,7 @@ public sealed class Stack : Component
         var height = 0;
         foreach (var child in _children)
         {
-            var measurement = child.Measure(in context, maxWidth);
+            var measurement = MeasureChild(child, in context, maxWidth);
             min += measurement.MinWidth;
             max += measurement.MaxWidth;
             height = Math.Max(height, measurement.Height);
@@ -132,7 +132,7 @@ public sealed class Stack : Component
                 break;
             }
 
-            var measurement = _children[i].Measure(in context, remainingWidth);
+            var measurement = MeasureChild(_children[i], in context, remainingWidth);
             var allocatedWidth = Math.Clamp(measurement.MaxWidth, 0, remainingWidth);
             if (allocatedWidth <= 0)
             {

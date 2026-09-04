@@ -63,7 +63,7 @@ public sealed class Frame : Component
         var edgeWidth = Border.IsVisible ? 2 : 0;
         var innerMaxWidth = Math.Max(0, ResolveWidth(maxWidth) - edgeWidth - Padding.Horizontal);
         var child = innerMaxWidth > 0
-            ? _child.Measure(in context, innerMaxWidth)
+            ? MeasureChild(_child, in context, innerMaxWidth)
             : new Measurement(0, 0);
         var min = child.MinWidth + edgeWidth + Padding.Horizontal;
         var max = child.MaxWidth + edgeWidth + Padding.Horizontal;

@@ -81,4 +81,34 @@ public sealed class ComponentRevisionTests
         root.SetText("live");
         Assert.True(renders > 0);
     }
+
+    [Fact]
+    public void Container_MeasurementCacheUsesChildLayoutRevision()
+    {
+        var child = new MeasuredComponent();
+        var container = new Container();
+        container.Add(child);
+        var context = new RenderContext(80, 24, Theme.Default);
+
+        container.Measure(in context, 80);
+        container.Measure(in context, 80);
+        Assert.Equal(1, child.MeasureCount);
+
+        child.ChangeLayout();
+        container.Measure(in context, 80);
+        Assert.Equal(2, child.MeasureCount);
+    }
+
+    private sealed class MeasuredComponent : Component
+    {
+        public int MeasureCount { get; private set; }
+        public override ComponentDependencies Dependencies => new(RenderContextFields.Width, RenderContextFields.None);
+        public void ChangeLayout() => InvalidateLayout();
+        public override Measurement Measure(in RenderContext context, int maxWidth)
+        {
+            MeasureCount++;
+            return new(1, 1, 1);
+        }
+        public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output) { }
+    }
 }

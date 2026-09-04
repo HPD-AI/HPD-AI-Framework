@@ -45,6 +45,7 @@ public abstract class Component : IComponent
 {
     private readonly ComponentLifecycle _lifecycle;
     private readonly List<IComponent> _ownedChildren = [];
+    private readonly Dictionary<LayoutCacheKey, Measurement> _layoutCache = [];
     private ulong _layoutRevision = 1;
     private ulong _paintRevision = 1;
 
@@ -104,6 +105,27 @@ public abstract class Component : IComponent
         _ownedChildren.Remove(child);
     }
 
+    /// <summary>Measures a child through this layout root's revision-keyed cache.</summary>
+    protected Measurement MeasureChild(IComponent child, in RenderContext context, int maxWidth)
+    {
+        ArgumentNullException.ThrowIfNull(child);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxWidth);
+        var fields = child.Dependencies.Layout;
+        var key = new LayoutCacheKey(
+            child.Lifecycle.Id,
+            child.LayoutRevision,
+            maxWidth,
+            context.Height,
+            (fields & RenderContextFields.Theme) != 0 ? context.Theme.Key : default,
+            (fields & RenderContextFields.ColorSystem) != 0 ? context.ColorSystem : default,
+            (fields & RenderContextFields.Elapsed) != 0 ? context.Elapsed : default);
+        if (_layoutCache.TryGetValue(key, out var cached)) return cached;
+        if (_layoutCache.Count >= 256) _layoutCache.Clear();
+        var measured = child.Measure(in context, maxWidth);
+        _layoutCache.Add(key, measured);
+        return measured;
+    }
+
     /// <summary>Advances the paint revision and reports paint damage to the attached surface.</summary>
     protected void InvalidatePaint()
     {
@@ -114,6 +136,7 @@ public abstract class Component : IComponent
     /// <summary>Advances layout and paint revisions and invalidates the attached layout root.</summary>
     protected void InvalidateLayout()
     {
+        _layoutCache.Clear();
         _layoutRevision = Next(_layoutRevision);
         _paintRevision = Next(_paintRevision);
         _lifecycle.Invalidate(layout: true);
@@ -129,6 +152,15 @@ public abstract class Component : IComponent
     public virtual bool HandleInput(in TuiInputEvent input) => false;
 
     private static ulong Next(ulong value) => value == ulong.MaxValue ? 1 : value + 1;
+
+    private readonly record struct LayoutCacheKey(
+        ComponentId Component,
+        TuiRevision Revision,
+        int Width,
+        int Height,
+        ThemeKey Theme,
+        ColorSystem ColorSystem,
+        TimeSpan Elapsed);
 }
 
 internal interface IComponentLifecycle

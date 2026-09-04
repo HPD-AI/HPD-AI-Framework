@@ -218,7 +218,7 @@ public sealed class Grid : Component
             }
 
             var padding = _columns[columnIndex].Padding.Horizontal;
-            width = Math.Max(width, row.Cells[columnIndex].Measure(in context, context.Width).MaxWidth + padding);
+            width = Math.Max(width, MeasureChild(row.Cells[columnIndex], in context, context.Width).MaxWidth + padding);
         }
 
         return width;
@@ -241,7 +241,7 @@ public sealed class Grid : Component
                 continue;
             }
 
-            var measurement = row.Cells[columnIndex].Measure(in context, cellWidth);
+            var measurement = MeasureChild(row.Cells[columnIndex], in context, cellWidth);
             height = Math.Max(height, measurement.Height + column.Padding.Vertical);
         }
 

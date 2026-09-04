@@ -41,7 +41,7 @@ public class Container : Component
 
         foreach (var child in _children)
         {
-            var measurement = child.Measure(in context, maxWidth);
+            var measurement = MeasureChild(child, in context, maxWidth);
             minWidth = Math.Max(minWidth, measurement.MinWidth);
             desiredWidth = Math.Max(desiredWidth, measurement.MaxWidth);
         }
