@@ -10,6 +10,7 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
     private Dictionary<ComponentId, ComponentSlice> _buildingSlices = [];
     private readonly Stack<PendingSlice> _pendingSlices = [];
     private readonly Dictionary<ComponentId, ComponentRevisions> _committedRevisions = [];
+    private bool[] _damagedRows = [];
     private DisplayListKey _key;
     private int _cursorX;
     private int _cursorY;
@@ -17,6 +18,9 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
     public int CursorX => _cursorX;
     public int CursorY => _cursorY;
     public int Count => _operations.Count;
+    public ReadOnlySpan<bool> DamagedRows => _damagedRows;
+    public int DamagedRowCount { get; private set; }
+    public bool RequiresFullRaster { get; private set; } = true;
 
     public bool Prepare(IComponent root, in RenderContext context, int maxWidth)
     {
@@ -28,7 +32,14 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
             context.Theme.Key,
             context.ColorSystem,
             (dependencies & RenderContextFields.Elapsed) != 0 ? context.Elapsed : default);
-        if (_operations.Count > 0 && key == _key && TreeMatches(root)) return true;
+        if (_operations.Count > 0 && key == _key && TreeMatches(root))
+        {
+            RequiresFullRaster = false;
+            DamagedRowCount = 0;
+            EnsureDamageRows(context.Height);
+            Array.Clear(_damagedRows);
+            return true;
+        }
 
         _building.Clear();
         _buildingSlices.Clear();
@@ -54,6 +65,7 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
         _committedRevisions.Clear();
         RecordTreeRevisions(root);
         _key = key;
+        ComputeDamage(context.Height);
         return false;
     }
 
@@ -76,6 +88,24 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
                     destination.SetTerminalCursor(operation.Command.Bounds.X, operation.Command.Bounds.Y);
                     break;
             }
+        }
+    }
+
+    public void ReplayDamaged(ISegmentSink destination)
+    {
+        if (destination is HPD.TUI.Terminal.TerminalGrid grid) grid.ClearTerminalCursor();
+        foreach (var operation in _operations)
+        {
+            if (operation.Kind != DisplayOperationKind.Command) continue;
+            var command = operation.Command;
+            if (command.Kind == DisplayCommandKind.SetCursor)
+            {
+                destination.SetTerminalCursor(command.Bounds.X, command.Bounds.Y);
+                continue;
+            }
+            if (command.Kind != DisplayCommandKind.TextRun || !IntersectsDamage(command.Bounds)) continue;
+            destination.MoveTo(command.Bounds.X, command.Bounds.Y);
+            destination.Write(command.Payload.Text.AsSpan(), command.Style, command.Metadata);
         }
     }
 
@@ -190,6 +220,54 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
             if (current is not Component owner) return;
             foreach (var child in owner.OwnedChildren) Add(child, ref hash, ref dependencies);
         }
+    }
+
+    private void ComputeDamage(int height)
+    {
+        EnsureDamageRows(height);
+        Array.Clear(_damagedRows);
+        DamagedRowCount = 0;
+        RequiresFullRaster = _building.Count == 0;
+        if (RequiresFullRaster) { MarkAll(); return; }
+        var common = Math.Min(_operations.Count, _building.Count);
+        for (var index = 0; index < common; index++)
+        {
+            if (_operations[index] == _building[index]) continue;
+            Mark(_operations[index]);
+            Mark(_building[index]);
+        }
+        for (var index = common; index < _operations.Count; index++) Mark(_operations[index]);
+        for (var index = common; index < _building.Count; index++) Mark(_building[index]);
+        return;
+
+        void Mark(DisplayOperation operation)
+        {
+            if (operation.Kind != DisplayOperationKind.Command) { RequiresFullRaster = true; MarkAll(); return; }
+            var bounds = operation.Command.Bounds;
+            var start = Math.Clamp(bounds.Y, 0, height);
+            var end = Math.Clamp(Math.Max(bounds.Y + bounds.Height, bounds.Y + 1), 0, height);
+            for (var row = start; row < end; row++)
+                if (!_damagedRows[row]) { _damagedRows[row] = true; DamagedRowCount++; }
+        }
+
+        void MarkAll()
+        {
+            Array.Fill(_damagedRows, true);
+            DamagedRowCount = height;
+        }
+    }
+
+    private bool IntersectsDamage(Layout.LayoutRect bounds)
+    {
+        var start = Math.Clamp(bounds.Y, 0, _damagedRows.Length);
+        var end = Math.Clamp(Math.Max(bounds.Bottom, bounds.Y + 1), 0, _damagedRows.Length);
+        for (var row = start; row < end; row++) if (_damagedRows[row]) return true;
+        return false;
+    }
+
+    private void EnsureDamageRows(int height)
+    {
+        if (_damagedRows.Length != height) _damagedRows = new bool[height];
     }
 
     private readonly record struct DisplayListKey(

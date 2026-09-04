@@ -34,11 +34,35 @@ internal sealed class ScreenBuffer : IDisposable
         Array.Clear(_rowFingerprints);
     }
 
+    public void CopyFrom(ScreenBuffer source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ObjectDisposedException.ThrowIf(_rowFingerprints is null, this);
+        Grid.CopyFrom(source.Grid);
+        source._rowFingerprints!.AsSpan(0, Height).CopyTo(_rowFingerprints);
+    }
+
+    public void ClearDamagedRows(ReadOnlySpan<bool> damagedRows)
+    {
+        ObjectDisposedException.ThrowIf(_rowFingerprints is null, this);
+        if (damagedRows.Length != Height) throw new ArgumentException("Damage must describe every physical row.", nameof(damagedRows));
+        for (var row = 0; row < Height; row++)
+            if (damagedRows[row]) { Grid.ClearRow(row); _rowFingerprints[row] = 0; }
+    }
+
     public void ComputeFinalRowFingerprints()
     {
         ObjectDisposedException.ThrowIf(_rowFingerprints is null, this);
         for (var row = 0; row < Height; row++)
             _rowFingerprints[row] = ComputeRowFingerprint(Grid, row);
+    }
+
+    public void ComputeFinalRowFingerprints(ReadOnlySpan<bool> damagedRows)
+    {
+        ObjectDisposedException.ThrowIf(_rowFingerprints is null, this);
+        if (damagedRows.Length != Height) throw new ArgumentException("Damage must describe every physical row.", nameof(damagedRows));
+        for (var row = 0; row < Height; row++)
+            if (damagedRows[row]) _rowFingerprints[row] = ComputeRowFingerprint(Grid, row);
     }
 
     public bool RowEquals(ScreenBuffer other, int row)

@@ -74,6 +74,46 @@ public sealed class TerminalGrid : ISegmentSink, IDisposable
         _cells.AsSpan(0, Width * Height).Fill(Cell.Blank);
     }
 
+    internal void CopyFrom(TerminalGrid source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ThrowIfDisposed();
+        source.ThrowIfDisposed();
+        if (Width != source.Width || Height != source.Height)
+            throw new ArgumentException("Terminal grids must have identical dimensions.", nameof(source));
+        _graphemeLength = 0;
+        EnsureCapacity(source._graphemeLength);
+        source._cells!.AsSpan(0, Width * Height).CopyTo(_cells);
+        source._graphemes!.AsSpan(0, source._graphemeLength).CopyTo(_graphemes);
+        _graphemeLength = source._graphemeLength;
+        _hyperlinkIds.Clear();
+        _hyperlinks.Clear();
+        foreach (var link in source._hyperlinks)
+        {
+            _hyperlinks.Add(link);
+            _hyperlinkIds.Add(link, new TerminalHyperlinkId(_hyperlinks.Count));
+        }
+        _cursorX = source._cursorX;
+        _cursorY = source._cursorY;
+        HasTerminalCursor = source.HasTerminalCursor;
+        TerminalCursorX = source.TerminalCursorX;
+        TerminalCursorY = source.TerminalCursorY;
+    }
+
+    internal void ClearRow(int row)
+    {
+        ThrowIfDisposed();
+        ArgumentOutOfRangeException.ThrowIfNegative(row);
+        if (row >= Height) throw new ArgumentOutOfRangeException(nameof(row));
+        _cells.AsSpan(row * Width, Width).Fill(Cell.Blank);
+    }
+
+    internal void ClearTerminalCursor()
+    {
+        HasTerminalCursor = false;
+        TerminalCursorX = TerminalCursorY = 0;
+    }
+
     /// <summary>Gets a cell descriptor.</summary>
     public Cell GetCell(int x, int y)
     {

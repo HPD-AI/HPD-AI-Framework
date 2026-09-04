@@ -48,14 +48,29 @@ public sealed class TuiRenderer : IDisposable
         EnsureGrid(size);
 
         var context = new RenderContext(size.Width, size.Height, theme ?? Theme.Default, elapsed: _clock.Elapsed);
-        _currentScreen!.Clear();
-
         var displayStart = Stopwatch.GetTimestamp();
         var cacheHit = _displayList.Prepare(root, in context, size.Width);
         var displayDuration = Stopwatch.GetElapsedTime(displayStart);
+        if (cacheHit && _hasPreviousFrame && _terminalCertain)
+        {
+            PublishDiagnostics(sink, startTimestamp, displayDuration, TimeSpan.Zero, TimeSpan.Zero,
+                default, 0, false, true, TimeSpan.Zero);
+            return;
+        }
         var rasterStart = Stopwatch.GetTimestamp();
-        _displayList.Replay(_currentScreen.Grid);
-        _currentScreen.ComputeFinalRowFingerprints();
+        if (_hasPreviousFrame && !_displayList.RequiresFullRaster)
+        {
+            _currentScreen!.CopyFrom(_previousScreen!);
+            _currentScreen.ClearDamagedRows(_displayList.DamagedRows);
+            _displayList.ReplayDamaged(_currentScreen.Grid);
+            _currentScreen.ComputeFinalRowFingerprints(_displayList.DamagedRows);
+        }
+        else
+        {
+            _currentScreen!.Clear();
+            _displayList.Replay(_currentScreen.Grid);
+            _currentScreen.ComputeFinalRowFingerprints();
+        }
         var rasterDuration = Stopwatch.GetElapsedTime(rasterStart);
         var usedLines = TuiCapture.GetUsedLineCount(_currentScreen.Grid);
 

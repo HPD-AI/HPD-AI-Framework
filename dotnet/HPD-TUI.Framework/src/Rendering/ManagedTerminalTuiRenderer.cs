@@ -67,11 +67,26 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
             _previousHeight != size.Height);
         EnsureBuffer(size.Width, size.Height);
 
-        _currentBuffer!.Clear();
         var context = new RenderContext(size.Width, size.Height, theme ?? Theme.Default, elapsed: _clock.Elapsed);
         var cacheHit = _displayList.Prepare(root, in context, size.Width);
-        _displayList.Replay(_currentBuffer.Grid);
-        _currentBuffer.ComputeFinalRowFingerprints();
+        if (cacheHit && hadPreviousFrame && !sizeChanged && _terminalCertain && scrollback is null)
+        {
+            PublishRenderCompleted(sink, startTimestamp, 0, _displayList.Count, true);
+            return;
+        }
+        if (hadPreviousFrame && !sizeChanged && !_displayList.RequiresFullRaster)
+        {
+            _currentBuffer!.CopyFrom(_previousBuffer!);
+            _currentBuffer.ClearDamagedRows(_displayList.DamagedRows);
+            _displayList.ReplayDamaged(_currentBuffer.Grid);
+            _currentBuffer.ComputeFinalRowFingerprints(_displayList.DamagedRows);
+        }
+        else
+        {
+            _currentBuffer!.Clear();
+            _displayList.Replay(_currentBuffer.Grid);
+            _currentBuffer.ComputeFinalRowFingerprints();
+        }
 
         var usedLines = TuiCapture.GetUsedLineCount(_currentBuffer.Grid);
 
