@@ -1,3 +1,6 @@
+using System.Diagnostics;
+using HPD.TUI.Observability;
+
 namespace HPD.TUI.Core;
 
 /// <summary>Identifies a monotonically increasing component state revision.</summary>
@@ -197,15 +200,34 @@ public abstract class Component : IComponent
         ArgumentOutOfRangeException.ThrowIfNegative(x);
         ArgumentOutOfRangeException.ThrowIfNegative(y);
         if (child.LayoutCachePolicy == LayoutCachePolicy.None)
-            return child.Measure(in context, constraints);
+            return MeasureAndRecord(child, in context, constraints);
         var key = CreateLayoutCacheKey(child, in context, constraints);
         if (_layoutCache.TryGetValue(key, out var cached) && cached.Bounds.X == x && cached.Bounds.Y == y)
+        {
+            TuiInstrumentationContext.RecordLayout(cacheHit: true, 0);
             return cached.Measurement;
+        }
         if (_layoutCache.Count >= 256) _layoutCache.Clear();
-        var measured = child.Measure(in context, constraints);
+        var measured = MeasureAndRecord(child, in context, constraints);
         var bounds = new Layout.LayoutRect(x, y, Math.Min(constraints.MaxWidth, measured.MaxWidth), measured.Height);
         _layoutCache[key] = new CachedChildLayout(measured, bounds);
         return measured;
+    }
+
+    private static Measurement MeasureAndRecord(
+        IComponent child,
+        in RenderContext context,
+        Layout.LayoutConstraints constraints)
+    {
+        if (!TuiInstrumentationContext.IsEnabled)
+            return child.Measure(in context, constraints);
+        var start = Stopwatch.GetTimestamp();
+        try { return child.Measure(in context, constraints); }
+        finally
+        {
+            TuiInstrumentationContext.RecordLayout(
+                cacheHit: false, Stopwatch.GetTimestamp() - start);
+        }
     }
 
     /// <summary>Reads the resolved bounds retained with a child's current measurement.</summary>

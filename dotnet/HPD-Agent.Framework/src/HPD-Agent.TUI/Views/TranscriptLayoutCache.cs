@@ -3,6 +3,7 @@ using HPD.Agent.TUI.Models;
 using HPD.TUI.Core;
 using HPD.TUI.Rendering;
 using HPD.TUI.Terminal;
+using HPD.TUI.Observability;
 
 namespace HPD.Agent.TUI.Views;
 
@@ -91,14 +92,17 @@ internal sealed class TranscriptLayoutCache : ITranscriptLayoutCache
     private readonly Dictionary<CacheIdentity, LinkedListNode<CacheItem>> _items = new(CacheIdentityComparer.Instance);
     private readonly LinkedList<CacheItem> _lru = [];
     private readonly HashSet<LinkedListNode<CacheItem>> _pinned = [];
+    private readonly TuiPerformanceCounters? _performanceCounters;
     private long _bytes;
 
     internal TranscriptLayoutCache(long byteBudget,
-        Func<TranscriptEntry, TranscriptLayoutKey, PreparedTranscriptEntry> prepare)
+        Func<TranscriptEntry, TranscriptLayoutKey, PreparedTranscriptEntry> prepare,
+        TuiPerformanceCounters? performanceCounters = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(byteBudget);
         _byteBudget = byteBudget;
         _prepare = prepare;
+        _performanceCounters = performanceCounters;
     }
 
     internal long ByteSize => _bytes;
@@ -128,6 +132,7 @@ internal sealed class TranscriptLayoutCache : ITranscriptLayoutCache
         node = _lru.AddLast(new CacheItem(identity, prepared));
         _items.Add(identity, node);
         _bytes = checked(_bytes + prepared.ByteSize);
+        _performanceCounters?.RecordSurfaceAllocation(prepared.ByteSize);
         _pinned.Add(node);
         TrimToBudget();
         return prepared;
@@ -143,9 +148,11 @@ internal sealed class TranscriptLayoutCache : ITranscriptLayoutCache
     {
         _lru.Remove(node);
         _items.Remove(node.Value.Identity);
-        _bytes -= node.Value.Entry.ByteSize;
+        var bytes = node.Value.Entry.ByteSize;
+        _bytes -= bytes;
         node.Value.Entry.Dispose();
         Evictions++;
+        _performanceCounters?.RecordSurfaceEviction(bytes);
     }
 
     private void TrimToBudget()

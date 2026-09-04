@@ -30,6 +30,7 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
     private long _framesDeferredByPacing;
     private long _framesDeferredByBackpressure;
     private HPD.TUI.Observability.TuiPerformanceCounters? _performanceCounters;
+    private long _oldestVisualRequestTimestamp;
 
     public TuiApplication(ITerminal terminal)
         : this(terminal, new SynchronousTerminalOutputTransport(terminal))
@@ -104,6 +105,7 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
         options ??= new TuiRunOptions();
         _dropIntermediateVisualStates = options.FramePolicy.DropIntermediateVisualStates;
         _owedVisualStates = options.RenderOnStart ? 1 : 0;
+        _oldestVisualRequestTimestamp = options.RenderOnStart ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
 
         await PublishControlWithBackpressureAsync(EnterAlternateScreen, cancellationToken).ConfigureAwait(false);
         _terminal.HideCursor();
@@ -134,10 +136,16 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
                     }
                     try
                     {
+                        _renderer.SchedulingDelay = _oldestVisualRequestTimestamp == 0
+                            ? TimeSpan.Zero
+                            : System.Diagnostics.Stopwatch.GetElapsedTime(_oldestVisualRequestTimestamp);
                         Render();
                         _framesAdmitted++;
                         _performanceCounters?.RecordFrameAdmitted();
                         if (_owedVisualStates > 0) _owedVisualStates--;
+                        _oldestVisualRequestTimestamp = _owedVisualStates > 0
+                            ? System.Diagnostics.Stopwatch.GetTimestamp()
+                            : 0;
                         dirty = _owedVisualStates > 0;
                         _urgentRender = false;
                         nextFrame = DateTimeOffset.UtcNow + options.FramePolicy.MinimumFrameInterval;
@@ -240,6 +248,8 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
 
     private void OweVisualState()
     {
+        if (_owedVisualStates == 0)
+            _oldestVisualRequestTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
         _renderRequestsReceived++;
         var coalesced = _dropIntermediateVisualStates && _owedVisualStates > 0;
         _performanceCounters?.RecordRenderRequest(coalesced);
@@ -252,7 +262,11 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
     public HPD.TUI.Observability.TuiPerformanceCounters? PerformanceCounters
     {
         get => _performanceCounters;
-        set => _performanceCounters = value;
+        set
+        {
+            _performanceCounters = value;
+            _renderer.PerformanceCounters = value;
+        }
     }
 
     /// <summary>Gets an immutable snapshot of mailbox frame-admission counters.</summary>

@@ -20,6 +20,7 @@ public sealed class TuiRenderer : IDisposable
     private bool _hasPreviousFrame;
     private bool _terminalCertain = true;
     private bool _disposed;
+    private TimeSpan _schedulingDelay;
 
     public TuiRenderer(ITerminal terminal)
         : this(terminal, new SynchronousTerminalOutputTransport(terminal))
@@ -48,6 +49,11 @@ public sealed class TuiRenderer : IDisposable
 
     public IHpdTuiPerformanceEventSink? PerformanceSink { get; set; }
 
+    /// <summary>Gets or sets the shared cumulative performance-counter recorder.</summary>
+    public TuiPerformanceCounters? PerformanceCounters { get; set; }
+
+    internal TimeSpan SchedulingDelay { set => _schedulingDelay = value; }
+
     public void Render(IComponent root, Theme? theme = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -55,20 +61,23 @@ public sealed class TuiRenderer : IDisposable
 
         var size = _terminal.GetSize();
         var sink = PerformanceSink;
+        var frameInstrumentation = sink is null ? null : new TuiFrameInstrumentation();
         var startTimestamp = sink is null ? 0 : Stopwatch.GetTimestamp();
         EnsureGrid(size);
 
         var context = new RenderContext(size.Width, size.Height, theme ?? Theme.Default, elapsed: _clock.Elapsed);
-        var displayStart = Stopwatch.GetTimestamp();
-        var cacheHit = _displayList.Prepare(root, in context, size.Width);
-        var displayDuration = Stopwatch.GetElapsedTime(displayStart);
+        var displayStart = sink is null ? 0 : Stopwatch.GetTimestamp();
+        bool cacheHit;
+        using (TuiInstrumentationContext.Enter(frameInstrumentation, PerformanceCounters))
+            cacheHit = _displayList.Prepare(root, in context, size.Width);
+        var displayDuration = sink is null ? TimeSpan.Zero : Stopwatch.GetElapsedTime(displayStart);
         if (cacheHit && _hasPreviousFrame && _terminalCertain)
         {
             PublishDiagnostics(sink, startTimestamp, displayDuration, TimeSpan.Zero, TimeSpan.Zero,
-                default, 0, false, true, TimeSpan.Zero);
+                default, 0, false, true, TimeSpan.Zero, frameInstrumentation);
             return;
         }
-        var rasterStart = Stopwatch.GetTimestamp();
+        var rasterStart = sink is null ? 0 : Stopwatch.GetTimestamp();
         if (_hasPreviousFrame && !_displayList.RequiresFullRaster)
         {
             _currentScreen!.CopyFrom(_previousScreen!);
@@ -82,13 +91,13 @@ public sealed class TuiRenderer : IDisposable
             _displayList.Replay(_currentScreen.Grid);
             _currentScreen.ComputeFinalRowFingerprints();
         }
-        var rasterDuration = Stopwatch.GetElapsedTime(rasterStart);
+        var rasterDuration = sink is null ? TimeSpan.Zero : Stopwatch.GetElapsedTime(rasterStart);
         var usedLines = TuiCapture.GetUsedLineCount(_currentScreen.Grid);
 
         _output.Clear();
         var recovery = !_terminalCertain;
         var fullRepaint = !_hasPreviousFrame || recovery;
-        var diffStart = Stopwatch.GetTimestamp();
+        var diffStart = sink is null ? 0 : Stopwatch.GetTimestamp();
         ScreenDiffMetrics metrics;
         if (fullRepaint)
         {
@@ -100,21 +109,21 @@ public sealed class TuiRenderer : IDisposable
         {
             metrics = AnsiGridRenderer.WriteDifferential(_previousScreen!, _currentScreen, _output);
         }
-        var diffDuration = Stopwatch.GetElapsedTime(diffStart);
+        var diffDuration = sink is null ? TimeSpan.Zero : Stopwatch.GetElapsedTime(diffStart);
 
         if (!_hasPreviousFrame || CursorStateChanged(_previousScreen!.Grid, _currentScreen.Grid))
             AppendCursorState(_currentScreen.Grid, _output);
         if (_output.Length == 0)
         {
-            PublishDiagnostics(sink, startTimestamp, displayDuration, rasterDuration, diffDuration, metrics, 0, fullRepaint, cacheHit, TimeSpan.Zero);
+            PublishDiagnostics(sink, startTimestamp, displayDuration, rasterDuration, diffDuration, metrics, 0, fullRepaint, cacheHit, TimeSpan.Zero, frameInstrumentation);
             (_currentScreen, _previousScreen) = (_previousScreen, _currentScreen);
             return;
         }
         var outputCharacters = _output.Length;
-        var outputStart = Stopwatch.GetTimestamp();
+        var outputStart = sink is null ? 0 : Stopwatch.GetTimestamp();
         PublishFrame(recovery);
-        var outputDuration = Stopwatch.GetElapsedTime(outputStart);
-        PublishDiagnostics(sink, startTimestamp, displayDuration, rasterDuration, diffDuration, metrics, outputCharacters, fullRepaint, cacheHit, outputDuration);
+        var outputDuration = sink is null ? TimeSpan.Zero : Stopwatch.GetElapsedTime(outputStart);
+        PublishDiagnostics(sink, startTimestamp, displayDuration, rasterDuration, diffDuration, metrics, outputCharacters, fullRepaint, cacheHit, outputDuration, frameInstrumentation);
         (_currentScreen, _previousScreen) = (_previousScreen, _currentScreen);
         _hasPreviousFrame = true;
     }
@@ -143,22 +152,24 @@ public sealed class TuiRenderer : IDisposable
         int outputCharacters,
         bool fullRepaint,
         bool cacheHit,
-        TimeSpan outputDuration)
+        TimeSpan outputDuration,
+        TuiFrameInstrumentation? instrumentation)
     {
+        if (outputCharacters == 0) PerformanceCounters?.RecordFrameSuppressed();
         if (sink is null)
         {
             return;
         }
 
         sink.Publish(new TuiFrameDiagnostics(
-            SchedulingDelay: TimeSpan.Zero,
-            LayoutDuration: TimeSpan.Zero,
+            SchedulingDelay: _schedulingDelay,
+            LayoutDuration: instrumentation?.LayoutDuration ?? TimeSpan.Zero,
             DisplayListDuration: displayDuration,
             RasterDuration: rasterDuration,
             DiffDuration: diffDuration,
             EncodeDuration: TimeSpan.Zero,
             OutputDuration: outputDuration,
-            ComponentsMeasured: 0,
+            ComponentsMeasured: instrumentation?.ComponentsMeasured ?? 0,
             ComponentsPainted: _displayList.ComponentsPainted,
             DisplayCommandsReused: _displayList.CommandsReused,
             DisplayCommandsBuilt: _displayList.CommandsBuilt,

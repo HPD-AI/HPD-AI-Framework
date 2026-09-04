@@ -287,6 +287,53 @@ public sealed class ManagedTerminalTuiRendererTests
     }
 
     [Fact]
+    public void Render_DiagnosticsReportActualLayoutCacheAndNoOpDecisions()
+    {
+        using var terminal = new TestTerminal(40, 8);
+        using var renderer = new ManagedTerminalTuiRenderer(terminal);
+        var sink = new RecordingSink();
+        var counters = new TuiPerformanceCounters();
+        renderer.PerformanceSink = sink;
+        renderer.PerformanceCounters = counters;
+        var root = new DiagnosticsLayoutComponent(new Text("hello"));
+
+        renderer.Render(root);
+        renderer.Render(root);
+
+        var frames = sink.Events.OfType<TuiFrameDiagnostics>().ToArray();
+        Assert.Equal(2, frames.Length);
+        Assert.Equal(1, frames[0].ComponentsMeasured);
+        Assert.True(frames[0].LayoutDuration >= TimeSpan.Zero);
+        Assert.Equal(0, frames[1].ComponentsMeasured);
+        var snapshot = counters.Snapshot();
+        Assert.Equal(1, snapshot.ComponentsMeasured);
+        Assert.Equal(1, snapshot.LayoutCacheMisses);
+        Assert.Equal(1, snapshot.FramesSuppressedAsNoOp);
+    }
+
+    private sealed class DiagnosticsLayoutComponent : Component
+    {
+        private readonly IComponent _child;
+
+        public DiagnosticsLayoutComponent(IComponent child)
+        {
+            _child = child;
+            AdoptChild(child);
+        }
+
+        public override ComponentDependencies Dependencies => ComponentDependencies.Static;
+
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
+            => MeasureChild(_child, in context, constraints);
+
+        public override void Render(in RenderContext context, ref DisplayListBuilder output)
+        {
+            _ = MeasureChild(_child, in context, output.MaxWidth);
+            output.Render(_child, in context, output.MaxWidth);
+        }
+    }
+
+    [Fact]
     public void Application_PerformanceSink_ForwardsToRenderer()
     {
         using var terminal = new TestTerminal(40, 8);

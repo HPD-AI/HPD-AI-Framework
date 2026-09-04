@@ -7,6 +7,7 @@ using HPD.TUI.Core;
 using HPD.TUI.Rendering;
 using HPD.Agent.TUI.Markdown;
 using HPD.TUI.Markdown;
+using HPD.TUI.Observability;
 
 namespace HPD.Agent.TUI.Tests;
 
@@ -50,6 +51,25 @@ public sealed class TranscriptViewTests
         first.CacheMisses.Should().Be(1);
         second.CacheHits.Should().Be(1);
         second.CacheMisses.Should().Be(0);
+    }
+
+    [Fact]
+    public void CommonCounters_TrackActualRetainedSurfaceBytesAndEviction()
+    {
+        var model = new TranscriptModel();
+        model.AddFinal(Row("counter-user", "counter", "retained row"));
+        var counters = new TuiPerformanceCounters();
+        var view = new TranscriptView(model,
+            new HpdAgentTuiBuilder().AddDefaultTranscriptRenderers().Build().TranscriptRenderers,
+            height: 4, performanceCounters: counters);
+
+        _ = TuiCapture.RenderToString(view, 40, 4);
+
+        counters.Snapshot().SurfaceCacheBytes.Should().BeGreaterThan(0);
+        view.DisposeCache();
+        var disposed = counters.Snapshot();
+        disposed.SurfaceCacheBytes.Should().Be(0);
+        disposed.SurfaceCacheEvictions.Should().Be(1);
     }
 
     [Fact]

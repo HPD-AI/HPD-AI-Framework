@@ -36,13 +36,22 @@ public sealed class TranscriptView : Component, IScrollbackSource
     private ScrollbackBatch? _pendingScrollback;
     private int _pendingEntryCount;
 
+    /// <summary>Creates a bounded transcript viewport with retained entry layouts.</summary>
+    /// <param name="model">The durable transcript model.</param>
+    /// <param name="renderers">Renderers for semantic transcript entry types.</param>
+    /// <param name="height">The viewport height in terminal rows.</param>
+    /// <param name="scope">Optional runtime scope used by entry renderers.</param>
+    /// <param name="performanceSink">Optional detailed performance-event sink.</param>
+    /// <param name="cacheByteBudget">Maximum retained entry-layout bytes.</param>
+    /// <param name="performanceCounters">Optional common cache-counter recorder.</param>
     public TranscriptView(
         TranscriptModel model,
         AgentTuiTranscriptRendererRegistry renderers,
         int height = 15,
         AgentTuiRuntimeScope? scope = null,
         IHpdTuiPerformanceEventSink? performanceSink = null,
-        long cacheByteBudget = 32 * 1024 * 1024)
+        long cacheByteBudget = 32 * 1024 * 1024,
+        TuiPerformanceCounters? performanceCounters = null)
     {
         ArgumentNullException.ThrowIfNull(model);
         ArgumentNullException.ThrowIfNull(renderers);
@@ -55,7 +64,7 @@ public sealed class TranscriptView : Component, IScrollbackSource
         _performanceSink = performanceSink;
         _height = height;
         CacheByteBudget = cacheByteBudget;
-        _layoutCache = new TranscriptLayoutCache(cacheByteBudget, PrepareEntry);
+        _layoutCache = new TranscriptLayoutCache(cacheByteBudget, PrepareEntry, performanceCounters);
     }
 
     /// <summary>Gets the number of rows exposed by the transcript viewport.</summary>
