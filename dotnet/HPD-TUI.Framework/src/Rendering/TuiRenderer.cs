@@ -50,33 +50,45 @@ public sealed class TuiRenderer : IDisposable
         var context = new RenderContext(size.Width, size.Height, theme ?? Theme.Default, elapsed: _clock.Elapsed);
         _currentScreen!.Clear();
 
+        var displayStart = Stopwatch.GetTimestamp();
         var cacheHit = _displayList.Prepare(root, in context, size.Width);
+        var displayDuration = Stopwatch.GetElapsedTime(displayStart);
+        var rasterStart = Stopwatch.GetTimestamp();
         _displayList.Replay(_currentScreen.Grid);
         _currentScreen.ComputeFinalRowFingerprints();
+        var rasterDuration = Stopwatch.GetElapsedTime(rasterStart);
         var usedLines = TuiCapture.GetUsedLineCount(_currentScreen.Grid);
 
         _output.Clear();
         var recovery = !_terminalCertain;
-        if (!_hasPreviousFrame || recovery)
+        var fullRepaint = !_hasPreviousFrame || recovery;
+        var diffStart = Stopwatch.GetTimestamp();
+        ScreenDiffMetrics metrics;
+        if (fullRepaint)
         {
             _output.Write(ClearScreenAndCursorHome);
             AnsiGridRenderer.WriteFull(_currentScreen.Grid, _output);
+            metrics = new(size.Height, 0, 0, size.Height, size.Width * size.Height);
         }
         else
         {
-            AnsiGridRenderer.WriteDifferential(_previousScreen!, _currentScreen, _output);
+            metrics = AnsiGridRenderer.WriteDifferential(_previousScreen!, _currentScreen, _output);
         }
+        var diffDuration = Stopwatch.GetElapsedTime(diffStart);
 
         if (!_hasPreviousFrame || CursorStateChanged(_previousScreen!.Grid, _currentScreen.Grid))
             AppendCursorState(_currentScreen.Grid, _output);
         if (_output.Length == 0)
         {
-            PublishRenderCompleted(sink, "terminal-grid", startTimestamp, usedLines, _displayList.Count, cacheHit);
+            PublishDiagnostics(sink, startTimestamp, displayDuration, rasterDuration, diffDuration, metrics, 0, fullRepaint, cacheHit, TimeSpan.Zero);
             (_currentScreen, _previousScreen) = (_previousScreen, _currentScreen);
             return;
         }
+        var outputCharacters = _output.Length;
+        var outputStart = Stopwatch.GetTimestamp();
         PublishFrame(recovery);
-        PublishRenderCompleted(sink, "terminal-grid", startTimestamp, usedLines, _displayList.Count, cacheHit);
+        var outputDuration = Stopwatch.GetElapsedTime(outputStart);
+        PublishDiagnostics(sink, startTimestamp, displayDuration, rasterDuration, diffDuration, metrics, outputCharacters, fullRepaint, cacheHit, outputDuration);
         (_currentScreen, _previousScreen) = (_previousScreen, _currentScreen);
         _hasPreviousFrame = true;
     }
@@ -96,26 +108,43 @@ public sealed class TuiRenderer : IDisposable
         if (recovery) _terminalCertain = true;
     }
 
-    private static void PublishRenderCompleted(
+    private void PublishDiagnostics(
         IHpdTuiPerformanceEventSink? sink,
-        string surface,
         long startTimestamp,
-        int rowsRendered,
-        int segmentsWritten,
-        bool cacheHit)
+        TimeSpan displayDuration,
+        TimeSpan rasterDuration,
+        TimeSpan diffDuration,
+        ScreenDiffMetrics metrics,
+        int outputCharacters,
+        bool fullRepaint,
+        bool cacheHit,
+        TimeSpan outputDuration)
     {
         if (sink is null)
         {
             return;
         }
 
-        sink.Publish(new TuiRenderCompleted(
-            surface,
-            Stopwatch.GetElapsedTime(startTimestamp),
-            rowsRendered,
-            segmentsWritten,
-            CacheHits: cacheHit ? 1 : 0,
-            CacheMisses: cacheHit ? 0 : 1));
+        sink.Publish(new TuiFrameDiagnostics(
+            SchedulingDelay: TimeSpan.Zero,
+            LayoutDuration: TimeSpan.Zero,
+            DisplayListDuration: displayDuration,
+            RasterDuration: rasterDuration,
+            DiffDuration: diffDuration,
+            EncodeDuration: TimeSpan.Zero,
+            OutputDuration: outputDuration,
+            ComponentsMeasured: cacheHit ? 0 : 1,
+            ComponentsPainted: cacheHit ? 0 : 1,
+            DisplayCommandsReused: cacheHit ? _displayList.Count : 0,
+            DisplayCommandsBuilt: cacheHit ? 0 : _displayList.Count,
+            RowsDamaged: metrics.RowsChanged,
+            RowsFingerprintRejected: metrics.RowsFingerprintRejected,
+            RowsSemanticallyCompared: metrics.RowsSemanticallyCompared,
+            ChangedRuns: metrics.ChangedRuns,
+            CellsChanged: metrics.CellsChanged,
+            OutputCharacters: outputCharacters,
+            FullRepaint: fullRepaint,
+            Backpressured: false));
     }
 
     private static void AppendCursorState(TerminalGrid grid, AnsiFrameWriter output)

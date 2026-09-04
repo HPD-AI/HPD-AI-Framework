@@ -250,12 +250,11 @@ public sealed class ManagedTerminalTuiRendererTests
 
         renderer.Render(new Text("hello"), Theme.Default);
 
-        var evt = Assert.IsType<TuiRenderCompleted>(Assert.Single(sink.Events));
+        var evt = Assert.IsType<TuiFrameDiagnostics>(Assert.Single(sink.Events));
         Assert.Equal(EventKind.Diagnostic, evt.Kind);
         Assert.Equal(EventChannel.Streaming, evt.Channel);
-        Assert.Equal("managed-terminal", evt.Surface);
-        Assert.True(evt.RowsRendered > 0);
-        Assert.True(evt.SegmentsWritten > 0);
+        Assert.True(evt.RowsDamaged > 0);
+        Assert.True(evt.DisplayCommandsBuilt > 0);
     }
 
     [Fact]
@@ -269,7 +268,7 @@ public sealed class ManagedTerminalTuiRendererTests
 
         app.Render();
 
-        Assert.IsType<TuiRenderCompleted>(Assert.Single(sink.Events));
+        Assert.IsType<TuiFrameDiagnostics>(Assert.Single(sink.Events));
     }
 
     [Fact]
@@ -287,7 +286,7 @@ public sealed class ManagedTerminalTuiRendererTests
         await app.RunAsync(cancellationToken: cancellation.Token);
 
         Assert.Equal(1, component.InputCount);
-        Assert.Equal(2, sink.Events.OfType<TuiRenderCompleted>().Count());
+        Assert.Equal(2, sink.Events.OfType<TuiFrameDiagnostics>().Count());
     }
 
     [Fact]
@@ -305,7 +304,7 @@ public sealed class ManagedTerminalTuiRendererTests
         await app.RunAsync(cancellationToken: cancellation.Token);
 
         Assert.Equal(0, component.InputCount);
-        Assert.Equal(2, sink.Events.OfType<TuiRenderCompleted>().Count());
+        Assert.Equal(2, sink.Events.OfType<TuiFrameDiagnostics>().Count());
     }
 
     [Fact]
@@ -334,15 +333,12 @@ public sealed class ManagedTerminalTuiRendererTests
         var writer = new StringWriter();
         var sink = new TextWriterTuiPerformanceEventSink(writer);
 
-        sink.Publish(new TuiRenderCompleted(
-            Surface: "managed-terminal",
-            Duration: TimeSpan.FromMilliseconds(4.25),
-            RowsRendered: 3,
-            SegmentsWritten: 2,
-            CacheHits: 1,
-            CacheMisses: 0));
+        sink.Publish(new TuiFrameDiagnostics(
+            TimeSpan.Zero, TimeSpan.Zero, TimeSpan.FromMilliseconds(4.25), TimeSpan.Zero,
+            TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, 1, 1, 2, 0, 3, 0, 3, 2, 4,
+            20, FullRepaint: false, Backpressured: false));
 
-        Assert.Contains("tui frame 4.25ms surface=managed-terminal rows=3 segments=2 cache=1/0", writer.ToString());
+        Assert.Contains("display=4.25ms", writer.ToString());
     }
 
     private sealed class TestTerminal : ITerminal, ITerminalInput

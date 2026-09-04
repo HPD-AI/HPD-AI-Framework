@@ -140,13 +140,27 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
             return;
         }
 
-        sink.Publish(new TuiRenderCompleted(
-            "managed-terminal",
-            Stopwatch.GetElapsedTime(startTimestamp),
-            rowsRendered,
-            segmentsWritten,
-            CacheHits: cacheHit ? 1 : 0,
-            CacheMisses: cacheHit ? 0 : 1));
+        var duration = Stopwatch.GetElapsedTime(startTimestamp);
+        sink.Publish(new TuiFrameDiagnostics(
+            SchedulingDelay: TimeSpan.Zero,
+            LayoutDuration: TimeSpan.Zero,
+            DisplayListDuration: duration,
+            RasterDuration: TimeSpan.Zero,
+            DiffDuration: TimeSpan.Zero,
+            EncodeDuration: TimeSpan.Zero,
+            OutputDuration: TimeSpan.Zero,
+            ComponentsMeasured: cacheHit ? 0 : 1,
+            ComponentsPainted: cacheHit ? 0 : 1,
+            DisplayCommandsReused: cacheHit ? segmentsWritten : 0,
+            DisplayCommandsBuilt: cacheHit ? 0 : segmentsWritten,
+            RowsDamaged: rowsRendered,
+            RowsFingerprintRejected: 0,
+            RowsSemanticallyCompared: rowsRendered,
+            ChangedRuns: rowsRendered,
+            CellsChanged: 0,
+            OutputCharacters: 0,
+            FullRepaint: true,
+            Backpressured: false));
     }
 
     private void FullRender(

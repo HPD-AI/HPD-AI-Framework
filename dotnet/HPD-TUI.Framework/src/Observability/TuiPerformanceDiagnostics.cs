@@ -77,14 +77,29 @@ public abstract record HpdTuiPerformanceEvent : Event, IHpdTuiPerformanceSummary
         => $"tui {GetType().Name} kind={Kind} channel={Channel}";
 }
 
-public sealed record TuiRenderCompleted(
-    string Surface,
-    TimeSpan Duration,
-    int RowsRendered,
-    int SegmentsWritten,
-    int CacheHits,
-    int CacheMisses) : HpdTuiPerformanceEvent
+/// <summary>Describes the work performed by one admitted compositor frame.</summary>
+public sealed record TuiFrameDiagnostics(
+    TimeSpan SchedulingDelay,
+    TimeSpan LayoutDuration,
+    TimeSpan DisplayListDuration,
+    TimeSpan RasterDuration,
+    TimeSpan DiffDuration,
+    TimeSpan EncodeDuration,
+    TimeSpan OutputDuration,
+    int ComponentsMeasured,
+    int ComponentsPainted,
+    int DisplayCommandsReused,
+    int DisplayCommandsBuilt,
+    int RowsDamaged,
+    int RowsFingerprintRejected,
+    int RowsSemanticallyCompared,
+    int ChangedRuns,
+    int CellsChanged,
+    int OutputCharacters,
+    bool FullRepaint,
+    bool Backpressured) : HpdTuiPerformanceEvent
 {
+    /// <inheritdoc />
     public override string FormatSummary()
-        => $"tui frame {Duration.TotalMilliseconds:0.###}ms surface={Surface} rows={RowsRendered} segments={SegmentsWritten} cache={CacheHits}/{CacheMisses}";
+        => $"tui frame layout={LayoutDuration.TotalMilliseconds:0.###}ms display={DisplayListDuration.TotalMilliseconds:0.###}ms raster={RasterDuration.TotalMilliseconds:0.###}ms diff={DiffDuration.TotalMilliseconds:0.###}ms output={OutputDuration.TotalMilliseconds:0.###}ms damage={RowsDamaged} runs={ChangedRuns} cells={CellsChanged} commands={DisplayCommandsReused}/{DisplayCommandsBuilt} chars={OutputCharacters} full={FullRepaint} backpressured={Backpressured}";
 }
