@@ -55,6 +55,21 @@ public sealed class ManagedTerminalTuiRendererTests
     }
 
     [Fact]
+    public void Render_AfterPartialFailure_RecoversWithFullPhysicalRepaint()
+    {
+        using var terminal = new TestTerminal(40, 8);
+        var transport = new FailOnceTransport();
+        using var renderer = new ManagedTerminalTuiRenderer(terminal, transport);
+
+        Assert.Throws<InvalidOperationException>(() => renderer.Render(new Text("hello")));
+        renderer.Render(new Text("hello"));
+
+        Assert.Equal(2, transport.Attempts);
+        Assert.Contains("\x1b[2J\x1b[H", transport.AcceptedPayload);
+        Assert.Contains("hello", transport.AcceptedPayload);
+    }
+
+    [Fact]
     public void Render_AfterResize_RedrawsWithoutDestroyingScrollback()
     {
         using var terminal = new TestTerminal(40, 8);
@@ -462,6 +477,28 @@ public sealed class ManagedTerminalTuiRendererTests
             Assert.Same(_batch, batch);
             RollbackCount++;
         }
+    }
+
+    private sealed class FailOnceTransport : ITerminalOutputTransport
+    {
+        public int Attempts { get; private set; }
+        public string AcceptedPayload { get; private set; } = string.Empty;
+
+        public ValueTask<TerminalWriteResult> TryWriteFrameAsync(
+            TerminalFrameLease frame,
+            CancellationToken cancellationToken = default)
+        {
+            Attempts++;
+            if (Attempts == 1)
+                return ValueTask.FromResult(new TerminalWriteResult(
+                    TerminalWriteStatus.Failed,
+                    new IOException("partial write")));
+            AcceptedPayload = frame.Payload.ToString();
+            return ValueTask.FromResult(TerminalWriteResult.Written);
+        }
+
+        public ValueTask WaitUntilWritableAsync(CancellationToken cancellationToken = default)
+            => ValueTask.CompletedTask;
     }
 
     private sealed class LinesComponent : Component

@@ -18,6 +18,7 @@ public sealed class TuiRenderer : IDisposable
     private ScreenBuffer? _currentScreen;
     private ScreenBuffer? _previousScreen;
     private bool _hasPreviousFrame;
+    private bool _terminalCertain = true;
     private bool _disposed;
 
     public TuiRenderer(ITerminal terminal)
@@ -55,7 +56,8 @@ public sealed class TuiRenderer : IDisposable
         var usedLines = TuiCapture.GetUsedLineCount(_currentScreen.Grid);
 
         _output.Clear();
-        if (!_hasPreviousFrame)
+        var recovery = !_terminalCertain;
+        if (!_hasPreviousFrame || recovery)
         {
             _output.Write(ClearScreenAndCursorHome);
             AnsiGridRenderer.WriteFull(_currentScreen.Grid, _output);
@@ -73,21 +75,25 @@ public sealed class TuiRenderer : IDisposable
             (_currentScreen, _previousScreen) = (_previousScreen, _currentScreen);
             return;
         }
-        PublishFrame();
+        PublishFrame(recovery);
         PublishRenderCompleted(sink, "terminal-grid", startTimestamp, usedLines, _displayList.Count, cacheHit);
         (_currentScreen, _previousScreen) = (_previousScreen, _currentScreen);
         _hasPreviousFrame = true;
     }
 
-    private void PublishFrame()
+    private void PublishFrame(bool recovery)
     {
         using var lease = _output.CreateLease();
         var result = _transport.TryWriteFrameAsync(lease).GetAwaiter().GetResult();
         _output.Clear();
         if (result.Status == TerminalWriteStatus.Failed)
+        {
+            _terminalCertain = false;
             throw new InvalidOperationException("Terminal frame publication failed; terminal state is uncertain.", result.Error);
+        }
         if (result.Status == TerminalWriteStatus.Backpressured)
             throw new InvalidOperationException("The synchronous terminal transport unexpectedly reported backpressure.");
+        if (recovery) _terminalCertain = true;
     }
 
     private static void PublishRenderCompleted(

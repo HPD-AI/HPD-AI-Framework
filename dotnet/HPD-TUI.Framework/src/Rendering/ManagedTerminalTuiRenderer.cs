@@ -71,6 +71,13 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
 
         var usedLines = TuiCapture.GetUsedLineCount(_currentBuffer.Grid);
 
+        if (!_terminalCertain)
+        {
+            FullRender(size, usedLines, FullRenderClearMode.Screen, scrollback, recovery: true);
+            PublishRenderCompleted(sink, startTimestamp, usedLines, _displayList.Count, cacheHit);
+            return;
+        }
+
         if (scrollback is not null)
         {
             FullRender(size, usedLines, FullRenderClearMode.Screen, scrollback);
@@ -142,11 +149,16 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
             CacheMisses: cacheHit ? 0 : 1));
     }
 
-    private void FullRender(TerminalSize size, int usedLines, FullRenderClearMode clearMode, ScrollbackBatch? scrollback = null)
+    private void FullRender(
+        TerminalSize size,
+        int usedLines,
+        FullRenderClearMode clearMode,
+        ScrollbackBatch? scrollback = null,
+        bool recovery = false)
     {
         const int viewportTop = 0;
         var acceptedHardwareCursorRow = Math.Max(0, usedLines - 1);
-        WriteFrame(BuildFullFrame);
+        WriteFrame(BuildFullFrame, recovery);
 
         _hardwareCursorRow = acceptedHardwareCursorRow;
         CommitFrame(size, usedLines);
@@ -227,9 +239,9 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         _hasPreviousFrame = true;
     }
 
-    private void WriteFrame(FrameBuilder builder)
+    private void WriteFrame(FrameBuilder builder, bool recovery = false)
     {
-        if (!_terminalCertain)
+        if (!_terminalCertain && !recovery)
             throw new InvalidOperationException("Terminal state is uncertain; this renderer cannot safely publish another frame.");
         _output.Clear();
         builder(_output);
@@ -243,6 +255,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         }
         if (result.Status == TerminalWriteStatus.Backpressured)
             throw new TerminalBackpressureException();
+        if (recovery) _terminalCertain = true;
     }
 
     private delegate void FrameBuilder(AnsiFrameWriter output);
