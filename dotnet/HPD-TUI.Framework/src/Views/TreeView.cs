@@ -24,8 +24,9 @@ public sealed class TreeView<T> : Component, IFocusable
 
     public TreeViewMode Mode { get; init; } = TreeViewMode.Outline;
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         var width = 0;
         foreach (var node in _controller.GetVisibleNodes())
         {
@@ -35,8 +36,9 @@ public sealed class TreeView<T> : Component, IFocusable
         return new Measurement(Math.Min(width, maxWidth), Math.Min(width, maxWidth));
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (Mode == TreeViewMode.Breadcrumb)
         {
             RenderBreadcrumb(in context, maxWidth, ref output);

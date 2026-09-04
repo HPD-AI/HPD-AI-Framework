@@ -33,10 +33,10 @@ internal abstract class CodingCommandPageComponentBase : HPD.TUI.Core.Component
     protected AgentTuiStateBag State { get; }
     protected CodingHarnessTuiTheme Theme { get; }
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
-        => new(Math.Min(20, maxWidth), Math.Min(120, maxWidth), 1);
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
+        => new(Math.Min(20, constraints.MaxWidth), Math.Min(120, constraints.MaxWidth), 1);
 
-    public abstract override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output);
+    public abstract override void Render(in RenderContext context, ref DisplayListBuilder output);
 
     public override bool HandleInput(in TuiInputEvent input)
     {
@@ -224,8 +224,9 @@ internal sealed class CodingCommandsPageComponent : CodingCommandPageComponentBa
     {
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         output.Write("Coding commands".AsSpan(), Theme.ResolveCommandState(CodingCommandTranscriptState.Running, context.Theme));
         if (!TryGetStore(out var store))
         {
@@ -264,8 +265,9 @@ internal sealed class CodingBackgroundCommandsPageComponent : CodingCommandPageC
     {
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         output.Write("Background commands".AsSpan(), Theme.ResolveCommandState(CodingCommandTranscriptState.Backgrounded, context.Theme));
         if (!TryGetStore(out var store) || store.ActiveBackground.Count == 0)
         {

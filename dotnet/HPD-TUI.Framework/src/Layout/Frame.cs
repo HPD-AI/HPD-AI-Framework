@@ -53,8 +53,9 @@ public sealed class Frame : Component
     public Frame WithSize(int? width = null, int? height = null)
     { Width = width; Height = height; return this; }
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         if (maxWidth <= 0)
         {
             return new Measurement(0, 0);
@@ -90,8 +91,9 @@ public sealed class Frame : Component
         return new Measurement(Math.Min(min, max), max, height);
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         var frameWidth = ResolveWidth(maxWidth);
         if (frameWidth <= 0)
         {

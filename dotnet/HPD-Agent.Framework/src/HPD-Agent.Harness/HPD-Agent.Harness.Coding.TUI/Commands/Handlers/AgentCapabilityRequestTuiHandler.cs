@@ -81,11 +81,12 @@ internal sealed class AgentCapabilityDialogComponent : HPD.TUI.Core.Component, I
         set => _view.IsFocused = value;
     }
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
-        => new(Math.Min(maxWidth, 28), Math.Min(maxWidth, 96), 11);
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
+        => new(Math.Min(constraints.MaxWidth, 28), Math.Min(constraints.MaxWidth, 96), 11);
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         WriteLine(ref output, BuildTitle(_request.Capability), _theme.ResolvePermissionTitle(context.Theme), maxWidth);
         output.WriteLineBreak();
         WriteLine(ref output, $"operation: {_request.OperationId}", _theme.ResolvePermissionCommand(context.Theme), maxWidth);
@@ -93,7 +94,7 @@ internal sealed class AgentCapabilityDialogComponent : HPD.TUI.Core.Component, I
             WriteLine(ref output, $"resource: {_request.Resource.Value}", _theme.ResolvePermissionDetail(context.Theme), maxWidth);
         WriteLine(ref output, $"reason: {_request.Reason}", _theme.ResolvePermissionDetail(context.Theme), maxWidth);
         output.WriteLineBreak();
-        _view.Render(in context, maxWidth, ref output);
+        output.Render(_view, in context, maxWidth);
         output.WriteLineBreak();
         output.WriteLineBreak();
         WriteLine(ref output, "Use arrows to choose. Enter confirms. Esc denies.", _theme.ResolvePermissionDetail(context.Theme), maxWidth);

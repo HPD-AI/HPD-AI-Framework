@@ -18,7 +18,7 @@ public sealed class ActivityTests
         using var grid = new TerminalGrid(10, 1);
         var writer = new DisplayListBuilder(grid, grid.Width);
 
-        view.Render(in context, 10, ref writer);
+        view.Render(in context, ref writer);
 
         Assert.Equal(new Rune('⠙'), grid.GetLeadingRune(grid.GetCell(0, 0)));
         Assert.Equal("⠙ Work    ", ReadLine(grid, 0));
@@ -33,7 +33,7 @@ public sealed class ActivityTests
         using var grid = new TerminalGrid(10, 1);
         var writer = new DisplayListBuilder(grid, grid.Width);
 
-        view.Render(in context, 10, ref writer);
+        view.Render(in context, ref writer);
 
         Assert.Equal("⋯ Work    ", ReadLine(grid, 0));
     }
@@ -47,7 +47,7 @@ public sealed class ActivityTests
         using var grid = new TerminalGrid(16, 1);
         var writer = new DisplayListBuilder(grid, grid.Width);
 
-        view.Render(in context, 16, ref writer);
+        view.Render(in context, ref writer);
 
         Assert.Equal("● Index 42%     ", ReadLine(grid, 0));
     }
@@ -61,7 +61,7 @@ public sealed class ActivityTests
         using var grid = new TerminalGrid(10, 1);
         var writer = new DisplayListBuilder(grid, grid.Width);
 
-        view.Render(in context, 10, ref writer);
+        view.Render(in context, ref writer);
 
         Assert.Equal("● Done    ", ReadLine(grid, 0));
     }

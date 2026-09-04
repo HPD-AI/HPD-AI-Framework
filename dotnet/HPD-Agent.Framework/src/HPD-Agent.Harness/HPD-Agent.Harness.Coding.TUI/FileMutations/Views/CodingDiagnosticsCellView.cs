@@ -14,8 +14,9 @@ internal sealed class CodingDiagnosticsCellView : HPD.TUI.Core.Component
         _theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         var rows = 1 + VisibleDiagnostics(_cell.Diagnostics).Take(MaxDiagnostics).Count();
         if (_cell.Truncated)
         {
@@ -25,8 +26,8 @@ internal sealed class CodingDiagnosticsCellView : HPD.TUI.Core.Component
         return new Measurement(1, Math.Min(maxWidth, 100), rows);
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
-        => RenderDiagnosticsBody(_cell.Diagnostics, _cell.Truncated, maxWidth, MaxDiagnostics, _theme, in context, ref output);
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
+        => RenderDiagnosticsBody(_cell.Diagnostics, _cell.Truncated, output.MaxWidth, MaxDiagnostics, _theme, in context, ref output);
 
     public override bool HandleInput(in TuiInputEvent input)
     {

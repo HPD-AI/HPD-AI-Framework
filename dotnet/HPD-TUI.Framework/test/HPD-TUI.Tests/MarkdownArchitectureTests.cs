@@ -76,10 +76,10 @@ public sealed class MarkdownArchitectureTests
             new(24, MarkdownTheme.FromTheme(Theme.Default)));
         var view = new MarkdownView(layout);
         var context = new RenderContext(24, 4, Theme.Default);
-        _ = view.Measure(in context, 24);
+        _ = view.Measure(in context, HPD.TUI.Layout.LayoutConstraints.Loose(24, context.Height));
 
         var before = GC.GetAllocatedBytesForCurrentThread();
-        for (var index = 0; index < 100; index++) _ = view.Measure(in context, 24);
+        for (var index = 0; index < 100; index++) _ = view.Measure(in context, HPD.TUI.Layout.LayoutConstraints.Loose(24, context.Height));
 
         Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
     }
@@ -97,14 +97,14 @@ public sealed class MarkdownArchitectureTests
         var context = new RenderContext(24, 4, Theme.Default);
         using var grid = new TerminalGrid(24, 4);
         var warmWriter = new DisplayListBuilder(grid, grid.Width);
-        view.Render(in context, 24, ref warmWriter);
+        view.Render(in context, ref warmWriter);
 
         var before = GC.GetAllocatedBytesForCurrentThread();
         for (var index = 0; index < 100; index++)
         {
             grid.Clear();
             var writer = new DisplayListBuilder(grid, grid.Width);
-            view.Render(in context, 24, ref writer);
+            view.Render(in context, ref writer);
         }
 
         Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
@@ -371,7 +371,7 @@ public sealed class MarkdownArchitectureTests
         var context = new RenderContext(20, 2, Theme.Default);
         using var grid = new TerminalGrid(20, 2);
         var writer = new DisplayListBuilder(grid, grid.Width);
-        view.Render(in context, 20, ref writer);
+        view.Render(in context, ref writer);
         Assert.StartsWith("three", string.Concat(MarkdownLayoutEngine.CaptureLine(grid, 0).Runs
             .Select(static run => run.Text)), StringComparison.Ordinal);
         Assert.True(view.HandleInput(new KeyEvent(KeyCode.PageUp)));
@@ -586,6 +586,6 @@ public sealed class MarkdownArchitectureTests
     {
         using var grid = new TerminalGrid(context.Width, context.Height);
         var writer = new DisplayListBuilder(grid, grid.Width);
-        component.Render(in context, context.Width, ref writer);
+        component.Render(in context, ref writer);
     }
 }

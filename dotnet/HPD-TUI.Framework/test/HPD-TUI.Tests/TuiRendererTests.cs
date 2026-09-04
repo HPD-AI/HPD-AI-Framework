@@ -84,9 +84,10 @@ public sealed class TuiRendererTests
     {
         public int RenderCount { get; private set; }
         public override ComponentDependencies Dependencies => new(RenderContextFields.None, RenderContextFields.None);
-        public override Measurement Measure(in RenderContext context, int maxWidth) => new(1, 1, 1);
-        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints) => new(1, 1, 1);
+        public override void Render(in RenderContext context, ref DisplayListBuilder output)
         {
+            var maxWidth = output.MaxWidth;
             RenderCount++;
             output.Write('x', context.Theme.Text);
         }

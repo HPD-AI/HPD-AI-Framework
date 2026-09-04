@@ -506,10 +506,11 @@ public sealed class ManagedTerminalTuiRendererTests
             _lines = lines;
         }
 
-        public override Measurement Measure(in RenderContext context, int maxWidth) => new(maxWidth, _lines.Length);
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints) => new(constraints.MaxWidth, _lines.Length);
 
-        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+        public override void Render(in RenderContext context, ref DisplayListBuilder output)
         {
+            var maxWidth = output.MaxWidth;
             for (var i = 0; i < _lines.Length; i++)
             {
                 if (i > 0)
@@ -529,10 +530,11 @@ public sealed class ManagedTerminalTuiRendererTests
 
     private sealed class CursorComponent : Component
     {
-        public override Measurement Measure(in RenderContext context, int maxWidth) => new(4, 4);
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints) => new(4, 4);
 
-        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+        public override void Render(in RenderContext context, ref DisplayListBuilder output)
         {
+            var maxWidth = output.MaxWidth;
             output.Write("text", context.Theme.Text);
             output.SetTerminalCursor(3, 0);
         }
@@ -547,10 +549,11 @@ public sealed class ManagedTerminalTuiRendererTests
     {
         public int ObservedHeight { get; private set; }
 
-        public override Measurement Measure(in RenderContext context, int maxWidth) => new(1, 1);
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints) => new(1, 1);
 
-        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+        public override void Render(in RenderContext context, ref DisplayListBuilder output)
         {
+            var maxWidth = output.MaxWidth;
             ObservedHeight = context.Height;
             output.Write("x", context.Theme.Text);
         }
@@ -562,10 +565,11 @@ public sealed class ManagedTerminalTuiRendererTests
     {
         private static readonly Style Fill = new(Color.White, new Color(10, 20, 30));
 
-        public override Measurement Measure(in RenderContext context, int maxWidth) => new(maxWidth, maxWidth);
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints) => new(constraints.MaxWidth, constraints.MaxWidth);
 
-        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+        public override void Render(in RenderContext context, ref DisplayListBuilder output)
         {
+            var maxWidth = output.MaxWidth;
             output.Write("x", Fill);
             output.Write(new string(' ', Math.Max(0, maxWidth - 1)), Fill);
         }
@@ -580,10 +584,11 @@ public sealed class ManagedTerminalTuiRendererTests
     {
         public int InputCount { get; private set; }
 
-        public override Measurement Measure(in RenderContext context, int maxWidth) => new(1, 1);
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints) => new(1, 1);
 
-        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+        public override void Render(in RenderContext context, ref DisplayListBuilder output)
         {
+            var maxWidth = output.MaxWidth;
             output.Write(InputCount.ToString(), context.Theme.Text);
         }
 

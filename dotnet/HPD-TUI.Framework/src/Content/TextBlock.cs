@@ -32,9 +32,9 @@ public sealed class TextBlock : Component, IContentBlock
         _component.SetStyle(style);
     }
 
-    public override Measurement Measure(in RenderContext context, int maxWidth) => _component.Measure(in context, maxWidth);
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints) => _component.Measure(in context, constraints);
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output) => _component.Render(in context, maxWidth, ref output);
+    public override void Render(in RenderContext context, ref DisplayListBuilder output) => output.Render(_component, in context, output.MaxWidth);
 
     public override bool HandleInput(in TuiInputEvent key)
     {

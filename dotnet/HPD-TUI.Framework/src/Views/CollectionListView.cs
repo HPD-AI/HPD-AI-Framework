@@ -36,8 +36,9 @@ public sealed class CollectionListView<T> : Component, IFocusable
 
     public bool IsFocused { get; set; }
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         var width = 0;
         for (var i = 0; i < _model.Items.Count; i++)
         {
@@ -69,8 +70,9 @@ public sealed class CollectionListView<T> : Component, IFocusable
         return new Measurement(Math.Min(width, maxWidth), width, height);
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (_model.VisibleCount == 0)
         {
             output.Write(_model.EmptyText.AsSpan(), context.Theme.Border);

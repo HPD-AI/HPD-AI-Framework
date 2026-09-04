@@ -20,8 +20,9 @@ public sealed class ActivityView : Component
 
     public bool AnimationsEnabled { get; init; } = true;
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         var width = 2 + UnicodeWidth.GetWidth(_model.Label);
         if (_model.Progress is not null)
         {
@@ -32,8 +33,9 @@ public sealed class ActivityView : Component
         return new Measurement(Math.Min(width, maxWidth), width);
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (maxWidth <= 0)
         {
             return;

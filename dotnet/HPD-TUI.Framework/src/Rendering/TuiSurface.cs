@@ -34,7 +34,7 @@ public sealed class TuiSurface : IDisposable
         ArgumentNullException.ThrowIfNull(component);
         _grid.Clear();
         var writer = new DisplayListBuilder(_grid, Width);
-        component.Render(in context, Width, ref writer);
+        component.Render(in context, ref writer);
         _revision = _revision == ulong.MaxValue ? 1 : _revision + 1;
     }
 

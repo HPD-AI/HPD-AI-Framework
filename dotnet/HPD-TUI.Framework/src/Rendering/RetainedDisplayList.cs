@@ -29,7 +29,7 @@ internal sealed class RetainedDisplayList : ISegmentSink
         _cursorX = 0;
         _cursorY = 0;
         var writer = new DisplayListBuilder(this, maxWidth);
-        root.Render(in context, maxWidth, ref writer);
+        root.Render(in context, ref writer);
         _key = key;
         return false;
     }

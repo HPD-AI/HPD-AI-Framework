@@ -80,8 +80,9 @@ internal sealed class ExecuteCommandPermissionDialogComponent : HPD.TUI.Core.Com
         set => _choiceView.IsFocused = value;
     }
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         var detailRows = BuildCommandLines(_request).Count + BuildSecurityReviewLines(_request).Count;
         var choiceRows = Math.Max(1, _choices.VisibleCount);
         var feedbackRows = _feedbackMode ? 3 : 0;
@@ -92,8 +93,9 @@ internal sealed class ExecuteCommandPermissionDialogComponent : HPD.TUI.Core.Com
             detailRows + choiceRows + feedbackRows + validationRows + 9);
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         WriteLine(ref output, "Approve command?", _theme.ResolvePermissionTitle(context.Theme), maxWidth);
         output.WriteLineBreak();
 
@@ -116,7 +118,7 @@ internal sealed class ExecuteCommandPermissionDialogComponent : HPD.TUI.Core.Com
         }
 
         output.WriteLineBreak();
-        _choiceView.Render(in context, maxWidth, ref output);
+        output.Render(_choiceView, in context, maxWidth);
         output.WriteLineBreak();
         output.WriteLineBreak();
 

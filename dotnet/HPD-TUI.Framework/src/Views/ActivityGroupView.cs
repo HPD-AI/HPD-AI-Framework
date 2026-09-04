@@ -19,13 +19,15 @@ public sealed class ActivityGroupView : Component
 
     public bool AnimationsEnabled { get; init; } = true;
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         var width = string.IsNullOrEmpty(_model.Title) ? 0 : UnicodeWidth.GetWidth(_model.Title);
         var activities = _model.GetVisibleActivities();
         foreach (var activity in activities)
         {
-            width = Math.Max(width, new ActivityView(activity).Measure(in context, maxWidth).MaxWidth);
+            width = Math.Max(width, new ActivityView(activity).Measure(in context,
+                HPD.TUI.Layout.LayoutConstraints.Loose(maxWidth, context.Height)).MaxWidth);
         }
 
         width = Math.Min(width, maxWidth);
@@ -39,8 +41,9 @@ public sealed class ActivityGroupView : Component
         return new Measurement(width, width, height);
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (maxWidth <= 0)
         {
             return;
@@ -80,7 +83,7 @@ public sealed class ActivityGroupView : Component
         for (var i = 0; i < activities.Count; i++)
         {
             var view = new ActivityView(activities[i]) { AnimationsEnabled = AnimationsEnabled };
-            view.Render(in context, maxWidth, ref output);
+            output.Render(view, in context, maxWidth);
             if (i < activities.Count - 1)
             {
                 output.WriteLineBreak();

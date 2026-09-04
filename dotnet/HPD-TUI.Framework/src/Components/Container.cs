@@ -32,8 +32,9 @@ public class Container : Component
         InvalidateLayout();
     }
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         ArgumentOutOfRangeException.ThrowIfNegative(maxWidth);
 
         var minWidth = 0;
@@ -49,11 +50,12 @@ public class Container : Component
         return new Measurement(minWidth, Math.Min(maxWidth, desiredWidth));
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         for (var i = 0; i < _children.Count; i++)
         {
-            _children[i].Render(in context, maxWidth, ref output);
+            output.Render(_children[i], in context, maxWidth);
 
             if (i < _children.Count - 1)
             {

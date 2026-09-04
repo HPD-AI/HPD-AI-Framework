@@ -45,13 +45,15 @@ public sealed class Overlay : Component
 
     public bool ClearBackground { get; set; }
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         return MeasureChild(_child, in context, Math.Min(maxWidth, Width));
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         var width = Math.Min(maxWidth, Width);
         var height = Math.Clamp(Height ?? context.Height, 1, context.Height);
         var y = ResolveY(context.Height, height);
@@ -68,7 +70,7 @@ public sealed class Overlay : Component
         }
 
         output.MoveTo(X, y);
-        _child.Render(in childContext, width, ref output);
+        output.Render(_child, in childContext, width);
     }
 
     public override bool HandleInput(in TuiInputEvent key)

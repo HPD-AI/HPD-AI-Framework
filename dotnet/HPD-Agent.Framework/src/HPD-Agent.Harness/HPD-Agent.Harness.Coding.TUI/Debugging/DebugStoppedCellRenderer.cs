@@ -59,9 +59,9 @@ internal sealed class DebugStoppedCellView : HPD.TUI.Core.Component
             preview?.Truncated == true), theme);
     }
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
-        => _content.Measure(context, maxWidth);
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
-        => _content.Render(context, maxWidth, ref output);
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
+        => _content.Measure(in context, constraints);
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
+        => _content.Render(in context, ref output);
     public override bool HandleInput(in TuiInputEvent input) => false;
 }

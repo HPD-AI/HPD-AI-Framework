@@ -32,9 +32,9 @@ public sealed class CommandPaletteView : Component, IFocusable
         set => _view.IsFocused = value;
     }
 
-    public override Measurement Measure(in RenderContext context, int maxWidth) => _view.Measure(in context, maxWidth);
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints) => _view.Measure(in context, constraints);
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output) => _view.Render(in context, maxWidth, ref output);
+    public override void Render(in RenderContext context, ref DisplayListBuilder output) => output.Render(_view, in context, output.MaxWidth);
 
     public override bool HandleInput(in TuiInputEvent key) => _view.HandleInput(in key);
 

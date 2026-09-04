@@ -20,14 +20,16 @@ public sealed class Separator : Component
 
     public int TitleSpacing { get; init; } = 1;
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         ArgumentOutOfRangeException.ThrowIfNegative(maxWidth);
         return new Measurement(Math.Min(maxWidth, 1), maxWidth);
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (maxWidth <= 0)
         {
             return;

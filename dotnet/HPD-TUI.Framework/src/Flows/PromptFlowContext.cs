@@ -48,9 +48,10 @@ internal sealed class PromptFlowComponent<T> : Component
 
     public IComponent Inner => _inner;
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
-        var inner = _inner.Measure(in context, maxWidth);
+        var maxWidth = constraints.MaxWidth;
+        var inner = _inner.Measure(in context, constraints);
         if (string.IsNullOrEmpty(_context.ValidationMessage))
         {
             return inner;
@@ -60,9 +61,10 @@ internal sealed class PromptFlowComponent<T> : Component
         return new Measurement(Math.Max(inner.MinWidth, messageWidth), Math.Max(inner.MaxWidth, messageWidth));
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
-        _inner.Render(in context, maxWidth, ref output);
+        var maxWidth = output.MaxWidth;
+        output.Render(_inner, in context, maxWidth);
         if (!string.IsNullOrEmpty(_context.ValidationMessage))
         {
             output.WriteLineBreak();
@@ -89,9 +91,9 @@ internal sealed class PromptFlowShell<T> : Component, IPromptFlowFocusProvider
 
     public IComponent InitialFocus => _focus;
 
-    public override Measurement Measure(in RenderContext context, int maxWidth) => _inner.Measure(in context, maxWidth);
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints) => _inner.Measure(in context, constraints);
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output) => _inner.Render(in context, maxWidth, ref output);
+    public override void Render(in RenderContext context, ref DisplayListBuilder output) => output.Render(_inner, in context, output.MaxWidth);
 
     public override bool HandleInput(in TuiInputEvent key) => _inner.HandleInput(in key);
 

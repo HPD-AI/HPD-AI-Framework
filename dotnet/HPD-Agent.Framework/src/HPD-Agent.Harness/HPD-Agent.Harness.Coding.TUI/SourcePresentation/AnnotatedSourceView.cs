@@ -22,8 +22,9 @@ internal sealed class AnnotatedSourceView : HPD.TUI.Core.Component
         _theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         if (maxWidth <= 0)
         {
             return new Measurement(0, 0, 0);
@@ -52,8 +53,9 @@ internal sealed class AnnotatedSourceView : HPD.TUI.Core.Component
         return new Measurement(1, Math.Min(maxWidth, 120), Math.Max(1, rows));
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (maxWidth <= 0)
         {
             return;

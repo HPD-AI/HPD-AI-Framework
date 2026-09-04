@@ -29,8 +29,9 @@ public sealed class MarkupBlock : Component, IContentBlock
         _runs = _parser.Parse(Source);
     }
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         var maxLine = 0;
         var currentLine = 0;
         var maxWord = 0;
@@ -76,8 +77,9 @@ public sealed class MarkupBlock : Component, IContentBlock
         return new Measurement(Math.Min(maxWidth, maxWord), Math.Min(maxWidth, maxLine));
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (maxWidth <= 0)
         {
             return;

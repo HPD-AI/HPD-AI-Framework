@@ -99,10 +99,11 @@ public sealed class PromptFlowTests
 
         public bool IsFocused { get; set; }
 
-        public override Measurement Measure(in RenderContext context, int maxWidth) => new(0, 0);
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints) => new(0, 0);
 
-        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+        public override void Render(in RenderContext context, ref DisplayListBuilder output)
         {
+            var maxWidth = output.MaxWidth;
         }
 
         public override bool HandleInput(in TuiInputEvent key)
@@ -121,10 +122,11 @@ public sealed class PromptFlowTests
     {
         public bool IsFocused { get; set; }
 
-        public override Measurement Measure(in RenderContext context, int maxWidth) => new(0, 0);
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints) => new(0, 0);
 
-        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+        public override void Render(in RenderContext context, ref DisplayListBuilder output)
         {
+            var maxWidth = output.MaxWidth;
         }
 
         public override bool HandleInput(in TuiInputEvent key)

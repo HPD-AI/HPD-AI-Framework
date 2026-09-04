@@ -6,16 +6,18 @@ internal sealed class DebugTextRowsView(
     IReadOnlyList<string> rows,
     CodingHarnessTuiTheme theme) : HPD.TUI.Core.Component
 {
-    public override Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         var width = rows.Count == 0
             ? 0
             : rows.Max(row => Math.Min(row.Length, maxWidth));
         return new Measurement(width, width, Math.Max(1, rows.Count));
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         var style = theme.ResolveMuted(context.Theme);
         for (var index = 0; index < rows.Count; index++)
         {

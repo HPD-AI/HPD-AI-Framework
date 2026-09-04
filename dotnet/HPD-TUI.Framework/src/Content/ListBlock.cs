@@ -19,8 +19,9 @@ public sealed class ListBlock : Component, IContentBlock
         return this;
     }
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         var width = 0;
         for (var i = 0; i < _items.Count; i++)
         {
@@ -31,8 +32,9 @@ public sealed class ListBlock : Component, IContentBlock
         return new Measurement(Math.Min(width, maxWidth), Math.Min(width, maxWidth));
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         for (var i = 0; i < _items.Count; i++)
         {
             var item = _items[i];

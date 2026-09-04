@@ -27,8 +27,9 @@ public sealed class TableView<T> : Component, IFocusable
 
     public int StackedBreakpoint { get; init; } = 40;
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         if (_model.Columns.Count == 0)
         {
             var width = Math.Min(maxWidth, UnicodeWidth.GetWidth(_model.EmptyText));
@@ -46,8 +47,9 @@ public sealed class TableView<T> : Component, IFocusable
         return new Measurement(Math.Min(natural, maxWidth), natural);
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (maxWidth <= 0)
         {
             return;

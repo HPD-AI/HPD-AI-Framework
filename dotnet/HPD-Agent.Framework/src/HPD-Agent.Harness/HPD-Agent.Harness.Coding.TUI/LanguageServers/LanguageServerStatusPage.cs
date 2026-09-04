@@ -17,11 +17,12 @@ internal static class LanguageServerStatusPage
 
     private sealed class Component(AgentTuiStateBag state, CodingHarnessTuiTheme theme) : HPD.TUI.Core.Component
     {
-        public override Measurement Measure(in RenderContext context, int maxWidth)
-            => new(Math.Min(20, maxWidth), Math.Min(120, maxWidth), 1);
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
+            => new(Math.Min(20, constraints.MaxWidth), Math.Min(120, constraints.MaxWidth), 1);
 
-        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+        public override void Render(in RenderContext context, ref DisplayListBuilder output)
         {
+            var maxWidth = output.MaxWidth;
             output.Write("Language servers".AsSpan(), theme.ResolveLabel(context.Theme));
             if (!state.TryGet<CodingLanguageServerTuiState>(CodingLanguageServerTuiState.StateKey, out var snapshot) ||
                 snapshot.Servers.Count == 0)

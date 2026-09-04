@@ -17,12 +17,13 @@ public sealed class WidgetSlotView : Component
         _empty = new Text(emptyText ?? throw new ArgumentNullException(nameof(emptyText)));
     }
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         RefreshComponents();
         if (_components.Count == 0)
         {
-            return _empty.Measure(in context, maxWidth);
+            return _empty.Measure(in context, HPD.TUI.Layout.LayoutConstraints.Loose(maxWidth, context.Height));
         }
 
         var min = 0;
@@ -30,7 +31,7 @@ public sealed class WidgetSlotView : Component
         var height = 0;
         foreach (var component in _components)
         {
-            var measurement = component.Measure(in context, maxWidth);
+            var measurement = component.Measure(in context, HPD.TUI.Layout.LayoutConstraints.Loose(maxWidth, context.Height));
             min = Math.Max(min, measurement.MinWidth);
             max = Math.Max(max, measurement.MaxWidth);
             height += measurement.Height;
@@ -40,18 +41,19 @@ public sealed class WidgetSlotView : Component
         return new Measurement(Math.Min(min, maxWidth), Math.Min(max, maxWidth), height);
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         RefreshComponents();
         if (_components.Count == 0)
         {
-            _empty.Render(in context, maxWidth, ref output);
+            output.Render(_empty, in context, maxWidth);
             return;
         }
 
         for (var i = 0; i < _components.Count; i++)
         {
-            _components[i].Render(in context, maxWidth, ref output);
+            output.Render(_components[i], in context, maxWidth);
             if (i < _components.Count - 1)
             {
                 output.WriteLineBreak();

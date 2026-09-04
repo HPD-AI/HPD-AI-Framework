@@ -20,7 +20,7 @@ public static class TuiCapture
         var context = new RenderContext(width, height, theme ?? Theme.Default, colorSystem, elapsed);
         var grid = new TerminalGrid(width, height);
         var writer = new DisplayListBuilder(grid, width);
-        component.Render(in context, width, ref writer);
+        component.Render(in context, ref writer);
         return grid;
     }
 
@@ -37,7 +37,7 @@ public static class TuiCapture
         grid.Clear();
         var context = new RenderContext(grid.Width, grid.Height, theme ?? Theme.Default, colorSystem, elapsed);
         var writer = new DisplayListBuilder(grid, grid.Width);
-        component.Render(in context, grid.Width, ref writer);
+        component.Render(in context, ref writer);
     }
 
     public static string[] RenderToLines(

@@ -65,7 +65,7 @@ public sealed class SelectionTests
         using var grid = new TerminalGrid(8, 2);
         var writer = new DisplayListBuilder(grid, grid.Width);
 
-        view.Render(in context, 8, ref writer);
+        view.Render(in context, ref writer);
 
         Assert.Equal("  One   ", ReadLine(grid, 0));
         Assert.Equal("> Two   ", ReadLine(grid, 1));

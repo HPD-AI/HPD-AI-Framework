@@ -60,15 +60,17 @@ internal static class ConsoleBranding
         private static readonly Style LogoStyle = BrandStyle;
         private static readonly Style DetailStyle = new(Color.Gray, Color.Default);
 
-        public override Measurement Measure(in RenderContext context, int maxWidth)
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
         {
+            var maxWidth = constraints.MaxWidth;
             var logo = SelectLogo(maxWidth);
             var width = Math.Max(MeasureMaxLineWidth(logo), UnicodeWidth.GetWidth(detail.AsSpan()));
             return new Measurement(Math.Min(width, maxWidth), Math.Min(width, maxWidth));
         }
 
-        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+        public override void Render(in RenderContext context, ref DisplayListBuilder output)
         {
+            var maxWidth = output.MaxWidth;
             var stack = new Stack { Gap = 0 }
                 .Add(new Text(SelectLogo(maxWidth), LogoStyle))
                 .Add(new Text(detail, DetailStyle));

@@ -32,8 +32,9 @@ public sealed class Text : Component
         SetPaint(ref _style, style);
     }
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         if (maxWidth <= 0)
         {
             return new Measurement(0, 0);
@@ -94,8 +95,9 @@ public sealed class Text : Component
             => currentLine > width && currentLine > maxWidth;
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (maxWidth <= 0)
         {
             return;

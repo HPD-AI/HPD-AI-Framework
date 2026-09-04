@@ -26,8 +26,9 @@ public sealed class Stack : Component
         return this;
     }
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         if (_children.Count == 0)
         {
             return new Measurement(0, 0);
@@ -38,8 +39,9 @@ public sealed class Stack : Component
             : MeasureHorizontal(in context, maxWidth);
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (Orientation == Orientation.Vertical)
         {
             RenderVertical(in context, maxWidth, ref output);
@@ -99,7 +101,7 @@ public sealed class Stack : Component
     {
         for (var i = 0; i < _children.Count; i++)
         {
-            _children[i].Render(in context, maxWidth, ref output);
+            output.Render(_children[i], in context, maxWidth);
 
             if (i < _children.Count - 1)
             {
@@ -139,7 +141,7 @@ public sealed class Stack : Component
                 continue;
             }
 
-            _children[i].Render(in context, allocatedWidth, ref output);
+            output.Render(_children[i], in context, allocatedWidth);
             remainingWidth -= allocatedWidth;
 
             if (i < _children.Count - 1 && Gap > 0)

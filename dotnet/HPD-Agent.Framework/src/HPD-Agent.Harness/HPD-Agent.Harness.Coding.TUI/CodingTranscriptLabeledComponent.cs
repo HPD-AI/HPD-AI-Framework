@@ -25,11 +25,12 @@ internal sealed class CodingTranscriptLabeledComponent : HPD.TUI.Core.Component
         _theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
-        => new(Math.Min(maxWidth, 20), maxWidth);
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
+        => new(Math.Min(constraints.MaxWidth, 20), constraints.MaxWidth);
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (maxWidth <= 0)
         {
             return;
@@ -38,11 +39,10 @@ internal sealed class CodingTranscriptLabeledComponent : HPD.TUI.Core.Component
         output.Write(_depthIndent.AsSpan(), _theme.ResolveText(context.Theme));
         output.Write(_label.AsSpan(), _theme.ResolveLabel(context.Theme));
         output.WriteLineBreak();
-        _services.Prefix(
+        output.Render(_services.Prefix(
                 _body,
                 $"{_depthIndent}  ",
-                $"{_depthIndent}  ")
-            .Render(in context, maxWidth, ref output);
+                $"{_depthIndent}  "), in context, maxWidth);
     }
 
     public override bool HandleInput(in TuiInputEvent input)

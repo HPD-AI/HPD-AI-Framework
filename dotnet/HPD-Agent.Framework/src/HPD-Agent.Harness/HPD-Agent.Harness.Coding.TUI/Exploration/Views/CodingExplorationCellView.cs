@@ -15,15 +15,17 @@ internal sealed class CodingExplorationCellView : HPD.TUI.Core.Component
         _theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         return _cell.Rows.Count == 0
             ? new Measurement(0, 0, 0)
             : new Measurement(1, Math.Min(maxWidth, 100), _cell.Rows.Count);
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (maxWidth <= 0)
         {
             return;

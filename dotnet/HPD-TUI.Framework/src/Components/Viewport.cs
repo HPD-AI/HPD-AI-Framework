@@ -30,8 +30,9 @@ public sealed class Viewport : Component
         ScrollOffset = Math.Clamp(ScrollOffset + delta, 0, max);
     }
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         var width = 0;
         foreach (var line in _lines)
         {
@@ -41,8 +42,9 @@ public sealed class Viewport : Component
         return new Measurement(Math.Min(width, maxWidth), Math.Min(width, maxWidth));
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         var visible = Math.Min(Height, Math.Max(0, _lines.Count - ScrollOffset));
 
         for (var i = 0; i < visible; i++)

@@ -17,7 +17,7 @@ public sealed class MarkdownTests
         using var grid = new TerminalGrid(20, 2);
         var writer = new DisplayListBuilder(grid, grid.Width);
 
-        markdown.Render(in context, 20, ref writer);
+        markdown.Render(in context, ref writer);
 
         Assert.Equal(new Rune('T'), grid.GetLeadingRune(grid.GetCell(0, 0)));
     }
@@ -30,7 +30,7 @@ public sealed class MarkdownTests
         using var grid = new TerminalGrid(20, 2);
         var writer = new DisplayListBuilder(grid, grid.Width);
 
-        markdown.Render(in context, 20, ref writer);
+        markdown.Render(in context, ref writer);
 
         Assert.Equal(new Rune('•'), grid.GetLeadingRune(grid.GetCell(0, 0)));
         Assert.Equal(new Rune('i'), grid.GetLeadingRune(grid.GetCell(2, 0)));
@@ -55,7 +55,7 @@ public sealed class MarkdownTests
         using var grid = new TerminalGrid(30, 2);
         var writer = new DisplayListBuilder(grid, grid.Width);
 
-        markdown.Render(in context, 30, ref writer);
+        markdown.Render(in context, ref writer);
 
         Assert.Equal(new Rune('c'), grid.GetLeadingRune(grid.GetCell(4, 0)));
         Assert.Equal(Theme.Default.Accent.Foreground, grid.GetCell(4, 0).Style.Foreground);
@@ -74,7 +74,7 @@ public class Demo
         using var grid = new TerminalGrid(40, 4);
         var writer = new DisplayListBuilder(grid, grid.Width);
 
-        markdown.Render(in context, 40, ref writer);
+        markdown.Render(in context, ref writer);
 
         Assert.Equal(new Rune('c'), grid.GetLeadingRune(grid.GetCell(0, 0)));
         Assert.Equal(new Rune(' '), grid.GetLeadingRune(grid.GetCell(0, 1)));
@@ -89,7 +89,7 @@ public class Demo
         using var grid = new TerminalGrid(30, 2);
         var writer = new DisplayListBuilder(grid, grid.Width);
 
-        markdown.Render(in context, 30, ref writer);
+        markdown.Render(in context, ref writer);
 
         Assert.Equal(new Rune('|'), grid.GetLeadingRune(grid.GetCell(0, 0)));
         Assert.Equal(Theme.Default.Success.Foreground, grid.GetCell(0, 0).Style.Foreground);
@@ -103,7 +103,7 @@ public class Demo
         using var grid = new TerminalGrid(40, 2);
         var writer = new DisplayListBuilder(grid, grid.Width);
 
-        markdown.Render(in context, 40, ref writer);
+        markdown.Render(in context, ref writer);
 
         Assert.Equal(new Rune('h'), grid.GetLeadingRune(grid.GetCell(0, 0)));
         Assert.Equal(Theme.Default.Accent.Foreground, grid.GetCell(0, 0).Style.Foreground);
@@ -118,7 +118,7 @@ public class Demo
         using var grid = new TerminalGrid(20, 2);
         var writer = new DisplayListBuilder(grid, grid.Width);
 
-        markdown.Render(in context, 20, ref writer);
+        markdown.Render(in context, ref writer);
 
         Assert.Equal(new Rune('g'), grid.GetLeadingRune(grid.GetCell(0, 0)));
         Assert.True(grid.GetCell(0, 0).Style.Attributes.HasFlag(TextAttributes.Strikethrough));
@@ -135,7 +135,7 @@ public class Demo
         using var grid = new TerminalGrid(30, 4);
         var writer = new DisplayListBuilder(grid, grid.Width);
 
-        markdown.Render(in context, 30, ref writer);
+        markdown.Render(in context, ref writer);
 
         Assert.Equal(new Rune('•'), grid.GetLeadingRune(grid.GetCell(0, 0)));
         Assert.Equal(new Rune('o'), grid.GetLeadingRune(grid.GetCell(2, 1)));
@@ -153,7 +153,7 @@ public class Demo
         using var grid = new TerminalGrid(40, 4);
         var writer = new DisplayListBuilder(grid, grid.Width);
 
-        markdown.Render(in context, 40, ref writer);
+        markdown.Render(in context, ref writer);
 
         Assert.Equal(new Rune('A'), grid.GetLeadingRune(grid.GetCell(2, 1)));
         Assert.True(grid.GetCell(2, 1).Style.Attributes.HasFlag(TextAttributes.Bold));

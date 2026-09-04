@@ -73,7 +73,7 @@ public sealed class FocusAndDialogTests
         using var grid = new TerminalGrid(8, 2);
         var writer = new DisplayListBuilder(grid, grid.Width);
 
-        host.Render(in context, 8, ref writer);
+        host.Render(in context, ref writer);
 
         Assert.Equal(new Rune('a'), grid.GetLeadingRune(grid.GetCell(0, 0)));
         Assert.Equal(new Rune('Z'), grid.GetLeadingRune(grid.GetCell(1, 0)));

@@ -32,11 +32,12 @@ internal sealed class CodingHarnessToolCellView : HPD.TUI.Core.Component
         _theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
-        => new(Math.Min(maxWidth, _cell.Summary.Length + 4), maxWidth, 1);
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
+        => new(Math.Min(constraints.MaxWidth, _cell.Summary.Length + 4), constraints.MaxWidth, 1);
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (maxWidth <= 0)
         {
             return;

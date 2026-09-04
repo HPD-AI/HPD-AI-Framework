@@ -68,11 +68,12 @@ public sealed class TranscriptView : Component, IScrollbackSource
 
     public TranscriptViewDiagnostics LastDiagnostics { get; private set; } = TranscriptViewDiagnostics.Empty;
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
-        => new(Math.Min(maxWidth, 20), maxWidth, Height);
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
+        => new(Math.Min(constraints.MaxWidth, 20), constraints.MaxWidth, Height);
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         RenderRows(in context, maxWidth, ref output);
     }
 
@@ -572,7 +573,7 @@ internal sealed class RenderedTranscriptEntry : IDisposable
         int maxWidth)
     {
         var component = renderers.Create(entry, maxWidth, context.Theme, context.ColorSystem);
-        var measuredHeight = Math.Max(1, component.Measure(in context, maxWidth).Height);
+        var measuredHeight = Math.Max(1, component.Measure(in context, HPD.TUI.Layout.LayoutConstraints.Loose(maxWidth, context.Height)).Height);
         var grid = CaptureCompleteEntry(component, measuredHeight, maxWidth, in context);
         var lineCount = Math.Max(1, TuiCapture.GetUsedLineCount(grid));
         return new RenderedTranscriptEntry(entry, maxWidth, context.Theme, context.ColorSystem, grid, lineCount);

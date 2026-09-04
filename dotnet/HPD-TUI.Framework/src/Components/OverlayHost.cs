@@ -45,18 +45,20 @@ public sealed class OverlayHost : Component
         InvalidatePaint();
     }
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         return MeasureChild(_content, in context, maxWidth);
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
-        _content.Render(in context, maxWidth, ref output);
+        var maxWidth = output.MaxWidth;
+        output.Render(_content, in context, maxWidth);
 
         foreach (var overlay in _overlays)
         {
-            overlay.Render(in context, maxWidth, ref output);
+            output.Render(overlay, in context, maxWidth);
         }
     }
 

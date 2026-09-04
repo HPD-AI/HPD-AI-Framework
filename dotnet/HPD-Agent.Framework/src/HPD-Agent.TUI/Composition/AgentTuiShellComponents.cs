@@ -46,15 +46,17 @@ internal sealed class ShellText : Component
         _resolve = resolve ?? throw new ArgumentNullException(nameof(resolve));
     }
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         var value = _resolve(_context.Shell);
         var width = Math.Min(maxWidth, value.Length);
         return new Measurement(width, width);
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         var value = _resolve(_context.Shell);
         output.Write(value.AsSpan(0, Math.Min(value.Length, maxWidth)), context.Theme.Text);
     }

@@ -107,9 +107,13 @@ public abstract class Component : IComponent
 
     /// <summary>Measures a child through this layout root's revision-keyed cache.</summary>
     protected Measurement MeasureChild(IComponent child, in RenderContext context, int maxWidth)
+        => MeasureChild(child, in context, Layout.LayoutConstraints.Loose(maxWidth, context.Height));
+
+    /// <summary>Measures a child through this layout root's revision-keyed cache.</summary>
+    protected Measurement MeasureChild(IComponent child, in RenderContext context, Layout.LayoutConstraints constraints)
     {
         ArgumentNullException.ThrowIfNull(child);
-        ArgumentOutOfRangeException.ThrowIfNegative(maxWidth);
+        var maxWidth = constraints.MaxWidth;
         var fields = child.Dependencies.Layout;
         var key = new LayoutCacheKey(
             child.Lifecycle.Id,
@@ -121,7 +125,7 @@ public abstract class Component : IComponent
             (fields & RenderContextFields.Elapsed) != 0 ? context.Elapsed : default);
         if (_layoutCache.TryGetValue(key, out var cached)) return cached;
         if (_layoutCache.Count >= 256) _layoutCache.Clear();
-        var measured = child.Measure(in context, maxWidth);
+        var measured = child.Measure(in context, constraints);
         _layoutCache.Add(key, measured);
         return measured;
     }
@@ -143,10 +147,10 @@ public abstract class Component : IComponent
     }
 
     /// <inheritdoc />
-    public abstract Measurement Measure(in RenderContext context, int maxWidth);
+    public abstract Measurement Measure(in RenderContext context, Layout.LayoutConstraints constraints);
 
     /// <inheritdoc />
-    public abstract void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output);
+    public abstract void Render(in RenderContext context, ref DisplayListBuilder output);
 
     /// <inheritdoc />
     public virtual bool HandleInput(in TuiInputEvent input) => false;

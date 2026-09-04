@@ -30,10 +30,10 @@ public sealed class MarkdownBlock : Component, IContentBlock
     public MarkdownLayout Layout { get; }
 
     /// <inheritdoc />
-    public override Measurement Measure(in RenderContext context, int maxWidth) => _view.Measure(in context, maxWidth);
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints) => _view.Measure(in context, constraints);
 
     /// <inheritdoc />
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output) => _view.Render(in context, maxWidth, ref output);
+    public override void Render(in RenderContext context, ref DisplayListBuilder output) => output.Render(_view, in context, output.MaxWidth);
 
     /// <inheritdoc />
     public override bool HandleInput(in TuiInputEvent key)

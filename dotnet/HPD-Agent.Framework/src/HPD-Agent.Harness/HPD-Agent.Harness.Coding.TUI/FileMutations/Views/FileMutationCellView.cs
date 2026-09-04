@@ -17,9 +17,10 @@ internal sealed class FileMutationCellView : HPD.TUI.Core.Component
         _source = new AnnotatedSourceView(CreateDocument(cell), theme);
     }
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
-        var source = _source.Measure(in context, maxWidth);
+        var maxWidth = constraints.MaxWidth;
+        var source = _source.Measure(in context, HPD.TUI.Layout.LayoutConstraints.Loose(maxWidth, context.Height));
         var rows = source.Height;
 
         if (ShouldRenderDiagnostics(_cell.Diagnostics, _cell.DiagnosticsTruncated))
@@ -34,14 +35,15 @@ internal sealed class FileMutationCellView : HPD.TUI.Core.Component
         return new Measurement(source.MinWidth, Math.Min(maxWidth, 100), rows);
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (maxWidth <= 0)
         {
             return;
         }
 
-        _source.Render(in context, maxWidth, ref output);
+        output.Render(_source, in context, maxWidth);
 
         RenderDiagnosticsIfNeeded(in context, maxWidth, ref output);
     }

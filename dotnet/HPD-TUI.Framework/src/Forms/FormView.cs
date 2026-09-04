@@ -27,8 +27,9 @@ public sealed class FormView : Component, IFocusable
 
     public int MaxVisibleRows { get; }
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         _model.ReconcileActiveField();
         var visibleCount = _model.VisibleFieldCount;
         if (visibleCount == 0)
@@ -64,8 +65,9 @@ public sealed class FormView : Component, IFocusable
         return new Measurement(width, width, Math.Max(1, rowCount + extraRows));
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         _model.ReconcileActiveField();
         var visibleCount = _model.VisibleFieldCount;
         if (visibleCount == 0)

@@ -14,7 +14,7 @@ public sealed class OverlayTests
         using var grid = new TerminalGrid(8, 3);
         var writer = new DisplayListBuilder(grid, grid.Width);
 
-        overlay.Render(in context, 8, ref writer);
+        overlay.Render(in context, ref writer);
 
         Assert.Equal(new Rune('X'), grid.GetLeadingRune(grid.GetCell(3, 1)));
     }
@@ -33,7 +33,7 @@ public sealed class OverlayTests
         using var grid = new TerminalGrid(8, 6);
         var writer = new DisplayListBuilder(grid, grid.Width);
 
-        overlay.Render(in context, 8, ref writer);
+        overlay.Render(in context, ref writer);
 
         Assert.Equal(new Rune('X'), grid.GetLeadingRune(grid.GetCell(2, 3)));
     }
@@ -51,7 +51,7 @@ public sealed class OverlayTests
         using var grid = new TerminalGrid(8, 10);
         var writer = new DisplayListBuilder(grid, grid.Width);
 
-        overlay.Render(in context, 8, ref writer);
+        overlay.Render(in context, ref writer);
 
         Assert.Equal(new Rune('4'), grid.GetLeadingRune(grid.GetCell(0, 0)));
     }
@@ -74,7 +74,7 @@ public sealed class OverlayTests
         writer.MoveTo(0, 2);
         writer.Write("ABCDEFGH".AsSpan(), Theme.Default.Text);
 
-        overlay.Render(in context, 8, ref writer);
+        overlay.Render(in context, ref writer);
 
         Assert.Equal(new Rune('a'), grid.GetLeadingRune(grid.GetCell(0, 1)));
         Assert.Equal(new Rune('X'), grid.GetLeadingRune(grid.GetCell(1, 1)));
@@ -96,7 +96,7 @@ public sealed class OverlayTests
         using var grid = new TerminalGrid(8, 3);
         var writer = new DisplayListBuilder(grid, grid.Width);
 
-        host.Render(in context, 8, ref writer);
+        host.Render(in context, ref writer);
 
         Assert.Equal(new Rune('a'), grid.GetLeadingRune(grid.GetCell(0, 0)));
         Assert.Equal(new Rune('Z'), grid.GetLeadingRune(grid.GetCell(1, 0)));
@@ -105,10 +105,10 @@ public sealed class OverlayTests
 
     private sealed class ContextHeightComponent : Component
     {
-        public override Measurement Measure(in RenderContext context, int maxWidth)
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
             => new(1, 1);
 
-        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+        public override void Render(in RenderContext context, ref DisplayListBuilder output)
             => output.Write(context.Height.ToString().AsSpan(), context.Theme.Text);
 
         public override bool HandleInput(in TuiInputEvent key)

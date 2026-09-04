@@ -21,15 +21,17 @@ public sealed class MarkdownView : Component
     }
 
     /// <inheritdoc />
-    public override Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         Validate(in context, maxWidth);
         return new(Math.Min(_layout.Key.Width, 1), _layout.Key.Width, _layout.Height);
     }
 
     /// <inheritdoc />
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         Validate(in context, maxWidth);
 
         for (var row = 0; row < _layout.Rows.Length && output.CursorY < context.Height; row++)

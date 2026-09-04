@@ -53,7 +53,7 @@ public sealed class CollectionListViewTests
         var view = new CollectionListView<int>(model, navigation);
         var context = new RenderContext(16, 12, Theme.Default, ColorSystem.Legacy);
 
-        var measurement = view.Measure(in context, 16);
+        var measurement = view.Measure(in context, HPD.TUI.Layout.LayoutConstraints.Loose(16, context.Height));
 
         Assert.Equal(3, measurement.Height);
     }
@@ -71,7 +71,7 @@ public sealed class CollectionListViewTests
         var view = new CollectionListView<int>(model, navigation);
         var context = new RenderContext(16, 30, Theme.Default, ColorSystem.Legacy);
 
-        var measurement = view.Measure(in context, 16);
+        var measurement = view.Measure(in context, HPD.TUI.Layout.LayoutConstraints.Loose(16, context.Height));
 
         Assert.Equal(SelectionModel<int>.DefaultMaxVisibleItems, measurement.Height);
         var rendered = TuiCapture.RenderToString(view, 16, 30);

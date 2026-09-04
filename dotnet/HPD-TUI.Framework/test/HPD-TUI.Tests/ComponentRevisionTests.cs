@@ -90,12 +90,12 @@ public sealed class ComponentRevisionTests
         container.Add(child);
         var context = new RenderContext(80, 24, Theme.Default);
 
-        container.Measure(in context, 80);
-        container.Measure(in context, 80);
+        container.Measure(in context, HPD.TUI.Layout.LayoutConstraints.Loose(80, context.Height));
+        container.Measure(in context, HPD.TUI.Layout.LayoutConstraints.Loose(80, context.Height));
         Assert.Equal(1, child.MeasureCount);
 
         child.ChangeLayout();
-        container.Measure(in context, 80);
+        container.Measure(in context, HPD.TUI.Layout.LayoutConstraints.Loose(80, context.Height));
         Assert.Equal(2, child.MeasureCount);
     }
 
@@ -104,11 +104,12 @@ public sealed class ComponentRevisionTests
         public int MeasureCount { get; private set; }
         public override ComponentDependencies Dependencies => new(RenderContextFields.Width, RenderContextFields.None);
         public void ChangeLayout() => InvalidateLayout();
-        public override Measurement Measure(in RenderContext context, int maxWidth)
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
         {
+            var maxWidth = constraints.MaxWidth;
             MeasureCount++;
             return new(1, 1, 1);
         }
-        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output) { }
+        public override void Render(in RenderContext context, ref DisplayListBuilder output) { }
     }
 }

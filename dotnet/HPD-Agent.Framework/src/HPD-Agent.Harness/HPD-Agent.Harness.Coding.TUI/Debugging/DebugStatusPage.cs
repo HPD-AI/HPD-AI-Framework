@@ -17,8 +17,9 @@ internal static class DebugStatusPage
 
     private sealed class Component(AgentTuiStateBag state, CodingHarnessTuiTheme theme) : HPD.TUI.Core.Component
     {
-        public override Measurement Measure(in RenderContext context, int maxWidth)
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
         {
+            var maxWidth = constraints.MaxWidth;
             var rows = 2;
             if (state.TryGet<DebugTuiState>(DebugTuiState.StateKey, out var debug))
             {
@@ -33,8 +34,9 @@ internal static class DebugStatusPage
             return new(Math.Min(20, maxWidth), Math.Min(120, maxWidth), rows);
         }
 
-        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+        public override void Render(in RenderContext context, ref DisplayListBuilder output)
         {
+            var maxWidth = output.MaxWidth;
             output.Write("Debugger".AsSpan(), theme.ResolveLabel(context.Theme));
             if (!state.TryGet<DebugTuiState>(DebugTuiState.StateKey, out var debug) ||
                 debug.Trees.Count == 0)

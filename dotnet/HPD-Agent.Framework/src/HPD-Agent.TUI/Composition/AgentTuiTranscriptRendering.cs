@@ -183,11 +183,12 @@ public sealed class AgentTuiTranscriptRenderServices
             _style = style;
         }
 
-        public override Measurement Measure(in RenderContext context, int maxWidth)
-            => new(Math.Min(maxWidth, 1), maxWidth);
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
+            => new(Math.Min(constraints.MaxWidth, 1), constraints.MaxWidth);
 
-        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+        public override void Render(in RenderContext context, ref DisplayListBuilder output)
         {
+            var maxWidth = output.MaxWidth;
             if (maxWidth <= 0)
             {
                 return;
@@ -203,7 +204,7 @@ public sealed class AgentTuiTranscriptRenderServices
 
             var sink = new PrefixingSink(output.Sink, _subsequentPrefix, style);
             var prefixedOutput = new DisplayListBuilder(sink, output.MaxWidth);
-            _body.Render(in context, bodyWidth, ref prefixedOutput);
+            prefixedOutput.Render(_body, in context, bodyWidth);
         }
 
         public override bool HandleInput(in TuiInputEvent key)
@@ -231,11 +232,12 @@ public sealed class AgentTuiTranscriptRenderServices
             _textStyle = textStyle;
         }
 
-        public override Measurement Measure(in RenderContext context, int maxWidth)
-            => new(Math.Min(maxWidth, 1), maxWidth);
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
+            => new(Math.Min(constraints.MaxWidth, 1), constraints.MaxWidth);
 
-        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+        public override void Render(in RenderContext context, ref DisplayListBuilder output)
         {
+            var maxWidth = output.MaxWidth;
             if (maxWidth <= 0)
             {
                 return;

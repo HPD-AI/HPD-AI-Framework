@@ -52,16 +52,18 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiFramePreparab
         _mainSection.Prepare(size.Width, theme, colorSystem);
     }
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         UpdateTranscriptHeight(in context);
-        return _shell.Measure(in context, maxWidth);
+        return _shell.Measure(in context, HPD.TUI.Layout.LayoutConstraints.Loose(maxWidth, context.Height));
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         UpdateTranscriptHeight(in context);
-        _shell.Render(in context, maxWidth, ref output);
+        output.Render(_shell, in context, maxWidth);
     }
 
     public override bool HandleInput(in TuiInputEvent key)
@@ -295,7 +297,8 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiFramePreparab
             visibleSectionCount++;
             if (!section.IsMain)
             {
-                nonTranscriptRows += section.Component.Measure(in context, context.Width).Height;
+                nonTranscriptRows += section.Component.Measure(in context,
+                    HPD.TUI.Layout.LayoutConstraints.Loose(context.Width, context.Height)).Height;
             }
         }
 
@@ -318,11 +321,11 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiFramePreparab
             _owner = owner;
         }
 
-        public override Measurement Measure(in RenderContext context, int maxWidth)
-            => Resolve().Measure(in context, maxWidth);
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
+            => Resolve().Measure(in context, constraints);
 
-        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
-            => Resolve().Render(in context, maxWidth, ref output);
+        public override void Render(in RenderContext context, ref DisplayListBuilder output)
+            => output.Render(Resolve(), in context, output.MaxWidth);
 
         public override bool HandleInput(in TuiInputEvent key)
             => Resolve().HandleInput(in key);
@@ -389,8 +392,9 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiFramePreparab
         public void Add(RetainedShellSection section)
             => _sections.Add(section);
 
-        public override Measurement Measure(in RenderContext context, int maxWidth)
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
         {
+            var maxWidth = constraints.MaxWidth;
             var min = 0;
             var max = 0;
             var height = 0;
@@ -402,7 +406,7 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiFramePreparab
                     continue;
                 }
 
-                var measurement = section.Component.Measure(in context, maxWidth);
+                var measurement = section.Component.Measure(in context, HPD.TUI.Layout.LayoutConstraints.Loose(maxWidth, context.Height));
                 min = Math.Max(min, measurement.MinWidth);
                 max = Math.Max(max, measurement.MaxWidth);
                 height += measurement.Height;
@@ -413,8 +417,9 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiFramePreparab
             return new Measurement(Math.Min(min, maxWidth), Math.Min(max, maxWidth), height);
         }
 
-        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+        public override void Render(in RenderContext context, ref DisplayListBuilder output)
         {
+            var maxWidth = output.MaxWidth;
             var wrote = false;
             foreach (var section in _sections)
             {
@@ -431,7 +436,7 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiFramePreparab
                     }
                 }
 
-                section.Component.Render(in context, maxWidth, ref output);
+                output.Render(section.Component, in context, maxWidth);
                 wrote = true;
             }
         }

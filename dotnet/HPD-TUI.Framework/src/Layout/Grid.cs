@@ -57,8 +57,9 @@ public sealed class Grid : Component
         return this;
     }
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         if (_columns.Count == 0)
         {
             return new Measurement(0, 0);
@@ -88,8 +89,9 @@ public sealed class Grid : Component
         return new Measurement(Math.Min(width, maxWidth), width, height);
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (_columns.Count == 0 || _rows.Count == 0 || maxWidth <= 0)
         {
             return;

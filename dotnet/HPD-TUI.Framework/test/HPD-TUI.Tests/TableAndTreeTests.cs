@@ -20,7 +20,7 @@ public sealed class TableAndTreeTests
         using var grid = new TerminalGrid(20, 2);
         var writer = new DisplayListBuilder(grid, grid.Width);
 
-        view.Render(in context, 20, ref writer);
+        view.Render(in context, ref writer);
 
         Assert.Equal("Name   Kind         ", ReadLine(grid, 0));
         Assert.Equal("alpha  file         ", ReadLine(grid, 1));
@@ -38,7 +38,7 @@ public sealed class TableAndTreeTests
         using var grid = new TerminalGrid(12, 2);
         var writer = new DisplayListBuilder(grid, grid.Width);
 
-        view.Render(in context, 12, ref writer);
+        view.Render(in context, ref writer);
 
         Assert.Equal("Name: alpha ", ReadLine(grid, 0));
         Assert.Equal("Kind: file  ", ReadLine(grid, 1));
@@ -120,7 +120,7 @@ public sealed class TableAndTreeTests
         var model = new CollectionModel<string>().Add("wide", "你好");
         var view = new CollectionListView<string>(model, new Controllers.CollectionNavigationController<string>(model));
 
-        var measurement = view.Measure(new RenderContext(20, 1, Theme.Default), 20);
+        var measurement = view.Measure(new RenderContext(20, 1, Theme.Default), HPD.TUI.Layout.LayoutConstraints.Loose(20, 1));
 
         Assert.Equal(6, measurement.MaxWidth);
     }
@@ -169,7 +169,7 @@ public sealed class TableAndTreeTests
         using var grid = new TerminalGrid(12, 2);
         var writer = new DisplayListBuilder(grid, grid.Width);
 
-        view.Render(in context, 12, ref writer);
+        view.Render(in context, ref writer);
 
         Assert.Equal("▾ root      ", ReadLine(grid, 0));
         Assert.Equal("  • child   ", ReadLine(grid, 1));
@@ -187,7 +187,7 @@ public sealed class TableAndTreeTests
         using var grid = new TerminalGrid(12, 2);
         var writer = new DisplayListBuilder(grid, grid.Width);
 
-        view.Render(in context, 12, ref writer);
+        view.Render(in context, ref writer);
 
         Assert.Equal("▸ root      ", ReadLine(grid, 0));
         Assert.Equal("            ", ReadLine(grid, 1));

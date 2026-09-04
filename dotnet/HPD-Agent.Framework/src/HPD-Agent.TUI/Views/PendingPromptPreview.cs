@@ -9,11 +9,12 @@ internal sealed class PendingPromptPreview(PendingPromptQueue queue) : Component
     private const int MaxVisibleItems = 3;
     private readonly PendingPromptQueue _queue = queue ?? throw new ArgumentNullException(nameof(queue));
 
-    public override Measurement Measure(in RenderContext context, int maxWidth)
-        => _queue.Count == 0 ? new Measurement(0, 0, 0) : new Measurement(1, Math.Min(maxWidth, 100), Height());
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
+        => _queue.Count == 0 ? new Measurement(0, 0, 0) : new Measurement(1, Math.Min(constraints.MaxWidth, 100), Height());
 
-    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (maxWidth <= 0 || _queue.Count == 0) return;
         var items = _queue.Snapshot();
         output.Write("• Queued follow-ups".AsSpan(), context.Theme.Accent);

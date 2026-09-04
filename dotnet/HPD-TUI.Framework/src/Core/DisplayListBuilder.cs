@@ -62,4 +62,13 @@ public ref struct DisplayListBuilder
 
     /// <summary>Sets the requested terminal cursor position.</summary>
     public void SetTerminalCursor(int x, int y) => _sink.SetTerminalCursor(x, y);
+
+    /// <summary>Records a child into a nested builder bounded to its allocated width.</summary>
+    public void Render(IComponent child, in RenderContext context, int maxWidth)
+    {
+        ArgumentNullException.ThrowIfNull(child);
+        var nested = new DisplayListBuilder(_sink, maxWidth);
+        child.Render(in context, ref nested);
+        _count += nested.Count;
+    }
 }
