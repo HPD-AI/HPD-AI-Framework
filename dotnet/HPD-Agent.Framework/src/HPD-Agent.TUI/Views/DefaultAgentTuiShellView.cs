@@ -183,7 +183,7 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiFramePreparab
                 _state));
         }
 
-        _transcript.Height = height;
+        _transcript.SetHeight(height);
         return _transcript;
     }
 
@@ -280,7 +280,7 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiFramePreparab
     {
         var transcriptHeight = GetTranscriptHeight(in context);
         _lastTranscriptHeight = transcriptHeight;
-        _transcript.Height = transcriptHeight;
+        _transcript.SetHeight(transcriptHeight);
     }
 
     private int GetTranscriptHeight(in RenderContext context)
@@ -361,7 +361,7 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiFramePreparab
             {
                 _pageId = null;
                 _pageComponent = null;
-                _owner._transcript.Height = _owner._lastTranscriptHeight;
+                _owner._transcript.SetHeight(_owner._lastTranscriptHeight);
                 return _owner._transcript;
             }
 

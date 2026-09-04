@@ -212,7 +212,7 @@ public sealed class ComponentRevisionTests
     }
 
     [Fact]
-    public void DescendantLayoutInvalidation_AdvancesEveryAttachedAncestor()
+    public void DescendantLayoutInvalidation_StopsAfterAdvancingNearestLayoutRoot()
     {
         var leaf = new MeasuredComponent();
         var middle = new Container();
@@ -226,8 +226,24 @@ public sealed class ComponentRevisionTests
 
         leaf.ChangeLayout();
 
-        Assert.NotEqual(rootRevision, root.LayoutRevision);
+        Assert.Equal(rootRevision, root.LayoutRevision);
         Assert.NotEqual(middleRevision, middle.LayoutRevision);
+    }
+
+    [Fact]
+    public void LayoutRootCache_RetainsResolvedChildBoundsWithMeasurement()
+    {
+        var child = new MeasuredComponent();
+        var root = new ConstraintCacheRoot(child);
+        var context = new RenderContext(80, 24, Theme.Default);
+        var constraints = HPD.TUI.Layout.LayoutConstraints.Loose(40, 24);
+
+        root.MeasureAt(context, constraints, 7, 9);
+
+        Assert.True(root.TryGetBounds(context, constraints, out var bounds));
+        Assert.Equal(new HPD.TUI.Layout.LayoutRect(7, 9, 1, 1), bounds);
+        root.MeasureAt(context, constraints, 7, 9);
+        Assert.Equal(1, child.MeasureCount);
     }
 
     [Fact]
@@ -307,6 +323,11 @@ public sealed class ComponentRevisionTests
         public ConstraintCacheRoot(IComponent child) { _child = child; AdoptChild(child); }
         public Measurement MeasureWith(RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints) =>
             MeasureChild(_child, in context, constraints);
+        public Measurement MeasureAt(RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints, int x, int y) =>
+            MeasureChild(_child, in context, constraints, x, y);
+        public bool TryGetBounds(RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints,
+            out HPD.TUI.Layout.LayoutRect bounds) =>
+            TryGetResolvedChildBounds(_child, in context, constraints, out bounds);
         public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints) =>
             MeasureChild(_child, in context, constraints);
         public override void Render(in RenderContext context, ref DisplayListBuilder output) =>

@@ -367,14 +367,20 @@ public sealed class MarkdownArchitectureTests
         Assert.False(nextPage.HasMoreSource);
         var view = new MarkdownView(rowLimited, offset => engine.LayoutRawPage(source, document.PipelineId,
             new(20, theme, Mode: MarkdownPresentationMode.Raw, ResourceLimits: new() { MaximumLayoutRows = 2 }), offset));
+        var firstLayoutRevision = view.LayoutRevision;
+        var firstPaintRevision = view.PaintRevision;
         Assert.True(view.HandleInput(new KeyEvent(KeyCode.PageDown)));
+        Assert.NotEqual(firstLayoutRevision, view.LayoutRevision);
+        Assert.NotEqual(firstPaintRevision, view.PaintRevision);
         var context = new RenderContext(20, 2, Theme.Default);
         using var grid = new TerminalGrid(20, 2);
         var writer = new DisplayListBuilder(grid, grid.Width);
         view.Render(in context, ref writer);
         Assert.StartsWith("three", string.Concat(MarkdownLayoutEngine.CaptureLine(grid, 0).Runs
             .Select(static run => run.Text)), StringComparison.Ordinal);
+        var pagedLayoutRevision = view.LayoutRevision;
         Assert.True(view.HandleInput(new KeyEvent(KeyCode.PageUp)));
+        Assert.NotEqual(pagedLayoutRevision, view.LayoutRevision);
     }
 
     [Fact]

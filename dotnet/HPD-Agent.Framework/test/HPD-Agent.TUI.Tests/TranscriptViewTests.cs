@@ -13,6 +13,29 @@ namespace HPD.Agent.TUI.Tests;
 public sealed class TranscriptViewTests
 {
     [Fact]
+    public void ViewportMutations_TrackHeightAsLayoutAndPagingAsPaint()
+    {
+        var model = new TranscriptModel();
+        model.AddFinal(Row("revision-user", "revision", string.Join('\n', Enumerable.Repeat("row", 20))));
+        var view = CreateView(model, height: 4);
+        var layout = view.LayoutRevision;
+        var paint = view.PaintRevision;
+
+        view.SetHeight(5);
+
+        view.Height.Should().Be(5);
+        view.LayoutRevision.Should().NotBe(layout);
+        view.PaintRevision.Should().NotBe(paint);
+        layout = view.LayoutRevision;
+        paint = view.PaintRevision;
+
+        view.HandleInput(new KeyEvent(KeyCode.PageUp)).Should().BeTrue();
+
+        view.LayoutRevision.Should().Be(layout);
+        view.PaintRevision.Should().NotBe(paint);
+    }
+
+    [Fact]
     public void Render_ReusesPreparedEntryThroughTranscriptLayoutCache()
     {
         var model = new TranscriptModel();

@@ -30,6 +30,7 @@ public sealed class TranscriptView : Component, IScrollbackSource
     private bool _cacheInitialized;
     private bool _disposed;
     private int _scrollOffset;
+    private int _height;
     private int _committedCount;
     private long _committedRowSequence;
     private ScrollbackBatch? _pendingScrollback;
@@ -52,12 +53,20 @@ public sealed class TranscriptView : Component, IScrollbackSource
         _renderers = renderers;
         _scope = scope;
         _performanceSink = performanceSink;
-        Height = height;
+        _height = height;
         CacheByteBudget = cacheByteBudget;
         _layoutCache = new TranscriptLayoutCache(cacheByteBudget, PrepareEntry);
     }
 
-    public int Height { get; set; }
+    /// <summary>Gets the number of rows exposed by the transcript viewport.</summary>
+    public int Height => _height;
+
+    /// <summary>Changes the transcript viewport height and invalidates its layout.</summary>
+    public void SetHeight(int height)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
+        SetLayout(ref _height, height);
+    }
 
     /// <summary>Gets the maximum retained transcript raster storage in bytes.</summary>
     public long CacheByteBudget { get; }
@@ -89,12 +98,12 @@ public sealed class TranscriptView : Component, IScrollbackSource
         switch (key.Key)
         {
             case KeyCode.PageUp:
-                _scrollOffset = _scrollOffset > int.MaxValue - Height
+                SetPaint(ref _scrollOffset, _scrollOffset > int.MaxValue - Height
                     ? int.MaxValue
-                    : _scrollOffset + Height;
+                    : _scrollOffset + Height);
                 return true;
             case KeyCode.PageDown:
-                _scrollOffset = Math.Max(0, _scrollOffset - Height);
+                SetPaint(ref _scrollOffset, Math.Max(0, _scrollOffset - Height));
                 return true;
             default:
                 return false;
@@ -412,7 +421,7 @@ public sealed class TranscriptView : Component, IScrollbackSource
 
         if (_visibleRows.Count < Height && _scrollOffset > 0)
         {
-            _scrollOffset = Math.Max(0, totalRows - Height);
+            SetPaint(ref _scrollOffset, Math.Max(0, totalRows - Height));
             BuildVisibleRowsFromBottom(in context, maxWidth, ref diagnostics);
             return;
         }

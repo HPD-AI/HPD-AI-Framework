@@ -73,13 +73,14 @@ public sealed class Stack : Component
         var height = 0;
         foreach (var child in _children)
         {
-            var measurement = MeasureChild(child, in context, maxWidth);
+            var measurement = MeasureChild(child, in context,
+                LayoutConstraints.Loose(maxWidth, context.Height), 0, height);
             min = Math.Max(min, measurement.MinWidth);
             max = Math.Max(max, measurement.MaxWidth);
-            height += measurement.Height;
+            height += measurement.Height + Gap + 1;
         }
 
-        height += Math.Max(0, _children.Count - 1) * (Gap + 1);
+        height -= Gap + 1;
         return new Measurement(Math.Min(min, maxWidth), Math.Min(max, maxWidth), height);
     }
 
@@ -88,12 +89,15 @@ public sealed class Stack : Component
         var min = Math.Max(0, (_children.Count - 1) * Gap);
         var max = min;
         var height = 0;
+        var x = 0;
         foreach (var child in _children)
         {
-            var measurement = MeasureChild(child, in context, maxWidth);
+            var measurement = MeasureChild(child, in context,
+                LayoutConstraints.Loose(maxWidth, context.Height), x, 0);
             min += measurement.MinWidth;
             max += measurement.MaxWidth;
             height = Math.Max(height, measurement.Height);
+            x += measurement.MaxWidth + Gap;
         }
 
         return new Measurement(Math.Min(min, maxWidth), Math.Min(max, maxWidth), height);

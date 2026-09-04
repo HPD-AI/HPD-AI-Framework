@@ -48,13 +48,16 @@ public sealed class MarkdownView : Component
     {
         if (input.Key == KeyCode.PageDown && _layout.NextSourceOffset is { } offset && _loadRawPage is not null)
         {
-            _previousPages.Push(_layout);
-            _layout = _loadRawPage(offset);
+            var previous = _layout;
+            var next = _loadRawPage(offset);
+            if (!SetLayout(ref _layout, next)) return true;
+            _previousPages.Push(previous);
             return true;
         }
-        if (input.Key == KeyCode.PageUp && _previousPages.TryPop(out var previous))
+        if (input.Key == KeyCode.PageUp && _previousPages.TryPeek(out var restored))
         {
-            _layout = previous;
+            SetLayout(ref _layout, restored);
+            _previousPages.Pop();
             return true;
         }
         return false;

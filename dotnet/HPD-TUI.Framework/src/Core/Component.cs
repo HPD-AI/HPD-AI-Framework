@@ -60,7 +60,7 @@ public abstract class Component : IComponent
 {
     private readonly ComponentLifecycle _lifecycle;
     private readonly List<IComponent> _ownedChildren = [];
-    private readonly Dictionary<LayoutCacheKey, Measurement> _layoutCache = [];
+    private readonly Dictionary<LayoutCacheKey, CachedChildLayout> _layoutCache = [];
     private ulong _layoutRevision = 1;
     private ulong _paintRevision = 1;
 
@@ -70,6 +70,9 @@ public abstract class Component : IComponent
     IComponentLifecycle IComponent.Lifecycle => _lifecycle;
 
     internal IReadOnlyList<IComponent> OwnedChildren => _ownedChildren;
+
+    /// <summary>Gets whether this owner is a propagation boundary for descendant layout invalidation.</summary>
+    internal bool EstablishesLayoutRoot => _ownedChildren.Count != 0;
 
     /// <inheritdoc />
     public TuiRevision LayoutRevision => new(_layoutRevision);
@@ -177,26 +180,47 @@ public abstract class Component : IComponent
 
     /// <summary>Measures a child through this layout root's revision-keyed cache.</summary>
     protected Measurement MeasureChild(IComponent child, in RenderContext context, Layout.LayoutConstraints constraints)
+        => MeasureChild(child, in context, constraints, 0, 0);
+
+    /// <summary>Measures a child and retains its resolved origin with the measurement in this layout root.</summary>
+    protected Measurement MeasureChild(
+        IComponent child,
+        in RenderContext context,
+        Layout.LayoutConstraints constraints,
+        int x,
+        int y)
     {
         ArgumentNullException.ThrowIfNull(child);
+        ArgumentOutOfRangeException.ThrowIfNegative(x);
+        ArgumentOutOfRangeException.ThrowIfNegative(y);
         if (child.LayoutCachePolicy == LayoutCachePolicy.None)
             return child.Measure(in context, constraints);
-        var fields = child.Dependencies.Layout;
-        var key = new LayoutCacheKey(
-            child.Lifecycle.Id,
-            child.LayoutRevision,
-            constraints,
-            (fields & RenderContextFields.Width) != 0 ? context.Width : default,
-            (fields & RenderContextFields.Height) != 0 ? context.Height : default,
-            (fields & RenderContextFields.Theme) != 0 ? context.Theme.Key : default,
-            (fields & RenderContextFields.ColorSystem) != 0 ? context.ColorSystem : default,
-            (fields & RenderContextFields.Capabilities) != 0 ? context.Capabilities : default,
-            (fields & RenderContextFields.Elapsed) != 0 ? context.Elapsed : default);
-        if (_layoutCache.TryGetValue(key, out var cached)) return cached;
+        var key = CreateLayoutCacheKey(child, in context, constraints);
+        if (_layoutCache.TryGetValue(key, out var cached) && cached.Bounds.X == x && cached.Bounds.Y == y)
+            return cached.Measurement;
         if (_layoutCache.Count >= 256) _layoutCache.Clear();
         var measured = child.Measure(in context, constraints);
-        _layoutCache.Add(key, measured);
+        var bounds = new Layout.LayoutRect(x, y, Math.Min(constraints.MaxWidth, measured.MaxWidth), measured.Height);
+        _layoutCache[key] = new CachedChildLayout(measured, bounds);
         return measured;
+    }
+
+    /// <summary>Reads the resolved bounds retained with a child's current measurement.</summary>
+    protected bool TryGetResolvedChildBounds(
+        IComponent child,
+        in RenderContext context,
+        Layout.LayoutConstraints constraints,
+        out Layout.LayoutRect bounds)
+    {
+        ArgumentNullException.ThrowIfNull(child);
+        if (_layoutCache.TryGetValue(CreateLayoutCacheKey(child, in context, constraints), out var cached))
+        {
+            bounds = cached.Bounds;
+            return true;
+        }
+
+        bounds = default;
+        return false;
     }
 
     /// <summary>Advances the paint revision and reports paint damage to the attached surface.</summary>
@@ -249,6 +273,26 @@ public abstract class Component : IComponent
             if (Contains(child, sought)) return true;
         return false;
     }
+
+    private static LayoutCacheKey CreateLayoutCacheKey(
+        IComponent child,
+        in RenderContext context,
+        Layout.LayoutConstraints constraints)
+    {
+        var fields = child.Dependencies.Layout;
+        return new LayoutCacheKey(
+            child.Lifecycle.Id,
+            child.LayoutRevision,
+            constraints,
+            (fields & RenderContextFields.Width) != 0 ? context.Width : default,
+            (fields & RenderContextFields.Height) != 0 ? context.Height : default,
+            (fields & RenderContextFields.Theme) != 0 ? context.Theme.Key : default,
+            (fields & RenderContextFields.ColorSystem) != 0 ? context.ColorSystem : default,
+            (fields & RenderContextFields.Capabilities) != 0 ? context.Capabilities : default,
+            (fields & RenderContextFields.Elapsed) != 0 ? context.Elapsed : default);
+    }
+
+    private readonly record struct CachedChildLayout(Measurement Measurement, Layout.LayoutRect Bounds);
 
     private readonly record struct LayoutCacheKey(
         ComponentId Component,

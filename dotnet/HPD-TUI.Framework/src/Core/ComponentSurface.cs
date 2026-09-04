@@ -133,7 +133,11 @@ internal sealed class ComponentSurface(Action requestRender, Func<bool>? checkAc
             var parent = component.Lifecycle.Attachment?.Parent;
             while (parent is { } parentId && _components.TryGetValue(parentId, out var ancestor))
             {
-                if (ancestor is Component owner) owner.PropagateDescendantLayoutInvalidation();
+                if (ancestor is Component owner)
+                {
+                    owner.PropagateDescendantLayoutInvalidation();
+                    if (owner.EstablishesLayoutRoot) break;
+                }
                 parent = ancestor.Lifecycle.Attachment?.Parent;
             }
         }

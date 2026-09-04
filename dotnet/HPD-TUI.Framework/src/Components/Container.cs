@@ -43,11 +43,14 @@ public class Container : Component
         var minWidth = 0;
         var desiredWidth = 0;
 
+        var y = 0;
         foreach (var child in _children)
         {
-            var measurement = MeasureChild(child, in context, maxWidth);
+            var measurement = MeasureChild(child, in context,
+                HPD.TUI.Layout.LayoutConstraints.Loose(maxWidth, context.Height), 0, y);
             minWidth = Math.Max(minWidth, measurement.MinWidth);
             desiredWidth = Math.Max(desiredWidth, measurement.MaxWidth);
+            y += measurement.Height + 1;
         }
 
         return new Measurement(minWidth, Math.Min(maxWidth, desiredWidth));
