@@ -923,18 +923,19 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         AgentTuiExecutionTarget target,
         CancellationToken cancellationToken)
     {
-        var ensured = await _runtime.EnsureDurableTargetAsync(target, cancellationToken)
+        var resolved = await _runtime.ResolveInitialTargetAsync(target, cancellationToken)
             .ConfigureAwait(false);
-        await NotifyDurableScopeEnsuredAsync(ensured.Scope, cancellationToken).ConfigureAwait(false);
         await StopObserverAsync().ConfigureAwait(false);
         _handledInteractionIds.Clear();
         RebuildShell(
-            ensured,
-            $"Switched to agent `{ensured.Scope.AgentId}`, session `{ensured.Scope.SessionId}`, thread `{ensured.Scope.ThreadId}`.");
-        if (await HydrateThreadAsync(ensured.Scope, cancellationToken).ConfigureAwait(false))
+            resolved.Target,
+            $"Switched to agent `{resolved.Target.Scope.AgentId}`, session `{resolved.Target.Scope.SessionId}`, thread `{resolved.Target.Scope.ThreadId}`.");
+        if (resolved.IsDurable &&
+            await HydrateThreadAsync(resolved.Target.Scope, cancellationToken).ConfigureAwait(false))
         {
             _scopeIsDurable = true;
-            StartObserver(ensured, _runCancellationToken);
+            await NotifyDurableScopeEnsuredAsync(resolved.Target.Scope, cancellationToken).ConfigureAwait(false);
+            StartObserver(resolved.Target, _runCancellationToken);
         }
     }
 

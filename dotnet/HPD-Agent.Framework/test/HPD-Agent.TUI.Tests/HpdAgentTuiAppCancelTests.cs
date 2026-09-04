@@ -82,6 +82,43 @@ public sealed class HpdAgentTuiAppCancelTests
     }
 
     [Fact]
+    public async Task SwitchTarget_LeavesTransientScopeUndurableUntilFirstInput()
+    {
+        var initialScope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
+        var draftScope = new AgentTuiRuntimeScope("agent-a", "pending-session", "main");
+        var runtime = new CancelRuntime(initialScope) { InitialIsDurable = false };
+        await using var app = HpdAgentTuiApp.Create(
+            runtime,
+            new DirectAgentTuiExecutionTarget(initialScope),
+            static builder => builder.AddAgentTuiDefaults(),
+            new TestTerminal(80, 24));
+        InvokePrivate(app, "RebuildShell", new DirectAgentTuiExecutionTarget(initialScope), "Connected.");
+
+        await app.SwitchTargetAsync(
+            new DirectAgentTuiExecutionTarget(draftScope),
+            CancellationToken.None);
+
+        app.CurrentScope.Should().Be(draftScope);
+        runtime.Calls.Should().Equal("resolve");
+
+        var input = new UserMessagesInputEvent
+        {
+            Messages = [new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.User, "hello")],
+            AgentId = draftScope.AgentId,
+            SessionId = draftScope.SessionId,
+            ThreadId = draftScope.ThreadId
+        };
+        await InvokePrivate<Task>(
+            app,
+            "SubmitInputAsync",
+            new DirectAgentTuiExecutionTarget(draftScope),
+            input,
+            null!);
+
+        runtime.Calls.Should().ContainInOrder("resolve", "ensure", "state", "observe", "submit");
+    }
+
+    [Fact]
     public async Task Hydration_InvokesThreadStateReconcilerWithAuthoritativeSnapshot()
     {
         var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
@@ -593,8 +630,11 @@ public sealed class HpdAgentTuiAppCancelTests
         public Task<AgentTuiTargetResolution> ResolveInitialTargetAsync(
             AgentTuiExecutionTarget? requested,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(new AgentTuiTargetResolution(
+        {
+            Calls.Add("resolve");
+            return Task.FromResult(new AgentTuiTargetResolution(
                 requested ?? new DirectAgentTuiExecutionTarget(_scope), InitialIsDurable));
+        }
 
         public Task<AgentTuiExecutionTarget> EnsureDurableTargetAsync(
             AgentTuiExecutionTarget target,
