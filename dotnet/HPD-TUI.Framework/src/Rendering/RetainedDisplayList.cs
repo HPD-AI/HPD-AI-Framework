@@ -7,8 +7,8 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
 {
     private PooledTextArena _textArena = new();
     private PooledTextArena _buildingTextArena = new();
-    private List<DisplayOperation> _operations = [];
-    private List<DisplayOperation> _building = [];
+    private PooledBuffer<DisplayOperation> _operations = new();
+    private PooledBuffer<DisplayOperation> _building = new();
     private Dictionary<ComponentId, ComponentSlice> _slices = [];
     private Dictionary<ComponentId, ComponentSlice> _buildingSlices = [];
     private readonly Stack<PendingSlice> _pendingSlices = [];
@@ -475,7 +475,7 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
     }
 
     private static DisplayListKey CreateDisplayListKey(IComponent root, in RenderContext context, RenderContextFields dependencies) =>
-        new(root.LayoutRevision, root.PaintRevision, GetSurfaceIdentity(root), context.Width, context.Height,
+        new(root.Lifecycle.Id, root.LayoutRevision, root.PaintRevision, GetSurfaceIdentity(root), context.Width, context.Height,
             (dependencies & RenderContextFields.Theme) != 0 ? context.Theme.Key : default,
             (dependencies & RenderContextFields.ColorSystem) != 0 ? context.ColorSystem : default,
             (dependencies & RenderContextFields.Capabilities) != 0 ? context.Capabilities : default,
@@ -512,7 +512,7 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
         ExpandWrappedRows(_building);
         return;
 
-        void ExpandWrappedRows(List<DisplayOperation> operations)
+        void ExpandWrappedRows(PooledBuffer<DisplayOperation> operations)
         {
             if (_key.Width <= 0) return;
             foreach (var operation in operations)
@@ -562,14 +562,14 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
         return left.Command == right.Command;
     }
 
-    private static void ReleaseSurfaceLeases(List<DisplayOperation> operations)
+    private static void ReleaseSurfaceLeases(PooledBuffer<DisplayOperation> operations)
     {
         foreach (var operation in operations) operation.Command.Payload.SurfaceLease?.Dispose();
     }
 
     private void HandleSurfaceRevisionChanged() => _surfaceDirty = true;
 
-    private static bool SurfaceVersionsMatch(List<DisplayOperation> operations, int start, int count)
+    private static bool SurfaceVersionsMatch(PooledBuffer<DisplayOperation> operations, int start, int count)
     {
         for (var index = start; index < start + count; index++)
         {
@@ -654,6 +654,7 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
     }
 
     private readonly record struct DisplayListKey(
+        ComponentId Component,
         TuiRevision LayoutRevision,
         TuiRevision PaintRevision,
         SurfaceIdentity Surface,
@@ -689,6 +690,8 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
     {
         ReleaseSurfaceLeases(_operations);
         ReleaseSurfaceLeases(_building);
+        _operations.Dispose();
+        _building.Dispose();
         foreach (var surface in _observedSurfaces) surface.RevisionChanged -= HandleSurfaceRevisionChanged;
         Return(ref _rowHeads); Return(ref _linkOperations); Return(ref _linkNext); Return(ref _candidateMarks); Return(ref _candidates);
         _textArena.Dispose();
