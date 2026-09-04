@@ -15,6 +15,11 @@ internal sealed class MarkdownSourceText
     }
 
     internal static MarkdownSourceText Empty { get; } = new(null, ReadOnlyMemory<char>.Empty);
+    internal static MarkdownSourceText FromString(string source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        return new MarkdownSourceText(null, source.AsMemory()) { _materialized = source };
+    }
     internal int Length { get; }
     internal long RetainedBytes => (long)Length * sizeof(char);
 

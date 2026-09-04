@@ -17,6 +17,7 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
     private DisplayListKey _key;
     private int _cursorX;
     private int _cursorY;
+    private int _maxHeight;
 
     public int CursorX => _cursorX;
     public int CursorY => _cursorY;
@@ -57,6 +58,7 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
         _pendingSlices.Clear();
         _cursorX = 0;
         _cursorY = 0;
+        _maxHeight = context.Height;
         _commandsBuilt = _commandsReused = _componentsPainted = 0;
         var writer = new DisplayListBuilder(this, maxWidth);
         Begin(root, in context, maxWidth);
@@ -237,6 +239,7 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
 
     public bool Write(scoped ReadOnlySpan<char> text, Style style, TerminalRunMetadata metadata = default)
     {
+        if (_cursorY >= _maxHeight) return false;
         var ownedText = text.ToString();
         var width = Utilities.UnicodeWidth.GetWidth(text);
         var command = new DisplayCommand(
@@ -253,6 +256,7 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
 
     public bool WriteOwned(string text, Style style, TerminalRunMetadata metadata)
     {
+        if (_cursorY >= _maxHeight) return false;
         var width = Utilities.UnicodeWidth.GetWidth(text.AsSpan());
         RecordText(DisplayPayload.FromText(text), width, style, metadata);
         return true;
@@ -260,6 +264,7 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
 
     public bool WriteCharacter(char value, Style style, TerminalRunMetadata metadata = default)
     {
+        if (_cursorY >= _maxHeight) return false;
         Span<char> text = stackalloc char[1];
         text[0] = value;
         var width = Utilities.UnicodeWidth.GetWidth(text);
@@ -278,11 +283,12 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
 
     public bool WriteLineBreak()
     {
+        if (_cursorY >= _maxHeight) return false;
         _building.Add(new DisplayOperation(DisplayOperationKind.LineBreak, default, 0, 0));
         _commandsBuilt++;
         _cursorX = 0;
         _cursorY++;
-        return true;
+        return _cursorY < _maxHeight;
     }
 
     public void MoveTo(int x, int y)

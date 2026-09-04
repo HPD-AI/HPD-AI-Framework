@@ -10,7 +10,7 @@ public sealed class MarkdownDocumentSnapshot
         MarkdownDocumentFeatures features, IReadOnlyList<MarkdownNodeCapability> nodeCapabilities,
         int maximumObservedNestingDepth, MarkdownPipelineDescriptor pipeline, Markdig.Syntax.MarkdownDocument syntax)
     {
-        CanonicalSource = MarkdownSourceText.Empty.Append(source.AsMemory());
+        CanonicalSource = MarkdownSourceText.FromString(source);
         Blocks = blocks;
         Features = features;
         NodeCapabilities = nodeCapabilities;
