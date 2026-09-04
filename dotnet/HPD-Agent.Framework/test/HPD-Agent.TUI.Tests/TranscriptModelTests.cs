@@ -8,6 +8,34 @@ namespace HPD.Agent.TUI.Tests;
 public sealed class TranscriptModelTests
 {
     [Fact]
+    public void Snapshot_RemainsImmutableAcrossAppendAndReplacement()
+    {
+        var model = new TranscriptModel();
+        model.AddFinal(Row("1", null, "first"));
+        model.UpsertLive(Row("2", "live:2", "running"));
+        var before = model.Snapshot();
+
+        model.AddFinal(Row("3", null, "third"));
+        model.UpsertLive(Row("4", "live:2", "updated"));
+        var after = model.Snapshot();
+
+        before.Entries.Select(static entry => entry.Id).Should().Equal("1", "2");
+        after.Entries.Select(static entry => entry.Id).Should().Equal("1", "4", "3");
+    }
+
+    [Fact]
+    public void Snapshot_WithoutPredicate_ReusesCurrentSequence()
+    {
+        var model = new TranscriptModel();
+        model.AddFinal(Row("1", null, "first"));
+
+        var first = model.Snapshot();
+        var second = model.Snapshot();
+
+        second.Entries.Should().BeSameAs(first.Entries);
+    }
+
+    [Fact]
     public void TryFinalizeLive_DoesNotAppendWhenKeyIsMissing()
     {
         var model = new TranscriptModel();

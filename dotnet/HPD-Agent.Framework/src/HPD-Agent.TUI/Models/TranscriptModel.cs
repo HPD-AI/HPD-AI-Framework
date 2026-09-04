@@ -1,9 +1,10 @@
 namespace HPD.Agent.TUI.Models;
 
+/// <summary>Owns the current immutable transcript sequence and its live-entry index.</summary>
 public sealed class TranscriptModel
 {
     private readonly object _gate = new();
-    private readonly List<TranscriptEntry> _entries = [];
+    private TranscriptSequence _entries = TranscriptSequence.Empty;
     private readonly Dictionary<string, int> _entryKeys = new(StringComparer.Ordinal);
     private int _historyEpoch;
     private int _version;
@@ -102,7 +103,7 @@ public sealed class TranscriptModel
         {
             if (_entryKeys.TryGetValue(entry.EntryKey, out var index))
             {
-                _entries[index] = entry.AsLive();
+                _entries = _entries.Replace(index, entry.AsLive());
                 MarkChanged();
                 return;
             }
@@ -122,7 +123,7 @@ public sealed class TranscriptModel
             var committed = finalEntry with { EntryKey = entryKey };
             if (_entryKeys.TryGetValue(entryKey, out var index))
             {
-                _entries[index] = committed.AsFinal();
+                _entries = _entries.Replace(index, committed.AsFinal());
                 MarkChanged();
                 return;
             }
@@ -144,7 +145,7 @@ public sealed class TranscriptModel
                 || _entries[index].State != TranscriptEntryState.Live)
                 return false;
 
-            _entries[index] = (finalEntry with { EntryKey = entryKey }).AsFinal();
+            _entries = _entries.Replace(index, (finalEntry with { EntryKey = entryKey }).AsFinal());
             MarkChanged();
             return true;
         }
@@ -166,7 +167,7 @@ public sealed class TranscriptModel
                 return false;
             }
 
-            _entries.RemoveAt(index);
+            _entries = TranscriptSequence.Create(_entries.Where((_, candidate) => candidate != index));
             RebuildEntryKeyIndex();
             MarkChanged();
             return true;
@@ -179,12 +180,14 @@ public sealed class TranscriptModel
 
         lock (_gate)
         {
-            var removed = _entries.RemoveAll(entry => predicate(entry));
+            var retained = _entries.Where(entry => !predicate(entry)).ToArray();
+            var removed = _entries.Count - retained.Length;
             if (removed == 0)
             {
                 return 0;
             }
 
+            _entries = TranscriptSequence.Create(retained);
             RebuildEntryKeyIndex();
             MarkChanged();
             return removed;
@@ -204,9 +207,12 @@ public sealed class TranscriptModel
 
         lock (_gate)
         {
-            var first = _entries.FindIndex(entry => predicate(entry));
-            var removed = _entries.RemoveAll(entry => predicate(entry));
-            _entries.Insert(first < 0 ? _entries.Count : first, replacement.AsFinal());
+            var current = _entries.ToArray();
+            var first = Array.FindIndex(current, entry => predicate(entry));
+            var retained = current.Where(entry => !predicate(entry)).ToList();
+            var removed = current.Length - retained.Count;
+            retained.Insert(first < 0 ? retained.Count : Math.Min(first, retained.Count), replacement.AsFinal());
+            _entries = TranscriptSequence.Create(retained);
             RebuildEntryKeyIndex();
             MarkChanged();
             return removed;
@@ -217,7 +223,7 @@ public sealed class TranscriptModel
     {
         lock (_gate)
         {
-            _entries.Clear();
+            _entries = TranscriptSequence.Empty;
             _entryKeys.Clear();
             _historyEpoch++;
             MarkChanged();
@@ -237,7 +243,7 @@ public sealed class TranscriptModel
 
         lock (_gate)
         {
-            _entries.Clear();
+            _entries = TranscriptSequence.Empty;
             _entryKeys.Clear();
             AddEntry(replacement.AsFinal());
             _historyEpoch++;
@@ -253,9 +259,18 @@ public sealed class TranscriptModel
         }
     }
 
+    /// <summary>Captures the current transcript revision without copying unchanged entry storage.</summary>
     public TranscriptSnapshot Snapshot()
-        => Snapshot(entry => true);
+    {
+        lock (_gate)
+        {
+            return new TranscriptSnapshot(_entries, _version, _historyEpoch);
+        }
+    }
 
+    /// <summary>Captures entries matching <paramref name="predicate"/> in a new immutable sequence.</summary>
+    /// <param name="predicate">Selects entries to include.</param>
+    /// <returns>An immutable filtered snapshot.</returns>
     public TranscriptSnapshot Snapshot(Func<TranscriptEntry, bool> predicate)
     {
         ArgumentNullException.ThrowIfNull(predicate);
@@ -263,7 +278,7 @@ public sealed class TranscriptModel
         lock (_gate)
         {
             return new TranscriptSnapshot(
-                _entries.Where(predicate).ToArray(),
+                TranscriptSequence.Create(_entries.Where(predicate)),
                 _version,
                 _historyEpoch);
         }
@@ -271,7 +286,7 @@ public sealed class TranscriptModel
 
     private void AddEntry(TranscriptEntry entry)
     {
-        _entries.Add(entry);
+        _entries = _entries.Append(entry);
         if (entry.EntryKey is not null)
         {
             _entryKeys[entry.EntryKey] = _entries.Count - 1;
@@ -329,7 +344,11 @@ public sealed class TranscriptModel
 
 }
 
+/// <summary>Captures one immutable transcript model revision.</summary>
+/// <param name="Entries">The persistent indexed entries in this revision.</param>
+/// <param name="Version">The model version captured by the snapshot.</param>
+/// <param name="HistoryEpoch">The presentation epoch captured by the snapshot.</param>
 public sealed record TranscriptSnapshot(
-    IReadOnlyList<TranscriptEntry> Entries,
+    TranscriptSequence Entries,
     int Version,
     int HistoryEpoch);
