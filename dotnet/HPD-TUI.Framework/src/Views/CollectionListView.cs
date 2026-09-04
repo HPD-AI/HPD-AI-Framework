@@ -69,7 +69,7 @@ public sealed class CollectionListView<T> : Component, IFocusable
         return new Measurement(Math.Min(width, maxWidth), width, height);
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         if (_model.VisibleCount == 0)
         {
@@ -119,7 +119,7 @@ public sealed class CollectionListView<T> : Component, IFocusable
         return _handleInput?.Invoke(key.KeyEvent) == true;
     }
 
-    private void RenderItem(in RenderContext context, ref SegmentWriter output, int sourceIndex, CollectionItem<T> item)
+    private void RenderItem(in RenderContext context, ref DisplayListBuilder output, int sourceIndex, CollectionItem<T> item)
     {
         var active = sourceIndex == _navigation.ActiveIndex;
         var style = item.Disabled

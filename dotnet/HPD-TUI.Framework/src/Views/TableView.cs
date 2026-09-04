@@ -46,7 +46,7 @@ public sealed class TableView<T> : Component, IFocusable
         return new Measurement(Math.Min(natural, maxWidth), natural);
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         if (maxWidth <= 0)
         {
@@ -124,7 +124,7 @@ public sealed class TableView<T> : Component, IFocusable
         return new TableView<T>(model);
     }
 
-    private void RenderGrid(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    private void RenderGrid(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         var columns = GetVisibleGridColumns(maxWidth);
         if (columns.Count == 0)
@@ -188,7 +188,7 @@ public sealed class TableView<T> : Component, IFocusable
         }
     }
 
-    private void RenderStacked(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    private void RenderStacked(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         var visibleColumns = GetStackedColumns();
         for (var rowIndex = 0; rowIndex < _model.Rows.Count; rowIndex++)
@@ -364,7 +364,7 @@ public sealed class TableView<T> : Component, IFocusable
         return width;
     }
 
-    private void WriteTitleAndCaption(in RenderContext context, int maxWidth, ref SegmentWriter output, bool includeCaption)
+    private void WriteTitleAndCaption(in RenderContext context, int maxWidth, ref DisplayListBuilder output, bool includeCaption)
     {
         if (!string.IsNullOrEmpty(_model.Title))
         {
@@ -378,7 +378,7 @@ public sealed class TableView<T> : Component, IFocusable
         }
     }
 
-    private void WriteCaption(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    private void WriteCaption(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         if (string.IsNullOrEmpty(_model.Caption))
         {
@@ -397,7 +397,7 @@ public sealed class TableView<T> : Component, IFocusable
         int lineWidth,
         int rowIndex,
         in RenderContext context,
-        ref SegmentWriter output)
+        ref DisplayListBuilder output)
     {
         var borderStyle = _model.Border.ResolveStyle(in context);
         if (_model.Border.IsVisible)
@@ -432,7 +432,7 @@ public sealed class TableView<T> : Component, IFocusable
         }
     }
 
-    private static void WriteAligned(string value, int width, Alignment alignment, OverflowPolicy overflow, Style style, ref SegmentWriter output)
+    private static void WriteAligned(string value, int width, Alignment alignment, OverflowPolicy overflow, Style style, ref DisplayListBuilder output)
     {
         var actualWidth = Math.Min(UnicodeWidth.GetWidth(value), width);
         if (actualWidth > width)
@@ -452,7 +452,7 @@ public sealed class TableView<T> : Component, IFocusable
         WriteSpaces(width - left - actualWidth, style, ref output);
     }
 
-    private static void WriteOverflow(string value, int width, OverflowPolicy overflow, Style style, ref SegmentWriter output)
+    private static void WriteOverflow(string value, int width, OverflowPolicy overflow, Style style, ref DisplayListBuilder output)
     {
         var actualWidth = UnicodeWidth.GetWidth(value);
         if (actualWidth <= width)
@@ -471,7 +471,7 @@ public sealed class TableView<T> : Component, IFocusable
         WriteClipped(value, width, style, ref output);
     }
 
-    private static void WriteClipped(string value, int width, Style style, ref SegmentWriter output)
+    private static void WriteClipped(string value, int width, Style style, ref DisplayListBuilder output)
     {
         if (width <= 0)
         {
@@ -498,12 +498,12 @@ public sealed class TableView<T> : Component, IFocusable
         }
     }
 
-    private static void WriteSpaces(int count, Style style, ref SegmentWriter output)
+    private static void WriteSpaces(int count, Style style, ref DisplayListBuilder output)
     {
         WriteRepeated(' ', count, style, ref output);
     }
 
-    private static void WriteRepeated(char value, int count, Style style, ref SegmentWriter output)
+    private static void WriteRepeated(char value, int count, Style style, ref DisplayListBuilder output)
     {
         if (count <= 0)
         {
@@ -520,7 +520,7 @@ public sealed class TableView<T> : Component, IFocusable
         }
     }
 
-    private static void WriteBorderLine(char left, char fill, char right, int innerWidth, Style style, ref SegmentWriter output)
+    private static void WriteBorderLine(char left, char fill, char right, int innerWidth, Style style, ref DisplayListBuilder output)
     {
         output.Write(left, style);
         WriteRepeated(fill, innerWidth, style, ref output);

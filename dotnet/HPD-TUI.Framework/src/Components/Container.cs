@@ -49,7 +49,7 @@ public class Container : Component
         return new Measurement(minWidth, Math.Min(maxWidth, desiredWidth));
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         for (var i = 0; i < _children.Count; i++)
         {

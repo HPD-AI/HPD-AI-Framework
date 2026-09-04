@@ -55,19 +55,19 @@ internal static class ConsoleBranding
     private static string HeaderDetail(AgentTuiShellContext context)
         => $"HPD Agent TUI  agent: {context.Scope.AgentId}  session: {context.Scope.SessionId}  thread: {context.Scope.ThreadId}";
 
-    private sealed class ConsoleHeader(string detail) : IComponent
+    private sealed class ConsoleHeader(string detail) : HPD.TUI.Core.Component
     {
         private static readonly Style LogoStyle = BrandStyle;
         private static readonly Style DetailStyle = new(Color.Gray, Color.Default);
 
-        public Measurement Measure(in RenderContext context, int maxWidth)
+        public override Measurement Measure(in RenderContext context, int maxWidth)
         {
             var logo = SelectLogo(maxWidth);
             var width = Math.Max(MeasureMaxLineWidth(logo), UnicodeWidth.GetWidth(detail.AsSpan()));
             return new Measurement(Math.Min(width, maxWidth), Math.Min(width, maxWidth));
         }
 
-        public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
         {
             var stack = new Stack { Gap = 0 }
                 .Add(new Text(SelectLogo(maxWidth), LogoStyle))

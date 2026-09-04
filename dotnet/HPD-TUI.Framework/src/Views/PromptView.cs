@@ -46,7 +46,7 @@ public sealed class PromptView : Component, IFocusable
         return new Measurement(Math.Min(width, maxWidth), Math.Min(width, maxWidth), height);
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         if (maxWidth <= 0)
         {
@@ -154,7 +154,7 @@ public sealed class PromptView : Component, IFocusable
         bool visualCursor,
         int prefixWidth,
         ref bool cursorSet,
-        ref SegmentWriter output)
+        ref DisplayListBuilder output)
     {
         var column = prefixWidth;
         var line = 0;
@@ -206,7 +206,7 @@ public sealed class PromptView : Component, IFocusable
         WriteSpaces(maxWidth - column, GetFillStyle(in context), ref output);
     }
 
-    private void WritePromptCharacter(int index, ref int partIndex, in RenderContext context, ref SegmentWriter output)
+    private void WritePromptCharacter(int index, ref int partIndex, in RenderContext context, ref DisplayListBuilder output)
     {
         if (_model.MaskCharacter is { } mask)
         {
@@ -377,7 +377,7 @@ public sealed class PromptView : Component, IFocusable
         return (column, line);
     }
 
-    private int WritePrefix(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    private int WritePrefix(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         if (maxWidth <= 0 || _model.Prefix.Length == 0)
         {
@@ -402,7 +402,7 @@ public sealed class PromptView : Component, IFocusable
         int count,
         in RenderContext context,
         int maxWidth,
-        ref SegmentWriter output)
+        ref DisplayListBuilder output)
     {
         for (var i = 0; i < count; i++)
         {
@@ -415,7 +415,7 @@ public sealed class PromptView : Component, IFocusable
         int count,
         in RenderContext context,
         int maxWidth,
-        ref SegmentWriter output)
+        ref DisplayListBuilder output)
     {
         for (var i = 0; i < count; i++)
         {
@@ -424,12 +424,12 @@ public sealed class PromptView : Component, IFocusable
         }
     }
 
-    private static void WriteSpaces(int count, Style style, ref SegmentWriter output)
+    private static void WriteSpaces(int count, Style style, ref DisplayListBuilder output)
     {
         WriteRepeated(' ', count, style, ref output);
     }
 
-    private static void WriteRepeated(char value, int count, Style style, ref SegmentWriter output)
+    private static void WriteRepeated(char value, int count, Style style, ref DisplayListBuilder output)
     {
         if (count <= 0)
         {

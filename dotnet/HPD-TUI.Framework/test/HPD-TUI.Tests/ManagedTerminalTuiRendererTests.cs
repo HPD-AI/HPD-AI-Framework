@@ -475,7 +475,7 @@ public sealed class ManagedTerminalTuiRendererTests
 
         public override Measurement Measure(in RenderContext context, int maxWidth) => new(maxWidth, _lines.Length);
 
-        public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
         {
             for (var i = 0; i < _lines.Length; i++)
             {
@@ -498,7 +498,7 @@ public sealed class ManagedTerminalTuiRendererTests
     {
         public override Measurement Measure(in RenderContext context, int maxWidth) => new(4, 4);
 
-        public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
         {
             output.Write("text", context.Theme.Text);
             output.SetTerminalCursor(3, 0);
@@ -516,7 +516,7 @@ public sealed class ManagedTerminalTuiRendererTests
 
         public override Measurement Measure(in RenderContext context, int maxWidth) => new(1, 1);
 
-        public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
         {
             ObservedHeight = context.Height;
             output.Write("x", context.Theme.Text);
@@ -531,7 +531,7 @@ public sealed class ManagedTerminalTuiRendererTests
 
         public override Measurement Measure(in RenderContext context, int maxWidth) => new(maxWidth, maxWidth);
 
-        public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
         {
             output.Write("x", Fill);
             output.Write(new string(' ', Math.Max(0, maxWidth - 1)), Fill);
@@ -549,7 +549,7 @@ public sealed class ManagedTerminalTuiRendererTests
 
         public override Measurement Measure(in RenderContext context, int maxWidth) => new(1, 1);
 
-        public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
         {
             output.Write(InputCount.ToString(), context.Theme.Text);
         }

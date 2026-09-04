@@ -19,7 +19,7 @@ public sealed class SeparatorBlock : Component, IContentBlock
 
     public override Measurement Measure(in RenderContext context, int maxWidth) => _separator.Measure(in context, maxWidth);
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output) => _separator.Render(in context, maxWidth, ref output);
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output) => _separator.Render(in context, maxWidth, ref output);
 
     public override bool HandleInput(in TuiInputEvent key)
     {

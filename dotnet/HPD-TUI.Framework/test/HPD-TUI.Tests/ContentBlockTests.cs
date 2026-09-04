@@ -78,7 +78,7 @@ public sealed class ContentBlockTests
     {
         var context = new RenderContext(width, height, Theme.Default);
         var grid = new TerminalGrid(width, height);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
         block.Render(in context, width, ref writer);
         return grid;
     }

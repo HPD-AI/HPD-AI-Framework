@@ -34,7 +34,7 @@ public sealed class TextBlock : Component, IContentBlock
 
     public override Measurement Measure(in RenderContext context, int maxWidth) => _component.Measure(in context, maxWidth);
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output) => _component.Render(in context, maxWidth, ref output);
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output) => _component.Render(in context, maxWidth, ref output);
 
     public override bool HandleInput(in TuiInputEvent key)
     {

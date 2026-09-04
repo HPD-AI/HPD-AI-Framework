@@ -41,7 +41,7 @@ public sealed class AgentCapabilityRequestTuiHandler :
     }
 }
 
-internal sealed class AgentCapabilityDialogComponent : IFocusable
+internal sealed class AgentCapabilityDialogComponent : HPD.TUI.Core.Component, IFocusable
 {
     private readonly AgentCapabilityRequestEvent _request;
     private readonly AgentTuiDialogContext<AgentCapabilityResponseEvent> _dialog;
@@ -81,10 +81,10 @@ internal sealed class AgentCapabilityDialogComponent : IFocusable
         set => _view.IsFocused = value;
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
         => new(Math.Min(maxWidth, 28), Math.Min(maxWidth, 96), 11);
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         WriteLine(ref output, BuildTitle(_request.Capability), _theme.ResolvePermissionTitle(context.Theme), maxWidth);
         output.WriteLineBreak();
@@ -99,7 +99,7 @@ internal sealed class AgentCapabilityDialogComponent : IFocusable
         WriteLine(ref output, "Use arrows to choose. Enter confirms. Esc denies.", _theme.ResolvePermissionDetail(context.Theme), maxWidth);
     }
 
-    public bool HandleInput(in TuiInputEvent input)
+    public override bool HandleInput(in TuiInputEvent input)
     {
         if (input.KeyEvent.Key == KeyCode.Escape)
         {
@@ -140,14 +140,14 @@ internal sealed class AgentCapabilityDialogComponent : IFocusable
             _ => "Allow the requested sandbox capability once."
         };
 
-    private static void WriteLine(ref SegmentWriter output, string value, Style style, int maxWidth)
+    private static void WriteLine(ref DisplayListBuilder output, string value, Style style, int maxWidth)
     {
         WriteClipped(ref output, value, style, maxWidth);
         output.WriteLineBreak();
     }
 
     private static void WriteClipped(
-        ref SegmentWriter output,
+        ref DisplayListBuilder output,
         string value,
         Style style,
         int maxWidth)

@@ -15,7 +15,7 @@ public interface IComponent
 
     Measurement Measure(in RenderContext context, int maxWidth);
 
-    void Render(in RenderContext context, int maxWidth, ref SegmentWriter output);
+    void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output);
 
     bool HandleInput(in TuiInputEvent input);
 }

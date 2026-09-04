@@ -71,7 +71,7 @@ public sealed class DialogHost : Component
         return _content.Measure(in context, maxWidth);
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         _content.Render(in context, maxWidth, ref output);
 

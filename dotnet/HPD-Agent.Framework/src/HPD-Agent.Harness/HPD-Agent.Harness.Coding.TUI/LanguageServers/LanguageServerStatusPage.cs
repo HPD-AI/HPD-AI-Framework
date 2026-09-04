@@ -15,12 +15,12 @@ internal static class LanguageServerStatusPage
             Hidden = true
         };
 
-    private sealed class Component(AgentTuiStateBag state, CodingHarnessTuiTheme theme) : IComponent
+    private sealed class Component(AgentTuiStateBag state, CodingHarnessTuiTheme theme) : HPD.TUI.Core.Component
     {
-        public Measurement Measure(in RenderContext context, int maxWidth)
+        public override Measurement Measure(in RenderContext context, int maxWidth)
             => new(Math.Min(20, maxWidth), Math.Min(120, maxWidth), 1);
 
-        public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
         {
             output.Write("Language servers".AsSpan(), theme.ResolveLabel(context.Theme));
             if (!state.TryGet<CodingLanguageServerTuiState>(CodingLanguageServerTuiState.StateKey, out var snapshot) ||
@@ -45,6 +45,6 @@ internal static class LanguageServerStatusPage
             }
         }
 
-        public bool HandleInput(in TuiInputEvent input) => false;
+        public override bool HandleInput(in TuiInputEvent input) => false;
     }
 }

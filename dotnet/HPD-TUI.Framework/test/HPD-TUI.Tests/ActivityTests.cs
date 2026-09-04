@@ -16,7 +16,7 @@ public sealed class ActivityTests
         var view = new ActivityView(model);
         var context = new RenderContext(10, 1, Theme.Default, elapsed: TimeSpan.FromMilliseconds(80));
         using var grid = new TerminalGrid(10, 1);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
         view.Render(in context, 10, ref writer);
 
@@ -31,7 +31,7 @@ public sealed class ActivityTests
         var view = new ActivityView(model) { AnimationsEnabled = false };
         var context = new RenderContext(10, 1, Theme.Default, elapsed: TimeSpan.FromMilliseconds(80));
         using var grid = new TerminalGrid(10, 1);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
         view.Render(in context, 10, ref writer);
 
@@ -45,7 +45,7 @@ public sealed class ActivityTests
         var view = new ActivityView(model);
         var context = new RenderContext(16, 1, Theme.Default);
         using var grid = new TerminalGrid(16, 1);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
         view.Render(in context, 16, ref writer);
 
@@ -59,7 +59,7 @@ public sealed class ActivityTests
         var view = new ActivityView(model);
         var context = new RenderContext(10, 1, Theme.Default);
         using var grid = new TerminalGrid(10, 1);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
         view.Render(in context, 10, ref writer);
 

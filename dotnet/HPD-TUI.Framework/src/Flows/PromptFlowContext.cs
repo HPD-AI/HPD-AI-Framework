@@ -60,7 +60,7 @@ internal sealed class PromptFlowComponent<T> : Component
         return new Measurement(Math.Max(inner.MinWidth, messageWidth), Math.Max(inner.MaxWidth, messageWidth));
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         _inner.Render(in context, maxWidth, ref output);
         if (!string.IsNullOrEmpty(_context.ValidationMessage))
@@ -91,7 +91,7 @@ internal sealed class PromptFlowShell<T> : Component, IPromptFlowFocusProvider
 
     public override Measurement Measure(in RenderContext context, int maxWidth) => _inner.Measure(in context, maxWidth);
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output) => _inner.Render(in context, maxWidth, ref output);
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output) => _inner.Render(in context, maxWidth, ref output);
 
     public override bool HandleInput(in TuiInputEvent key) => _inner.HandleInput(in key);
 

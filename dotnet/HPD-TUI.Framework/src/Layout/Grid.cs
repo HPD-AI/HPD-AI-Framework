@@ -88,7 +88,7 @@ public sealed class Grid : Component
         return new Measurement(Math.Min(width, maxWidth), width, height);
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         if (_columns.Count == 0 || _rows.Count == 0 || maxWidth <= 0)
         {
@@ -248,7 +248,7 @@ public sealed class Grid : Component
         return Math.Max(1, Math.Min(height, maxHeight));
     }
 
-    private void RenderCell(IComponent cell, GridColumn column, LayoutRect rect, in RenderContext context, ref SegmentWriter output)
+    private void RenderCell(IComponent cell, GridColumn column, LayoutRect rect, in RenderContext context, ref DisplayListBuilder output)
     {
         if (rect.IsEmpty)
         {
@@ -314,7 +314,7 @@ public sealed class Grid : Component
         return width;
     }
 
-    private static void WriteCapturedLineTo(Terminal.TerminalGrid grid, int y, int maxWidth, ref SegmentWriter output)
+    private static void WriteCapturedLineTo(Terminal.TerminalGrid grid, int y, int maxWidth, ref DisplayListBuilder output)
     {
         if (maxWidth <= 0)
         {

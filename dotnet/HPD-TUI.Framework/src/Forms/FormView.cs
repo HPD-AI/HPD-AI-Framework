@@ -64,7 +64,7 @@ public sealed class FormView : Component, IFocusable
         return new Measurement(width, width, Math.Max(1, rowCount + extraRows));
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         _model.ReconcileActiveField();
         var visibleCount = _model.VisibleFieldCount;
@@ -126,7 +126,7 @@ public sealed class FormView : Component, IFocusable
     private static void RenderField(
         in RenderContext context,
         int maxWidth,
-        ref SegmentWriter output,
+        ref DisplayListBuilder output,
         IFormField field,
         bool active,
         bool wide,

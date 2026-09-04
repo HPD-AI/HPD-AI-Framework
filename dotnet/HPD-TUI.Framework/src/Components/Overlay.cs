@@ -50,7 +50,7 @@ public sealed class Overlay : Component
         return MeasureChild(_child, in context, Math.Min(maxWidth, Width));
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         var width = Math.Min(maxWidth, Width);
         var height = Math.Clamp(Height ?? context.Height, 1, context.Height);
@@ -90,7 +90,7 @@ public sealed class Overlay : Component
         int width,
         int height,
         int y,
-        ref SegmentWriter output)
+        ref DisplayListBuilder output)
     {
         if (X >= context.Width || y >= context.Height)
         {

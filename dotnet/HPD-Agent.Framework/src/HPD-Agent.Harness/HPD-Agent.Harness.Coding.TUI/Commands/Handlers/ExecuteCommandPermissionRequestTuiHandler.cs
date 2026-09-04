@@ -46,7 +46,7 @@ public sealed class ExecuteCommandPermissionRequestTuiHandler :
             "deny");
 }
 
-internal sealed class ExecuteCommandPermissionDialogComponent : IFocusable
+internal sealed class ExecuteCommandPermissionDialogComponent : HPD.TUI.Core.Component, IFocusable
 {
     private readonly ExecuteCommandPermissionRequestEvent _request;
     private readonly AgentTuiDialogContext<ExecuteCommandPermissionResponseEvent> _dialog;
@@ -80,7 +80,7 @@ internal sealed class ExecuteCommandPermissionDialogComponent : IFocusable
         set => _choiceView.IsFocused = value;
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
     {
         var detailRows = BuildCommandLines(_request).Count + BuildSecurityReviewLines(_request).Count;
         var choiceRows = Math.Max(1, _choices.VisibleCount);
@@ -92,7 +92,7 @@ internal sealed class ExecuteCommandPermissionDialogComponent : IFocusable
             detailRows + choiceRows + feedbackRows + validationRows + 9);
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         WriteLine(ref output, "Approve command?", _theme.ResolvePermissionTitle(context.Theme), maxWidth);
         output.WriteLineBreak();
@@ -138,7 +138,7 @@ internal sealed class ExecuteCommandPermissionDialogComponent : IFocusable
         }
     }
 
-    public bool HandleInput(in TuiInputEvent input)
+    public override bool HandleInput(in TuiInputEvent input)
     {
         var key = input.KeyEvent;
         if (_feedbackMode)
@@ -398,7 +398,7 @@ internal sealed class ExecuteCommandPermissionDialogComponent : IFocusable
     }
 
     private static void WriteLine(
-        ref SegmentWriter output,
+        ref DisplayListBuilder output,
         string value,
         Style style,
         int maxWidth)
@@ -408,7 +408,7 @@ internal sealed class ExecuteCommandPermissionDialogComponent : IFocusable
     }
 
     private static void WriteClipped(
-        ref SegmentWriter output,
+        ref DisplayListBuilder output,
         string value,
         Style style,
         int maxWidth)

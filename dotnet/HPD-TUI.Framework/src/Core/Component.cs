@@ -146,7 +146,7 @@ public abstract class Component : IComponent
     public abstract Measurement Measure(in RenderContext context, int maxWidth);
 
     /// <inheritdoc />
-    public abstract void Render(in RenderContext context, int maxWidth, ref SegmentWriter output);
+    public abstract void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output);
 
     /// <inheritdoc />
     public virtual bool HandleInput(in TuiInputEvent input) => false;

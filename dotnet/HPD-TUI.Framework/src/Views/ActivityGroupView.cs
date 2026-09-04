@@ -39,7 +39,7 @@ public sealed class ActivityGroupView : Component
         return new Measurement(width, width, height);
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         if (maxWidth <= 0)
         {
@@ -75,7 +75,7 @@ public sealed class ActivityGroupView : Component
         return false;
     }
 
-    private void RenderDetailed(IReadOnlyList<ActivityModel> activities, in RenderContext context, int maxWidth, ref SegmentWriter output)
+    private void RenderDetailed(IReadOnlyList<ActivityModel> activities, in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         for (var i = 0; i < activities.Count; i++)
         {
@@ -88,7 +88,7 @@ public sealed class ActivityGroupView : Component
         }
     }
 
-    private static void RenderCompact(IReadOnlyList<ActivityModel> activities, in RenderContext context, int maxWidth, ref SegmentWriter output)
+    private static void RenderCompact(IReadOnlyList<ActivityModel> activities, in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         var running = 0;
         var completed = 0;
@@ -127,7 +127,7 @@ public sealed class ActivityGroupView : Component
         WriteClipped(text, maxWidth, style, ref output);
     }
 
-    private static void WriteClipped(string value, int maxWidth, Style style, ref SegmentWriter output)
+    private static void WriteClipped(string value, int maxWidth, Style style, ref DisplayListBuilder output)
     {
         if (maxWidth <= 0)
         {

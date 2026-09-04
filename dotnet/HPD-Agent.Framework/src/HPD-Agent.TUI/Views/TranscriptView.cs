@@ -71,7 +71,7 @@ public sealed class TranscriptView : Component, IScrollbackSource
     public override Measurement Measure(in RenderContext context, int maxWidth)
         => new(Math.Min(maxWidth, 20), maxWidth, Height);
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         RenderRows(in context, maxWidth, ref output);
     }
@@ -232,7 +232,7 @@ public sealed class TranscriptView : Component, IScrollbackSource
     private void RenderRows(
         in RenderContext context,
         int maxWidth,
-        ref SegmentWriter output)
+        ref DisplayListBuilder output)
     {
         if (Height <= 0 || maxWidth <= 0)
         {
@@ -445,7 +445,7 @@ public sealed class TranscriptView : Component, IScrollbackSource
         return rendered;
     }
 
-    private void WriteVisibleRow(VisibleTranscriptRow row, ref SegmentWriter output)
+    private void WriteVisibleRow(VisibleTranscriptRow row, ref DisplayListBuilder output)
     {
         if (row.IsBlank)
         {
@@ -614,7 +614,7 @@ internal sealed class RenderedTranscriptEntry : IDisposable
            ThemeKey == theme.Key &&
            ColorSystem == colorSystem;
 
-    public void WriteLine(int line, ref SegmentWriter output)
+    public void WriteLine(int line, ref DisplayListBuilder output)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(line);
         if (line >= LineCount)

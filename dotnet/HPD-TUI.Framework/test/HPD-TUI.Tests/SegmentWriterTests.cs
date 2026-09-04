@@ -2,13 +2,13 @@ using HPD.TUI.Core;
 
 namespace HPD.TUI.Tests;
 
-public sealed class SegmentWriterTests
+public sealed class DisplayListBuilderTests
 {
     [Fact]
     public void Write_ForwardsSegmentsToSink()
     {
         var sink = new CountingSink();
-        var writer = new SegmentWriter(sink);
+        var writer = new DisplayListBuilder(sink, 80);
 
         Assert.True(writer.Write("Hello", Style.Default));
         Assert.True(writer.WriteLineBreak());

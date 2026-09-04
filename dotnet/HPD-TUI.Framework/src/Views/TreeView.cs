@@ -35,7 +35,7 @@ public sealed class TreeView<T> : Component, IFocusable
         return new Measurement(Math.Min(width, maxWidth), Math.Min(width, maxWidth));
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         if (Mode == TreeViewMode.Breadcrumb)
         {
@@ -92,7 +92,7 @@ public sealed class TreeView<T> : Component, IFocusable
         return new TreeView<T>(model);
     }
 
-    private void RenderCompact(IReadOnlyList<TreeVisibleNode<T>> visible, in RenderContext context, int maxWidth, ref SegmentWriter output)
+    private void RenderCompact(IReadOnlyList<TreeVisibleNode<T>> visible, in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         var first = true;
         foreach (var item in visible)
@@ -113,7 +113,7 @@ public sealed class TreeView<T> : Component, IFocusable
         }
     }
 
-    private void RenderBreadcrumb(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    private void RenderBreadcrumb(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         var path = _controller.GetSelectedPath();
         for (var i = 0; i < path.Count; i++)
@@ -138,7 +138,7 @@ public sealed class TreeView<T> : Component, IFocusable
         return _model.IsExpanded(item.Node.Key) ? "▾" : "▸";
     }
 
-    private static void WriteIndent(int depth, Style style, ref SegmentWriter output)
+    private static void WriteIndent(int depth, Style style, ref DisplayListBuilder output)
     {
         for (var i = 0; i < depth; i++)
         {

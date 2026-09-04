@@ -21,7 +21,7 @@ internal sealed class CodingHarnessToolCellRenderer : IAgentTuiTranscriptRendere
             _theme);
 }
 
-internal sealed class CodingHarnessToolCellView : IComponent
+internal sealed class CodingHarnessToolCellView : HPD.TUI.Core.Component
 {
     private readonly CodingHarnessToolCell _cell;
     private readonly CodingHarnessTuiTheme _theme;
@@ -32,10 +32,10 @@ internal sealed class CodingHarnessToolCellView : IComponent
         _theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
         => new(Math.Min(maxWidth, _cell.Summary.Length + 4), maxWidth, 1);
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         if (maxWidth <= 0)
         {
@@ -50,5 +50,5 @@ internal sealed class CodingHarnessToolCellView : IComponent
         output.Write(text.AsSpan(), _theme.ResolveText(context.Theme));
     }
 
-    public bool HandleInput(in TuiInputEvent input) => false;
+    public override bool HandleInput(in TuiInputEvent input) => false;
 }

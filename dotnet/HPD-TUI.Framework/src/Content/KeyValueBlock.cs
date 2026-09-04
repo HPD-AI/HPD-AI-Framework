@@ -28,7 +28,7 @@ public sealed class KeyValueBlock : Component, IContentBlock
         return new Measurement(Math.Min(width, maxWidth), Math.Min(width, maxWidth));
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         for (var i = 0; i < _entries.Count; i++)
         {

@@ -32,7 +32,7 @@ public sealed class ActivityView : Component
         return new Measurement(Math.Min(width, maxWidth), width);
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         if (maxWidth <= 0)
         {
@@ -117,7 +117,7 @@ public sealed class ActivityView : Component
         };
     }
 
-    private static void WritePercent(double progress, Style style, ref SegmentWriter output)
+    private static void WritePercent(double progress, Style style, ref DisplayListBuilder output)
     {
         progress = Math.Clamp(progress, 0, 1);
         Span<char> buffer = stackalloc char[4];

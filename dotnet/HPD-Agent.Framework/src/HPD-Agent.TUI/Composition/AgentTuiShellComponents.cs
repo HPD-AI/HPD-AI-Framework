@@ -53,7 +53,7 @@ internal sealed class ShellText : Component
         return new Measurement(width, width);
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         var value = _resolve(_context.Shell);
         output.Write(value.AsSpan(0, Math.Min(value.Length, maxWidth)), context.Theme.Text);

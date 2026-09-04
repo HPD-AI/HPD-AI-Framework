@@ -26,7 +26,7 @@ internal static class SourceTextHighlighter
         string? language,
         Style baseStyle,
         Theme theme,
-        ref SegmentWriter output)
+        ref DisplayListBuilder output)
     {
         if (string.IsNullOrEmpty(text) || string.IsNullOrWhiteSpace(language))
         {

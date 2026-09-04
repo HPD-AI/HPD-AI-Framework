@@ -49,7 +49,7 @@ public sealed class SelectionView<T> : Component, IFocusable
             Math.Min(context.Height, listMeasurement.Height + 1));
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         if (!_model.AllowFilter)
         {

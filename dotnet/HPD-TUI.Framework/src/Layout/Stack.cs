@@ -38,7 +38,7 @@ public sealed class Stack : Component
             : MeasureHorizontal(in context, maxWidth);
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         if (Orientation == Orientation.Vertical)
         {
@@ -95,7 +95,7 @@ public sealed class Stack : Component
         return new Measurement(Math.Min(min, maxWidth), Math.Min(max, maxWidth), height);
     }
 
-    private void RenderVertical(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    private void RenderVertical(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         for (var i = 0; i < _children.Count; i++)
         {
@@ -111,7 +111,7 @@ public sealed class Stack : Component
         }
     }
 
-    private void RenderHorizontal(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    private void RenderHorizontal(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         if (maxWidth <= 0)
         {

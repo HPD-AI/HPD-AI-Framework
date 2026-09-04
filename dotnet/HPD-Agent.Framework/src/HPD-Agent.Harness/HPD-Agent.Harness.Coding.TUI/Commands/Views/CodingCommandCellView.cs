@@ -3,7 +3,7 @@ using HPD.TUI.Core;
 
 namespace HPD.Agent.ToolHarness.Coding.TUI.Commands.Views;
 
-internal sealed class CodingCommandCellView : IComponent
+internal sealed class CodingCommandCellView : HPD.TUI.Core.Component
 {
     private readonly CodingCommandCell _cell;
     private readonly CodingHarnessTuiTheme _theme;
@@ -16,7 +16,7 @@ internal sealed class CodingCommandCellView : IComponent
         _theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
     {
         var outputWidth = Math.Max(0, maxWidth - 2);
         var snapshot = GetDisplaySnapshot(outputWidth);
@@ -34,7 +34,7 @@ internal sealed class CodingCommandCellView : IComponent
         return new Measurement(1, Math.Min(maxWidth, 80), rows);
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         var outputWidth = Math.Max(0, maxWidth - 2);
         var snapshot = GetDisplaySnapshot(outputWidth);
@@ -168,12 +168,12 @@ internal sealed class CodingCommandCellView : IComponent
         return new DisplayOutputSnapshot(visible, omitted, head);
     }
 
-    private static void WriteOutputPrefix(bool continuation, Style style, ref SegmentWriter output)
+    private static void WriteOutputPrefix(bool continuation, Style style, ref DisplayListBuilder output)
     {
         output.Write((continuation ? "  " : "└ ").AsSpan(), style);
     }
 
-    public bool HandleInput(in TuiInputEvent input)
+    public override bool HandleInput(in TuiInputEvent input)
     {
         return false;
     }
@@ -184,7 +184,7 @@ internal sealed class CodingCommandCellView : IComponent
             _ => _theme.ResolveCommandState(_cell.State, context.Theme)
         };
 
-    private static void WriteClipped(string text, int width, Style style, ref SegmentWriter output)
+    private static void WriteClipped(string text, int width, Style style, ref DisplayListBuilder output)
     {
         if (width <= 0)
         {

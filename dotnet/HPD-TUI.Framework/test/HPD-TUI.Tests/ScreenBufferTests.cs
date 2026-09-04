@@ -10,8 +10,8 @@ public sealed class ScreenBufferTests
     {
         using var first = new ScreenBuffer(12, 2);
         using var second = new ScreenBuffer(12, 2);
-        var firstWriter = new SegmentWriter(first.Grid);
-        var secondWriter = new SegmentWriter(second.Grid);
+        var firstWriter = new DisplayListBuilder(first.Grid, first.Grid.Width);
+        var secondWriter = new DisplayListBuilder(second.Grid, second.Grid.Width);
 
         firstWriter.MoveTo(0, 1);
         firstWriter.Write("discarded", Style.Default);
@@ -29,8 +29,8 @@ public sealed class ScreenBufferTests
     {
         using var first = new ScreenBuffer(12, 2);
         using var second = new ScreenBuffer(12, 2);
-        var firstWriter = new SegmentWriter(first.Grid);
-        var secondWriter = new SegmentWriter(second.Grid);
+        var firstWriter = new DisplayListBuilder(first.Grid, first.Grid.Width);
+        var secondWriter = new DisplayListBuilder(second.Grid, second.Grid.Width);
 
         firstWriter.Write("hello", Style.Default);
         secondWriter.Write("hello", Style.Default);

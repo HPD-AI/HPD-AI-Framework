@@ -112,10 +112,10 @@ public sealed class TuiFrameworkPerformanceGuardrailTests
     }
 
     [Fact]
-    public void SegmentWriter_WriteRepeated_StaysChunkBounded()
+    public void DisplayListBuilder_WriteRepeated_StaysChunkBounded()
     {
         var sink = new CountingSink();
-        var writer = new SegmentWriter(sink);
+        var writer = new DisplayListBuilder(sink, 80);
 
         Assert.True(writer.WriteRepeated('x', 10_000, Style.Default));
 

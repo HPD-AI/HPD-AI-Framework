@@ -41,7 +41,7 @@ public sealed class Viewport : Component
         return new Measurement(Math.Min(width, maxWidth), Math.Min(width, maxWidth));
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         var visible = Math.Min(Height, Math.Max(0, _lines.Count - ScrollOffset));
 

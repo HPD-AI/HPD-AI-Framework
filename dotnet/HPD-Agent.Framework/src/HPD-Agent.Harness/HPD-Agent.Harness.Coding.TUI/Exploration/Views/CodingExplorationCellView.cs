@@ -4,7 +4,7 @@ using HPD.TUI.Utilities;
 
 namespace HPD.Agent.ToolHarness.Coding.TUI.Exploration.Views;
 
-internal sealed class CodingExplorationCellView : IComponent
+internal sealed class CodingExplorationCellView : HPD.TUI.Core.Component
 {
     private readonly CodingExplorationCell _cell;
     private readonly CodingHarnessTuiTheme _theme;
@@ -15,14 +15,14 @@ internal sealed class CodingExplorationCellView : IComponent
         _theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
     {
         return _cell.Rows.Count == 0
             ? new Measurement(0, 0, 0)
             : new Measurement(1, Math.Min(maxWidth, 100), _cell.Rows.Count);
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         if (maxWidth <= 0)
         {
@@ -42,7 +42,7 @@ internal sealed class CodingExplorationCellView : IComponent
         }
     }
 
-    public bool HandleInput(in TuiInputEvent input)
+    public override bool HandleInput(in TuiInputEvent input)
     {
         return false;
     }
@@ -52,7 +52,7 @@ internal sealed class CodingExplorationCellView : IComponent
         int prefixWidth,
         int maxWidth,
         Style style,
-        ref SegmentWriter output)
+        ref DisplayListBuilder output)
     {
         var contentWidth = Math.Max(1, maxWidth - prefixWidth);
         var rows = Wrap(text, contentWidth);

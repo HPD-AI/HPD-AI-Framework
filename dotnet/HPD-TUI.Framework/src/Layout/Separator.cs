@@ -26,7 +26,7 @@ public sealed class Separator : Component
         return new Measurement(Math.Min(maxWidth, 1), maxWidth);
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         if (maxWidth <= 0)
         {

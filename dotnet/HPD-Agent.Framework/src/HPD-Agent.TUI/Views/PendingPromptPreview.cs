@@ -12,7 +12,7 @@ internal sealed class PendingPromptPreview(PendingPromptQueue queue) : Component
     public override Measurement Measure(in RenderContext context, int maxWidth)
         => _queue.Count == 0 ? new Measurement(0, 0, 0) : new Measurement(1, Math.Min(maxWidth, 100), Height());
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         if (maxWidth <= 0 || _queue.Count == 0) return;
         var items = _queue.Snapshot();

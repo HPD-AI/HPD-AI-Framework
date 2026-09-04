@@ -12,7 +12,7 @@ public sealed class OverlayTests
         var overlay = new Overlay(new Text("X"), x: 3, y: 1, width: 5);
         var context = new RenderContext(8, 3, Theme.Default);
         using var grid = new TerminalGrid(8, 3);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
         overlay.Render(in context, 8, ref writer);
 
@@ -31,7 +31,7 @@ public sealed class OverlayTests
             verticalPlacement: OverlayVerticalPlacement.Bottom);
         var context = new RenderContext(8, 6, Theme.Default);
         using var grid = new TerminalGrid(8, 6);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
         overlay.Render(in context, 8, ref writer);
 
@@ -49,7 +49,7 @@ public sealed class OverlayTests
             height: 4);
         var context = new RenderContext(8, 10, Theme.Default);
         using var grid = new TerminalGrid(8, 10);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
         overlay.Render(in context, 8, ref writer);
 
@@ -68,7 +68,7 @@ public sealed class OverlayTests
             clearBackground: true);
         var context = new RenderContext(8, 4, Theme.Default);
         using var grid = new TerminalGrid(8, 4);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
         writer.MoveTo(0, 1);
         writer.Write("abcdefgh".AsSpan(), Theme.Default.Text);
         writer.MoveTo(0, 2);
@@ -94,7 +94,7 @@ public sealed class OverlayTests
         host.Push(new Overlay(new Text("Z"), x: 1, y: 0, width: 2));
         var context = new RenderContext(8, 3, Theme.Default);
         using var grid = new TerminalGrid(8, 3);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
         host.Render(in context, 8, ref writer);
 
@@ -108,7 +108,7 @@ public sealed class OverlayTests
         public override Measurement Measure(in RenderContext context, int maxWidth)
             => new(1, 1);
 
-        public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
             => output.Write(context.Height.ToString().AsSpan(), context.Theme.Text);
 
         public override bool HandleInput(in TuiInputEvent key)

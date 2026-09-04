@@ -42,7 +42,7 @@ internal sealed class ReasoningMessageCellRenderer : IAgentTuiTranscriptRenderer
             Math.Max(1, context.Width - context.DepthIndent.Length - 2),
             mutedTheme,
             context.ColorSystem);
-        return new TranscriptRenderComponent((in RenderContext renderContext, int maxWidth, ref SegmentWriter output) =>
+        return new TranscriptRenderComponent((in RenderContext renderContext, int maxWidth, ref DisplayListBuilder output) =>
         {
             output.Write(context.DepthIndent.AsSpan(), renderContext.Theme.Text);
             output.Write("reasoning".AsSpan(), AgentTuiTranscriptRenderServices.Muted);
@@ -65,7 +65,7 @@ internal sealed class ReasoningMessageCellRenderer : IAgentTuiTranscriptRenderer
 internal sealed class NoticeCellRenderer : IAgentTuiTranscriptRenderer<NoticeCell>
 {
     public IComponent Create(AgentTuiTranscriptRenderContext<NoticeCell> context)
-        => new TranscriptRenderComponent((in RenderContext renderContext, int maxWidth, ref SegmentWriter output) =>
+        => new TranscriptRenderComponent((in RenderContext renderContext, int maxWidth, ref DisplayListBuilder output) =>
         {
             var prefix = context.Cell.Severity switch
             {
@@ -94,7 +94,7 @@ internal sealed class NoticeCellRenderer : IAgentTuiTranscriptRenderer<NoticeCel
 internal sealed class RunStatusCellRenderer : IAgentTuiTranscriptRenderer<RunStatusCell>
 {
     public IComponent Create(AgentTuiTranscriptRenderContext<RunStatusCell> context)
-        => new TranscriptRenderComponent((in RenderContext renderContext, int maxWidth, ref SegmentWriter output) =>
+        => new TranscriptRenderComponent((in RenderContext renderContext, int maxWidth, ref DisplayListBuilder output) =>
         {
             var stateStyle = context.Services.StyleForRunState(context.Cell.State);
             var title = context.Services.FormatRunState(context.Cell.State);
@@ -126,7 +126,7 @@ internal sealed class RunStatusCellRenderer : IAgentTuiTranscriptRenderer<RunSta
 internal sealed class ToolCallCellRenderer : IAgentTuiTranscriptRenderer<ToolCallCell>
 {
     public IComponent Create(AgentTuiTranscriptRenderContext<ToolCallCell> context)
-        => new TranscriptRenderComponent((in RenderContext renderContext, int maxWidth, ref SegmentWriter output) =>
+        => new TranscriptRenderComponent((in RenderContext renderContext, int maxWidth, ref DisplayListBuilder output) =>
         {
             var stateStyle = context.Services.StyleForRunState(context.Cell.State);
             output.Write(context.DepthIndent.AsSpan(), renderContext.Theme.Text);
@@ -166,7 +166,7 @@ internal sealed class ToolCallCellRenderer : IAgentTuiTranscriptRenderer<ToolCal
 internal sealed class CustomComponentCellRenderer : IAgentTuiTranscriptRenderer<CustomComponentCell>
 {
     public IComponent Create(AgentTuiTranscriptRenderContext<CustomComponentCell> context)
-        => new TranscriptRenderComponent((in RenderContext renderContext, int maxWidth, ref SegmentWriter output) =>
+        => new TranscriptRenderComponent((in RenderContext renderContext, int maxWidth, ref DisplayListBuilder output) =>
         {
             var indent = $"{context.DepthIndent}{new string(' ', Math.Max(0, context.Cell.Indent))}";
             output.Write(indent.AsSpan(), renderContext.Theme.Text);
@@ -192,7 +192,7 @@ internal sealed class TranscriptRenderComponent : Component
     public override Measurement Measure(in RenderContext context, int maxWidth)
         => new(Math.Min(maxWidth, 20), maxWidth);
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
         => _render(in context, maxWidth, ref output);
 
     public override bool HandleInput(in TuiInputEvent key)
@@ -204,7 +204,7 @@ internal sealed class TranscriptRenderComponent : Component
 internal delegate void RenderTranscriptComponent(
     in RenderContext context,
     int maxWidth,
-    ref SegmentWriter output);
+    ref DisplayListBuilder output);
 
 internal static class MarkdownProjectionView
 {

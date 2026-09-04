@@ -25,7 +25,7 @@ public sealed class TextComponentTests
         var text = new Text("abcdef");
         var context = new RenderContext(3, 3, Theme.Default);
         using var grid = new TerminalGrid(3, 3);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
         text.Render(in context, 3, ref writer);
 
@@ -52,7 +52,7 @@ public sealed class TextComponentTests
         var frame = Frame.Create(new Text("a\nb"));
         var context = new RenderContext(5, 4, Theme.Default);
         using var grid = new TerminalGrid(5, 4);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
         frame.Render(in context, 5, ref writer);
 

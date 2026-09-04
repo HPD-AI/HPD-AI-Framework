@@ -85,7 +85,7 @@ public sealed class TuiRendererTests
         public int RenderCount { get; private set; }
         public override ComponentDependencies Dependencies => new(RenderContextFields.None, RenderContextFields.None);
         public override Measurement Measure(in RenderContext context, int maxWidth) => new(1, 1, 1);
-        public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
         {
             RenderCount++;
             output.Write('x', context.Theme.Text);

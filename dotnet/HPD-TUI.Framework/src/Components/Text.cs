@@ -18,6 +18,10 @@ public sealed class Text : Component
 
     public Style Style => _style;
 
+    /// <inheritdoc />
+    public override ComponentDependencies Dependencies =>
+        new(RenderContextFields.Width, RenderContextFields.None);
+
     public void SetText(string value)
     {
         SetLayout(ref _value, value ?? throw new ArgumentNullException(nameof(value)));
@@ -90,7 +94,7 @@ public sealed class Text : Component
             => currentLine > width && currentLine > maxWidth;
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         if (maxWidth <= 0)
         {

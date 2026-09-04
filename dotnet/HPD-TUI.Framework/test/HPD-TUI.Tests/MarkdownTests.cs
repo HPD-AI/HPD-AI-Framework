@@ -15,7 +15,7 @@ public sealed class MarkdownTests
         var markdown = MarkdownBlock.Prepare("# Title", 20, Theme.Default);
         var context = new RenderContext(20, 2, Theme.Default);
         using var grid = new TerminalGrid(20, 2);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
         markdown.Render(in context, 20, ref writer);
 
@@ -28,7 +28,7 @@ public sealed class MarkdownTests
         var markdown = MarkdownBlock.Prepare("- item", 20, Theme.Default);
         var context = new RenderContext(20, 2, Theme.Default);
         using var grid = new TerminalGrid(20, 2);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
         markdown.Render(in context, 20, ref writer);
 
@@ -53,7 +53,7 @@ public sealed class MarkdownTests
         var markdown = MarkdownBlock.Prepare("Use `code` now", 30, Theme.Default);
         var context = new RenderContext(30, 2, Theme.Default);
         using var grid = new TerminalGrid(30, 2);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
         markdown.Render(in context, 30, ref writer);
 
@@ -72,7 +72,7 @@ public class Demo
 """, 40, Theme.Default);
         var context = new RenderContext(40, 4, Theme.Default);
         using var grid = new TerminalGrid(40, 4);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
         markdown.Render(in context, 40, ref writer);
 
@@ -87,7 +87,7 @@ public class Demo
         var markdown = MarkdownBlock.Prepare("> quoted", 30, Theme.Default);
         var context = new RenderContext(30, 2, Theme.Default);
         using var grid = new TerminalGrid(30, 2);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
         markdown.Render(in context, 30, ref writer);
 
@@ -101,7 +101,7 @@ public class Demo
         var markdown = MarkdownBlock.Prepare("https://example.com", 40, Theme.Default);
         var context = new RenderContext(40, 2, Theme.Default);
         using var grid = new TerminalGrid(40, 2);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
         markdown.Render(in context, 40, ref writer);
 
@@ -116,7 +116,7 @@ public class Demo
         var markdown = MarkdownBlock.Prepare("~~gone~~", 20, Theme.Default);
         var context = new RenderContext(20, 2, Theme.Default);
         using var grid = new TerminalGrid(20, 2);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
         markdown.Render(in context, 20, ref writer);
 
@@ -133,7 +133,7 @@ public class Demo
 """, 30, Theme.Default);
         var context = new RenderContext(30, 4, Theme.Default);
         using var grid = new TerminalGrid(30, 4);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
         markdown.Render(in context, 30, ref writer);
 
@@ -151,7 +151,7 @@ public class Demo
 """, 40, Theme.Default);
         var context = new RenderContext(40, 4, Theme.Default);
         using var grid = new TerminalGrid(40, 4);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
         markdown.Render(in context, 40, ref writer);
 

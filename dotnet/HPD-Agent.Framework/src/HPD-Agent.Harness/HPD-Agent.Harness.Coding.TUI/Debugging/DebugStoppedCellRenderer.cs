@@ -24,7 +24,7 @@ internal sealed class DebugStoppedCellRenderer(CodingHarnessTuiTheme theme)
     }
 }
 
-internal sealed class DebugStoppedCellView : IComponent
+internal sealed class DebugStoppedCellView : HPD.TUI.Core.Component
 {
     private readonly IComponent _content;
 
@@ -59,9 +59,9 @@ internal sealed class DebugStoppedCellView : IComponent
             preview?.Truncated == true), theme);
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
         => _content.Measure(context, maxWidth);
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
         => _content.Render(context, maxWidth, ref output);
-    public bool HandleInput(in TuiInputEvent input) => false;
+    public override bool HandleInput(in TuiInputEvent input) => false;
 }

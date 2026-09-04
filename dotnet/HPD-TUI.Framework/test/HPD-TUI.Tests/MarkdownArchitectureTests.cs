@@ -96,14 +96,14 @@ public sealed class MarkdownArchitectureTests
         var view = new MarkdownView(layout);
         var context = new RenderContext(24, 4, Theme.Default);
         using var grid = new TerminalGrid(24, 4);
-        var warmWriter = new SegmentWriter(grid);
+        var warmWriter = new DisplayListBuilder(grid, grid.Width);
         view.Render(in context, 24, ref warmWriter);
 
         var before = GC.GetAllocatedBytesForCurrentThread();
         for (var index = 0; index < 100; index++)
         {
             grid.Clear();
-            var writer = new SegmentWriter(grid);
+            var writer = new DisplayListBuilder(grid, grid.Width);
             view.Render(in context, 24, ref writer);
         }
 
@@ -116,7 +116,7 @@ public sealed class MarkdownArchitectureTests
         Assert.True(TerminalHyperlinkPolicy.TryCreate("https://example.com/path", out var link));
         Assert.False(TerminalHyperlinkPolicy.TryCreate("https://example.com/\u001b]8;;evil", out _));
         using var grid = new TerminalGrid(30, 1);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
         writer.Write("example", Theme.Default.Accent, new TerminalRunMetadata(link));
 
         var ansi = TuiCapture.ToAnsi(grid);
@@ -370,7 +370,7 @@ public sealed class MarkdownArchitectureTests
         Assert.True(view.HandleInput(new KeyEvent(KeyCode.PageDown)));
         var context = new RenderContext(20, 2, Theme.Default);
         using var grid = new TerminalGrid(20, 2);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
         view.Render(in context, 20, ref writer);
         Assert.StartsWith("three", string.Concat(MarkdownLayoutEngine.CaptureLine(grid, 0).Runs
             .Select(static run => run.Text)), StringComparison.Ordinal);
@@ -585,7 +585,7 @@ public sealed class MarkdownArchitectureTests
     private static void Render(IComponent component, RenderContext context)
     {
         using var grid = new TerminalGrid(context.Width, context.Height);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
         component.Render(in context, context.Width, ref writer);
     }
 }

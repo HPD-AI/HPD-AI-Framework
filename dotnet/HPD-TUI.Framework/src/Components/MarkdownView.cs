@@ -28,7 +28,7 @@ public sealed class MarkdownView : Component
     }
 
     /// <inheritdoc />
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         Validate(in context, maxWidth);
 

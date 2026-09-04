@@ -40,7 +40,7 @@ public sealed class WidgetSlotView : Component
         return new Measurement(Math.Min(min, maxWidth), Math.Min(max, maxWidth), height);
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         RefreshComponents();
         if (_components.Count == 0)

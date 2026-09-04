@@ -3,7 +3,7 @@ using HPD.TUI.Core;
 
 namespace HPD.Agent.ToolHarness.Coding.TUI;
 
-internal sealed class CodingTranscriptLabeledComponent : IComponent
+internal sealed class CodingTranscriptLabeledComponent : HPD.TUI.Core.Component
 {
     private readonly string _label;
     private readonly string _depthIndent;
@@ -25,10 +25,10 @@ internal sealed class CodingTranscriptLabeledComponent : IComponent
         _theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
         => new(Math.Min(maxWidth, 20), maxWidth);
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         if (maxWidth <= 0)
         {
@@ -45,7 +45,7 @@ internal sealed class CodingTranscriptLabeledComponent : IComponent
             .Render(in context, maxWidth, ref output);
     }
 
-    public bool HandleInput(in TuiInputEvent input)
+    public override bool HandleInput(in TuiInputEvent input)
     {
         return _body.HandleInput(in input);
     }

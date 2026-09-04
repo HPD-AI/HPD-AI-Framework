@@ -186,7 +186,7 @@ public sealed class AgentTuiTranscriptRenderServices
         public override Measurement Measure(in RenderContext context, int maxWidth)
             => new(Math.Min(maxWidth, 1), maxWidth);
 
-        public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
         {
             if (maxWidth <= 0)
             {
@@ -202,7 +202,7 @@ public sealed class AgentTuiTranscriptRenderServices
             output.Write(_firstPrefix.AsSpan(), style);
 
             var sink = new PrefixingSink(output.Sink, _subsequentPrefix, style);
-            var prefixedOutput = new SegmentWriter(sink);
+            var prefixedOutput = new DisplayListBuilder(sink, output.MaxWidth);
             _body.Render(in context, bodyWidth, ref prefixedOutput);
         }
 
@@ -234,7 +234,7 @@ public sealed class AgentTuiTranscriptRenderServices
         public override Measurement Measure(in RenderContext context, int maxWidth)
             => new(Math.Min(maxWidth, 1), maxWidth);
 
-        public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
         {
             if (maxWidth <= 0)
             {
@@ -246,7 +246,7 @@ public sealed class AgentTuiTranscriptRenderServices
                 UnicodeWidth.GetWidth(_subsequentPrefix)));
             output.Write(_firstPrefix.AsSpan(), context.Theme.Border);
             var sink = new PrefixingSink(output.Sink, _subsequentPrefix, context.Theme.Border);
-            var prefixedOutput = new SegmentWriter(sink);
+            var prefixedOutput = new DisplayListBuilder(sink, output.MaxWidth);
             WriteWrappedText(_text, bodyWidth, GetTextStyle(_textStyle, context.Theme), ref prefixedOutput);
         }
 
@@ -306,7 +306,7 @@ public sealed class AgentTuiTranscriptRenderServices
         }
     }
 
-    private static void WriteWrappedText(string text, int maxWidth, Style style, ref SegmentWriter output)
+    private static void WriteWrappedText(string text, int maxWidth, Style style, ref DisplayListBuilder output)
     {
         if (maxWidth <= 0 || text.Length == 0)
         {

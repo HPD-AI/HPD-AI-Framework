@@ -33,7 +33,7 @@ public sealed class MarkdownBlock : Component, IContentBlock
     public override Measurement Measure(in RenderContext context, int maxWidth) => _view.Measure(in context, maxWidth);
 
     /// <inheritdoc />
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output) => _view.Render(in context, maxWidth, ref output);
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output) => _view.Render(in context, maxWidth, ref output);
 
     /// <inheritdoc />
     public override bool HandleInput(in TuiInputEvent key)

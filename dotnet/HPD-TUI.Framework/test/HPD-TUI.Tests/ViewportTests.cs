@@ -16,7 +16,7 @@ public sealed class ViewportTests
         viewport.ScrollBy(1);
         var context = new RenderContext(10, 3, Theme.Default);
         using var grid = new TerminalGrid(10, 3);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
         viewport.Render(in context, 10, ref writer);
 

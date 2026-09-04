@@ -4,7 +4,7 @@ using HPD.TUI.Core;
 namespace HPD.TUI.Benchmarks;
 
 [MemoryDiagnoser]
-public class SegmentWriterBenchmark
+public class DisplayListBuilderBenchmark
 {
     private readonly CountingSink _sink = new();
     private readonly string _largeText = new('x', 8_192);
@@ -13,7 +13,7 @@ public class SegmentWriterBenchmark
     public int ManySmallWrites()
     {
         _sink.Reset();
-        var writer = new SegmentWriter(_sink);
+        var writer = new DisplayListBuilder(_sink, 80);
         for (var i = 0; i < 1_000; i++)
         {
             writer.Write("x".AsSpan(), Style.Default);
@@ -26,7 +26,7 @@ public class SegmentWriterBenchmark
     public int FewerLargeWrites()
     {
         _sink.Reset();
-        var writer = new SegmentWriter(_sink);
+        var writer = new DisplayListBuilder(_sink, 80);
         for (var i = 0; i < 32; i++)
         {
             writer.Write(_largeText.AsSpan(), Style.Default);
@@ -39,7 +39,7 @@ public class SegmentWriterBenchmark
     public int StyledSegmentWrites()
     {
         _sink.Reset();
-        var writer = new SegmentWriter(_sink);
+        var writer = new DisplayListBuilder(_sink, 80);
         var style = new Style(Color.Cyan, Color.Default, TextAttributes.Bold);
         for (var i = 0; i < 1_000; i++)
         {
@@ -53,7 +53,7 @@ public class SegmentWriterBenchmark
     public int RepeatedWrites()
     {
         _sink.Reset();
-        var writer = new SegmentWriter(_sink);
+        var writer = new DisplayListBuilder(_sink, 80);
         writer.WriteRepeated('-', 16_384, Style.Default);
         return writer.Count;
     }

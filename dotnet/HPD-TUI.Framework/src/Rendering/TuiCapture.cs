@@ -19,7 +19,7 @@ public static class TuiCapture
 
         var context = new RenderContext(width, height, theme ?? Theme.Default, colorSystem, elapsed);
         var grid = new TerminalGrid(width, height);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, width);
         component.Render(in context, width, ref writer);
         return grid;
     }
@@ -36,7 +36,7 @@ public static class TuiCapture
 
         grid.Clear();
         var context = new RenderContext(grid.Width, grid.Height, theme ?? Theme.Default, colorSystem, elapsed);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
         component.Render(in context, grid.Width, ref writer);
     }
 
@@ -136,7 +136,7 @@ public static class TuiCapture
         return lineCount;
     }
 
-    public static void WriteLineTo(TerminalGrid grid, int y, ref SegmentWriter output)
+    public static void WriteLineTo(TerminalGrid grid, int y, ref DisplayListBuilder output)
     {
         ArgumentNullException.ThrowIfNull(grid);
         ArgumentOutOfRangeException.ThrowIfNegative(y);

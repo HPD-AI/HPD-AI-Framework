@@ -58,7 +58,7 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiFramePreparab
         return _shell.Measure(in context, maxWidth);
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         UpdateTranscriptHeight(in context);
         _shell.Render(in context, maxWidth, ref output);
@@ -321,7 +321,7 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiFramePreparab
         public override Measurement Measure(in RenderContext context, int maxWidth)
             => Resolve().Measure(in context, maxWidth);
 
-        public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
             => Resolve().Render(in context, maxWidth, ref output);
 
         public override bool HandleInput(in TuiInputEvent key)
@@ -413,7 +413,7 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiFramePreparab
             return new Measurement(Math.Min(min, maxWidth), Math.Min(max, maxWidth), height);
         }
 
-        public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
         {
             var wrote = false;
             foreach (var section in _sections)

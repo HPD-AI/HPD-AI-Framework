@@ -101,7 +101,7 @@ public sealed class PromptFlowTests
 
         public override Measurement Measure(in RenderContext context, int maxWidth) => new(0, 0);
 
-        public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
         {
         }
 
@@ -123,7 +123,7 @@ public sealed class PromptFlowTests
 
         public override Measurement Measure(in RenderContext context, int maxWidth) => new(0, 0);
 
-        public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
         {
         }
 

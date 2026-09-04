@@ -18,7 +18,7 @@ public sealed class TableAndTreeTests
         var view = new TableView<Row>(model) { StackedBreakpoint = 10 };
         var context = new RenderContext(20, 2, Theme.Default);
         using var grid = new TerminalGrid(20, 2);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
         view.Render(in context, 20, ref writer);
 
@@ -36,7 +36,7 @@ public sealed class TableAndTreeTests
         var view = new TableView<Row>(model) { StackedBreakpoint = 20 };
         var context = new RenderContext(12, 2, Theme.Default);
         using var grid = new TerminalGrid(12, 2);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
         view.Render(in context, 12, ref writer);
 
@@ -167,7 +167,7 @@ public sealed class TableAndTreeTests
         var view = new TreeView<string>(model);
         var context = new RenderContext(12, 2, Theme.Default);
         using var grid = new TerminalGrid(12, 2);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
         view.Render(in context, 12, ref writer);
 
@@ -185,7 +185,7 @@ public sealed class TableAndTreeTests
         var view = new TreeView<string>(model);
         var context = new RenderContext(12, 2, Theme.Default);
         using var grid = new TerminalGrid(12, 2);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
         view.Render(in context, 12, ref writer);
 

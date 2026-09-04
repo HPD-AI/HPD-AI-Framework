@@ -71,7 +71,7 @@ public sealed class FocusAndDialogTests
         host.Push(new Overlay(new Text("Z"), 1, 0, 2));
         var context = new RenderContext(8, 2, Theme.Default);
         using var grid = new TerminalGrid(8, 2);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
         host.Render(in context, 8, ref writer);
 

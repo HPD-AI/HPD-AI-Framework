@@ -65,7 +65,7 @@ internal static class CodingCommandPanelText
         return $"{bytes / (1_024d * 1_024d):0.#}MB";
     }
 
-    public static void WriteClipped(string text, int width, Style style, ref SegmentWriter output)
+    public static void WriteClipped(string text, int width, Style style, ref DisplayListBuilder output)
     {
         if (width <= 0)
         {

@@ -76,7 +76,7 @@ public sealed class MarkupBlock : Component, IContentBlock
         return new Measurement(Math.Min(maxWidth, maxWord), Math.Min(maxWidth, maxLine));
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         if (maxWidth <= 0)
         {
@@ -97,7 +97,7 @@ public sealed class MarkupBlock : Component, IContentBlock
 
     public static MarkupBlock Create(string source, Theme? theme = null) => new(source, theme);
 
-    private static void WriteRun(StyledTextRun run, int maxWidth, ref int lineWidth, ref SegmentWriter output)
+    private static void WriteRun(StyledTextRun run, int maxWidth, ref int lineWidth, ref DisplayListBuilder output)
     {
         var lineStart = 0;
         var pos = 0;

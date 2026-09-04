@@ -8,7 +8,7 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.SourcePresentation;
 /// Renders bounded source hunks with line numbers, semantic gutter annotations,
 /// wrapping, emphasis bands, and optional trailing explanations.
 /// </summary>
-internal sealed class AnnotatedSourceView : IComponent
+internal sealed class AnnotatedSourceView : HPD.TUI.Core.Component
 {
     private const int TabWidth = 4;
     private readonly AnnotatedSourceDocument _document;
@@ -22,7 +22,7 @@ internal sealed class AnnotatedSourceView : IComponent
         _theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, int maxWidth)
     {
         if (maxWidth <= 0)
         {
@@ -52,7 +52,7 @@ internal sealed class AnnotatedSourceView : IComponent
         return new Measurement(1, Math.Min(maxWidth, 120), Math.Max(1, rows));
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         if (maxWidth <= 0)
         {
@@ -100,14 +100,14 @@ internal sealed class AnnotatedSourceView : IComponent
         }
     }
 
-    public bool HandleInput(in TuiInputEvent input) => false;
+    public override bool HandleInput(in TuiInputEvent input) => false;
 
     private void RenderLine(
         AnnotatedSourceLine line,
         SourceGutterMeasurement gutter,
         in RenderContext context,
         int maxWidth,
-        ref SegmentWriter output)
+        ref DisplayListBuilder output)
     {
         var marker = BuildMarker(line.Annotations);
         var primaryTone = ResolvePrimaryTone(line.Annotations);
@@ -190,7 +190,7 @@ internal sealed class AnnotatedSourceView : IComponent
         int maxWidth,
         Style style,
         Theme theme,
-        ref SegmentWriter output)
+        ref DisplayListBuilder output)
     {
         SourceTextHighlighter.Render(text, language, style, theme, ref output);
         FillBackground(prefixWidth + UnicodeWidth.GetWidth(text.AsSpan()), maxWidth, style, ref output);
@@ -200,7 +200,7 @@ internal sealed class AnnotatedSourceView : IComponent
         int usedWidth,
         int maxWidth,
         Style style,
-        ref SegmentWriter output)
+        ref DisplayListBuilder output)
     {
         var remaining = maxWidth - usedWidth;
         if (remaining > 0 && !style.Background.IsDefault)
@@ -212,7 +212,7 @@ internal sealed class AnnotatedSourceView : IComponent
     private static void WriteContinuationGutter(
         int prefixWidth,
         Style gutterStyle,
-        ref SegmentWriter output)
+        ref DisplayListBuilder output)
         => output.Write(new string(' ', prefixWidth).AsSpan(), gutterStyle);
 
     private Style ResolveTextStyle(

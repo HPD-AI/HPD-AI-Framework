@@ -90,7 +90,7 @@ public sealed class Frame : Component
         return new Measurement(Math.Min(min, max), max, height);
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         var frameWidth = ResolveWidth(maxWidth);
         if (frameWidth <= 0)
@@ -145,7 +145,7 @@ public sealed class Frame : Component
         return Height is { } fixedHeight ? Math.Min(fixedHeight, context.Height) : context.Height;
     }
 
-    private void WriteChildRows(in RenderContext context, int frameWidth, int innerWidth, bool showBorder, Style borderStyle, ref SegmentWriter output)
+    private void WriteChildRows(in RenderContext context, int frameWidth, int innerWidth, bool showBorder, Style borderStyle, ref DisplayListBuilder output)
     {
         var childWidth = Math.Max(0, innerWidth - Padding.Horizontal);
         if (childWidth <= 0)
@@ -187,7 +187,7 @@ public sealed class Frame : Component
         return _childGrid;
     }
 
-    private void WriteVerticalPadding(int count, int innerWidth, bool showBorder, Style borderStyle, Style contentStyle, ref SegmentWriter output)
+    private void WriteVerticalPadding(int count, int innerWidth, bool showBorder, Style borderStyle, Style contentStyle, ref DisplayListBuilder output)
     {
         for (var i = 0; i < count; i++)
         {
@@ -195,7 +195,7 @@ public sealed class Frame : Component
         }
     }
 
-    private void WriteEmptyInnerRow(int innerWidth, bool showBorder, Style borderStyle, Style contentStyle, ref SegmentWriter output)
+    private void WriteEmptyInnerRow(int innerWidth, bool showBorder, Style borderStyle, Style contentStyle, ref DisplayListBuilder output)
     {
         WriteSide(showBorder, Border.Glyphs.Left, borderStyle, ref output);
         WriteSpaces(innerWidth, contentStyle, ref output);
@@ -203,7 +203,7 @@ public sealed class Frame : Component
         output.WriteLineBreak();
     }
 
-    private static void WriteSide(bool showBorder, char glyph, Style style, ref SegmentWriter output)
+    private static void WriteSide(bool showBorder, char glyph, Style style, ref DisplayListBuilder output)
     {
         if (!showBorder)
         {
@@ -222,7 +222,7 @@ public sealed class Frame : Component
         object? title,
         Style style,
         int width,
-        ref SegmentWriter output)
+        ref DisplayListBuilder output)
     {
         Span<char> buffer = width <= 256 ? stackalloc char[width] : new char[width];
         if (width == 1)
@@ -271,7 +271,7 @@ public sealed class Frame : Component
         buffer[start + 1 + title.Length] = ' ';
     }
 
-    private static void WriteSpaces(int count, Style style, ref SegmentWriter output)
+    private static void WriteSpaces(int count, Style style, ref DisplayListBuilder output)
     {
         if (count <= 0)
         {

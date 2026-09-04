@@ -109,6 +109,6 @@ public sealed class ComponentRevisionTests
             MeasureCount++;
             return new(1, 1, 1);
         }
-        public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output) { }
+        public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output) { }
     }
 }

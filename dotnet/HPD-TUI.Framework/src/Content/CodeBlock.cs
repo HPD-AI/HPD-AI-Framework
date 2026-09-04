@@ -59,7 +59,7 @@ public sealed class CodeBlock : Component, IContentBlock
         return new Measurement(Math.Min(width, maxWidth), Math.Min(width, maxWidth));
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         if (maxWidth <= 0)
         {
@@ -90,7 +90,7 @@ public sealed class CodeBlock : Component, IContentBlock
 
     public static CodeBlock Create(string code, string? language = null) => new(code, language);
 
-    private static void WriteClipped(string value, int maxWidth, Style style, ref SegmentWriter output)
+    private static void WriteClipped(string value, int maxWidth, Style style, ref DisplayListBuilder output)
     {
         var used = 0;
         var enumerator = new RuneEnumerator(value.AsSpan());
