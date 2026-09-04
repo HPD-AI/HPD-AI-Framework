@@ -35,6 +35,29 @@ internal sealed class TerminalPublicationCoordinator
         CancellationToken cancellationToken = default,
         TerminalPresentationState? acceptedState = null)
     {
+        if (_transport is ISynchronousTerminalOutputTransport synchronous &&
+            _mailbox.IsEmpty &&
+            Interlocked.CompareExchange(ref _draining, 1, 0) == 0)
+        {
+            if (_mailbox.IsEmpty)
+            {
+                try
+                {
+                    var result = synchronous.TryWrite(payload, cancellationToken);
+                    ApplyResult(result, acceptedState);
+                    return result;
+                }
+                finally
+                {
+                    Volatile.Write(ref _draining, 0);
+                    if (!_mailbox.IsEmpty) DrainMailbox();
+                }
+            }
+
+            Volatile.Write(ref _draining, 0);
+            DrainMailbox();
+        }
+
         var publication = new Publication(new TerminalFrameLease(payload), acceptedState, cancellationToken);
         _mailbox.Enqueue(publication);
         DrainMailbox();
@@ -72,10 +95,7 @@ internal sealed class TerminalPublicationCoordinator
                     }
                 }
 
-                if (result.Status == TerminalWriteStatus.Written && publication.AcceptedState is { } state)
-                    _state = state;
-                else if (result.Status == TerminalWriteStatus.Failed)
-                    _state = _state with { Certainty = TerminalCertainty.Uncertain };
+                ApplyResult(result, publication.AcceptedState);
                 publication.Lease.Dispose();
                 publication.Completion.TrySetResult(result);
             }
@@ -85,6 +105,14 @@ internal sealed class TerminalPublicationCoordinator
             Volatile.Write(ref _draining, 0);
             if (!_mailbox.IsEmpty) DrainMailbox();
         }
+    }
+
+    private void ApplyResult(TerminalWriteResult result, TerminalPresentationState? acceptedState)
+    {
+        if (result.Status == TerminalWriteStatus.Written && acceptedState is { } state)
+            _state = state;
+        else if (result.Status == TerminalWriteStatus.Failed)
+            _state = _state with { Certainty = TerminalCertainty.Uncertain };
     }
 
     public async ValueTask WaitUntilWritableAsync(CancellationToken cancellationToken = default)
