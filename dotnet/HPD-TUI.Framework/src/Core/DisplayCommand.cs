@@ -25,11 +25,22 @@ public enum DisplayCommandKind
 /// <summary>Contains the immutable payload referenced by a display command.</summary>
 public readonly record struct DisplayPayload
 {
-    private DisplayPayload(string? text, char? character, TuiSurface? surface)
+    private readonly PooledTextArena? _arena;
+    private readonly int _textOffset;
+    private readonly int _textLength;
+    private readonly TuiSurface.SurfaceLease? _surfaceLease;
+
+    private DisplayPayload(string? text, char? character, TuiSurface? surface,
+        PooledTextArena? arena = null, int textOffset = 0, int textLength = 0,
+        TuiSurface.SurfaceLease? surfaceLease = null)
     {
         Text = text;
         Character = character;
         Surface = surface;
+        _arena = arena;
+        _textOffset = textOffset;
+        _textLength = textLength;
+        _surfaceLease = surfaceLease;
     }
 
     /// <summary>Gets text owned by the display-list generation, when applicable.</summary>
@@ -49,6 +60,15 @@ public readonly record struct DisplayPayload
 
     /// <summary>Creates a retained-surface payload.</summary>
     public static DisplayPayload FromSurface(TuiSurface surface) => new(null, null, surface ?? throw new ArgumentNullException(nameof(surface)));
+
+    internal static DisplayPayload FromArena(PooledTextArena arena, int offset, int length) =>
+        new(null, null, null, arena, offset, length);
+
+    internal static DisplayPayload FromSurfaceLease(TuiSurface surface, TuiSurface.SurfaceLease lease) =>
+        new(null, null, surface, surfaceLease: lease);
+
+    internal ReadOnlySpan<char> GetTextSpan() => _arena is null ? Text.AsSpan() : _arena.GetSpan(_textOffset, _textLength);
+    internal TuiSurface.SurfaceLease? SurfaceLease => _surfaceLease;
 }
 
 /// <summary>Describes one immutable command in a retained display-list generation.</summary>

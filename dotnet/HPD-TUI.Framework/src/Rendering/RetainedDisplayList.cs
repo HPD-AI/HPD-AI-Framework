@@ -1,16 +1,33 @@
 using HPD.TUI.Core;
+using System.Buffers;
 
 namespace HPD.TUI.Rendering;
 
-internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSink, IDisplayCommandSink, IOwnedTextSink
+internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSink, IDisplayCommandSink, IOwnedTextSink, IDisposable
 {
+    private PooledTextArena _textArena = new();
+    private PooledTextArena _buildingTextArena = new();
     private List<DisplayOperation> _operations = [];
     private List<DisplayOperation> _building = [];
     private Dictionary<ComponentId, ComponentSlice> _slices = [];
     private Dictionary<ComponentId, ComponentSlice> _buildingSlices = [];
     private readonly Stack<PendingSlice> _pendingSlices = [];
     private readonly List<Layout.LayoutRect> _replayClips = [];
+    private readonly List<Layout.LayoutRect> _buildingClips = [];
     private readonly Dictionary<ComponentId, ComponentRevisions> _committedRevisions = [];
+    private Dictionary<ComponentId, RenderContextFields> _sliceDependencies = [];
+    private Dictionary<ComponentId, RenderContextFields> _buildingSliceDependencies = [];
+    private RenderContextFields _treeDependencies;
+    private readonly HashSet<TuiSurface> _observedSurfaces = [];
+    private bool _surfaceDirty;
+    private int[] _rowHeads = [];
+    private int[] _linkOperations = [];
+    private int[] _linkNext = [];
+    private int[] _candidateMarks = [];
+    private int[] _candidates = [];
+    private int _linkCount;
+    private int _candidateEpoch;
+    private int _terminalCursorOperation = -1;
     private bool[] _damagedRows = [];
     private int _commandsBuilt;
     private int _commandsReused;
@@ -29,20 +46,14 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
     public int CommandsBuilt => _commandsBuilt;
     public int CommandsReused => _commandsReused;
     public int ComponentsPainted => _componentsPainted;
+    /// <summary>Gets the number of spatially selected operations in the most recent damaged replay.</summary>
+    internal int LastReplayCandidateCount { get; private set; }
 
     public bool Prepare(IComponent root, in RenderContext context, int maxWidth)
     {
-        var dependencies = RenderContextFields.None;
-        var key = new DisplayListKey(
-            ComputeTreeRevision(root, ref dependencies),
-            GetSurfaceIdentity(root),
-            context.Width,
-            context.Height,
-            context.Theme.Key,
-            context.ColorSystem,
-            (dependencies & RenderContextFields.Capabilities) != 0 ? context.Capabilities : default,
-            (dependencies & RenderContextFields.Elapsed) != 0 ? context.Elapsed : default);
-        if (_operations.Count > 0 && key == _key && TreeMatches(root) && SurfaceVersionsMatch(_operations, 0, _operations.Count))
+        var dependencies = _operations.Count == 0 ? CollectDependencies(root) : _treeDependencies;
+        var key = CreateDisplayListKey(root, in context, dependencies);
+        if (_operations.Count > 0 && key == _key && !_surfaceDirty)
         {
             _commandsBuilt = 0;
             _commandsReused = _operations.Count;
@@ -54,9 +65,13 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
             return true;
         }
 
+        ReleaseSurfaceLeases(_building);
         _building.Clear();
+        _buildingTextArena.Reset();
         _buildingSlices.Clear();
+        _buildingSliceDependencies.Clear();
         _pendingSlices.Clear();
+        _buildingClips.Clear();
         _cursorX = 0;
         _cursorY = 0;
         _maxHeight = context.Height;
@@ -76,10 +91,15 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
             throw;
         }
         (_operations, _building) = (_building, _operations);
+        (_textArena, _buildingTextArena) = (_buildingTextArena, _textArena);
         (_slices, _buildingSlices) = (_buildingSlices, _slices);
+        (_sliceDependencies, _buildingSliceDependencies) = (_buildingSliceDependencies, _sliceDependencies);
         _committedRevisions.Clear();
         RecordTreeRevisions(root);
-        _key = key;
+        _treeDependencies = CollectDependencies(root);
+        _key = CreateDisplayListKey(root, in context, _treeDependencies);
+        BuildSpatialIndex(context.Height);
+        _surfaceDirty = false;
         ComputeDamage(context.Height);
         return false;
     }
@@ -90,7 +110,27 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
     public void ReplayDamaged(ISegmentSink destination)
     {
         if (destination is HPD.TUI.Terminal.TerminalGrid grid) grid.ClearTerminalCursor();
-        ReplayCore(destination, damagedOnly: true);
+        var count = CollectDamagedOperations();
+        LastReplayCandidateCount = count;
+        Array.Sort(_candidates, 0, count);
+        for (var candidate = 0; candidate < count; candidate++)
+            ReplayOperation(destination, _operations[_candidates[candidate]], _damagedRows);
+        if (_terminalCursorOperation >= 0)
+            ReplayOperation(destination, _operations[_terminalCursorOperation], _damagedRows);
+    }
+
+    private static void ReplayOperation(ISegmentSink destination, DisplayOperation operation, bool[] damagedRows)
+    {
+        if (operation.Kind != DisplayOperationKind.Command) return;
+        var command = operation.Command;
+        switch (command.Kind)
+        {
+            case DisplayCommandKind.TextRun: ReplayText(destination, command, operation.Clip, damagedRows); break;
+            case DisplayCommandKind.Fill: ReplayFill(destination, command, operation.Clip, damagedRows); break;
+            case DisplayCommandKind.Border: ReplayBorder(destination, command, operation.Clip, damagedRows); break;
+            case DisplayCommandKind.ReplaySurface: ReplaySurface(destination, command, operation.Clip, damagedRows); break;
+            case DisplayCommandKind.SetCursor: destination.SetTerminalCursor(command.Bounds.X, command.Bounds.Y); break;
+        }
     }
 
     private void ReplayCore(ISegmentSink destination, bool damagedOnly)
@@ -227,11 +267,11 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
                 var rowClip = new Layout.LayoutRect(command.Bounds.X, row, command.Bounds.Width, 1);
                 rowClip = effectiveClip is { } clipping ? Intersect(rowClip, clipping) : rowClip;
                 if (!rowClip.IsEmpty)
-                    command.Payload.Surface!.ReplayTo(destination, command.Bounds.X, command.Bounds.Y, rowClip);
+                    command.Payload.SurfaceLease!.ReplayTo(destination, command.Bounds.X, command.Bounds.Y, rowClip);
             }
             return;
         }
-        command.Payload.Surface!.ReplayTo(destination, command.Bounds.X, command.Bounds.Y, effectiveClip);
+        command.Payload.SurfaceLease!.ReplayTo(destination, command.Bounds.X, command.Bounds.Y, effectiveClip);
     }
 
     private static Layout.LayoutRect? CurrentClip(List<Layout.LayoutRect> clips) => clips.Count == 0 ? null : clips[^1];
@@ -244,7 +284,7 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
             text[0] = character;
             destination.Write(text, style, metadata);
         }
-        else destination.Write(payload.Text.AsSpan(), style, metadata);
+        else destination.Write(payload.GetTextSpan(), style, metadata);
     }
 
     private static Layout.LayoutRect Intersect(Layout.LayoutRect left, Layout.LayoutRect right)
@@ -262,15 +302,15 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
     public bool Write(scoped ReadOnlySpan<char> text, Style style, TerminalRunMetadata metadata = default)
     {
         if (_cursorY >= _maxHeight) return false;
-        var ownedText = text.ToString();
         var width = Utilities.UnicodeWidth.GetWidth(text);
+        var stored = _buildingTextArena.Append(text);
         var command = new DisplayCommand(
             DisplayCommandKind.TextRun,
             new Layout.LayoutRect(_cursorX, _cursorY, width, 1),
             style,
             metadata,
-            DisplayPayload.FromText(ownedText));
-        _building.Add(new DisplayOperation(DisplayOperationKind.Command, command, 0, 0));
+            DisplayPayload.FromArena(_buildingTextArena, stored.Offset, stored.Length));
+        _building.Add(new DisplayOperation(DisplayOperationKind.Command, command, 0, 0, default, CurrentClip(_buildingClips)));
         _commandsBuilt++;
         _cursorX += width;
         return true;
@@ -298,7 +338,7 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
     {
         var command = new DisplayCommand(DisplayCommandKind.TextRun,
             new Layout.LayoutRect(_cursorX, _cursorY, width, 1), style, metadata, payload);
-        _building.Add(new DisplayOperation(DisplayOperationKind.Command, command, 0, 0));
+        _building.Add(new DisplayOperation(DisplayOperationKind.Command, command, 0, 0, default, CurrentClip(_buildingClips)));
         _commandsBuilt++;
         _cursorX += width;
     }
@@ -330,15 +370,29 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
 
     public void RecordCommand(DisplayCommand command)
     {
-        _building.Add(CreateOperation(command));
+        if (command.Kind == DisplayCommandKind.PopClip)
+        {
+            if (_buildingClips.Count == 0) throw new InvalidOperationException("Display-list clip stack underflow.");
+            _buildingClips.RemoveAt(_buildingClips.Count - 1);
+        }
+        if (command.Kind == DisplayCommandKind.ReplaySurface)
+        {
+            var surface = command.Payload.Surface!;
+            if (_observedSurfaces.Add(surface)) surface.RevisionChanged += HandleSurfaceRevisionChanged;
+            command = command with { Payload = DisplayPayload.FromSurfaceLease(surface, surface.AcquireLease()) };
+        }
+        _building.Add(CreateOperation(command, CurrentClip(_buildingClips)));
+        if (command.Kind == DisplayCommandKind.PushClip)
+            _buildingClips.Add(_buildingClips.Count == 0 ? command.Bounds : Intersect(_buildingClips[^1], command.Bounds));
         _commandsBuilt++;
     }
 
     public bool TryReuse(IComponent component, in RenderContext context, int maxWidth, out int commandCount)
     {
-        var key = CreateSliceKey(component, in context, maxWidth);
+        var dependencies = _sliceDependencies.GetValueOrDefault(component.Lifecycle.Id, component.Dependencies.Layout | component.Dependencies.Paint);
+        var key = CreateSliceKey(component, in context, maxWidth, dependencies);
         if (!_slices.TryGetValue(component.Lifecycle.Id, out var slice) ||
-            slice.Key != key || slice.StartX != _cursorX || slice.StartY != _cursorY || !TreeMatches(component) ||
+            slice.Key != key || slice.StartX != _cursorX || slice.StartY != _cursorY ||
             !SurfaceVersionsMatch(_operations, slice.Start, slice.Count))
         {
             commandCount = 0;
@@ -347,10 +401,17 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
 
         var start = _building.Count;
         for (var index = 0; index < slice.Count; index++)
-            _building.Add(_operations[slice.Start + index]);
+        {
+            var operation = _operations[slice.Start + index];
+            if (operation.Command.Kind == DisplayCommandKind.ReplaySurface)
+                operation = operation with { Command = operation.Command with {
+                    Payload = DisplayPayload.FromSurfaceLease(operation.Command.Payload.Surface!, operation.Command.Payload.SurfaceLease!.Clone()) } };
+            _building.Add(operation);
+        }
         _cursorX = slice.EndX;
         _cursorY = slice.EndY;
         _buildingSlices[component.Lifecycle.Id] = slice with { Start = start };
+        _buildingSliceDependencies[component.Lifecycle.Id] = dependencies;
         _commandsReused += slice.Count;
         commandCount = slice.Count;
         return true;
@@ -359,7 +420,9 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
     public void Begin(IComponent component, in RenderContext context, int maxWidth)
     {
         _componentsPainted++;
-        _pendingSlices.Push(new PendingSlice(component.Lifecycle.Id, CreateSliceKey(component, in context, maxWidth),
+        var dependencies = CollectDependencies(component);
+        _buildingSliceDependencies[component.Lifecycle.Id] = dependencies;
+        _pendingSlices.Push(new PendingSlice(component.Lifecycle.Id, CreateSliceKey(component, in context, maxWidth, dependencies),
             _building.Count, _cursorX, _cursorY));
     }
 
@@ -373,11 +436,9 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
             pending.StartX, pending.StartY, _cursorX, _cursorY);
     }
 
-    private static ComponentSliceKey CreateSliceKey(IComponent component, in RenderContext context, int maxWidth)
+    private static ComponentSliceKey CreateSliceKey(IComponent component, in RenderContext context, int maxWidth, RenderContextFields dependencies)
     {
-        var dependencies = RenderContextFields.None;
-        var treeRevision = ComputeTreeRevision(component, ref dependencies);
-        return new ComponentSliceKey(treeRevision, GetSurfaceIdentity(component), maxWidth, context.Height,
+        return new ComponentSliceKey(component.LayoutRevision, component.PaintRevision, GetSurfaceIdentity(component), maxWidth, context.Height,
             (dependencies & RenderContextFields.Theme) != 0 ? context.Theme.Key : default,
             (dependencies & RenderContextFields.ColorSystem) != 0 ? context.ColorSystem : default,
             (dependencies & RenderContextFields.Capabilities) != 0 ? context.Capabilities : default,
@@ -392,17 +453,6 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
             : default;
     }
 
-    private bool TreeMatches(IComponent component)
-    {
-        if (!_committedRevisions.TryGetValue(component.Lifecycle.Id, out var revisions) ||
-            revisions.Layout != component.LayoutRevision || revisions.Paint != component.PaintRevision)
-            return false;
-        if (component is not Component owner) return true;
-        foreach (var child in owner.OwnedChildren)
-            if (!TreeMatches(child)) return false;
-        return true;
-    }
-
     private void RecordTreeRevisions(IComponent component)
     {
         _committedRevisions[component.Lifecycle.Id] = new(component.LayoutRevision, component.PaintRevision);
@@ -410,22 +460,26 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
         foreach (var child in owner.OwnedChildren) RecordTreeRevisions(child);
     }
 
-    private static ulong ComputeTreeRevision(IComponent component, ref RenderContextFields dependencies)
+    private static RenderContextFields CollectDependencies(IComponent component)
     {
-        var hash = new HashCode();
-        Add(component, ref hash, ref dependencies);
-        return unchecked((ulong)hash.ToHashCode());
-
-        static void Add(IComponent current, ref HashCode hash, ref RenderContextFields dependencies)
-        {
-            hash.Add(current.Lifecycle.Id.Value);
-            hash.Add(current.LayoutRevision.Value);
-            hash.Add(current.PaintRevision.Value);
-            dependencies |= current.Dependencies.Layout | current.Dependencies.Paint;
-            if (current is not Component owner) return;
-            foreach (var child in owner.OwnedChildren) Add(child, ref hash, ref dependencies);
-        }
+        var dependencies = RenderContextFields.None;
+        CollectDependenciesCore(component, ref dependencies);
+        return dependencies;
     }
+
+    private static void CollectDependenciesCore(IComponent component, ref RenderContextFields dependencies)
+    {
+        dependencies |= component.Dependencies.Layout | component.Dependencies.Paint;
+        if (component is not Component owner) return;
+        foreach (var child in owner.OwnedChildren) CollectDependenciesCore(child, ref dependencies);
+    }
+
+    private static DisplayListKey CreateDisplayListKey(IComponent root, in RenderContext context, RenderContextFields dependencies) =>
+        new(root.LayoutRevision, root.PaintRevision, GetSurfaceIdentity(root), context.Width, context.Height,
+            (dependencies & RenderContextFields.Theme) != 0 ? context.Theme.Key : default,
+            (dependencies & RenderContextFields.ColorSystem) != 0 ? context.ColorSystem : default,
+            (dependencies & RenderContextFields.Capabilities) != 0 ? context.Capabilities : default,
+            (dependencies & RenderContextFields.Elapsed) != 0 ? context.Elapsed : default);
 
     private void ComputeDamage(int height)
     {
@@ -446,7 +500,7 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
         {
             var current = _operations[index];
             var previous = _building[index];
-            if (current == previous &&
+            if (OperationsEqual(current, previous) &&
                 (current.Command.Kind != DisplayCommandKind.ReplaySurface ||
                  current.SurfaceRevision == previous.SurfaceRevision)) continue;
             Mark(current);
@@ -493,9 +547,27 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
         }
     }
 
-    private static DisplayOperation CreateOperation(DisplayCommand command) =>
+    private static DisplayOperation CreateOperation(DisplayCommand command, Layout.LayoutRect? clip = null) =>
         new(DisplayOperationKind.Command, command, 0, 0,
-            command.Kind == DisplayCommandKind.ReplaySurface ? command.Payload.Surface!.CacheRevision : default);
+            command.Kind == DisplayCommandKind.ReplaySurface ? command.Payload.Surface!.CacheRevision : default, clip);
+
+    private static bool OperationsEqual(DisplayOperation left, DisplayOperation right)
+    {
+        if (left.Kind != right.Kind || left.X != right.X || left.Y != right.Y) return false;
+        if (left.Command.Kind == DisplayCommandKind.ReplaySurface && right.Command.Kind == DisplayCommandKind.ReplaySurface)
+            return left.Command.Kind == right.Command.Kind && left.Command.Bounds == right.Command.Bounds &&
+                   left.Command.Style == right.Command.Style && left.Command.Metadata == right.Command.Metadata &&
+                   ReferenceEquals(left.Command.Payload.Surface, right.Command.Payload.Surface) &&
+                   left.SurfaceRevision == right.SurfaceRevision;
+        return left.Command == right.Command;
+    }
+
+    private static void ReleaseSurfaceLeases(List<DisplayOperation> operations)
+    {
+        foreach (var operation in operations) operation.Command.Payload.SurfaceLease?.Dispose();
+    }
+
+    private void HandleSurfaceRevisionChanged() => _surfaceDirty = true;
 
     private static bool SurfaceVersionsMatch(List<DisplayOperation> operations, int start, int count)
     {
@@ -517,13 +589,73 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
         return false;
     }
 
+    private void BuildSpatialIndex(int height)
+    {
+        EnsurePooled(ref _rowHeads, Math.Max(1, height));
+        Array.Fill(_rowHeads, -1, 0, height);
+        _linkCount = 0;
+        _terminalCursorOperation = -1;
+        for (var index = 0; index < _operations.Count; index++)
+        {
+            var operation = _operations[index];
+            if (operation.Command.Kind == DisplayCommandKind.SetCursor) _terminalCursorOperation = index;
+            if (operation.Kind != DisplayOperationKind.Command ||
+                operation.Command.Kind is DisplayCommandKind.PushClip or DisplayCommandKind.PopClip) continue;
+            var bounds = EffectiveBounds(operation.Command.Bounds, operation.Clip);
+            var start = Math.Clamp(bounds.Y, 0, height);
+            var end = Math.Clamp(Math.Max(bounds.Bottom, bounds.Y + 1), 0, height);
+            for (var row = start; row < end; row++)
+            {
+                EnsureLinkCapacity(_linkCount + 1);
+                _linkOperations[_linkCount] = index;
+                _linkNext[_linkCount] = _rowHeads[row];
+                _rowHeads[row] = _linkCount++;
+            }
+        }
+        EnsurePooled(ref _candidateMarks, Math.Max(1, _operations.Count));
+        EnsurePooled(ref _candidates, Math.Max(1, _operations.Count));
+    }
+
+    private int CollectDamagedOperations()
+    {
+        if (++_candidateEpoch == 0) { Array.Clear(_candidateMarks); _candidateEpoch = 1; }
+        var count = 0;
+        for (var row = 0; row < _damagedRows.Length; row++)
+        {
+            if (!_damagedRows[row]) continue;
+            for (var link = _rowHeads[row]; link >= 0; link = _linkNext[link])
+            {
+                var operation = _linkOperations[link];
+                if (_candidateMarks[operation] == _candidateEpoch) continue;
+                _candidateMarks[operation] = _candidateEpoch;
+                _candidates[count++] = operation;
+            }
+        }
+        return count;
+    }
+
+    private void EnsureLinkCapacity(int required)
+    {
+        EnsurePooled(ref _linkOperations, required);
+        EnsurePooled(ref _linkNext, required);
+    }
+
+    private static void EnsurePooled(ref int[] buffer, int required)
+    {
+        if (buffer.Length >= required) return;
+        var replacement = ArrayPool<int>.Shared.Rent(Math.Max(required, buffer.Length == 0 ? 16 : buffer.Length * 2));
+        if (buffer.Length != 0) { buffer.CopyTo(replacement, 0); ArrayPool<int>.Shared.Return(buffer); }
+        buffer = replacement;
+    }
+
     private void EnsureDamageRows(int height)
     {
         if (_damagedRows.Length != height) _damagedRows = new bool[height];
     }
 
     private readonly record struct DisplayListKey(
-        ulong TreeRevision,
+        TuiRevision LayoutRevision,
+        TuiRevision PaintRevision,
         SurfaceIdentity Surface,
         int Width,
         int Height,
@@ -533,10 +665,11 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
         TimeSpan Elapsed);
 
     private readonly record struct DisplayOperation(
-        DisplayOperationKind Kind, DisplayCommand Command, int X, int Y, SurfaceRevisionIdentity SurfaceRevision = default);
+        DisplayOperationKind Kind, DisplayCommand Command, int X, int Y, SurfaceRevisionIdentity SurfaceRevision = default,
+        Layout.LayoutRect? Clip = null);
 
     private readonly record struct ComponentSliceKey(
-        ulong TreeRevision, SurfaceIdentity Surface, int Width, int Height, ThemeKey Theme,
+        TuiRevision LayoutRevision, TuiRevision PaintRevision, SurfaceIdentity Surface, int Width, int Height, ThemeKey Theme,
         ColorSystem ColorSystem, TerminalCapabilities Capabilities, TimeSpan Elapsed);
 
     private readonly record struct SurfaceIdentity(
@@ -551,4 +684,20 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
     private readonly record struct ComponentRevisions(TuiRevision Layout, TuiRevision Paint);
 
     private enum DisplayOperationKind { Command, LineBreak, Move }
+
+    public void Dispose()
+    {
+        ReleaseSurfaceLeases(_operations);
+        ReleaseSurfaceLeases(_building);
+        foreach (var surface in _observedSurfaces) surface.RevisionChanged -= HandleSurfaceRevisionChanged;
+        Return(ref _rowHeads); Return(ref _linkOperations); Return(ref _linkNext); Return(ref _candidateMarks); Return(ref _candidates);
+        _textArena.Dispose();
+        _buildingTextArena.Dispose();
+
+        static void Return(ref int[] value)
+        {
+            if (value.Length != 0) ArrayPool<int>.Shared.Return(value);
+            value = [];
+        }
+    }
 }

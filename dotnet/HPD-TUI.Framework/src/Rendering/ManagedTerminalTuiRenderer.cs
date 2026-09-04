@@ -46,6 +46,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
     private bool _alternateScreen;
     private bool _aborted;
     private bool _shutdown;
+    private TimeSpan _schedulingDelay;
     private bool TerminalCertain => _publisher.State.Certainty == TerminalCertainty.Known;
 
     /// <summary>Gets the active presentation epoch. It advances when terminal-visible history cannot be retracted.</summary>
@@ -92,6 +93,14 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
 
     public IHpdTuiPerformanceEventSink? PerformanceSink { get; set; }
 
+    /// <summary>Gets or sets the shared cumulative performance-counter recorder.</summary>
+    public TuiPerformanceCounters? PerformanceCounters { get; set; }
+
+    internal TimeSpan SchedulingDelay
+    {
+        set => _schedulingDelay = value;
+    }
+
     public void Render(IComponent root, Theme? theme = null, ScrollbackBatch? scrollback = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -100,6 +109,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         if (scrollback is not null && !_splitFooterEnabled)
             throw new NotSupportedException("Scrollback publication is disabled because the terminal capability profile does not satisfy the split-footer protocol.");
         var sink = PerformanceSink;
+        var frameInstrumentation = sink is null ? null : new TuiFrameInstrumentation();
         var startTimestamp = sink is null ? 0 : Stopwatch.GetTimestamp();
         var size = _terminal.GetSize();
         var hadPreviousFrame = _hasPreviousFrame;
@@ -116,14 +126,17 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         else if (scrollback is not null && scrollback.PresentationEpoch != _presentationEpoch)
             throw new InvalidOperationException($"Scrollback batch epoch {scrollback.PresentationEpoch} does not match renderer epoch {_presentationEpoch}.");
         EnsureBuffer(size.Width, size.Height);
+        ResetPublicationMetrics();
 
         var context = new RenderContext(size.Width, size.Height, theme ?? Theme.Default, elapsed: _clock.Elapsed);
         var displayStart = sink is null ? 0 : Stopwatch.GetTimestamp();
-        var cacheHit = _displayList.Prepare(root, in context, size.Width);
+        bool cacheHit;
+        using (TuiInstrumentationContext.Enter(frameInstrumentation, PerformanceCounters))
+            cacheHit = _displayList.Prepare(root, in context, size.Width);
         var displayDuration = sink is null ? TimeSpan.Zero : Stopwatch.GetElapsedTime(displayStart);
         if (cacheHit && hadPreviousFrame && !sizeChanged && TerminalCertain && scrollback is null)
         {
-            PublishRenderCompleted(sink, startTimestamp, displayDuration, TimeSpan.Zero, false);
+            PublishRenderCompleted(sink, startTimestamp, displayDuration, TimeSpan.Zero, false, frameInstrumentation);
             return;
         }
         var rasterStart = sink is null ? 0 : Stopwatch.GetTimestamp();
@@ -143,8 +156,6 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         var rasterDuration = sink is null ? TimeSpan.Zero : Stopwatch.GetElapsedTime(rasterStart);
 
         var usedLines = TuiCapture.GetUsedLineCount(_currentBuffer.Grid);
-        ResetPublicationMetrics();
-
         try
         {
             if (!TerminalCertain)
@@ -153,14 +164,14 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
                 if (scrollback is not null)
                     throw new InvalidOperationException(
                         "A batch involved in uncertain output cannot be retried; prepare it in the new presentation epoch.");
-                PublishRenderCompleted(sink, startTimestamp, displayDuration, rasterDuration, false);
+                PublishRenderCompleted(sink, startTimestamp, displayDuration, rasterDuration, false, frameInstrumentation);
                 return;
             }
 
             if (!_splitFooterEnabled)
             {
                 BoundedRender(size, usedLines);
-                PublishRenderCompleted(sink, startTimestamp, displayDuration, rasterDuration, false);
+                PublishRenderCompleted(sink, startTimestamp, displayDuration, rasterDuration, false, frameInstrumentation);
                 return;
             }
 
@@ -173,14 +184,14 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
                     throw new TerminalBackpressureException();
                 if (result.Status == ScrollbackCommitStatus.Failed)
                     throw new InvalidOperationException("Managed scrollback publication failed; terminal state is uncertain.", result.Error);
-                PublishRenderCompleted(sink, startTimestamp, displayDuration, rasterDuration, false);
+                PublishRenderCompleted(sink, startTimestamp, displayDuration, rasterDuration, false, frameInstrumentation);
                 return;
             }
 
             if (!hadPreviousFrame || sizeChanged)
             {
                 FullRender(size, usedLines, FullRenderClearMode.Screen);
-                PublishRenderCompleted(sink, startTimestamp, displayDuration, rasterDuration, false);
+                PublishRenderCompleted(sink, startTimestamp, displayDuration, rasterDuration, false, frameInstrumentation);
                 return;
             }
 
@@ -198,16 +209,16 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
                 _lastDiffMetrics = new(0, rejected, compared, 0, 0);
                 PublishCursorOnlyIfChanged(_currentBuffer.Grid, usedLines);
                 CommitFrame(size, usedLines);
-                PublishRenderCompleted(sink, startTimestamp, displayDuration, rasterDuration, false);
+                PublishRenderCompleted(sink, startTimestamp, displayDuration, rasterDuration, false, frameInstrumentation);
                 return;
             }
 
             PatchChangedRuns(size, usedLines);
-            PublishRenderCompleted(sink, startTimestamp, displayDuration, rasterDuration, false);
+            PublishRenderCompleted(sink, startTimestamp, displayDuration, rasterDuration, false, frameInstrumentation);
         }
         catch (TerminalBackpressureException)
         {
-            PublishRenderCompleted(sink, startTimestamp, displayDuration, rasterDuration, true);
+            PublishRenderCompleted(sink, startTimestamp, displayDuration, rasterDuration, true, frameInstrumentation);
             throw;
         }
     }
@@ -338,22 +349,25 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         long startTimestamp,
         TimeSpan displayDuration,
         TimeSpan rasterDuration,
-        bool backpressured)
+        bool backpressured,
+        TuiFrameInstrumentation? instrumentation)
     {
+        if (!backpressured && _lastOutputCharacters == 0)
+            PerformanceCounters?.RecordFrameSuppressed();
         if (sink is null)
         {
             return;
         }
 
         sink.Publish(new TuiFrameDiagnostics(
-            SchedulingDelay: TimeSpan.Zero,
-            LayoutDuration: TimeSpan.Zero,
+            SchedulingDelay: _schedulingDelay,
+            LayoutDuration: instrumentation?.LayoutDuration ?? TimeSpan.Zero,
             DisplayListDuration: displayDuration,
             RasterDuration: rasterDuration,
             DiffDuration: _lastDiffDuration,
             EncodeDuration: _lastEncodeDuration - _lastDiffDuration,
             OutputDuration: _lastOutputDuration,
-            ComponentsMeasured: 0,
+            ComponentsMeasured: instrumentation?.ComponentsMeasured ?? 0,
             ComponentsPainted: _displayList.ComponentsPainted,
             DisplayCommandsReused: _displayList.CommandsReused,
             DisplayCommandsBuilt: _displayList.CommandsBuilt,
@@ -384,6 +398,11 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         WriteFrame(BuildFullFrame, recovery, containsScrollback: scrollback is not null,
             acceptedState: AcceptedState(size, acceptedHardwareCursorRow,
                 TrackHardwareCursor && _currentBuffer!.Grid.HasTerminalCursor, watermark));
+        if (scrollback is not null)
+        {
+            if (recovery) PerformanceCounters?.RecordScrollbackReplayed(scrollback.Rows.Count);
+            else PerformanceCounters?.RecordScrollbackCommitted(scrollback.Rows.Count);
+        }
 
         _hardwareCursorRow = acceptedHardwareCursorRow;
         CommitFrame(size, usedLines);
@@ -391,7 +410,7 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         void BuildFullFrame(AnsiFrameWriter output)
         {
             output.Write(BeginSynchronizedOutput);
-            if (recovery && _scrollbackUncertain && (_capabilities.Features & ManagedTerminalFeatures.ClearScrollback) != 0)
+            if (recovery && (_capabilities.Features & ManagedTerminalFeatures.ClearScrollback) != 0)
                 output.Write(ClearScrollback);
             if (scrollback is not null)
             {

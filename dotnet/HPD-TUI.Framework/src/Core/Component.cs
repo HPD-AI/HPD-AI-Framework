@@ -63,6 +63,7 @@ public abstract class Component : IComponent
     private readonly Dictionary<LayoutCacheKey, CachedChildLayout> _layoutCache = [];
     private ulong _layoutRevision = 1;
     private ulong _paintRevision = 1;
+    private Component? _ownerComponent;
 
     /// <summary>Initializes a component and its stable lifecycle identity.</summary>
     protected Component() => _lifecycle = new ComponentLifecycle(this);
@@ -120,6 +121,7 @@ public abstract class Component : IComponent
             if (_lifecycle.Attachment is { } attachment)
                 attachment.AttachChild(child, _lifecycle.Id);
             _ownedChildren.Add(child);
+            if (child is Component ownedChild) ownedChild._ownerComponent = this;
         }
         catch
         {
@@ -172,6 +174,7 @@ public abstract class Component : IComponent
         if (_lifecycle.Attachment is { } attachment) attachment.DetachChild(child);
         child.Lifecycle.Release(_lifecycle.Id);
         _ownedChildren.Remove(child);
+        if (child is Component ownedChild) ownedChild._ownerComponent = null;
     }
 
     /// <summary>Measures a child through this layout root's revision-keyed cache.</summary>
@@ -228,6 +231,7 @@ public abstract class Component : IComponent
     {
         _lifecycle.AssertMutationAccess();
         _paintRevision = NextRevision(_paintRevision);
+        _ownerComponent?.PropagateDescendantPaintInvalidation();
         _lifecycle.Invalidate(layout: false);
     }
 
@@ -238,6 +242,7 @@ public abstract class Component : IComponent
         _layoutCache.Clear();
         _layoutRevision = NextRevision(_layoutRevision);
         _paintRevision = NextRevision(_paintRevision);
+        _ownerComponent?.PropagateDescendantLayoutInvalidation();
         _lifecycle.Invalidate(layout: true);
     }
 
@@ -255,6 +260,14 @@ public abstract class Component : IComponent
         _layoutCache.Clear();
         _layoutRevision = NextRevision(_layoutRevision);
         _paintRevision = NextRevision(_paintRevision);
+        _ownerComponent?.PropagateDescendantLayoutInvalidation();
+    }
+
+    /// <summary>Advances the retained subtree stamp along the owning dirty path.</summary>
+    internal void PropagateDescendantPaintInvalidation()
+    {
+        _paintRevision = NextRevision(_paintRevision);
+        _ownerComponent?.PropagateDescendantPaintInvalidation();
     }
 
     private ulong NextRevision(ulong value)

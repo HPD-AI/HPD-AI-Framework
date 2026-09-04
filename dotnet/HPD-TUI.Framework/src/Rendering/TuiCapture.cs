@@ -193,7 +193,7 @@ public static class TuiCapture
 
     private static void Render(IComponent component, TerminalGrid grid, in RenderContext context)
     {
-        var displayList = new RetainedDisplayList();
+        using var displayList = new RetainedDisplayList();
         displayList.Prepare(component, in context, grid.Width);
         displayList.Replay(grid);
     }

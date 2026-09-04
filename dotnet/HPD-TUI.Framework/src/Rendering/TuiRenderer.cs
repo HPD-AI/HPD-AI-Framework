@@ -195,6 +195,7 @@ public sealed class TuiRenderer : IDisposable
         }
 
         _disposed = true;
+        _displayList.Dispose();
         _output.Dispose();
         _currentScreen?.Dispose();
         _previousScreen?.Dispose();

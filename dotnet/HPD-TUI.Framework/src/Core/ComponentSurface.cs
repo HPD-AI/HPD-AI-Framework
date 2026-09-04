@@ -128,19 +128,6 @@ internal sealed class ComponentSurface(Action requestRender, Func<bool>? checkAc
     private void Invalidate(ComponentId id, AttachmentGeneration generation, bool layout)
     {
         if (!_attachments.TryGetValue(id, out var current) || current != generation) return;
-        if (layout && _components.TryGetValue(id, out var component))
-        {
-            var parent = component.Lifecycle.Attachment?.Parent;
-            while (parent is { } parentId && _components.TryGetValue(parentId, out var ancestor))
-            {
-                if (ancestor is Component owner)
-                {
-                    owner.PropagateDescendantLayoutInvalidation();
-                    if (owner.EstablishesLayoutRoot) break;
-                }
-                parent = ancestor.Lifecycle.Attachment?.Parent;
-            }
-        }
         requestRender();
     }
 
