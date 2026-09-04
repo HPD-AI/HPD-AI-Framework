@@ -11,6 +11,9 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
     private readonly Stack<PendingSlice> _pendingSlices = [];
     private readonly Dictionary<ComponentId, ComponentRevisions> _committedRevisions = [];
     private bool[] _damagedRows = [];
+    private int _commandsBuilt;
+    private int _commandsReused;
+    private int _componentsPainted;
     private DisplayListKey _key;
     private int _cursorX;
     private int _cursorY;
@@ -21,6 +24,9 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
     public ReadOnlySpan<bool> DamagedRows => _damagedRows;
     public int DamagedRowCount { get; private set; }
     public bool RequiresFullRaster { get; private set; } = true;
+    public int CommandsBuilt => _commandsBuilt;
+    public int CommandsReused => _commandsReused;
+    public int ComponentsPainted => _componentsPainted;
 
     public bool Prepare(IComponent root, in RenderContext context, int maxWidth)
     {
@@ -34,6 +40,9 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
             (dependencies & RenderContextFields.Elapsed) != 0 ? context.Elapsed : default);
         if (_operations.Count > 0 && key == _key && TreeMatches(root))
         {
+            _commandsBuilt = 0;
+            _commandsReused = _operations.Count;
+            _componentsPainted = 0;
             RequiresFullRaster = false;
             DamagedRowCount = 0;
             EnsureDamageRows(context.Height);
@@ -46,6 +55,7 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
         _pendingSlices.Clear();
         _cursorX = 0;
         _cursorY = 0;
+        _commandsBuilt = _commandsReused = _componentsPainted = 0;
         var writer = new DisplayListBuilder(this, maxWidth);
         Begin(root, in context, maxWidth);
         try
@@ -120,6 +130,7 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
             metadata,
             DisplayPayload.FromText(ownedText));
         _building.Add(new DisplayOperation(DisplayOperationKind.Command, command, 0, 0));
+        _commandsBuilt++;
         _cursorX += width;
         return true;
     }
@@ -127,6 +138,7 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
     public bool WriteLineBreak()
     {
         _building.Add(new DisplayOperation(DisplayOperationKind.LineBreak, default, 0, 0));
+        _commandsBuilt++;
         _cursorX = 0;
         _cursorY++;
         return true;
@@ -135,13 +147,17 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
     public void MoveTo(int x, int y)
     {
         _building.Add(new DisplayOperation(DisplayOperationKind.Move, default, x, y));
+        _commandsBuilt++;
         _cursorX = x;
         _cursorY = y;
     }
 
-    public void SetTerminalCursor(int x, int y) =>
+    public void SetTerminalCursor(int x, int y)
+    {
         _building.Add(new DisplayOperation(DisplayOperationKind.Command,
             new DisplayCommand(DisplayCommandKind.SetCursor, new Layout.LayoutRect(x, y, 0, 0), default, default, default), x, y));
+        _commandsBuilt++;
+    }
 
     public bool TryReuse(IComponent component, in RenderContext context, int maxWidth, out int commandCount)
     {
@@ -159,13 +175,17 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
         _cursorX = slice.EndX;
         _cursorY = slice.EndY;
         _buildingSlices[component.Lifecycle.Id] = slice with { Start = start };
+        _commandsReused += slice.Count;
         commandCount = slice.Count;
         return true;
     }
 
     public void Begin(IComponent component, in RenderContext context, int maxWidth)
-        => _pendingSlices.Push(new PendingSlice(component.Lifecycle.Id, CreateSliceKey(component, in context, maxWidth),
+    {
+        _componentsPainted++;
+        _pendingSlices.Push(new PendingSlice(component.Lifecycle.Id, CreateSliceKey(component, in context, maxWidth),
             _building.Count, _cursorX, _cursorY));
+    }
 
     public void End(IComponent component)
     {
