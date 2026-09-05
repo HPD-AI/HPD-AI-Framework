@@ -5,6 +5,7 @@ using HPD.Agent.TUI.Views;
 using HPD.TUI.Components;
 using HPD.TUI.Core;
 using HPD.TUI.Rendering;
+using HPD.TUI.Terminal;
 using HPD.Agent.TUI.Markdown;
 using HPD.TUI.Markdown;
 using HPD.TUI.Observability;
@@ -51,6 +52,41 @@ public sealed class TranscriptViewTests
         first.CacheMisses.Should().Be(1);
         second.CacheHits.Should().Be(1);
         second.CacheMisses.Should().Be(0);
+    }
+
+    [Fact]
+    public void Render_CachePressureRetainsEveryRasterUntilProjectionCompletes()
+    {
+        const int width = 40;
+        using var sizingGrid = new TerminalGrid(width, 1);
+        var model = new TranscriptModel
+        {
+            HistoryPresentation = TranscriptHistoryPresentation.TerminalScrollback
+        };
+        model.AddFinal(Row("first-user", "first", "first"));
+        model.AddFinal(Row("second-user", "second", "second"));
+        model.AddFinal(Row("third-user", "third", "third"));
+        var counters = new TuiPerformanceCounters();
+        var view = new TranscriptView(
+            model,
+            new HpdAgentTuiBuilder().AddDefaultTranscriptRenderers().Build().TranscriptRenderers,
+            height: 12,
+            cacheByteBudget: sizingGrid.EstimatedByteSize * 2,
+            performanceCounters: counters);
+
+        _ = TuiCapture.RenderToString(view, width, 12);
+        var firstPass = counters.Snapshot();
+        firstPass.SurfaceCacheEvictions.Should().BeGreaterThan(0,
+            $"the cache retained {firstPass.SurfaceCacheBytes} bytes under a {sizingGrid.EstimatedByteSize * 2}-byte budget");
+        var context = new RenderContext(width, 12, Theme.Default);
+        var pendingScrollback = view.PrepareScrollback(in context, 64);
+        pendingScrollback.Should().NotBeNull();
+        view.RollbackScrollback(pendingScrollback!);
+        var renderUnderPressure = () => TuiCapture.RenderToString(
+            view, width, 12, trimTrailingBlankLines: true);
+
+        renderUnderPressure.Should().NotThrow()
+            .Which.Should().Contain("first").And.Contain("second").And.Contain("third");
     }
 
     [Fact]

@@ -35,7 +35,7 @@ public readonly record struct MarkdownStreamDiagnosticsSnapshot(
     int StablePrefixNodes = 0,
     long PeakParseStateBytes = 0);
 
-/// <summary>Owns canonical source and newline-gated parsing for one agent message.</summary>
+/// <summary>Owns canonical source and policy-directed incremental parsing for one agent message.</summary>
 public sealed class MarkdownStreamSession
 {
     private readonly ChunkedMarkdownSource _source = new();
@@ -77,6 +77,9 @@ public sealed class MarkdownStreamSession
         LineageId = Guid.NewGuid();
         Projection = new(identity, LineageId);
         _presentation = presentation ?? new();
+        if (!Enum.IsDefined(_presentation.IncompleteLinePolicy))
+            throw new ArgumentOutOfRangeException(nameof(presentation),
+                _presentation.IncompleteLinePolicy, "The incomplete-line policy is not defined.");
         if (_presentation.Visibility == AgentMessageVisibility.Hidden)
             throw new ArgumentException("Hidden streams must use lifecycle-only coordination and cannot own source.", nameof(presentation));
         _additionalProperties = additionalProperties?.ToImmutableDictionary(StringComparer.Ordinal)
@@ -132,7 +135,7 @@ public sealed class MarkdownStreamSession
         return new(true, _parseableSourceLength > previousParseable, Revision);
     }
 
-    /// <summary>Parses the current complete-line prefix and publishes its literal incomplete tail.</summary>
+    /// <summary>Parses and publishes source according to the configured incomplete-line policy.</summary>
     public MarkdownStreamUpdate Refresh() => Publish(terminal: false, MarkdownMessageState.Streaming);
     /// <summary>Completes the stream and parses every accepted code unit.</summary>
     public MarkdownStreamUpdate Complete() => Transition(MarkdownMessageState.Completed);
@@ -161,7 +164,11 @@ public sealed class MarkdownStreamSession
     {
         _deltasCoalesced += Math.Max(0, _pendingDeltas - 1);
         _pendingDeltas = 0;
-        var requestedParsedLength = terminal ? _source.Length : _parseableSourceLength;
+        var requestedParsedLength = terminal
+            ? _source.Length
+            : _presentation.IncompleteLinePolicy == MarkdownIncompleteLinePolicy.StreamRich
+                ? Math.Max(_snapshot.SourceLength, _source.Length - GetAmbiguousPrefixHoldback())
+                : _parseableSourceLength;
         var parsedLength = requestedParsedLength;
         var previousStable = _stableSourceLength;
         if (_snapshot.SourceLength != requestedParsedLength || terminal && _parseState.StableSourceLength != requestedParsedLength)
@@ -223,6 +230,43 @@ public sealed class MarkdownStreamSession
         _publicationCount++;
         if (invalidation == MarkdownInvalidationKind.FullMessage) _fullMessageInvalidations++;
         return new(document, invalidation, previousStable, _stableSourceLength, Diagnostics);
+    }
+
+    private int GetAmbiguousPrefixHoldback()
+    {
+        const int maximumBlockPrefixLength = 8;
+        if (_source.Length > 0)
+        {
+            var last = _source[_source.Length - 1];
+            if (last is '\\' or '&' or '[' or '<') return 1;
+            if (last is '*' or '_' or '~' or '`')
+            {
+                var run = 1;
+                while (run < 3 && run < _source.Length && _source[_source.Length - run - 1] == last)
+                    run++;
+                return run;
+            }
+        }
+
+        var lineStart = _source.FindFinalNewline() + 1;
+        var length = _source.Length - lineStart;
+        if (length is <= 0 or > maximumBlockPrefixLength) return 0;
+
+        Span<char> prefix = stackalloc char[maximumBlockPrefixLength];
+        for (var index = 0; index < length; index++) prefix[index] = _source[lineStart + index];
+        var text = prefix[..length];
+        var allHashes = true;
+        for (var index = 0; index < text.Length; index++) allHashes &= text[index] == '#';
+        if (allHashes && length <= 6) return length;
+        if (text.SequenceEqual("-") || text.SequenceEqual("+") || text.SequenceEqual("*") ||
+            text.SequenceEqual(">") || text.SequenceEqual("`") || text.SequenceEqual("``") ||
+            text.SequenceEqual("```") || text.SequenceEqual("~") || text.SequenceEqual("~~") ||
+            text.SequenceEqual("~~~")) return length;
+        var digits = 0;
+        while (digits < text.Length && char.IsAsciiDigit(text[digits])) digits++;
+        return digits == text.Length || digits > 0 && digits == text.Length - 1 && text[^1] is '.' or ')'
+            ? length
+            : 0;
     }
 
     private int FindStableBoundary(MarkdownDocumentSnapshot snapshot, bool terminal)

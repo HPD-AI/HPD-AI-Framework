@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text;
 using HPD.TUI.Components;
 using HPD.TUI.Core;
@@ -384,6 +385,102 @@ public sealed class ManagedTerminalTuiRendererTests
     }
 
     [Fact]
+    public async Task Application_BlockedNamedCallback_PublishesStallBoundary()
+    {
+        using var terminal = new TestTerminal(40, 8);
+        using var app = new ManagedTerminalTuiApplication(terminal)
+        {
+            EventLoopStallThreshold = TimeSpan.FromMilliseconds(25)
+        };
+        var sink = new RecordingSink();
+        app.PerformanceSink = sink;
+        app.SetRoot(new Text("hello"));
+        using var runCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var run = app.RunAsync(cancellationToken: runCancellation.Token);
+        await WaitUntilAsync(() => app.IsRunning);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var callback = app.InvokeAsync(
+            "agent-event-batch-apply",
+            async () => await release.Task.ConfigureAwait(false));
+
+        await WaitUntilAsync(() => sink.Events.OfType<TuiEventLoopOperationStalled>().Any());
+        var stalled = Assert.Single(sink.Events.OfType<TuiEventLoopOperationStalled>());
+        Assert.Equal("agent-event-batch-apply", stalled.Operation);
+        Assert.Equal(app.EventLoopStallThreshold, stalled.Threshold);
+
+        release.TrySetResult();
+        await callback;
+        await runCancellation.CancelAsync();
+        await run;
+    }
+
+    [Fact]
+    public async Task Application_CancellationReleasesInvocationWaitingBehindBlockedCallback()
+    {
+        using var terminal = new TestTerminal(40, 8);
+        using var app = new ManagedTerminalTuiApplication(terminal);
+        using var runCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        using var invocationCancellation = new CancellationTokenSource();
+        var callbackStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseCallback = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        app.SetRoot(new Text("hello"));
+        var run = app.RunAsync(cancellationToken: runCancellation.Token);
+
+        async ValueTask BlockEventLoopAsync()
+        {
+            callbackStarted.TrySetResult();
+            await releaseCallback.Task.ConfigureAwait(false);
+        }
+
+        var blockingInvocation = app.InvokeAsync("blocking-callback", BlockEventLoopAsync).AsTask();
+        await callbackStarted.Task;
+
+        var waitingInvocationSource = new TaskCompletionSource<Task>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var invokingThread = new Thread(() => waitingInvocationSource.TrySetResult(
+            app.InvokeAsync(
+                "waiting-callback",
+                () => ValueTask.CompletedTask,
+                invocationCancellation.Token).AsTask()));
+        invokingThread.Start();
+        invokingThread.Join();
+        var waitingInvocation = await waitingInvocationSource.Task;
+
+        await invocationCancellation.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waitingInvocation);
+
+        releaseCallback.TrySetResult();
+        await blockingInvocation;
+        await runCancellation.CancelAsync();
+        await run;
+    }
+
+    [Fact]
+    public async Task Application_DispatcherRetainsLogicalAccessAcrossAsyncCallbacks()
+    {
+        using var terminal = new TestTerminal(40, 8);
+        using var app = new ManagedTerminalTuiApplication(terminal);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        var sequence = new List<int>();
+        app.SetRoot(new Text("hello"));
+        var run = app.RunAsync(cancellationToken: cancellation.Token);
+
+        await app.InvokeAsync(async () =>
+        {
+            sequence.Add(1);
+            await Task.Yield();
+            Assert.True(app.CheckAccess());
+            await app.InvokeAsync(() => sequence.Add(2));
+            sequence.Add(3);
+        });
+        await cancellation.CancelAsync();
+        await run;
+
+        Assert.Equal([1, 2, 3], sequence);
+    }
+
+    [Fact]
     public async Task Application_ResizeEvent_RendersWithoutDispatchingToComponent()
     {
         using var terminal = new TestTerminal(40, 8);
@@ -516,12 +613,19 @@ public sealed class ManagedTerminalTuiRendererTests
 
     private sealed class RecordingSink : IHpdTuiPerformanceEventSink
     {
-        public List<Event> Events { get; } = [];
+        public ConcurrentQueue<Event> Events { get; } = new();
 
         public void Publish(Event evt)
         {
-            Events.Add(evt);
+            Events.Enqueue(evt);
         }
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        while (!condition())
+            await Task.Delay(5, timeout.Token);
     }
 
     private sealed class BackpressureOnceTransport : ITerminalOutputTransport

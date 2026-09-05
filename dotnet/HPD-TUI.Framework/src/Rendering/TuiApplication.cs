@@ -289,6 +289,10 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Cancellation releases the caller even when the invocation is still queued behind other
+    /// dispatcher work. A queued invocation observes the same token before executing.
+    /// </remarks>
     public ValueTask InvokeAsync(Action callback, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(callback);
@@ -300,10 +304,16 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
             try { callback(); completion.TrySetResult(); }
             catch (Exception exception) { completion.TrySetException(exception); }
         });
-        return new ValueTask(completion.Task);
+        return new ValueTask(cancellationToken.CanBeCanceled
+            ? completion.Task.WaitAsync(cancellationToken)
+            : completion.Task);
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Cancellation releases the caller even when the invocation is still queued behind other
+    /// dispatcher work. A queued invocation observes the same token before executing.
+    /// </remarks>
     public ValueTask InvokeAsync(Func<ValueTask> callback, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(callback);
@@ -318,7 +328,9 @@ public sealed class TuiApplication : IDisposable, ITuiDispatcher
         };
         if (!mailbox.TryWrite(new TuiLoopEvent(TuiLoopEventKind.Callback, Callback: invocation)))
             throw new InvalidOperationException("The TUI event-loop mailbox rejected the callback.");
-        return new ValueTask(completion.Task);
+        return new ValueTask(cancellationToken.CanBeCanceled
+            ? completion.Task.WaitAsync(cancellationToken)
+            : completion.Task);
     }
 
     private static async ValueTask<bool> WaitForEventOrFrameAsync(

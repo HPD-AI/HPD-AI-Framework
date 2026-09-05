@@ -5,7 +5,8 @@ namespace HPD.TUI.Rendering;
 internal readonly record struct TuiLoopEvent(
     TuiLoopEventKind Kind,
     TerminalInputEvent Input = default,
-    Func<ValueTask>? Callback = null);
+    Func<ValueTask>? Callback = null,
+    string? OperationName = null);
 
 internal enum TuiLoopEventKind
 {

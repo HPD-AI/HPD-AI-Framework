@@ -93,6 +93,43 @@ public sealed class TuiApplicationTests
     }
 
     [Fact]
+    public async Task Dispatcher_CancellationReleasesInvocationWaitingBehindBlockedCallback()
+    {
+        using var terminal = new TestTerminal();
+        using var app = new TuiApplication(terminal);
+        using var runCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        using var invocationCancellation = new CancellationTokenSource();
+        var callbackStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseCallback = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        app.SetRoot(new Text("hello"));
+        var run = app.RunAsync(cancellationToken: runCancellation.Token);
+
+        async ValueTask BlockEventLoopAsync()
+        {
+            callbackStarted.TrySetResult();
+            await releaseCallback.Task.ConfigureAwait(false);
+        }
+
+        var blockingInvocation = app.InvokeAsync(BlockEventLoopAsync).AsTask();
+        await callbackStarted.Task;
+        var waitingInvocationSource = new TaskCompletionSource<Task>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var invokingThread = new Thread(() => waitingInvocationSource.TrySetResult(
+            app.InvokeAsync(() => ValueTask.CompletedTask, invocationCancellation.Token).AsTask()));
+        invokingThread.Start();
+        invokingThread.Join();
+        var waitingInvocation = await waitingInvocationSource.Task;
+
+        await invocationCancellation.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waitingInvocation);
+
+        releaseCallback.TrySetResult();
+        await blockingInvocation;
+        await runCancellation.CancelAsync();
+        await run;
+    }
+
+    [Fact]
     public async Task RunAsync_RoutesControlsAndFramesThroughOneBackpressureAwareTransport()
     {
         using var terminal = new TestTerminal();

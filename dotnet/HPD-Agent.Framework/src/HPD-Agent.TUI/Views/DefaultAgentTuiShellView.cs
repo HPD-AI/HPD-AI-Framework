@@ -20,6 +20,7 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiFramePreparab
     private readonly RetainedShellStack _shell;
     private readonly TranscriptView _transcript;
     private readonly MainSectionView _mainSection;
+    private readonly FixedViewport _mainViewport;
     private int _lastTranscriptHeight;
 
     public DefaultAgentTuiShellView(AgentTuiShellLayoutContext context)
@@ -41,6 +42,7 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiFramePreparab
             performanceSink);
         _model.Transcript.HistoryPresentation = _registry.TranscriptHistoryPresentation;
         _mainSection = new MainSectionView(this);
+        _mainViewport = new FixedViewport(_mainSection, _lastTranscriptHeight);
         _shell = CreateShell();
     }
 
@@ -111,7 +113,7 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiFramePreparab
             AddSection(shell, _chrome.Header, new ShellContributionView(_model, _registry.Header), isMain: false);
         }
 
-        AddSection(shell, _chrome.Transcript, _mainSection, isMain: true);
+        AddSection(shell, _chrome.Transcript, _mainViewport, isMain: true);
         AddSection(shell, _chrome.Activity, BuildActivitySection(), isMain: false);
 
         AddSection(
@@ -285,6 +287,7 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiFramePreparab
         var transcriptHeight = GetTranscriptHeight(in context);
         _lastTranscriptHeight = transcriptHeight;
         _transcript.SetHeight(transcriptHeight);
+        _mainViewport.Height = transcriptHeight;
     }
 
     private int GetTranscriptHeight(in RenderContext context)

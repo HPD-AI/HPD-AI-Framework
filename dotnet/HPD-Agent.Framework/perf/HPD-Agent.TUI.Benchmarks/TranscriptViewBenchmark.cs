@@ -56,7 +56,8 @@ public class TranscriptViewBenchmark
         var model = CreateTranscript(1_000);
         var view = new TranscriptView(model, _renderers, height: 16);
         Render(view);
-        model.UpsertLive(Row(_updateIndex, $"updated visible row {_updateIndex++:D4}"));
+        model.UpsertLive(Row(_updateIndex, $"updated visible row {_updateIndex++:D4}"),
+            CommittedHistoryMutationPolicy.Reject);
         return Render(view);
     }
 

@@ -39,6 +39,8 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     private readonly HpdAgentTuiRegistry _registry;
     private readonly ManagedTerminalTuiApplication _application;
     private readonly MarkdownStreamCoordinator _markdownStreams;
+    private readonly List<PreparedMarkdownPublication> _preparedMarkdownPublications = [];
+    private readonly SemaphoreSlim _markdownWorker = new(1, 1);
     private readonly HashSet<MarkdownStreamIdentity> _activeMarkdownStreams = [];
     private readonly object _commandGate = new();
     private readonly Queue<QueuedCommand> _queuedCommands = [];
@@ -76,15 +78,19 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         IHpdAgentTuiRuntime runtime,
         AgentTuiExecutionTarget? requestedTarget,
         HpdAgentTuiRegistry registry,
-        ITerminal terminal)
+        ITerminal terminal,
+        IMarkdownDocumentParser? markdownParser = null)
     {
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         _requestedTarget = requestedTarget;
         _registry = registry;
         _application = new ManagedTerminalTuiApplication(terminal);
-        _markdownStreams = new MarkdownStreamCoordinator(
-            new AgentTuiDispatcher(_application),
-            PublishMarkdownUpdate);
+        _markdownStreams = markdownParser is null
+            ? new MarkdownStreamCoordinator(PrepareMarkdownPublication)
+            : new MarkdownStreamCoordinator(
+                PrepareMarkdownPublication,
+                (identity, presentation, properties) => new MarkdownStreamSession(
+                    identity, presentation, markdownParser, additionalProperties: properties));
         _application.ShortcutHandler = TryExecuteShortcut;
         _application.FramePreparing = PrepareMarkdownFrame;
         _application.Stopping = DiscardMarkdownState;
@@ -108,6 +114,19 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         _ = registry.PromptFactory;
         _ = registry.ShellLayout;
         return new HpdAgentTuiApp(runtime, target, registry, terminal ?? new ProcessTerminal());
+    }
+
+    internal static HpdAgentTuiApp Create(
+        IHpdAgentTuiRuntime runtime,
+        AgentTuiExecutionTarget? target,
+        Action<HpdAgentTuiBuilder>? configure,
+        ITerminal terminal,
+        IMarkdownDocumentParser markdownParser)
+    {
+        ArgumentNullException.ThrowIfNull(markdownParser);
+        var builder = new HpdAgentTuiBuilder();
+        configure?.Invoke(builder);
+        return new HpdAgentTuiApp(runtime, target, builder.Build(), terminal, markdownParser);
     }
 
     public async Task RunAsync(
@@ -1070,10 +1089,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 .WithCancellation(cancellationToken)
                 .ConfigureAwait(false))
             {
-                await _application.InvokeAsync(
-                        () => new ValueTask(OnAgentEventBatchAsync(batch, cancellationToken)),
-                        cancellationToken)
-                    .ConfigureAwait(false);
+                await OnAgentEventBatchAsync(batch, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -1129,43 +1145,59 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             return;
         }
 
-        var hasPerformanceSink = AgentTuiPerformanceDiagnostics.TryGetSink(_state.State, out var performanceSink);
-        var startedAt = hasPerformanceSink ? Stopwatch.GetTimestamp() : 0;
-        using (_state.Shell.Transcript.BeginUpdate())
+        var prepared = new List<PreparedBatchPublication>();
+        await _markdownWorker.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            foreach (var evt in events)
+            for (var index = 0; index < events.Count; index++)
             {
-                await OnAgentEventAsync(evt, batch.DeliveryMode, cancellationToken).ConfigureAwait(false);
-            }
-        }
-
-        _appliedCursor = batch.LastCursor;
-        if (batch.DeliveryMode == AgentTuiEventDeliveryMode.Historical &&
-            _hydratedThreadState is { } hydratedThreadState)
-        {
-            ReconcileRuntimeState(hydratedThreadState);
-            await ReconcileThreadPresentationAsync(hydratedThreadState, cancellationToken)
-                .ConfigureAwait(false);
-        }
-        performanceSink?.Publish(new AgentTuiEventBatchApplied(
-            _scope?.AgentId,
-            batch.DeliveryMode,
-            events.Count,
-            batch.FirstCursor,
-            batch.LastCursor,
-            Stopwatch.GetElapsedTime(startedAt))
-        {
-            SessionId = _scope?.SessionId,
-            ThreadId = _scope?.ThreadId,
-            Metadata = _scope is null
-                ? null
-                : new AgentMetadata
+                var evt = events[index];
+                if (_scope is not null && AgentTuiEventScope.CurrentThread.Includes(evt, _scope))
                 {
-                    AgentId = _scope.AgentId,
-                    AgentName = _scope.AgentId
+                    if (evt is ToolCallStartEvent) _markdownStreams.RefreshPending();
+                    ProjectMarkdownEvent(evt);
+                    var publications = TakePreparedMarkdownPublications();
+                    if (publications.Length > 0) prepared.Add(new(index, publications));
                 }
-        });
-        RequestRender();
+            }
+            _markdownStreams.RefreshPending();
+            var tail = TakePreparedMarkdownPublications();
+            if (tail.Length > 0) prepared.Add(new(events.Count, tail));
+        }
+        finally { _markdownWorker.Release(); }
+
+        await InvokeApplicationAsync(async () =>
+        {
+            using var update = _state!.Shell.Transcript.BeginUpdate();
+            var publicationIndex = 0;
+            for (var index = 0; index <= events.Count; index++)
+            {
+                while (publicationIndex < prepared.Count && prepared[publicationIndex].BeforeEventIndex == index)
+                    CommitMarkdownPublications(prepared[publicationIndex++].Publications);
+                if (index < events.Count)
+                    await OnAgentEventAsync(events[index], batch.DeliveryMode, cancellationToken).ConfigureAwait(false);
+            }
+            var hasPerformanceSink = AgentTuiPerformanceDiagnostics.TryGetSink(_state!.State, out var performanceSink);
+            var startedAt = hasPerformanceSink ? Stopwatch.GetTimestamp() : 0;
+            _appliedCursor = batch.LastCursor;
+            if (batch.DeliveryMode == AgentTuiEventDeliveryMode.Historical &&
+                _hydratedThreadState is { } hydratedThreadState)
+            {
+                ReconcileRuntimeState(hydratedThreadState);
+                await ReconcileThreadPresentationAsync(hydratedThreadState, cancellationToken).ConfigureAwait(false);
+            }
+            performanceSink?.Publish(new AgentTuiEventBatchApplied(
+                _scope?.AgentId, batch.DeliveryMode, events.Count, batch.FirstCursor, batch.LastCursor,
+                Stopwatch.GetElapsedTime(startedAt))
+            {
+                SessionId = _scope?.SessionId, ThreadId = _scope?.ThreadId,
+                Metadata = _scope is null ? null : new AgentMetadata
+                {
+                    AgentId = _scope.AgentId, AgentName = _scope.AgentId
+                }
+            });
+            RequestRender();
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task OnAgentEventAsync(
@@ -1177,9 +1209,6 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         {
             return;
         }
-
-        if (AgentTuiEventScope.CurrentThread.Includes(evt, _scope))
-            ProjectMarkdownEvent(evt);
 
         await _state.ApplyEventAsync(evt, cancellationToken, deliveryMode).ConfigureAwait(false);
         if (deliveryMode != AgentTuiEventDeliveryMode.Historical &&
@@ -1220,7 +1249,8 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                         start.Metadata?.AgentChain,
                         start.Metadata?.Depth ?? 0,
                         start.SessionId,
-                        start.ThreadId),
+                        start.ThreadId,
+                        _registry.MarkdownIncompleteLinePolicy),
                     start.AdditionalProperties is null
                         ? null
                         : new Dictionary<string, object?>(start.AdditionalProperties, StringComparer.Ordinal));
@@ -1246,7 +1276,8 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                         AgentChain: start.Metadata?.AgentChain,
                         AgentDepth: start.Metadata?.Depth ?? 0,
                         SessionId: start.SessionId,
-                        ThreadId: start.ThreadId));
+                        ThreadId: start.ThreadId,
+                        IncompleteLinePolicy: _registry.MarkdownIncompleteLinePolicy));
                 break;
             case ReasoningDeltaEvent delta when _registry.ShowReasoning:
                 _markdownStreams.Append(new(MarkdownStreamKind.Reasoning, delta.MessageId), delta.Text);
@@ -1267,12 +1298,46 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         }
     }
 
-    private void PublishMarkdownUpdate(MarkdownStreamUpdate update, MarkdownMessageProjection projection)
+    private sealed record PreparedMarkdownPublication(
+        MarkdownStreamUpdate Update,
+        MarkdownMessageProjection Projection,
+        MarkdownLayout Layout);
+
+    private sealed record PreparedBatchPublication(
+        int BeforeEventIndex,
+        PreparedMarkdownPublication[] Publications);
+
+    private void PrepareMarkdownPublication(MarkdownStreamUpdate update, MarkdownMessageProjection projection)
     {
         if (_state is null || update.Document.Presentation.Visibility == AgentMessageVisibility.Hidden) return;
         var document = update.Document;
         var reasoning = document.Identity.Kind == MarkdownStreamKind.Reasoning;
         var layout = PrepareMarkdown(document, projection, _application.Size.Width, _application.Theme, reasoning);
+        _preparedMarkdownPublications.Add(new(update, projection, layout));
+    }
+
+    private PreparedMarkdownPublication[] TakePreparedMarkdownPublications()
+    {
+        if (_preparedMarkdownPublications.Count == 0) return [];
+        var publications = _preparedMarkdownPublications.ToArray();
+        _preparedMarkdownPublications.Clear();
+        return publications;
+    }
+
+    private void CommitMarkdownPublications(IEnumerable<PreparedMarkdownPublication> publications)
+    {
+        foreach (var publication in publications)
+            CommitMarkdownPublication(publication);
+    }
+
+    private void CommitMarkdownPublication(PreparedMarkdownPublication publication)
+    {
+        if (_state is null) return;
+        var update = publication.Update;
+        var projection = publication.Projection;
+        var layout = publication.Layout;
+        var document = update.Document;
+        var reasoning = document.Identity.Kind == MarkdownStreamKind.Reasoning;
         if (AgentTuiPerformanceDiagnostics.TryGetSink(_state.State, out var performanceSink))
             performanceSink.Publish(new MarkdownProjectionMeasured(
                 _scope?.AgentId,
@@ -1314,6 +1379,15 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             _state.Shell.Transcript.UpsertLive(entry, CommittedHistoryMutationPolicy.Reject);
         else
             _state.Shell.Transcript.FinalizeLive(entryKey, entry, CommittedHistoryMutationPolicy.Reject);
+    }
+
+    private Task InvokeApplicationAsync(Func<Task> callback, CancellationToken cancellationToken)
+    {
+        if (!_application.IsRunning) return callback();
+        return _application.InvokeAsync(
+            "agent-event-batch-apply",
+            async () => await callback().ConfigureAwait(false),
+            cancellationToken).AsTask();
     }
 
     private void PrepareMarkdownFrame(TerminalSize size, Theme theme)
@@ -1605,7 +1679,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
 
     private void DiscardMarkdownState()
     {
-        _markdownStreams.DiscardAll();
+        _markdownStreams.DiscardAllAfterProducerStopped();
         _activeMarkdownStreams.Clear();
     }
 

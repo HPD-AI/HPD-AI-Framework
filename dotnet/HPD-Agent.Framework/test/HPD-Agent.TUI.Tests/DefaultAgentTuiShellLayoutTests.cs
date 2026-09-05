@@ -112,6 +112,22 @@ public sealed class DefaultAgentTuiShellLayoutTests
     }
 
     [Fact]
+    public void Render_TranscriptGrowthDoesNotMovePromptOrChangeViewportHeight()
+    {
+        var model = new ChatShellModel(new AgentTuiRuntimeScope("agent", "session", "main"));
+        var shell = CreateShell(model);
+
+        var empty = TuiCapture.RenderToLines(shell, width: 96, height: 24);
+        model.Transcript.AddFinal(Row("row-1", "assistant", "hello"));
+        var populated = TuiCapture.RenderToLines(shell, width: 96, height: 24);
+
+        Array.FindIndex(empty, line => line.Contains("Ask HPD", StringComparison.Ordinal))
+            .Should().Be(Array.FindIndex(populated,
+                line => line.Contains("Ask HPD", StringComparison.Ordinal)));
+        populated.Should().HaveCount(empty.Length);
+    }
+
+    [Fact]
     public void Render_UsesConfiguredShellChrome()
     {
         var model = new ChatShellModel(new AgentTuiRuntimeScope("agent", "session", "main"));

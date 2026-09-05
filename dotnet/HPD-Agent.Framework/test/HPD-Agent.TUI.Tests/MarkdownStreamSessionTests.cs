@@ -8,9 +8,24 @@ namespace HPD.Agent.TUI.Tests;
 public sealed class MarkdownStreamSessionTests
 {
     [Fact]
-    public void Append_DoesNotParseIncompletePhysicalLine()
+    public void AgentTuiDefaultsToStreamRichAndAllowsLiteralTailSelection()
     {
-        var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "m1"));
+        Assert.Equal(MarkdownIncompleteLinePolicy.StreamRich,
+            new HpdAgentTuiBuilder().Build().MarkdownIncompleteLinePolicy);
+        Assert.Equal(MarkdownIncompleteLinePolicy.CompleteLineWithLiteralTail,
+            new HpdAgentTuiBuilder()
+                .UseMarkdownIncompleteLinePolicy(MarkdownIncompleteLinePolicy.CompleteLineWithLiteralTail)
+                .Build()
+                .MarkdownIncompleteLinePolicy);
+        Assert.Throws<ArgumentOutOfRangeException>(() => new HpdAgentTuiBuilder()
+            .UseMarkdownIncompleteLinePolicy((MarkdownIncompleteLinePolicy)int.MaxValue));
+    }
+
+    [Fact]
+    public void CompleteLineWithLiteralTail_DoesNotParseIncompletePhysicalLine()
+    {
+        var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "m1"),
+            new(IncompleteLinePolicy: MarkdownIncompleteLinePolicy.CompleteLineWithLiteralTail));
         var change = session.Append("# partial");
 
         var update = session.Refresh();
@@ -19,6 +34,102 @@ public sealed class MarkdownStreamSessionTests
         Assert.Equal(string.Empty, update.Document.Parsed.Source);
         Assert.Equal("# partial", update.Document.UnparsedTail);
         Assert.Equal("# partial", update.Document.GetCanonicalSource());
+
+        var layout = session.Projection.ResolveLayout(update.Document,
+            new(40, MarkdownTheme.FromTheme(Theme.Default)), new MarkdownLayoutEngine());
+        Assert.Equal("# partial", VisibleText(layout));
+    }
+
+    [Theory]
+    [InlineData("#", " heading", "heading")]
+    [InlineData("##", " heading", "heading")]
+    [InlineData("-", " item", "• item")]
+    [InlineData("```", "text\nvalue\n```", "code")]
+    public void StreamRich_HoldsAmbiguousPrefixThenPublishesRecognizedStructure(
+        string prefix, string continuation, string expectedVisible)
+    {
+        var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "prefix"));
+        session.Append(prefix);
+        var held = session.Refresh().Document;
+        var options = new MarkdownLayoutOptions(80, MarkdownTheme.FromTheme(Theme.Default));
+        var engine = new MarkdownLayoutEngine();
+
+        Assert.Equal(0, held.Parsed.SourceLength);
+        Assert.Empty(VisibleText(session.Projection.ResolveLayout(held, options, engine)));
+        Assert.Equal(prefix, held.GetCanonicalSource());
+
+        session.Append(continuation);
+        var published = session.Refresh().Document;
+        var visible = VisibleText(session.Projection.ResolveLayout(published, options, engine));
+
+        Assert.Contains(expectedVisible, visible, StringComparison.Ordinal);
+        Assert.Equal(prefix + continuation, published.GetCanonicalSource());
+    }
+
+    [Fact]
+    public void StreamRich_HoldsAmbiguousInlineEmphasisMarkerWithoutLosingSource()
+    {
+        var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "emphasis"));
+        session.Append("text **");
+
+        var held = session.Refresh().Document;
+
+        Assert.Equal("text ", held.Parsed.Source);
+        Assert.Equal("**", held.UnparsedTail);
+        Assert.Equal("text **", held.GetCanonicalSource());
+    }
+
+    [Fact]
+    public void StreamRich_ParsesRecognizedIncompleteHeadingWithoutShowingMarkers()
+    {
+        var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "rich-heading"));
+        session.Append("## partial");
+
+        var document = session.Refresh().Document;
+        var visible = VisibleText(session.Projection.ResolveLayout(document,
+            new(40, MarkdownTheme.FromTheme(Theme.Default)), new MarkdownLayoutEngine()));
+
+        Assert.Equal("## partial", document.Parsed.Source);
+        Assert.Empty(document.UnparsedTail);
+        Assert.Contains("partial", visible, StringComparison.Ordinal);
+        Assert.DoesNotContain("##", visible, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void StreamRich_TerminalPublicationAtSameRevisionDoesNotReuseHeldLayout()
+    {
+        var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "terminal-prefix"));
+        var options = new MarkdownLayoutOptions(40, MarkdownTheme.FromTheme(Theme.Default));
+        var engine = new MarkdownLayoutEngine();
+        session.Append("[");
+
+        var streaming = session.Refresh().Document;
+        var streamingLayout = session.Projection.Prepare(streaming, options, engine);
+        var terminal = session.Complete().Document;
+        var terminalLayout = session.Projection.Prepare(terminal, options, engine);
+
+        Assert.Equal(streaming.Revision, terminal.Revision);
+        Assert.Empty(streamingLayout.Rows);
+        Assert.NotSame(streamingLayout, terminalLayout);
+        Assert.Equal("[", VisibleText(terminalLayout));
+    }
+
+    [Fact]
+    public void StreamRich_ResourceLimitFallbackDoesNotDisplayHeldAmbiguousTail()
+    {
+        var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "limited"));
+        session.Append("first\n\nsecond\n\n##");
+        var document = session.Refresh().Document;
+        var options = new MarkdownLayoutOptions(40, MarkdownTheme.FromTheme(Theme.Default))
+        {
+            ResourceLimits = new MarkdownResourceLimits { MaximumLayoutRows = 1 }
+        };
+
+        var visible = VisibleText(session.Projection.ResolveLayout(document, options, new MarkdownLayoutEngine()));
+
+        Assert.DoesNotContain("##", visible, StringComparison.Ordinal);
+        Assert.Equal("##", document.UnparsedTail);
+        Assert.Equal("first\n\nsecond\n\n##", document.GetCanonicalSource());
     }
 
     [Fact]
@@ -115,15 +226,13 @@ public sealed class MarkdownStreamSessionTests
     [Fact]
     public void Coordinator_EndBeforeQueuedRefresh_PublishesOneExactTerminalDocument()
     {
-        var dispatcher = new QueuedDispatcher();
         var updates = new List<MarkdownStreamUpdate>();
-        var coordinator = new MarkdownStreamCoordinator(dispatcher, (update, _) => updates.Add(update));
+        var coordinator = new MarkdownStreamCoordinator((update, _) => updates.Add(update));
         var identity = new MarkdownStreamIdentity(MarkdownStreamKind.Assistant, "m1");
         coordinator.Start(identity);
         coordinator.Append(identity, "unterminated");
         coordinator.Complete(identity);
 
-        dispatcher.Drain();
 
         var terminal = Assert.Single(updates);
         Assert.Equal("unterminated", terminal.Document.GetCanonicalSource());
@@ -133,15 +242,13 @@ public sealed class MarkdownStreamSessionTests
     [Fact]
     public void CoordinatorReplayBurstCoalescesToOneNewestRefreshWithoutDroppingSource()
     {
-        var dispatcher = new QueuedDispatcher();
         var updates = new List<MarkdownStreamUpdate>();
-        var coordinator = new MarkdownStreamCoordinator(dispatcher, (update, _) => updates.Add(update));
+        var coordinator = new MarkdownStreamCoordinator((update, _) => updates.Add(update));
         var identity = new MarkdownStreamIdentity(MarkdownStreamKind.Assistant, "replay");
         coordinator.Start(identity);
-        dispatcher.Drain();
         for (var index = 0; index < 100; index++) coordinator.Append(identity, $"{index}\n");
+        coordinator.RefreshPending();
 
-        dispatcher.Drain();
 
         var update = Assert.Single(updates);
         Assert.Equal(string.Concat(Enumerable.Range(0, 100).Select(static index => $"{index}\n")),
@@ -153,10 +260,9 @@ public sealed class MarkdownStreamSessionTests
     [Fact]
     public void Coordinator_DuplicateStartInterruptsOldLineageAndIsolatesReplacement()
     {
-        var dispatcher = new QueuedDispatcher();
         var updates = new List<MarkdownStreamUpdate>();
         var diagnostics = new List<string>();
-        var coordinator = new MarkdownStreamCoordinator(dispatcher, (update, _) => updates.Add(update), diagnostics.Add);
+        var coordinator = new MarkdownStreamCoordinator((update, _) => updates.Add(update), diagnostics.Add);
         var identity = new MarkdownStreamIdentity(MarkdownStreamKind.Assistant, "same");
         coordinator.Start(identity);
         coordinator.Append(identity, "old");
@@ -164,7 +270,6 @@ public sealed class MarkdownStreamSessionTests
         coordinator.Append(identity, "new");
         coordinator.Complete(identity);
 
-        dispatcher.Drain();
 
         Assert.Collection(updates,
             old => { Assert.Equal("old", old.Document.GetCanonicalSource()); Assert.Equal(MarkdownMessageState.Interrupted, old.Document.State); },
@@ -176,10 +281,9 @@ public sealed class MarkdownStreamSessionTests
     [Fact]
     public void Coordinator_DeltaBeforeStartAndHiddenSourceNeverPublishContent()
     {
-        var dispatcher = new QueuedDispatcher();
         var updates = new List<MarkdownStreamUpdate>();
         var diagnostics = new List<string>();
-        var coordinator = new MarkdownStreamCoordinator(dispatcher, (update, _) => updates.Add(update), diagnostics.Add);
+        var coordinator = new MarkdownStreamCoordinator((update, _) => updates.Add(update), diagnostics.Add);
         var missing = new MarkdownStreamIdentity(MarkdownStreamKind.Reasoning, "missing");
         var hidden = new MarkdownStreamIdentity(MarkdownStreamKind.Assistant, "hidden");
         coordinator.Append(missing, "protected");
@@ -187,7 +291,6 @@ public sealed class MarkdownStreamSessionTests
         coordinator.Append(hidden, "secret");
         coordinator.Complete(hidden);
 
-        dispatcher.Drain();
 
         Assert.Empty(updates);
         Assert.Single(diagnostics);
@@ -201,8 +304,7 @@ public sealed class MarkdownStreamSessionTests
     [InlineData(MarkdownMessageState.Failed)]
     public void LifecycleOnlyHiddenStreamsRetainTerminalStateWithoutRetainingSource(MarkdownMessageState state)
     {
-        var dispatcher = new QueuedDispatcher();
-        var coordinator = new MarkdownStreamCoordinator(dispatcher, static (_, _) =>
+        var coordinator = new MarkdownStreamCoordinator(static (_, _) =>
             throw new InvalidOperationException("A hidden stream must not publish."));
         var identity = new MarkdownStreamIdentity(MarkdownStreamKind.Reasoning, state.ToString());
         coordinator.Start(identity, new MarkdownMessagePresentation(Visibility: AgentMessageVisibility.Hidden));
@@ -214,7 +316,6 @@ public sealed class MarkdownStreamSessionTests
             case MarkdownMessageState.Cancelled: coordinator.Cancel(identity); break;
             case MarkdownMessageState.Failed: coordinator.Fail(identity); break;
         }
-        dispatcher.Drain();
 
         Assert.True(coordinator.TryGetTerminalState(identity, out var actual));
         Assert.Equal(state, actual);
@@ -433,7 +534,8 @@ public sealed class MarkdownStreamSessionTests
     [InlineData("| h |\n|---|\n| v |\n\n```text\ncode\n```\n\nparagraph", 4)]
     public void EveryPublicationStableRegionAndEveryResizeMatchColdOracle(string source, int partition)
     {
-        var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "oracle"));
+        var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "oracle"),
+            new(IncompleteLinePolicy: MarkdownIncompleteLinePolicy.CompleteLineWithLiteralTail));
         var engine = new MarkdownLayoutEngine();
         var parser = new MarkdownDocumentParser();
         var pipeline = MarkdownPipelineFactory.CreateDefault();
@@ -603,26 +705,13 @@ public sealed class MarkdownStreamSessionTests
                 $"{row.Kind}|{row.BlockOrdinal}|{row.SourceStart}|{row.SourceEndExclusive}|{row.IsDecorative}|{run.Text}|{run.Style}|{run.Hyperlink?.Destination}"))
         .ToArray();
 
+    private static string VisibleText(MarkdownLayout layout) => string.Concat(
+        layout.Rows.SelectMany(static row => row.Line.Runs).Select(static run => run.Text));
+
     private static IReadOnlyList<string> BlockFingerprints(MarkdownLayout layout, HashSet<int> ordinals) => layout.Rows
         .Where(row => row.BlockOrdinal is { } ordinal && ordinals.Contains(ordinal))
         .SelectMany(static row => row.Line.Runs.Select(run =>
             $"{row.BlockOrdinal}|{run.Text}|{run.Style}|{run.Hyperlink?.Destination}|{run.SourceStart}|{run.SourceEndExclusive}"))
         .ToArray();
 
-    private sealed class QueuedDispatcher : IAgentTuiDispatcher
-    {
-        private readonly Queue<Action> _callbacks = [];
-        public bool CheckAccess() => true;
-        public void Post(Action callback) => _callbacks.Enqueue(callback);
-        public ValueTask InvokeAsync(Action callback, CancellationToken cancellationToken = default) { Post(callback); return ValueTask.CompletedTask; }
-        public ValueTask InvokeAsync(Func<ValueTask> callback, CancellationToken cancellationToken = default)
-        {
-            Post(() => callback().GetAwaiter().GetResult());
-            return ValueTask.CompletedTask;
-        }
-        public void Drain()
-        {
-            while (_callbacks.TryDequeue(out var callback)) callback();
-        }
-    }
 }

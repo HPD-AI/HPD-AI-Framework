@@ -1,4 +1,5 @@
 using HPD.TUI.Markdown;
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Globalization;
@@ -16,6 +17,19 @@ public enum MarkdownStreamKind { Assistant, Reasoning }
 /// <summary>Identifies the lifecycle state of a source-backed message.</summary>
 public enum MarkdownMessageState { Streaming, Completed, Interrupted, Cancelled, Failed }
 
+/// <summary>Controls how rich presentation treats the incomplete physical line of a live stream.</summary>
+public enum MarkdownIncompleteLinePolicy
+{
+    /// <summary>
+    /// Renders the incomplete line as rich Markdown at each publication while briefly withholding
+    /// a bounded suffix whose Markdown meaning is still ambiguous.
+    /// </summary>
+    StreamRich,
+
+    /// <summary>Parses complete physical lines and displays the incomplete line as literal text.</summary>
+    CompleteLineWithLiteralTail
+}
+
 /// <summary>Captures non-layout message presentation metadata.</summary>
 public sealed record MarkdownMessagePresentation(
     string? Role = null,
@@ -31,7 +45,8 @@ public sealed record MarkdownMessagePresentation(
     IReadOnlyList<string>? AgentChain = null,
     int AgentDepth = 0,
     string? SessionId = null,
-    string? ThreadId = null);
+    string? ThreadId = null,
+    MarkdownIncompleteLinePolicy IncompleteLinePolicy = MarkdownIncompleteLinePolicy.StreamRich);
 
 /// <summary>Represents one immutable publication of canonical agent Markdown.</summary>
 public sealed record MarkdownMessageDocument
@@ -144,10 +159,10 @@ public sealed class MarkdownMessageProjection
     private const long MaximumEntryBytes = 512 * 1024;
     private readonly Dictionary<BlockCacheKey, CacheEntry> _blocks = [];
     private readonly LinkedList<BlockCacheKey> _lru = [];
-    private readonly Dictionary<PreparedKey, MarkdownLayout> _prepared = [];
+    private readonly ConcurrentDictionary<PreparedKey, MarkdownLayout> _prepared = [];
+    private readonly ConcurrentDictionary<PreparedKey, PreparedDocumentStamp> _preparedStamps = [];
     private readonly Queue<PreparedKey> _preparedOrder = [];
-    private readonly Dictionary<PreparedKey, RawPageState> _rawPages = [];
-    private IAgentTuiDispatcher? _dispatcher;
+    private readonly ConcurrentDictionary<PreparedKey, RawPageState> _rawPages = [];
     private long _cacheBytes;
     private long _cachedEpoch = -1;
     private long _layoutCount;
@@ -178,14 +193,6 @@ public sealed class MarkdownMessageProjection
         _layoutCount, TimeSpan.FromTicks(_layoutTicks), _stableBlocksReused,
         _cacheHits, _cacheMisses, _cacheEvictions, _mutableBlocksRerendered,
         _layoutFallbacks, _degradations);
-
-    internal void BindDispatcher(IAgentTuiDispatcher dispatcher)
-    {
-        ArgumentNullException.ThrowIfNull(dispatcher);
-        if (_dispatcher is not null && !ReferenceEquals(_dispatcher, dispatcher))
-            throw new InvalidOperationException("A Markdown projection cannot change dispatcher ownership.");
-        _dispatcher = dispatcher;
-    }
 
     internal MarkdownLayout ResolveLayout(
         MarkdownMessageDocument document,
@@ -253,10 +260,12 @@ public sealed class MarkdownMessageProjection
                 degradationReason = layout.DegradationReason;
             previous = block;
             if (rows.Count > (options.ResourceLimits ?? new MarkdownResourceLimits()).MaximumLayoutRows)
-                return engine.LayoutRaw(document.GetCanonicalSource(), document.Parsed.PipelineId, options);
+                return engine.LayoutRaw(GetRichVisibleSource(document), document.Parsed.PipelineId, options);
         }
 
-        if (document.UnparsedTail.Length > 0)
+        if (document.UnparsedTail.Length > 0 &&
+            (document.State != MarkdownMessageState.Streaming ||
+             document.Presentation.IncompleteLinePolicy == MarkdownIncompleteLinePolicy.CompleteLineWithLiteralTail))
         {
             if (rows.Count > 0) rows.Add(new(MarkdownLayoutRowKind.Separator, StyledTerminalLine.Empty, null, null, null, true));
             var sourceOffset = document.Parsed.Source.Length;
@@ -269,7 +278,7 @@ public sealed class MarkdownMessageProjection
                     ShiftSourceOffsets(tailRow.Line, sourceOffset), null,
                     document.Parsed.Source.Length, document.GetCanonicalSource().Length, false));
             if (rows.Count > (options.ResourceLimits ?? new MarkdownResourceLimits()).MaximumLayoutRows)
-                return engine.LayoutRaw(document.GetCanonicalSource(), document.Parsed.PipelineId, options);
+                return engine.LayoutRaw(GetRichVisibleSource(document), document.Parsed.PipelineId, options);
         }
 
         return new MarkdownLayout
@@ -283,19 +292,28 @@ public sealed class MarkdownMessageProjection
         };
     }
 
+    private static string GetRichVisibleSource(MarkdownMessageDocument document) =>
+        document.State == MarkdownMessageState.Streaming &&
+        document.Presentation.IncompleteLinePolicy == MarkdownIncompleteLinePolicy.StreamRich
+            ? document.Parsed.Source
+            : document.GetCanonicalSource();
+
     /// <summary>Prepares and retains an immutable layout at a dispatcher publication boundary.</summary>
     internal MarkdownLayout Prepare(
         MarkdownMessageDocument document,
         MarkdownLayoutOptions options,
         IMarkdownLayoutEngine engine)
     {
-        if (_dispatcher is not null && !_dispatcher.CheckAccess())
-            throw new InvalidOperationException("Markdown layout preparation must run on the owning TUI dispatcher.");
         var expectedKey = new MarkdownLayoutKey(document.Parsed.PipelineId, "terminal-v1", options.Width,
             options.Theme.ThemeKey, options.ColorSystem, options.Mode, options.SyntaxThemeRevision,
             (options.Spacing ?? new MarkdownSpacing()).Key,
             (options.ResourceLimits ?? new MarkdownResourceLimits()).Key);
-        if (_prepared.TryGetValue(new(document.Revision, expectedKey), out var prepared)) return prepared;
+        var expectedPreparedKey = new PreparedKey(document.Revision, expectedKey);
+        var expectedStamp = new PreparedDocumentStamp(
+            document.State, document.Parsed.SourceLength, document.UnparsedTail.Length, document.Epoch);
+        if (_prepared.TryGetValue(expectedPreparedKey, out var prepared) &&
+            _preparedStamps.TryGetValue(expectedPreparedKey, out var stamp) && stamp == expectedStamp)
+            return prepared;
         var started = Stopwatch.GetTimestamp();
         MarkdownLayout layout;
         try { layout = ResolveLayout(document, options, engine); }
@@ -306,13 +324,17 @@ public sealed class MarkdownMessageProjection
         }
         if (layout.DegradationReason != MarkdownDegradationReason.None) _degradations++;
         var preparedKey = new PreparedKey(document.Revision, layout.Key);
+        var replacesPreparedLayout = _prepared.ContainsKey(preparedKey);
         _prepared[preparedKey] = layout;
-        _preparedOrder.Enqueue(preparedKey);
+        _preparedStamps[preparedKey] = expectedStamp;
+        _rawPages.TryRemove(preparedKey, out _);
+        if (!replacesPreparedLayout) _preparedOrder.Enqueue(preparedKey);
         if (_prepared.Count > 8)
         {
             var oldest = _preparedOrder.Dequeue();
-            _prepared.Remove(oldest);
-            _rawPages.Remove(oldest);
+            _prepared.TryRemove(oldest, out _);
+            _preparedStamps.TryRemove(oldest, out _);
+            _rawPages.TryRemove(oldest, out _);
         }
         return layout;
     }
@@ -380,7 +402,7 @@ public sealed class MarkdownMessageProjection
         if (state is null || !state.Previous.TryPop(out var previous)) return false;
         state.Current = previous;
         if (state.Previous.Count == 0 && ReferenceEquals(previous, RequirePrepared(document.Revision, key)))
-            _rawPages.Remove(preparedKey);
+            _rawPages.TryRemove(preparedKey, out _);
         return true;
     }
 
@@ -478,4 +500,6 @@ public sealed class MarkdownMessageProjection
         long GlobalRevision);
 
     private readonly record struct PreparedKey(long Revision, MarkdownLayoutKey LayoutKey);
+    private readonly record struct PreparedDocumentStamp(
+        MarkdownMessageState State, int ParsedSourceLength, int UnparsedTailLength, long Epoch);
 }

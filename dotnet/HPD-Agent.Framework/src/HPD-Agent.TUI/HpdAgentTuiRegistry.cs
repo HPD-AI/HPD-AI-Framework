@@ -1,6 +1,7 @@
 using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Commands;
 using HPD.Agent.TUI.Interactions;
+using HPD.Agent.TUI.Markdown;
 using HPD.Agent.TUI.Models;
 using HPD.TUI.Core;
 
@@ -44,7 +45,8 @@ public sealed class HpdAgentTuiRegistry
         AgentTuiRunConfigComposer? runConfigComposer,
         IAgentTuiThreadStateReconciler? threadStateReconciler,
         TranscriptHistoryPresentation transcriptHistoryPresentation,
-        bool showReasoning)
+        bool showReasoning,
+        MarkdownIncompleteLinePolicy markdownIncompleteLinePolicy)
     {
         _commands = commands.ToDictionary(command => command.SlashName, StringComparer.OrdinalIgnoreCase);
         _commandList = _commands.Values
@@ -102,6 +104,7 @@ public sealed class HpdAgentTuiRegistry
         ThreadStateReconciler = threadStateReconciler;
         TranscriptHistoryPresentation = transcriptHistoryPresentation;
         ShowReasoning = showReasoning;
+        MarkdownIncompleteLinePolicy = markdownIncompleteLinePolicy;
     }
 
     public IReadOnlyList<HpdAgentTuiCommandDescriptor> Commands => _commandList;
@@ -136,6 +139,9 @@ public sealed class HpdAgentTuiRegistry
 
     /// <summary>Gets whether reasoning events are projected into the transcript.</summary>
     public bool ShowReasoning { get; }
+
+    /// <summary>Gets how incomplete live Markdown lines are presented.</summary>
+    public MarkdownIncompleteLinePolicy MarkdownIncompleteLinePolicy { get; }
 
     public AgentTuiTranscriptRendererRegistry TranscriptRenderers { get; }
 

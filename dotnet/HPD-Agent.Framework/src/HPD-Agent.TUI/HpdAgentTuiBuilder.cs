@@ -1,6 +1,7 @@
 using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Commands;
 using HPD.Agent.TUI.Interactions;
+using HPD.Agent.TUI.Markdown;
 using HPD.Agent.TUI.Models;
 using HPD.Agent.TUI.Views;
 using HPD.TUI.Components;
@@ -35,11 +36,20 @@ public sealed class HpdAgentTuiBuilder
     private IAgentTuiThreadStateReconciler? _threadStateReconciler;
     private TranscriptHistoryPresentation _transcriptHistoryPresentation;
     private bool _showReasoning = true;
+    private MarkdownIncompleteLinePolicy _markdownIncompleteLinePolicy = MarkdownIncompleteLinePolicy.StreamRich;
 
     /// <summary>Controls whether reasoning events are projected into the transcript.</summary>
     public HpdAgentTuiBuilder ShowReasoning(bool show = true)
     {
         _showReasoning = show;
+        return this;
+    }
+
+    /// <summary>Chooses how incomplete live Markdown lines are presented.</summary>
+    public HpdAgentTuiBuilder UseMarkdownIncompleteLinePolicy(MarkdownIncompleteLinePolicy policy)
+    {
+        if (!Enum.IsDefined(policy)) throw new ArgumentOutOfRangeException(nameof(policy));
+        _markdownIncompleteLinePolicy = policy;
         return this;
     }
 
@@ -1052,7 +1062,8 @@ public sealed class HpdAgentTuiBuilder
             _runConfigComposer,
             _threadStateReconciler,
             _transcriptHistoryPresentation,
-            _showReasoning);
+            _showReasoning,
+            _markdownIncompleteLinePolicy);
     }
 
 }

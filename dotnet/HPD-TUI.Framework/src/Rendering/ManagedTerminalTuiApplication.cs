@@ -30,6 +30,10 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
     private TuiPerformanceCounters? _performanceCounters;
     private long _oldestVisualRequestTimestamp;
 
+    /// <summary>Gets or sets the duration after which enabled diagnostics report incomplete dispatcher work.</summary>
+    /// <remarks>The watchdog is dormant when <see cref="PerformanceSink"/> is <see langword="null"/>.</remarks>
+    public TimeSpan EventLoopStallThreshold { get; set; } = TimeSpan.FromSeconds(2);
+
     public ManagedTerminalTuiApplication(ITerminal terminal)
         : this(terminal, new SynchronousTerminalOutputTransport(terminal))
     {
@@ -176,13 +180,15 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
                     _dispatcherDepth.Value++;
                     try
                     {
-                        FramePreparing?.Invoke(_terminal.GetSize(), _theme);
+                        using (StartOperationWatchdog("frame-preparation"))
+                            FramePreparing?.Invoke(_terminal.GetSize(), _theme);
                         try
                         {
                             _renderer.SchedulingDelay = _oldestVisualRequestTimestamp == 0
                                 ? TimeSpan.Zero
                                 : System.Diagnostics.Stopwatch.GetElapsedTime(_oldestVisualRequestTimestamp);
-                            Render();
+                            using (StartOperationWatchdog("frame-render/publication"))
+                                Render();
                             _framesAdmitted++;
                             _performanceCounters?.RecordFrameAdmitted();
                             if (_owedVisualStates > 0) _owedVisualStates--;
@@ -347,6 +353,10 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Cancellation releases the caller even when the invocation is still queued behind other
+    /// dispatcher work. A queued invocation observes the same token before executing.
+    /// </remarks>
     public ValueTask InvokeAsync(Action callback, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(callback);
@@ -358,12 +368,31 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
             try { callback(); completion.TrySetResult(); }
             catch (Exception exception) { completion.TrySetException(exception); }
         });
-        return new ValueTask(completion.Task);
+        return new ValueTask(cancellationToken.CanBeCanceled
+            ? completion.Task.WaitAsync(cancellationToken)
+            : completion.Task);
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Cancellation releases the caller even when the invocation is still queued behind other
+    /// dispatcher work. A queued invocation observes the same token before executing.
+    /// </remarks>
     public ValueTask InvokeAsync(Func<ValueTask> callback, CancellationToken cancellationToken = default)
+        => InvokeAsync("callback", callback, cancellationToken);
+
+    /// <summary>Runs named asynchronous work on the dispatcher for responsiveness diagnostics.</summary>
+    /// <param name="operationName">Stable diagnostic name for the work.</param>
+    /// <param name="callback">Work to run on the dispatcher.</param>
+    /// <param name="cancellationToken">
+    /// Cancels the callback before it begins and releases a caller waiting for dispatcher admission.
+    /// </param>
+    public ValueTask InvokeAsync(
+        string operationName,
+        Func<ValueTask> callback,
+        CancellationToken cancellationToken = default)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(operationName);
         ArgumentNullException.ThrowIfNull(callback);
         if (CheckAccess()) return callback();
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -374,9 +403,14 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
             try { await callback().ConfigureAwait(false); completion.TrySetResult(); }
             catch (Exception exception) { completion.TrySetException(exception); }
         };
-        if (!mailbox.TryWrite(new TuiLoopEvent(TuiLoopEventKind.Callback, Callback: invocation)))
+        if (!mailbox.TryWrite(new TuiLoopEvent(
+                TuiLoopEventKind.Callback,
+                Callback: invocation,
+                OperationName: operationName)))
             throw new InvalidOperationException("The TUI event-loop mailbox rejected the callback.");
-        return new ValueTask(completion.Task);
+        return new ValueTask(cancellationToken.CanBeCanceled
+            ? completion.Task.WaitAsync(cancellationToken)
+            : completion.Task);
     }
 
     /// <summary>Queues external-process output behind all previously submitted frames and control traffic.</summary>
@@ -501,8 +535,8 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
                     try
                     {
                         var handled = HandleInput(in input, requestRender: false);
-                    dirty |= handled;
-                    if (handled) OweVisualState();
+                        dirty |= handled;
+                        if (handled) OweVisualState();
                         _urgentRender |= handled;
                     }
                     finally { _dispatcherDepth.Value--; }
@@ -510,7 +544,11 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
                 else if (evt.Kind == TuiLoopEventKind.Callback)
                 {
                     _dispatcherDepth.Value++;
-                    try { await evt.Callback!().ConfigureAwait(false); }
+                    try
+                    {
+                        using var watchdog = StartOperationWatchdog(evt.OperationName ?? "callback");
+                        await evt.Callback!().ConfigureAwait(false);
+                    }
                     finally { _dispatcherDepth.Value--; }
                     dirty = true;
                     OweVisualState();
@@ -520,6 +558,47 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
         while (count == events.Length);
 
         return dirty;
+    }
+
+    private IDisposable? StartOperationWatchdog(string operation)
+    {
+        var sink = PerformanceSink;
+        if (sink is null || EventLoopStallThreshold <= TimeSpan.Zero)
+            return null;
+
+        return OperationWatchdog.Start(sink, operation, EventLoopStallThreshold);
+    }
+
+    private sealed class OperationWatchdog
+    {
+        private int _completed;
+
+        private OperationWatchdog() { }
+
+        internal static IDisposable Start(
+            IHpdTuiPerformanceEventSink sink,
+            string operation,
+            TimeSpan threshold)
+        {
+            var watchdog = new OperationWatchdog();
+            _ = watchdog.ObserveAsync(sink, operation, threshold);
+            return new Completion(watchdog);
+        }
+
+        private async Task ObserveAsync(
+            IHpdTuiPerformanceEventSink sink,
+            string operation,
+            TimeSpan threshold)
+        {
+            await Task.Delay(threshold).ConfigureAwait(false);
+            if (Volatile.Read(ref _completed) == 0)
+                sink.Publish(new TuiEventLoopOperationStalled(operation, threshold));
+        }
+
+        private sealed class Completion(OperationWatchdog owner) : IDisposable
+        {
+            public void Dispose() => Interlocked.Exchange(ref owner._completed, 1);
+        }
     }
 
     public void Dispose()

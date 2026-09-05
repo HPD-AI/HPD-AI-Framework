@@ -143,6 +143,18 @@ public sealed record TuiSchedulingDiagnostics(
         => $"tui scheduling requests={RenderRequestsReceived} coalesced={RenderRequestsCoalesced} admitted={FramesAdmitted} pacing={FramesDeferredByPacing} backpressure={FramesDeferredByBackpressure}";
 }
 
+/// <summary>Reports dispatcher work that remained incomplete beyond the configured responsiveness threshold.</summary>
+/// <param name="Operation">Stable name of the dispatcher operation.</param>
+/// <param name="Threshold">Elapsed time after which the operation was classified as stalled.</param>
+public sealed record TuiEventLoopOperationStalled(
+    string Operation,
+    TimeSpan Threshold) : HpdTuiPerformanceEvent
+{
+    /// <inheritdoc />
+    public override string FormatSummary()
+        => $"tui event-loop stalled operation={Operation} threshold={Threshold.TotalMilliseconds:0.###}ms";
+}
+
 /// <summary>
 /// Immutable aggregate operation counters shared by the compositor, scheduler, retained surfaces,
 /// scrollback journal, and incremental Markdown pipeline.

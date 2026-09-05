@@ -463,9 +463,12 @@ public sealed class TranscriptView : Component, IScrollbackSource
         ref TranscriptViewDiagnosticsBuilder diagnostics)
     {
         diagnostics.EntriesVisited++;
+        var key = new TranscriptLayoutKey(maxWidth, context.Theme.Key, context.ColorSystem, 1);
         var rendered = _renderedEntries[index];
         if (rendered is not null && !rendered.IsDisposed)
         {
+            rendered = _layoutCache.Resolve(_entries[index], key);
+            _renderedEntries[index] = rendered;
             diagnostics.CacheHits++;
             diagnostics.RowsMeasured++;
             return rendered;
@@ -473,7 +476,6 @@ public sealed class TranscriptView : Component, IScrollbackSource
 
         diagnostics.CacheMisses++;
         diagnostics.RowsCaptured++;
-        var key = new TranscriptLayoutKey(maxWidth, context.Theme.Key, context.ColorSystem, 1);
         rendered = _layoutCache.Resolve(_entries[index], key);
         _renderedEntries[index] = rendered;
         if (_layoutCache.LastResolveWasHit)

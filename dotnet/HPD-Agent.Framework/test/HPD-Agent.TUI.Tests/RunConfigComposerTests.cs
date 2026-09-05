@@ -436,8 +436,10 @@ public sealed class RunConfigComposerTests
             => Task.FromResult(new AgentTuiThreadState(ThreadJournalCursor.Start(1), ActiveExecution, []));
     }
 
-    private sealed class TestTerminal : ITerminal, ITerminalInput
+    private sealed class TestTerminal : ITerminal, ITerminalInput, IManagedTerminalCapabilitySource
     {
+        public ManagedTerminalCapabilityProfile ManagedTerminalCapabilities
+            => ManagedTerminalCapabilityProfile.Verified;
         private readonly StringBuilder _output = new();
         private TerminalSize _size;
 

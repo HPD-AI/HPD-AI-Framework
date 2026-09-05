@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text;
+using System.Threading.Channels;
 using FluentAssertions;
 using HPD.Agent;
 using HPD.Agent.TUI.Application;
@@ -9,6 +10,7 @@ using HPD.Agent.TUI.Models;
 using HPD.Agent.TUI.Runtime;
 using HPD.TUI.Core;
 using HPD.TUI.Models;
+using HPD.TUI.Markdown;
 using HPD.TUI.Terminal;
 using HPD.TUI.Views;
 
@@ -16,6 +18,66 @@ namespace HPD.Agent.TUI.Tests;
 
 public sealed class HpdAgentTuiAppCancelTests
 {
+    [Fact]
+    public async Task BlockedMarkdownPreparation_DoesNotBlockControlEscape()
+    {
+        var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
+        var runtime = new CancelRuntime(scope);
+        using var parser = new BlockingMarkdownParser();
+        var terminal = new BlockingInputTerminal(80, 24);
+        await using var app = HpdAgentTuiApp.Create(
+            runtime,
+            new DirectAgentTuiExecutionTarget(scope),
+            static builder => builder.AddAgentTuiDefaults(),
+            terminal,
+            parser);
+        using var runCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var run = app.RunAsync(cancellationToken: runCancellation.Token);
+        await WaitUntilAsync(() => GetPrivateFieldValue<AgentTuiSessionState?>(app, "_state") is not null);
+
+        var batch = new AgentTuiEventBatch(
+            [new TextMessageStartEvent("blocked", "assistant") { SessionId = scope.SessionId, ThreadId = scope.ThreadId },
+             new TextDeltaEvent("## heading\n", "blocked") { SessionId = scope.SessionId, ThreadId = scope.ThreadId }],
+            AgentTuiEventDeliveryMode.Live,
+            new ThreadJournalCursor(1, 1),
+            new ThreadJournalCursor(1, 2),
+            new ThreadJournalCursor(1, 2));
+        var projection = Task.Run(() => InvokePrivate<Task>(
+            app, "OnAgentEventBatchAsync", batch, CancellationToken.None));
+        await parser.Entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        terminal.Enqueue(TerminalInputEvent.FromKey(new KeyEvent(KeyCode.Character, new Rune('x'))));
+        await WaitUntilAsync(() => GetPrivateFieldValue<PromptView?>(app, "_prompt")?.Model.Text.ToString() == "x");
+        terminal.Enqueue(TerminalInputEvent.FromKey(new KeyEvent(KeyCode.Escape, Modifiers: KeyModifiers.Ctrl)));
+        await run.WaitAsync(TimeSpan.FromSeconds(2));
+
+        parser.Release.Set();
+        await projection.WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public async Task ToolStart_CommitsPrecedingMarkdownBeforeToolEntry()
+    {
+        var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
+        var observer = new MarkdownBoundaryObserver();
+        await using var app = HpdAgentTuiApp.Create(
+            new CancelRuntime(scope),
+            new DirectAgentTuiExecutionTarget(scope),
+            builder => builder.AddAgentTuiDefaults().AddEventHandler<ToolCallStartEvent>("boundary-observer", observer),
+            new TestTerminal(80, 24));
+        InvokePrivate(app, "RebuildShell", new DirectAgentTuiExecutionTarget(scope), "Connected.");
+        var batch = new AgentTuiEventBatch(
+            [new TextMessageStartEvent("commentary", "assistant"),
+             new TextDeltaEvent("before tool", "commentary"),
+             new ToolCallStartEvent("call-1", "read", "commentary")],
+            AgentTuiEventDeliveryMode.Live,
+            new ThreadJournalCursor(1, 1), new ThreadJournalCursor(1, 3), new ThreadJournalCursor(1, 3));
+
+        await InvokePrivate<Task>(app, "OnAgentEventBatchAsync", batch, CancellationToken.None);
+
+        observer.SawPrecedingMarkdown.Should().BeTrue();
+    }
+
     [Fact]
     public async Task ActivePage_ReceivesInputBeforeFocusedPrompt()
     {
@@ -289,8 +351,8 @@ public sealed class HpdAgentTuiAppCancelTests
             runtime,
             new DirectAgentTuiExecutionTarget(scope),
             builder => builder
-                .AddAgentTuiDefaults()
-                .AddInteractionHandler<PermissionRequestEvent>("blocking", handler),
+                .AddInteractionHandler<PermissionRequestEvent>("blocking", handler)
+                .AddAgentTuiDefaults(),
             new TestTerminal(80, 24));
         InvokePrivate(app, "RebuildShell", new DirectAgentTuiExecutionTarget(scope), "Connected.");
         InvokePrivate(app, "StartObserver", new DirectAgentTuiExecutionTarget(scope), CancellationToken.None);
@@ -775,8 +837,66 @@ public sealed class HpdAgentTuiAppCancelTests
         }
     }
 
-    private sealed class TestTerminal : ITerminal, ITerminalInput
+    private sealed class MarkdownBoundaryObserver : AgentTuiEventHandler<ToolCallStartEvent>
     {
+        internal bool SawPrecedingMarkdown { get; private set; }
+        public override ValueTask HandleAsync(ToolCallStartEvent evt, AgentTuiEventContext context,
+            CancellationToken cancellationToken)
+        {
+            SawPrecedingMarkdown = context.Shell.Transcript.Snapshot().Entries
+                .Any(static entry => entry.EntryKey == "assistant:commentary");
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        while (!condition()) await Task.Delay(10, timeout.Token);
+    }
+
+    private sealed class BlockingMarkdownParser : IMarkdownDocumentParser, IDisposable
+    {
+        private readonly MarkdownDocumentParser _inner = new();
+        internal TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal ManualResetEventSlim Release { get; } = new(false);
+
+        public MarkdownDocumentSnapshot Parse(string source, MarkdownParseOptions options)
+        {
+            if (source.Length > 0)
+            {
+                Entered.TrySetResult();
+                if (!Release.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException("Markdown parser was not released.");
+            }
+            return _inner.Parse(source, options);
+        }
+
+        public void Dispose() { Release.Set(); Release.Dispose(); }
+    }
+
+    private sealed class BlockingInputTerminal : ITerminal, ITerminalInput, IManagedTerminalCapabilitySource
+    {
+        private readonly Channel<TerminalInputEvent> _input = Channel.CreateUnbounded<TerminalInputEvent>();
+        private readonly TerminalSize _size;
+        internal BlockingInputTerminal(int width, int height) => _size = new(width, height);
+        public ManagedTerminalCapabilityProfile ManagedTerminalCapabilities => ManagedTerminalCapabilityProfile.Verified;
+        public ITerminalInput Input => this;
+        public TerminalSize GetSize() => _size;
+        internal void Enqueue(TerminalInputEvent input) => _input.Writer.TryWrite(input);
+        public ValueTask<TerminalInputEvent> ReadAsync(CancellationToken cancellationToken = default)
+            => _input.Reader.ReadAsync(cancellationToken);
+        public void Write(ReadOnlySpan<char> text) { }
+        public void Flush() { }
+        public void HideCursor() { }
+        public void ShowCursor() { }
+        public void Dispose() => _input.Writer.TryComplete();
+        public ValueTask DisposeAsync() { Dispose(); return ValueTask.CompletedTask; }
+    }
+
+    private sealed class TestTerminal : ITerminal, ITerminalInput, IManagedTerminalCapabilitySource
+    {
+        public ManagedTerminalCapabilityProfile ManagedTerminalCapabilities
+            => ManagedTerminalCapabilityProfile.Verified;
         private readonly StringBuilder _output = new();
         private TerminalSize _size;
 

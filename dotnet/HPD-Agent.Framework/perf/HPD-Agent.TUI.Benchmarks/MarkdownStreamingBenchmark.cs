@@ -8,7 +8,6 @@ using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Models;
 using HPD.Agent.TUI.Views;
 using System.Text;
-using System.Collections.Concurrent;
 using System.Diagnostics;
 
 namespace HPD.Agent.TUI.Benchmarks;
@@ -17,8 +16,8 @@ namespace HPD.Agent.TUI.Benchmarks;
 [MemoryDiagnoser]
 public class MarkdownStreamingBenchmark
 {
-    private long _lastEventLoopP50Microseconds;
-    private long _lastEventLoopP95Microseconds;
+    private long _lastWorkerP50Microseconds;
+    private long _lastWorkerP95Microseconds;
     private TranscriptModel _plainHistory = null!;
     private TranscriptModel _sourceBackedHistory = null!;
     private TranscriptModel _activeHistory = null!;
@@ -103,7 +102,8 @@ public class MarkdownStreamingBenchmark
         var document = activeSession.Complete().Document;
         _ = activeSession.Projection.Prepare(document, Options(100), new MarkdownLayoutEngine());
         _activeHistory.UpsertLive(new TranscriptEntry("active", "assistant:benchmark",
-            new AssistantMessageCell("assistant", document, activeSession.Projection), new()));
+            new AssistantMessageCell("assistant", document, activeSession.Projection), new()),
+            CommittedHistoryMutationPolicy.Reject);
         return TuiCapture.RenderToString(new TranscriptView(_activeHistory, _transcriptRenderers, 24), 100, 24,
             trimTrailingBlankLines: false);
     }
@@ -123,11 +123,11 @@ public class MarkdownStreamingBenchmark
     public MarkdownLayout VeryLargeAdversarialMessage() => FinalLayout(Adversarial, 80);
 
     [Benchmark]
-    public long SerializedEventLoopOverloadP95Microseconds()
+    public long WorkerBatchP95Microseconds()
     {
-        using var dispatcher = new SerializedBenchmarkDispatcher(capacity: 64);
+        var samples = new List<long>();
         MarkdownMessageProjection? published = null;
-        var coordinator = new MarkdownStreamCoordinator(dispatcher, (update, projection) =>
+        var coordinator = new MarkdownStreamCoordinator((update, projection) =>
         {
             _ = projection.Prepare(update.Document, Options(80), new MarkdownLayoutEngine());
             published = projection;
@@ -140,25 +140,28 @@ public class MarkdownStreamingBenchmark
             coordinator.Append(identity, Representative.Substring(offset, Math.Min(8, Representative.Length - offset)));
             if (++chunks % 32 == 0)
             {
-                // Mix input/repaint sentinels into a producer burst larger than the bounded mailbox.
-                dispatcher.Post(static () => System.Threading.Thread.SpinWait(20_000));
-                dispatcher.Post(static () => { });
+                var started = Stopwatch.GetTimestamp();
+                coordinator.RefreshPending();
+                samples.Add(Stopwatch.GetElapsedTime(started).Ticks);
             }
         }
         coordinator.Complete(identity);
-        dispatcher.Flush();
         _ = published!.Diagnostics;
-        _lastEventLoopP50Microseconds = dispatcher.P50Microseconds;
-        _lastEventLoopP95Microseconds = dispatcher.P95Microseconds;
-        return _lastEventLoopP95Microseconds;
+        samples.Sort();
+        _lastWorkerP50Microseconds = PercentileMicroseconds(samples, .50);
+        _lastWorkerP95Microseconds = PercentileMicroseconds(samples, .95);
+        return _lastWorkerP95Microseconds;
     }
 
     [GlobalCleanup]
-    public void ReportEventLoopPercentiles()
+    public void ReportWorkerPercentiles()
     {
-        if (_lastEventLoopP95Microseconds > 0)
-            Console.WriteLine($"MARKDOWN_EVENT_LOOP_LATENCY p50={_lastEventLoopP50Microseconds}us p95={_lastEventLoopP95Microseconds}us");
+        if (_lastWorkerP95Microseconds > 0)
+            Console.WriteLine($"MARKDOWN_WORKER_BATCH p50={_lastWorkerP50Microseconds}us p95={_lastWorkerP95Microseconds}us");
     }
+
+    private static long PercentileMicroseconds(List<long> samples, double percentile) =>
+        samples.Count == 0 ? 0 : samples[(int)Math.Ceiling(samples.Count * percentile) - 1] * 1_000_000 / TimeSpan.TicksPerSecond;
 
     private static MarkdownProjectionDiagnosticsSnapshot StreamAndLayout(
         string source,
@@ -218,70 +221,4 @@ public class MarkdownStreamingBenchmark
 
     private sealed record LegacyAssistantCell(IComponent Body) : TranscriptCell;
 
-    private sealed class SerializedBenchmarkDispatcher : IAgentTuiDispatcher, IDisposable
-    {
-        private readonly BlockingCollection<(Action Callback, long QueuedAt)> _queue;
-        private readonly Queue<(Action Callback, long QueuedAt)> _local = [];
-        private readonly System.Threading.Thread _thread;
-        private readonly List<long> _latencies = [];
-        private readonly ManualResetEventSlim _idle = new(initialState: true);
-        private int _pending;
-        private int _threadId;
-
-        public SerializedBenchmarkDispatcher(int capacity)
-        {
-            _queue = new(capacity);
-            _thread = new System.Threading.Thread(Run) { IsBackground = true, Name = "markdown-benchmark-dispatcher" };
-            _thread.Start();
-            while (Volatile.Read(ref _threadId) == 0) System.Threading.Thread.Yield();
-        }
-
-        public bool CheckAccess() => System.Environment.CurrentManagedThreadId == _threadId;
-        public void Post(Action callback)
-        {
-            Interlocked.Increment(ref _pending);
-            _idle.Reset();
-            var work = (callback, Stopwatch.GetTimestamp());
-            if (CheckAccess()) _local.Enqueue(work);
-            else _queue.Add(work);
-        }
-        public ValueTask InvokeAsync(Action callback, CancellationToken cancellationToken = default)
-        { Post(callback); return ValueTask.CompletedTask; }
-        public ValueTask InvokeAsync(Func<ValueTask> callback, CancellationToken cancellationToken = default)
-        { Post(() => callback().GetAwaiter().GetResult()); return ValueTask.CompletedTask; }
-        public long P50Microseconds => PercentileMicroseconds(.50);
-        public long P95Microseconds => PercentileMicroseconds(.95);
-        public void Flush() => _idle.Wait();
-        public void Dispose()
-        {
-            _queue.CompleteAdding();
-            _thread.Join();
-            _idle.Dispose();
-            _queue.Dispose();
-        }
-        private void Run()
-        {
-            Volatile.Write(ref _threadId, System.Environment.CurrentManagedThreadId);
-            foreach (var work in _queue.GetConsumingEnumerable())
-            {
-                Execute(work);
-                while (_local.TryDequeue(out var nested)) Execute(nested);
-            }
-        }
-        private void Execute((Action Callback, long QueuedAt) work)
-        {
-            _latencies.Add(Stopwatch.GetElapsedTime(work.QueuedAt).Ticks);
-            try { work.Callback(); }
-            finally
-            {
-                if (Interlocked.Decrement(ref _pending) == 0) _idle.Set();
-            }
-        }
-
-        private long PercentileMicroseconds(double percentile)
-        {
-            var ordered = _latencies.Order().ToArray();
-            return ordered.Length == 0 ? 0 : ordered[(int)Math.Ceiling(ordered.Length * percentile) - 1] * 1_000_000 / TimeSpan.TicksPerSecond;
-        }
-    }
 }
