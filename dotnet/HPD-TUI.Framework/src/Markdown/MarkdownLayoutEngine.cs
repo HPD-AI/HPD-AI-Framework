@@ -13,7 +13,6 @@ public readonly record struct MarkdownLayoutOptions(
     MarkdownTheme Theme,
     ColorSystem ColorSystem = ColorSystem.TrueColor,
     MarkdownPresentationMode Mode = MarkdownPresentationMode.Rich,
-    long SyntaxThemeRevision = 0,
     MarkdownSpacing? Spacing = null,
     MarkdownResourceLimits? ResourceLimits = null);
 
@@ -148,7 +147,7 @@ public sealed class MarkdownLayoutEngine : IMarkdownLayoutEngine
         return new MarkdownLayout
         {
             Key = new(pipelineId, "terminal-v1", options.Width, options.Theme.ThemeKey, options.ColorSystem,
-                options.Mode, options.SyntaxThemeRevision, (options.Spacing ?? new MarkdownSpacing()).Key, limits.Key),
+                options.Mode, (options.Spacing ?? new MarkdownSpacing()).Key, limits.Key),
             Blocks = [block],
             Rows = block.Lines.Select(line => new MarkdownLayoutRow(
                 MarkdownLayoutRowKind.BlockContent, line, null, sourceOffset, pageEnd, false)).ToImmutableArray(),
@@ -191,7 +190,7 @@ public sealed class MarkdownLayoutEngine : IMarkdownLayoutEngine
 
     private static MarkdownLayoutKey CreateKey(MarkdownDocumentSnapshot document, MarkdownLayoutOptions options) =>
         new(document.PipelineId, "terminal-v1", options.Width, options.Theme.ThemeKey, options.ColorSystem, options.Mode,
-            options.SyntaxThemeRevision, (options.Spacing ?? new MarkdownSpacing()).Key,
+            (options.Spacing ?? new MarkdownSpacing()).Key,
             (options.ResourceLimits ?? new MarkdownResourceLimits()).Key);
 
     /// <summary>Gets document-owned separator rows from an adjacent block pair and its exact source trivia.</summary>

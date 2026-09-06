@@ -7,28 +7,31 @@ namespace HPD.Agent.Providers.Tests;
 public sealed class OpenAICodexExperimentalOAuthStrategyTests
 {
     [Fact]
-    public void ModelPolicy_IsVersionedExactAndFailsClosed()
+    public void ModelPolicy_RejectsWrongModelAndUnsupportedEffort()
     {
-        var policy = OpenAICodexModelPolicy.ObservedV1;
-
-        Assert.Equal("observed-v1", policy.Version);
-        Assert.True(policy.IsSupported("gpt-5.4"));
-        Assert.False(policy.IsSupported("gpt-5.4-mini"));
-        Assert.False(policy.IsSupported("gpt-future"));
-        Assert.False(policy.IsSupported(null));
+        var policy = new OpenAICodexModelPolicy("fixture", ["low", "medium", "ultra"], "medium");
+        Assert.Throws<InvalidOperationException>(() => OpenAICodexModelPolicy.Validate("other", null, policy));
+        Assert.Throws<NotSupportedException>(() => OpenAICodexModelPolicy.Validate("fixture", new Microsoft.Extensions.AI.ChatOptions
+        { Reasoning = new Microsoft.Extensions.AI.ReasoningOptions { Effort = Microsoft.Extensions.AI.ReasoningEffort.High } }, policy));
+        OpenAICodexModelPolicy.Validate("fixture", null, policy);
+        Assert.Contains("ultra", policy.SupportedReasoningEfforts);
     }
 
     [Fact]
-    public void AccountDiscoveredPolicy_AcceptsExactDiscoveredModelIds()
+    public async Task SignedHeadersRemainOwnedByRequestAfterCredentialDisposal()
     {
-        var policy = OpenAICodexModelPolicy.AccountDiscoveredV1;
-
-        Assert.Equal("account-discovered-v1", policy.Version);
-        Assert.Empty(policy.SupportedModels);
-        Assert.True(policy.IsSupported("gpt-5.4"));
-        Assert.True(policy.IsSupported("gpt-5.6-sol"));
-        Assert.False(policy.IsSupported(null));
-        Assert.False(policy.IsSupported(" "));
+        var strategy = new OpenAICodexExperimentalOAuthStrategy(new HttpClient(new RoutingHandler(_ =>
+            Task.FromResult(Json(HttpStatusCode.OK, "{}")))));
+        var normalized = await strategy.NormalizeAsync(Request());
+        await using var session = Session("access-one", "account-one");
+        var credential = await strategy.CreateCredentialAsync(normalized.Identity, session);
+        var signer = Assert.IsType<ProviderCredential.SignedRequest>(credential).Lease.Signer;
+        using var request = new HttpRequestMessage(HttpMethod.Post, "https://chatgpt.com/backend-api/codex/responses");
+        await signer.SignAsync(request);
+        await credential.DisposeAsync();
+        Assert.Equal("access-one", request.Headers.Authorization!.Parameter);
+        Assert.Equal("account-one", Assert.Single(request.Headers.GetValues("ChatGPT-Account-Id")));
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => signer.SignAsync(request).AsTask());
     }
 
     [Fact]

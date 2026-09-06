@@ -12,6 +12,15 @@ namespace HPD.Agent.TUI.Tests;
 
 public sealed class ModelSelectionCommandTests
 {
+    [Fact]
+    public void ReasoningChoicesIntersectCatalogWithImplementedLevels()
+    {
+        var capabilities = new AgentTuiModelCapabilities(SupportsReasoning: true,
+            SupportedReasoningEfforts: ["low", "medium", "max", "ultra"], DefaultReasoningEffort: "medium");
+        AgentTuiModelConfigFlow.SelectableReasoningEfforts(capabilities).Should()
+            .Equal(ReasoningEffort.Low, ReasoningEffort.Medium);
+    }
+
     private static AgentTuiProviderChoice ProviderChoice(
         string providerKey,
         string displayName,

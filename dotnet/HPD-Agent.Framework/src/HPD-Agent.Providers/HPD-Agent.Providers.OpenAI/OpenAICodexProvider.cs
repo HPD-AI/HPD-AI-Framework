@@ -13,8 +13,8 @@ namespace HPD.Agent.Providers.OpenAI;
 /// Declares the ChatGPT/Codex product backend independently from the public OpenAI API backend.
 /// </summary>
 /// <remarks>
-/// The backend intentionally fails closed until the package contains a reviewed OpenAI OAuth
-/// protocol profile and request transport. An OpenAI API key is never accepted for this backend.
+/// Uses HPD's experimental OAuth profile with request-time signing. Both chat operations use
+/// streaming Responses; an OpenAI API key is never accepted for this backend.
 /// </remarks>
 [HpdProvider("openai", "OpenAI")]
 [HpdProviderBackend(
@@ -30,21 +30,17 @@ internal sealed class OpenAICodexProvider :
     IProviderSecretAliasProvider
 {
     private readonly Uri _responsesEndpoint;
-    private readonly OpenAICodexModelPolicy _modelPolicy;
 
     /// <summary>Creates the backend for the default observed experimental endpoint.</summary>
     public OpenAICodexProvider() : this(
-        new Uri("https://chatgpt.com/backend-api/codex/responses"),
-        OpenAICodexModelPolicy.AccountDiscoveredV1) { }
+        new Uri("https://chatgpt.com/backend-api/codex/responses")) { }
 
     /// <summary>Creates the backend for one exact experimental Responses endpoint.</summary>
     /// <param name="responsesEndpoint">The authority- and path-pinned endpoint.</param>
     internal OpenAICodexProvider(
-        Uri responsesEndpoint,
-        OpenAICodexModelPolicy? modelPolicy = null)
+        Uri responsesEndpoint)
     {
         _responsesEndpoint = responsesEndpoint ?? throw new ArgumentNullException(nameof(responsesEndpoint));
-        _modelPolicy = modelPolicy ?? OpenAICodexModelPolicy.AccountDiscoveredV1;
     }
 
     /// <inheritdoc />
@@ -70,14 +66,15 @@ internal sealed class OpenAICodexProvider :
             [ProviderClientFamily.Chat] = new()
             {
                 Family = ProviderClientFamily.Chat,
-                SupportedModels = _modelPolicy.SupportedModels.Order(StringComparer.Ordinal).ToArray(),
+                SupportedModels = [],
                 Capabilities = new Dictionary<string, object?>
                 {
                     ["SupportsStreaming"] = true,
-                    ["SupportsNonStreaming"] = false,
+                    ["SupportsNonStreaming"] = true,
+                    ["RequiresStreamingTransport"] = true,
                     ["Experimental"] = true,
                     ["OfficialIntegrationContract"] = false,
-                    ["ModelPolicyVersion"] = _modelPolicy.Version
+                    ["ModelDiscovery"] = "account-scoped"
                 }
             }
         }
@@ -89,10 +86,10 @@ internal sealed class OpenAICodexProvider :
         ArgumentNullException.ThrowIfNull(config);
         if (string.IsNullOrWhiteSpace(config.ModelName))
             return ProviderValidationResult.Failure("A Codex model is required.");
-        return _modelPolicy.IsSupported(config.ModelName)
+        var policy = ReadModelPolicy(config);
+        return policy is null || string.Equals(policy.ModelId, config.ModelName, StringComparison.Ordinal)
             ? ProviderValidationResult.Success()
-            : ProviderValidationResult.Failure(
-                $"Model '{config.ModelName}' is not supported by Codex model policy '{_modelPolicy.Version}'.");
+            : ProviderValidationResult.Failure("The Codex model policy belongs to a different model.");
     }
 
     ProviderClientCredentialBinding IProviderClientFactory<IChatClient>.ResolveCredentialBinding(
@@ -134,11 +131,12 @@ internal sealed class OpenAICodexProvider :
         var options = new OpenAIClientOptions
         {
             Endpoint = new Uri(_responsesEndpoint, "."),
+            RetryPolicy = new System.ClientModel.Primitives.ClientRetryPolicy(0),
             Transport = new System.ClientModel.Primitives.HttpClientPipelineTransport(httpClient)
         };
         var sdk = new OpenAIClient(new System.ClientModel.ApiKeyCredential("hpd-experimental-unused"), options);
         var responsesClient = sdk.GetResponsesClient().AsIChatClient(model);
-        var client = new OpenAICodexMessagePolicyChatClient(responsesClient);
+        var client = new OpenAICodexChatClient(responsesClient, model, ReadModelPolicy(context.EffectiveConfig));
         return ValueTask.FromResult(new ProviderClientConstruction<IChatClient>
         {
             Client = client,
@@ -146,7 +144,12 @@ internal sealed class OpenAICodexProvider :
         });
     }
 
-    private sealed class OpenAICodexRequestSigningHandler(
+    private static OpenAICodexModelPolicy? ReadModelPolicy(EffectiveProviderClientConfig config) =>
+        config.ProviderConfiguration.CanonicalPayload.IsEmpty ? null :
+            JsonSerializer.Deserialize(config.ProviderConfiguration.CanonicalPayload.AsSpan(),
+                OpenAIJsonContext.Default.OpenAIProviderConfig)?.CodexModelPolicy;
+
+    internal sealed class OpenAICodexRequestSigningHandler(
         ProviderCredentialBindingContext.RequestTime requestTime,
         Uri endpoint) : DelegatingHandler
     {
@@ -167,8 +170,7 @@ internal sealed class OpenAICodexProvider :
                 using var document = JsonDocument.Parse(body);
                 if (!document.RootElement.TryGetProperty("stream", out var stream) || stream.ValueKind != JsonValueKind.True)
                     throw new NotSupportedException(
-                        "The experimental Codex endpoint requires streaming Responses requests. " +
-                        "Use the streaming IChatClient operation.");
+                        "The Codex transport requires stream=true for both IChatClient operations.");
                 var normalized = JsonNode.Parse(body) as JsonObject
                     ?? throw new JsonException("The Codex Responses request must be a JSON object.");
                 normalized["store"] = false;
@@ -181,6 +183,9 @@ internal sealed class OpenAICodexProvider :
             }
             request.RequestUri = endpoint;
             request.Headers.Authorization = null;
+            // The Codex signer copies immutable header strings before sending. Nothing in the
+            // response body refers to the signer or its zeroed token buffer (covered by tests).
+            // Each new request acquires a new lease; the SDK cannot replay this request.
             await using var lease = await requestTime.Source.AcquireAsync(requestTime.Plan, cancellationToken).ConfigureAwait(false);
             if (lease.Credential is not ProviderCredential.SignedRequest signed)
                 throw new InvalidOperationException("The experimental Codex backend requires a signed-request credential.");

@@ -1,3 +1,4 @@
+using HPD.TUI.Markdown;
 using HPD.Agent.TUI.Models;
 using HPD.TUI.Core;
 using HPD.TUI.Utilities;
@@ -55,12 +56,34 @@ public sealed class AgentTuiTranscriptRenderContext<TCell>
     public AgentTuiTranscriptRenderServices Services { get; }
     public int Width { get; }
     public Theme Theme { get; }
+
+    /// <summary>Gets the resolved Markdown palette for this message, including reasoning overrides.</summary>
+    public MarkdownTheme MarkdownTheme => Services.ResolveMarkdownTheme(Theme, Cell is ReasoningMessageCell);
     public ColorSystem ColorSystem { get; }
 }
 
 public sealed class AgentTuiTranscriptRenderServices
 {
     public static readonly AgentTuiTranscriptRenderServices Default = new();
+    private readonly MarkdownTheme? _markdownTheme;
+    private readonly MarkdownTheme? _reasoningMarkdownTheme;
+
+    /// <summary>Creates transcript services with optional independent Markdown palettes.</summary>
+    /// <param name="markdownTheme">Normal-response palette, or null to derive defaults from the UI theme.</param>
+    /// <param name="reasoningMarkdownTheme">Reasoning palette, or null to derive muted defaults.</param>
+    public AgentTuiTranscriptRenderServices(MarkdownTheme? markdownTheme = null, MarkdownTheme? reasoningMarkdownTheme = null)
+    {
+        _markdownTheme = markdownTheme;
+        _reasoningMarkdownTheme = reasoningMarkdownTheme;
+    }
+
+    /// <summary>Resolves the immutable palette used for preparation, rendering, and publication.</summary>
+    /// <param name="theme">The UI theme used when no explicit palette is configured.</param>
+    /// <param name="reasoning">Whether this is reasoning content.</param>
+    /// <returns>The configured palette or derived defaults.</returns>
+    public MarkdownTheme ResolveMarkdownTheme(Theme theme, bool reasoning = false)
+        => reasoning ? _reasoningMarkdownTheme ?? MarkdownTheme.FromTheme(CreateMutedTheme(theme)) :
+            _markdownTheme ?? MarkdownTheme.FromTheme(theme);
 
     public IComponent Prefix(
         IComponent body,
@@ -427,4 +450,13 @@ internal sealed class AgentTuiTranscriptRendererAdapter<TCell> : IAgentTuiTransc
 
         return Renderer.Create(new AgentTuiTranscriptRenderContext<TCell>(entry, cell, services, width, theme, colorSystem));
     }
+}
+
+/// <summary>Declares that a renderer preserves prepared Markdown rows for irreversible range publication.</summary>
+/// <remarks>The rendered Markdown rows must match the prepared layout in order and geometry. Decorations
+/// before the Markdown must have a fixed height; renderers that transform or omit Markdown must not implement this contract.</remarks>
+public interface IAgentTuiMarkdownPublicationRenderer
+{
+    /// <summary>Gets the fixed number of decoration rows before the first prepared Markdown row.</summary>
+    int MarkdownRowOffset { get; }
 }

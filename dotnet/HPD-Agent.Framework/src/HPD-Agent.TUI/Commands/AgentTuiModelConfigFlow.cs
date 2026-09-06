@@ -39,16 +39,9 @@ public static class AgentTuiModelConfigFlow
     {
         var choice = await context.Dialogs.SelectAsync(
                 "Reasoning",
-                new[]
-                {
-                    ModelConfigChoice.Continue,
-                    new ModelConfigChoice("off", "Off", ReasoningEffort.None),
-                    new ModelConfigChoice("low", "Low", ReasoningEffort.Low),
-                    new ModelConfigChoice("medium", "Medium", ReasoningEffort.Medium),
-                    new ModelConfigChoice("high", "High", ReasoningEffort.High),
-                    new ModelConfigChoice("extra-high", "Extra high", ReasoningEffort.ExtraHigh),
-                    ModelConfigChoice.MoreConfig
-                },
+                new[] { ModelConfigChoice.Continue }
+                    .Concat(ReasoningChoices(model.Capabilities))
+                    .Append(ModelConfigChoice.MoreConfig).ToArray(),
                 static choice => choice.Label,
                 cancellationToken)
             .ConfigureAwait(false);
@@ -216,14 +209,8 @@ public static class AgentTuiModelConfigFlow
     {
         var effort = await context.Dialogs.SelectAsync(
                 "Reasoning effort",
-                new[]
-                {
-                    new ModelConfigChoice("off", "Off", ReasoningEffort.None),
-                    new ModelConfigChoice("low", "Low", ReasoningEffort.Low),
-                    new ModelConfigChoice("medium", "Medium", ReasoningEffort.Medium),
-                    new ModelConfigChoice("high", "High", ReasoningEffort.High),
-                    new ModelConfigChoice("extra-high", "Extra high", ReasoningEffort.ExtraHigh)
-                },
+                new[] { new ModelConfigChoice("default", "Server default") }
+                    .Concat(ReasoningChoices(model.Capabilities)).ToArray(),
                 static choice => choice.Label,
                 cancellationToken)
             .ConfigureAwait(false);
@@ -368,6 +355,25 @@ public static class AgentTuiModelConfigFlow
         => source is null
             ? null
             : (ChatClientConfig)ProviderClientConfigSnapshot.Clone(source);
+
+    /// <summary>Offers only implemented efforts permitted by known model metadata.</summary>
+    internal static IReadOnlyList<ReasoningEffort> SelectableReasoningEfforts(AgentTuiModelCapabilities? capabilities)
+    {
+        var levels = new[] { ("none", ReasoningEffort.None), ("low", ReasoningEffort.Low),
+            ("medium", ReasoningEffort.Medium), ("high", ReasoningEffort.High), ("xhigh", ReasoningEffort.ExtraHigh) };
+        return levels.Where(level => capabilities?.SupportedReasoningEfforts is not { } supported
+                || supported.Contains(level.Item1, StringComparer.Ordinal))
+            .Select(level => level.Item2).ToArray();
+    }
+
+    private static IEnumerable<ModelConfigChoice> ReasoningChoices(AgentTuiModelCapabilities? capabilities) =>
+        SelectableReasoningEfforts(capabilities).Select(effort => new ModelConfigChoice(
+            effort.ToString(), effort switch
+            {
+                ReasoningEffort.None => "Off", ReasoningEffort.ExtraHigh => "Extra high", _ => effort.ToString()
+            } + (string.Equals(capabilities?.DefaultReasoningEffort,
+                effort == ReasoningEffort.ExtraHigh ? "xhigh" : effort.ToString().ToLowerInvariant(),
+                StringComparison.Ordinal) ? " (default)" : ""), effort));
 
     private sealed record ModelConfigChoice(
         string Kind,

@@ -93,11 +93,19 @@ internal static class AnsiGridRenderer
         => WriteDifferential(previous, current, output, default);
 
     /// <summary>Writes a differential for rows whose raster content may have changed.</summary>
+    /// <param name="previous">The last accepted local screen buffer.</param>
+    /// <param name="current">The proposed local screen buffer.</param>
+    /// <param name="output">The ordered frame being encoded.</param>
+    /// <param name="damagedRows">Optional local row damage flags.</param>
+    /// <param name="rowOffset">The live region's physical terminal row.</param>
+    /// <param name="rowLimit">The local row extent to compare, including any stale rows to erase.</param>
     public static ScreenDiffMetrics WriteDifferential(
         ScreenBuffer previous,
         ScreenBuffer current,
         AnsiFrameWriter output,
-        ReadOnlySpan<bool> damagedRows)
+        ReadOnlySpan<bool> damagedRows,
+        int rowOffset = 0,
+        int? rowLimit = null)
     {
         ArgumentNullException.ThrowIfNull(previous);
         ArgumentNullException.ThrowIfNull(current);
@@ -116,7 +124,7 @@ internal static class AnsiGridRenderer
         var changedRows = 0;
         var changedRuns = 0;
         var changedCells = 0;
-        for (var row = 0; row < current.Height; row++)
+        for (var row = 0; row < Math.Min(current.Height, rowLimit ?? current.Height); row++)
         {
             if (!damagedRows.IsEmpty && !damagedRows[row])
                 continue;
@@ -141,7 +149,7 @@ internal static class AnsiGridRenderer
                 var end = ExpandChangedRun(previous.Grid, current.Grid, start, row);
                 changedRuns++;
                 changedCells += end - start;
-                WriteCursorMove(start, row, output);
+                WriteCursorMove(start, row + rowOffset, output);
                 TerminalHyperlink? activeHyperlink = null;
                 for (var x = start; x < end; x++)
                 {

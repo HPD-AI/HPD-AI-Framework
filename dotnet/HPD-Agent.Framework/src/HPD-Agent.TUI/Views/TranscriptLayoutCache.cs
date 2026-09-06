@@ -71,7 +71,10 @@ public sealed class PreparedTranscriptEntry : IDisposable
             cells.Add(new ScrollbackCell(_grid.GetGrapheme(cell).ToString(), cell.Style,
                 new TerminalRunMetadata(_grid.GetHyperlink(cell)), cell.DisplayWidth));
         }
-        while (cells.Count > 0 && cells[^1].Grapheme == " " && cells[^1].Metadata.Hyperlink is null)
+        // Styled spaces can carry backgrounds, underlines, or other visible decoration.
+        // Only undecorated default cells are safe to omit from native scrollback.
+        while (cells.Count > 0 && cells[^1].Grapheme == " " && cells[^1].Style == Style.Default &&
+            cells[^1].Metadata.Hyperlink is null)
             cells.RemoveAt(cells.Count - 1);
         return new ScrollbackRow(id, cells.ToArray());
     }

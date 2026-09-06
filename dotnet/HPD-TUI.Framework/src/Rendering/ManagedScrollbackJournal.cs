@@ -28,13 +28,11 @@ internal sealed class ManagedScrollbackJournal(
         var batch = lease.Batch;
         if (_epoch != long.MinValue && batch.PresentationEpoch != _epoch)
             throw new InvalidOperationException("The scrollback batch belongs to a stale presentation epoch.");
-        if (batch.Rows.Count == 0)
-            return new(ScrollbackCommitStatus.Written, _hasWatermark ? _watermark : batch.FirstSequence);
 
         if (_epoch == batch.PresentationEpoch && _hasWatermark)
         {
             var end = checked(batch.FirstSequence + batch.Rows.Count);
-            if (end <= _watermark) return new(ScrollbackCommitStatus.Written, _watermark);
+            if (batch.Rows.Count > 0 && end <= _watermark) return new(ScrollbackCommitStatus.Written, _watermark);
             if (batch.FirstSequence != _watermark)
                 throw new InvalidOperationException("Scrollback batches must form one contiguous sequence.");
         }

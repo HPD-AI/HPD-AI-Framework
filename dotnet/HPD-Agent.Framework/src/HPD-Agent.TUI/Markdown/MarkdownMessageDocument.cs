@@ -209,7 +209,7 @@ public sealed class MarkdownMessageProjection
             _cachedEpoch = document.Epoch;
         }
 
-        var frameworkThemeKey = options.Theme.ThemeKey;
+        var markdownThemeKey = options.Theme.ThemeKey;
         var layouts = ImmutableArray.CreateBuilder<MarkdownBlockLayout>(document.Parsed.Blocks.Count);
         var rows = ImmutableArray.CreateBuilder<MarkdownLayoutRow>();
         MarkdownTopLevelBlock? previous = null;
@@ -218,8 +218,8 @@ public sealed class MarkdownMessageProjection
         {
             var exactSource = document.Parsed.Source[block.SourceStart..block.SourceEndExclusive];
             var key = new BlockCacheKey(block.Ordinal, block.SourceStart, block.SourceEndExclusive, exactSource,
-                document.Parsed.PipelineId, options.Width, frameworkThemeKey, options.ColorSystem, options.Mode,
-                options.SyntaxThemeRevision, (options.Spacing ?? new MarkdownSpacing()).Key,
+                document.Parsed.PipelineId, options.Width, markdownThemeKey, options.ColorSystem, options.Mode,
+                (options.Spacing ?? new MarkdownSpacing()).Key,
                 (options.ResourceLimits ?? new MarkdownResourceLimits()).Key,
                 (document.Parsed.Features & (MarkdownDocumentFeatures.ReferenceDefinitions | MarkdownDocumentFeatures.ExtensionGlobalState)) != 0
                     ? document.Revision : 0);
@@ -283,8 +283,8 @@ public sealed class MarkdownMessageProjection
 
         return new MarkdownLayout
         {
-            Key = new(document.Parsed.PipelineId, "terminal-v1", options.Width, frameworkThemeKey,
-                options.ColorSystem, options.Mode, options.SyntaxThemeRevision, (options.Spacing ?? new MarkdownSpacing()).Key,
+            Key = new(document.Parsed.PipelineId, "terminal-v1", options.Width, markdownThemeKey,
+                options.ColorSystem, options.Mode, (options.Spacing ?? new MarkdownSpacing()).Key,
                 (options.ResourceLimits ?? new MarkdownResourceLimits()).Key),
             Blocks = layouts.ToImmutable(),
             Rows = rows.ToImmutable(),
@@ -305,7 +305,7 @@ public sealed class MarkdownMessageProjection
         IMarkdownLayoutEngine engine)
     {
         var expectedKey = new MarkdownLayoutKey(document.Parsed.PipelineId, "terminal-v1", options.Width,
-            options.Theme.ThemeKey, options.ColorSystem, options.Mode, options.SyntaxThemeRevision,
+            options.Theme.ThemeKey, options.ColorSystem, options.Mode,
             (options.Spacing ?? new MarkdownSpacing()).Key,
             (options.ResourceLimits ?? new MarkdownResourceLimits()).Key);
         var expectedPreparedKey = new PreparedKey(document.Revision, expectedKey);
@@ -370,7 +370,6 @@ public sealed class MarkdownMessageProjection
             options.Theme.ThemeKey,
             options.ColorSystem,
             options.Mode,
-            options.SyntaxThemeRevision,
             (options.Spacing ?? new MarkdownSpacing()).Key,
             (options.ResourceLimits ?? new MarkdownResourceLimits()).Key);
         return RequireVisiblePrepared(document.Revision, key);
@@ -384,7 +383,7 @@ public sealed class MarkdownMessageProjection
     {
         var key = new MarkdownLayoutKey(document.Parsed.PipelineId, "terminal-v1", options.Width,
             options.Theme.ThemeKey, options.ColorSystem, MarkdownPresentationMode.Rich,
-            options.SyntaxThemeRevision, (options.Spacing ?? new MarkdownSpacing()).Key,
+            (options.Spacing ?? new MarkdownSpacing()).Key,
             (options.ResourceLimits ?? new MarkdownResourceLimits()).Key);
         var preparedKey = new PreparedKey(document.Revision, key);
         var state = _rawPages.GetValueOrDefault(preparedKey);
@@ -494,7 +493,7 @@ public sealed class MarkdownMessageProjection
 
     private readonly record struct BlockCacheKey(
         int Ordinal, int Start, int End, string ExactSource, string PipelineId, int Width,
-        ThemeKey ThemeKey, ColorSystem ColorSystem, MarkdownPresentationMode Mode, long SyntaxThemeRevision,
+        MarkdownThemeKey ThemeKey, ColorSystem ColorSystem, MarkdownPresentationMode Mode,
         MarkdownSpacingKey SpacingKey,
         MarkdownResourceLimitsKey ResourceLimitsKey,
         long GlobalRevision);

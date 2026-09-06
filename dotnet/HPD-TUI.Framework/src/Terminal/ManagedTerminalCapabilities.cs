@@ -26,15 +26,42 @@ public readonly record struct ManagedTerminalCapabilityProfile(ManagedTerminalFe
     public const ManagedTerminalFeatures SplitFooterRequirements =
         ManagedTerminalFeatures.AbsoluteCursorAddressing |
         ManagedTerminalFeatures.EraseInLine |
-        ManagedTerminalFeatures.ControllableAutowrap |
-        ManagedTerminalFeatures.SynchronizedOutput;
+        ManagedTerminalFeatures.ControllableAutowrap;
 
     /// <summary>Gets whether the split-footer protocol is safe for this profile.</summary>
     public bool SupportsSplitFooter => (Features & SplitFooterRequirements) == SplitFooterRequirements;
 
     /// <summary>Gets a profile suitable for a terminal whose complete managed protocol was verified.</summary>
     public static ManagedTerminalCapabilityProfile Verified { get; } = new(
-        SplitFooterRequirements | ManagedTerminalFeatures.ClearScrollback);
+        SplitFooterRequirements | ManagedTerminalFeatures.ClearScrollback | ManagedTerminalFeatures.SynchronizedOutput);
+
+    /// <summary>Selects the normal-screen protocol for a recognized terminal environment.</summary>
+    /// <param name="environment">Reads a terminal environment variable without changing process state.</param>
+    /// <param name="outputRedirected">Whether output is a pipe or file rather than a terminal.</param>
+    /// <returns>A profile using full-screen scrolling, or no capabilities for unsupported output.</returns>
+    /// <remarks>Unknown terminals are not promoted to a verified profile. Synchronized output is optional;
+    /// the full-screen insertion protocol also works with ordered unsynchronized writes.</remarks>
+    public static ManagedTerminalCapabilityProfile FromEnvironment(
+        Func<string, string?> environment, bool outputRedirected)
+    {
+        ArgumentNullException.ThrowIfNull(environment);
+        if (outputRedirected) return default;
+        var term = environment("TERM") ?? string.Empty;
+        if (term == "dumb") return default;
+        var program = environment("TERM_PROGRAM") ?? string.Empty;
+        var recognized = term.StartsWith("xterm", StringComparison.OrdinalIgnoreCase) ||
+            term.StartsWith("screen", StringComparison.OrdinalIgnoreCase) ||
+            term.StartsWith("tmux", StringComparison.OrdinalIgnoreCase) ||
+            program is "Apple_Terminal" or "iTerm.app" or "WezTerm" or "vscode" or "ghostty" ||
+            !string.IsNullOrEmpty(environment("WT_SESSION")) ||
+            !string.IsNullOrEmpty(environment("KITTY_WINDOW_ID"));
+        if (!recognized) return default;
+        var features = SplitFooterRequirements | ManagedTerminalFeatures.ClearScrollback;
+        if (program is "iTerm.app" or "WezTerm" or "ghostty" ||
+            !string.IsNullOrEmpty(environment("KITTY_WINDOW_ID")))
+            features |= ManagedTerminalFeatures.SynchronizedOutput;
+        return new(features);
+    }
 
     /// <summary>Detects capabilities explicitly reported by the active terminal session.</summary>
     public static ManagedTerminalCapabilityProfile Detect(ITerminal terminal)

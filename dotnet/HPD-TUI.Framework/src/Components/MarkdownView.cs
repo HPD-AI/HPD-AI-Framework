@@ -65,11 +65,10 @@ public sealed class MarkdownView : Component
 
     private void Validate(in RenderContext context, int maxWidth)
     {
-        if (maxWidth != _layout.Key.Width || context.Theme.Key != _layout.Key.ThemeKey || context.ColorSystem != _layout.Key.ColorSystem)
+        if (maxWidth != _layout.Key.Width || context.ColorSystem != _layout.Key.ColorSystem)
             throw new InvalidOperationException(
                 $"MarkdownView context does not match its prepared layout key. " +
                 $"Width actual/prepared={maxWidth}/{_layout.Key.Width}; " +
-                $"themeMatch={context.Theme.Key == _layout.Key.ThemeKey}; " +
                 $"colorSystem actual/prepared={context.ColorSystem}/{_layout.Key.ColorSystem}.");
     }
 }

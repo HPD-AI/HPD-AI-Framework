@@ -109,19 +109,14 @@ public sealed class VirtualTerminalConformanceTests
         using var renderer = new ManagedTerminalTuiRenderer(display);
         renderer.Render(new Text("live"), scrollback: Batch(12, 0, "old", "界"));
 
-        var expectedPrefix = "\x1b[?2026h\x1b[?25l\x1b[?7l\x1b[2J\x1b[H\r";
-        Assert.StartsWith(expectedPrefix, display.Output);
-        Assert.Contains("old", display.Output);
-        Assert.Contains("界", display.Output);
-        Assert.Equal(2, Count(display.Output, "\x1b[K\r\n"));
-        Assert.Contains("\x1b[?7h\x1b[2J\x1b[H", display.Output);
-        Assert.EndsWith("\x1b[?25l\x1b[?2026l", display.Output);
-
         var oracle = new VirtualTerminalOracle(8, 4);
         oracle.Apply(display.Output);
-        Assert.Contains("old", oracle.Scrollback);
-        Assert.Contains("界", oracle.Scrollback);
-        Assert.Equal("live", oracle.Line(0));
+        Assert.Empty(oracle.Scrollback);
+        Assert.Equal("old", oracle.Line(0));
+        Assert.Equal("界", oracle.Line(1));
+        Assert.Equal("live", oracle.Line(2));
+        Assert.Equal(2, renderer.LiveTop);
+        Assert.Equal(1, renderer.LiveHeight);
         Assert.True(oracle.Autowrap);
         Assert.False(oracle.CursorVisible);
         Assert.Equal(0, oracle.SynchronizedOutputDepth);

@@ -1,3 +1,4 @@
+using System.Text;
 using System.Buffers;
 using System.Globalization;
 using HPD.TUI.Utilities;
@@ -8,6 +9,8 @@ namespace HPD.TUI.Tests;
 internal sealed class VirtualTerminalOracle
 {
     private Cell[,] _cells;
+    private Cell[,]? _normalCells;
+    private (int X, int Y) _normalCursor;
     private int _top;
     private int _bottom;
     private int _savedX;
@@ -56,6 +59,15 @@ internal sealed class VirtualTerminalOracle
             for (var x = 0; x < Math.Min(width, Width); x++)
                 replacement[y, x] = _cells[y, x];
         _cells = replacement;
+        if (_normalCells is { } normal)
+        {
+            var resizedNormal = new Cell[height, width];
+            for (var y = 0; y < Math.Min(height, normal.GetLength(0)); y++)
+                for (var x = 0; x < Math.Min(width, normal.GetLength(1)); x++)
+                    resizedNormal[y, x] = normal[y, x];
+            _normalCells = resizedNormal;
+            _normalCursor = (Math.Min(_normalCursor.X, width - 1), Math.Min(_normalCursor.Y, height - 1));
+        }
         Width = width;
         Height = height;
         _top = 0;
@@ -102,6 +114,7 @@ internal sealed class VirtualTerminalOracle
         {
             '[' => ApplyCsi(input, start + 2),
             ']' => ApplyOsc(input, start + 2),
+            '=' or '>' => start + 2, // Application/numeric keypad mode does not alter the screen.
             '7' => Save(start + 2),
             '8' => Restore(start + 2),
             'D' => Index(start + 2),
@@ -132,9 +145,27 @@ internal sealed class VirtualTerminalOracle
             var enabled = final == 'h';
             switch (parameters[0])
             {
+                case 12: break; // Cursor blink does not alter captured cell contents.
+                case 2004: break; // Bracketed paste input mode.
+                case 1: break; // Application cursor-key input mode.
                 case 7: Autowrap = enabled; _wrapPending = false; break;
                 case 25: CursorVisible = enabled; break;
-                case 1049: Clear(); CursorX = CursorY = 0; break;
+                case 1049:
+                    if (enabled && _normalCells is null)
+                    {
+                        _normalCells = _cells;
+                        _normalCursor = (CursorX, CursorY);
+                        _cells = new Cell[Height, Width];
+                        CursorX = CursorY = 0;
+                    }
+                    else if (!enabled && _normalCells is not null)
+                    {
+                        _cells = _normalCells;
+                        _normalCells = null;
+                        (CursorX, CursorY) = _normalCursor;
+                    }
+                    _wrapPending = false;
+                    break;
                 case 2026: SynchronizedOutputDepth += enabled ? 1 : -1; if (SynchronizedOutputDepth < 0) throw Unsupported("unbalanced synchronized output"); break;
                 default: throw Unsupported($"private mode {parameters[0]}");
             }
@@ -221,7 +252,7 @@ internal sealed class VirtualTerminalOracle
 
     private void ScrollUp()
     {
-        if (_top == 0) Scrollback.Add(Line(0));
+        if (_top == 0 && _normalCells is null) Scrollback.Add(Line(0));
         for (var y = _top; y < _bottom; y++)
             for (var x = 0; x < Width; x++) _cells[y, x] = _cells[y + 1, x];
         ClearRow(_bottom);

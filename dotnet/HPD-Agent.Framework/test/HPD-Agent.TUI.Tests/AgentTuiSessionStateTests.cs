@@ -268,7 +268,7 @@ public sealed class AgentTuiSessionStateTests
                     messageId,
                     string.IsNullOrWhiteSpace(markdown) ? "_thinking..._" : markdown,
                     80,
-                    Theme.Default,
+                    HPD.TUI.Markdown.MarkdownTheme.FromTheme(Theme.Default),
                     "assistant"),
                 new TranscriptEntryMetadata(
                     AgentId: context.Scope.AgentId,

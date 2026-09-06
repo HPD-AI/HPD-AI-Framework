@@ -168,7 +168,7 @@ public sealed class CompositionSurfaceTests
         model.Transcript.AddFinal(new TranscriptEntry(
             Id: "row",
             EntryKey: null,
-            HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant("test-assistant", "hello", 96, Theme.Default, "assistant"),
+            HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant("test-assistant", "hello", 96, HPD.TUI.Markdown.MarkdownTheme.FromTheme(Theme.Default), "assistant"),
             new TranscriptEntryMetadata()));
 
         var view = registry.ShellLayout.Create(new AgentTuiShellLayoutContext(
@@ -714,7 +714,23 @@ public sealed class CompositionSurfaceTests
             _text = text;
         }
 
-        public IComponent Create(AgentTuiShellLayoutContext context) => new Text(_text);
+        public IAgentTuiShellView Create(AgentTuiShellLayoutContext context) => new TestShell(_text);
+
+        private sealed class TestShell(string text) : Component, IAgentTuiShellView
+        {
+            public long HistoryRevision => 0;
+            public bool IsFullScreen => false;
+            public HPD.TUI.Terminal.ManagedTerminalRecoveryPolicy HistoryResetPolicy => HPD.TUI.Terminal.ManagedTerminalRecoveryPolicy.ClearAndReplay;
+            public void PrepareFrame(HPD.TUI.Terminal.TerminalSize size, Theme theme, ColorSystem colorSystem) { }
+            public void ResetPresentation(long presentationEpoch, in RenderContext context) { }
+            public HPD.TUI.Rendering.ScrollbackBatch? PrepareScrollback(in RenderContext context, int maxRows) => null;
+            public void CommitScrollback(HPD.TUI.Rendering.ScrollbackBatch batch) { }
+            public void RollbackScrollback(HPD.TUI.Rendering.ScrollbackBatch batch) { }
+            public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
+                => new Text(text).Measure(in context, constraints);
+            public override void Render(in RenderContext context, ref DisplayListBuilder output)
+                => output.Write(text, context.Theme.Text);
+        }
     }
 
     private sealed class TextTranscriptRenderer<TCell> : IAgentTuiTranscriptRenderer<TCell>

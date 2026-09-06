@@ -84,6 +84,9 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         _requestedTarget = requestedTarget;
         _registry = registry;
+        if (registry.TranscriptHistoryPresentation == TranscriptHistoryPresentation.TerminalScrollback &&
+            !ManagedTerminalCapabilityProfile.Detect(terminal).SupportsSplitFooter)
+            throw new NotSupportedException("Native chat requires a supported interactive terminal (for example xterm, iTerm, Windows Terminal, or WezTerm).");
         _application = new ManagedTerminalTuiApplication(terminal);
         _markdownStreams = markdownParser is null
             ? new MarkdownStreamCoordinator(PrepareMarkdownPublication)
@@ -290,8 +293,9 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             _registry,
             _registry.ShellChrome,
             _state.State));
-        _framePreparable = shell as IAgentTuiFramePreparable;
-        _application.ScrollbackSource = shell as IScrollbackSource;
+        _framePreparable = shell;
+        _application.ScrollbackSource = _registry.TranscriptHistoryPresentation == TranscriptHistoryPresentation.TerminalScrollback
+            ? shell : null;
         var dialogHost = new DialogHost(shell, _application.Focus);
         _dialogs = new AgentTuiDialogService(
             dialogHost,
@@ -939,6 +943,9 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         }
     }
 
+    /// <summary>Resolves a target and installs its shell through the UI dispatcher before hydrating its history.</summary>
+    /// <param name="target">The requested agent, session, and thread.</param>
+    /// <param name="cancellationToken">Cancels target resolution, queued installation, or hydration.</param>
     public async ValueTask SwitchTargetAsync(
         AgentTuiExecutionTarget target,
         CancellationToken cancellationToken)
@@ -946,10 +953,17 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         var resolved = await _runtime.ResolveInitialTargetAsync(target, cancellationToken)
             .ConfigureAwait(false);
         await StopObserverAsync().ConfigureAwait(false);
-        _handledInteractionIds.Clear();
-        RebuildShell(
-            resolved.Target,
-            $"Switched to agent `{resolved.Target.Scope.AgentId}`, session `{resolved.Target.Scope.SessionId}`, thread `{resolved.Target.Scope.ThreadId}`.");
+        void InstallResolvedTarget()
+        {
+            _handledInteractionIds.Clear();
+            RebuildShell(
+                resolved.Target,
+                $"Switched to agent `{resolved.Target.Scope.AgentId}`, session `{resolved.Target.Scope.SessionId}`, thread `{resolved.Target.Scope.ThreadId}`.");
+        }
+        if (_application.IsRunning)
+            await _application.InvokeAsync(InstallResolvedTarget, cancellationToken).ConfigureAwait(false);
+        else
+            InstallResolvedTarget();
         if (resolved.IsDurable &&
             await HydrateThreadAsync(resolved.Target.Scope, cancellationToken).ConfigureAwait(false))
         {
@@ -1394,8 +1408,17 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     {
         if (_state is null) return;
         _framePreparable?.PrepareFrame(size, theme, ColorSystem.TrueColor);
-        foreach (var entry in _state.Shell.Transcript.Snapshot().Entries)
+        var transcript = _state.Shell.Transcript;
+        var snapshot = transcript.Snapshot();
+        var native = transcript.HistoryPresentation == TranscriptHistoryPresentation.TerminalScrollback;
+        var start = native ? snapshot.CommittedCount : 0;
+        var publicationEnd = native ? Math.Min(snapshot.Entries.Count, start + Math.Max(size.Height * 4, 64)) : snapshot.Entries.Count;
+        var visibleStart = Math.Max(publicationEnd, snapshot.Entries.Count - size.Height);
+        for (var index = start; index < snapshot.Entries.Count; index++)
         {
+            if (index == publicationEnd) index = visibleStart;
+            if (index >= snapshot.Entries.Count) break;
+            var entry = snapshot.Entries[index];
             if (entry.Cell is AssistantMessageCell assistant)
                 PrepareMarkdown(assistant.Document, assistant.Projection, size.Width, theme, reasoning: false,
                     entry.Metadata.AgentDepth);
@@ -1405,7 +1428,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         }
     }
 
-    private static MarkdownLayout PrepareMarkdown(
+    private MarkdownLayout PrepareMarkdown(
         MarkdownMessageDocument document,
         MarkdownMessageProjection projection,
         int outerWidth,
@@ -1414,13 +1437,10 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         int? agentDepth = null)
     {
         var depthIndent = Math.Max(0, agentDepth ?? document.Presentation.AgentDepth) * 2;
-        var effectiveTheme = reasoning
-            ? AgentTuiTranscriptRenderServices.Default.CreateMutedTheme(theme)
-            : theme;
         var width = Math.Max(1, outerWidth - depthIndent - (reasoning ? 2 : 0));
         return projection.Prepare(
             document,
-            new(width, MarkdownTheme.FromTheme(effectiveTheme), ColorSystem.TrueColor),
+            new(width, _registry.TranscriptRenderers.Services.ResolveMarkdownTheme(theme, reasoning), ColorSystem.TrueColor),
             MarkdownLayoutEngine);
     }
 

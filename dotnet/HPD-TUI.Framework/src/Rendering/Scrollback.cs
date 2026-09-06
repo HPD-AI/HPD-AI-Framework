@@ -81,9 +81,18 @@ public interface IScrollbackJournal
 /// <summary>Projects immutable application history into managed-terminal scrollback batches.</summary>
 public interface IScrollbackSource
 {
-    /// <summary>Starts a new terminal presentation epoch and releases any unaccepted batch.</summary>
+    /// <summary>Gets the semantic history generation, changed by an explicit history replacement.</summary>
+    long HistoryRevision { get; }
+
+    /// <summary>Gets whether a full-screen application page temporarily owns the terminal.</summary>
+    bool IsFullScreen { get; }
+
+    /// <summary>Gets the terminal policy required by the latest history replacement.</summary>
+    ManagedTerminalRecoveryPolicy HistoryResetPolicy { get; }
+
+    /// <summary>Starts a new history presentation, releases unaccepted batches, and resets semantic publication frontiers.</summary>
     /// <param name="presentationEpoch">The renderer epoch that subsequent batches must identify.</param>
-    /// <param name="context">The new physical viewport used to reflow the uncommitted tail.</param>
+    /// <param name="context">The physical viewport used to rebuild the selected canonical history.</param>
     void ResetPresentation(long presentationEpoch, in RenderContext context);
 
     /// <summary>Prepares the next contiguous batch without advancing the source watermark.</summary>

@@ -437,6 +437,7 @@ public sealed class ThreadCompactionEngine : IThreadCompactionEngine
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(compaction);
 
+        cancellationToken.ThrowIfCancellationRequested();
         AgentEvent committed;
         if (context.Publisher is null)
         {
@@ -592,6 +593,8 @@ public sealed class ThreadCompactionEngine : IThreadCompactionEngine
         return (messages.ToList(), [], carried.ToList());
     }
 
+    /// <summary>Creates a text handoff only after rejecting errors, incomplete generation, and tool-dependent output.</summary>
+    /// <remarks>Providers own protocol completion evidence. An absent MEAI finish reason alone is not a failure.</remarks>
     private static async Task<ChatMessage> SummarizeAsync(
         ThreadCompactionContext context,
         IReadOnlyList<ChatMessage> selected,
@@ -606,6 +609,11 @@ public sealed class ThreadCompactionEngine : IThreadCompactionEngine
         options.ToolMode = ChatToolMode.None;
         var response = await client.GetResponseAsync(messages, options, cancellationToken)
             .ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (response.Messages.SelectMany(static message => message.Contents).Any(static content => content is ErrorContent))
+            throw new InvalidOperationException("The compaction summarizer returned an error or refusal.");
+        if (response.FinishReason is { } finish && finish != ChatFinishReason.Stop)
+            throw new InvalidOperationException($"The compaction summarizer did not complete a continuation handoff ({finish}).");
         if (response.Messages.SelectMany(static message => message.Contents).Any(IsToolDependentContent))
             throw new InvalidOperationException("The compaction summarizer returned a tool request instead of a continuation handoff.");
         var text = response.Text?.Trim();
@@ -643,8 +651,8 @@ public sealed class ThreadCompactionEngine : IThreadCompactionEngine
     }
 
     private static bool IsToolDependentContent(AIContent content) => content
-        is FunctionCallContent
-        or FunctionResultContent
+        is ToolCallContent
+        or ToolResultContent
         or InputRequestContent
         or InputResponseContent;
 

@@ -58,7 +58,7 @@ public sealed class ManagedTerminalProtocolTests
     }
 
     [Fact]
-    public void Resize_StartsNewPresentationEpochBeforeReflowedHistoryIsPrepared()
+    public void Resize_PreservesAcceptedHistoryGenerationAndSequence()
     {
         using var terminal = new ResizableProtocolTerminal();
         using var renderer = new ManagedTerminalTuiRenderer(terminal);
@@ -66,9 +66,8 @@ public sealed class ManagedTerminalProtocolTests
 
         terminal.Size = new(60, 10);
 
-        Assert.Equal(5, renderer.SynchronizePresentation(terminal.Size));
-        renderer.Render(new Text("live"), scrollback: Batch(5, 0));
-        Assert.Equal(5, renderer.PresentationEpoch);
+        renderer.Render(new Text("live"), scrollback: Batch(4, 1));
+        Assert.Equal(4, renderer.PresentationEpoch);
     }
 
     [Fact]

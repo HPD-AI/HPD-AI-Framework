@@ -40,7 +40,78 @@ public sealed class TranscriptModel
     private TranscriptSequence _entries = TranscriptSequence.Empty;
     private readonly Dictionary<string, int> _entryKeys = new(StringComparer.Ordinal);
     private int _historyEpoch;
+    private CommittedHistoryMutationPolicy _historyResetPolicy = CommittedHistoryMutationPolicy.ClearAndReplay;
+
+    /// <summary>Gets the policy associated with the latest explicit committed-history replacement.</summary>
+    public CommittedHistoryMutationPolicy HistoryResetPolicy { get { lock (_gate) return _historyResetPolicy; } }
+
+    /// <summary>Releases presentation watermarks when terminal history is explicitly rebuilt.</summary>
+    internal void ResetPublication()
+    {
+        lock (_gate) { _committedCount = 0; _publishedPartialSource = null; _publishedPartialFinal = false; MarkChanged(); }
+    }
+
     private int _committedCount;
+    private string? _publishedPartialSource;
+    private bool _publishedPartialFinal;
+    private int PublishedEntryCount => _committedCount + (_publishedPartialSource is null && !_publishedPartialFinal ? 0 : 1);
+
+    /// <summary>Protects the accepted canonical prefix of the first incompletely published Markdown entry.</summary>
+    /// <param name="entryId">Stable identity of the entry following the fully committed prefix.</param>
+    /// <param name="sourcePrefix">The immutable accepted canonical source range, starting at offset zero.</param>
+    internal void CommitPartialMarkdown(string entryId, string sourcePrefix)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(sourcePrefix);
+        lock (_gate)
+        {
+            if (_committedCount >= _entries.Count || _entries[_committedCount].Id != entryId)
+                throw new InvalidOperationException("Partial publication must follow the fully committed entry prefix.");
+            if (_publishedPartialSource is { } previous && !sourcePrefix.StartsWith(previous, StringComparison.Ordinal))
+                throw new InvalidOperationException("Accepted Markdown source is append-only.");
+            _publishedPartialSource = sourcePrefix;
+            MarkChanged();
+        }
+    }
+
+    /// <summary>Protects a final entry whose visual rows are being published in bounded batches.</summary>
+    /// <param name="entryId">Identity of the final entry immediately after the fully published prefix.</param>
+    internal void CommitPartialFinal(string entryId)
+    {
+        lock (_gate)
+        {
+            if (_committedCount >= _entries.Count || _entries[_committedCount].Id != entryId ||
+                _entries[_committedCount].State != TranscriptEntryState.Final)
+                throw new InvalidOperationException("A final continuation must follow the committed prefix.");
+            _publishedPartialFinal = true;
+            MarkChanged();
+        }
+    }
+
+    private bool CanUpdatePartial(int index, TranscriptEntry replacement)
+    {
+        if (index == _committedCount && _publishedPartialFinal) return false;
+        if (index != _committedCount || _publishedPartialSource is null) return true;
+        var current = _entries[index];
+        if (replacement.Id != current.Id || replacement.Metadata != current.Metadata ||
+            replacement.VerticalSpacing != current.VerticalSpacing || replacement.Cell.GetType() != current.Cell.GetType())
+            return false;
+        var document = replacement.Cell switch
+        {
+            AssistantMessageCell assistant => assistant.Document,
+            ReasoningMessageCell reasoning => reasoning.Document,
+            _ => null
+        };
+        var accepted = _entries[index].Cell switch
+        {
+            AssistantMessageCell assistant => assistant.Document,
+            ReasoningMessageCell reasoning => reasoning.Document,
+            _ => null
+        };
+        return document is not null && accepted is not null && document.LineageId == accepted.LineageId &&
+            document.Presentation == accepted.Presentation &&
+            document.GetCanonicalSource().StartsWith(_publishedPartialSource, StringComparison.Ordinal);
+    }
+
     private int _version;
     private int _updateDepth;
     private bool _updatePending;
@@ -151,10 +222,11 @@ public sealed class TranscriptModel
         {
             if (_entryKeys.TryGetValue(entry.EntryKey, out var index))
             {
-                if (index < _committedCount && committedHistoryPolicy == CommittedHistoryMutationPolicy.Reject)
+                var changesPublished = index < _committedCount || !CanUpdatePartial(index, entry);
+                if (changesPublished && committedHistoryPolicy == CommittedHistoryMutationPolicy.Reject)
                     return CannotRetract();
                 _entries = _entries.Replace(index, entry.AsLive());
-                var reset = ResetCommittedHistoryIfNeeded(index < _committedCount, committedHistoryPolicy);
+                var reset = ResetCommittedHistoryIfNeeded(changesPublished, committedHistoryPolicy);
                 MarkChanged();
                 return reset;
             }
@@ -177,10 +249,11 @@ public sealed class TranscriptModel
             var committed = finalEntry with { EntryKey = entryKey };
             if (_entryKeys.TryGetValue(entryKey, out var index))
             {
-                if (index < _committedCount && committedHistoryPolicy == CommittedHistoryMutationPolicy.Reject)
+                var changesPublished = index < _committedCount || !CanUpdatePartial(index, committed);
+                if (changesPublished && committedHistoryPolicy == CommittedHistoryMutationPolicy.Reject)
                     return CannotRetract();
                 _entries = _entries.Replace(index, committed.AsFinal());
-                var reset = ResetCommittedHistoryIfNeeded(index < _committedCount, committedHistoryPolicy);
+                var reset = ResetCommittedHistoryIfNeeded(changesPublished, committedHistoryPolicy);
                 MarkChanged();
                 return reset;
             }
@@ -203,7 +276,7 @@ public sealed class TranscriptModel
                 || _entries[index].State != TranscriptEntryState.Live)
                 return false;
 
-            ThrowIfCommitted(index);
+            if (index < _committedCount || !CanUpdatePartial(index, finalEntry)) return false;
 
             _entries = _entries.Replace(index, (finalEntry with { EntryKey = entryKey }).AsFinal());
             MarkChanged();
@@ -245,7 +318,7 @@ public sealed class TranscriptModel
         lock (_gate)
         {
             var touchesCommitted = false;
-            for (var index = 0; index < _committedCount; index++)
+            for (var index = 0; index < PublishedEntryCount; index++)
             {
                 if (predicate(_entries[index]))
                 {
@@ -286,7 +359,7 @@ public sealed class TranscriptModel
         {
             var current = _entries.ToArray();
             var first = Array.FindIndex(current, entry => predicate(entry));
-            var touchesCommitted = first >= 0 && first < _committedCount;
+            var touchesCommitted = first >= 0 && first < PublishedEntryCount;
             if (touchesCommitted && committedHistoryPolicy == CommittedHistoryMutationPolicy.Reject)
                 return CannotRetract();
             var retained = current.Where(entry => !predicate(entry)).ToList();
@@ -306,13 +379,15 @@ public sealed class TranscriptModel
     {
         lock (_gate)
         {
-            if (_committedCount != 0 && committedHistoryPolicy == CommittedHistoryMutationPolicy.Reject)
+            if (PublishedEntryCount != 0 && committedHistoryPolicy == CommittedHistoryMutationPolicy.Reject)
                 return CannotRetract();
             var count = _entries.Count;
-            var hadCommitted = _committedCount != 0;
+            var hadCommitted = PublishedEntryCount != 0;
             _entries = TranscriptSequence.Empty;
             _entryKeys.Clear();
             _committedCount = 0;
+            _publishedPartialSource = null; _publishedPartialFinal = false;
+            _historyResetPolicy = committedHistoryPolicy;
             _historyEpoch++;
             MarkChanged();
             return hadCommitted ? RequiresReset(count, committedHistoryPolicy) : Applied(count);
@@ -333,13 +408,15 @@ public sealed class TranscriptModel
 
         lock (_gate)
         {
-            if (_committedCount != 0 && committedHistoryPolicy == CommittedHistoryMutationPolicy.Reject)
+            if (PublishedEntryCount != 0 && committedHistoryPolicy == CommittedHistoryMutationPolicy.Reject)
                 return CannotRetract();
-            var hadCommitted = _committedCount != 0;
+            var hadCommitted = PublishedEntryCount != 0;
             _entries = TranscriptSequence.Empty;
             _entryKeys.Clear();
             _committedCount = 0;
+            _publishedPartialSource = null; _publishedPartialFinal = false;
             AddEntry(replacement.AsFinal());
+            _historyResetPolicy = committedHistoryPolicy;
             _historyEpoch++;
             MarkChanged();
             return hadCommitted ? RequiresReset(1, committedHistoryPolicy) : Applied();
@@ -399,6 +476,7 @@ public sealed class TranscriptModel
                 if (entry.State != TranscriptEntryState.Final || entry.CommitPolicy == TranscriptCommitPolicy.Never)
                     throw new InvalidOperationException("Only a contiguous publishable final prefix can be committed.");
             }
+            if (count > 0) { _publishedPartialSource = null; _publishedPartialFinal = false; }
             _committedCount += count;
             MarkChanged();
         }
@@ -420,6 +498,8 @@ public sealed class TranscriptModel
     {
         if (!touchesCommitted) return Applied(affectedCount);
         _committedCount = 0;
+        _publishedPartialSource = null; _publishedPartialFinal = false;
+        _historyResetPolicy = policy;
         _historyEpoch++;
         return RequiresReset(affectedCount, policy);
     }
@@ -458,7 +538,7 @@ public sealed class TranscriptModel
 
     private void ThrowIfCommitted(int index)
     {
-        if (index < _committedCount)
+        if (index < PublishedEntryCount)
             throw new InvalidOperationException("Committed terminal scrollback entries are immutable.");
     }
 

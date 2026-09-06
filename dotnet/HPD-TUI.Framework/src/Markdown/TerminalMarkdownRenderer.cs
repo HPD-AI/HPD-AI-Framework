@@ -239,7 +239,7 @@ internal sealed class HeadingRenderer : TerminalObjectRenderer<HeadingBlock>
 {
     protected override void Write(TerminalMarkdownRenderer r, HeadingBlock n)
     {
-        var style = n.Level == 1 ? r.Options.Theme.Heading1 : n.Level == 2 ? r.Options.Theme.Heading2 : r.Options.Theme.Heading3;
+        var style = n.Level switch { 1 => r.Options.Theme.Heading1, 2 => r.Options.Theme.Heading2, 3 => r.Options.Theme.Heading3, 4 => r.Options.Theme.Heading4, 5 => r.Options.Theme.Heading5, _ => r.Options.Theme.Heading6 };
         if (n.Inline is not null)
             r.WithPresentation(style, null, () => r.WriteChildren(n.Inline));
     }
@@ -260,11 +260,11 @@ internal sealed class EmphasisRenderer : TerminalObjectRenderer<EmphasisInline>
 {
     protected override void Write(TerminalMarkdownRenderer r, EmphasisInline n)
     {
-        var attributes = n.DelimiterChar == '~' ? r.CurrentStyle.Attributes | TextAttributes.Strikethrough :
-            n.DelimiterCount == 1 ? r.CurrentStyle.Attributes | TextAttributes.Italic :
-            n.DelimiterCount == 2 ? r.CurrentStyle.Attributes | TextAttributes.Bold :
-            r.CurrentStyle.Attributes | TextAttributes.Bold | TextAttributes.Italic;
-        r.WithPresentation(r.CurrentStyle with { Attributes = attributes }, r.ActiveHyperlink, () => r.WriteChildren(n));
+        var style = n.DelimiterChar == '~' ? r.Options.Theme.Strikethrough.Apply(r.CurrentStyle) :
+            n.DelimiterCount == 1 ? r.Options.Theme.Emphasis.Apply(r.CurrentStyle) :
+            n.DelimiterCount == 2 ? r.Options.Theme.Strong.Apply(r.CurrentStyle) :
+            r.Options.Theme.Emphasis.Apply(r.Options.Theme.Strong.Apply(r.CurrentStyle));
+        r.WithPresentation(style, r.ActiveHyperlink, () => r.WriteChildren(n));
     }
 }
 
@@ -273,7 +273,7 @@ internal sealed class CodeInlineRenderer : TerminalObjectRenderer<CodeInline>
     protected override void Write(TerminalMarkdownRenderer r, CodeInline n)
     {
         var (start, end) = r.LocateRenderedContent(n, n.Content);
-        r.Builder.Write(n.Content, r.Options.Theme.InlineCode, r.ActiveHyperlink, start, end);
+        r.Builder.Write(n.Content, r.Options.Theme.InlineCode with { Attributes = r.Options.Theme.InlineCode.Attributes | r.CurrentStyle.Attributes }, r.ActiveHyperlink, start, end);
     }
 }
 
@@ -283,12 +283,12 @@ internal sealed class LinkRenderer : TerminalObjectRenderer<LinkInline>
     {
         if (n.IsImage)
         {
-            r.Builder.Write("[img] ", r.Options.Theme.CodeBorder, decorative: true);
-            r.WithPresentation(r.Options.Theme.CodeBorder, null, () => r.WriteChildren(n));
+            r.Builder.Write("[img] ", r.Options.Theme.Image, decorative: true);
+            r.WithPresentation(r.Options.Theme.Image, null, () => r.WriteChildren(n));
             return;
         }
         TerminalHyperlinkPolicy.TryCreate(n.Url, out var link);
-        r.WithPresentation(r.Options.Theme.Link, link, () => r.WriteChildren(n));
+        r.WithPresentation(r.Options.Theme.Link with { Attributes = r.Options.Theme.Link.Attributes | r.CurrentStyle.Attributes }, link, () => r.WriteChildren(n));
     }
 }
 
@@ -298,7 +298,7 @@ internal sealed class AutolinkRenderer : TerminalObjectRenderer<AutolinkInline>
     {
         TerminalHyperlinkPolicy.TryCreate(n.Url, out var link);
         var (start, end) = r.LocateRenderedContent(n, n.Url);
-        r.Builder.Write(n.Url, r.Options.Theme.Link, link, start, end);
+        r.Builder.Write(n.Url, r.Options.Theme.Link with { Attributes = r.Options.Theme.Link.Attributes | r.CurrentStyle.Attributes }, link, start, end);
     }
 }
 
@@ -313,10 +313,10 @@ internal sealed class LineBreakRenderer : TerminalObjectRenderer<LineBreakInline
 }
 
 internal sealed class HtmlInlineRenderer : TerminalObjectRenderer<HtmlInline>
-{ protected override void Write(TerminalMarkdownRenderer r, HtmlInline n) => r.WriteExact(n, r.Options.Theme.CodeBorder); }
+{ protected override void Write(TerminalMarkdownRenderer r, HtmlInline n) => r.WriteExact(n, r.Options.Theme.Html); }
 
 internal sealed class TaskListRenderer : TerminalObjectRenderer<TaskList>
-{ protected override void Write(TerminalMarkdownRenderer r, TaskList n) => r.Builder.Write(n.Checked ? "[x] " : "[ ] ", n.Checked ? r.Options.Theme.QuoteMarker : r.Options.Theme.CodeBorder, decorative: true); }
+{ protected override void Write(TerminalMarkdownRenderer r, TaskList n) => r.Builder.Write(n.Checked ? "[x] " : "[ ] ", n.Checked ? r.Options.Theme.TaskChecked : r.Options.Theme.TaskUnchecked, decorative: true); }
 
 internal sealed class FencedCodeRenderer : TerminalObjectRenderer<FencedCodeBlock>
 {
@@ -333,7 +333,7 @@ internal sealed class FencedCodeRenderer : TerminalObjectRenderer<FencedCodeBloc
         var result = highlightEligible
             ? r.Highlighter.Highlight(code.AsMemory(), language, r.Options.Theme)
             : new CodeHighlightResult(code.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n')
-                .Select(line => new StyledTerminalLine([new StyledTerminalRun(line, r.Options.Theme.Body)]))
+                .Select(line => new StyledTerminalLine([new StyledTerminalRun(line, r.Options.Theme.CodeBody)]))
                 .ToImmutableArray(), null);
         var inputLines = code.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
         if (!IsValidHighlightResult(result, inputLines))
@@ -447,7 +447,7 @@ internal sealed class ListItemRenderer : TerminalObjectRenderer<ListItemBlock>
         var indent = Math.Max(0, r.ListDepth - 1) * (r.Options.Spacing ?? new MarkdownSpacing()).ListIndent;
         var prefixWidth = indent + r.PendingListMarker.Length;
         r.Builder.WriteRepeated(' ', indent, r.Options.Theme.Body);
-        r.Builder.Write(r.PendingListMarker, r.Options.Theme.CodeBorder, decorative: true);
+        r.Builder.Write(r.PendingListMarker, r.Options.Theme.ListMarker, decorative: true);
         r.Builder.SetWrapPrefix(new string(' ', prefixWidth), r.Options.Theme.Body);
         var first = true;
         foreach (var child in n)
@@ -473,7 +473,7 @@ internal sealed class QuoteRenderer : TerminalObjectRenderer<QuoteBlock>
             first = false;
             r.Builder.Write(prefix, r.Options.Theme.QuoteMarker, decorative: true);
             r.Builder.SetWrapPrefix(new string(' ', prefix.Length), r.Options.Theme.Body);
-            r.WithPresentation(r.Options.Theme.Emphasis, null, () => r.Write(child));
+            r.WithPresentation(r.Options.Theme.QuoteText, null, () => r.Write(child));
             r.Builder.ClearWrapPrefix();
         }
         r.QuoteDepth--;
@@ -481,10 +481,10 @@ internal sealed class QuoteRenderer : TerminalObjectRenderer<QuoteBlock>
 }
 
 internal sealed class ThematicBreakRenderer : TerminalObjectRenderer<ThematicBreakBlock>
-{ protected override void Write(TerminalMarkdownRenderer r, ThematicBreakBlock n) => r.Builder.Write(new string('─', Math.Min(r.Options.Width, 120)), r.Options.Theme.CodeBorder, decorative: true); }
+{ protected override void Write(TerminalMarkdownRenderer r, ThematicBreakBlock n) => r.Builder.Write(new string('─', Math.Min(r.Options.Width, 120)), r.Options.Theme.ThematicBreak, decorative: true); }
 
 internal sealed class HtmlBlockRenderer : TerminalObjectRenderer<HtmlBlock>
-{ protected override void Write(TerminalMarkdownRenderer r, HtmlBlock n) => r.WriteExact(n, r.Options.Theme.CodeBorder); }
+{ protected override void Write(TerminalMarkdownRenderer r, HtmlBlock n) => r.WriteExact(n, r.Options.Theme.Html); }
 
 internal sealed class TableRenderer : TerminalObjectRenderer<Table>
 {
@@ -501,7 +501,7 @@ internal sealed class TableRenderer : TerminalObjectRenderer<Table>
             return;
         }
         var naturalLayouts = rows.Select((row, rowIndex) => row.Select(cell =>
-            r.RenderNested(cell, 4096, rowIndex == 0 ? r.Options.Theme.TableHeader : r.Options.Theme.Body)).ToArray()).ToArray();
+            r.RenderNested(cell, 4096, rowIndex == 0 ? r.Options.Theme.TableHeader : r.Options.Theme.TableBody)).ToArray()).ToArray();
         var natural = naturalLayouts.Select(row => row.Select(PlainText).ToArray()).ToArray();
         var widths = Widths(natural, columns, r.Options.Width);
         if (widths is null) { r.WriteExact(table, r.Options.Theme.Body); return; }

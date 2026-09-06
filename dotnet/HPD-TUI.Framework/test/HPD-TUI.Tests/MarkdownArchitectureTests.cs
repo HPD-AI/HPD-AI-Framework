@@ -529,9 +529,13 @@ public sealed class MarkdownArchitectureTests
     }
 
     [Fact]
-    public void MarkdownTheme_HasOnlyFactoryDerivedStructuralIdentity()
+    public void MarkdownTheme_IdentityIncludesIndependentStyleOverrides()
     {
-        Assert.Empty(typeof(MarkdownTheme).GetConstructors());
+        var original = MarkdownTheme.FromTheme(Theme.Default);
+        Assert.Equal(original.ThemeKey, (original with { }).ThemeKey);
+        Assert.NotEqual(original.ThemeKey, (original with { Heading6 = Theme.Default.Error }).ThemeKey);
+        Assert.NotEqual(original.ThemeKey,
+            (original with { Syntax = original.Syntax with { Comment = Theme.Default.Error } }).ThemeKey);
         Assert.False(typeof(MarkdownTheme).GetProperty(nameof(MarkdownTheme.ThemeKey))!.CanWrite);
     }
 

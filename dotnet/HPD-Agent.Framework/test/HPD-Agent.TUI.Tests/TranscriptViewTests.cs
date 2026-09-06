@@ -189,7 +189,7 @@ public sealed class TranscriptViewTests
         model.AddFinal(new TranscriptEntry(
             Id: "assistant-1",
             EntryKey: "assistant:1",
-            Cell: HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant("test-assistant", "hello", 80, Theme.Default, "assistant"),
+            Cell: HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant("test-assistant", "hello", 80, HPD.TUI.Markdown.MarkdownTheme.FromTheme(Theme.Default), "assistant"),
             Metadata: new TranscriptEntryMetadata(AgentName: "assistant")));
 
         var view = CreateView(model, height: 4);
@@ -326,7 +326,7 @@ public sealed class TranscriptViewTests
     }
 
     [Fact]
-    public void Scrollback_ResizeReleasesPendingBatchAndReflowsTailInNewEpoch()
+    public void Scrollback_NewPresentationReleasesPendingBatchAndReplaysAtNewWidth()
     {
         var model = new TranscriptModel { HistoryPresentation = TranscriptHistoryPresentation.TerminalScrollback };
         model.AddFinal(Row("user-row", "row:key", "abcdefgh"));
@@ -418,6 +418,116 @@ public sealed class TranscriptViewTests
         Render(view).Should().Contain("line 0");
     }
 
+    [Fact]
+    public void Scrollback_PublishesStableMarkdownBeforeCompletionAndFinalizesWithoutDuplicates()
+    {
+        var model = new TranscriptModel { HistoryPresentation = TranscriptHistoryPresentation.TerminalScrollback };
+        var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "stream"));
+        session.Append("Stable paragraph.\n\nMutable paragraph");
+        var document = session.Refresh().Document;
+        var options = new MarkdownLayoutOptions(80, MarkdownTheme.FromTheme(Theme.Default));
+        session.Projection.Prepare(document, options, new MarkdownLayoutEngine());
+        var entry = new TranscriptEntry("stream", "stream", new AssistantMessageCell(null, document, session.Projection),
+            new TranscriptEntryMetadata(), VerticalSpacing: 0);
+        model.UpsertLive(entry, CommittedHistoryMutationPolicy.Reject);
+        var view = CreateView(model, 8);
+        var context = new RenderContext(80, 8, Theme.Default);
+        var first = view.PrepareScrollback(in context, 64);
+        first.Should().NotBeNull();
+        var firstText = string.Join("\n", first!.Rows.Select(row => string.Concat(row.Cells.Select(cell => cell.Grapheme))));
+        firstText.Should().Contain("Stable paragraph.").And.NotContain("Mutable paragraph");
+        view.CommitScrollback(first);
+        model.CommittedCount.Should().Be(0);
+        Render(view).Should().Contain("Mutable paragraph").And.NotContain("Stable paragraph.");
+        session.Append(" completed.");
+        document = session.Complete().Document;
+        session.Projection.Prepare(document, options, new MarkdownLayoutEngine());
+        model.FinalizeLive("stream", entry with { Cell = new AssistantMessageCell(null, document, session.Projection) },
+            CommittedHistoryMutationPolicy.Reject);
+        var last = view.PrepareScrollback(in context, 64);
+        last.Should().NotBeNull();
+        var lastText = string.Join("\n", last!.Rows.Select(row => string.Concat(row.Cells.Select(cell => cell.Grapheme))));
+        lastText.Should().Contain("Mutable paragraph completed.").And.NotContain("Stable paragraph.");
+        view.CommitScrollback(last);
+        model.CommittedCount.Should().Be(1);
+        view.PrepareScrollback(in context, 64).Should().BeNull();
+    }
+
+    [Fact]
+    public void Scrollback_TableStaysMutableAndRollbackDoesNotProtectUnpublishedRows()
+    {
+        var model = new TranscriptModel { HistoryPresentation = TranscriptHistoryPresentation.TerminalScrollback };
+        var session = new MarkdownStreamSession(new(MarkdownStreamKind.Assistant, "table"));
+        session.Append("Stable prose.\n\n| Name | Value |\n| --- | --- |\n| first | 1 |\n");
+        var document = session.Refresh().Document;
+        session.Projection.Prepare(document, new(80, MarkdownTheme.FromTheme(Theme.Default)), new MarkdownLayoutEngine());
+        model.UpsertLive(new TranscriptEntry("table", "table",
+            new AssistantMessageCell(null, document, session.Projection), new TranscriptEntryMetadata()),
+            CommittedHistoryMutationPolicy.Reject);
+        var view = CreateView(model, 12);
+        var context = new RenderContext(80, 12, Theme.Default);
+        var pending = view.PrepareScrollback(in context, 64)!;
+        string.Concat(pending.Rows.SelectMany(row => row.Cells).Select(cell => cell.Grapheme))
+            .Should().Contain("Stable prose.").And.NotContain("Name");
+        view.RollbackScrollback(pending);
+        Render(view).Should().Contain("Stable prose.").And.Contain("Name");
+        model.CommittedCount.Should().Be(0);
+        pending = view.PrepareScrollback(in context, 64)!;
+        view.CommitScrollback(pending);
+        model.RemoveWhere(_ => true, CommittedHistoryMutationPolicy.Reject).Status
+            .Should().Be(TranscriptMutationStatus.CannotRetract);
+        model.ClearAll(CommittedHistoryMutationPolicy.ClearAndReplay).Status
+            .Should().Be(TranscriptMutationStatus.RequiresPresentationReset);
+    }
+
+    [Fact]
+    public void Scrollback_OversizedFinalEntryIsBoundedAndRetryableAcrossResize()
+    {
+        var model = new TranscriptModel { HistoryPresentation = TranscriptHistoryPresentation.TerminalScrollback };
+        var source = string.Join('\n', Enumerable.Range(0, 25).Select(i => $"unique-{i:D2}-abcdefghijk"));
+        model.AddFinal(Row("large-user", "large", source));
+        var view = CreateView(model, 5);
+        var context = new RenderContext(80, 5, Theme.Default);
+        var first = view.PrepareScrollback(in context, 3)!;
+        first.Rows.Count.Should().Be(3);
+        view.RollbackScrollback(first);
+        var retry = view.PrepareScrollback(in context, 3)!;
+        retry.Rows.Should().BeEquivalentTo(first.Rows, options => options.WithStrictOrdering());
+        view.CommitScrollback(retry);
+        model.RemoveWhere(_ => true, CommittedHistoryMutationPolicy.Reject).Status
+            .Should().Be(TranscriptMutationStatus.CannotRetract);
+        var accepted = new List<ScrollbackRow>(retry.Rows);
+        context = new RenderContext(10, 5, Theme.Default);
+        for (var attempt = 0; attempt < 100; attempt++)
+        {
+            var batch = view.PrepareScrollback(in context, 3);
+            if (batch is null) break;
+            batch.Rows.Count.Should().BeInRange(1, 3);
+            batch.Rows.Should().OnlyContain(row => row.Cells.Sum(cell => cell.DisplayWidth) <= 10);
+            accepted.AddRange(batch.Rows);
+            view.CommitScrollback(batch);
+        }
+        model.CommittedCount.Should().Be(1);
+        var text = string.Concat(accepted.SelectMany(row => row.Cells).Select(cell => cell.Grapheme));
+        foreach (var index in Enumerable.Range(0, 25))
+            text.Split($"unique-{index:D2}-abcdefghijk").Length.Should().Be(2);
+        view.PrepareScrollback(in context, 3).Should().BeNull();
+    }
+
+    [Fact]
+    public void NativeMutableTailRemainsNavigableBeforeItCanPublish()
+    {
+        var model = new TranscriptModel { HistoryPresentation = TranscriptHistoryPresentation.TerminalScrollback };
+        model.UpsertLive(Row("mutable-user", "mutable", string.Join('\n', Enumerable.Range(0, 20).Select(i => $"line {i}"))),
+            CommittedHistoryMutationPolicy.Reject);
+        var view = CreateView(model, 3);
+        Render(view).Should().Contain("line 19");
+        view.HandleInput(new KeyEvent(KeyCode.PageUp)).Should().BeTrue();
+        Render(view).Should().NotContain("line 19");
+        var context = new RenderContext(80, 3, Theme.Default);
+        view.PrepareScrollback(in context, 3).Should().BeNull();
+    }
+
     private static TranscriptView CreateView(TranscriptModel model, int height)
         => new(
             model,
@@ -440,7 +550,7 @@ public sealed class TranscriptViewTests
             entryKey,
             id.Contains("user", StringComparison.Ordinal)
                 ? new UserMessageCell(HPD.TUI.Content.TextBlock.Create(text))
-                : HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant(id, text, 80, Theme.Default, "assistant"),
+                : HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant(id, text, 80, HPD.TUI.Markdown.MarkdownTheme.FromTheme(Theme.Default), "assistant"),
             new TranscriptEntryMetadata());
 
     private sealed record UnknownTranscriptCell : TranscriptCell;

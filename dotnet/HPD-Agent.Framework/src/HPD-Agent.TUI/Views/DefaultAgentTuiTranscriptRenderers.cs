@@ -17,30 +17,33 @@ internal sealed class UserMessageCellRenderer : IAgentTuiTranscriptRenderer<User
             AgentTuiTranscriptPrefixStyle.Accent);
 }
 
-internal sealed class AssistantMessageCellRenderer : IAgentTuiTranscriptRenderer<AssistantMessageCell>
+internal sealed class AssistantMessageCellRenderer : IAgentTuiTranscriptRenderer<AssistantMessageCell>, IAgentTuiMarkdownPublicationRenderer
 {
+    /// <inheritdoc />
+    public int MarkdownRowOffset => 0;
     public IComponent Create(AgentTuiTranscriptRenderContext<AssistantMessageCell> context)
         => context.Services.Prefix(
             MarkdownProjectionView.Create(
                 context.Cell.Document,
                 context.Cell.Projection,
                 Math.Max(1, context.Width - context.DepthIndent.Length),
-                context.Theme,
+                context.MarkdownTheme,
                 context.ColorSystem),
             context.DepthIndent,
             context.DepthIndent);
 }
 
-internal sealed class ReasoningMessageCellRenderer : IAgentTuiTranscriptRenderer<ReasoningMessageCell>
+internal sealed class ReasoningMessageCellRenderer : IAgentTuiTranscriptRenderer<ReasoningMessageCell>, IAgentTuiMarkdownPublicationRenderer
 {
+    /// <inheritdoc />
+    public int MarkdownRowOffset => 1;
     public IComponent Create(AgentTuiTranscriptRenderContext<ReasoningMessageCell> context)
     {
-        var mutedTheme = context.Services.CreateMutedTheme(context.Theme);
         var body = MarkdownProjectionView.Create(
             context.Cell.Document,
             context.Cell.Projection,
             Math.Max(1, context.Width - context.DepthIndent.Length - 2),
-            mutedTheme,
+            context.MarkdownTheme,
             context.ColorSystem);
         return new TranscriptRenderComponent((in RenderContext renderContext, int maxWidth, ref DisplayListBuilder output) =>
         {
@@ -205,17 +208,16 @@ internal static class MarkdownProjectionView
         MarkdownMessageDocument document,
         MarkdownMessageProjection projection,
         int width,
-        Theme theme,
+        MarkdownTheme theme,
         ColorSystem colorSystem)
     {
         var key = new MarkdownLayoutKey(
             document.Parsed.PipelineId,
             "terminal-v1",
             width,
-            theme.Key,
+            theme.ThemeKey,
             colorSystem,
             MarkdownPresentationMode.Rich,
-            0,
             new MarkdownSpacing().Key,
             new MarkdownResourceLimits().Key);
         return new MarkdownView(projection.RequireVisiblePrepared(document.Revision, key));

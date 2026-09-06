@@ -107,7 +107,7 @@ public sealed class ManagedTerminalTuiRendererTests
 
         renderer.Render(new Text("hello"), Theme.Default);
 
-        Assert.Contains("\x1b[2J\x1b[H", terminal.Output);
+        Assert.Contains("\x1b[J", terminal.Output);
         Assert.DoesNotContain("\x1b[3J", terminal.Output);
         Assert.DoesNotContain("\x1b[?1049h", terminal.Output);
     }
@@ -650,6 +650,10 @@ public sealed class ManagedTerminalTuiRendererTests
 
     private sealed class RecordingScrollbackSource : IScrollbackSource
     {
+        public long HistoryRevision => 0;
+        public bool IsFullScreen => false;
+        public ManagedTerminalRecoveryPolicy HistoryResetPolicy => ManagedTerminalRecoveryPolicy.ClearAndReplay;
+
         private readonly ScrollbackBatch _batch = new(
             0,
             0,

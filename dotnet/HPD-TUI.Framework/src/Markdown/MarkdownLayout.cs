@@ -11,10 +11,9 @@ public readonly record struct MarkdownLayoutKey(
     string PipelineId,
     string RendererPolicyId,
     int Width,
-    ThemeKey ThemeKey,
+    MarkdownThemeKey ThemeKey,
     ColorSystem ColorSystem,
     MarkdownPresentationMode Mode,
-    long SyntaxThemeRevision,
     MarkdownSpacingKey SpacingKey = default,
     MarkdownResourceLimitsKey ResourceLimitsKey = default);
 

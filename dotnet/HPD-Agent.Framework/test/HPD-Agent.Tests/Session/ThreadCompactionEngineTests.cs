@@ -353,6 +353,88 @@ public sealed class ThreadCompactionEngineTests
         thread.Messages.Should().HaveCount(2);
     }
 
+    [Theory]
+    [InlineData(CompactionOrigin.Explicit, "error")]
+    [InlineData(CompactionOrigin.Automatic, "error")]
+    [InlineData(CompactionOrigin.Fork, "error")]
+    [InlineData(CompactionOrigin.Explicit, "length")]
+    [InlineData(CompactionOrigin.Automatic, "content_filter")]
+    [InlineData(CompactionOrigin.Fork, "incomplete")]
+    [InlineData(CompactionOrigin.Explicit, "tool")]
+    [InlineData(CompactionOrigin.Automatic, "empty")]
+    [InlineData(CompactionOrigin.Fork, "reasoning")]
+    public async Task InvalidSummary_DoesNotCommitHistoryOrCheckpoint(CompactionOrigin origin, string outcome)
+    {
+        var thread = CreateThread(4);
+        var originals = thread.Messages.ToArray();
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
+        var key = new ThreadKey(thread.SessionId, thread.Id);
+        await store.AppendThreadEventsAsync(key, ThreadJournalEncoder.Encode(thread, thread.Messages));
+        var message = new ChatMessage(ChatRole.Assistant, "Partial handoff");
+        if (outcome == "error") message.Contents.Add(new ErrorContent("refused") { ErrorCode = "Refusal" });
+        if (outcome == "tool") message.Contents.Add(new FunctionCallContent("call", "ReadFile"));
+        if (outcome is "empty" or "reasoning") message.Contents.Clear();
+        if (outcome == "reasoning") message.Contents.Add(new TextReasoningContent("Thinking only"));
+        var client = new CapturingChatClient(message)
+        {
+            FinishReason = outcome is "length" or "content_filter" or "incomplete" ? new ChatFinishReason(outcome) : null
+        };
+        var context = new ThreadCompactionContext(thread, thread.Messages,
+            new AgentEventPublisher(store, new EventCoordinator()), client);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () => await new ThreadCompactionEngine().ExecuteAsync(
+            context, SummarizeAtHead(), "agent", 0, origin, CompactionContinuation.Continue));
+
+        Assert.Equal(originals, thread.Messages);
+        var replay = new List<AgentEvent>();
+        await foreach (var batch in store.ReadThreadEventsAsync(key, new ThreadEventReadRequest(ThreadJournalCursor.Start(1))))
+            replay.AddRange(batch.Events);
+        Assert.Empty(replay.OfType<ThreadHistoryCompactionCheckpointEvent>());
+        Assert.Equal(CompactionStatus.Failed, replay.OfType<CompactionEvent>().Last().Status);
+        var projected = await store.ProjectThreadAsync(thread.SessionId, thread.Id, ThreadProjectionPurpose.ThreadHistory);
+        Assert.Equal(originals.Select(m => m.MessageId), projected!.Messages.Select(m => m.MessageId));
+    }
+
+    [Theory]
+    [InlineData(CompactionOrigin.Explicit)]
+    [InlineData(CompactionOrigin.Automatic)]
+    [InlineData(CompactionOrigin.Fork)]
+    public async Task CompletedSummary_CommitsForEveryOrigin(CompactionOrigin origin)
+    {
+        var thread = CreateThread(4);
+        var client = new CapturingChatClient(new ChatMessage(ChatRole.Assistant, "Completed handoff"))
+        { FinishReason = ChatFinishReason.Stop };
+        var result = await new ThreadCompactionEngine().ExecuteAsync(
+            new ThreadCompactionContext(thread, thread.Messages, null, client), SummarizeAtHead(),
+            "agent", 0, origin, CompactionContinuation.Continue);
+        Assert.Equal(CompactionStatus.Completed, result.TerminalEvent.Status);
+        Assert.Equal("Completed handoff", Assert.Single(thread.Messages).Text);
+    }
+
+    [Theory]
+    [InlineData(CompactionCommitMode.Soft)]
+    [InlineData(CompactionCommitMode.Hard)]
+    public async Task CancellationAfterClientReturns_DoesNotCommit(CompactionCommitMode mode)
+    {
+        var thread = CreateThread(4);
+        var original = thread.Messages.ToArray();
+        using var cancellation = new CancellationTokenSource();
+        var client = new CapturingChatClient(new ChatMessage(ChatRole.Assistant, "too late"))
+        { BeforeReturn = cancellation.Cancel };
+        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
+        var key = new ThreadKey(thread.SessionId, thread.Id);
+        await store.AppendThreadEventsAsync(key, ThreadJournalEncoder.Encode(thread, thread.Messages));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await new ThreadCompactionEngine().ExecuteAsync(
+            new ThreadCompactionContext(thread, thread.Messages, new AgentEventPublisher(store, new EventCoordinator()), client),
+            SummarizeAtHead() with { CommitMode = mode }, "agent", 0, CompactionOrigin.Explicit,
+            CompactionContinuation.Continue, cancellation.Token));
+        Assert.Equal(original, thread.Messages);
+        var replay = new List<AgentEvent>();
+        await foreach (var batch in store.ReadThreadEventsAsync(key, new ThreadEventReadRequest(ThreadJournalCursor.Start(1))))
+            replay.AddRange(batch.Events);
+        Assert.Empty(replay.OfType<ThreadHistoryCompactionCheckpointEvent>());
+    }
+
     private static CompactionSpecification RemoveAtHead(CompactionCommitMode mode) => new()
     {
         Point = new CompactAtCurrentHead(),
@@ -395,6 +477,8 @@ public sealed class ThreadCompactionEngineTests
 
     private sealed class CapturingChatClient(ChatMessage response) : IChatClient
     {
+        public Action? BeforeReturn { get; init; }
+        public ChatFinishReason? FinishReason { get; init; }
         public IReadOnlyList<ChatMessage> Messages { get; private set; } = [];
         public ChatOptions? Options { get; private set; }
         public CancellationToken CancellationToken { get; private set; }
@@ -408,7 +492,8 @@ public sealed class ThreadCompactionEngineTests
             Options = options;
             CancellationToken = cancellationToken;
             cancellationToken.ThrowIfCancellationRequested();
-            return Task.FromResult(new ChatResponse(response));
+            BeforeReturn?.Invoke();
+            return Task.FromResult(new ChatResponse(response) { FinishReason = FinishReason });
         }
 
         public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(

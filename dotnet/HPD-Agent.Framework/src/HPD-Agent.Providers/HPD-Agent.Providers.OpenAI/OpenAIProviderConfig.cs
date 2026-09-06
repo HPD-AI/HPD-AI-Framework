@@ -77,6 +77,10 @@ public enum AzureOpenAIServiceVersion
 /// </summary>
 public class OpenAIProviderConfig : global::HPD.Agent.IProviderConfig
 {
+    /// <summary>Gets or sets account-discovered request constraints for the Codex backend's selected model.</summary>
+    /// <remarks>The public API backend ignores this field. Null defers model availability to Codex.</remarks>
+    public OpenAICodexModelPolicy? CodexModelPolicy { get; set; }
+
     /// <summary>
     /// Selects the OpenAI chat API used to construct chat clients.
     /// Runtime model-call behavior belongs in ChatClientConfig.

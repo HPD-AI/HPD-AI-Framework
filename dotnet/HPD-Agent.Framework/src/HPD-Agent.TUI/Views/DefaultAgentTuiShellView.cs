@@ -10,7 +10,7 @@ using HPD.TUI.Views;
 
 namespace HPD.Agent.TUI.Views;
 
-public sealed class DefaultAgentTuiShellView : Component, IAgentTuiFramePreparable, IScrollbackSource
+public sealed class DefaultAgentTuiShellView : Component, IAgentTuiShellView
 {
     private readonly ChatShellModel _model;
     private readonly PromptView _prompt;
@@ -22,6 +22,19 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiFramePreparab
     private readonly MainSectionView _mainSection;
     private readonly FixedViewport _mainViewport;
     private int _lastTranscriptHeight;
+    private long _presentationEpoch;
+    private ScrollbackRow[]? _headerRows;
+    private int _headerWidth;
+    private int _publishedHeaderRows;
+    private int _pendingHeaderRows;
+    private ScrollbackBatch? _pendingBatch;
+    private ScrollbackBatch? _pendingTranscriptBatch;
+
+    // Full-screen/setup surfaces retain their ordinary live header.
+    private bool PublishesChatHeader =>
+        _registry.TranscriptHistoryPresentation == TranscriptHistoryPresentation.TerminalScrollback &&
+        _chrome.Transcript.Display != ShellSectionDisplay.Hidden;
+
 
     public DefaultAgentTuiShellView(AgentTuiShellLayoutContext context)
     {
@@ -89,20 +102,127 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiFramePreparab
     }
 
     /// <inheritdoc />
+    public long HistoryRevision => _transcript.HistoryRevision;
+
+    /// <inheritdoc />
+    public bool IsFullScreen => IsPageActive();
+
+    /// <inheritdoc />
+    public HPD.TUI.Terminal.ManagedTerminalRecoveryPolicy HistoryResetPolicy => _transcript.HistoryResetPolicy;
+
+    /// <inheritdoc />
     public void ResetPresentation(long presentationEpoch, in RenderContext context)
-        => _transcript.ResetPresentation(presentationEpoch, in context);
+    {
+        _presentationEpoch = presentationEpoch;
+        _headerRows = null;
+        _publishedHeaderRows = _pendingHeaderRows = 0;
+        _pendingBatch = _pendingTranscriptBatch = null;
+        _transcript.ResetPresentation(presentationEpoch, in context);
+    }
 
     /// <inheritdoc />
     public ScrollbackBatch? PrepareScrollback(in RenderContext context, int maxRows)
-        => IsPageActive() ? null : _transcript.PrepareScrollback(in context, maxRows);
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxRows);
+        if (IsPageActive()) return null;
+        if (_pendingBatch is not null) return _pendingBatch;
+        var rows = new List<ScrollbackRow>();
+        if (PublishesChatHeader)
+        {
+            if (_headerRows is null) { _headerRows = CaptureHeader(in context); _headerWidth = context.Width; }
+            WrapRemainingHeader(context.Width);
+            rows.AddRange(_headerRows.Skip(_publishedHeaderRows).Take(maxRows));
+        }
+        _pendingHeaderRows = rows.Count;
+        if (rows.Count < maxRows)
+            _pendingTranscriptBatch = _transcript.PrepareScrollback(in context, maxRows - rows.Count);
+        if (_pendingTranscriptBatch is { } transcriptBatch) rows.AddRange(transcriptBatch.Rows);
+        if (rows.Count == 0 && _pendingTranscriptBatch is null) return null;
+        return _pendingBatch = new ScrollbackBatch(_presentationEpoch,
+            _publishedHeaderRows + (_pendingTranscriptBatch?.FirstSequence ?? 0), rows.ToArray());
+    }
 
     /// <inheritdoc />
     public void CommitScrollback(ScrollbackBatch batch)
-        => _transcript.CommitScrollback(batch);
+    {
+        if (!ReferenceEquals(batch, _pendingBatch))
+            throw new InvalidOperationException("Only the prepared shell publication can be committed.");
+        if (_pendingTranscriptBatch is { } transcriptBatch) _transcript.CommitScrollback(transcriptBatch);
+        _publishedHeaderRows += _pendingHeaderRows;
+        _pendingHeaderRows = 0;
+        _pendingBatch = _pendingTranscriptBatch = null;
+    }
 
     /// <inheritdoc />
     public void RollbackScrollback(ScrollbackBatch batch)
-        => _transcript.RollbackScrollback(batch);
+    {
+        if (!ReferenceEquals(batch, _pendingBatch))
+            throw new InvalidOperationException("Only the prepared shell publication can be rolled back.");
+        if (_pendingTranscriptBatch is { } transcriptBatch) _transcript.RollbackScrollback(transcriptBatch);
+        // A wholly unaccepted header can be rebuilt for a newer width or session state.
+        if (_publishedHeaderRows == 0) _headerRows = null;
+        _pendingHeaderRows = 0;
+        _pendingBatch = _pendingTranscriptBatch = null;
+    }
+
+    private void WrapRemainingHeader(int width)
+    {
+        if (width >= _headerWidth) return;
+        _headerWidth = width;
+        var rows = _headerRows!.Take(_publishedHeaderRows).ToList();
+        foreach (var row in _headerRows.Skip(_publishedHeaderRows))
+        {
+            var cells = new List<ScrollbackCell>();
+            var columns = 0;
+            var part = 0;
+            foreach (var cell in row.Cells)
+            {
+                if (columns > 0 && columns + cell.DisplayWidth > width)
+                {
+                    rows.Add(new ScrollbackRow($"{row.Id}:wrap:{part++}", cells.ToArray()));
+                    cells.Clear();
+                    columns = 0;
+                }
+                cells.Add(cell);
+                columns += cell.DisplayWidth;
+            }
+            rows.Add(new ScrollbackRow($"{row.Id}:wrap:{part}", cells.ToArray()));
+        }
+        _headerRows = rows.ToArray();
+    }
+
+    private ScrollbackRow[] CaptureHeader(in RenderContext context)
+    {
+        if (_registry.Header is null ||
+            CreateSection(_chrome.Header, new ShellContributionView(_model, _registry.Header)) is not { } header)
+            return [];
+        var height = Math.Max(1, header.Measure(in context,
+            LayoutConstraints.Loose(context.Width, context.Height)).Height);
+        while (true)
+        {
+            using var grid = TuiCapture.RenderToGrid(header, context.Width, height, context.Theme, context.ColorSystem);
+            if (grid.CursorY >= grid.Height) { height = checked(height * 2); continue; }
+            var rows = new List<ScrollbackRow>();
+            for (var row = 0; row < TuiCapture.GetUsedLineCount(grid); row++)
+            {
+                var cells = new List<ScrollbackCell>();
+                for (var column = 0; column < grid.Width; column++)
+                {
+                    var cell = grid.GetCell(column, row);
+                    if (cell.IsContinuation) continue;
+                    cells.Add(new ScrollbackCell(grid.GetGrapheme(cell).ToString(), cell.Style,
+                        new TerminalRunMetadata(grid.GetHyperlink(cell)), cell.DisplayWidth));
+                }
+                while (cells.Count > 0 && cells[^1].Grapheme == " " && cells[^1].Style == Style.Default &&
+                    cells[^1].Metadata.Hyperlink is null) cells.RemoveAt(cells.Count - 1);
+                rows.Add(new ScrollbackRow($"header:{row}", cells.ToArray()));
+            }
+            if (rows.Count > 0)
+                for (var gap = 0; gap < _chrome.Gap; gap++)
+                    rows.Add(new ScrollbackRow($"header:gap:{gap}", Array.Empty<ScrollbackCell>()));
+            return rows.ToArray();
+        }
+    }
 
     private RetainedShellStack CreateShell()
     {
@@ -110,10 +230,13 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiFramePreparab
 
         if (_registry.Header is not null)
         {
-            AddSection(shell, _chrome.Header, new ShellContributionView(_model, _registry.Header), isMain: false);
+            AddSection(shell, _chrome.Header, new ShellContributionView(_model, _registry.Header), isMain: false,
+                () => !PublishesChatHeader || IsPageActive());
         }
 
-        AddSection(shell, _chrome.Transcript, _mainViewport, isMain: true);
+        AddSection(shell, _chrome.Transcript,
+            _registry.TranscriptHistoryPresentation == TranscriptHistoryPresentation.TerminalScrollback
+                ? _mainSection : _mainViewport, isMain: true);
         AddSection(shell, _chrome.Activity, BuildActivitySection(), isMain: false);
 
         AddSection(

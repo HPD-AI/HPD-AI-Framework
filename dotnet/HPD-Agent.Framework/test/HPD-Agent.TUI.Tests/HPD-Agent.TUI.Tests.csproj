@@ -27,4 +27,7 @@
     <ProjectReference Include="../../../HPD-TUI.Framework/src/HPD-TUI.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="../../../HPD-TUI.Framework/test/HPD-TUI.Tests/VirtualTerminalOracle.cs" Link="Terminal/VirtualTerminalOracle.cs" />
+  </ItemGroup>
 </Project>

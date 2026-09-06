@@ -29,6 +29,11 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
     private long _framesDeferredByBackpressure;
     private TuiPerformanceCounters? _performanceCounters;
     private long _oldestVisualRequestTimestamp;
+    private IScrollbackSource? _presentedSource;
+    private long _presentedHistoryRevision;
+
+    /// <summary>Gets whether the production terminal supports native history publication.</summary>
+    public bool SupportsManagedScrollback => _renderer.SupportsManagedScrollback;
 
     /// <summary>Gets or sets the duration after which enabled diagnostics report incomplete dispatcher work.</summary>
     /// <remarks>The watchdog is dormant when <see cref="PerformanceSink"/> is <see langword="null"/>.</remarks>
@@ -180,8 +185,6 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
                     _dispatcherDepth.Value++;
                     try
                     {
-                        using (StartOperationWatchdog("frame-preparation"))
-                            FramePreparing?.Invoke(_terminal.GetSize(), _theme);
                         try
                         {
                             _renderer.SchedulingDelay = _oldestVisualRequestTimestamp == 0
@@ -249,30 +252,85 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
         }
     }
 
+    /// <summary>Renders one presentation frame, keeping its prepared batch attached to its original source.</summary>
+    /// <remarks>A replacement source is presented in a subsequent frame. Transport-accepted batches are
+    /// never rolled back in response to a later semantic commit or scheduling failure.</remarks>
     public void Render()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        if (_root is null)
+        var frameRoot = _root;
+        var frameSource = ScrollbackSource;
+        if (frameRoot is null)
         {
             return;
         }
 
         var size = _terminal.GetSize();
         var context = new RenderContext(size.Width, size.Height, _theme);
-        if (_renderer.SynchronizePresentation(size) is { } epoch)
-            ScrollbackSource?.ResetPresentation(epoch, in context);
-        var batch = ScrollbackSource?.PrepareScrollback(in context, Math.Max(size.Height * 4, 64));
+        if (frameSource is { } source &&
+            (!ReferenceEquals(source, _presentedSource) || source.HistoryRevision != _presentedHistoryRevision || _renderer.RequiresRecovery))
+        {
+            if (!_renderer.SupportsManagedScrollback)
+                throw new NotSupportedException("Native chat requires a supported terminal; select a supported terminal before starting chat.");
+            long epoch;
+            if (_presentedSource is null && !_renderer.RequiresRecovery) epoch = _renderer.StartPresentationEpoch();
+            else
+            {
+                var policy = _renderer.RequiresRecovery ? _renderer.RecoveryPolicy : source.HistoryResetPolicy;
+                if (!_renderer.RequiresRecovery) _renderer.SetFullScreen(false);
+                var transition = _renderer.RebaseCommittedHistory(policy);
+                if (transition.Status == ManagedHistoryRebaseStatus.Backpressured) throw new TerminalBackpressureException();
+                if (transition.Status != ManagedHistoryRebaseStatus.Written)
+                    throw new InvalidOperationException("The conversation presentation transition failed.", transition.Error);
+                epoch = transition.PresentationEpoch;
+            }
+            source.ResetPresentation(epoch, in context);
+            _presentedSource = source;
+            _presentedHistoryRevision = source.HistoryRevision;
+        }
+        using (StartOperationWatchdog("frame-preparation"))
+            FramePreparing?.Invoke(size, _theme);
+        // A preparation callback may select another shell. Start that presentation on
+        // the next frame instead of mixing its root with this source's generation.
+        if (!ReferenceEquals(frameRoot, _root) || !ReferenceEquals(frameSource, ScrollbackSource))
+        {
+            OweVisualState(coalesce: false);
+            return;
+        }
+        ScrollbackBatch? batch = null;
+        var outputAccepted = false;
         try
         {
-            _renderer.Render(_root, _theme, batch);
+            _renderer.SetFullScreen(frameSource?.IsFullScreen == true);
+            batch = frameSource?.PrepareScrollback(in context, Math.Max(size.Height * 4, 64));
+            _renderer.Render(frameRoot, _theme, batch);
+            outputAccepted = true;
             if (batch is not null)
-                ScrollbackSource!.CommitScrollback(batch);
+            {
+                frameSource!.CommitScrollback(batch);
+                batch = null;
+                // Drain a bounded batch per admitted frame, including historical replay with no new input.
+                OweVisualState(coalesce: false);
+            }
+        }
+        catch (TerminalBackpressureException)
+        {
+            if (!outputAccepted && batch is not null) frameSource!.RollbackScrollback(batch);
+            throw;
+        }
+        catch when (_renderer.RequiresRecovery && ScrollbackSource is not null)
+        {
+            if (!outputAccepted && batch is not null) frameSource!.RollbackScrollback(batch);
+            var recovery = RebaseCommittedHistory(_renderer.RecoveryPolicy);
+            if (recovery.Status == ManagedHistoryRebaseStatus.Backpressured) throw new TerminalBackpressureException();
+            if (recovery.Status != ManagedHistoryRebaseStatus.Written)
+                throw new InvalidOperationException("Terminal history recovery failed.", recovery.Error);
+            OweVisualState(coalesce: false);
         }
         catch
         {
-            if (batch is not null)
-                ScrollbackSource!.RollbackScrollback(batch);
+            if (!outputAccepted && batch is not null) frameSource!.RollbackScrollback(batch);
             throw;
         }
     }
@@ -317,12 +375,12 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
         _mailbox?.TryWrite(new TuiLoopEvent(TuiLoopEventKind.RenderRequested));
     }
 
-    private void OweVisualState()
+    private void OweVisualState(bool coalesce = true)
     {
         if (_owedVisualStates == 0)
             _oldestVisualRequestTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
         _renderRequestsReceived++;
-        var coalesced = _dropIntermediateVisualStates && _owedVisualStates > 0;
+        var coalesced = coalesce && _dropIntermediateVisualStates && _owedVisualStates > 0;
         _performanceCounters?.RecordRenderRequest(coalesced);
         if (coalesced) _renderRequestsCoalesced++;
         else _owedVisualStates++;
@@ -337,7 +395,19 @@ public sealed class ManagedTerminalTuiApplication : IDisposable, ITuiDispatcher
     /// <param name="policy">The explicit recovery policy selected for terminal-visible history.</param>
     /// <returns>The structured publication outcome.</returns>
     public ManagedHistoryRebaseResult RebaseCommittedHistory(ManagedTerminalRecoveryPolicy policy)
-        => _renderer.RebaseCommittedHistory(policy);
+    {
+        var result = _renderer.RebaseCommittedHistory(policy);
+        if (result.Status == ManagedHistoryRebaseStatus.Written && ScrollbackSource is { } source)
+        {
+            var size = _terminal.GetSize();
+            var context = new RenderContext(size.Width, size.Height, _theme);
+            source.ResetPresentation(result.PresentationEpoch, in context);
+            _presentedSource = source;
+            _presentedHistoryRevision = source.HistoryRevision;
+            RequestRender();
+        }
+        return result;
+    }
 
     /// <inheritdoc />
     public bool CheckAccess() => _dispatcherDepth.Value > 0;

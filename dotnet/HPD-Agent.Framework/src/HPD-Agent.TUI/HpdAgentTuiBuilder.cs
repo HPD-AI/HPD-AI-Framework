@@ -1,3 +1,4 @@
+using HPD.TUI.Markdown;
 using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Commands;
 using HPD.Agent.TUI.Interactions;
@@ -31,6 +32,8 @@ public sealed class HpdAgentTuiBuilder
     private IAgentTuiShellLayout? _shellLayout;
     private AgentTuiShellChrome _shellChrome = new();
     private Theme? _theme;
+    private MarkdownTheme? _markdownTheme;
+    private MarkdownTheme? _reasoningMarkdownTheme;
     private bool _includeSlashCommandAutocomplete;
     private AgentTuiRunConfigComposer? _runConfigComposer;
     private IAgentTuiThreadStateReconciler? _threadStateReconciler;
@@ -490,6 +493,26 @@ public sealed class HpdAgentTuiBuilder
     public HpdAgentTuiBuilder UseTheme(Theme theme)
     {
         _theme = theme ?? throw new ArgumentNullException(nameof(theme));
+        return this;
+    }
+
+    /// <summary>Configures an independent Markdown palette for normal responses.</summary>
+    /// <param name="theme">Immutable element and code syntax styles to use for this application.</param>
+    /// <returns>This builder.</returns>
+    /// <remarks>The palette is fixed when the registry is built. Previously published terminal history
+    /// can only be recolored by an explicit new presentation and replay.</remarks>
+    public HpdAgentTuiBuilder UseMarkdownTheme(MarkdownTheme theme)
+    {
+        _markdownTheme = theme ?? throw new ArgumentNullException(nameof(theme));
+        return this;
+    }
+
+    /// <summary>Configures an independent Markdown palette for reasoning content.</summary>
+    /// <param name="theme">Immutable reasoning styles; these are not overwritten by UI muting.</param>
+    /// <returns>This builder.</returns>
+    public HpdAgentTuiBuilder UseReasoningMarkdownTheme(MarkdownTheme theme)
+    {
+        _reasoningMarkdownTheme = theme ?? throw new ArgumentNullException(nameof(theme));
         return this;
     }
 
@@ -1058,6 +1081,8 @@ public sealed class HpdAgentTuiBuilder
             _shellLayout,
             _shellChrome,
             _theme,
+            _markdownTheme,
+            _reasoningMarkdownTheme,
             _includeSlashCommandAutocomplete,
             _runConfigComposer,
             _threadStateReconciler,

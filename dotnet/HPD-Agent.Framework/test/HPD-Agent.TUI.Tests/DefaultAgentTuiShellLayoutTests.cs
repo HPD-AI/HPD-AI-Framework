@@ -168,7 +168,7 @@ public sealed class DefaultAgentTuiShellLayoutTests
         => new(
             id,
             EntryKey: null,
-            HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant(id, text, 96, Theme.Default, label),
+            HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant(id, text, 96, HPD.TUI.Markdown.MarkdownTheme.FromTheme(Theme.Default), label),
             new TranscriptEntryMetadata());
 
     private static int CountMessages(string text)

@@ -1,3 +1,4 @@
+using HPD.TUI.Markdown;
 using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Commands;
 using HPD.Agent.TUI.Interactions;
@@ -41,6 +42,8 @@ public sealed class HpdAgentTuiRegistry
         IAgentTuiShellLayout? shellLayout,
         AgentTuiShellChrome shellChrome,
         Theme? theme,
+        MarkdownTheme? markdownTheme,
+        MarkdownTheme? reasoningMarkdownTheme,
         bool includeSlashCommandAutocomplete,
         AgentTuiRunConfigComposer? runConfigComposer,
         IAgentTuiThreadStateReconciler? threadStateReconciler,
@@ -92,7 +95,8 @@ public sealed class HpdAgentTuiRegistry
                 pair.Value.Handler,
                 pair.Value.Scope))
             .ToArray();
-        TranscriptRenderers = new AgentTuiTranscriptRendererRegistry(transcriptRenderers);
+        TranscriptRenderers = new AgentTuiTranscriptRendererRegistry(transcriptRenderers,
+            new AgentTuiTranscriptRenderServices(markdownTheme, reasoningMarkdownTheme));
         Header = header;
         PromptStatus = promptStatus;
         Footer = footer;
@@ -113,6 +117,10 @@ public sealed class HpdAgentTuiRegistry
 
     public string? DefaultPageId => _pages.Count > 0 ? _pages.Values.First().Id : null;
 
+    /// <summary>Gets the header shown before the conversation transcript.</summary>
+    /// <remarks>Native chat publishes the header once per presentation, before its first transcript rows.
+    /// Full-screen pages and setup surfaces retain a live header. Later header changes require a new
+    /// chat presentation to replace the published snapshot.</remarks>
     public IAgentTuiShellComponent? Header { get; }
 
     /// <summary>Gets the component rendered immediately above the prompt.</summary>
