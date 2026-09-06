@@ -26,7 +26,7 @@ public sealed class ContainerHistoryRewriteTests
         var history = new List<ChatMessage> { assistant, tool };
         var state = AgentLoopState.InitialSafe([], "run", "session", "test");
         var context = new AgentContext("test", "session", state, new HPD.Events.Core.EventCoordinator(),
-            new Session("session"), new HPD.Agent.Thread("session", "main"), default);
+            new HPD.Agent.Session("session"), new HPD.Agent.Thread("session", "main"), default);
         var after = context.AsAfterMessageTurn(new ChatResponse(new ChatMessage(ChatRole.Assistant, "done")), history,
             new AgentRunConfig { Collapsing = new() { RecoveryHistoryMode = ContainerRecoveryHistoryMode.Rewrite } });
         after.UpdateMiddlewareState<ContainerMiddlewareState>(_ => new ContainerMiddlewareState()

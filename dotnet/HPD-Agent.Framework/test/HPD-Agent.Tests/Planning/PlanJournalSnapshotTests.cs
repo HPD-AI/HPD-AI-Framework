@@ -64,7 +64,7 @@ public class PlanJournalSnapshotTests
     public async Task ForkSeedsPlanFactMatchingItsInheritedState()
     {
         var store = new InMemorySessionStore(CoreAgentEventComposition.Instance.Codec);
-        var session = new Session("session");
+        var session = new HPD.Agent.Session("session");
         await store.SaveSessionAsync(session);
         var source = SeededThread(); source.Session = session;
         await store.SaveInitialThreadAsync(session.Id, source);

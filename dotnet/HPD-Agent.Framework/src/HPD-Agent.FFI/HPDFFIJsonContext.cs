@@ -208,6 +208,7 @@ namespace HPD.Agent.FFI;
 
 // --- Structured Output Types ---
 [JsonSerializable(typeof(StructuredOutputOptions))]
+[JsonSerializable(typeof(StructuredOutputErrorEvent))]
 [JsonSerializable(typeof(StructuredResultEventDto))]
 
 // --- Agent State Types ---
