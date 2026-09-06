@@ -346,7 +346,7 @@ public sealed class HostedAgentTuiRuntimeValidationTests
         }
 
         observed.Select(static evt => evt.ThreadSequenceNumber).Should().Equal(1, 2);
-        handler.Requests.Should().Equal("?after=1:0", "?after=1:1");
+        handler.Requests.Should().Equal("?after=1:0&hierarchy=threadAndDescendants", "?after=1:1&hierarchy=threadAndDescendants");
     }
 
     [Fact]
@@ -395,7 +395,7 @@ public sealed class HostedAgentTuiRuntimeValidationTests
         batches[0].LastCursor.Should().Be(new ThreadJournalCursor(1, 4));
         batches[1].Events.Should().ContainSingle().Which.Should().BeEquivalentTo(committed);
         batches[1].LastCursor.Should().Be(new ThreadJournalCursor(1, 5));
-        handler.Requests.Should().Equal("?after=1:4", "?after=1:4");
+        handler.Requests.Should().Equal("?after=1:4&hierarchy=threadAndDescendants", "?after=1:4&hierarchy=threadAndDescendants");
     }
 
     [Fact]
@@ -442,7 +442,7 @@ public sealed class HostedAgentTuiRuntimeValidationTests
 
         batches[0].LastCursor.Should().Be(new ThreadJournalCursor(1, 6));
         batches[1].LastCursor.Should().Be(new ThreadJournalCursor(1, 7));
-        handler.Requests.Should().Equal("?after=1:5", "?after=1:6");
+        handler.Requests.Should().Equal("?after=1:5&hierarchy=threadAndDescendants", "?after=1:6&hierarchy=threadAndDescendants");
     }
 
     private sealed class JsonHandler(string json) : HttpMessageHandler
