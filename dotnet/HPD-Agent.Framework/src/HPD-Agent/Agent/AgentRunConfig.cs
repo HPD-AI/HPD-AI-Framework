@@ -133,6 +133,9 @@ public sealed record AgentSandboxRunConfig
 /// </remarks>
 public class AgentRunConfig
 {
+    /// <summary>Explicit client capability and policy to expose waiting human questions.</summary>
+    public bool AllowUserQuestions { get; set; }
+
     /// <summary>
     /// Security controls for this run.
     /// </summary>

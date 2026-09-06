@@ -52,6 +52,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     private AgentTuiDialogService? _dialogs;
     private CancellationTokenSource? _observeCancellation;
     private Task? _observeTask;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (AgentEvent Request, AgentTuiRuntimeScope PresentationScope)> _deferredInteractions = new(StringComparer.Ordinal);
     private Task? _interactionTask;
     private Channel<AgentEvent>? _interactionQueue;
     private CancellationToken _runCancellationToken;
@@ -273,6 +274,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         _state.Shell.Runtime = _runtime;
         _state.Shell.SwitchTargetAsync = SwitchTargetAsync;
         _state.Shell.SetPromptDraftAsync = SetPromptDraftAsync;
+        _state.Shell.ReopenQuestionsAsync = ReopenQuestionsAsync;
         _state.Shell.AboveEditor.Add(new PendingPromptPreview(PendingPrompts(target)));
         var autocomplete = new AutocompleteController()
             .Register(new AgentTuiAutocompleteProviderAdapter(_registry, () => _state));
@@ -1459,6 +1461,15 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             return;
         }
 
+        var requestScope = _scope;
+        if (evt.SessionId is { } sourceSession && evt.ThreadId is { } sourceThread)
+        {
+            string? sourceAgent = sourceSession == _scope.SessionId && sourceThread == _scope.ThreadId ? _scope.AgentId : null;
+            if (sourceAgent is null && _runtime is IAgentTuiSessionThreadRuntime threads)
+                sourceAgent = (await threads.GetThreadAsync(sourceSession, sourceThread, cancellationToken).ConfigureAwait(false))?.DefaultAgentId;
+            if (sourceAgent is null) throw new InvalidOperationException("The request's owning agent could not be resolved.");
+            requestScope = new AgentTuiRuntimeScope(sourceAgent, sourceSession, sourceThread);
+        }
         if (_dialogs is not null &&
             evt is IAgentRequestEvent request &&
             !string.IsNullOrWhiteSpace(request.RequestId) &&
@@ -1471,7 +1482,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             {
                 var result = await handler.Value.HandleAsync(
                     new AgentTuiInteractionContext(
-                        _scope,
+                        requestScope,
                         _state.Shell,
                         _state.Shell.Navigation,
                         _runtime,
@@ -1483,10 +1494,11 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 {
                     case AgentTuiInteractionResultKind.AnswerRequest when result.Response is not null:
                         var answer = await _runtime.AnswerRequestAsync(
-                                _scope, result.Response, interactionCancellation.Token)
+                                requestScope, result.Response, interactionCancellation.Token)
                             .ConfigureAwait(false);
                         if (!answer.Accepted)
                         {
+                            if (evt is UserQuestionRequestEvent) _deferredInteractions[request.RequestId] = (evt, _scope);
                             await ShowNoticeAsync(
                                 "Request was not accepted",
                                 answer.Message ?? answer.Status.ToString(),
@@ -1496,11 +1508,16 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                         await ReconcileAfterInteractionAsync(interactionCancellation.Token).ConfigureAwait(false);
                         break;
 
+                    case AgentTuiInteractionResultKind.Defer:
+                        _deferredInteractions[request.RequestId] = (evt, _scope);
+                        _state.Shell.FocusPrompt();
+                        break;
+
                     case AgentTuiInteractionResultKind.InterruptTurn:
-                        if (_activeThreadExecutionId is { } interactionExecutionId)
+                        if ((evt.ThreadExecutionId ?? _activeThreadExecutionId) is { } interactionExecutionId)
                         {
                             await _runtime.CancelExecutionAsync(
-                                    _scope,
+                                    requestScope,
                                     interactionExecutionId,
                                     interactionCancellation.Token)
                                 .ConfigureAwait(false);
@@ -1535,8 +1552,29 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         }
     }
 
+    private async ValueTask<int> ReopenQuestionsAsync(CancellationToken cancellationToken)
+    {
+        if (_scope is null || _interactionQueue is null) return 0;
+        var count = 0;
+        foreach (var (id, deferred) in _deferredInteractions.ToArray())
+        {
+            if (deferred.PresentationScope != _scope || deferred.Request is not UserQuestionRequestEvent request) continue;
+            var sourceAgent = request.Metadata?.AgentId;
+            if (sourceAgent is null && _runtime is IAgentTuiSessionThreadRuntime threads && request.SessionId is { } session && request.ThreadId is { } thread)
+                sourceAgent = (await threads.GetThreadAsync(session, thread, cancellationToken).ConfigureAwait(false))?.DefaultAgentId;
+            if (sourceAgent is null) continue;
+            var state = await _runtime.GetThreadStateAsync(new(sourceAgent, request.SessionId!, request.ThreadId!), cancellationToken).ConfigureAwait(false);
+            _deferredInteractions.TryRemove(id, out _);
+            if (!state.PendingRequests.OfType<UserQuestionRequestEvent>().Any(p => p.RequestId == id && p.ThreadExecutionId == request.ThreadExecutionId)) continue;
+            _handledInteractionIds.Remove(id);
+            if (_interactionQueue.Writer.TryWrite(request)) count++;
+        }
+        return count;
+    }
+
     private void CancelActiveInteraction(string requestId)
     {
+        _deferredInteractions.TryRemove(requestId, out _);
         if (_activeInteractionCancellations.TryGetValue(requestId, out var cancellation))
             cancellation.Cancel();
     }

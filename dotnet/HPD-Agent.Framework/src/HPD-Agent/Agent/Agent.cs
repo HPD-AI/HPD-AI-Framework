@@ -2714,9 +2714,40 @@ public sealed partial class Agent : IAsyncDisposable
     private async ValueTask<AgentRespondResult> CompleteRequestResponseAsync(
         IAgentResponseEvent response,
         HPD.Events.Event responseEvent,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, ThreadKey? respondingController = null)
     {
         var coordinator = GetActiveEventCoordinator();
+        var pending = coordinator.GetPendingRequests().FirstOrDefault(p =>
+            p.Request is IAgentRequestEvent request && request.RequestId == response.RequestId);
+        if (pending?.Request is AgentEvent source && responseEvent is AgentEvent supplied)
+        {
+            if ((supplied.SessionId is not null && supplied.SessionId != source.SessionId) ||
+                (supplied.ThreadId is not null && supplied.ThreadId != source.ThreadId) ||
+                (supplied.ThreadExecutionId is not null && supplied.ThreadExecutionId != source.ThreadExecutionId))
+                return new AgentRespondResult(AgentRespondStatus.TargetMismatch, response.RequestId,
+                    "The response does not target the request's owning execution.");
+            responseEvent = supplied with
+            {
+                SessionId = source.SessionId, ThreadId = source.ThreadId, ThreadExecutionId = source.ThreadExecutionId
+            };
+        }
+        if (pending?.Request is ParentQuestionRequestEvent parentQuestion && parentQuestion.Controller != respondingController)
+            return new AgentRespondResult(AgentRespondStatus.TargetMismatch, response.RequestId, "This request requires its execution controller.");
+        var questions = pending?.Request switch
+        {
+            UserQuestionRequestEvent human => human.Questions,
+            ParentQuestionRequestEvent parent => parent.Questions,
+            _ => null
+        };
+        if (responseEvent is QuestionResponseEvent questionResponse && questions is not null)
+        {
+            try { QuestionValidation.ValidateResponse(questions, questionResponse); }
+            catch (ArgumentException exception)
+            {
+                return new AgentRespondResult(AgentRespondStatus.InvalidResponse, response.RequestId, exception.Message);
+            }
+        }
+
         if (responseEvent is not AgentEvent agentResponse ||
             string.IsNullOrWhiteSpace(agentResponse.SessionId) ||
             string.IsNullOrWhiteSpace(agentResponse.ThreadId))
@@ -4361,6 +4392,24 @@ public sealed partial class Agent : IAsyncDisposable
                         // Check if middleware signaled to skip tool execution (e.g., circuit breaker)
                         if (beforeToolContext.SkipToolExecution)
                         {
+                            // The assistant call message is already durable. Settle every rejected call
+                            // before continuing so providers never receive dangling tool calls.
+                            var reason = beforeToolContext.OverrideResponse?.Text ?? "Tool execution was skipped by middleware.";
+                            var skippedResults = new ChatMessage(ChatRole.Tool, toolRequests.Select(call =>
+                                (AIContent)new FunctionResultContent(call.CallId, reason)).ToList())
+                            { MessageId = Guid.NewGuid().ToString("N") };
+                            sharedMessages.Add(skippedResults);
+                            turnHistory.Add(skippedResults);
+                            await CommitThreadMessagesAsync(session, thread, [skippedResults], null, eventCoordinator,
+                                effectiveCancellationToken).ConfigureAwait(false);
+                            foreach (var call in toolRequests)
+                            {
+                                yield return new ToolCallEndEvent(call.CallId, assistantMessageId, call.Name,
+                                    FunctionCallArgumentSerializer.Serialize(call)) { TraceId = traceId };
+                                yield return new ToolCallResultEvent(call.CallId, new ToolResultPayload(Text: reason),
+                                    LookupToolHarness(call.Name), LookupCallType(call.Name), call.Name)
+                                { TraceId = traceId, MessageId = skippedResults.MessageId };
+                            }
                             // Check for termination
                             if (state.IsTerminated)
                             {
@@ -4442,12 +4491,6 @@ public sealed partial class Agent : IAsyncDisposable
                         // V2: Sync state after middleware (middleware may have updated state)
                         state = agentContext.State;
 
-                        // Check if middleware signaled termination
-                        if (state.IsTerminated)
-                        {
-                            break;
-                        }
-
                         // UPDATE STATE WITH COMPLETED FUNCTIONS
                         foreach (var functionName in successfulFunctions)
                         {
@@ -4514,6 +4557,9 @@ public sealed partial class Agent : IAsyncDisposable
 
                         // Clear responseUpdates after building the response
                         responseUpdates.Clear();
+
+                        // A terminating function still owns a tool result. Commit and emit it before stopping.
+                        if (state.IsTerminated) break;
                     }
                     else
                     {
@@ -5751,7 +5797,7 @@ public sealed partial class Agent : IAsyncDisposable
             // ═══════════════════════════════════════════════════════════════
             // PASS-THROUGH: All request events (built-in + custom)
             // Uses interface check - supports PermissionRequestEvent,
-            // ContinuationRequestEvent, ClarificationRequestEvent, and any
+            // ContinuationRequestEvent, UserQuestionRequestEvent, and any
             // custom events implementing IAgentRequestEvent
             // ═══════════════════════════════════════════════════════════════
             if (evt is IAgentRequestEvent)

@@ -233,9 +233,11 @@ internal sealed class AgentOperationNotificationDispatcher : IDisposable
             {
                 var now = DateTimeOffset.UtcNow;
                 if (terminal && !operation.Notification.IncludeTerminal) return DeliveryDecision.Suppressed("terminal-disabled");
-                if (!terminal && !operation.Notification.IncludeProgress) return DeliveryDecision.Suppressed("progress-disabled");
+                var inputRequired = operation.ProviderStatus == AgentOperationProviderStatus.InputRequired;
+                if (inputRequired && !operation.Notification.IncludeInputRequired) return DeliveryDecision.Suppressed("input-required-disabled");
+                if (!terminal && !inputRequired && !operation.Notification.IncludeProgress) return DeliveryDecision.Suppressed("progress-disabled");
                 if (terminal && _terminalDeliveries.Contains(policyKey)) return DeliveryDecision.Suppressed("terminal-duplicate");
-                if (!terminal && _lastDelivery.TryGetValue(policyKey, out var last) &&
+                if (!terminal && !inputRequired && _lastDelivery.TryGetValue(policyKey, out var last) &&
                     now - last < operation.Notification.MinimumInterval) return DeliveryDecision.Suppressed("minimum-interval");
                 if (_pendingReservations.TryGetValue(policyKey, out var existing))
                 {

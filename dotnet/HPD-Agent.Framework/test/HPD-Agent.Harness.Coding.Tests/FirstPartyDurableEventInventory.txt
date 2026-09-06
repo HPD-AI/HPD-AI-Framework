@@ -40,8 +40,6 @@ HPD.Agent.Audio.AgentIntegration.Output.AssistantAudioPushTextStreamOpenedEvent
 HPD.Agent.Audio.AgentIntegration.Output.AssistantAudioPushTextStreamOpeningEvent
 HPD.Agent.Bots.CardContentEvent
 HPD.Agent.CircuitBreakerTriggeredEvent
-HPD.Agent.ClarificationRequestEvent
-HPD.Agent.ClarificationResponseEvent
 HPD.Agent.ClientTools.ClientToolInvokeOutcomeEvent
 HPD.Agent.ClientTools.ClientToolInvokeRequestEvent
 HPD.Agent.CollapsedToolsVisibleEvent
@@ -81,12 +79,14 @@ HPD.Agent.MiddlewareStateSnapshotEvent
 HPD.Agent.ModelCallRetryEvent
 HPD.Agent.NestedAgentInvokedEvent
 HPD.Agent.PIIDetectedEvent
+HPD.Agent.ParentQuestionRequestEvent
 HPD.Agent.PermissionCheckEvent
 HPD.Agent.PermissionRequestEvent
 HPD.Agent.PermissionResponseEvent
 HPD.Agent.PlanUpdatedEvent
 HPD.Agent.ProviderOperationUsageEvent
 HPD.Agent.ProviderValuationObservationEvent
+HPD.Agent.QuestionResponseEvent
 HPD.Agent.ReasoningDeltaEvent
 HPD.Agent.ReasoningMessageEndEvent
 HPD.Agent.ReasoningMessageStartEvent
@@ -108,10 +108,13 @@ HPD.Agent.StructuredOutputCompleteEvent
 HPD.Agent.StructuredOutputErrorEvent
 HPD.Agent.StructuredOutputPartialEvent
 HPD.Agent.StructuredOutputStartEvent
+HPD.Agent.SubAgentExecutionControllerEvent
 HPD.Agent.SubAgentInvocationCancelledEvent
 HPD.Agent.SubAgentInvocationCompletedEvent
 HPD.Agent.SubAgentInvocationFailedEvent
 HPD.Agent.SubAgentInvocationStartedEvent
+HPD.Agent.SubAgentQuestionRaisedEvent
+HPD.Agent.SubAgentResultSubmittedEvent
 HPD.Agent.TextDeltaEvent
 HPD.Agent.TextMessageEndEvent
 HPD.Agent.TextMessageStartEvent
@@ -133,6 +136,7 @@ HPD.Agent.UserAudioTranscriptCompletedEvent
 HPD.Agent.UserAudioTranscriptDeltaEvent
 HPD.Agent.UserAudioTranscriptFailedEvent
 HPD.Agent.UserMessageEvent
+HPD.Agent.UserQuestionRequestEvent
 HPDOS.ToolHarnesses.Middleware.DebugBreakpointChangedEvent
 HPDOS.ToolHarnesses.Middleware.DebugBreakpointSelectionAppliedEvent
 HPDOS.ToolHarnesses.Middleware.DebugCapabilitiesChangedEvent

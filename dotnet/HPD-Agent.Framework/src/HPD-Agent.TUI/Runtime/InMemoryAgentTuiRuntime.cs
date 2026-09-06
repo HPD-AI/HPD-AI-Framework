@@ -474,7 +474,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             results.Add(new AgentTuiSubAgentInfo(
                 entry.LocalId.Value, entry.RoleName, entry.Availability, child?.ChildAgentId,
                 child?.ChildThread.SessionId, child?.ChildThread.ThreadId,
-                descriptor?.RuntimeChild?.Status, descriptor?.MessageCount ?? 0,
+                child is null ? null : (await SubAgentActivityReader.ReadAsync(store, child.ChildThread, cancellationToken).ConfigureAwait(false)).Status, descriptor?.MessageCount ?? 0,
                 (entry as SubAgentChildTombstone)?.Reason,
                 child?.ExecutionPolicy.LockedClients.Chat?.Provider?.Key,
                 child?.ExecutionPolicy.LockedClients.Chat?.ModelName));

@@ -86,7 +86,7 @@ public sealed class CompositeThreadJournalRebaseSeedProvider(
     {
         var registry = new SubAgentRegistryRebaseSeedProvider(new SubAgentChildRegistry(store));
         var forks = new ThreadForkOperationRebaseSeedProvider(store);
-        var continuations = new SubAgentContinuationRebaseSeedProvider(store);
+        var continuations = new AgentCommunicationRebaseSeedProvider(store);
         var controllerAuthorities = new SubAgentControllerAuthorityRebaseSeedProvider(store);
         return hostProvider is null
             ? new CompositeThreadJournalRebaseSeedProvider([registry, forks, continuations, controllerAuthorities])
@@ -140,70 +140,39 @@ public sealed class SubAgentControllerAuthorityRebaseSeedProvider(ISessionStore 
     }
 }
 
-/// <summary>
-/// Preserves deterministic subagent-continuation admission and terminal receipts across a destructive rebase.
-/// </summary>
-public sealed class SubAgentContinuationRebaseSeedProvider(ISessionStore store)
-    : IThreadJournalRebaseSeedProvider
+/// <summary>Preserves execution ownership, explicit reports, and question settlement through a destructive rebase.</summary>
+public sealed class AgentCommunicationRebaseSeedProvider(ISessionStore store) : IThreadJournalRebaseSeedProvider
 {
     private readonly ISessionStore _store = store ?? throw new ArgumentNullException(nameof(store));
 
-    /// <inheritdoc />
-    public async ValueTask<IReadOnlyList<AgentEvent>> CreateSeedEventsAsync(
-        ThreadKey thread,
+    public async ValueTask<IReadOnlyList<AgentEvent>> CreateSeedEventsAsync(ThreadKey thread,
         CancellationToken cancellationToken = default)
     {
         var head = await _store.GetThreadEventHeadAsync(thread, cancellationToken).ConfigureAwait(false);
         if (head is null) return [];
-        var starts = new Dictionary<string, ThreadExecutionStartedEvent>(StringComparer.Ordinal);
-        var terminals = new Dictionary<string, ThreadExecutionFinishedEvent>(StringComparer.Ordinal);
-        var receipts = new Dictionary<string, SubAgentContinuationReceiptEvent>(StringComparer.Ordinal);
-        await foreach (var batch in _store.ReadThreadEventsAsync(
-                           thread,
-                           new ThreadEventReadRequest(ThreadJournalCursor.Start(head.Generation), head.ThreadSequenceNumber),
-                           cancellationToken).ConfigureAwait(false))
+        var events = await SubAgentResults.ReadAsync(_store, thread, head.Cursor, cancellationToken).ConfigureAwait(false);
+        var descriptor = await _store.GetThreadAsync(thread, cancellationToken).ConfigureAwait(false);
+        var executions = events.OfType<SubAgentExecutionControllerEvent>().Select(e => e.ExecutionId).ToHashSet(StringComparer.Ordinal);
+        var requests = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var evt in events)
         {
-            foreach (var evt in batch.Events)
+            if (evt is UserQuestionRequestEvent or ParentQuestionRequestEvent)
             {
-                if (evt is ThreadExecutionStartedEvent started &&
-                    started.ThreadExecutionId.StartsWith("continue-", StringComparison.Ordinal))
-                    starts[started.ThreadExecutionId] = started;
-                else if (evt is ThreadExecutionFinishedEvent finished &&
-                         finished.ThreadExecutionId.StartsWith("continue-", StringComparison.Ordinal))
-                    terminals[finished.ThreadExecutionId] = finished;
-                else if (evt is SubAgentContinuationReceiptEvent receipt)
-                    receipts[receipt.ContinuationExecutionId] = receipt;
+                requests.Add(((IAgentRequestEvent)evt).RequestId);
+                if (evt.ThreadExecutionId is { } execution) executions.Add(execution);
             }
+            if (descriptor?.Kind == ThreadKind.SubAgent && evt is ThreadExecutionStartedEvent started)
+                executions.Add(started.ThreadExecutionId);
         }
-        var seed = new List<AgentEvent>(starts.Count * 2);
-        foreach (var (executionId, started) in starts.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
+        return events.Where(evt => evt switch
         {
-            seed.Add(started with
-            {
-                SessionId = thread.SessionId,
-                ThreadId = thread.ThreadId,
-                ThreadSequenceNumber = 0
-            });
-            if (terminals.TryGetValue(executionId, out var terminal))
-            {
-                if (receipts.TryGetValue(executionId, out var receipt))
-                {
-                    seed.Add(receipt with
-                    {
-                        SessionId = thread.SessionId,
-                        ThreadId = thread.ThreadId,
-                        ThreadSequenceNumber = 0
-                    });
-                }
-                seed.Add(terminal with
-                {
-                    SessionId = thread.SessionId,
-                    ThreadId = thread.ThreadId,
-                    ThreadSequenceNumber = 0
-                });
-            }
-        }
-        return seed;
+            SubAgentExecutionControllerEvent or SubAgentResultSubmittedEvent or SubAgentQuestionRaisedEvent => true,
+            UserQuestionRequestEvent or ParentQuestionRequestEvent or QuestionResponseEvent => true,
+            AgentRequestTerminatedEvent terminal => requests.Contains(terminal.RequestId),
+            ThreadExecutionStartedEvent started => executions.Contains(started.ThreadExecutionId),
+            ThreadExecutionFinishedEvent finished => executions.Contains(finished.ThreadExecutionId),
+            _ => false
+        }).Select(evt => evt with { SessionId = thread.SessionId, ThreadId = thread.ThreadId, ThreadSequenceNumber = 0 }).ToArray();
     }
 }
 

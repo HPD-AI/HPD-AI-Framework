@@ -40,7 +40,30 @@ public sealed class SubAgentControlRaceTests
         Assert.False(waited.TimedOut);
         Assert.Equal("worker-1", result.Child);
         Assert.Equal("execution-a", result.ThreadExecutionId);
-        Assert.Equal(ThreadExecutionStatus.Succeeded, result.Status);
+        Assert.Equal("stopped without result", result.Status);
+    }
+
+    [Fact]
+    public async Task WaitAllReturnsWhenOneChildAsksWhileAnotherIsStillRunning()
+    {
+        var inner = new InMemorySessionStore(CoreAgentEventComposition.Instance.Codec);
+        var store = new ObservationBarrierSessionStore(inner);
+        var (parent, context) = await CreateParentAsync(store);
+        var first = await RegisterChildAsync(store, parent, "worker-1", "child-1");
+        var second = await RegisterChildAsync(store, parent, "worker-2", "child-2");
+        await store.AppendThreadEventsAsync(first, [new ThreadExecutionStartedEvent("first", "worker-agent", DateTimeOffset.UtcNow)]);
+        await store.AppendThreadEventsAsync(second, [new ThreadExecutionStartedEvent("second", "worker-agent", DateTimeOffset.UtcNow)]);
+        store.ObserveRoute = first;
+        using var json = JsonDocument.Parse("""{"mode":"all","timeoutSeconds":30}""");
+        var waiting = SubAgentRuntime.ControlAsync("wait", json.RootElement, context, CancellationToken.None);
+        await store.ObservationStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await store.AppendThreadEventsAsync(first,
+            [new ParentQuestionRequestEvent("question", "Parent", parent, [new("q", "What next?")]) { ThreadExecutionId = "first" }]);
+        var result = Assert.IsType<SubAgentWaitResult>(await waiting.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.False(result.TimedOut);
+        var attention = Assert.Single(result.Children);
+        Assert.Equal("needs attention", attention.Status);
+        Assert.Equal("question", Assert.Single(attention.Questions).RequestId);
     }
 
     [Fact]

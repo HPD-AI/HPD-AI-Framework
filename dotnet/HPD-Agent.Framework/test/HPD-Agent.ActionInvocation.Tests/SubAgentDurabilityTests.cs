@@ -177,19 +177,48 @@ public sealed class SubAgentDurabilityTests
             child,
             [
                 new ThreadExecutionStartedEvent("continue-abc", "child-agent", DateTimeOffset.UtcNow),
-                new SubAgentContinuationReceiptEvent("continue-abc", "scoped output"),
+                new SubAgentExecutionControllerEvent("continue-abc", new("session", "parent")),
+                new SubAgentResultSubmittedEvent("continue-abc", "complete", new("session", "parent"), "scoped output"),
                 new ThreadExecutionFinishedEvent(
                     "continue-abc", "child-agent", ThreadExecutionOutcome.Succeeded, DateTimeOffset.UtcNow)
             ],
             new ThreadAppendCondition(head!.Cursor));
 
-        var seed = await new SubAgentContinuationRebaseSeedProvider(store).CreateSeedEventsAsync(child);
+        var seed = await new AgentCommunicationRebaseSeedProvider(store).CreateSeedEventsAsync(child);
 
         Assert.Collection(
             seed,
             value => Assert.Equal("continue-abc", Assert.IsType<ThreadExecutionStartedEvent>(value).ThreadExecutionId),
-            value => Assert.Equal("scoped output", Assert.IsType<SubAgentContinuationReceiptEvent>(value).Output),
+            value => Assert.IsType<SubAgentExecutionControllerEvent>(value),
+            value => Assert.Equal("scoped output", Assert.IsType<SubAgentResultSubmittedEvent>(value).Report),
             value => Assert.Equal("continue-abc", Assert.IsType<ThreadExecutionFinishedEvent>(value).ThreadExecutionId));
+    }
+
+    [Fact]
+    public async Task CommunicationRebasePreservesActiveQuestionOwnershipAndExecutionOrder()
+    {
+        var store = new InMemorySessionStore(CoreAgentEventComposition.Instance.Codec);
+        var child = new ThreadKey("session", "child");
+        var parent = new ThreadKey("session", "parent");
+        await CreateThreadAsync(store, child);
+        await store.AppendThreadEventsAsync(child,
+        [
+            new ThreadExecutionStartedEvent("z-earlier", "child-agent", DateTimeOffset.UtcNow),
+            new SubAgentExecutionControllerEvent("z-earlier", parent),
+            new SubAgentResultSubmittedEvent("z-earlier", "done", parent, "Previous report"),
+            new ThreadExecutionFinishedEvent("z-earlier", "child-agent", ThreadExecutionOutcome.Succeeded, DateTimeOffset.UtcNow),
+            new ThreadExecutionStartedEvent("a-current", "child-agent", DateTimeOffset.UtcNow),
+            new SubAgentExecutionControllerEvent("a-current", parent) { OperationId = "operation" },
+            new ParentQuestionRequestEvent("pending", "Parent", parent, [new("q", "Which target?")]) { ThreadExecutionId = "a-current" }
+        ]);
+        var seed = await CompositeThreadJournalRebaseSeedProvider.Create(store).CreateSeedEventsAsync(child);
+        var current = SubAgentActivityReader.Project(seed, "a-current");
+        Assert.Equal("a-current", current.ExecutionId);
+        Assert.Equal("waiting for parent", current.Status);
+        Assert.Equal(1, current.ParentQuestionCount);
+        Assert.Null(current.Report);
+        Assert.Equal("operation", seed.OfType<SubAgentExecutionControllerEvent>().Last().OperationId);
+        Assert.Equal("pending", Assert.IsType<ParentQuestionRequestEvent>(Assert.Single(AgentRequestProjector.ProjectPending(seed, "a-current"))).RequestId);
     }
 
     [Fact]

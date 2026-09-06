@@ -417,7 +417,8 @@ public sealed class FunctionExecutionContext
     public async Task<TResponse> RequestAsync<TRequest, TResponse>(
         TRequest request,
         CancellationToken cancellationToken,
-        TimeSpan? timeout = null)
+        TimeSpan? timeout = null,
+        Func<TRequest, CancellationToken, ValueTask>? onPublished = null)
         where TRequest : AgentEvent, IAgentRequestEvent<TResponse>
         where TResponse : AgentEvent, IAgentResponseEvent
     {
@@ -455,6 +456,8 @@ public sealed class FunctionExecutionContext
                 await EventCoordinator.EmitAsync(tracedRequest, route, cancellationToken).ConfigureAwait(false);
             }
 
+            if (onPublished is not null)
+                await onPublished(tracedRequest, cancellationToken).ConfigureAwait(false);
             return (TResponse)await handle.Response.ConfigureAwait(false);
         }
         catch (TimeoutException)

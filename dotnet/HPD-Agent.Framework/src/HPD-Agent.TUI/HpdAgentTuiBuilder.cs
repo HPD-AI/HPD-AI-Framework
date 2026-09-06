@@ -83,6 +83,20 @@ public sealed class HpdAgentTuiBuilder
         return this;
     }
 
+    /// <summary>Adds queued human questions and durable question history for the selected scope.</summary>
+    public HpdAgentTuiBuilder AddQuestionInteraction(AgentTuiEventScope scope = AgentTuiEventScope.CurrentThread)
+    {
+        var handler = new UserQuestionInteractionHandler();
+        TryAddInteractionHandler<UserQuestionRequestEvent>("hpd.questions", handler, scope);
+        TryAddEventHandler("hpd.question-history", new QuestionTranscriptHandler(handler.Settle), scope);
+        AddSlashCommand(new HpdAgentTuiCommandDescriptor("questions", async context =>
+        {
+            var reopened = context.Shell.ReopenQuestionsAsync is { } reopen ? await reopen(CancellationToken.None) : 0;
+            if (reopened == 0) AgentTuiModelSelectionFlow.AppendNotice(context, "Questions", "No minimized questions are waiting.", TranscriptSeverity.Info);
+        }) { Title = "/questions", Description = "Reopen minimized questions without losing draft answers." });
+        return this;
+    }
+
     /// <summary>Adds one exact typed permission-presentation renderer.</summary>
     public HpdAgentTuiBuilder AddPermissionPresentationRenderer<TPresentation>(
         string presentationId,

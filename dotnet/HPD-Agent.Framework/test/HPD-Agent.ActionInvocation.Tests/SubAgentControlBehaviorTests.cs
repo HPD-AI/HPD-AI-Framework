@@ -48,7 +48,7 @@ public sealed class SubAgentControlBehaviorTests
         var waited = Assert.IsType<SubAgentWaitResult>(await SubAgentRuntime.ControlAsync(
             "wait", waitJson.RootElement, context, CancellationToken.None));
         Assert.False(waited.TimedOut);
-        Assert.Contains(waited.Children, child => child.Child == "worker-1" && child.Status == ThreadExecutionStatus.Succeeded);
+        Assert.Contains(waited.Children, child => child.Child == "worker-1" && child.Status == "stopped without result");
         Assert.Contains(waited.Children, child => child.Child == "worker-2" && child.Status == "idle");
         Assert.Contains(waited.Children, child => child.Child == "worker-3" && child.Status == "unavailable");
     }

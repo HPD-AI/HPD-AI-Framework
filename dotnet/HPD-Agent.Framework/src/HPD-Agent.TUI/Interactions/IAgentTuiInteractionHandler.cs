@@ -6,7 +6,8 @@ public enum AgentTuiInteractionResultKind
     AnswerRequest,
     InterruptTurn,
     Dismiss,
-    Error
+    Error,
+    Defer
 }
 
 public sealed record AgentTuiInteractionResult(
@@ -16,6 +17,9 @@ public sealed record AgentTuiInteractionResult(
 {
     public static AgentTuiInteractionResult NoOp { get; } =
         new(AgentTuiInteractionResultKind.NoOp);
+
+    /// <summary>Hide the presentation while leaving its request pending and answerable.</summary>
+    public static AgentTuiInteractionResult Defer { get; } = new(AgentTuiInteractionResultKind.Defer);
 
     public static AgentTuiInteractionResult Dismiss { get; } =
         new(AgentTuiInteractionResultKind.Dismiss);

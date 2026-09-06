@@ -98,7 +98,7 @@ public sealed class EffectiveProviderClientConfigResolver
         var fingerprint = ComputeHash(string.Join('|', canonicalProvider, canonicalBackend, family,
             effective.ModelName, endpoint?.AbsoluteUri, stableReference,
             providerPayload.Fingerprint, operationPayload.Fingerprint,
-            JsonSerializer.Serialize(familyDefaults),
+            JsonSerializer.Serialize(familyDefaults, ProviderFingerprintJsonContext.Default.ProviderFamilyDefaultsSnapshot),
             string.Join(';', headers.OrderBy(static pair => pair.Key, StringComparer.OrdinalIgnoreCase)
                 .Select(static pair => $"{pair.Key}={pair.Value}"))));
 
@@ -437,3 +437,7 @@ public sealed class EffectiveProviderClientConfigResolver
         string message,
         string? providerKey = null) => new(code, path, message, providerKey);
 }
+
+// Keep the default serializer shape used by existing provider fingerprints, with generated metadata.
+[System.Text.Json.Serialization.JsonSerializable(typeof(ProviderFamilyDefaultsSnapshot))]
+internal partial class ProviderFingerprintJsonContext : System.Text.Json.Serialization.JsonSerializerContext;

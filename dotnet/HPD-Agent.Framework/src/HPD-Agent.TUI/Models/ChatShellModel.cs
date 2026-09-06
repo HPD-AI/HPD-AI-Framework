@@ -30,6 +30,9 @@ public sealed class ChatShellModel
 
     public Func<string, CancellationToken, ValueTask>? SetPromptDraftAsync { get; set; }
 
+    /// <summary>Reopens live questions minimized in this conversation.</summary>
+    public Func<CancellationToken, ValueTask<int>>? ReopenQuestionsAsync { get; set; }
+
     public AgentTuiNavigationModel Navigation { get; } = new();
 
     public TranscriptModel Transcript { get; } = new();

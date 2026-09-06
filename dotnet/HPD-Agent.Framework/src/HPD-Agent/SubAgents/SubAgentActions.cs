@@ -95,7 +95,7 @@ public static class SubAgentsFunctionFactory
     public const string FunctionName = "SubAgents";
 
     private static readonly string[] ReservedActions =
-        ["continue", "list", "wait", "sendMessage", "cancel"];
+        ["continue", "list", "wait", "sendMessage", "cancel", "answer"];
 
     /// <summary>Creates exactly one function from all currently effective role descriptors.</summary>
     public static AIFunction Create(IReadOnlyList<SubAgentActionDescriptor> descriptors)
@@ -132,7 +132,7 @@ public static class SubAgentsFunctionFactory
                 InvocationModeHandling = AgentInvocationModeHandling.ToolBody,
                 Permission = new AIFunctionPermissionDeclaration
                 {
-                    RequiresPermission = true,
+                    RequiresPermission = action != "answer",
                     Authority = $"function/{FunctionName}/action/{Uri.EscapeDataString(action)}",
                     Source = PermissionDeclarationSource.ActionOverride
                 }
@@ -240,6 +240,7 @@ public static class SubAgentsFunctionFactory
             WriteControlBranch(writer, "wait", wait: true);
             WriteControlBranch(writer, "sendMessage", includeInput: true);
             WriteControlBranch(writer, "cancel", cancel: true);
+            WriteAnswerBranch(writer);
             writer.WriteEndArray(); writer.WriteEndObject();
             writer.WriteEndObject();
             writer.WritePropertyName("required"); writer.WriteStartArray(); writer.WriteStringValue("request"); writer.WriteEndArray();
@@ -248,6 +249,23 @@ public static class SubAgentsFunctionFactory
         }
         using var document = JsonDocument.Parse(stream.ToArray());
         return document.RootElement.Clone();
+    }
+
+    private static void WriteAnswerBranch(Utf8JsonWriter writer)
+    {
+        WriteBranchStart(writer, "answer", "Answer an outstanding Parent.ask request from a child. This resumes its existing execution.");
+        WriteStringSchema(writer, "child", "Parent-local child ID.");
+        WriteStringSchema(writer, "requestId", "The pending request ID.");
+        WriteEnumSchema(writer, "outcome", "Answered", "Dismissed", "Discuss");
+        writer.WritePropertyName("answers");
+        using var document = JsonDocument.Parse("""
+        {"type":"array","items":{"type":"object","properties":{
+          "questionId":{"type":"string"},"selectedOptionIds":{"type":"array","items":{"type":"string"}},
+          "customText":{"type":["string","null"]},"notes":{"type":["string","null"]}},
+          "required":["questionId","selectedOptionIds"],"additionalProperties":false}}
+        """);
+        document.RootElement.WriteTo(writer);
+        WriteBranchEnd(writer, "action", "child", "requestId", "outcome", "answers");
     }
 
     private static void WriteRoleBranch(Utf8JsonWriter writer, SubAgentActionDescriptor descriptor)
@@ -338,7 +356,7 @@ public static class SubAgentGeneratedBranchBinder
 }
 
 /// <summary>Stable model-facing status returned by unified subagent operations.</summary>
-public enum SubAgentOperationStatus { Running, Completed, Failed, Cancelled, Unavailable }
+public enum SubAgentOperationStatus { Running, Completed, Failed, Cancelled, Unavailable, StoppedWithoutResult, NeedsAttention }
 
 /// <summary>Stable structured subagent operation error.</summary>
 public sealed record SubAgentOperationError(string Code, string Message);
@@ -348,7 +366,10 @@ public sealed record SubAgentOperationError(string Code, string Message);
 [System.Text.Json.Serialization.JsonDerivedType(typeof(SubAgentOperationResult), "operation")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(SubAgentListResult), "list")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(SubAgentWaitResult), "wait")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(SubAgentAnswerResult), "answer")]
 public abstract record SubAgentActionResult;
+
+public sealed record SubAgentAnswerResult(AgentRespondResult Response) : SubAgentActionResult;
 
 /// <summary>Structured result returned by every unified subagent action.</summary>
 public sealed record SubAgentOperationResult : SubAgentActionResult
@@ -363,8 +384,9 @@ public sealed record SubAgentOperationResult : SubAgentActionResult
     public string? ThreadExecutionId { get; init; }
     /// <summary>Gets the background operation identifier.</summary>
     public string? AgentOperationId { get; init; }
-    /// <summary>Gets bounded child output for completed synchronous work.</summary>
+    /// <summary>Gets the explicitly submitted report, if any, for this execution.</summary>
     public string? Output { get; init; }
+    public IReadOnlyList<SubAgentPendingQuestion> Questions { get; init; } = [];
     /// <summary>Gets a stable actionable error.</summary>
     public SubAgentOperationError? Error { get; init; }
 }
@@ -375,13 +397,17 @@ public sealed record SubAgentListItem(
     string Role,
     SubAgentChildAvailability Availability,
     DateTimeOffset CreatedAt,
-    string? Reason);
+    string? Reason,
+    SubAgentActivity? Activity);
 
 /// <summary>Structured result returned by the <c>list</c> action.</summary>
 public sealed record SubAgentListResult(IReadOnlyList<SubAgentListItem> Children) : SubAgentActionResult;
 
 /// <summary>One exact execution observed by the <c>wait</c> action.</summary>
-public sealed record SubAgentWaitItem(string Child, string? ThreadExecutionId, string Status);
+public sealed record SubAgentWaitItem(string Child, string? ThreadExecutionId, string Status)
+{
+    public IReadOnlyList<SubAgentPendingQuestion> Questions { get; init; } = [];
+}
 
 /// <summary>Structured observational result returned by the <c>wait</c> action.</summary>
 public sealed record SubAgentWaitResult(

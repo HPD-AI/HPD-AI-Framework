@@ -35,8 +35,9 @@ public sealed class SubAgentContinuationConcurrencyTests
         var started = Assert.Single(admittedEvents.OfType<ThreadExecutionStartedEvent>());
         Assert.Equal(follower.ThreadExecutionId, started.ThreadExecutionId);
         fixture.Resolver.Release.TrySetResult();
-        var failure = await Assert.ThrowsAsync<InvalidOperationException>(async () => await ownerTask);
-        Assert.Equal("resolver_release", failure.Message);
+        var failure = Assert.IsType<SubAgentOperationResult>(await ownerTask);
+        Assert.Equal(SubAgentOperationStatus.Failed, failure.Status);
+        Assert.Equal("resolver_release", failure.Error?.Message);
         Assert.Equal(1, fixture.Resolver.LeaseCount);
     }
 
@@ -109,9 +110,11 @@ public sealed class SubAgentContinuationConcurrencyTests
             (string value) => value,
             new AIFunctionFactoryOptions { Name = "SubAgents" });
         var state = AgentLoopState.InitialSafe([], "run", "conversation", "parent-agent");
+        var capabilities = new RuntimeCapabilityRegistry();
+        capabilities.Set(new AgentOperationRegistry(new StoreOperationSink(store)));
         var agentContext = new AgentContext(
             "parent-agent", "conversation", state, new HPD.Events.Core.EventCoordinator(),
-            session, parentThread, CancellationToken.None, services: services);
+            session, parentThread, CancellationToken.None, services: services, runtimeCapabilities: capabilities);
         var before = agentContext.AsBeforeFunction(
             function, "tool-call", new Dictionary<string, object?>(), new AgentRunConfig(), null, null);
         var context = new FunctionExecutionContext(before, new FunctionRequest
@@ -147,6 +150,12 @@ public sealed class SubAgentContinuationConcurrencyTests
                                head.ThreadSequenceNumber)))
             events.AddRange(batch.Events);
         return events;
+    }
+
+    private sealed class StoreOperationSink(ISessionStore store) : IAgentOperationEventSink
+    {
+        public async ValueTask AppendAsync(AgentEvent evt, CancellationToken cancellationToken)
+            => await store.AppendThreadEventsAsync(new(evt.SessionId!, evt.ThreadId!), [evt], cancellationToken: cancellationToken);
     }
 
     private sealed class BlockingResolver : IAgentRuntimeResolver

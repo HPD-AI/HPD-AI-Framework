@@ -1937,6 +1937,10 @@ public class AgentBuilder
             _secretResolverChainBuilt = true;
         }
 
+        if (!_builderAddedToolHarnesses.Contains(nameof(ParentToolHarness)))
+            this.WithToolHarness<ParentToolHarness>();
+        if (!_builderAddedToolHarnesses.Contains(nameof(QuestionToolHarness)))
+            this.WithToolHarness<QuestionToolHarness>();
         var hostServices = _serviceProvider;
         if (_config.Goals is { Enabled: true } goals)
         {
@@ -2463,6 +2467,7 @@ public class AgentBuilder
                 _config.Collapsing?.Enabled == true,
                 _config.Collapsing?.NeverCollapse));
 
+        _middlewares.Add(new ParentCommunicationMiddleware());
         if (_goalMiddleware is not null)
             _middlewares.Add(_goalMiddleware);
 

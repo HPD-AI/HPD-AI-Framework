@@ -49,15 +49,19 @@ public class FunctionTimeoutMiddleware : IAgentMiddleware
         Func<FunctionRequest, Task<object?>> handler,
         CancellationToken cancellationToken)
     {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(_timeout);
+        var task = handler(request with { CancellationToken = deadline.Token });
         try
         {
-            // Use Task.WaitAsync to enforce timeout
-            var task = handler(request);
-            return await task.WaitAsync(_timeout, cancellationToken);
+            return await task.WaitAsync(deadline.Token).ConfigureAwait(false);
         }
-        catch (TimeoutException)
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && deadline.IsCancellationRequested)
         {
-            // Re-throw with more descriptive message
+            // Observe a later failure from a non-cooperative handler without leaving the waiter alive.
+            _ = task.ContinueWith(static completed => _ = completed.Exception,
+                CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
             throw new TimeoutException(
                 $"Function '{request.Function?.Name ?? "Unknown"}' timed out after {_timeout.TotalSeconds:F1} seconds");
         }

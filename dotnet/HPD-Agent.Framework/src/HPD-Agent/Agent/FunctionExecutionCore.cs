@@ -662,8 +662,8 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                                 ? functionCall.Arguments as AIFunctionArguments
                                 : null);
                         return effectiveRequest.Function is HPDAIFunctionFactory.HPDAIFunction hpdFunction
-                            ? await hpdFunction.InvokeAsync(args, functionContext, cancellationToken).ConfigureAwait(false)
-                            : await effectiveRequest.Function.InvokeAsync(args, cancellationToken).ConfigureAwait(false);
+                            ? await hpdFunction.InvokeAsync(args, functionContext, effectiveRequest.CancellationToken ?? cancellationToken).ConfigureAwait(false)
+                            : await effectiveRequest.Function.InvokeAsync(args, effectiveRequest.CancellationToken ?? cancellationToken).ConfigureAwait(false);
                     }
                 },
                 cancellationToken).ConfigureAwait(false);

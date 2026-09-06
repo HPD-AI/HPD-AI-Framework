@@ -91,6 +91,8 @@ public sealed record AgentOperationControl(
 /// <summary>Controls which operation transitions may become semantic agent input.</summary>
 public sealed record AgentOperationNotificationPolicy
 {
+    /// <summary>Deliver requests for input separately from routine progress updates.</summary>
+    public bool IncludeInputRequired { get; init; } = true;
     /// <summary>Gets whether non-terminal progress may be delivered.</summary>
     public bool IncludeProgress { get; init; }
     /// <summary>Gets whether terminal transitions may be delivered.</summary>

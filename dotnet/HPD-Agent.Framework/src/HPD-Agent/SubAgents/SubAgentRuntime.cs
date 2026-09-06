@@ -14,19 +14,6 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Agent;
 
-/// <summary>Durable execution-scoped result for an idempotent child continuation.</summary>
-/// <param name="ContinuationExecutionId">The deterministic continuation execution identifier.</param>
-/// <param name="Output">The exact terminal text result, or <see langword="null"/> when no text was produced.</param>
-[HPD.Agent.Serialization.DurableEvent]
-[HPD.Agent.Serialization.EventType("SUBAGENT_CONTINUATION_RECEIPT")]
-public sealed record SubAgentContinuationReceiptEvent(
-    string ContinuationExecutionId,
-    string? Output) : AgentEvent
-{
-    /// <inheritdoc />
-    public override string? ThreadExecutionId { get; init; } = ContinuationExecutionId;
-}
-
 /// <summary>Describes admission of a controller-routed child input.</summary>
 /// <param name="Disposition">The authoritative input disposition.</param>
 /// <param name="ThreadExecutionId">The active or newly reserved child execution identifier.</param>
@@ -106,7 +93,7 @@ public static class SubAgentRuntime
         /// <summary>
         /// Gets the text returned to the parent tool call.
         /// </summary>
-        public required string Text { get; init; }
+        public required string? Text { get; init; }
 
         /// <summary>
         /// Gets the session used by the child agent.
@@ -195,27 +182,16 @@ public static class SubAgentRuntime
                 .ConfigureAwait(false);
         }
 
-        if (mode == AgentInvocationMode.Background)
-            return await RegisterBackgroundInvocationAsync(request, admission).ConfigureAwait(false);
-
-        var result = await InvokeSynchronousCoreAsync(
-            request,
-            admission,
-            AgentInvocationMode.Synchronous,
-            cancellationToken).ConfigureAwait(false);
-        return new AgentInvocationResult
-        {
-            Mode = AgentInvocationMode.Synchronous,
-            Text = result.Text,
-            ToolResult = new SubAgentOperationResult
-            {
-                Status = SubAgentOperationStatus.Completed,
-                Child = result.LocalId?.Value,
-                InvocationId = result.InvocationId,
-                ThreadExecutionId = admission.Creation.ThreadExecutionId,
-                Output = result.Text
-            }
-        };
+        var store = request.ParentContext?.GetParentSessionStore() ?? throw new InvalidOperationException("subagent_runtime_required");
+        var parent = admission.Creation.Key.Parent;
+        var cursor = (await store.GetThreadEventHeadAsync(parent, cancellationToken).ConfigureAwait(false))!.Cursor;
+        var running = await RegisterBackgroundInvocationAsync(request, admission, mode).ConfigureAwait(false);
+        if (mode == AgentInvocationMode.Background || running.Operation is null) return running;
+        var result = await AwaitOwnedOperationAsync(store, parent,
+            new(admission.Route.SessionId, admission.Route.ThreadId), admission.Creation.ThreadExecutionId,
+            running.Operation.OperationId, admission.LocalId?.Value, admission.Route.InvocationId, cursor,
+            request.ParentContext!, cancellationToken).ConfigureAwait(false);
+        return new AgentInvocationResult { Mode = mode, Text = result.Output, ToolResult = result };
     }
 
     private static async Task<AgentInvocationResult> RecoverAdmittedInvocationAsync(
@@ -276,7 +252,7 @@ public static class SubAgentRuntime
 
     private static async Task<AgentInvocationResult> RegisterBackgroundInvocationAsync(
         SubAgentInvocationRequest request,
-        AdmittedSubAgentInvocation admission)
+        AdmittedSubAgentInvocation admission, AgentInvocationMode mode)
     {
         var definition = request.Definition;
         var parentContext = request.ParentContext;
@@ -285,21 +261,23 @@ public static class SubAgentRuntime
             return AgentInvocationModes.CreateFailureResult(
                 GetCreationStorageName(request),
                 AgentOperationSourceKind.SubAgent,
-                "Background invocation requires an active agent runtime.");
+                "Subagent invocation requires an active agent runtime. Call StartAsync before submitting work.");
         }
 
         var receipt = await parentContext.StartOperationAsync(
                 GetCreationStorageName(request),
                 CreateBackgroundDescriptorMetadata(definition, GetCreationStorageName(request)),
-                definition.OperationNotification,
+                mode == AgentInvocationMode.Synchronous
+                    ? definition.OperationNotification with { IncludeTerminal = false, IncludeInputRequired = false }
+                    : definition.OperationNotification,
                 async (_, runtimeToken) =>
                 {
                     var result = await InvokeSynchronousCoreAsync(
                         request,
                         admission,
-                        AgentInvocationMode.Background,
+                        mode,
                         runtimeToken).ConfigureAwait(false);
-                    return new AgentOperationCompletion(result.Text);
+                    return new AgentOperationCompletion(result.Text ?? "Subagent stopped without submitting a result. Continue it to request an explicit Parent.complete report.");
                 },
                 operationId: admission.Creation.AgentOperationId).ConfigureAwait(false);
 
@@ -318,6 +296,51 @@ public static class SubAgentRuntime
                 AgentOperationId = receipt.OperationId
             }
         };
+    }
+
+    private static async Task<SubAgentOperationResult> AwaitOwnedOperationAsync(ISessionStore store,
+        ThreadKey parent, ThreadKey child, string executionId, string operationId, string? localId,
+        string invocationId, ThreadJournalCursor cursor, FunctionExecutionContext context, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await foreach (var batch in store.ObserveThreadEventsAsync(parent, cursor, new ThreadObservationOptions(), cancellationToken).ConfigureAwait(false))
+            foreach (var evt in batch.Events)
+            {
+                if (evt is SubAgentQuestionRaisedEvent question && question.Child == child && question.ChildExecutionId == executionId)
+                {
+                    var pending = await ParentQuestions.PendingAsync(store, child, executionId, cancellationToken).ConfigureAwait(false);
+                    if (pending.Length > 0) return new SubAgentOperationResult
+                    {
+                        Status = SubAgentOperationStatus.NeedsAttention, Child = localId, InvocationId = invocationId,
+                        ThreadExecutionId = executionId, AgentOperationId = operationId,
+                        Questions = pending.Select(q => new SubAgentPendingQuestion(q.RequestId, q.Questions)).ToArray()
+                    };
+                }
+                if (evt is not AgentOperationTransitionedEvent transition || transition.Operation.OperationId != operationId) continue;
+                var operation = transition.Operation;
+                if (operation.ProviderStatus is not (AgentOperationProviderStatus.Completed or AgentOperationProviderStatus.Failed or AgentOperationProviderStatus.Cancelled)) continue;
+                var report = await SubAgentResults.ReadReportAsync(store, child, executionId, cancellationToken).ConfigureAwait(false);
+                return new SubAgentOperationResult
+                {
+                    Status = operation.ProviderStatus switch
+                    {
+                        AgentOperationProviderStatus.Failed => SubAgentOperationStatus.Failed,
+                        AgentOperationProviderStatus.Cancelled => SubAgentOperationStatus.Cancelled,
+                        _ => report is null ? SubAgentOperationStatus.StoppedWithoutResult : SubAgentOperationStatus.Completed
+                    },
+                    Child = localId, InvocationId = invocationId, ThreadExecutionId = executionId,
+                    AgentOperationId = operationId, Output = report,
+                    Error = operation.Failure is { } failure ? new(failure.Code, failure.Message) : null
+                };
+            }
+            throw new InvalidOperationException("subagent_operation_observation_ended");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            await context.CancelOperationAsync(operationId, CancellationToken.None).ConfigureAwait(false);
+            throw;
+        }
     }
 
     private static async ValueTask PersistBackgroundReceiptAsync(
@@ -387,10 +410,9 @@ public static class SubAgentRuntime
                     contextPolicy,
                     invocationMode), cancellationToken).ConfigureAwait(false);
             }
-            var initialMessageCount = await ResolveMessageCountAsync(
-                agent,
-                route,
-                cancellationToken).ConfigureAwait(false);
+            await agent.Config.SessionStore!.AppendThreadEventsAsync(new(route.SessionId, route.ThreadId),
+                [new SubAgentExecutionControllerEvent(threadExecutionId, admission.Creation.Key.Parent)
+                { ThreadExecutionId = threadExecutionId, OperationId = admission.Creation.AgentOperationId }], cancellationToken: cancellationToken).ConfigureAwait(false);
 
             await ExecuteChildAsync(
                 agent,
@@ -401,27 +423,19 @@ public static class SubAgentRuntime
                 threadExecutionId,
                 cancellationToken).ConfigureAwait(false);
 
-            var text = await ResolveAssistantTextAfterAsync(
-                agent,
-                route,
-                initialMessageCount,
-                cancellationToken).ConfigureAwait(false);
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                throw new InvalidOperationException(
-                    $"Subagent '{definition.Name}' completed without an assistant response.");
-            }
+            var text = await SubAgentResults.ReadReportAsync(agent.Config.SessionStore!,
+                new(route.SessionId, route.ThreadId), threadExecutionId, cancellationToken).ConfigureAwait(false);
             if (request.ParentContext is not null)
             {
                 await request.ParentContext.PublishAsync(
                     new SubAgentInvocationCompletedEvent(route.InvocationId, text),
                     CancellationToken.None).ConfigureAwait(false);
             }
-            MarkCompleted(request.ParentContext, route);
+            MarkCompleted(request.ParentContext, route, text is not null);
             await AdvanceCreationAsync(
                 admission,
                 SubAgentCreationPhase.Terminal,
-                SubAgentOperationStatus.Completed,
+                text is null ? SubAgentOperationStatus.StoppedWithoutResult : SubAgentOperationStatus.Completed,
                 text,
                 error: null,
                 cancellationToken: CancellationToken.None).ConfigureAwait(false);
@@ -700,25 +714,30 @@ public static class SubAgentRuntime
             ?? throw new InvalidOperationException("subagent_unavailable: no durable parent session store is configured.");
         if (functionContext.SessionId is null || functionContext.ThreadId is null)
             throw new InvalidOperationException("subagent_unavailable: the current parent has no durable thread identity.");
+        var parentKey = new ThreadKey(functionContext.SessionId, functionContext.ThreadId);
         var registry = new SubAgentChildRegistry(store);
         var projection = await registry.ProjectAsync(
             new ThreadKey(functionContext.SessionId, functionContext.ThreadId),
             cancellationToken: cancellationToken).ConfigureAwait(false);
         if (string.Equals(action, "list", StringComparison.Ordinal))
         {
-            return new SubAgentListResult(projection.Entries.Values
-                .OrderBy(static entry => entry.LocalId.Value, StringComparer.Ordinal)
-                .Select(static entry => entry switch
+            var children = new List<SubAgentListItem>();
+            foreach (var registryEntry in projection.Entries.Values.OrderBy(e => e.LocalId.Value, StringComparer.Ordinal))
+            {
+                children.Add(registryEntry switch
                 {
                     SubAgentAvailableChild available => new SubAgentListItem(
                         available.LocalId.Value, available.RoleName, available.Availability,
-                        available.Child.CreatedAt, null),
-                    SubAgentChildTombstone tombstone => new SubAgentListItem(
-                        tombstone.LocalId.Value, tombstone.RoleName, tombstone.Availability,
-                        tombstone.CreatedAt, tombstone.Reason),
+                        available.Child.CreatedAt, null,
+                        (await SubAgentActivityReader.ReadAsync(store, available.Child.ChildThread, cancellationToken)
+                            .ConfigureAwait(false)) with { Report = null }),
+                    SubAgentChildTombstone listedTombstone => new SubAgentListItem(
+                        listedTombstone.LocalId.Value, listedTombstone.RoleName, listedTombstone.Availability,
+                        listedTombstone.CreatedAt, listedTombstone.Reason, null),
                     _ => throw new InvalidOperationException("subagent_registry_entry_invalid")
-                })
-                .ToArray());
+                });
+            }
+            return new SubAgentListResult(children);
         }
 
         var controller = ThreadExecutionControllerRegistry.For(store);
@@ -757,8 +776,13 @@ public static class SubAgentRuntime
                 cancellationToken).ConfigureAwait(false))
             return Failure("subagent_controller_grant_required", "This parent has no durable child-keyed controller grant for the shared child.", child.LocalId.Value);
 
+        if (string.Equals(action, "answer", StringComparison.Ordinal))
+            return await ParentQuestions.AnswerAsync(store, child, parentKey, branch, functionContext, cancellationToken).ConfigureAwait(false);
+
         if (string.Equals(action, "continue", StringComparison.Ordinal))
         {
+            if (!functionContext.CanStartOperations)
+                return Failure("subagent_runtime_required", "Subagent continuation requires StartAsync and an active operation runtime.", child.LocalId.Value);
             var resolver = functionContext.Services?.GetService<IAgentRuntimeResolver>()
                 ?? throw new InvalidOperationException("subagent_unavailable: no agent runtime resolver is configured.");
             var route = child.ChildThread;
@@ -777,7 +801,7 @@ public static class SubAgentRuntime
             var candidateAdmission = new ContinuationAdmission();
             var admission = admissions.GetOrAdd(admissionKey, candidateAdmission);
             var ownsAdmission = ReferenceEquals(candidateAdmission, admission);
-            (bool Reserved, ThreadExecutionOutcome? Outcome, SubAgentOperationError? Error, string? Output, bool ReceiptPresent) durableReplay;
+            (bool Reserved, ThreadExecutionOutcome? Outcome, SubAgentOperationError? Error, string? Output) durableReplay;
             try
             {
                 if (!ownsAdmission)
@@ -856,7 +880,7 @@ public static class SubAgentRuntime
                 {
                     return new SubAgentOperationResult
                     {
-                        Status = SubAgentOperationStatus.Failed,
+                        Status = durableReplay.Outcome == ThreadExecutionOutcome.Cancelled ? SubAgentOperationStatus.Cancelled : SubAgentOperationStatus.Failed,
                         Child = child.LocalId.Value,
                         InvocationId = invocationId,
                         ThreadExecutionId = executionId,
@@ -865,23 +889,9 @@ public static class SubAgentRuntime
                             "subagent_continue_failed", "The prior continuation did not succeed.")
                     };
                 }
-                if (!durableReplay.ReceiptPresent)
-                {
-                    return new SubAgentOperationResult
-                    {
-                        Status = SubAgentOperationStatus.Failed,
-                        Child = child.LocalId.Value,
-                        InvocationId = invocationId,
-                        ThreadExecutionId = executionId,
-                        AgentOperationId = operationId,
-                        Error = new SubAgentOperationError(
-                            "subagent_reconciliation_required",
-                            "The continuation finished before its execution-scoped result receipt committed.")
-                    };
-                }
                 return new SubAgentOperationResult
                 {
-                    Status = SubAgentOperationStatus.Completed,
+                    Status = durableReplay.Output is null ? SubAgentOperationStatus.StoppedWithoutResult : SubAgentOperationStatus.Completed,
                     Child = child.LocalId.Value,
                     InvocationId = invocationId,
                     ThreadExecutionId = executionId,
@@ -890,8 +900,9 @@ public static class SubAgentRuntime
                 };
             }
             var requestedMode = functionContext.ResolvedInvocationMode;
-            if (requestedMode == AgentInvocationMode.Background)
             {
+                var parentCursor = (await store.GetThreadEventHeadAsync(parentKey, cancellationToken).ConfigureAwait(false))!.Cursor;
+                var registered = false;
                 try
                 {
                     var receipt = await functionContext.StartOperationAsync(
@@ -902,15 +913,16 @@ public static class SubAgentRuntime
                             ["subAgent.child"] = child.LocalId.Value,
                             ["subAgent.invocationId"] = invocationId
                         },
-                        notification: new AgentOperationNotificationPolicy(),
+                        notification: new AgentOperationNotificationPolicy
+                        { IncludeTerminal = requestedMode == AgentInvocationMode.Background, IncludeInputRequired = requestedMode == AgentInvocationMode.Background },
                         async (_, runtimeToken) =>
                         {
                             try
                             {
-                                await ContinueChildAsync(
+                                var report = await ContinueChildAsync(
                                     resolver, store, child, route, input, executionId,
-                                    functionContext, runtimeToken).ConfigureAwait(false);
-                                return new AgentOperationCompletion("Subagent continuation completed.");
+                                    functionContext, runtimeToken, operationId).ConfigureAwait(false);
+                                return new AgentOperationCompletion(report ?? "Subagent stopped without submitting a result.");
                             }
                             finally
                             {
@@ -918,6 +930,10 @@ public static class SubAgentRuntime
                             }
                         },
                         operationId: operationId).ConfigureAwait(false);
+                    registered = true;
+                    if (requestedMode == AgentInvocationMode.Synchronous)
+                        return await AwaitOwnedOperationAsync(store, parentKey, route, executionId, receipt.OperationId,
+                            child.LocalId.Value, invocationId, parentCursor, functionContext, cancellationToken).ConfigureAwait(false);
                     return new SubAgentOperationResult
                     {
                         Status = SubAgentOperationStatus.Running,
@@ -927,30 +943,17 @@ public static class SubAgentRuntime
                         AgentOperationId = receipt.OperationId
                     };
                 }
-                catch
+                catch (Exception exception)
                 {
                     admissions.TryRemove(admissionKey, out _);
+                    if (!registered)
+                        await FinishReservedExecutionAsync(store, route, executionId, child.ChildAgentId,
+                            exception is OperationCanceledException ? ThreadExecutionOutcome.Cancelled : ThreadExecutionOutcome.Failed,
+                            exception, CancellationToken.None).ConfigureAwait(false);
                     throw;
                 }
             }
-            try
-            {
-                var output = await ContinueChildAsync(
-                    resolver, store, child, route, input, executionId,
-                    functionContext, cancellationToken).ConfigureAwait(false);
-                return new SubAgentOperationResult
-                {
-                    Status = SubAgentOperationStatus.Completed,
-                    Child = child.LocalId.Value,
-                    InvocationId = invocationId,
-                    ThreadExecutionId = executionId,
-                    Output = output
-                };
-            }
-            finally
-            {
-                admissions.TryRemove(admissionKey, out _);
-            }
+
         }
 
         if (string.Equals(action, "sendMessage", StringComparison.Ordinal))
@@ -1079,18 +1082,40 @@ public static class SubAgentRuntime
                 AgentInputDisposition.ActiveExecutionMismatch,
                 executionId);
 
-        _ = RunControlledContinuationAsync(
-            resolver, store, controllerThread, child, input, executionId, CancellationToken.None);
+        IAgentRuntimeLease? parentLease = null;
+        try
+        {
+            var parentDescriptor = await store.GetThreadAsync(controllerThread, cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("subagent_controller_missing");
+            parentLease = await resolver.GetOrBuildAsync(parentDescriptor.DefaultAgent.AgentId,
+                controllerThread.SessionId, controllerThread.ThreadId, cancellationToken).ConfigureAwait(false);
+            var operationOwner = parentLease;
+            parentLease = null; // The existing operation scheduler owns cleanup, including registration failure.
+            await operationOwner.Agent.StartControlledChildOperationAsync(controllerThread, $"controlled-{executionId}",
+                async (operationId, token) => new AgentOperationCompletion(
+                    await RunControlledContinuationAsync(resolver, store, controllerThread, child, input,
+                        executionId, operationId, token).ConfigureAwait(false) ?? "Subagent stopped without submitting a result."),
+                operationOwner).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            if (parentLease is not null) await parentLease.DisposeAsync().ConfigureAwait(false);
+            await FinishReservedExecutionAsync(store, childThread, executionId, childAgentId,
+                exception is OperationCanceledException ? ThreadExecutionOutcome.Cancelled : ThreadExecutionOutcome.Failed,
+                exception, CancellationToken.None).ConfigureAwait(false);
+            throw;
+        }
         return new SubAgentContinuationSubmission(AgentInputDisposition.Queued, executionId);
     }
 
-    private static async Task RunControlledContinuationAsync(
+    private static async Task<string?> RunControlledContinuationAsync(
         IAgentRuntimeResolver resolver,
         ISessionStore store,
         ThreadKey parent,
         SubAgentChildReference child,
         AgentInputEvent input,
         string executionId,
+        string operationId,
         CancellationToken cancellationToken)
     {
         try
@@ -1103,6 +1128,9 @@ public static class SubAgentRuntime
                 child.ChildThread.SessionId,
                 child.ChildThread.ThreadId,
                 cancellationToken).ConfigureAwait(false);
+            await store.AppendThreadEventsAsync(child.ChildThread,
+                [new SubAgentExecutionControllerEvent(executionId, parent) { ThreadExecutionId = executionId, OperationId = operationId }],
+                cancellationToken: cancellationToken).ConfigureAwait(false);
             await ExecuteChildInputAsync(
                 lease.Agent,
                 child.ChildThread,
@@ -1111,14 +1139,17 @@ public static class SubAgentRuntime
                 executionId,
                 store,
                 cancellationToken).ConfigureAwait(false);
+            var report = await SubAgentResults.ReadReportAsync(store, child.ChildThread, executionId, CancellationToken.None).ConfigureAwait(false);
             await store.AppendThreadEventAsync(parent.SessionId, parent.ThreadId,
-                new SubAgentInvocationCompletedEvent(executionId, null),
+                new SubAgentInvocationCompletedEvent(executionId, report),
                 cancellationToken: CancellationToken.None).ConfigureAwait(false);
+            return report;
         }
         catch (Exception exception)
         {
             await store.AppendThreadEventAsync(parent.SessionId, parent.ThreadId,
                 ContinuationFailed(executionId, exception), cancellationToken: CancellationToken.None).ConfigureAwait(false);
+            throw;
         }
     }
 
@@ -1137,7 +1168,7 @@ public static class SubAgentRuntime
         string input,
         string executionId,
         FunctionExecutionContext controllerContext,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, string? operationId = null)
     {
         await using var lease = await resolver.GetOrBuildAsync(
             child.ChildAgentId, route.SessionId, route.ThreadId, cancellationToken).ConfigureAwait(false);
@@ -1145,6 +1176,9 @@ public static class SubAgentRuntime
             controllerContext.FunctionCallId, controllerContext.ResolvedInvocationMode), cancellationToken).ConfigureAwait(false);
         try
         {
+            await store.AppendThreadEventsAsync(route,
+                [new SubAgentExecutionControllerEvent(executionId, new(controllerContext.SessionId!, controllerContext.ThreadId!))
+                { ThreadExecutionId = executionId, OperationId = operationId }], cancellationToken: cancellationToken).ConfigureAwait(false);
             await ExecuteChildAsync(
                 lease.Agent,
                 route,
@@ -1153,12 +1187,8 @@ public static class SubAgentRuntime
                 input,
                 executionId,
                 cancellationToken).ConfigureAwait(false);
-            var output = await ReadExecutionTextAsync(store, route, executionId, CancellationToken.None)
+            var output = await SubAgentResults.ReadReportAsync(store, route, executionId, CancellationToken.None)
                 .ConfigureAwait(false);
-            await store.AppendThreadEventsAsync(
-                route,
-                [new SubAgentContinuationReceiptEvent(executionId, output)],
-                cancellationToken: CancellationToken.None).ConfigureAwait(false);
             await controllerContext.PublishAsync(new SubAgentInvocationCompletedEvent(executionId, output),
                 CancellationToken.None).ConfigureAwait(false);
             return output;
@@ -1219,11 +1249,7 @@ public static class SubAgentRuntime
             childAgent.AgentId, childThread.SessionId, childThread.ThreadId, threadExecutionId);
         var executionStore = controllingContext?.GetParentSessionStore() ?? childAgent.Config.SessionStore
             ?? throw new InvalidOperationException("subagent_unavailable: no durable child session store is configured.");
-        reservation.BindPromotion(
-            static _ => ValueTask.CompletedTask,
-            (outcome, error, finishCancellationToken) => FinishReservedExecutionAsync(
-                executionStore, childThread, threadExecutionId, childAgent.AgentId,
-                outcome, error, finishCancellationToken));
+        BindExecutionOwnership(reservation, executionStore, childAgent, childThread, threadExecutionId);
         await childAgent.RunAsync(
             childAgent.AuthorizeCoordinatorAssignedWork(childInput, reservation),
             cancellationToken).ConfigureAwait(false);
@@ -1257,14 +1283,30 @@ public static class SubAgentRuntime
         };
         var reservation = new CoordinatorWorkReservation(
             childAgent.AgentId, childThread.SessionId, childThread.ThreadId, threadExecutionId);
-        reservation.BindPromotion(
-            static _ => ValueTask.CompletedTask,
-            (outcome, error, finishCancellationToken) => FinishReservedExecutionAsync(
-                store, childThread, threadExecutionId, childAgent.AgentId,
-                outcome, error, finishCancellationToken));
+        BindExecutionOwnership(reservation, store, childAgent, childThread, threadExecutionId);
         await childAgent.RunAsync(
             childAgent.AuthorizeCoordinatorAssignedWork(childInput, reservation),
             cancellationToken).ConfigureAwait(false);
+    }
+
+    private static void BindExecutionOwnership(CoordinatorWorkReservation reservation, ISessionStore store,
+        Agent agent, ThreadKey thread, string executionId)
+    {
+        var controller = ThreadExecutionControllerRegistry.For(store);
+        ThreadExecutionLease? lease = null;
+        reservation.BindPromotion(async token =>
+        {
+            var acquired = await controller.TryAcquireAsync(new(thread, executionId, agent), token).ConfigureAwait(false);
+            lease = acquired.Lease;
+            if (!acquired.Acquired || lease is null)
+                throw new InvalidOperationException($"thread_execution_busy:{acquired.ActiveThreadExecutionId}");
+        }, async (outcome, error, token) =>
+        {
+            if (lease is not null)
+                await controller.ReleaseAsync(lease, new(outcome, error?.GetType().Name, error?.Message), token).ConfigureAwait(false);
+            else
+                await FinishReservedExecutionAsync(store, thread, executionId, agent.AgentId, outcome, error, token).ConfigureAwait(false);
+        });
     }
 
     private static async ValueTask FinishReservedExecutionAsync(
@@ -1300,38 +1342,7 @@ public static class SubAgentRuntime
         throw new InvalidOperationException("subagent_execution_finish_conflict");
     }
 
-    private static async ValueTask<string?> ReadExecutionTextAsync(
-        ISessionStore store,
-        ThreadKey route,
-        string executionId,
-        CancellationToken cancellationToken)
-    {
-        var head = await store.GetThreadEventHeadAsync(route, cancellationToken).ConfigureAwait(false)
-            ?? throw new InvalidOperationException("subagent_child_route_invalid");
-        var deltas = new StringBuilder();
-        var completed = new StringBuilder();
-        string? replacement = null;
-        await foreach (var batch in store.ReadThreadEventsAsync(
-                           route,
-                           new ThreadEventReadRequest(ThreadJournalCursor.Start(head.Generation), head.ThreadSequenceNumber),
-                           cancellationToken).ConfigureAwait(false))
-            foreach (var evt in batch.Events)
-                if (evt is TextDeltaEvent delta &&
-                    string.Equals(evt.ThreadExecutionId, executionId, StringComparison.Ordinal))
-                    deltas.Append(delta.Text);
-                else if (evt is ContentAddedEvent { Role: "assistant", Content: TextContent content } &&
-                         string.Equals(evt.ThreadExecutionId, executionId, StringComparison.Ordinal))
-                    completed.Append(content.Text);
-                else if (evt is ThreadMessageReplacedEvent replaced &&
-                         replaced.Replacement.Role == ChatRole.Assistant &&
-                         string.Equals(evt.ThreadExecutionId, executionId, StringComparison.Ordinal))
-                    replacement = replaced.Replacement.Text;
-        return replacement ??
-            (completed.Length > 0 ? completed.ToString() : null) ??
-            (deltas.Length > 0 ? deltas.ToString() : null);
-    }
-
-    private static async ValueTask<(bool Reserved, ThreadExecutionOutcome? Outcome, SubAgentOperationError? Error, string? Output, bool ReceiptPresent)>
+    private static async ValueTask<(bool Reserved, ThreadExecutionOutcome? Outcome, SubAgentOperationError? Error, string? Output)>
         TryReserveExecutionAsync(
             ISessionStore store,
             ThreadKey route,
@@ -1346,7 +1357,6 @@ public static class SubAgentRuntime
             var started = false;
             ThreadExecutionFinishedEvent? terminal = null;
             string? output = null;
-            var receiptPresent = false;
             await foreach (var batch in store.ReadThreadEventsAsync(
                                route,
                                new ThreadEventReadRequest(ThreadJournalCursor.Start(head.Generation), head.ThreadSequenceNumber),
@@ -1360,12 +1370,8 @@ public static class SubAgentRuntime
                     else if (evt is ThreadExecutionFinishedEvent finished &&
                              string.Equals(finished.ThreadExecutionId, executionId, StringComparison.Ordinal))
                         terminal = finished;
-                    else if (evt is SubAgentContinuationReceiptEvent receipt &&
-                             string.Equals(receipt.ThreadExecutionId, executionId, StringComparison.Ordinal))
-                    {
-                        output = receipt.Output;
-                        receiptPresent = true;
-                    }
+                    else if (evt is SubAgentResultSubmittedEvent result && result.ExecutionId == executionId)
+                        output = result.Report;
                 }
             }
             if (started)
@@ -1375,8 +1381,7 @@ public static class SubAgentRuntime
                     terminal?.Error is { } error
                         ? new SubAgentOperationError("subagent_continue_failed", error.Message)
                         : null,
-                    output,
-                    receiptPresent);
+                    output);
             try
             {
                 await store.AppendThreadEventsAsync(
@@ -1388,7 +1393,7 @@ public static class SubAgentRuntime
                     }],
                     new ThreadAppendCondition(head.Cursor),
                     cancellationToken).ConfigureAwait(false);
-                return (true, null, null, null, false);
+                return (true, null, null, null);
             }
             catch (ThreadAppendConflictException) when (attempt < 15) { }
         }
@@ -1429,20 +1434,39 @@ public static class SubAgentRuntime
             }
             if (snapshot.TerminalStatus is not null)
             {
-                observations.Add(new SubAgentWaitItem(localId, snapshot.ExecutionId, snapshot.TerminalStatus));
+                observations.Add(new SubAgentWaitItem(localId, snapshot.ExecutionId,
+                    (await SubAgentActivityReader.ReadExecutionAsync(store, route, snapshot.ExecutionId, cancellationToken).ConfigureAwait(false)).Status));
+                continue;
+            }
+            var questions = await ParentQuestions.PendingAsync(store, route, snapshot.ExecutionId, cancellationToken).ConfigureAwait(false);
+            if (questions.Length > 0)
+            {
+                observations.Add(new SubAgentWaitItem(localId, snapshot.ExecutionId, "needs attention")
+                { Questions = questions.Select(q => new SubAgentPendingQuestion(q.RequestId, q.Questions)).ToArray() });
                 continue;
             }
             tasks.Add(ObserveTerminalAsync(
-                localId, route, snapshot.ExecutionId, snapshot.StartCursor, controller, timeout.Token));
+                localId, route, snapshot.ExecutionId, snapshot.StartCursor, controller, store, timeout.Token));
         }
         try
         {
+            if (observations.Any(o => o.Status == "needs attention")) return new SubAgentWaitResult(false, observations);
             if (tasks.Count > 0)
             {
                 if (string.Equals(mode, "any", StringComparison.OrdinalIgnoreCase))
                     observations.Add(await Task.WhenAny(tasks).Unwrap().ConfigureAwait(false));
                 else
-                    observations.AddRange(await Task.WhenAll(tasks).ConfigureAwait(false));
+                {
+                    while (tasks.Count > 0)
+                    {
+                        var completed = await Task.WhenAny(tasks).ConfigureAwait(false);
+                        tasks.Remove(completed);
+                        var observation = await completed.ConfigureAwait(false);
+                        observations.Add(observation);
+                        // A child awaiting this controller cannot finish until the controller answers.
+                        if (observation.Status == "needs attention") break;
+                    }
+                }
             }
             return new SubAgentWaitResult(false, observations);
         }
@@ -1450,6 +1474,7 @@ public static class SubAgentRuntime
         {
             return new SubAgentWaitResult(true, observations);
         }
+        finally { timeout.Cancel(); }
     }
 
     private static async ValueTask<(string? ExecutionId, string? TerminalStatus, ThreadJournalCursor StartCursor)>
@@ -1493,13 +1518,22 @@ public static class SubAgentRuntime
         string executionId,
         ThreadJournalCursor cursor,
         IThreadExecutionController controller,
+        ISessionStore store,
         CancellationToken cancellationToken)
     {
         await foreach (var observation in controller.ObserveAsync(route, executionId, cursor, cancellationToken)
             .ConfigureAwait(false))
         {
+            if (observation.Event is ParentQuestionRequestEvent request)
+            {
+                var pending = await ParentQuestions.PendingAsync(store, route, executionId, cancellationToken).ConfigureAwait(false);
+                if (pending.Any(q => q.RequestId == request.RequestId))
+                    return new SubAgentWaitItem(localId, executionId, "needs attention")
+                    { Questions = pending.Select(q => new SubAgentPendingQuestion(q.RequestId, q.Questions)).ToArray() };
+            }
             if (observation.Status != ThreadExecutionStatus.Active)
-                return new SubAgentWaitItem(localId, executionId, observation.Status);
+                return new SubAgentWaitItem(localId, executionId,
+                    (await SubAgentActivityReader.ReadExecutionAsync(store, route, executionId, cancellationToken).ConfigureAwait(false)).Status);
         }
         return new SubAgentWaitItem(localId, executionId, "unavailable");
     }
@@ -1584,9 +1618,9 @@ public static class SubAgentRuntime
     /// <param name="route">The resolved subagent invocation route.</param>
     public static void MarkCompleted(
         FunctionExecutionContext? functionContext,
-        SubAgentInvocationRoute route)
+        SubAgentInvocationRoute route, bool hasResult = true)
     {
-        functionContext?.ResultMetadata.Set("subAgentStatus", "completed");
+        functionContext?.ResultMetadata.Set("subAgentStatus", hasResult ? "completed" : "stoppedWithoutResult");
         functionContext?.ResultMetadata.Set("subAgentSessionId", route.SessionId);
         functionContext?.ResultMetadata.Set("subAgentThreadId", route.ThreadId);
         functionContext?.ResultMetadata.Set("invocationId", route.InvocationId);
@@ -1738,46 +1772,6 @@ public static class SubAgentRuntime
             AgentChain = agentChain,
             Depth = (parentMetadata?.Depth ?? -1) + 1
         };
-    }
-
-    private static async Task<int> ResolveMessageCountAsync(
-        Agent agent,
-        SubAgentInvocationRoute route,
-        CancellationToken cancellationToken)
-    {
-        var store = agent.Config.SessionStore;
-        if (store == null)
-            return 0;
-
-        var thread = await store.ProjectThreadAsync(
-            route.SessionId,
-            route.ThreadId,
-            ThreadProjectionPurpose.ThreadHistory,
-            cancellationToken).ConfigureAwait(false);
-
-        return thread?.Messages.Count ?? 0;
-    }
-
-    private static async Task<string> ResolveAssistantTextAfterAsync(
-        Agent agent,
-        SubAgentInvocationRoute route,
-        int initialMessageCount,
-        CancellationToken cancellationToken)
-    {
-        var store = agent.Config.SessionStore;
-        if (store == null)
-            return string.Empty;
-
-        var thread = await store.ProjectThreadAsync(
-            route.SessionId,
-            route.ThreadId,
-            ThreadProjectionPurpose.ThreadHistory,
-            cancellationToken).ConfigureAwait(false);
-
-        return thread?.Messages
-            .Skip(initialMessageCount)
-            .LastOrDefault(message => message.Role == ChatRole.Assistant)?.Text
-            ?? string.Empty;
     }
 
     private static async Task EnsureSessionAsync(

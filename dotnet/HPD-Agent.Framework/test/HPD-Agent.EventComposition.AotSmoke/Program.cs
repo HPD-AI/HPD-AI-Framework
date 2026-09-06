@@ -175,7 +175,6 @@ static async Task<int> ContinueAfterRestartAsync(
            inheritedClient.CallCount == 1 &&
            childDefaultClient.CallCount == 0 &&
            resolver.LeaseCount == 1 &&
-           continuedEvents?.OfType<SubAgentContinuationReceiptEvent>().Any() == true &&
            continuedEvents.OfType<ThreadExecutionFinishedEvent>()
                .Any(value => value.Outcome == ThreadExecutionOutcome.Succeeded) ? 0 : 7;
 }

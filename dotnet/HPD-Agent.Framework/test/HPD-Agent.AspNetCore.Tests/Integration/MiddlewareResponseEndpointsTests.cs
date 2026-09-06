@@ -76,15 +76,15 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
     }
 
     [Fact]
-    public async Task Respond_AcceptsClarificationResponseEvent()
+    public async Task Respond_AcceptsQuestionResponseEvent()
     {
         // Arrange
         var sessionId = await CreateTestSession();
-        var evt = new ClarificationResponseEvent(
+        var evt = new QuestionResponseEvent(
             RequestId: "clar-456",
             SourceName: "TestSource",
-            Question: "Which environment?",
-            Answer: "staging");
+            Outcome: QuestionOutcome.Answered,
+            Answers: [new("environment", [], "staging")]);
 
         // Act
         var response = await PostEventAsync(

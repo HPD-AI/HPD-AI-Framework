@@ -5,6 +5,7 @@ using HPD.Agent.TUI.Models;
 using HPD.Agent.TUI.Runtime;
 using HPD.Agent.Permissions;
 using HPD.TUI.Core;
+using HPD.TUI.Forms;
 
 namespace HPD.Agent.TUI.Tests;
 
@@ -15,14 +16,13 @@ public sealed class RequestInteractionTests
     {
         var registry = new HpdAgentTuiBuilder()
             .AddAgentTuiDefaults()
-            .AddInteractionHandler<PermissionRequestEvent>("hpd.permission", new PermissionRequestInteractionHandler())
             .AddInteractionHandler<ContinuationRequestEvent>("hpd.continuation", new ContinuationRequestInteractionHandler())
-            .AddInteractionHandler<ClarificationRequestEvent>("hpd.clarification", new ClarificationRequestInteractionHandler())
+            .AddInteractionHandler<UserQuestionRequestEvent>("hpd.questions", new UserQuestionInteractionHandler())
             .Build();
 
         registry.InteractionHandlers.Select(handler => handler.Key)
             .Should()
-            .Contain(["hpd.permission", "hpd.continuation", "hpd.clarification"]);
+            .Contain(["hpd.permission", "hpd.continuation", "hpd.questions"]);
         registry.TryFindInteractionHandler(
             new PermissionRequestEvent("permission-1", "permissions", "shell.exec", null, "call-1", null),
             new AgentTuiRuntimeScope("agent", "session", "main"),
@@ -31,13 +31,35 @@ public sealed class RequestInteractionTests
     }
 
     [Fact]
-    public void AddAgentTuiDefaults_DoesNotRegisterRequestInteractionHandlers()
+    public void AddAgentTuiDefaults_RegistersPermissionButQuestionsRequireExplicitRegistration()
     {
         var registry = new HpdAgentTuiBuilder()
             .AddAgentTuiDefaults()
             .Build();
 
-        registry.InteractionHandlers.Should().BeEmpty();
+        registry.InteractionHandlers.Select(h => h.Key).Should().Contain("hpd.permission");
+        registry.InteractionHandlers.Should().NotContain(h => h.Value is UserQuestionInteractionHandler);
+    }
+
+    [Fact]
+    public async Task QuestionHistoryUsesOriginalLabelsAndPreservesNonAnswerOutcome()
+    {
+        var scope = new AgentTuiRuntimeScope("agent", "session", "main");
+        var shell = new ChatShellModel(scope);
+        var registry = new HpdAgentTuiBuilder().AddQuestionInteraction(AgentTuiEventScope.CurrentThreadAndDescendants).Build();
+        var context = new AgentTuiEventContext(scope, shell, shell.Navigation, registry, new AgentTuiStateBag());
+        var handler = new QuestionTranscriptHandler();
+        await handler.HandleAsync(new UserQuestionRequestEvent("q", "AskUser",
+            [new("environment", "Which environment?", Options: [new("stage", "Staging")])])
+            { SessionId = "session", ThreadId = "child", ThreadExecutionId = "run" }, context, default);
+        await handler.HandleAsync(new QuestionResponseEvent("q", "AskUser", QuestionOutcome.Answered,
+            [new("environment", ["stage"], Notes: "Use a fresh database")])
+            { SessionId = "session", ThreadId = "child", ThreadExecutionId = "run" }, context, default);
+        await handler.HandleAsync(new QuestionResponseEvent("dismiss", "AskUser", QuestionOutcome.Dismissed, [])
+            { SessionId = "session", ThreadId = "child", ThreadExecutionId = "run" }, context, default);
+        shell.Transcript.Snapshot().Entries.Count.Should().Be(3);
+        shell.Transcript.Snapshot().Entries.Select(e => ((NoticeCell)e.Cell).Title).Should()
+            .Contain(["Question for you · child", "Questions answered · child", "Questions dismissed · child"]);
     }
 
     [Fact]
@@ -68,17 +90,17 @@ public sealed class RequestInteractionTests
     public void TypedInteractionHandler_OnlyMatchesRegisteredRequestType()
     {
         var registry = new HpdAgentTuiBuilder()
-            .AddInteractionHandler<ClarificationRequestEvent>(
-                "sample.clarification",
-                new TypedClarificationHandler())
+            .AddInteractionHandler<UserQuestionRequestEvent>(
+                "sample.questions",
+                new TypedQuestionHandler())
             .Build();
 
         registry.TryFindInteractionHandler(
-                new ClarificationRequestEvent("clarify-1", "sample", "Question?"),
+                new UserQuestionRequestEvent("question-1", "sample", [new("question", "Question?")]),
                 new AgentTuiRuntimeScope("agent", "session", "main"),
                 out var handler)
             .Should().BeTrue();
-        handler.Key.Should().Be("sample.clarification");
+        handler.Key.Should().Be("sample.questions");
 
         registry.TryFindInteractionHandler(
                 new PermissionRequestEvent("permission-1", "sample", "tool", null, "call-1", null),
@@ -95,9 +117,9 @@ public sealed class RequestInteractionTests
                 "permission",
                 new PermissionRequestInteractionHandler(),
                 AgentTuiEventScope.CurrentThreadAndDescendants)
-            .AddInteractionHandler<ClarificationRequestEvent>(
-                "clarification",
-                new ClarificationRequestInteractionHandler())
+            .AddInteractionHandler<UserQuestionRequestEvent>(
+                "questions",
+                new UserQuestionInteractionHandler())
             .Build();
         var scope = new AgentTuiRuntimeScope("agent", "session", "main");
         var childPermission = new PermissionRequestEvent(
@@ -111,10 +133,10 @@ public sealed class RequestInteractionTests
             SessionId = "session",
             ThreadId = "subagent/explore/invocation-1"
         };
-        var childClarification = new ClarificationRequestEvent(
-            "clarification-child",
-            "clarification",
-            "Question?")
+        var childQuestion = new UserQuestionRequestEvent(
+            "questions-child",
+            "questions",
+            [new("question", "Question?")])
         {
             SessionId = "session",
             ThreadId = "subagent/explore/invocation-1"
@@ -123,7 +145,7 @@ public sealed class RequestInteractionTests
         registry.TryFindInteractionHandler(childPermission, scope, out var permission)
             .Should().BeTrue();
         permission.Key.Should().Be("permission");
-        registry.TryFindInteractionHandler(childClarification, scope, out _)
+        registry.TryFindInteractionHandler(childQuestion, scope, out _)
             .Should().BeFalse();
     }
 
@@ -234,46 +256,91 @@ public sealed class RequestInteractionTests
     }
 
     [Fact]
-    public async Task ClarificationHandler_UsesOptionsWhenProvided()
+    public async Task QuestionHandler_ReturnsStructuredAnswerWithSourceScope()
     {
-        var dialogs = new TestDialogService { SelectIndex = 1 };
-        var handler = new ClarificationRequestInteractionHandler();
-
-        var result = await handler.HandleAsync(
-            CreateContext(
-                dialogs,
-                new ClarificationRequestEvent(
-                    "clarify-1",
-                    "planner",
-                    "Which thread?",
-                    Options: ["main", "feature"])),
-            CancellationToken.None);
-
-        result.Kind.Should().Be(AgentTuiInteractionResultKind.AnswerRequest);
-        result.Response.Should().BeOfType<ClarificationResponseEvent>()
-            .Which.Should().Match<ClarificationResponseEvent>(evt =>
-                evt.RequestId == "clarify-1" &&
-                evt.Answer == "feature");
+        var dialogs = new TestDialogService { FormResponse = new QuestionResponseEvent("q", "AskUser",
+            QuestionOutcome.Answered, [new("environment", ["staging"], null, "Please verify")]) };
+        var handler = new UserQuestionInteractionHandler();
+        var request = new UserQuestionRequestEvent("q", "AskUser",
+            [new("environment", "Which environment?", Options: [new("staging", "Staging"), new("prod", "Production")])])
+            { SessionId = "child-session", ThreadId = "child-thread", ThreadExecutionId = "child-run" };
+        var result = await handler.HandleAsync(CreateContext(dialogs, request), CancellationToken.None);
+        var response = Assert.IsType<QuestionResponseEvent>(result.Response);
+        Assert.Equal("staging", Assert.Single(response.Answers[0].SelectedOptionIds));
+        Assert.Equal("Please verify", response.Answers[0].Notes);
+        Assert.Equal("child-session", response.SessionId);
+        Assert.Equal("child-run", response.ThreadExecutionId);
     }
 
     [Fact]
-    public async Task ClarificationHandler_UsesInputWhenNoOptionsProvided()
+    public async Task QuestionHandler_DismissalSettlesTheRequest()
     {
-        var dialogs = new TestDialogService { Input = "Use the safer path." };
-        var handler = new ClarificationRequestInteractionHandler();
+        var result = await new UserQuestionInteractionHandler().HandleAsync(CreateContext(new TestDialogService(),
+            new UserQuestionRequestEvent("q", "AskUser", [new("question", "What should I do?")])), default);
+        Assert.Equal(AgentTuiInteractionResultKind.AnswerRequest, result.Kind);
+        var response = Assert.IsType<QuestionResponseEvent>(result.Response);
+        Assert.Equal(QuestionOutcome.Dismissed, response.Outcome);
+        Assert.Empty(response.Answers);
+    }
 
-        var result = await handler.HandleAsync(
-            CreateContext(
-                dialogs,
-                new ClarificationRequestEvent(
-                    "clarify-1",
-                    "planner",
-                    "What should I do?")),
-            CancellationToken.None);
+    [Fact]
+    public async Task QuestionPagesRetainChoicesAndTextWhenGoingBack()
+    {
+        var visit = 0;
+        var dialogs = new TestDialogService { FormAction = model =>
+        {
+            if (visit == 0) model.Fields.OfType<ChoiceFormField<string>>().Single().Select("stage");
+            if (visit == 1)
+            {
+                var text = model.Fields.OfType<TextFormField>().First();
+                text.BeginEdit(); text.HandleInput(new KeyEvent(KeyCode.Paste, Text: "Fresh database")); text.AcceptEdit();
+                model.Fields.OfType<ChoiceFormField<bool>>().Single(f => f.Key == "navigation").Select(true);
+            }
+            if (visit == 2) model.Fields.OfType<ChoiceFormField<string>>().Single().Value.Should().Be("stage");
+            if (visit == 3) model.Fields.OfType<TextFormField>().First().Value.Should().Be("Fresh database");
+            visit++;
+        } };
+        var result = await new UserQuestionInteractionHandler().HandleAsync(CreateContext(dialogs,
+            new UserQuestionRequestEvent("q", "AskUser", [new("environment", "Where?", Options: [new("stage", "Staging")]),
+                new("setup", "Which setup?")])), default);
+        visit.Should().Be(4);
+        var response = (QuestionResponseEvent)result.Response!;
+        response.Answers[0].SelectedOptionIds.Should().Equal("stage");
+        response.Answers[1].CustomText.Should().Be("Fresh database");
+    }
 
-        result.Kind.Should().Be(AgentTuiInteractionResultKind.AnswerRequest);
-        result.Response.Should().BeOfType<ClarificationResponseEvent>()
-            .Which.Answer.Should().Be("Use the safer path.");
+    [Fact]
+    public async Task MinimizeLeavesQuestionUnansweredAndPreservesDraft()
+    {
+        var request = new UserQuestionRequestEvent("defer", "AskUser", [new("q", "Choose", Options: [new("a", "A")])]);
+        var handler = new UserQuestionInteractionHandler();
+        var first = new TestDialogService { FormAction = model =>
+        {
+            model.Fields.OfType<ChoiceFormField<string>>().Single().Select("a");
+            model.Fields.OfType<ChoiceFormField<bool>>().Single(f => f.Key == "defer").Select(true);
+        } };
+        var minimized = await handler.HandleAsync(CreateContext(first, request), default);
+        minimized.Kind.Should().Be(AgentTuiInteractionResultKind.Defer);
+        minimized.Response.Should().BeNull();
+        var second = new TestDialogService { FormAction = model => model.Fields.OfType<ChoiceFormField<string>>().Single().Value.Should().Be("a") };
+        var answered = await handler.HandleAsync(CreateContext(second, request), default);
+        ((QuestionResponseEvent)answered.Response!).Answers[0].SelectedOptionIds.Should().Equal("a");
+    }
+
+    [Fact]
+    public async Task QuestionDraftSurvivesPresentationCancellation()
+    {
+        var request = new UserQuestionRequestEvent("draft", "AskUser", [new("q", "Choose", Options: [new("a", "A")])]);
+        var handler = new UserQuestionInteractionHandler();
+        var first = new TestDialogService { FormAction = model =>
+        {
+            model.Fields.OfType<ChoiceFormField<string>>().Single().Select("a");
+            throw new OperationCanceledException();
+        } };
+        await Assert.ThrowsAsync<OperationCanceledException>(() => handler.HandleAsync(CreateContext(first, request), default));
+        var second = new TestDialogService { FormAction = model => model.Fields.OfType<ChoiceFormField<string>>().Single().Value.Should().Be("a") };
+        var result = await handler.HandleAsync(CreateContext(second, request), default);
+        ((QuestionResponseEvent)result.Response!).Answers[0].SelectedOptionIds.Should().Equal("a");
     }
 
     private static AgentTuiInteractionContext CreateContext(
@@ -301,17 +368,30 @@ public sealed class RequestInteractionTests
             => Task.FromResult(AgentTuiInteractionResult.NoOp);
     }
 
-    private sealed class TypedClarificationHandler :
-        AgentTuiInteractionHandler<ClarificationRequestEvent>
+    private sealed class TypedQuestionHandler :
+        AgentTuiInteractionHandler<UserQuestionRequestEvent>
     {
         protected override Task<AgentTuiInteractionResult> HandleAsync(
-            AgentTuiInteractionContext<ClarificationRequestEvent> context,
+            AgentTuiInteractionContext<UserQuestionRequestEvent> context,
             CancellationToken cancellationToken)
             => Task.FromResult(AgentTuiInteractionResult.NoOp);
     }
 
     private sealed class TestDialogService : IAgentTuiDialogService
     {
+        public Action<FormModel>? FormAction { get; init; }
+        public object? FormResponse { get; init; }
+        public Task<AgentTuiDialogResult<TResult>> FormAsync<TResult>(string title,
+            HPD.TUI.Forms.FormDefinition<TResult> form, CancellationToken cancellationToken = default)
+        {
+            if (FormAction is not null)
+            {
+                FormAction(form.Model);
+                return Task.FromResult(AgentTuiDialogResult<TResult>.Submitted(form.BuildResult()));
+            }
+            return Task.FromResult(FormResponse is TResult response ? AgentTuiDialogResult<TResult>.Submitted(response)
+                : AgentTuiDialogResult<TResult>.Dismissed());
+        }
         public int SelectIndex { get; init; }
 
         public string? Input { get; init; }

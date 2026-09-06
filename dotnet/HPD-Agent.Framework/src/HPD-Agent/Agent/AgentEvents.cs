@@ -1400,40 +1400,6 @@ public record ContinuationResponseEvent(
 }
 
 /// <summary>
-/// Agent/ToolHarness requests user clarification or additional input.
-/// Handler should prompt user and send ClarificationResponseEvent.
-/// </summary>
-[HPD.Agent.Serialization.DurableEvent]
-[HPD.Agent.Serialization.EventType("CLARIFICATION_REQUEST")]
-public record ClarificationRequestEvent(
-    string RequestId,
-    string SourceName,
-    string Question,
-    string? AgentName = null,
-    string[]? Options = null) : AgentEvent, IAgentRequestEvent<ClarificationResponseEvent>
-{
-    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
-}
-
-/// <summary>
-/// Response to clarification request.
-/// Sent by external handler back to waiting agent/ToolHarness.
-/// </summary>
-[HPD.Agent.Serialization.DurableEvent]
-[HPD.Agent.Serialization.EventType("CLARIFICATION_RESPONSE")]
-public record ClarificationResponseEvent(
-    string RequestId,
-    string SourceName,
-    string Question,
-    string Answer) : AgentEvent, IAgentResponseEvent
-{
-    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
-    public override EventDirection Direction { get; init; } = EventDirection.Upstream;
-}
-
-/// <summary>
 /// Middleware reports an error (one-way, no response needed).
 /// This is not a request event - it's just informational.
 /// </summary>

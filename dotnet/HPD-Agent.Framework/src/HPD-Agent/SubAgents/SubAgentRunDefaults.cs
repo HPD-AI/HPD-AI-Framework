@@ -6,6 +6,7 @@ namespace HPD.Agent;
 /// <summary>Explicit portable application defaults for every further descendant, independent of model propagation.</summary>
 public sealed record SubAgentRunDefaults
 {
+    public bool AllowUserQuestions { get; init; }
     public AgentContextRunConfig? Context { get; init; }
     public CollapsingRunPolicy? Collapsing { get; init; }
     public CompactionRunPolicy? Compaction { get; init; }
@@ -27,6 +28,7 @@ public sealed record SubAgentRunDefaults
         var copy = Snapshot();
         return new SubAgentRunConfig
         {
+            AllowUserQuestions = copy.AllowUserQuestions,
             Context = copy.Context, Collapsing = copy.Collapsing,
             Compaction = copy.Compaction, HandoffCompaction = copy.HandoffCompaction, Security = copy.Security,
             DescendantDefaults = copy
