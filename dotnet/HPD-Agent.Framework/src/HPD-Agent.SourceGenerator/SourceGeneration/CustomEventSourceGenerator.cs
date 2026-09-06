@@ -938,11 +938,14 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
             sb.AppendLine($"        {provider}.Fragment,");
         sb.AppendLine("    ]);");
         sb.AppendLine("}");
-        sb.AppendLine("/// <summary>Compatibility name for tests and applications migrating from the core singleton.</summary>");
-        sb.AppendLine("public static class CoreAgentEventComposition");
-        sb.AppendLine("{");
-        sb.AppendLine("    public static AgentEventComposition Instance => GeneratedAgentEventComposition.Composition;");
-        sb.AppendLine("}");
+        if (!string.Equals(assemblyIdentity, "HPD-Agent", StringComparison.Ordinal))
+        {
+            sb.AppendLine("/// <summary>Compatibility name for tests and applications migrating from the core singleton.</summary>");
+            sb.AppendLine("public static class CoreAgentEventComposition");
+            sb.AppendLine("{");
+            sb.AppendLine("    public static AgentEventComposition Instance => GeneratedAgentEventComposition.Composition;");
+            sb.AppendLine("}");
+        }
         sb.AppendLine("internal static class GeneratedAgentEventCompositionRegistration");
         sb.AppendLine("{");
         sb.AppendLine("    [global::System.Runtime.CompilerServices.ModuleInitializer]");
