@@ -98,7 +98,7 @@ public sealed class SubAgent
     /// <summary>
     /// Context policy for sub-agent execution.
     /// </summary>
-    public SubAgentContextPolicy ContextPolicy { get; init; } = SubAgentContextPolicy.Fork;
+    public SubAgentContextPolicy ContextPolicy { get; init; } = SubAgentContextPolicy.Handoff;
 
     /// <summary>
     /// Controls the depths at which this subagent appears as an invocable tool.
@@ -107,9 +107,8 @@ public sealed class SubAgent
     public SubAgentAvailability Availability { get; init; } = SubAgentAvailability.RootOnly;
 
     /// <summary>
-    /// Optional compaction applied when parent history is forked.
+    /// Optional compaction applied when parent context is handed off.
     /// </summary>
-    public ThreadForkCompaction? ForkCompaction { get; init; }
 
     /// <summary>
     /// Defines whether this subagent runs synchronously, in the background, or lets the model choose per call.
@@ -147,7 +146,6 @@ public sealed class SubAgent
             Configuration = Configuration,
             ContextPolicy = ContextPolicy,
             Availability = availability,
-            ForkCompaction = ForkCompaction,
             InvocationModePolicy = InvocationModePolicy,
             OperationNotification = OperationNotification,
             ToolHarnessTypes = ToolHarnessTypes,
@@ -160,8 +158,7 @@ public sealed class SubAgent
         string name,
         string description,
         AgentConfig agentConfig,
-        SubAgentContextPolicy contextPolicy = SubAgentContextPolicy.Fork,
-        ThreadForkCompaction? forkCompaction = null,
+        SubAgentContextPolicy contextPolicy = SubAgentContextPolicy.Handoff,
         params Type[] toolharnessTypes)
         => FromConfig(
             agentId,
@@ -172,7 +169,6 @@ public sealed class SubAgent
             metadata: null,
             invocationModePolicy: AgentInvocationModePolicy.SynchronousOnly,
             operationNotification: null,
-            forkCompaction,
             toolharnessTypes);
 
     public static SubAgent FromConfig(
@@ -182,7 +178,6 @@ public sealed class SubAgent
         AgentConfig agentConfig,
         SubAgentContextPolicy contextPolicy,
         Dictionary<string, object>? metadata,
-        ThreadForkCompaction? forkCompaction = null,
         params Type[] toolharnessTypes)
         => FromConfig(
             agentId,
@@ -193,7 +188,6 @@ public sealed class SubAgent
             metadata,
             AgentInvocationModePolicy.SynchronousOnly,
             operationNotification: null,
-            forkCompaction,
             toolharnessTypes);
 
     /// <summary>
@@ -207,7 +201,6 @@ public sealed class SubAgent
     /// <param name="metadata">Optional metadata applied to subagent-created threads.</param>
     /// <param name="invocationModePolicy">The allowed synchronous/background invocation policy.</param>
     /// <param name="operationNotification">The notification rule used for background invocations.</param>
-    /// <param name="forkCompaction">Optional compaction applied when parent history is forked.</param>
     /// <param name="toolharnessTypes">Tool harness types registered on the child agent.</param>
     /// <returns>The subagent definition.</returns>
     public static SubAgent FromConfig(
@@ -219,14 +212,12 @@ public sealed class SubAgent
         Dictionary<string, object>? metadata,
         AgentInvocationModePolicy invocationModePolicy,
         AgentOperationNotificationPolicy? operationNotification,
-        ThreadForkCompaction? forkCompaction = null,
         params Type[] toolharnessTypes)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
         ValidateNameAndDescription(name, description);
         ArgumentNullException.ThrowIfNull(agentConfig);
 
-        SubAgentContexts.Validate(contextPolicy, forkCompaction);
 
         return new SubAgent
         {
@@ -235,7 +226,6 @@ public sealed class SubAgent
             Description = description,
             Configuration = new SuppliedAgentConfiguration(agentConfig),
             ContextPolicy = contextPolicy,
-            ForkCompaction = forkCompaction,
             InvocationModePolicy = invocationModePolicy,
             OperationNotification = operationNotification
                 ?? new AgentOperationNotificationPolicy(),
@@ -248,8 +238,7 @@ public sealed class SubAgent
         string agentId,
         string name,
         string description,
-        SubAgentContextPolicy contextPolicy = SubAgentContextPolicy.Fork,
-        ThreadForkCompaction? forkCompaction = null,
+        SubAgentContextPolicy contextPolicy = SubAgentContextPolicy.Handoff,
         params Type[] toolharnessTypes)
         => FromAgentId(
             agentId,
@@ -259,7 +248,6 @@ public sealed class SubAgent
             metadata: null,
             invocationModePolicy: AgentInvocationModePolicy.SynchronousOnly,
             operationNotification: null,
-            forkCompaction,
             toolharnessTypes);
 
     /// <summary>
@@ -272,7 +260,6 @@ public sealed class SubAgent
     /// <param name="metadata">Optional metadata applied to subagent-created threads.</param>
     /// <param name="invocationModePolicy">The allowed synchronous/background invocation policy.</param>
     /// <param name="operationNotification">The notification rule used for background invocations.</param>
-    /// <param name="forkCompaction">Optional compaction applied when parent history is forked.</param>
     /// <param name="toolharnessTypes">Tool harness types registered on the child agent.</param>
     /// <returns>The subagent definition.</returns>
     public static SubAgent FromAgentId(
@@ -281,7 +268,6 @@ public sealed class SubAgent
         string description,
         SubAgentContextPolicy contextPolicy,
         Dictionary<string, object>? metadata,
-        ThreadForkCompaction? forkCompaction = null,
         params Type[] toolharnessTypes)
         => FromAgentId(
             agentId,
@@ -291,7 +277,6 @@ public sealed class SubAgent
             metadata,
             AgentInvocationModePolicy.SynchronousOnly,
             operationNotification: null,
-            forkCompaction,
             toolharnessTypes);
 
     public static SubAgent FromAgentId(
@@ -302,13 +287,11 @@ public sealed class SubAgent
         Dictionary<string, object>? metadata,
         AgentInvocationModePolicy invocationModePolicy,
         AgentOperationNotificationPolicy? operationNotification,
-        ThreadForkCompaction? forkCompaction = null,
         params Type[] toolharnessTypes)
     {
         ValidateNameAndDescription(name, description);
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
 
-        SubAgentContexts.Validate(contextPolicy, forkCompaction);
 
         return new SubAgent
         {
@@ -317,7 +300,6 @@ public sealed class SubAgent
             Description = description,
             Configuration = new StoredAgentConfiguration(),
             ContextPolicy = contextPolicy,
-            ForkCompaction = forkCompaction,
             InvocationModePolicy = invocationModePolicy,
             OperationNotification = operationNotification
                 ?? new AgentOperationNotificationPolicy(),
@@ -333,16 +315,14 @@ public sealed class SubAgent
         string agentId,
         string name,
         string description,
-        SubAgentContextPolicy contextPolicy = SubAgentContextPolicy.Fork,
+        SubAgentContextPolicy contextPolicy = SubAgentContextPolicy.Handoff,
         Dictionary<string, object>? metadata = null,
         AgentInvocationModePolicy invocationModePolicy = AgentInvocationModePolicy.SynchronousOnly,
         AgentOperationNotificationPolicy? operationNotification = null,
-        ThreadForkCompaction? forkCompaction = null,
         params Type[] toolharnessTypes)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
         ValidateNameAndDescription(name, description);
-        SubAgentContexts.Validate(contextPolicy, forkCompaction);
 
         return new SubAgent
         {
@@ -351,7 +331,6 @@ public sealed class SubAgent
             Description = description,
             Configuration = new ParentAgentConfiguration(),
             ContextPolicy = contextPolicy,
-            ForkCompaction = forkCompaction,
             InvocationModePolicy = invocationModePolicy,
             OperationNotification = operationNotification
                 ?? new AgentOperationNotificationPolicy(),
@@ -374,9 +353,9 @@ public sealed class SubAgent
 public enum SubAgentContextPolicy
 {
     /// <summary>
-    /// Forks the parent thread and inherits its history.
+    /// Creates a fresh child with the parent conversation rendered as text.
     /// </summary>
-    Fork,
+    Handoff,
 
     /// <summary>
     /// Creates an empty child thread in the parent session.
@@ -389,7 +368,7 @@ public enum SubAgentContextPolicy
     Isolated,
 
     /// <summary>
-    /// Lets the model choose <see cref="Fork"/> or <see cref="Fresh"/> for each call.
+    /// Lets the model choose <see cref="Handoff"/> or <see cref="Fresh"/> for each call.
     /// </summary>
     ModelChoice
 }
@@ -399,8 +378,8 @@ public enum SubAgentContextPolicy
 /// </summary>
 public enum SubAgentContext
 {
-    /// <summary>Forks and inherits the parent thread history.</summary>
-    Fork,
+    /// <summary>Receives the effective parent conversation as text.</summary>
+    Handoff,
 
     /// <summary>Starts with only the delegated input.</summary>
     Fresh,
@@ -422,14 +401,14 @@ public static class SubAgentContexts
         if (!json.TryGetProperty("context", out var property))
             return null;
         if (property.ValueKind != JsonValueKind.String)
-            throw new InvalidOperationException("context must be either 'fork' or 'fresh'.");
+            throw new InvalidOperationException("context must be either 'handoff' or 'fresh'.");
 
         return property.GetString()?.ToLowerInvariant() switch
         {
-            "fork" => SubAgentContext.Fork,
+            "handoff" => SubAgentContext.Handoff,
             "fresh" => SubAgentContext.Fresh,
             "isolated" => SubAgentContext.Isolated,
-            _ => throw new InvalidOperationException("context must be 'fork', 'fresh', or 'isolated'.")
+            _ => throw new InvalidOperationException("context must be 'handoff', 'fresh', or 'isolated'.")
         };
     }
 
@@ -451,8 +430,8 @@ public static class SubAgentContexts
         properties["context"] = new JsonObject
         {
             ["type"] = "string",
-            ["enum"] = new JsonArray("fork", "fresh", "isolated"),
-            ["description"] = "Whether the child should inherit the current conversation or start fresh. Use fresh unless prior conversation is required."
+            ["enum"] = new JsonArray("handoff", "fresh", "isolated"),
+            ["description"] = "Whether the child should receive the current conversation as text or start fresh. Use fresh unless prior conversation is required."
         };
         var buffer = new System.Buffers.ArrayBufferWriter<byte>();
         using (var writer = new Utf8JsonWriter(buffer))
@@ -471,9 +450,9 @@ public static class SubAgentContexts
         SubAgentContextPolicy policy,
         SubAgentContext? requestedContext) => policy switch
         {
-            SubAgentContextPolicy.Fork when requestedContext is not null and not SubAgentContext.Fork =>
-                throw new InvalidOperationException("This subagent always forks parent context."),
-            SubAgentContextPolicy.Fork => SubAgentContextPolicy.Fork,
+            SubAgentContextPolicy.Handoff when requestedContext is not null and not SubAgentContext.Handoff =>
+                throw new InvalidOperationException("This subagent always receives a parent text handoff."),
+            SubAgentContextPolicy.Handoff => SubAgentContextPolicy.Handoff,
             SubAgentContextPolicy.Fresh when requestedContext is not null and not SubAgentContext.Fresh =>
                 throw new InvalidOperationException("This subagent always starts with fresh context."),
             SubAgentContextPolicy.Fresh => SubAgentContextPolicy.Fresh,
@@ -482,16 +461,11 @@ public static class SubAgentContexts
             SubAgentContextPolicy.Isolated => SubAgentContextPolicy.Isolated,
             SubAgentContextPolicy.ModelChoice => requestedContext switch
             {
-                SubAgentContext.Fork => SubAgentContextPolicy.Fork,
+                SubAgentContext.Handoff => SubAgentContextPolicy.Handoff,
                 SubAgentContext.Isolated => SubAgentContextPolicy.Isolated,
                 _ => SubAgentContextPolicy.Fresh
             },
             _ => throw new ArgumentOutOfRangeException(nameof(policy))
         };
 
-    internal static void Validate(SubAgentContextPolicy policy, ThreadForkCompaction? forkCompaction)
-    {
-        if (forkCompaction is not null && policy is SubAgentContextPolicy.Fresh or SubAgentContextPolicy.Isolated)
-            throw new ArgumentException("Fork compaction requires Fork or ModelChoice context.");
-    }
 }

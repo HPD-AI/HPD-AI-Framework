@@ -487,6 +487,13 @@ public static class SubAgentRuntime
             .ConfigureAwait(false);
         var executionPolicy = existingCreation?.Request.ExecutionPolicy
             ?? ResolveExecutionPolicy(definition, context);
+        var contextCursor = existingCreation?.Request.ContextSourceCursor;
+        if (existingCreation is null && contextPolicy == SubAgentContextPolicy.Handoff)
+        {
+            var head = await store.GetThreadAsync(key.Parent, cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("subagent_parent_missing");
+            contextCursor = new ThreadJournalCursor(head.Generation, head.Head);
+        }
         var reservation = await creationStore.TryReserveSubAgentCreationAsync(
             key,
             new SubAgentCreationRequest
@@ -494,6 +501,7 @@ public static class SubAgentRuntime
                 RoleName = definition.Name,
                 ChildAgentId = definition.AgentId,
                 Context = ToCreationContext(contextPolicy),
+                ContextSourceCursor = contextCursor,
                 InputFingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(request.Input))),
                 ExecutionPolicy = executionPolicy
             },
@@ -521,7 +529,7 @@ public static class SubAgentRuntime
                 creation.ChildThread,
                 creation.InvocationId,
                 contextPolicy,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken, creation.Request.ContextSourceCursor, creation.Request.ExecutionPolicy.HandoffCompaction).ConfigureAwait(false);
             creation = await AdvanceCreationRecordAsync(
                 creationStore, creation, SubAgentCreationPhase.ChildCreated, cancellationToken).ConfigureAwait(false);
         }
@@ -600,7 +608,7 @@ public static class SubAgentRuntime
 
     private static SubAgentCreationContext ToCreationContext(SubAgentContextPolicy policy) => policy switch
     {
-        SubAgentContextPolicy.Fork => SubAgentCreationContext.Fork,
+        SubAgentContextPolicy.Handoff => SubAgentCreationContext.Handoff,
         SubAgentContextPolicy.Fresh => SubAgentCreationContext.Fresh,
         SubAgentContextPolicy.Isolated => SubAgentCreationContext.Isolated,
         _ => throw new InvalidOperationException("subagent_creation_context_invalid")
@@ -1072,13 +1080,14 @@ public static class SubAgentRuntime
                 executionId);
 
         _ = RunControlledContinuationAsync(
-            resolver, store, child, input, executionId, CancellationToken.None);
+            resolver, store, controllerThread, child, input, executionId, CancellationToken.None);
         return new SubAgentContinuationSubmission(AgentInputDisposition.Queued, executionId);
     }
 
     private static async Task RunControlledContinuationAsync(
         IAgentRuntimeResolver resolver,
         ISessionStore store,
+        ThreadKey parent,
         SubAgentChildReference child,
         AgentInputEvent input,
         string executionId,
@@ -1086,6 +1095,9 @@ public static class SubAgentRuntime
     {
         try
         {
+            await store.AppendThreadEventAsync(parent.SessionId, parent.ThreadId,
+                ContinuationStarted(child, executionId, input.ClientInputId ?? executionId, AgentInvocationMode.Background),
+                cancellationToken: cancellationToken).ConfigureAwait(false);
             await using var lease = await resolver.GetOrBuildAsync(
                 child.ChildAgentId,
                 child.ChildThread.SessionId,
@@ -1099,10 +1111,14 @@ public static class SubAgentRuntime
                 executionId,
                 store,
                 cancellationToken).ConfigureAwait(false);
+            await store.AppendThreadEventAsync(parent.SessionId, parent.ThreadId,
+                new SubAgentInvocationCompletedEvent(executionId, null),
+                cancellationToken: CancellationToken.None).ConfigureAwait(false);
         }
-        catch
+        catch (Exception exception)
         {
-            // The coordinator reservation records the terminal failure in the child journal.
+            await store.AppendThreadEventAsync(parent.SessionId, parent.ThreadId,
+                ContinuationFailed(executionId, exception), cancellationToken: CancellationToken.None).ConfigureAwait(false);
         }
     }
 
@@ -1125,6 +1141,8 @@ public static class SubAgentRuntime
     {
         await using var lease = await resolver.GetOrBuildAsync(
             child.ChildAgentId, route.SessionId, route.ThreadId, cancellationToken).ConfigureAwait(false);
+        await controllerContext.PublishAsync(ContinuationStarted(child, executionId,
+            controllerContext.FunctionCallId, controllerContext.ResolvedInvocationMode), cancellationToken).ConfigureAwait(false);
         try
         {
             await ExecuteChildAsync(
@@ -1141,10 +1159,33 @@ public static class SubAgentRuntime
                 route,
                 [new SubAgentContinuationReceiptEvent(executionId, output)],
                 cancellationToken: CancellationToken.None).ConfigureAwait(false);
+            await controllerContext.PublishAsync(new SubAgentInvocationCompletedEvent(executionId, output),
+                CancellationToken.None).ConfigureAwait(false);
             return output;
         }
-        catch { throw; }
+        catch (Exception exception)
+        {
+            await controllerContext.PublishAsync(ContinuationFailed(executionId, exception),
+                CancellationToken.None).ConfigureAwait(false);
+            throw;
+        }
     }
+
+    private static SubAgentInvocationStartedEvent ContinuationStarted(
+        SubAgentChildReference child, string executionId, string parentCallId, AgentInvocationMode mode)
+        => new(executionId, parentCallId, child.ChildAgentId, child.ChildThread.SessionId,
+            child.ChildThread.ThreadId, child.RoleName, child.CreationContext switch
+            {
+                SubAgentCreationContext.Handoff => SubAgentContextPolicy.Handoff,
+                SubAgentCreationContext.Fresh => SubAgentContextPolicy.Fresh,
+                SubAgentCreationContext.Isolated => SubAgentContextPolicy.Isolated,
+                _ => throw new InvalidOperationException("subagent_context_invalid")
+            }, mode);
+
+    private static AgentEvent ContinuationFailed(string executionId, Exception exception)
+        => exception is OperationCanceledException
+            ? new SubAgentInvocationCancelledEvent(executionId, exception.Message)
+            : new SubAgentInvocationFailedEvent(executionId, exception.GetType().Name, exception.Message);
 
     private static async ValueTask ExecuteChildAsync(
         Agent childAgent,
@@ -1160,6 +1201,8 @@ public static class SubAgentRuntime
         policy.Validate();
         var runConfig = AgentRunConfigSnapshot.Capture(policy.InitialRunConfig, childAgent.ProviderComposition)
             ?? new AgentRunConfig();
+        runConfig.Compaction ??= new CompactionRunPolicy();
+        SubAgentCompactionConfiguration.Validate(runConfig.Compaction.Automatic?.Compaction);
         runConfig.Clients = policy.ApplyLockedSelections(runConfig.Clients);
         runConfig.Security = policy.Authority;
         var childInput = new UserMessagesInputEvent
@@ -1197,6 +1240,9 @@ public static class SubAgentRuntime
     {
         var runConfig = AgentRunConfigSnapshot.Capture(input.RunConfig, childAgent.ProviderComposition)
             ?? new AgentRunConfig();
+        runConfig.Compaction ??= AgentRunConfigSnapshot.Capture(policy.InitialRunConfig, childAgent.ProviderComposition)?.Compaction
+            ?? new CompactionRunPolicy();
+        SubAgentCompactionConfiguration.Validate(runConfig.Compaction.Automatic?.Compaction);
         runConfig.Clients = policy.ApplyLockedSelections(runConfig.Clients);
         runConfig.Security = IntersectAuthority(policy.Authority, runConfig.Security);
         var childInput = input with
@@ -1206,7 +1252,8 @@ public static class SubAgentRuntime
             AgentId = childAgent.AgentId,
             ThreadExecutionId = threadExecutionId,
             RunConfig = runConfig,
-            SubAgentRunConfig = input.SubAgentRunConfig ?? CreateDescendantRunConfig(policy)
+            SubAgentRunConfig = ResolveContinuationDescendantRunConfig(
+                AgentRunConfigSnapshot.Capture(input.SubAgentRunConfig, childAgent.ProviderComposition), policy)
         };
         var reservation = new CoordinatorWorkReservation(
             childAgent.AgentId, childThread.SessionId, childThread.ThreadId, threadExecutionId);
@@ -1494,7 +1541,9 @@ public static class SubAgentRuntime
         ThreadKey route,
         string invocationId,
         SubAgentContextPolicy contextPolicy,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ThreadJournalCursor? sourceCursor = null,
+        CompactionSpecification? handoffCompaction = null)
     {
         ArgumentNullException.ThrowIfNull(agent);
         ArgumentNullException.ThrowIfNull(subAgent);
@@ -1503,7 +1552,7 @@ public static class SubAgentRuntime
             contextPolicy, cancellationToken).ConfigureAwait(false);
         await EnsureThreadAsync(
             agent, subAgent, functionContext, storageName, route, invocationId,
-            contextPolicy, cancellationToken).ConfigureAwait(false);
+            contextPolicy, cancellationToken, sourceCursor, handoffCompaction).ConfigureAwait(false);
 
         functionContext?.ResultMetadata.Set("subAgentStatus", "started");
         functionContext?.ResultMetadata.Set("subAgentSessionId", route.SessionId);
@@ -1568,7 +1617,8 @@ public static class SubAgentRuntime
         string sessionId,
         string threadId,
         Dictionary<string, object>? metadata,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        SubAgentContextReceivedEvent? handoff = null)
     {
         ArgumentNullException.ThrowIfNull(agent);
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
@@ -1603,7 +1653,12 @@ public static class SubAgentRuntime
 
         session.LastActivity = thread.LastActivity;
         await store.SaveSessionAsync(session, cancellationToken).ConfigureAwait(false);
-        await store.SaveInitialThreadAsync(sessionId, thread, cancellationToken).ConfigureAwait(false);
+        if (handoff is null)
+            await store.SaveInitialThreadAsync(sessionId, thread, cancellationToken).ConfigureAwait(false);
+        else
+            await store.AppendThreadEventsAsync(new ThreadKey(sessionId, threadId),
+                [ThreadEventFactory.ThreadCreated(thread), handoff with { SessionId = sessionId, ThreadId = threadId }],
+                new ThreadAppendCondition(ThreadJournalCursor.Start(1)), cancellationToken).ConfigureAwait(false);
         return thread.Id;
     }
 
@@ -1763,7 +1818,9 @@ public static class SubAgentRuntime
         ThreadKey route,
         string invocationId,
         SubAgentContextPolicy contextPolicy,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ThreadJournalCursor? sourceCursor = null,
+        CompactionSpecification? handoffCompaction = null)
     {
         var metadata = BuildMetadata(subAgent, functionContext, storageName, invocationId, contextPolicy);
         var exactStore = agent.Config?.SessionStore
@@ -1786,36 +1843,15 @@ public static class SubAgentRuntime
                 return;
             }
 
-            case SubAgentContextPolicy.Fork:
+            case SubAgentContextPolicy.Handoff:
             {
-                var parentSessionId = functionContext?.SessionId
-                    ?? throw new InvalidOperationException("ForkFromParentThread subagents require a parent SessionId.");
-                var parentThreadId = functionContext.ThreadId
-                    ?? throw new InvalidOperationException("ForkFromParentThread subagents require a parent ThreadId.");
-                var store = agent.Config?.SessionStore
-                    ?? throw new InvalidOperationException("No session store configured.");
-                var parentThread = await store.ProjectThreadAsync(
-                        parentSessionId,
-                        parentThreadId,
-                        ThreadProjectionPurpose.ForkConstruction,
-                        cancellationToken)
-                    .ConfigureAwait(false)
-                    ?? throw new InvalidOperationException($"Parent thread '{parentThreadId}' not found in session '{parentSessionId}'.");
-                var forkPoint = parentThread.Messages.LastOrDefault()?.MessageId
-                    ?? throw new InvalidOperationException("Cannot fork subagent thread from an empty parent thread.");
-                var forkOptions = new ThreadForkOptions
-                {
-                    Metadata = metadata,
-                    Compaction = subAgent.ForkCompaction
-                        ?? new InheritThreadForkCompaction()
-                };
-                await agent.ForkThreadAsync(
-                    parentSessionId,
-                    parentThreadId,
-                    route.ThreadId,
-                    forkPoint,
-                    forkOptions,
-                    cancellationToken).ConfigureAwait(false);
+                var parent = new ThreadKey(
+                    functionContext?.SessionId ?? throw new InvalidOperationException("Parent session is required for context handoff."),
+                    functionContext.ThreadId ?? throw new InvalidOperationException("Parent thread is required for context handoff."));
+                var handoff = await agent.PrepareSubAgentContextAsync(
+                    parent, handoffCompaction, cancellationToken, sourceCursor).ConfigureAwait(false);
+                await CreateEmptyThreadAsync(agent, route.SessionId, route.ThreadId, metadata,
+                    cancellationToken, handoff).ConfigureAwait(false);
                 return;
             }
 
@@ -1919,7 +1955,8 @@ public static class SubAgentRuntime
             lockedClients,
             sources,
             authority,
-            ResolvePropagation(childRun, childRun?.Clients.Chat is not null));
+            ResolvePropagation(childRun, childRun?.Clients.Chat is not null),
+            childRun?.DescendantDefaults, childRun?.HandoffCompaction);
         policy.Validate();
         return policy;
     }
@@ -2028,28 +2065,42 @@ public static class SubAgentRuntime
         };
     }
 
-    private static SubAgentRunConfig? CreateDescendantRunConfig(SubAgentExecutionPolicy policy) =>
-        policy.Propagation switch
+    internal static SubAgentRunConfig? ResolveContinuationDescendantRunConfig(
+        SubAgentRunConfig? supplied, SubAgentExecutionPolicy policy)
+    {
+        var admitted = CreateDescendantRunConfig(policy);
+        if (supplied is null) return admitted;
+        if (supplied.Clients.Chat is null && admitted?.Clients.Chat is { } chat)
         {
-            NoSubAgentClientPropagation => null,
-            RemainingSubAgentClientPropagation bounded => new SubAgentRunConfig
-            {
-                Clients = new AgentClientsConfig
-                {
-                    Chat = (ChatClientConfig)ProviderClientConfigSnapshot.Clone(policy.LockedClients.Chat!)
-                },
-                ClientPropagation = SubAgentClientPropagation.ThroughDepth(bounded.RemainingDepth)
-            },
-            UnboundedRemainingSubAgentClientPropagation => new SubAgentRunConfig
-            {
-                Clients = new AgentClientsConfig
-                {
-                    Chat = (ChatClientConfig)ProviderClientConfigSnapshot.Clone(policy.LockedClients.Chat!)
-                },
-                ClientPropagation = SubAgentClientPropagation.EntireTree
-            },
+            supplied.Clients.Chat = chat;
+            supplied.ClientPropagation = admitted.ClientPropagation;
+        }
+        if (supplied.DescendantDefaults is null && admitted is not null)
+        {
+            supplied.Compaction ??= admitted.Compaction;
+            supplied.HandoffCompaction ??= admitted.HandoffCompaction;
+            supplied.DescendantDefaults = admitted.DescendantDefaults;
+        }
+        return supplied;
+    }
+
+    internal static SubAgentRunConfig? CreateDescendantRunConfig(SubAgentExecutionPolicy policy)
+    {
+        var result = policy.DescendantDefaults?.CreateRun();
+        if (policy.Propagation is NoSubAgentClientPropagation) return result;
+        result ??= new SubAgentRunConfig();
+        result.Clients = new AgentClientsConfig
+        {
+            Chat = (ChatClientConfig)ProviderClientConfigSnapshot.Clone(policy.LockedClients.Chat!)
+        };
+        result.ClientPropagation = policy.Propagation switch
+        {
+            RemainingSubAgentClientPropagation bounded => SubAgentClientPropagation.ThroughDepth(bounded.RemainingDepth),
+            UnboundedRemainingSubAgentClientPropagation => SubAgentClientPropagation.EntireTree,
             _ => throw new InvalidOperationException("subagent_execution_policy_invalid")
         };
+        return result;
+    }
 
     private static string Normalize(string value)
     {

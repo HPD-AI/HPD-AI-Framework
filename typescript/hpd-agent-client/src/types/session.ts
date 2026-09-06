@@ -15,7 +15,7 @@ import type {
 import type { ThreadForkCompaction } from './run-config.js';
 
 /** Resolved context used to create a subagent thread. */
-export type SubAgentContextPolicy = 'Fork' | 'Fresh' | 'Isolated';
+export type SubAgentContextPolicy = 'Handoff' | 'Fresh' | 'Isolated';
 
 // ============================================
 // SESSION

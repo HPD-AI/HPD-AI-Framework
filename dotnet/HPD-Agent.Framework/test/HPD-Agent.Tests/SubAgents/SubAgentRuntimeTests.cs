@@ -27,7 +27,7 @@ public class SubAgentRuntimeTests
             "Reviewer",
             "Reviews in the background.",
             MinimalConfig(),
-            contextPolicy: SubAgentContextPolicy.Fork,
+            contextPolicy: SubAgentContextPolicy.Handoff,
             metadata: null,
             invocationModePolicy: AgentInvocationModePolicy.BackgroundOnly,
             operationNotification: null);
@@ -55,7 +55,7 @@ public class SubAgentRuntimeTests
             "Reviewer",
             "Reviews in the background.",
             MinimalConfig(),
-            contextPolicy: SubAgentContextPolicy.Fork,
+            contextPolicy: SubAgentContextPolicy.Handoff,
             metadata: null,
             invocationModePolicy: AgentInvocationModePolicy.BackgroundOnly,
             operationNotification: null);
@@ -81,7 +81,7 @@ public class SubAgentRuntimeTests
             "Reviewer",
             "Reviews in the background.",
             MinimalConfig(),
-            contextPolicy: SubAgentContextPolicy.Fork,
+            contextPolicy: SubAgentContextPolicy.Handoff,
             metadata: null,
             invocationModePolicy: AgentInvocationModePolicy.BackgroundOnly,
             operationNotification: null);
@@ -175,7 +175,7 @@ public class SubAgentRuntimeTests
     }
 
     [Fact]
-    public async Task DefaultPolicy_ForksParentThread_WithSubAgentMetadata()
+    public async Task DefaultPolicy_HandsOffText_WithSubAgentMetadata()
     {
         var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var agent = await BuildAgentAsync(store);
@@ -192,7 +192,7 @@ public class SubAgentRuntimeTests
             "Reviewer",
             "Reviews the current thread.",
             MinimalConfig(),
-            contextPolicy: SubAgentContextPolicy.Fork,
+            contextPolicy: SubAgentContextPolicy.Handoff,
             metadata: new Dictionary<string, object> { ["purpose"] = "review-current-thread" });
 
         var route = await SubAgentRuntime.ResolveInvocationRouteAsync(
@@ -203,7 +203,10 @@ public class SubAgentRuntimeTests
 
         var childThread = await store.ProjectThreadAsync(route.SessionId, route.ThreadId, ThreadProjectionPurpose.ThreadHistory);
         childThread.Should().NotBeNull();
-        childThread!.Messages.Should().HaveCount(parentThread.Messages.Count);
+        childThread!.Messages.Should().ContainSingle();
+        childThread.Messages[0].Text.Should().Contain("Parent context").And.Contain("Parent answer");
+        childThread.ForkedFrom.Should().BeNull();
+        childThread.MiddlewareState.Should().BeEmpty();
         childThread.Kind.Should().Be(ThreadKind.SubAgent);
         childThread.SubAgentName.Should().Be("Reviewer");
         childThread.ParentSessionId.Should().Be("parent-session");

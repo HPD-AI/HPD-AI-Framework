@@ -17,6 +17,33 @@ namespace HPD.Agent.TUI.Tests;
 
 public sealed class CompositionSurfaceTests
 {
+    [Theory]
+    [InlineData(TranscriptHistoryPresentation.TerminalScrollback)]
+    [InlineData(TranscriptHistoryPresentation.Viewport)]
+    public void PreparedPageKeepsItsGeometryUntilNextFramePreparation(TranscriptHistoryPresentation presentation)
+    {
+        var preparedHeights = new List<int>();
+        var registry = new HpdAgentTuiBuilder().AddAgentTuiDefaults().UseTranscriptHistoryPresentation(presentation)
+            .TryAddPage(new HpdAgentTuiPageDescriptor("workspace", context =>
+            {
+                preparedHeights.Add(context.Height);
+                return new Text("Workspace page");
+            })).Build();
+        var model = new ChatShellModel(new AgentTuiRuntimeScope("agent", "session", "main"));
+        model.Navigation.GoToPage("workspace");
+        var view = new DefaultAgentTuiShellView(new AgentTuiShellLayoutContext(model,
+            PromptView.Create("Ask"), registry, registry.ShellChrome));
+        view.PrepareFrame(new HPD.TUI.Terminal.TerminalSize(80, 30), Theme.Default, ColorSystem.TrueColor);
+        // The terminal size can change after preparation, before the renderer samples it.
+        var rendered = TuiCapture.RenderToString(view, 80, 20);
+        rendered.Should().Contain("Workspace page");
+        preparedHeights.Should().ContainSingle();
+        view.PrepareFrame(new HPD.TUI.Terminal.TerminalSize(80, 20), Theme.Default, ColorSystem.TrueColor);
+        preparedHeights.Should().HaveCount(2);
+        preparedHeights[1].Should().BeLessThan(preparedHeights[0]);
+        TuiCapture.RenderToString(view, 80, 20).Should().Contain("Workspace page");
+    }
+
     [Fact]
     public void AddFooterItem_FailsOnDuplicateKey()
     {

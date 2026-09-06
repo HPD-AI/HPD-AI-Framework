@@ -19,6 +19,23 @@ describe('ChatSession', () => {
   beforeEach(() => vi.resetAllMocks());
   afterEach(() => vi.restoreAllMocks());
 
+  it('submits a Goal objective with run overrides and returns admission only', async () => {
+    const client = new AgentClient('http://localhost:5135');
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true, body: null,
+      text: async () => JSON.stringify({ disposition: 'queued', threadExecutionId: 'goal-run' }),
+    } as Response);
+    const chat = client.chat.session({ agentId: 'a1', sessionId: 's1', threadId: 'main' });
+    const result = await chat.startGoal('Verify the migration', { runConfig: { goals: { toolAccess: 'readOnly' } } });
+    const body = JSON.parse(fetchSpy.mock.calls[0][1]!.body as string);
+    expect(body).toMatchObject({ type: 'CREATE_GOAL_INPUT', objective: 'Verify the migration',
+      runConfig: { goals: { toolAccess: 'readOnly' } } });
+    expect(result.threadExecutionId).toBe('goal-run');
+    await expect(chat.startGoal('  ')).rejects.toThrow('requires an objective');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    chat.dispose();
+  });
+
   it('opens an existing session from search metadata', async () => {
     const client = new AgentClient('http://localhost:5135');
     vi.spyOn(globalThis, 'fetch')

@@ -60,11 +60,21 @@ public class AgentConfig
     /// </summary>
     public AgentClientsConfig Clients { get; set; } = new();
 
+    private IList<AgentProviderBackendProfile> _providerProfiles = [];
     /// <summary>Gets provider/backend family baselines serialized with explicit identities.</summary>
-    public IList<AgentProviderBackendProfile> ProviderProfiles { get; init; } = [];
+    public IList<AgentProviderBackendProfile> ProviderProfiles
+    {
+        get => _providerProfiles;
+        init => _providerProfiles = value ?? [];
+    }
 
+    private IList<AgentProviderFamilyDefault> _providerDefaults = [];
     /// <summary>Gets the explicit provider/backend default for each configured client family.</summary>
-    public IList<AgentProviderFamilyDefault> ProviderDefaults { get; init; } = [];
+    public IList<AgentProviderFamilyDefault> ProviderDefaults
+    {
+        get => _providerDefaults;
+        init => _providerDefaults = value ?? [];
+    }
 
     public void SetClientConfig(HPD.Agent.Providers.ProviderClientFamily family, ProviderClientConfig? config)
     {
@@ -121,6 +131,9 @@ public class AgentConfig
     /// Configuration for conversation compaction to manage context window size.
     /// </summary>
     public CompactionConfig? Compaction { get; set; }
+
+    /// <summary>Optional persistent Goal capability and default policies.</summary>
+    public Goals.GoalConfig? Goals { get; set; }
 
     /// <summary>
     /// Configuration for agentic loop safety controls (timeouts, circuit breakers).
@@ -778,6 +791,7 @@ public class CompactionConfig
 {
     public AutomaticCompactionPolicy? Automatic { get; set; }
     public CompactionSpecification? ForkCompaction { get; set; }
+
 }
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
@@ -847,7 +861,31 @@ public sealed record SummarizingCompaction : CompactionStrategy
     /// </summary>
     public ChatClientConfig? Summarizer { get; init; }
 
+    /// <summary>Gets optional instructions replacing the framework handoff prompt.</summary>
     public string? Instructions { get; init; }
+
+    /// <summary>Gets the selection and size limits for inert summarizer evidence; stored history is unaffected.</summary>
+    public CompactionEvidenceOptions Evidence { get; init; } = new();
+}
+
+/// <summary>Controls which tool evidence reaches the summarizer and bounds its textual request.</summary>
+public sealed record CompactionEvidenceOptions
+{
+    /// <summary>Gets whether tool names and arguments are included as text. Defaults to true.</summary>
+    public bool IncludeToolCalls { get; init; } = true;
+
+    /// <summary>Gets whether tool result payloads are included as text. Defaults to true.</summary>
+    public bool IncludeToolResults { get; init; } = true;
+
+    /// <summary>Gets whether explicit error content and tool-result exception messages are included. Defaults to true.</summary>
+    public bool IncludeErrors { get; init; } = true;
+
+    /// <summary>Gets the maximum characters per content part, including truncation markers. Must be at least 256.</summary>
+    public int MaxContentCharacters { get; init; } = 4_000;
+
+    /// <summary>Gets the total evidence character budget. Must be at least 1,024; newer messages take priority.</summary>
+    /// <remarks>This is not a token limit and excludes the separate summarization instruction.</remarks>
+    public int MaxEvidenceCharacters { get; init; } = 128_000;
 }
 
 public enum CompactionCommitMode

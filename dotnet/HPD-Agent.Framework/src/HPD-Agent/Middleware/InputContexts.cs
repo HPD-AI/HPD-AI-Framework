@@ -43,7 +43,8 @@ public sealed class AfterInputContext
         AgentTurnResult result,
         Exception? error,
         bool cancelled,
-        TimeSpan duration)
+        TimeSpan duration,
+        AgentInputCancellation? cancellation = null)
     {
         Input = input ?? throw new ArgumentNullException(nameof(input));
         Handling = handling ?? throw new ArgumentNullException(nameof(handling));
@@ -51,6 +52,7 @@ public sealed class AfterInputContext
         Error = error;
         Cancelled = cancelled;
         Duration = duration;
+        Cancellation = cancelled ? cancellation ?? handling.ActiveInput?.CancellationInfo : null;
     }
 
     public AgentInputEvent Input { get; }
@@ -59,6 +61,7 @@ public sealed class AfterInputContext
     public Exception? Error { get; }
     public bool Cancelled { get; }
     public TimeSpan Duration { get; }
+    public AgentInputCancellation? Cancellation { get; }
 
     public string AgentName => Handling.AgentName;
     public AgentConfig Config => Handling.Config;

@@ -257,7 +257,7 @@ public static class SubAgentsFunctionFactory
         if (descriptor.InvocationModePolicy == AgentInvocationModePolicy.ModelChoice)
             WriteEnumSchema(writer, "invocationMode", "synchronous", "background");
         if (descriptor.ContextPolicy == SubAgentContextPolicy.ModelChoice)
-            WriteEnumSchema(writer, "context", "fork", "fresh", "isolated");
+            WriteEnumSchema(writer, "context", "handoff", "fresh", "isolated");
         WriteBranchEnd(writer, "action", "input");
     }
 

@@ -24,56 +24,62 @@ public sealed class ContributionWidgetSlotView : Component
         for (var i = 0; i < widgets.Count; i++)
         {
             _components[i] = CreateWidget(widgets[i], widgetContext);
+            AdoptChild(_components[i]);
+            if (_components[i] is IFocusable focusable) shell.WidgetFocus.Register(slot, focusable);
         }
+    }
+
+    public void RegisterFocus(TuiSlot slot, AgentTuiWidgetFocus focus)
+    {
+        foreach (var component in _components)
+            if (component is IFocusable focusable) focus.Register(slot, focusable);
+    }
+
+    // Each editor slot reserves at most one third of the terminal for registered widgets.
+    // Allocate shared space fairly; a short widget returns its unused rows to later widgets.
+    private int[] Allocate(in RenderContext context, int width, int maxHeight)
+    {
+        var budget = Math.Min(maxHeight, context.Height / 3);
+        var heights = new int[_components.Length];
+        var visible = new List<int>();
+        for (var i = 0; i < _components.Length; i++)
+            if (MeasureChild(_components[i], in context, HPD.TUI.Layout.LayoutConstraints.Loose(width, budget)).Height > 0)
+                visible.Add(i);
+        budget = Math.Max(0, budget - Math.Max(0, visible.Count - 1));
+        for (var n = 0; n < visible.Count; n++)
+        {
+            var share = budget / (visible.Count - n);
+            var i = visible[n];
+            heights[i] = Math.Min(share, MeasureChild(_components[i], in context,
+                HPD.TUI.Layout.LayoutConstraints.Loose(width, share)).Height);
+            budget -= heights[i];
+        }
+        return heights;
     }
 
     public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
-        var maxWidth = constraints.MaxWidth;
-        var min = 0;
-        var max = 0;
-        var height = 0;
-        var visible = 0;
-        foreach (var component in _components)
-        {
-            var measurement = component.Measure(in context, HPD.TUI.Layout.LayoutConstraints.Loose(maxWidth, context.Height));
-            if (measurement.Height <= 0)
-            {
-                continue;
-            }
-
-            min = Math.Max(min, measurement.MinWidth);
-            max = Math.Max(max, measurement.MaxWidth);
-            height += measurement.Height;
-            visible++;
-        }
-
-        height += Math.Max(0, visible - 1);
-        return new Measurement(Math.Min(min, maxWidth), Math.Min(max, maxWidth), height);
+        var heights = Allocate(in context, constraints.MaxWidth, constraints.MaxHeight);
+        var visible = heights.Count(height => height > 0);
+        return new(0, constraints.MaxWidth, heights.Sum() + Math.Max(0, visible - 1));
     }
 
     public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
-        var maxWidth = output.MaxWidth;
-        if (_components.Length == 0)
-        {
-            return;
-        }
-
+        var heights = Allocate(in context, output.MaxWidth, context.Height);
         var wrote = false;
         for (var i = 0; i < _components.Length; i++)
         {
-            if (_components[i].Measure(in context, HPD.TUI.Layout.LayoutConstraints.Loose(maxWidth, context.Height)).Height <= 0)
-            {
-                continue;
-            }
-
-            if (wrote)
-            {
-                output.WriteLineBreak();
-            }
-
-            output.Render(_components[i], in context, maxWidth);
+            var height = heights[i];
+            if (height <= 0) continue;
+            if (wrote) output.WriteLineBreak();
+            var y = output.CursorY;
+            var childContext = new RenderContext(context.Width, height, context.Theme,
+                context.ColorSystem, context.Elapsed, context.Capabilities);
+            output.PushClip(new HPD.TUI.Layout.LayoutRect(0, y, output.MaxWidth, height));
+            output.Render(_components[i], in childContext, output.MaxWidth);
+            output.PopClip();
+            output.MoveTo(0, y + height - 1);
             wrote = true;
         }
     }

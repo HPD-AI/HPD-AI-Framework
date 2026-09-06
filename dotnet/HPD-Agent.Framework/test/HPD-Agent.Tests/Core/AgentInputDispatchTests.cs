@@ -202,7 +202,7 @@ public class AgentInputDispatchTests
             Config = new AgentConfig { Name = "InputDispatchAgent" },
             EventCoordinator = new EventCoordinator(),
             RuntimeCapabilities = runtimeCapabilities ?? new RuntimeCapabilityRegistry(),
-            RunMessagesAsync = (input, _, _, _) => runMessages?.Invoke(input)
+            RunMessagesAsync = (_, input, _, _, _) => runMessages?.Invoke(input)
                 ?? Task.FromResult(AgentTurnResult.Empty),
             TryResolveClientToolOperation = _ => false
         };

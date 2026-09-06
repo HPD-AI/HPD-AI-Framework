@@ -724,24 +724,16 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             return false;
         }
 
-        if (!ReferenceEquals(_application.Focused, _prompt))
-        {
-            _application.SetFocus(_prompt);
-            return true;
-        }
-
-        if (_prompt.Controller.Autocomplete is { SuggestionCount: > 0 })
+        if (ReferenceEquals(_application.Focused, _prompt) &&
+            _prompt.Controller.Autocomplete is { SuggestionCount: > 0 })
         {
             return false;
         }
 
-        var widget = _state.Shell.AboveEditor.Snapshot().OfType<IFocusable>().FirstOrDefault();
-        if (widget is null)
-        {
-            return false;
-        }
-
-        _application.SetFocus(widget);
+        var next = _state.Shell.WidgetFocus.Next(_application.Focused ?? _prompt, _prompt,
+            _state.Shell.AboveEditor.Snapshot().Concat(_state.Shell.BelowEditor.Snapshot()).OfType<IFocusable>());
+        if (ReferenceEquals(next, _application.Focused)) return false;
+        _application.SetFocus(next);
         return true;
     }
 

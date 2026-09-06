@@ -226,6 +226,9 @@ public class AgentRunConfig
     /// </summary>
     public CompactionRunPolicy? Compaction { get; set; }
 
+    /// <summary>Optional Goal action restrictions and policy overrides for this execution.</summary>
+    public Goals.GoalRunConfig? Goals { get; set; }
+
     #endregion
 
     #region Collapsing

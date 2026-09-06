@@ -12,6 +12,7 @@ namespace HPD.Agent.TUI.Views;
 
 public sealed class DefaultAgentTuiShellView : Component, IAgentTuiShellView
 {
+    private readonly List<(TuiSlot Slot, ContributionWidgetSlotView View)> _widgetSlots = [];
     private readonly ChatShellModel _model;
     private readonly PromptView _prompt;
     private readonly HpdAgentTuiRegistry _registry;
@@ -20,7 +21,7 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiShellView
     private readonly RetainedShellStack _shell;
     private readonly TranscriptView _transcript;
     private readonly MainSectionView _mainSection;
-    private readonly FixedViewport _mainViewport;
+    private readonly FixedViewport? _mainViewport;
     private int _lastTranscriptHeight;
     private long _presentationEpoch;
     private ScrollbackRow[]? _headerRows;
@@ -55,13 +56,17 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiShellView
             performanceSink);
         _model.Transcript.HistoryPresentation = _registry.TranscriptHistoryPresentation;
         _mainSection = new MainSectionView(this);
-        _mainViewport = new FixedViewport(_mainSection, _lastTranscriptHeight);
+        _mainViewport = _registry.TranscriptHistoryPresentation == TranscriptHistoryPresentation.TerminalScrollback
+            ? null : new FixedViewport(_mainSection, _lastTranscriptHeight);
         _shell = CreateShell();
+        AdoptChild(_shell);
     }
 
     /// <inheritdoc />
     public void PrepareFrame(TerminalSize size, Theme theme, ColorSystem colorSystem)
     {
+        _model.WidgetFocus.Clear();
+        foreach (var (slot, view) in _widgetSlots) view.RegisterFocus(slot, _model.WidgetFocus);
         var context = new RenderContext(size.Width, size.Height, theme, colorSystem);
         UpdateTranscriptHeight(in context);
         _mainSection.Prepare(size.Width, theme, colorSystem);
@@ -70,14 +75,15 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiShellView
     public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
         var maxWidth = constraints.MaxWidth;
-        UpdateTranscriptHeight(in context);
+        // Prepared pages keep their geometry for the entire frame.
+        if (!IsPageActive()) UpdateTranscriptHeight(in context);
         return _shell.Measure(in context, HPD.TUI.Layout.LayoutConstraints.Loose(maxWidth, context.Height));
     }
 
     public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
         var maxWidth = output.MaxWidth;
-        UpdateTranscriptHeight(in context);
+        if (!IsPageActive()) UpdateTranscriptHeight(in context);
         output.Render(_shell, in context, maxWidth);
     }
 
@@ -236,7 +242,7 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiShellView
 
         AddSection(shell, _chrome.Transcript,
             _registry.TranscriptHistoryPresentation == TranscriptHistoryPresentation.TerminalScrollback
-                ? _mainSection : _mainViewport, isMain: true);
+                ? _mainSection : _mainViewport!, isMain: true);
         AddSection(shell, _chrome.Activity, BuildActivitySection(), isMain: false);
 
         AddSection(
@@ -349,7 +355,9 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiShellView
 
         if (contributions.Count > 0)
         {
-            widgets.Add(new ContributionWidgetSlotView(slot, _model, _state, contributions));
+            var view = new ContributionWidgetSlotView(slot, _model, _state, contributions);
+            _widgetSlots.Add((slot, view));
+            widgets.Add(view);
         }
 
         widgets.Add(new WidgetSlotView(model, ""));
@@ -410,7 +418,7 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiShellView
         var transcriptHeight = GetTranscriptHeight(in context);
         _lastTranscriptHeight = transcriptHeight;
         _transcript.SetHeight(transcriptHeight);
-        _mainViewport.Height = transcriptHeight;
+        if (_mainViewport is not null) _mainViewport.Height = transcriptHeight;
     }
 
     private int GetTranscriptHeight(in RenderContext context)
@@ -520,7 +528,10 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiShellView
         public IReadOnlyList<RetainedShellSection> Sections => _sections;
 
         public void Add(RetainedShellSection section)
-            => _sections.Add(section);
+        {
+            AdoptChild(section.Component);
+            _sections.Add(section);
+        }
 
         public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
         {

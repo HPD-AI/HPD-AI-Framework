@@ -167,6 +167,12 @@ public class AgentPlanAgentMiddleware : IAgentMiddleware
 
         if (committedPlan is not null)
         {
+            if (context.Thread is { } thread)
+            {
+                var plans = context.Analyze(s => s.MiddlewareState.PlanModePersistent())!;
+                thread.MiddlewareState[typeof(PlanModePersistentStateData).FullName!] =
+                    System.Text.Json.JsonSerializer.Serialize(plans, SessionJsonContext.Combined.PlanModePersistentStateData);
+            }
             await context.PublishAsync(evt with
             {
                 PlanId = committedPlan.Id,
@@ -186,12 +192,14 @@ public class AgentPlanAgentMiddleware : IAgentMiddleware
 You have access to plan management tools for complex multi-step tasks.
 Plan Mode is a persistent tracking capability. Continue executing work normally while keeping the plan current.
 
-Available functions:
-- create_plan(goal, steps[]): Create a new plan with a goal and initial steps
-- update_plan_step(stepId, status, notes): Update step status (pending/in_progress/completed/blocked) and add notes
-- add_plan_step(description, afterStepId): Add a new step when you discover additional work needed
-- add_context_note(note): Record important discoveries, learnings, or context during execution
-- complete_plan(): Mark the entire plan as complete when goal is achieved
+Available tool: plan(operation)
+The operation object has an action discriminator and the fields for that action:
+- create: goal, steps[] — create a new plan
+- updateStep: stepId, status, optional notes — track progress (Pending/InProgress/Completed/Blocked)
+- addStep: description, optional afterStepId — add discovered work
+- addNote: note — retain important context
+- complete: no additional fields — complete the plan after all steps are completed
+Plan completion does not automatically complete a persistent Goal.
 
 Best practices:
 - Create plans for tasks requiring 3+ steps, affecting multiple files, or with uncertain scope

@@ -57,7 +57,7 @@ public class SubAgentSourceGeneratorTests
         Assert.NotNull(subAgent);
         Assert.Equal("DefaultThreadNativeSubAgent", subAgent.Name);
         Assert.IsType<SuppliedAgentConfiguration>(subAgent.Configuration);
-        Assert.Equal(SubAgentContextPolicy.Fork, subAgent.ContextPolicy);
+        Assert.Equal(SubAgentContextPolicy.Handoff, subAgent.ContextPolicy);
     }
 
     [Fact]
@@ -166,7 +166,7 @@ public class SubAgentSourceGeneratorTests
         var subAgent = ToolHarness.DefaultThreadNativeSubAgent();
 
         // Assert
-        Assert.Equal(SubAgentContextPolicy.Fork, subAgent.ContextPolicy);
+        Assert.Equal(SubAgentContextPolicy.Handoff, subAgent.ContextPolicy);
     }
 
     // ===== P0: Complex Scenarios =====

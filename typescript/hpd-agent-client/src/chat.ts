@@ -171,6 +171,19 @@ export class ChatSession {
     return result;
   }
 
+  /** Submits the initial Goal input. Observe Goal lifecycle events for overall completion. */
+  async startGoal(
+    objective: string,
+    options: Pick<SendMessageOptions, 'runConfig' | 'signal'> = {},
+  ): Promise<InputSubmissionResult> {
+    if (!objective.trim()) throw new Error('startGoal() requires an objective.');
+    return this.client.submitInput({
+      type: EventTypes.CREATE_GOAL_INPUT, objective,
+      agentId: this.agentId, sessionId: this.sessionId, threadId: this.threadId,
+      runConfig: options.runConfig,
+    }, { signal: options.signal });
+  }
+
   async compactThread(
     request: ThreadCompactionRequest,
     options: SendMessageOptions = {},

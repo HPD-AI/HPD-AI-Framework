@@ -81,6 +81,8 @@
   <ItemGroup>
     <InternalsVisibleTo Include="HPD.Agent.Audio" />
     <InternalsVisibleTo Include="HPD-Agent.Tests" />
+    <InternalsVisibleTo Include="HPD-Agent.Goals.Tests" />
+    <InternalsVisibleTo Include="HPD-Agent.Planning.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.EventRouting.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.TUI.Benchmarks" />
     <InternalsVisibleTo Include="HPD-Agent.AspNetCore.Tests" />

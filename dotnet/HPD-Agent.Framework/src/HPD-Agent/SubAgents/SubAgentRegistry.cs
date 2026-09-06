@@ -38,8 +38,8 @@ public enum SubAgentChildAvailability
 /// <summary>Describes the concrete topology selected when a child was created.</summary>
 public enum SubAgentCreationContext
 {
-    /// <summary>The child starts from a coherent fork of parent history.</summary>
-    Fork,
+    /// <summary>The child starts from a durable textual handoff of parent context.</summary>
+    Handoff,
     /// <summary>The child is empty and shares its parent's session.</summary>
     Fresh,
     /// <summary>The child is empty in a dedicated session.</summary>

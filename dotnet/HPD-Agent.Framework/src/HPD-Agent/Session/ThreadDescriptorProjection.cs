@@ -103,6 +103,9 @@ internal static class ThreadDescriptorProjection
     {
         switch (evt)
         {
+            case SubAgentContextReceivedEvent context:
+                messageIds.Add(context.MessageId);
+                break;
             case ContentAddedEvent content when !string.IsNullOrWhiteSpace(content.MessageId):
                 messageIds.Add(content.MessageId);
                 break;

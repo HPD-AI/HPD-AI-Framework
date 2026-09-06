@@ -40,6 +40,9 @@ public sealed class ChatShellModel
 
     public WidgetSlotModel BelowEditor { get; } = new();
 
+    /// <summary>Focus order shared by registered widgets and the shell input controller.</summary>
+    public HPD.Agent.TUI.Composition.AgentTuiWidgetFocus WidgetFocus { get; } = new();
+
     internal Action? FocusPromptAction { get; set; }
 
     /// <summary>Moves keyboard focus back to the conversation prompt.</summary>

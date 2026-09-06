@@ -178,7 +178,7 @@ internal static class StreamingEndpoints
 
         try
         {
-            return inputCodec.Deserialize(request.GetRawText());
+            return inputCodec.DeserializePublic(request.GetRawText());
         }
         catch (JsonException)
         {

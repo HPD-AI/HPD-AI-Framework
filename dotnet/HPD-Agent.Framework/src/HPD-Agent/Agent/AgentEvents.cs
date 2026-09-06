@@ -570,6 +570,9 @@ public record MessageTurnErrorEvent(
     public string? AgentName { get; init; }
     public string? ErrorType { get; init; }
 
+    /// <summary>Trusted cancellation provenance, retained for replay and recovery.</summary>
+    public AgentInputCancellation? Cancellation { get; init; }
+
     // Lazy-computed error details from the exception
     private ErrorHandling.ProviderErrorDetails? _errorDetails;
     private bool _errorDetailsParsed;
@@ -592,7 +595,13 @@ public record MessageTurnErrorEvent(
     /// Error category lazily computed from the exception.
     /// Uses GenericErrorHandler to classify the error.
     /// </summary>
-    public ErrorHandling.ErrorCategory? Category => GetErrorDetails()?.Category;
+    private ErrorHandling.ErrorCategory? _committedCategory;
+    /// <summary>Gets the committed classification, preserved across journal hydration.</summary>
+    public ErrorHandling.ErrorCategory? Category
+    {
+        get => _committedCategory ?? GetErrorDetails()?.Category;
+        init => _committedCategory = value;
+    }
 
     /// <summary>
     /// Error code from the provider, if available.
@@ -1786,7 +1795,10 @@ public enum PlanUpdateType
     NoteAdded,
 
     /// <summary>The entire plan was marked as complete</summary>
-    Completed
+    Completed,
+
+    /// <summary>Full current plan seeded into a new or replaced journal.</summary>
+    Snapshot
 }
 
 /// <summary>
@@ -1934,6 +1946,13 @@ public sealed record ToolContextSnapshot(
     string? InputSchemaJson
 );
 
+/// <summary>Identifies preserved summary text in the final request passed to the chat client.</summary>
+/// <param name="MessageId">Durable replacement message identifier.</param>
+/// <param name="Role">Role in the model request.</param>
+/// <param name="TextLength">Number of UTF-16 characters in the summary text.</param>
+/// <param name="TextSha256">Uppercase SHA-256 of the UTF-8 summary text, for comparison with its checkpoint.</param>
+public sealed record CompactionSummaryInputSnapshot(string? MessageId, string Role, int TextLength, string TextSha256);
+
 /// <summary>
 /// Emitted immediately before an LLM call with the non-history context being fed to the model.
 /// Excludes normal chat history; includes instructions, visible tool context, and middleware-injected context messages.
@@ -1952,6 +1971,9 @@ public record IterationContextSnapshotEvent(
     DateTimeOffset Timestamp
 ) : AgentEvent, IObservabilityEvent
 {
+    /// <summary>Gets summaries present at the model-request boundary; this is not a server receipt.</summary>
+    public IReadOnlyList<CompactionSummaryInputSnapshot> CompactionSummaryInputs { get; init; } = [];
+
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 }
 

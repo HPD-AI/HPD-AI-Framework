@@ -73,7 +73,7 @@ public sealed class SubAgentTuiTests
 
         await state.ApplyEventAsync(new SubAgentInvocationStartedEvent(
             "invocation-1", "call-1", "worker-agent", "session-1", "child-1",
-            "worker", SubAgentContextPolicy.Fork, AgentInvocationMode.Background));
+            "worker", SubAgentContextPolicy.Handoff, AgentInvocationMode.Background));
         await state.ApplyEventAsync(new SubAgentInvocationCompletedEvent(
             "invocation-1", new string('s', 500)));
 

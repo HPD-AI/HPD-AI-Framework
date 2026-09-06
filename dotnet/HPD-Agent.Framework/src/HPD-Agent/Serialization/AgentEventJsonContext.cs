@@ -155,6 +155,7 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(SubAgentAvailableChild))]
 [JsonSerializable(typeof(SubAgentChildTombstone))]
 [JsonSerializable(typeof(SubAgentRunConfig))]
+[JsonSerializable(typeof(SubAgentRunDefaults))]
 [JsonSerializable(typeof(SubAgentClientPropagation))]
 [JsonSerializable(typeof(DirectSubAgentClientPropagation))]
 [JsonSerializable(typeof(BoundedSubAgentClientPropagation))]
@@ -179,6 +180,7 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(UserMessagesInputEvent))]
 [JsonSerializable(typeof(AudioSessionInputEvent))]
 [JsonSerializable(typeof(CompactThreadInputEvent))]
+[JsonSerializable(typeof(Goals.CreateGoalInputEvent))]
 [JsonSerializable(typeof(AgentOperationNotificationInputEvent))]
 [JsonSerializable(typeof(ClientTools.ClientToolOperationOutcomeEvent))]
 

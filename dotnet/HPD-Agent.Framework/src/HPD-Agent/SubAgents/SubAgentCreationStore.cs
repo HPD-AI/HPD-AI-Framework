@@ -17,6 +17,8 @@ public sealed record SubAgentCreationRequest
     public required string ChildAgentId { get; init; }
     /// <summary>Gets the resolved child topology.</summary>
     public required SubAgentCreationContext Context { get; init; }
+    /// <summary>Gets the parent snapshot reserved for a context handoff.</summary>
+    public ThreadJournalCursor? ContextSourceCursor { get; init; }
     /// <summary>Gets a stable fingerprint of the initial semantic input.</summary>
     public required string InputFingerprint { get; init; }
     /// <summary>Gets the complete resolved durable execution policy.</summary>

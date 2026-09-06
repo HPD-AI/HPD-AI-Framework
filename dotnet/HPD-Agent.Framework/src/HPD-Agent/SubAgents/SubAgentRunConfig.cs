@@ -11,11 +11,16 @@ namespace HPD.Agent;
 /// Configures every direct subagent invocation initiated while processing one agent input.
 /// </summary>
 /// <remarks>
-/// The inherited <see cref="AgentRunConfig"/> properties configure each direct child. Only an
-/// explicit portable Chat selection can propagate to deeper descendants.
+/// The inherited <see cref="AgentRunConfig"/> properties configure each direct child. Explicit descendant defaults and portable Chat selection have separate propagation contracts.
 /// </remarks>
 public sealed class SubAgentRunConfig : AgentRunConfig
 {
+    /// <summary>Explicit additional compaction of the initial parent text handoff. Null disables it.</summary>
+    public CompactionSpecification? HandoffCompaction { get; set; }
+
+    /// <summary>Explicit settings for further descendants; independent of client-selection depth.</summary>
+    public SubAgentRunDefaults? DescendantDefaults { get; set; }
+
     /// <summary>Gets or sets how far an explicit Chat selection propagates through descendants.</summary>
     public SubAgentClientPropagation ClientPropagation { get; set; } =
         SubAgentClientPropagation.DirectChildren;
@@ -84,13 +89,19 @@ public enum SubAgentClientSelectionSource
 public sealed record SubAgentExecutionPolicy
 {
     /// <summary>The only policy contract understood by this greenfield runtime.</summary>
-    public const int CurrentContractVersion = 2;
+    public const int CurrentContractVersion = 4;
 
     /// <summary>Gets the contract version.</summary>
     public required int ContractVersion { get; init; }
 
     /// <summary>Gets the portable initial child run configuration.</summary>
     public AgentRunConfig? InitialRunConfig { get; init; }
+
+    /// <summary>Explicit handoff preparation captured before child route creation.</summary>
+    public CompactionSpecification? HandoffCompaction { get; init; }
+
+    /// <summary>Gets explicitly admitted defaults for subsequent descendants.</summary>
+    public SubAgentRunDefaults? DescendantDefaults { get; init; }
 
     /// <summary>Gets the complete portable client-family selections locked at admission.</summary>
     public required AgentClientsConfig LockedClients { get; init; }
@@ -113,21 +124,25 @@ public sealed record SubAgentExecutionPolicy
         AgentClientsConfig lockedClients,
         IReadOnlyDictionary<ProviderClientFamily, SubAgentClientSelectionSource> clientSources,
         AgentSecurityRunConfig authority,
-        SubAgentClientPropagationState propagation)
+        SubAgentClientPropagationState propagation,
+        SubAgentRunDefaults? descendantDefaults = null,
+        CompactionSpecification? handoffCompaction = null)
     {
         ArgumentNullException.ThrowIfNull(lockedClients);
         ArgumentNullException.ThrowIfNull(clientSources);
         ArgumentNullException.ThrowIfNull(authority);
         ArgumentNullException.ThrowIfNull(propagation);
         ValidatePortableInitialRun(initialRunConfig);
+        SubAgentCompactionConfiguration.Validate(initialRunConfig?.Compaction?.Automatic?.Compaction);
         var initialSnapshot = initialRunConfig is null
             ? null
             : JsonSerializer.Deserialize(
                 JsonSerializer.Serialize(initialRunConfig, AgentEventJsonContext.Default.AgentRunConfig),
                 AgentEventJsonContext.Default.AgentRunConfig)
               ?? throw new InvalidOperationException("subagent_run_config_not_portable");
-        if (initialSnapshot is not null)
-            initialSnapshot.Clients = CloneClients(initialSnapshot.Clients);
+        initialSnapshot ??= new AgentRunConfig();
+        initialSnapshot.Compaction ??= new CompactionRunPolicy();
+        initialSnapshot.Clients = CloneClients(initialSnapshot.Clients);
         var lockedSnapshot = CloneClients(lockedClients);
         var sourceSnapshot = new Dictionary<ProviderClientFamily, SubAgentClientSelectionSource>(clientSources);
         var authoritySnapshot = authority with
@@ -144,11 +159,19 @@ public sealed record SubAgentExecutionPolicy
                 }
             }
         };
-        var fingerprint = ComputeFingerprint(initialSnapshot, lockedSnapshot, sourceSnapshot, authoritySnapshot, propagation);
+        var defaults = descendantDefaults?.Snapshot();
+        SubAgentCompactionConfiguration.Validate(handoffCompaction);
+        SubAgentCompactionConfiguration.Validate(initialSnapshot?.Compaction?.Automatic?.Compaction);
+        var handoff = handoffCompaction is null ? null : JsonSerializer.Deserialize(
+            JsonSerializer.Serialize(handoffCompaction, AgentEventJsonContext.Default.CompactionSpecification),
+            AgentEventJsonContext.Default.CompactionSpecification);
+        var fingerprint = ComputeFingerprint(initialSnapshot, lockedSnapshot, sourceSnapshot, authoritySnapshot, propagation, defaults, handoff);
         return new SubAgentExecutionPolicy
         {
             ContractVersion = CurrentContractVersion,
             InitialRunConfig = initialSnapshot,
+            DescendantDefaults = defaults,
+            HandoffCompaction = handoff,
             LockedClients = lockedSnapshot,
             ClientSources = sourceSnapshot,
             Authority = authoritySnapshot,
@@ -175,7 +198,10 @@ public sealed record SubAgentExecutionPolicy
         }
         ValidatePropagation(Propagation);
         ValidatePortableInitialRun(InitialRunConfig);
-        if (!string.Equals(Fingerprint, ComputeFingerprint(InitialRunConfig, LockedClients, ClientSources, Authority, Propagation), StringComparison.Ordinal))
+        SubAgentCompactionConfiguration.Validate(HandoffCompaction);
+        SubAgentCompactionConfiguration.Validate(InitialRunConfig?.Compaction?.Automatic?.Compaction);
+        _ = DescendantDefaults?.Snapshot();
+        if (!string.Equals(Fingerprint, ComputeFingerprint(InitialRunConfig, LockedClients, ClientSources, Authority, Propagation, DescendantDefaults, HandoffCompaction), StringComparison.Ordinal))
             throw new InvalidOperationException("subagent_execution_policy_mismatch");
     }
 
@@ -193,7 +219,9 @@ public sealed record SubAgentExecutionPolicy
         AgentClientsConfig lockedClients,
         IReadOnlyDictionary<ProviderClientFamily, SubAgentClientSelectionSource> clientSources,
         AgentSecurityRunConfig authority,
-        SubAgentClientPropagationState propagation)
+        SubAgentClientPropagationState propagation,
+        SubAgentRunDefaults? descendantDefaults,
+        CompactionSpecification? handoffCompaction)
     {
         var propagationValue = propagation switch
         {
@@ -210,12 +238,14 @@ public sealed record SubAgentExecutionPolicy
             .Select(static pair => $"{pair.Key}:{pair.Value}"));
         var lockedAuthority = JsonSerializer.Serialize(authority, AgentEventJsonContext.Default.AgentSecurityRunConfig);
         var canonical = string.Join('|',
-            "hpd.subagent.execution-policy.v2",
+            "hpd.subagent.execution-policy.v4",
             initialRun,
             clients,
             sources,
             lockedAuthority,
-            propagationValue);
+            propagationValue,
+            JsonSerializer.Serialize(descendantDefaults, AgentEventJsonContext.Default.SubAgentRunDefaults),
+            JsonSerializer.Serialize(handoffCompaction, AgentEventJsonContext.Default.CompactionSpecification));
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
     }
 

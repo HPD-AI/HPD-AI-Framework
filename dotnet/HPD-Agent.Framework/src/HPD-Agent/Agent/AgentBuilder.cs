@@ -1938,6 +1938,12 @@ public class AgentBuilder
         }
 
         var hostServices = _serviceProvider;
+        if (_config.Goals is { Enabled: true } goals)
+        {
+            _goalMiddleware = new Goals.GoalMiddleware(goals, hostServices);
+            if (!_builderAddedToolHarnesses.Contains(nameof(Goals.AgentGoalToolHarness)))
+                this.WithToolHarness<Goals.AgentGoalToolHarness>();
+        }
         var externalRegistry = ResolveExternalIdentityRegistry(hostServices);
         var strategyRegistry = ResolveAuthenticationStrategyRegistry(hostServices);
         var storeRegistry = ResolveAuthorizationStoreRegistry(hostServices);
@@ -2348,6 +2354,8 @@ public class AgentBuilder
     /// Registers all auto-middleware (error handling, compaction, tool Collapsing, etc).
     /// Called by both sync and async build paths to eliminate code duplication.
     /// </summary>
+    private Goals.GoalMiddleware? _goalMiddleware;
+
     private void RegisterAutoMiddleware(AgentBuildDependencies buildData)
     {
         // Set explicitly registered ToolHarnesses in config for Collapsing manager
@@ -2454,6 +2462,9 @@ public class AgentBuilder
                 buildData.MergedOptions.Tools,
                 _config.Collapsing?.Enabled == true,
                 _config.Collapsing?.NeverCollapse));
+
+        if (_goalMiddleware is not null)
+            _middlewares.Add(_goalMiddleware);
 
         // Register LoggingMiddleware LAST (if enabled via WithLogging())
         // This ensures it logs the FINAL state after all other middleware have run

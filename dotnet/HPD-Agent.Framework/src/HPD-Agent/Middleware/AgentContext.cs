@@ -574,12 +574,14 @@ public sealed class AgentContext
         Func<AgentInputEvent, CancellationToken, ValueTask>? inputHandler = null,
         SubAgentRunConfig? subAgentRunConfig = null,
         ToolHarnessExecutionScope? toolHarnessExecutionScope = null,
-        IReadOnlyDictionary<Type, object>? agentResources = null)
+        IReadOnlyDictionary<Type, object>? agentResources = null,
+        AgentInputEvent? sourceInput = null)
     {
         AgentName = agentName ?? throw new ArgumentNullException(nameof(agentName));
         ConversationId = conversationId;
         TraceId = traceId;
         ThreadExecutionId = threadExecutionId;
+        SourceInput = sourceInput;
         _config = config;
         _clientSet = clientSet;
         _contentStore = contentStore;
@@ -624,6 +626,9 @@ public sealed class AgentContext
     /// <summary>
     /// Creates a typed context for BeforeMessageTurn hook.
     /// </summary>
+    /// <summary>The original typed semantic input, when supplied by the dispatcher.</summary>
+    public AgentInputEvent? SourceInput { get; }
+
     internal BeforeMessageTurnContext AsBeforeMessageTurn(
         IReadOnlyList<ChatMessage> inputMessages,
         List<ChatMessage> conversationHistory,

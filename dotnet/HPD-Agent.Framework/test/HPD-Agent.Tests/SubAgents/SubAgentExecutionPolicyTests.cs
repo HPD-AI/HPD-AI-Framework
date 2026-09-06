@@ -13,12 +13,11 @@ public class SubAgentContextPolicyTests
     };
 
     [Fact]
-    public void FromConfig_DefaultsToFork()
+    public void FromConfig_DefaultsToHandoff()
     {
         var subAgent = SubAgent.FromConfig("test", "Test", "desc", MinimalConfig());
 
-        subAgent.ContextPolicy.Should().Be(SubAgentContextPolicy.Fork);
-        subAgent.ForkCompaction.Should().BeNull();
+        subAgent.ContextPolicy.Should().Be(SubAgentContextPolicy.Handoff);
     }
 
     [Fact]
@@ -54,7 +53,7 @@ public class SubAgentContextPolicyTests
     }
 
     [Theory]
-    [InlineData(SubAgentContextPolicy.Fork)]
+    [InlineData(SubAgentContextPolicy.Handoff)]
     [InlineData(SubAgentContextPolicy.Fresh)]
     [InlineData(SubAgentContextPolicy.Isolated)]
     [InlineData(SubAgentContextPolicy.ModelChoice)]
@@ -65,27 +64,6 @@ public class SubAgentContextPolicyTests
     }
 
     [Fact]
-    public void ForkCompaction_IsRejectedForContextsThatCannotFork()
-    {
-        var compaction = new ApplyThreadForkCompaction(new CompactionSpecification
-        {
-            Point = new CompactAtCurrentHead(),
-            Strategy = new RemovalCompaction(),
-            CommitMode = CompactionCommitMode.Hard
-        });
-
-        var act = () => SubAgent.FromConfig(
-            "test",
-            "Test",
-            "desc",
-            MinimalConfig(),
-            SubAgentContextPolicy.Fresh,
-            compaction);
-
-        act.Should().Throw<ArgumentException>().WithMessage("*Fork compaction*");
-    }
-
-    [Fact]
     public void ModelChoice_DefaultsToFresh()
     {
         SubAgentContexts.Resolve(SubAgentContextPolicy.ModelChoice, null)
@@ -93,15 +71,15 @@ public class SubAgentContextPolicyTests
     }
 
     [Fact]
-    public void ModelChoice_UsesRequestedFork()
+    public void ModelChoice_UsesRequestedHandoff()
     {
-        using var document = JsonDocument.Parse("""{"context":"fork"}""");
+        using var document = JsonDocument.Parse("""{"context":"handoff"}""");
 
         var requested = SubAgentContexts.ReadRequestedContext(document.RootElement);
 
-        requested.Should().Be(SubAgentContext.Fork);
+        requested.Should().Be(SubAgentContext.Handoff);
         SubAgentContexts.Resolve(SubAgentContextPolicy.ModelChoice, requested)
-            .Should().Be(SubAgentContextPolicy.Fork);
+            .Should().Be(SubAgentContextPolicy.Handoff);
     }
 
     [Fact]
@@ -109,7 +87,7 @@ public class SubAgentContextPolicyTests
     {
         using var document = JsonDocument.Parse("""{"type":"object","properties":{}}""");
 
-        var fixedSchema = SubAgentContexts.CreateSchema(document.RootElement, SubAgentContextPolicy.Fork);
+        var fixedSchema = SubAgentContexts.CreateSchema(document.RootElement, SubAgentContextPolicy.Handoff);
         var choiceSchema = SubAgentContexts.CreateSchema(document.RootElement, SubAgentContextPolicy.ModelChoice);
 
         fixedSchema.GetProperty("properties").TryGetProperty("context", out _).Should().BeFalse();

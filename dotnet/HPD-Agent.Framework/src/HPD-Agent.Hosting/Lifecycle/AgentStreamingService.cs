@@ -73,6 +73,9 @@ public sealed class AgentStreamingService : IAgentStreamingService
         AgentInputEvent input,
         CancellationToken cancellationToken = default)
     {
+        if (!HPD.Agent.Serialization.AgentInputCodec.IsPublicInput(input))
+            return AgentServiceResult<InputSubmissionDto>.Validation("InternalInput", "This input is reserved for the internal runtime.");
+
         if (input is UserMessagesInputEvent { Delivery: AgentInputDelivery.Steer })
             return await SubmitActiveControlAsync(agentId, sessionId, threadId, input, cancellationToken)
                 .ConfigureAwait(false);
@@ -159,6 +162,9 @@ public sealed class AgentStreamingService : IAgentStreamingService
         AgentInputEvent input,
         CancellationToken cancellationToken = default)
     {
+        if (!HPD.Agent.Serialization.AgentInputCodec.IsPublicInput(input))
+            return AgentServiceResult<InputSubmissionDto>.Validation("InternalInput", "This input is reserved for the trusted runtime.");
+
         if (string.IsNullOrWhiteSpace(controllerAgentId) ||
             string.IsNullOrWhiteSpace(childAgentId) ||
             string.IsNullOrWhiteSpace(controllerSessionId) ||

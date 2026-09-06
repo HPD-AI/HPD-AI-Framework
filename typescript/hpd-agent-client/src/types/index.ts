@@ -10,3 +10,4 @@ export * from './agent.js';
 export * from './evals.js';
 export * from './run-config.js';
 export * from './context-usage.js';
+export * from './goals.js';

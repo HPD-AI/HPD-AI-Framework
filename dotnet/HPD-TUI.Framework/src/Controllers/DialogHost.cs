@@ -13,6 +13,7 @@ public sealed class DialogHost : Component
     {
         _content = content ?? throw new ArgumentNullException(nameof(content));
         _focus = focus ?? throw new ArgumentNullException(nameof(focus));
+        AdoptChild(_content);
     }
 
     public int Count => _layers.Count;

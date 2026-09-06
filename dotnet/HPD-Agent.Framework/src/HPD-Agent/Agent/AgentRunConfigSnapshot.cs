@@ -22,6 +22,7 @@ internal static class AgentRunConfigSnapshot
         nameof(AgentRunConfig.UploadStrategy),
         nameof(AgentRunConfig.Audio),
         nameof(AgentRunConfig.Compaction),
+        nameof(AgentRunConfig.Goals),
         nameof(AgentRunConfig.Collapsing),
         nameof(AgentRunConfig.StructuredOutput),
         nameof(AgentRunConfig.RuntimeTools),
@@ -45,7 +46,10 @@ internal static class AgentRunConfigSnapshot
     {
         if (source is null) return null;
         var core = Capture((AgentRunConfig)source, composition)!;
-        return Promote(core, source.ClientPropagation);
+        var result = Promote(core, source.ClientPropagation);
+        result.DescendantDefaults = source.DescendantDefaults?.Snapshot();
+        result.HandoffCompaction = source.HandoffCompaction is null ? null : CloneSpecification(source.HandoffCompaction, composition);
+        return result;
     }
 
     internal static SubAgentRunConfig Promote(
@@ -66,6 +70,7 @@ internal static class AgentRunConfigSnapshot
             UploadStrategy = core.UploadStrategy,
             Audio = core.Audio,
             Compaction = core.Compaction,
+            Goals = core.Goals,
             Collapsing = core.Collapsing,
             StructuredOutput = core.StructuredOutput,
             Evaluations = core.Evaluations,
@@ -123,6 +128,7 @@ internal static class AgentRunConfigSnapshot
         UploadStrategy = source.UploadStrategy,
         Audio = CloneAudio(source.Audio),
         Compaction = CloneCompaction(source.Compaction, composition),
+        Goals = source.Goals?.Snapshot(),
         Collapsing = CloneCollapsing(source.Collapsing),
         StructuredOutput = CloneStructuredOutput(source.StructuredOutput),
         RuntimeTools = source.RuntimeTools is null ? null : new(source.RuntimeTools),

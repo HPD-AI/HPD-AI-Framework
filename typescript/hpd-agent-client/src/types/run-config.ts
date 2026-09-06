@@ -250,7 +250,14 @@ export type ThreadForkCompaction =
  * All fields are optional — only set fields are sent to the server.
  * Maps to AgentRunConfig on the server.
  */
+export interface GoalRunConfig {
+  toolAccess?: 'all' | 'readOnly' | 'hidden';
+  policies?: { completion?: string; blocker?: string; continuation?: string; accounting?: string };
+}
+
 export interface RunConfig {
+  /** Per-execution Goal access and policy overrides; cannot install the capability. */
+  goals?: GoalRunConfig;
   /** Independent approval, sandbox, and sandbox-escape controls. */
   security?: AgentSecurityProfile;
   /** Capabilities available while host sandbox isolation is enforced. */

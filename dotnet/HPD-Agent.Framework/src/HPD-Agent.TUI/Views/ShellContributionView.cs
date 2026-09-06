@@ -13,6 +13,7 @@ public sealed class ShellContributionView : Component
     {
         ArgumentNullException.ThrowIfNull(shell);
         _component = CreateContribution(shell, contribution);
+        AdoptChild(_component);
     }
 
     public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)

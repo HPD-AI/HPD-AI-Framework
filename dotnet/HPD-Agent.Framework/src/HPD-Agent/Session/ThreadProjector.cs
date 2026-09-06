@@ -72,6 +72,14 @@ public static class ThreadProjector
                 break;
             }
 
+            case SubAgentContextReceivedEvent context:
+            {
+                var message = context.ToMessage();
+                if (!messages.ContainsKey(context.MessageId)) messageOrder.Add(context.MessageId);
+                messages[context.MessageId] = MessageProjection.FromChatMessage(message);
+                break;
+            }
+
             case ThreadUpdatedEvent data:
             {
                 ApplyHeader(thread, data);
@@ -234,6 +242,20 @@ public static class ThreadProjector
                 thread.MiddlewareState.Clear();
                 foreach (var (key, value) in data.State)
                     thread.MiddlewareState[key] = value;
+                thread.LastActivity = evt.Timestamp.UtcDateTime;
+                break;
+            }
+
+            case PlanUpdatedEvent data:
+            {
+                // Plan facts are sufficient to recover a tool update even if the process
+                // stopped before the end-of-turn middleware snapshot was written.
+                var key = typeof(Planning.PlanModePersistentStateData).FullName!;
+                var state = thread.MiddlewareState.TryGetValue(key, out var json)
+                    ? JsonSerializer.Deserialize(json, SessionJsonContext.Combined.PlanModePersistentStateData)
+                    : null;
+                state = (state ?? new Planning.PlanModePersistentStateData()).WithPlan(data.ConversationId, data.Plan);
+                thread.MiddlewareState[key] = JsonSerializer.Serialize(state, SessionJsonContext.Combined.PlanModePersistentStateData);
                 thread.LastActivity = evt.Timestamp.UtcDateTime;
                 break;
             }

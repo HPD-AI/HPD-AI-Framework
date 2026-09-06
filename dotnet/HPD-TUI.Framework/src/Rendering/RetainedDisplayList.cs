@@ -213,7 +213,7 @@ internal sealed class RetainedDisplayList : ISegmentSink, IRetainedDisplayListSi
         if (command.Bounds.Y < region.Y || command.Bounds.Y >= region.Bottom) return;
         Span<char> character = stackalloc char[1];
         character[0] = command.Payload.Character.GetValueOrDefault();
-        var text = command.Payload.Character.HasValue ? character : command.Payload.Text.AsSpan();
+        var text = command.Payload.Character.HasValue ? character : command.Payload.GetTextSpan();
         var x = command.Bounds.X;
         while (!text.IsEmpty)
         {

@@ -181,7 +181,7 @@ internal sealed class InProcessThreadExecutionController(ISessionStore store) : 
             return ValueTask.FromResult(new ThreadExecutionCancelResult(false, null, AgentInputDisposition.NoActiveExecution));
         if (!string.Equals(active.ThreadExecutionId, expectedThreadExecutionId, StringComparison.Ordinal))
             return ValueTask.FromResult(new ThreadExecutionCancelResult(false, active.ThreadExecutionId, AgentInputDisposition.ActiveExecutionMismatch));
-        var result = active.Agent.CancelRuntimeExecution(expectedThreadExecutionId);
+        var result = active.Agent.CancelRuntimeExecution(expectedThreadExecutionId, reason);
         return ValueTask.FromResult(new ThreadExecutionCancelResult(
             result.Disposition == AgentInputDisposition.Accepted,
             result.ThreadExecutionId,

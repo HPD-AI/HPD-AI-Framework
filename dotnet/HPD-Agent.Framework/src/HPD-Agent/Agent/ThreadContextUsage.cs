@@ -54,7 +54,8 @@ public sealed class ThreadContextUsageEstimator : IThreadContextUsageEstimator
         });
     }
 
-    private static long EstimateInputTokens(IEnumerable<ChatMessage> messages)
+    /// <summary>Estimates message content only; does not include tools or provider tokenization.</summary>
+    public static long EstimateInputTokens(IEnumerable<ChatMessage> messages)
     {
         long chars = 0;
         foreach (var message in messages)
