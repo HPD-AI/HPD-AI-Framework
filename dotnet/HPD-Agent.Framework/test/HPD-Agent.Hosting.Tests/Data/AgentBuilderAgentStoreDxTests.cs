@@ -1,5 +1,6 @@
 using FluentAssertions;
 using HPD.Agent;
+using HPD.Agent.Hosting.Tests;
 using HPD.Agent.Hosting.Tests.Infrastructure;
 
 namespace HPD.Agent.Hosting.Tests.Data;
@@ -320,6 +321,7 @@ public class AgentBuilderAgentStoreDxTests
         => new()
         {
             Name = name,
+            EventComposition = TestEventApplication.Composition,
             SystemInstructions = name == "HPD-Agent"
                 ? "You are a helpful assistant."
                 : "Stored instructions",

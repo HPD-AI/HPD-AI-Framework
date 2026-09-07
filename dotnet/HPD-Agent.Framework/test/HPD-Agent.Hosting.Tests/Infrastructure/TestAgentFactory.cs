@@ -1,6 +1,7 @@
 using Microsoft.Extensions.AI;
 using HPD.Agent.Providers;
 using HPD.Agent;
+using HPD.Agent.Hosting.Tests;
 
 namespace HPD.Agent.Hosting.Tests.Infrastructure;
 
@@ -61,6 +62,7 @@ public static class TestAgentFactory
         {
             Name = "TestAgent",
             MaxAgenticIterations = 50,
+            EventComposition = TestEventApplication.Composition,
             SystemInstructions = "You are a helpful test agent.",
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
                 Provider = TestSelection(),
