@@ -133,11 +133,8 @@ public sealed record AgentSandboxRunConfig
 /// </remarks>
 public class AgentRunConfig
 {
-    /// <summary>
-    /// Gets or sets capability-targeted subagent policy overrides for this invocation.
-    /// These overrides are controller-relative and are never inherited into the child's own run.
-    /// </summary>
-    public SubAgentRunOverrides SubAgents { get; set; } = new();
+    /// <summary>Explicit client capability and policy to expose waiting human questions.</summary>
+    public bool AllowUserQuestions { get; set; }
 
     /// <summary>
     /// Security controls for this run.
@@ -148,9 +145,6 @@ public class AgentRunConfig
     /// Provider-created client-family overrides for this run.
     /// </summary>
     public AgentClientsConfig Clients { get; set; } = new();
-
-    [JsonIgnore]
-    internal SubAgentClientInheritanceSource? SubAgentClientInheritance { get; set; }
 
     [JsonIgnore]
     internal SubAgentDeclarationCatalogPin? SubAgentCatalogPin { get; set; }
@@ -234,6 +228,9 @@ public class AgentRunConfig
     /// Per-run compaction policy. Null means use the agent's configured compaction defaults.
     /// </summary>
     public CompactionRunPolicy? Compaction { get; set; }
+
+    /// <summary>Optional Goal action restrictions and policy overrides for this execution.</summary>
+    public Goals.GoalRunConfig? Goals { get; set; }
 
     #endregion
 

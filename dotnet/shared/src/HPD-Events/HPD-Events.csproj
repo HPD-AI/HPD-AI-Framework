@@ -22,4 +22,8 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.9" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="HPD-Agent" />
+  </ItemGroup>
+
 </Project>

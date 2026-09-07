@@ -4,18 +4,20 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.Debugging;
 
 internal sealed class DebugTextRowsView(
     IReadOnlyList<string> rows,
-    CodingHarnessTuiTheme theme) : IComponent
+    CodingHarnessTuiTheme theme) : HPD.TUI.Core.Component
 {
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         var width = rows.Count == 0
             ? 0
             : rows.Max(row => Math.Min(row.Length, maxWidth));
         return new Measurement(width, width, Math.Max(1, rows.Count));
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         var style = theme.ResolveMuted(context.Theme);
         for (var index = 0; index < rows.Count; index++)
         {
@@ -25,5 +27,5 @@ internal sealed class DebugTextRowsView(
         }
     }
 
-    public bool HandleInput(in TuiInputEvent input) => false;
+    public override bool HandleInput(in TuiInputEvent input) => false;
 }

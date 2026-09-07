@@ -2,7 +2,7 @@ using HPD.TUI.Core;
 
 namespace HPD.TUI.Layout;
 
-public sealed class Stack : IComponent
+public sealed class Stack : Component
 {
     private readonly List<IComponent> _children = [];
 
@@ -17,14 +17,20 @@ public sealed class Stack : IComponent
 
     public IReadOnlyList<IComponent> Children => _children;
 
+    public override ComponentDependencies Dependencies => ComponentDependencies.Static;
+
     public Stack Add(IComponent child)
     {
-        _children.Add(child ?? throw new ArgumentNullException(nameof(child)));
+        ArgumentNullException.ThrowIfNull(child);
+        AdoptChild(child);
+        _children.Add(child);
+        InvalidateLayout();
         return this;
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         if (_children.Count == 0)
         {
             return new Measurement(0, 0);
@@ -35,8 +41,9 @@ public sealed class Stack : IComponent
             : MeasureHorizontal(in context, maxWidth);
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (Orientation == Orientation.Vertical)
         {
             RenderVertical(in context, maxWidth, ref output);
@@ -46,7 +53,7 @@ public sealed class Stack : IComponent
         RenderHorizontal(in context, maxWidth, ref output);
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         foreach (var child in _children)
         {
@@ -66,13 +73,14 @@ public sealed class Stack : IComponent
         var height = 0;
         foreach (var child in _children)
         {
-            var measurement = child.Measure(in context, maxWidth);
+            var measurement = MeasureChild(child, in context,
+                LayoutConstraints.Loose(maxWidth, context.Height), 0, height);
             min = Math.Max(min, measurement.MinWidth);
             max = Math.Max(max, measurement.MaxWidth);
-            height += measurement.Height;
+            height += measurement.Height + Gap + 1;
         }
 
-        height += Math.Max(0, _children.Count - 1) * (Gap + 1);
+        height -= Gap + 1;
         return new Measurement(Math.Min(min, maxWidth), Math.Min(max, maxWidth), height);
     }
 
@@ -81,22 +89,25 @@ public sealed class Stack : IComponent
         var min = Math.Max(0, (_children.Count - 1) * Gap);
         var max = min;
         var height = 0;
+        var x = 0;
         foreach (var child in _children)
         {
-            var measurement = child.Measure(in context, maxWidth);
+            var measurement = MeasureChild(child, in context,
+                LayoutConstraints.Loose(maxWidth, context.Height), x, 0);
             min += measurement.MinWidth;
             max += measurement.MaxWidth;
             height = Math.Max(height, measurement.Height);
+            x += measurement.MaxWidth + Gap;
         }
 
         return new Measurement(Math.Min(min, maxWidth), Math.Min(max, maxWidth), height);
     }
 
-    private void RenderVertical(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    private void RenderVertical(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         for (var i = 0; i < _children.Count; i++)
         {
-            _children[i].Render(in context, maxWidth, ref output);
+            output.Render(_children[i], in context, maxWidth);
 
             if (i < _children.Count - 1)
             {
@@ -108,7 +119,7 @@ public sealed class Stack : IComponent
         }
     }
 
-    private void RenderHorizontal(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    private void RenderHorizontal(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         if (maxWidth <= 0)
         {
@@ -129,14 +140,14 @@ public sealed class Stack : IComponent
                 break;
             }
 
-            var measurement = _children[i].Measure(in context, remainingWidth);
+            var measurement = MeasureChild(_children[i], in context, remainingWidth);
             var allocatedWidth = Math.Clamp(measurement.MaxWidth, 0, remainingWidth);
             if (allocatedWidth <= 0)
             {
                 continue;
             }
 
-            _children[i].Render(in context, allocatedWidth, ref output);
+            output.Render(_children[i], in context, allocatedWidth);
             remainingWidth -= allocatedWidth;
 
             if (i < _children.Count - 1 && Gap > 0)

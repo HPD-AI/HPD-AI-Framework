@@ -121,7 +121,7 @@ public sealed class RedTeamRunnerTests
         public FixedResponseAgent(string responseText)
         {
             _agent = new HPD.Agent.Agent(
-                new AgentConfig { Name = nameof(FixedResponseAgent) },
+                new AgentConfig { Name = nameof(FixedResponseAgent), EventComposition = HPD.Agent.Serialization.CoreAgentEventComposition.Instance },
                 new FixedResponseChatClient(responseText),
                 null,
                 middlewares: [new RecordingMiddleware(this)]);
@@ -163,7 +163,12 @@ public sealed class RedTeamRunnerTests
                 };
             }
 
-            public object? GetService(Type serviceType, object? serviceKey = null) => null;
+            public object? GetService(Type serviceType, object? serviceKey = null)
+                => serviceType == typeof(HPD.Agent.Providers.ProviderClientExecutionIdentity)
+                    ? HPD.Agent.Providers.ProviderClientExecutionIdentity.CreateSafe(
+                        "test", "platform", HPD.Agent.Providers.ProviderClientFamily.Chat,
+                        "fixed-response", "test/chat", "test/final")
+                    : null;
             public void Dispose() { }
         }
     }

@@ -5,6 +5,7 @@ using HPD.Agent.Bots.Session;
 using HPD.Agent.Bots.Teams;
 using HPD.Agent.Bots.Tests.TestInfrastructure;
 using HPD.Agent.Hosting.Lifecycle;
+using HPD.Agent.Providers;
 using Microsoft.Agents.Builder.App;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
@@ -189,7 +190,7 @@ public class TeamsBotMessageTests
             MaxAgenticIterations = 1,
             SystemInstructions = "You are a Teams test agent.",
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
-                ProviderKey = "test",
+                Provider = new ProviderReference { Key = "test" },
                 ModelName = "test-model",
             } },
             AgenticLoop = new AgenticLoopConfig
@@ -202,6 +203,7 @@ public class TeamsBotMessageTests
                 NormalizeErrors = true,
             },
             SessionStore = sessionStore,
+            EventComposition = HPD.Agent.Serialization.CoreAgentEventComposition.Instance,
             SessionStoreOptions = new SessionStoreOptions
             {
                 PersistAfterTurn = true,
@@ -221,6 +223,8 @@ public class TeamsBotMessageTests
 
     private sealed class CapturingChatClient(string responseText) : IChatClient
     {
+        public ChatClientMetadata Metadata => new("CapturingChatClient");
+
         public IReadOnlyList<ChatMessage> LastMessages { get; private set; } = [];
 
         public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
@@ -252,7 +256,15 @@ public class TeamsBotMessageTests
             return Task.FromResult(new ChatResponse([new ChatMessage(ChatRole.Assistant, responseText)]));
         }
 
-        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+        public object? GetService(Type serviceType, object? serviceKey = null)
+            => serviceType == typeof(ProviderClientExecutionIdentity)
+                ? new ProviderClientExecutionIdentity
+                {
+                    ProviderKey = "test", BackendKey = "platform", Family = ProviderClientFamily.Chat,
+                    ModelName = "capturing", OperationAdapterKey = "test/chat",
+                    UsageSemanticsKey = "test/final", SafeConfigurationFingerprint = "test-capturing"
+                }
+                : null;
 
         public void Dispose()
         {

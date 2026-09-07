@@ -152,7 +152,12 @@ internal static class ConsoleProviderCommands
         }
 
         var modelId = args[2];
-        providers.ModelSelection.Set(provider.ProviderKey, modelId);
+        providers.ModelSelection.Set(
+            provider.ProviderKey,
+            provider.ProviderKey,
+            provider.ProviderKey,
+            new HPD.Agent.Providers.ProviderReference { Key = provider.ProviderKey },
+            modelId);
         AppendNotice(context, "Model selected", $"{provider.ProviderKey} / {modelId}");
     }
 
@@ -197,7 +202,7 @@ internal static class ConsoleProviderCommands
         => AppendOrUpdate(context, new TranscriptEntry(
                 Id: $"provider-command-{Guid.NewGuid():N}",
                 EntryKey: entryKey,
-                Cell: new NoticeCell(title, new Markdown(markdown), severity),
+                Cell: new NoticeCell(title, HPD.TUI.Content.TextBlock.Create(markdown), severity),
                 Metadata: Metadata(context)));
 
     private static void AppendOrUpdate(AgentTuiCommandContext context, TranscriptEntry entry)
@@ -208,7 +213,7 @@ internal static class ConsoleProviderCommands
             return;
         }
 
-        context.Shell.Transcript.FinalizeLive(entry.EntryKey!, entry.AsFinal());
+        context.Shell.Transcript.FinalizeLive(entry.EntryKey!, entry.AsFinal(), CommittedHistoryMutationPolicy.Reject);
     }
 
     private static TranscriptEntryMetadata Metadata(AgentTuiCommandContext context)
@@ -257,7 +262,7 @@ internal static class ConsoleProviderCommands
         if (snapshot.Providers.Count == 0)
         {
             markdown.AppendLine("No providers found.");
-            return new Markdown(markdown.ToString());
+            return HPD.TUI.Content.TextBlock.Create(markdown.ToString());
         }
 
         for (var i = 0; i < snapshot.Providers.Count; i++)
@@ -284,7 +289,7 @@ internal static class ConsoleProviderCommands
                 .AppendLine(RequiredSecrets(status.Provider));
         }
 
-        return new Markdown(markdown.ToString());
+        return HPD.TUI.Content.TextBlock.Create(markdown.ToString());
     }
 
     private static bool HandleProvidersPageInput(AgentTuiPageContext context, KeyEvent key)
@@ -320,7 +325,7 @@ internal static class ConsoleProviderCommands
         var status = PageState.Snapshot().SelectedProvider;
         if (status is null)
         {
-            return new Markdown("**Provider**\n\nNo provider selected.");
+            return HPD.TUI.Content.TextBlock.Create("**Provider**\n\nNo provider selected.");
         }
 
         var provider = status.Provider;
@@ -334,7 +339,7 @@ internal static class ConsoleProviderCommands
         markdown.Append("- required secrets: ").AppendLine(RequiredSecrets(provider));
         markdown.AppendLine();
         markdown.AppendLine("Use `/provider <providerKey> setup` for setup details or `/model` to choose a model.");
-        return new Markdown(markdown.ToString());
+        return HPD.TUI.Content.TextBlock.Create(markdown.ToString());
     }
 
     private static bool HandleProviderDetailPageInput(AgentTuiPageContext context, KeyEvent key)

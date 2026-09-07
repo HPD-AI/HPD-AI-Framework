@@ -4,6 +4,7 @@ using HPD.Agent;
 using HPD.Agent.AspNetCore.Streaming;
 using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
 using HPD.Agent.Hosting.Lifecycle;
+using HPD.Events;
 using HPD.Events.Core;
 using Microsoft.AspNetCore.Http;
 
@@ -43,7 +44,8 @@ public sealed class SseEventHandlerReplayTests
         await using var observation = new ThreadEventObservationLease(
             store,
             new ThreadKey("session-1", "main"),
-            coordinator.CreateInbox<AgentEvent>());
+            AgentEventHierarchy.ExactThread,
+            AgentEventRoutes.CreateDeliveryInbox(coordinator, new ThreadKey("session-1", "main"), AgentEventHierarchy.ExactThread));
         var streamTask = SseEventHandler.StreamEventsAsync(context, observation, timeout.Token);
         while (context.Response.Body.Length < 20)
         {
@@ -69,7 +71,8 @@ public sealed class SseEventHandlerReplayTests
         await using var observation = new ThreadEventObservationLease(
             store,
             new ThreadKey("session-1", "main"),
-            coordinator.CreateInbox<AgentEvent>());
+            AgentEventHierarchy.ExactThread,
+            AgentEventRoutes.CreateDeliveryInbox(coordinator, new ThreadKey("session-1", "main"), AgentEventHierarchy.ExactThread));
         var context = CreateContext(after: "1:1");
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         var streamTask = SseEventHandler.StreamEventsAsync(context, observation, timeout.Token);
@@ -79,7 +82,7 @@ public sealed class SseEventHandlerReplayTests
             ThreadId = "main"
         };
 
-        await coordinator.EmitAsync(live, timeout.Token);
+        await coordinator.EmitAsync(live, AgentEventRoutes.Create(coordinator, live), timeout.Token);
         await WaitForBodyAsync(context, live.EventId, timeout.Token);
         await timeout.CancelAsync();
         await streamTask;
@@ -95,12 +98,16 @@ public sealed class SseEventHandlerReplayTests
     {
         var store = await CreateStoreWithThreadAsync();
         var parent = new EventCoordinator();
-        var child = new EventCoordinator();
-        child.SetParent(parent);
+        var child = (EventCoordinator)parent.CreateChild(EventChildOwnership.NewOwner);
+        var root = new ThreadKey("session-1", "main");
+        var childKey = new ThreadKey("session-1", "subagent/explore/invocation-1");
+        AgentEventRoutes.AttachCoordinator(child, parent);
+        AgentEventRoutes.RegisterChild(parent, childKey, root);
         await using var observation = new ThreadEventObservationLease(
             store,
             new ThreadKey("session-1", "main"),
-            parent.CreateInbox<AgentEvent>());
+            AgentEventHierarchy.ThreadAndDescendants,
+            AgentEventRoutes.CreateDeliveryInbox(parent, root, AgentEventHierarchy.ThreadAndDescendants));
         var context = CreateContext(after: "1:1");
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         var streamTask = SseEventHandler.StreamEventsAsync(context, observation, timeout.Token);
@@ -111,7 +118,7 @@ public sealed class SseEventHandlerReplayTests
             ThreadSequenceNumber = 7
         };
 
-        await child.EmitAsync(childEvent, timeout.Token);
+        await child.EmitAsync(childEvent, AgentEventRoutes.Create(child, childEvent), timeout.Token);
         await WaitForBodyAsync(context, childEvent.EventId, timeout.Token);
         await timeout.CancelAsync();
         await streamTask;
@@ -130,7 +137,8 @@ public sealed class SseEventHandlerReplayTests
         await using var observation = new ThreadEventObservationLease(
             store,
             new ThreadKey("session-1", "main"),
-            coordinator.CreateInbox<AgentEvent>());
+            AgentEventHierarchy.ExactThread,
+            AgentEventRoutes.CreateDeliveryInbox(coordinator, new ThreadKey("session-1", "main"), AgentEventHierarchy.ExactThread));
         var context = CreateContext(after: "1:1");
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         var streamTask = SseEventHandler.StreamEventsAsync(context, observation, timeout.Token);

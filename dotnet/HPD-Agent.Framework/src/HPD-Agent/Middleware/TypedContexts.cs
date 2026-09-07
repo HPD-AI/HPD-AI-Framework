@@ -27,6 +27,9 @@ public enum AgentTurnTriggerSource
 /// <summary>Context for the before-message-turn hook.</summary>
 public sealed class BeforeMessageTurnContext : HookContext
 {
+    /// <summary>The exact semantic input that owns this message turn.</summary>
+    public AgentInputEvent? SourceInput => Base.SourceInput;
+
     private readonly List<ChatMessage> _runtimeContextMessages;
 
     /// <summary>Gets the semantic source that initiated this turn.</summary>
@@ -100,6 +103,9 @@ public sealed class BeforeMessageTurnContext : HookContext
 /// </summary>
 public sealed class AfterMessageTurnContext : HookContext
 {
+    /// <summary>The exact semantic input that owns this message turn.</summary>
+    public AgentInputEvent? SourceInput => Base.SourceInput;
+
     /// <summary>Gets the semantic source that initiated this completed turn.</summary>
     public AgentTurnTriggerSource TriggerSource { get; }
 

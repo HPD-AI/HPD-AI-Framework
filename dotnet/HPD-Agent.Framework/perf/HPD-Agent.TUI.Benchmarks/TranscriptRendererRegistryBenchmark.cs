@@ -46,15 +46,15 @@ public class TranscriptRendererRegistryBenchmark
 
     [Benchmark(Baseline = true)]
     public string BuiltInsOnly()
-        => Render(_defaultRenderers.Create(_entry));
+        => Render(_defaultRenderers.Create(_entry, 80, Theme.Default, ColorSystem.TrueColor));
 
     [Benchmark]
     public string ReplacedRenderer()
-        => Render(_replacedRenderers.Create(_entry));
+        => Render(_replacedRenderers.Create(_entry, 80, Theme.Default, ColorSystem.TrueColor));
 
     [Benchmark]
     public string DecoratedRenderer()
-        => Render(_decoratedRenderers.Create(_entry));
+        => Render(_decoratedRenderers.Create(_entry, 80, Theme.Default, ColorSystem.TrueColor));
 
     private static string Render(IComponent component)
         => TuiCapture.RenderToString(component, width: 80, height: 4, trimTrailingBlankLines: false);

@@ -145,12 +145,18 @@ internal static class AIContractAnalyzer
     {
         if (effectiveType.TypeKind is TypeKind.Enum)
         {
-            var values = effectiveType.GetMembers()
+            var fields = effectiveType.GetMembers()
                 .OfType<IFieldSymbol>()
                 .Where(static field => field.HasConstantValue && !field.IsImplicitlyDeclared)
-                .Select(static field => field.Name)
                 .ToImmutableArray();
-            contract = new ScalarContractNode(declaredType, allowsNull, description, AIScalarKind.Enum, AllowedValues: values);
+            var values = fields.Select(static field => field.Name).ToImmutableArray();
+            var describedValues = fields.Select(field => (field.Name, Description: GetDescription(field)))
+                .Where(static field => !string.IsNullOrWhiteSpace(field.Description))
+                .Select(static field => field.Name + ": " + field.Description);
+            var valueDocumentation = string.Join(" ", describedValues);
+            var effectiveDescription = valueDocumentation.Length == 0 ? description
+                : string.IsNullOrWhiteSpace(description) ? valueDocumentation : description + " " + valueDocumentation;
+            contract = new ScalarContractNode(declaredType, allowsNull, effectiveDescription, AIScalarKind.Enum, AllowedValues: values);
             return true;
         }
 

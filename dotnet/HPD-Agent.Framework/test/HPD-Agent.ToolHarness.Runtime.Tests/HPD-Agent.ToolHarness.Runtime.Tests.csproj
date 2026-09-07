@@ -39,6 +39,7 @@
     <Compile Include="../HPD-Agent.Tests/Middleware/ToolScopingMiddlewareTests.cs" Link="Middleware/ToolScopingMiddlewareTests.cs" />
     <Compile Include="../HPD-Agent.Tests/Middleware/V2/TestHelpers.cs" Link="Middleware/V2/TestHelpers.cs" />
     <Compile Include="../HPD-Agent.Tests/Infrastructure/ScopedPluginTestHelper.cs" Link="Infrastructure/ScopedPluginTestHelper.cs" />
+    <Compile Include="../HPD-Agent.Tests/Infrastructure/FakeChatClient.cs" Link="Infrastructure/FakeChatClient.cs" />
     <Compile Include="../HPD-Agent.Tests/Operations/AgentOperationTests.cs" Link="Operations/AgentOperationTests.cs" />
     <Compile Include="../HPD-Agent.Tests/SourceGenerator/HPDToolSourceGeneratorTests.cs" Link="SourceGenerator/HPDToolSourceGeneratorTests.cs" />
   </ItemGroup>

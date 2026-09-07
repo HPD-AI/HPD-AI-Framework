@@ -5,6 +5,7 @@ using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Models;
 using HPD.Agent.TUI.Runtime;
 using HPD.TUI.Components;
+using HPD.TUI.Core;
 using HPD.TUI.Models;
 
 namespace HPD.Agent.TUI.Tests;
@@ -117,11 +118,49 @@ public sealed class AgentTuiSessionStateTests
         model.AddFinal(CreateEntry("two", "m2"));
         model.AddFinal(CreateEntry("three", "m3"));
 
-        var removed = model.RemoveWhere(entry => entry.Metadata.MessageId is "m1" or "m3");
+        var removed = model.RemoveWhere(
+            entry => entry.Metadata.MessageId is "m1" or "m3",
+            CommittedHistoryMutationPolicy.Reject);
 
-        removed.Should().Be(2);
+        removed.AffectedCount.Should().Be(2);
         model.Snapshot().Entries.Select(entry => entry.Metadata.MessageId)
             .Should().Equal("m2");
+    }
+
+    [Fact]
+    public void TranscriptModel_CommittedMutationsReportPolicyAndNeverSilentlyRetract()
+    {
+        static TranscriptModel Committed()
+        {
+            var model = new TranscriptModel();
+            model.AddFinal(CreateEntry("one", "m1") with { EntryKey = "key" });
+            model.CommitPrefix(0, 1);
+            return model;
+        }
+
+        var rejected = Committed().RemoveWhere(_ => true, CommittedHistoryMutationPolicy.Reject);
+        rejected.Status.Should().Be(TranscriptMutationStatus.CannotRetract);
+
+        var removed = Committed().RemoveWhere(_ => true, CommittedHistoryMutationPolicy.VisibleEpochBoundary);
+        removed.Should().Be(new TranscriptMutationResult(
+            TranscriptMutationStatus.RequiresPresentationReset, 1,
+            CommittedHistoryMutationPolicy.VisibleEpochBoundary));
+
+        var replaced = Committed().ReplaceWhereWith(
+            _ => true, CreateEntry("replacement", "m2"), CommittedHistoryMutationPolicy.ClearAndReplay);
+        replaced.Status.Should().Be(TranscriptMutationStatus.RequiresPresentationReset);
+
+        var cleared = Committed().ClearAll(CommittedHistoryMutationPolicy.SwitchToAlternateScreen);
+        cleared.Status.Should().Be(TranscriptMutationStatus.RequiresPresentationReset);
+
+        var upserted = Committed().UpsertLive(
+            CreateEntry("live", "m3") with { EntryKey = "key" },
+            CommittedHistoryMutationPolicy.VisibleEpochBoundary);
+        upserted.Status.Should().Be(TranscriptMutationStatus.RequiresPresentationReset);
+
+        var finalized = Committed().FinalizeLive(
+            "key", CreateEntry("final", "m4"), CommittedHistoryMutationPolicy.ClearAndReplay);
+        finalized.Status.Should().Be(TranscriptMutationStatus.RequiresPresentationReset);
     }
 
     [Fact]
@@ -225,7 +264,12 @@ public sealed class AgentTuiSessionStateTests
             => new(
                 Id: $"assistant-{messageId}",
                 EntryKey: $"assistant:{messageId}",
-                new AssistantMessageCell("assistant", new Markdown(string.IsNullOrWhiteSpace(markdown) ? "_thinking..._" : markdown)),
+                HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant(
+                    messageId,
+                    string.IsNullOrWhiteSpace(markdown) ? "_thinking..._" : markdown,
+                    80,
+                    HPD.TUI.Markdown.MarkdownTheme.FromTheme(Theme.Default),
+                    "assistant"),
                 new TranscriptEntryMetadata(
                     AgentId: context.Scope.AgentId,
                     AgentName: "assistant",
@@ -237,13 +281,13 @@ public sealed class AgentTuiSessionStateTests
             AgentTuiEventContext context,
             string messageId,
             string markdown)
-            => context.Shell.Transcript.UpsertLive(AssistantEntry(context, messageId, markdown));
+            => context.Shell.Transcript.UpsertLive(AssistantEntry(context, messageId, markdown), CommittedHistoryMutationPolicy.Reject);
 
         private static void FinalizeAssistantRow(
             AgentTuiEventContext context,
             string messageId,
             string markdown)
-            => context.Shell.Transcript.FinalizeLive($"assistant:{messageId}", AssistantEntry(context, messageId, markdown));
+            => context.Shell.Transcript.FinalizeLive($"assistant:{messageId}", AssistantEntry(context, messageId, markdown), CommittedHistoryMutationPolicy.Reject);
     }
 
     private sealed class RenderRequestingEventHandler : IAgentTuiEventHandler
@@ -289,7 +333,7 @@ public sealed class AgentTuiSessionStateTests
                         AgentName: "tool",
                         ParentAgentId: null,
                         AgentChain: ["assistant", "tool"],
-                        AgentDepth: 1)));
+                        AgentDepth: 1)), CommittedHistoryMutationPolicy.Reject);
             }
 
             return ValueTask.CompletedTask;

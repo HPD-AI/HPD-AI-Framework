@@ -1,4 +1,5 @@
 using HPD.TUI.Core;
+using HPD.Agent.TUI.Markdown;
 
 namespace HPD.Agent.TUI.Models;
 
@@ -14,12 +15,12 @@ public sealed record UserMessageCell(IComponent Body) : TranscriptCell
 
 public sealed record AssistantMessageCell(
     string? Name,
-    IComponent Body,
-    bool IsStreaming = false) : TranscriptCell;
+    MarkdownMessageDocument Document,
+    MarkdownMessageProjection Projection) : TranscriptCell;
 
 public sealed record ReasoningMessageCell(
-    IComponent Body,
-    bool IsStreaming = false) : TranscriptCell;
+    MarkdownMessageDocument Document,
+    MarkdownMessageProjection Projection) : TranscriptCell;
 
 public sealed record NoticeCell(
     string Title,

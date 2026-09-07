@@ -6,7 +6,7 @@ using HPD.TUI.Core;
 namespace HPD.Agent.TUI.Views;
 
 /// <summary>Renders the registered application-owned footer items.</summary>
-public sealed class FooterItemsView : IComponent
+public sealed class FooterItemsView : Component
 {
     private readonly IComponent[] _components;
 
@@ -27,15 +27,16 @@ public sealed class FooterItemsView : IComponent
         }
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         var min = 0;
         var max = 0;
         var height = 0;
         var visible = 0;
         foreach (var component in _components)
         {
-            var measurement = component.Measure(in context, maxWidth);
+            var measurement = component.Measure(in context, HPD.TUI.Layout.LayoutConstraints.Loose(maxWidth, context.Height));
             if (measurement.Height <= 0)
             {
                 continue;
@@ -51,8 +52,9 @@ public sealed class FooterItemsView : IComponent
         return new Measurement(Math.Min(min, maxWidth), Math.Min(max, maxWidth), height);
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (_components.Length == 0)
         {
             return;
@@ -61,7 +63,7 @@ public sealed class FooterItemsView : IComponent
         var wrote = false;
         for (var i = 0; i < _components.Length; i++)
         {
-            if (_components[i].Measure(in context, maxWidth).Height <= 0)
+            if (_components[i].Measure(in context, HPD.TUI.Layout.LayoutConstraints.Loose(maxWidth, context.Height)).Height <= 0)
             {
                 continue;
             }
@@ -71,12 +73,12 @@ public sealed class FooterItemsView : IComponent
                 output.WriteLineBreak();
             }
 
-            _components[i].Render(in context, maxWidth, ref output);
+            output.Render(_components[i], in context, maxWidth);
             wrote = true;
         }
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         foreach (var component in _components)
         {

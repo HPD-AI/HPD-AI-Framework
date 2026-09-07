@@ -2,9 +2,16 @@ using HPD.TUI.Core;
 
 namespace HPD.TUI.Components;
 
-public sealed class Overlay : IComponent
+public sealed class Overlay : Component
 {
+    public override ComponentDependencies Dependencies => ComponentDependencies.Static;
     private readonly IComponent _child;
+    private int _x;
+    private int _y;
+    private int _width;
+    private int? _height;
+    private OverlayVerticalPlacement _verticalPlacement;
+    private bool _clearBackground;
 
     public Overlay(
         IComponent child,
@@ -16,6 +23,7 @@ public sealed class Overlay : IComponent
         bool clearBackground = false)
     {
         _child = child ?? throw new ArgumentNullException(nameof(child));
+        AdoptChild(_child);
         ArgumentOutOfRangeException.ThrowIfNegative(x);
         ArgumentOutOfRangeException.ThrowIfNegative(y);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
@@ -24,33 +32,41 @@ public sealed class Overlay : IComponent
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(value);
         }
 
-        X = x;
-        Y = y;
-        Width = width;
-        Height = height;
-        VerticalPlacement = verticalPlacement;
-        ClearBackground = clearBackground;
+        _x = x;
+        _y = y;
+        _width = width;
+        _height = height;
+        _verticalPlacement = verticalPlacement;
+        _clearBackground = clearBackground;
     }
 
-    public int X { get; set; }
+    /// <summary>Gets or sets the horizontal placement.</summary>
+    public int X { get => _x; set { ArgumentOutOfRangeException.ThrowIfNegative(value); SetLayout(ref _x, value); } }
 
-    public int Y { get; set; }
+    /// <summary>Gets or sets the vertical placement offset.</summary>
+    public int Y { get => _y; set { ArgumentOutOfRangeException.ThrowIfNegative(value); SetLayout(ref _y, value); } }
 
-    public int Width { get; set; }
+    /// <summary>Gets or sets the overlay width.</summary>
+    public int Width { get => _width; set { ArgumentOutOfRangeException.ThrowIfNegativeOrZero(value); SetLayout(ref _width, value); } }
 
-    public int? Height { get; set; }
+    /// <summary>Gets or sets the optional overlay height.</summary>
+    public int? Height { get => _height; set { if (value is { } height) ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height); SetLayout(ref _height, value); } }
 
-    public OverlayVerticalPlacement VerticalPlacement { get; set; }
+    /// <summary>Gets or sets how the vertical offset is interpreted.</summary>
+    public OverlayVerticalPlacement VerticalPlacement { get => _verticalPlacement; set => SetLayout(ref _verticalPlacement, value); }
 
-    public bool ClearBackground { get; set; }
+    /// <summary>Gets or sets whether the overlay clears its rectangle before painting.</summary>
+    public bool ClearBackground { get => _clearBackground; set => SetPaint(ref _clearBackground, value); }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
-        return _child.Measure(in context, Math.Min(maxWidth, Width));
+        var maxWidth = constraints.MaxWidth;
+        return MeasureChild(_child, in context, Math.Min(maxWidth, Width));
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         var width = Math.Min(maxWidth, Width);
         var height = Math.Clamp(Height ?? context.Height, 1, context.Height);
         var y = ResolveY(context.Height, height);
@@ -67,10 +83,10 @@ public sealed class Overlay : IComponent
         }
 
         output.MoveTo(X, y);
-        _child.Render(in childContext, width, ref output);
+        output.Render(_child, in childContext, width);
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         return _child.HandleInput(in key);
     }
@@ -89,7 +105,7 @@ public sealed class Overlay : IComponent
         int width,
         int height,
         int y,
-        ref SegmentWriter output)
+        ref DisplayListBuilder output)
     {
         if (X >= context.Width || y >= context.Height)
         {

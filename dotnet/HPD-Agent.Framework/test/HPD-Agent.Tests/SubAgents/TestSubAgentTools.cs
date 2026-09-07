@@ -168,7 +168,7 @@ public class TestSubAgentTools
                 SystemInstructions = "Test agent with ToolHarness access",
                 Clients = new AgentClientsConfig { Chat = new ChatClientConfig { Provider = new HPD.Agent.Providers.ProviderReference { Key = "openrouter" }, ModelName = "test" } }
             },
-            contextPolicy: SubAgentContextPolicy.Fork,
+            contextPolicy: SubAgentContextPolicy.Handoff,
             toolharnessTypes: [typeof(HPD.Agent.ToolHarness.FileSystem.FileSystemTools)]);
     }
 }

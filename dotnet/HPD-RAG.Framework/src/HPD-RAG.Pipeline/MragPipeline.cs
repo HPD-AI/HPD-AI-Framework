@@ -295,8 +295,8 @@ public class MragPipeline
                 eb.WithCloningPolicy(edge.CloningPolicy.Value);
             if (edge.Delay.HasValue)
                 eb.WithDelay(edge.Delay.Value);
-            if (edge.Schedule != null)
-                eb.WithSchedule(edge.Schedule);
+            // Scheduling is configured at graph activation level in the current
+            // HPD Graph API; edge-level schedules are no longer supported.
             if (edge.RetryPolicy != null)
                 eb.WithRetryPolicy(edge.RetryPolicy);
             foreach (var (key, value) in edge.Metadata)

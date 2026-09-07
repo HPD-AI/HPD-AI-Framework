@@ -30,6 +30,38 @@ public sealed class AgentTuiDialogServiceTests
     }
 
     [Fact]
+    public async Task FormAsync_FromOffMailboxThread_PresentsOnDispatcherAndCompletes()
+    {
+        // Interactions present dialogs from a background thread. The dialog service must route
+        // component/focus mutations through the application dispatcher rather than touching the
+        // mailbox-owned tree directly (which throws the owning-mailbox guard).
+        var focus = new FocusManager();
+        var content = PromptView.Create();
+        focus.SetFocus(content);
+        var host = new DialogHost(content, focus);
+        var slot = new WidgetSlotModel();
+        var navigation = new AgentTuiNavigationModel();
+        var dialogs = new AgentTuiDialogService(
+            host,
+            new AgentTuiDialogChrome { Width = 80 },
+            slot,
+            navigation,
+            dispatcher: new InlineOffMailboxDispatcher(),
+            dispatcherRunning: () => true);
+        var enabled = FormFields.Boolean("enabled", "Enabled");
+        var form = new FormDefinition<bool>(new FormModel().Add(enabled), () => enabled.Value);
+
+        var pending = dialogs.FormAsync("Settings", form);
+        host.HandleInput(new KeyEvent(KeyCode.RightArrow));
+        host.HandleInput(new KeyEvent(KeyCode.Enter, Modifiers: KeyModifiers.Ctrl));
+        var result = await pending.WaitAsync(TimeSpan.FromSeconds(2));
+
+        result.Should().Be(AgentTuiDialogResult<bool>.Submitted(true));
+        host.HasOpenDialog.Should().BeFalse();
+        slot.Count.Should().Be(0);
+    }
+
+    [Fact]
     public async Task FormAsync_EscapeCancelsDraftAndCleansUpDialogState()
     {
         var fixture = CreateFixture();
@@ -158,4 +190,24 @@ public sealed class AgentTuiDialogServiceTests
         WidgetSlotModel Slot,
         AgentTuiNavigationModel Navigation,
         AgentTuiDialogService Dialogs);
+
+    private sealed class InlineOffMailboxDispatcher : ITuiDispatcher
+    {
+        public bool CheckAccess() => false;
+
+        public void Post(Action callback) => callback();
+
+        public ValueTask InvokeAsync(Action callback, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            callback();
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask InvokeAsync(Func<ValueTask> callback, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return callback();
+        }
+    }
 }

@@ -112,6 +112,7 @@ public sealed class AudioFunctionCallingValidationTests
         => new()
         {
             Name = "AudioFunctionValidationAgent",
+            EventComposition = HPD.Agent.Serialization.CoreAgentEventComposition.Instance,
             MaxAgenticIterations = 10,
             SessionStore = store,
             Clients = new AgentClientsConfig
@@ -198,7 +199,10 @@ public sealed class AudioFunctionCallingValidationTests
             };
         }
 
-        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+        public object? GetService(Type serviceType, object? serviceKey = null) =>
+            serviceType == typeof(HPD.Agent.Providers.ProviderClientExecutionIdentity)
+                ? PreparedOutputExecutionTestFixture.ChatClientIdentity
+                : null;
 
         public void Dispose()
         {

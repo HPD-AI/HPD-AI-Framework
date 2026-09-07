@@ -283,7 +283,7 @@ public sealed class SubAgentForkPolicyMatrixTests
             CreationContext = SubAgentCreationContext.Fresh,
             CreationInvocationId = invocationId,
             ParentToolCallId = toolCallId,
-            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
+            ExecutionPolicy = SubAgentTestPolicies.Default,
             CreatedAt = DateTimeOffset.UtcNow
         };
 

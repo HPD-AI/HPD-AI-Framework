@@ -562,7 +562,7 @@ public static class AgentTuiModelSelectionFlow
             model.ModelId,
             model.DisplayName,
             model.Capabilities ?? AgentTuiModelCapabilities.None,
-            provider.Chat is null ? null : (ChatClientConfig)ProviderClientConfigSnapshot.Clone(provider.Chat));
+            CreateModelChat(provider, model));
 
     private static string FormatModel(AgentTuiSelectedModel model)
     {
@@ -595,4 +595,14 @@ public static class AgentTuiModelSelectionFlow
         public static ModelDialogChoice ForModel(AgentTuiModelChoice model)
             => new(ModelChoiceKind.Model, FormatModel(model), model);
     }
+    private static ChatClientConfig? CreateModelChat(AgentTuiProviderChoice provider, AgentTuiModelChoice model)
+    {
+        var chat = provider.Chat is null ? new ChatClientConfig { Provider = provider.Provider }
+            : (ChatClientConfig)ProviderClientConfigSnapshot.Clone(provider.Chat);
+        chat.Provider = ProviderClientConfigSnapshot.CloneProviderReference(provider.Provider);
+        if (model.ProviderConfig is not null)
+            chat.ProviderConfig = model.ProviderConfig;
+        return (ChatClientConfig)ProviderClientConfigSnapshot.Clone(chat);
+    }
+
 }

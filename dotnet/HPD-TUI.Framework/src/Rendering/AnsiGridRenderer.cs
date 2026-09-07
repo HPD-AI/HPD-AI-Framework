@@ -6,6 +6,9 @@ namespace HPD.TUI.Rendering;
 internal static class AnsiGridRenderer
 {
     private static readonly char[] ResetSequence = ['\x1b', '[', '0', 'm'];
+    private static readonly char[] HyperlinkOpen = ['\x1b', ']', '8', ';', ';'];
+    private static readonly char[] HyperlinkClose = ['\x1b', ']', '8', ';', ';', '\x1b', '\\'];
+    private static readonly char[] StringTerminator = ['\x1b', '\\'];
 
     public static void WriteFull(TerminalGrid grid, AnsiFrameWriter output)
     {
@@ -14,7 +17,7 @@ internal static class AnsiGridRenderer
 
         Style? currentStyle = null;
         Span<char> styleBuffer = stackalloc char[64];
-        Span<char> runeBuffer = stackalloc char[2];
+        TerminalHyperlink? currentHyperlink = null;
 
         for (var y = 0; y < grid.Height; y++)
         {
@@ -27,7 +30,8 @@ internal static class AnsiGridRenderer
                 }
 
                 WriteStyleTransition(cell.Style, ref currentStyle, styleBuffer, output);
-                WriteRune(cell, runeBuffer, output);
+                WriteHyperlinkTransition(grid.GetHyperlink(cell), ref currentHyperlink, output);
+                output.Write(grid.GetGrapheme(cell));
             }
 
             if (currentStyle is not null)
@@ -35,6 +39,8 @@ internal static class AnsiGridRenderer
                 output.Write(ResetSequence);
                 currentStyle = null;
             }
+
+            WriteHyperlinkTransition(null, ref currentHyperlink, output);
 
             if (y < grid.Height - 1)
             {
@@ -57,21 +63,23 @@ internal static class AnsiGridRenderer
 
         Style? currentStyle = null;
         Span<char> styleBuffer = stackalloc char[64];
-        Span<char> runeBuffer = stackalloc char[2];
 
         for (var y = 0; y < current.Height; y++)
         {
             for (var x = 0; x < current.Width; x++)
             {
                 var cell = current.GetCell(x, y);
-                if (cell.IsContinuation || cell == previous.GetCell(x, y))
+                if (cell.IsContinuation || current.CellEquals(previous, x, y))
                 {
                     continue;
                 }
 
                 WriteCursorMove(x, y, output);
                 WriteStyleTransition(cell.Style, ref currentStyle, styleBuffer, output);
-                WriteRune(cell, runeBuffer, output);
+                TerminalHyperlink? activeHyperlink = null;
+                WriteHyperlinkTransition(current.GetHyperlink(cell), ref activeHyperlink, output);
+                output.Write(current.GetGrapheme(cell));
+                WriteHyperlinkTransition(null, ref activeHyperlink, output);
             }
         }
 
@@ -79,6 +87,113 @@ internal static class AnsiGridRenderer
         {
             output.Write(ResetSequence);
         }
+    }
+
+    public static ScreenDiffMetrics WriteDifferential(ScreenBuffer previous, ScreenBuffer current, AnsiFrameWriter output)
+        => WriteDifferential(previous, current, output, default);
+
+    /// <summary>Writes a differential for rows whose raster content may have changed.</summary>
+    /// <param name="previous">The last accepted local screen buffer.</param>
+    /// <param name="current">The proposed local screen buffer.</param>
+    /// <param name="output">The ordered frame being encoded.</param>
+    /// <param name="damagedRows">Optional local row damage flags.</param>
+    /// <param name="rowOffset">The live region's physical terminal row.</param>
+    /// <param name="rowLimit">The local row extent to compare, including any stale rows to erase.</param>
+    public static ScreenDiffMetrics WriteDifferential(
+        ScreenBuffer previous,
+        ScreenBuffer current,
+        AnsiFrameWriter output,
+        ReadOnlySpan<bool> damagedRows,
+        int rowOffset = 0,
+        int? rowLimit = null)
+    {
+        ArgumentNullException.ThrowIfNull(previous);
+        ArgumentNullException.ThrowIfNull(current);
+        ArgumentNullException.ThrowIfNull(output);
+
+        if (previous.Width != current.Width || previous.Height != current.Height)
+        {
+            WriteFull(current.Grid, output);
+            return new(current.Height, 0, 0, current.Height, current.Width * current.Height, current.Width * current.Height);
+        }
+
+        Style? activeStyle = null;
+        Span<char> styleBuffer = stackalloc char[64];
+        var rejectedRows = 0;
+        var comparedRows = 0;
+        var changedRows = 0;
+        var changedRuns = 0;
+        var changedCells = 0;
+        for (var row = 0; row < Math.Min(current.Height, rowLimit ?? current.Height); row++)
+        {
+            if (!damagedRows.IsEmpty && !damagedRows[row])
+                continue;
+            comparedRows++;
+            if (current.RowEquals(previous, row))
+            {
+                rejectedRows++;
+                continue;
+            }
+            changedRows++;
+
+            var column = 0;
+            while (column < current.Width)
+            {
+                if (current.Grid.CellEquals(previous.Grid, column, row))
+                {
+                    column++;
+                    continue;
+                }
+
+                var start = FindLeadingColumn(previous.Grid, current.Grid, column, row);
+                var end = ExpandChangedRun(previous.Grid, current.Grid, start, row);
+                changedRuns++;
+                changedCells += end - start;
+                WriteCursorMove(start, row + rowOffset, output);
+                TerminalHyperlink? activeHyperlink = null;
+                for (var x = start; x < end; x++)
+                {
+                    var cell = current.Grid.GetCell(x, row);
+                    if (cell.IsContinuation)
+                        continue;
+                    WriteStyleTransition(cell.Style, ref activeStyle, styleBuffer, output);
+                    WriteHyperlinkTransition(current.Grid.GetHyperlink(cell), ref activeHyperlink, output);
+                    output.Write(current.Grid.GetGrapheme(cell));
+                }
+                WriteHyperlinkTransition(null, ref activeHyperlink, output);
+                column = Math.Max(column + 1, end);
+            }
+        }
+
+        if (activeStyle is not null)
+            output.Write(ResetSequence);
+        return new(changedRows, rejectedRows, comparedRows, changedRuns, changedCells, comparedRows * current.Width);
+    }
+
+    private static int FindLeadingColumn(TerminalGrid previous, TerminalGrid current, int column, int row)
+    {
+        while (column > 0 &&
+               (previous.GetCell(column, row).IsContinuation || current.GetCell(column, row).IsContinuation))
+        {
+            column--;
+        }
+        return column;
+    }
+
+    private static int ExpandChangedRun(TerminalGrid previous, TerminalGrid current, int start, int row)
+    {
+        var end = start;
+        while (end < current.Width)
+        {
+            var differs = !current.CellEquals(previous, end, row);
+            if (!differs && end > start)
+                break;
+
+            var oldCell = previous.GetCell(end, row);
+            var newCell = current.GetCell(end, row);
+            end = Math.Min(current.Width, end + Math.Max(1, Math.Max((int)oldCell.DisplayWidth, newCell.DisplayWidth)));
+        }
+        return Math.Max(start + 1, end);
     }
 
     public static void WriteLine(TerminalGrid grid, int y, AnsiFrameWriter output)
@@ -96,8 +211,7 @@ internal static class AnsiGridRenderer
         {
             var cell = grid.GetCell(x, y);
             if (!cell.IsContinuation &&
-                cell.Rune.Value != 0 &&
-                (cell.Rune.Value != ' ' || cell.Style != Style.Default))
+                (!grid.GetGrapheme(cell).SequenceEqual(" ") || cell.Style != Style.Default || !cell.HyperlinkId.IsNone))
             {
                 lastNonBlank = x;
             }
@@ -110,7 +224,7 @@ internal static class AnsiGridRenderer
 
         Style? currentStyle = null;
         Span<char> styleBuffer = stackalloc char[64];
-        Span<char> runeBuffer = stackalloc char[2];
+        TerminalHyperlink? currentHyperlink = null;
         for (var x = 0; x <= lastNonBlank; x++)
         {
             var cell = grid.GetCell(x, y);
@@ -120,13 +234,33 @@ internal static class AnsiGridRenderer
             }
 
             WriteStyleTransition(cell.Style, ref currentStyle, styleBuffer, output);
-            WriteRune(cell, runeBuffer, output);
+            WriteHyperlinkTransition(grid.GetHyperlink(cell), ref currentHyperlink, output);
+            output.Write(grid.GetGrapheme(cell));
         }
 
         if (currentStyle is not null)
         {
             output.Write(ResetSequence);
         }
+        WriteHyperlinkTransition(null, ref currentHyperlink, output);
+    }
+
+    public static void WriteScrollbackRow(ScrollbackRow row, AnsiFrameWriter output)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        ArgumentNullException.ThrowIfNull(output);
+        Style? currentStyle = null;
+        Span<char> styleBuffer = stackalloc char[64];
+        TerminalHyperlink? currentHyperlink = null;
+        foreach (var cell in row.Cells)
+        {
+            WriteStyleTransition(cell.Style, ref currentStyle, styleBuffer, output);
+            WriteHyperlinkTransition(cell.Metadata.Hyperlink, ref currentHyperlink, output);
+            output.Write(cell.Grapheme);
+        }
+        if (currentStyle is not null)
+            output.Write(ResetSequence);
+        WriteHyperlinkTransition(null, ref currentHyperlink, output);
     }
 
     public static void WriteCursorMove(int x, int y, AnsiFrameWriter output)
@@ -163,13 +297,36 @@ internal static class AnsiGridRenderer
         currentStyle = nextStyle;
     }
 
-    private static void WriteRune(Cell cell, Span<char> runeBuffer, AnsiFrameWriter output)
+    private static void WriteHyperlinkTransition(
+        TerminalHyperlink? next,
+        ref TerminalHyperlink? current,
+        AnsiFrameWriter output)
     {
-        if (!cell.Rune.TryEncodeToUtf16(runeBuffer, out var charsWritten))
+        if (Equals(current, next))
         {
-            throw new InvalidOperationException($"Could not encode terminal rune U+{cell.Rune.Value:X}.");
+            return;
         }
 
-        output.Write(runeBuffer[..charsWritten]);
+        if (current is not null)
+        {
+            output.Write(HyperlinkClose);
+        }
+
+        if (next is not null)
+        {
+            output.Write(HyperlinkOpen);
+            output.Write(next.Destination.AsSpan());
+            output.Write(StringTerminator);
+        }
+
+        current = next;
     }
 }
+
+internal readonly record struct ScreenDiffMetrics(
+    int RowsChanged,
+    int RowsFingerprintRejected,
+    int RowsSemanticallyCompared,
+    int ChangedRuns,
+    int CellsChanged,
+    int CellsCompared);

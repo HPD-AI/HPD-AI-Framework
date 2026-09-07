@@ -11,9 +11,10 @@ public sealed class AgentTuiTranscriptRendererRegistry
     private readonly FallbackTranscriptCellRenderer _fallback = new();
 
     internal AgentTuiTranscriptRendererRegistry(
-        IEnumerable<IAgentTuiTranscriptRendererAdapter> renderers)
+        IEnumerable<IAgentTuiTranscriptRendererAdapter> renderers, AgentTuiTranscriptRenderServices services)
     {
         ArgumentNullException.ThrowIfNull(renderers);
+        Services = services;
         var byKey = new Dictionary<string, IAgentTuiTranscriptRendererAdapter>(StringComparer.Ordinal);
         var byType = new Dictionary<Type, IAgentTuiTranscriptRendererAdapter>();
 
@@ -34,6 +35,9 @@ public sealed class AgentTuiTranscriptRendererRegistry
         _byKey = byKey;
         _byType = byType;
     }
+
+    /// <summary>Gets the configured services and Markdown palette resolver shared by transcript rendering.</summary>
+    public AgentTuiTranscriptRenderServices Services { get; }
 
     public IReadOnlyCollection<string> Keys => _byKey.Keys.ToArray();
 
@@ -60,19 +64,22 @@ public sealed class AgentTuiTranscriptRendererRegistry
         return false;
     }
 
-    public IComponent Create(TranscriptEntry entry)
+    public IComponent Create(TranscriptEntry entry, int width, Theme theme, ColorSystem colorSystem)
     {
         ArgumentNullException.ThrowIfNull(entry);
 
         if (_byType.TryGetValue(entry.Cell.GetType(), out var renderer))
         {
-            return renderer.Create(entry, AgentTuiTranscriptRenderServices.Default);
+            return renderer.Create(entry, Services, width, theme, colorSystem);
         }
 
         return _fallback.Create(new AgentTuiTranscriptRenderContext<TranscriptCell>(
             entry,
             entry.Cell,
-            AgentTuiTranscriptRenderServices.Default));
+            Services,
+            width,
+            theme,
+            colorSystem));
     }
 
     private sealed class FallbackTranscriptCellRenderer : IAgentTuiTranscriptRenderer<TranscriptCell>

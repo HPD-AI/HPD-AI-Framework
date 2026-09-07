@@ -1,6 +1,9 @@
 using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Models;
+using HPD.Agent.TUI.Markdown;
+using HPD.TUI.Components;
 using HPD.TUI.Core;
+using HPD.TUI.Markdown;
 
 namespace HPD.Agent.TUI.Views;
 
@@ -14,23 +17,35 @@ internal sealed class UserMessageCellRenderer : IAgentTuiTranscriptRenderer<User
             AgentTuiTranscriptPrefixStyle.Accent);
 }
 
-internal sealed class AssistantMessageCellRenderer : IAgentTuiTranscriptRenderer<AssistantMessageCell>
+internal sealed class AssistantMessageCellRenderer : IAgentTuiTranscriptRenderer<AssistantMessageCell>, IAgentTuiMarkdownPublicationRenderer
 {
+    /// <inheritdoc />
+    public int MarkdownRowOffset => 0;
     public IComponent Create(AgentTuiTranscriptRenderContext<AssistantMessageCell> context)
-        => new TranscriptRenderComponent((in RenderContext renderContext, int maxWidth, ref SegmentWriter output) =>
-        {
-            context.Services.Prefix(
-                    context.Cell.Body,
-                    context.DepthIndent,
-                    context.DepthIndent)
-                .Render(in renderContext, maxWidth, ref output);
-        });
+        => context.Services.Prefix(
+            MarkdownProjectionView.Create(
+                context.Cell.Document,
+                context.Cell.Projection,
+                Math.Max(1, context.Width - context.DepthIndent.Length),
+                context.MarkdownTheme,
+                context.ColorSystem),
+            context.DepthIndent,
+            context.DepthIndent);
 }
 
-internal sealed class ReasoningMessageCellRenderer : IAgentTuiTranscriptRenderer<ReasoningMessageCell>
+internal sealed class ReasoningMessageCellRenderer : IAgentTuiTranscriptRenderer<ReasoningMessageCell>, IAgentTuiMarkdownPublicationRenderer
 {
+    /// <inheritdoc />
+    public int MarkdownRowOffset => 1;
     public IComponent Create(AgentTuiTranscriptRenderContext<ReasoningMessageCell> context)
-        => new TranscriptRenderComponent((in RenderContext renderContext, int maxWidth, ref SegmentWriter output) =>
+    {
+        var body = MarkdownProjectionView.Create(
+            context.Cell.Document,
+            context.Cell.Projection,
+            Math.Max(1, context.Width - context.DepthIndent.Length - 2),
+            context.MarkdownTheme,
+            context.ColorSystem);
+        return new TranscriptRenderComponent((in RenderContext renderContext, int maxWidth, ref DisplayListBuilder output) =>
         {
             output.Write(context.DepthIndent.AsSpan(), renderContext.Theme.Text);
             output.Write("reasoning".AsSpan(), AgentTuiTranscriptRenderServices.Muted);
@@ -41,18 +56,18 @@ internal sealed class ReasoningMessageCellRenderer : IAgentTuiTranscriptRenderer
                 context.Services.CreateMutedTheme(renderContext.Theme),
                 renderContext.ColorSystem,
                 renderContext.Elapsed);
-            context.Services.Prefix(
-                    context.Cell.Body,
+            output.Render(context.Services.Prefix(
+                    body,
                     $"{context.DepthIndent}  ",
-                    $"{context.DepthIndent}  ")
-                .Render(in mutedContext, maxWidth, ref output);
+                    $"{context.DepthIndent}  "), in mutedContext, maxWidth);
         });
+    }
 }
 
 internal sealed class NoticeCellRenderer : IAgentTuiTranscriptRenderer<NoticeCell>
 {
     public IComponent Create(AgentTuiTranscriptRenderContext<NoticeCell> context)
-        => new TranscriptRenderComponent((in RenderContext renderContext, int maxWidth, ref SegmentWriter output) =>
+        => new TranscriptRenderComponent((in RenderContext renderContext, int maxWidth, ref DisplayListBuilder output) =>
         {
             var prefix = context.Cell.Severity switch
             {
@@ -69,11 +84,10 @@ internal sealed class NoticeCellRenderer : IAgentTuiTranscriptRenderer<NoticeCel
             if (context.Cell.Body is not null)
             {
                 output.WriteLineBreak();
-                context.Services.Prefix(
+                output.Render(context.Services.Prefix(
                         context.Cell.Body,
                         $"{context.DepthIndent}  ",
-                        $"{context.DepthIndent}  ")
-                    .Render(in renderContext, maxWidth, ref output);
+                        $"{context.DepthIndent}  "), in renderContext, maxWidth);
             }
         });
 }
@@ -81,7 +95,7 @@ internal sealed class NoticeCellRenderer : IAgentTuiTranscriptRenderer<NoticeCel
 internal sealed class RunStatusCellRenderer : IAgentTuiTranscriptRenderer<RunStatusCell>
 {
     public IComponent Create(AgentTuiTranscriptRenderContext<RunStatusCell> context)
-        => new TranscriptRenderComponent((in RenderContext renderContext, int maxWidth, ref SegmentWriter output) =>
+        => new TranscriptRenderComponent((in RenderContext renderContext, int maxWidth, ref DisplayListBuilder output) =>
         {
             var stateStyle = context.Services.StyleForRunState(context.Cell.State);
             var title = context.Services.FormatRunState(context.Cell.State);
@@ -101,11 +115,10 @@ internal sealed class RunStatusCellRenderer : IAgentTuiTranscriptRenderer<RunSta
             if (!string.IsNullOrWhiteSpace(context.Cell.Hint))
             {
                 output.WriteLineBreak();
-                context.Services.PrefixedText(
+                output.Render(context.Services.PrefixedText(
                         context.Cell.Hint,
                         $"{context.DepthIndent}  ",
-                        $"{context.DepthIndent}  ")
-                    .Render(in renderContext, maxWidth, ref output);
+                        $"{context.DepthIndent}  "), in renderContext, maxWidth);
             }
         });
 }
@@ -113,7 +126,7 @@ internal sealed class RunStatusCellRenderer : IAgentTuiTranscriptRenderer<RunSta
 internal sealed class ToolCallCellRenderer : IAgentTuiTranscriptRenderer<ToolCallCell>
 {
     public IComponent Create(AgentTuiTranscriptRenderContext<ToolCallCell> context)
-        => new TranscriptRenderComponent((in RenderContext renderContext, int maxWidth, ref SegmentWriter output) =>
+        => new TranscriptRenderComponent((in RenderContext renderContext, int maxWidth, ref DisplayListBuilder output) =>
         {
             var stateStyle = context.Services.StyleForRunState(context.Cell.State);
             output.Write(context.DepthIndent.AsSpan(), renderContext.Theme.Text);
@@ -123,29 +136,26 @@ internal sealed class ToolCallCellRenderer : IAgentTuiTranscriptRenderer<ToolCal
 
             if (context.Cell.Summary is null)
             {
-                context.Services.PrefixedText(
+                output.Render(context.Services.PrefixedText(
                         context.Services.FormatRunState(context.Cell.State, context.Cell.StateDetail),
                         $"{context.DepthIndent}  └ ",
-                        $"{context.DepthIndent}    ")
-                    .Render(in renderContext, maxWidth, ref output);
+                        $"{context.DepthIndent}    "), in renderContext, maxWidth);
             }
             else
             {
-                context.Services.Prefix(
+                output.Render(context.Services.Prefix(
                         context.Cell.Summary,
                         $"{context.DepthIndent}  └ ",
-                        $"{context.DepthIndent}    ")
-                    .Render(in renderContext, maxWidth, ref output);
+                        $"{context.DepthIndent}    "), in renderContext, maxWidth);
             }
 
             if (context.Cell.Detail is not null)
             {
                 output.WriteLineBreak();
-                context.Services.Prefix(
+                output.Render(context.Services.Prefix(
                         context.Cell.Detail,
                         $"{context.DepthIndent}  │ ",
-                        $"{context.DepthIndent}  │ ")
-                    .Render(in renderContext, maxWidth, ref output);
+                        $"{context.DepthIndent}  │ "), in renderContext, maxWidth);
             }
         });
 }
@@ -153,21 +163,20 @@ internal sealed class ToolCallCellRenderer : IAgentTuiTranscriptRenderer<ToolCal
 internal sealed class CustomComponentCellRenderer : IAgentTuiTranscriptRenderer<CustomComponentCell>
 {
     public IComponent Create(AgentTuiTranscriptRenderContext<CustomComponentCell> context)
-        => new TranscriptRenderComponent((in RenderContext renderContext, int maxWidth, ref SegmentWriter output) =>
+        => new TranscriptRenderComponent((in RenderContext renderContext, int maxWidth, ref DisplayListBuilder output) =>
         {
             var indent = $"{context.DepthIndent}{new string(' ', Math.Max(0, context.Cell.Indent))}";
             output.Write(indent.AsSpan(), renderContext.Theme.Text);
             output.Write(context.Cell.Label.AsSpan(), new Style(Color.Default, Color.Default, TextAttributes.Bold));
             output.WriteLineBreak();
-            context.Services.Prefix(
+            output.Render(context.Services.Prefix(
                     context.Cell.Component,
                     $"{indent}  ",
-                    $"{indent}  ")
-                .Render(in renderContext, maxWidth, ref output);
+                    $"{indent}  "), in renderContext, maxWidth);
         });
 }
 
-internal sealed class TranscriptRenderComponent : IComponent
+internal sealed class TranscriptRenderComponent : Component
 {
     private readonly RenderTranscriptComponent _render;
 
@@ -176,13 +185,13 @@ internal sealed class TranscriptRenderComponent : IComponent
         _render = render ?? throw new ArgumentNullException(nameof(render));
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
-        => new(Math.Min(maxWidth, 20), maxWidth);
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
+        => new(Math.Min(constraints.MaxWidth, 20), constraints.MaxWidth);
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
-        => _render(in context, maxWidth, ref output);
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
+        => _render(in context, output.MaxWidth, ref output);
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         return false;
     }
@@ -191,4 +200,26 @@ internal sealed class TranscriptRenderComponent : IComponent
 internal delegate void RenderTranscriptComponent(
     in RenderContext context,
     int maxWidth,
-    ref SegmentWriter output);
+    ref DisplayListBuilder output);
+
+internal static class MarkdownProjectionView
+{
+    internal static MarkdownView Create(
+        MarkdownMessageDocument document,
+        MarkdownMessageProjection projection,
+        int width,
+        MarkdownTheme theme,
+        ColorSystem colorSystem)
+    {
+        var key = new MarkdownLayoutKey(
+            document.Parsed.PipelineId,
+            "terminal-v1",
+            width,
+            theme.ThemeKey,
+            colorSystem,
+            MarkdownPresentationMode.Rich,
+            new MarkdownSpacing().Key,
+            new MarkdownResourceLimits().Key);
+        return new MarkdownView(projection.RequireVisiblePrepared(document.Revision, key));
+    }
+}

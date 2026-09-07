@@ -1,5 +1,7 @@
+using System.Text.Json;
 using HPD.Agent.Serialization;
 using HPD.Agent.Hosting.Lifecycle;
+using HPD.Agent.AspNetCore.Serialization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -19,7 +21,9 @@ internal static class SseEventHandler
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(observation);
 
-        var applicationLifetime = context.RequestServices.GetService<IHostApplicationLifetime>();
+        var applicationLifetime = context.RequestServices is { } services
+            ? services.GetService<IHostApplicationLifetime>()
+            : null;
         using var streamLifetime = applicationLifetime is null
             ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
             : CancellationTokenSource.CreateLinkedTokenSource(
@@ -29,7 +33,7 @@ internal static class SseEventHandler
 
         var store = observation.Store;
         var eventCodec = store.EventCodec;
-        var thread = observation.Thread;
+        var thread = observation.Anchor;
 
         context.Response.ContentType = "text/event-stream";
         context.Response.Headers.CacheControl = "no-cache";
@@ -41,6 +45,7 @@ internal static class SseEventHandler
         var head = await store.GetThreadEventHeadAsync(thread, streamCancellationToken).ConfigureAwait(false)
             ?? throw new BadHttpRequestException("The requested thread does not exist.");
         var cursor = ParseAppliedCursor(context.Request, head.Generation);
+        await context.Response.WriteAsync(": connected\n\n", streamCancellationToken).ConfigureAwait(false);
         await context.Response.Body.FlushAsync(streamCancellationToken).ConfigureAwait(false);
 
         try
@@ -52,7 +57,7 @@ internal static class SseEventHandler
             {
                 foreach (var evt in batch.Events)
                 {
-                    await WriteJournalEventAsync(context, eventCodec, batch.Generation, evt, streamCancellationToken)
+                    await WriteJournalEventAsync(context, store, eventCodec, batch.Generation, evt, streamCancellationToken)
                         .ConfigureAwait(false);
                     cursor = new ThreadJournalCursor(batch.Generation, evt.ThreadSequenceNumber);
                 }
@@ -61,8 +66,9 @@ internal static class SseEventHandler
 
             while (!streamCancellationToken.IsCancellationRequested)
             {
-                while (observation.LiveEvents.Reader.TryRead(out var evt))
+                while (observation.LiveEvents.Reader.TryRead(out var delivery))
                 {
+                    var evt = delivery.Event;
                     var selectedThread = string.Equals(evt.SessionId, thread.SessionId, StringComparison.Ordinal) &&
                         string.Equals(evt.ThreadId, thread.ThreadId, StringComparison.Ordinal);
                     var liveGeneration = head.Generation;
@@ -87,7 +93,7 @@ internal static class SseEventHandler
                         continue;
 
                     await WriteLiveEventAsync(
-                        context, eventCodec, liveGeneration, evt, selectedThread, streamCancellationToken).ConfigureAwait(false);
+                        context, eventCodec, liveGeneration, delivery, selectedThread, streamCancellationToken).ConfigureAwait(false);
                     if (evt.ThreadSequenceNumber > 0 && selectedThread)
                     {
                         cursor = new ThreadJournalCursor(head.Generation, evt.ThreadSequenceNumber);
@@ -133,11 +139,12 @@ internal static class SseEventHandler
         HttpContext context,
         AgentEventCodec eventCodec,
         long generation,
-        AgentEvent evt,
+        AgentEventDelivery delivery,
         bool includeJournalCursor,
         CancellationToken cancellationToken)
     {
-        var json = eventCodec.Serialize(evt);
+        var evt = delivery.Event;
+        var json = SerializeDelivery(eventCodec, delivery);
         if (includeJournalCursor && evt.ThreadSequenceNumber > 0)
         {
             await context.Response.WriteAsync(
@@ -153,18 +160,29 @@ internal static class SseEventHandler
 
     private static async Task WriteJournalEventAsync(
         HttpContext context,
+        ISessionStore store,
         AgentEventCodec eventCodec,
         long generation,
         AgentEvent evt,
         CancellationToken cancellationToken)
     {
-        var json = eventCodec.Serialize(evt);
+        var route = await AgentEventRoutes.CreateFromStoreAsync(store, evt, cancellationToken).ConfigureAwait(false);
+        var json = SerializeDelivery(eventCodec, new AgentEventDelivery(evt, route.ToPublic()));
         await context.Response.WriteAsync(
                 $"id: {generation}:{evt.ThreadSequenceNumber}\n",
                 cancellationToken)
             .ConfigureAwait(false);
         await context.Response.WriteAsync("event: agent-event\n", cancellationToken).ConfigureAwait(false);
         await context.Response.WriteAsync($"data: {json}\n\n", cancellationToken).ConfigureAwait(false);
+    }
+
+    private static string SerializeDelivery(AgentEventCodec codec, AgentEventDelivery delivery)
+    {
+        var eventJson = codec.Serialize(delivery.Event);
+        var routeJson = JsonSerializer.Serialize(
+            delivery.Route,
+            HPDAgentAspNetCoreJsonSerializerContext.Default.AgentEventRoute);
+        return $"{{\"event\":{eventJson},\"route\":{routeJson}}}";
     }
 
     private static async Task WriteRebasedAsync(

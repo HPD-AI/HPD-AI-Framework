@@ -84,13 +84,15 @@ public sealed record AgentTuiModelQuery(
 /// <param name="IsRecommended">Whether product policy recommends this model.</param>
 /// <param name="IsFree">Whether model metadata identifies zero usage cost.</param>
 /// <param name="Capabilities">Known model capabilities.</param>
+/// <param name="ProviderConfig">Model-specific provider construction constraints supplied by the catalog.</param>
 public sealed record AgentTuiModelChoice(
     string SelectionId,
     string ModelId,
     string? DisplayName = null,
     bool IsRecommended = false,
     bool IsFree = false,
-    AgentTuiModelCapabilities? Capabilities = null);
+    AgentTuiModelCapabilities? Capabilities = null,
+    IProviderConfig? ProviderConfig = null);
 
 /// <summary>Describes known product-facing capabilities and metadata for a model.</summary>
 /// <param name="SupportsTools">Whether tool invocation is supported.</param>
@@ -110,6 +112,8 @@ public sealed record AgentTuiModelChoice(
 /// <param name="Family">The optional model family.</param>
 /// <param name="ReleaseDate">The optional provider release date.</param>
 /// <param name="Status">The optional provider lifecycle status.</param>
+/// <param name="SupportedReasoningEfforts">Raw provider levels; unknown levels are retained but not offered.</param>
+/// <param name="DefaultReasoningEffort">The advertised provider default, without forcing an explicit request.</param>
 public sealed record AgentTuiModelCapabilities(
     bool SupportsTools = false,
     bool SupportsReasoning = false,
@@ -127,7 +131,9 @@ public sealed record AgentTuiModelCapabilities(
     bool IsOpenWeights = false,
     string? Family = null,
     string? ReleaseDate = null,
-    string? Status = null)
+    string? Status = null,
+    IReadOnlyList<string>? SupportedReasoningEfforts = null,
+    string? DefaultReasoningEffort = null)
 {
     /// <summary>Gets an instance with no asserted capabilities.</summary>
     public static AgentTuiModelCapabilities None { get; } = new();

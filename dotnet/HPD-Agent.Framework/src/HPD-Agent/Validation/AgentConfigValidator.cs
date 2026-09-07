@@ -34,6 +34,7 @@ public static class AgentConfigValidator
         ValidateMaxAgenticIterations(config, errors);
         ValidateErrorHandling(config, errors);
         ValidateCompaction(config, errors);
+        if (config.Goals is { } goals) errors.AddRange(goals.Validate());
         ValidateCaching(config, errors);
         ValidateOperations(config, errors);
         ValidateAudio(config, errors);

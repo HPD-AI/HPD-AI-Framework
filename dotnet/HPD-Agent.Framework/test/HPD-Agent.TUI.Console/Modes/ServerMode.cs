@@ -1,4 +1,8 @@
 using HPD.Agent.AspNetCore;
+using HPD.Agent;
+using HPD.Agent.Providers.Generated;
+using HPD.Agent.Providers;
+using HPD.Agent.Serialization;
 using HPD.Agent.TUI.Runtime;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -39,7 +43,7 @@ internal static class ServerMode
                 {
                     Chat = new ChatClientConfig
                     {
-                        ProviderKey = "openrouter",
+                        Provider = new ProviderReference { Key = "openrouter" },
                         ModelName = model
                     }
                 }
@@ -61,11 +65,13 @@ internal static class ServerMode
             await using var runtime = new HostedAgentTuiRuntime(new HostedAgentTuiRuntimeOptions
             {
                 BaseAddress = new Uri($"{url.TrimEnd('/')}/hpd/"),
-                DefaultScope = scope
+                DefaultScope = scope,
+                EventComposition = AgentEventComposition.Create([CoreAgentEventModule.Fragment]),
+                ProviderComposition = GeneratedProviderComposition.Composition
             });
             await using var app = HpdAgentTuiApp.Create(
                 runtime,
-                scope,
+                new DirectAgentTuiExecutionTarget(scope),
                 tui => tui
                     .AddAgentTuiDefaults()
                     .AddConsoleBranding("server")

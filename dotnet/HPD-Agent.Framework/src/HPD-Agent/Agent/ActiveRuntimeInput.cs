@@ -17,6 +17,11 @@ internal sealed record AcceptedTurnContinuation(
 
 internal sealed class ActiveRuntimeInput
 {
+    private AgentInputCancellation? _cancellationInfo;
+    internal AgentInputCancellation? CancellationInfo => Volatile.Read(ref _cancellationInfo);
+    internal void RecordCancellation(AgentInputCancellation info)
+        => Interlocked.CompareExchange(ref _cancellationInfo, info, null);
+
     internal ActiveRuntimeInput(AgentInputEvent input, CancellationTokenSource cancellation)
     {
         Input = input;

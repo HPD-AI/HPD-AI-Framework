@@ -7,6 +7,7 @@ namespace HPD.Agent.TUI.Runtime;
 public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessionThreadRuntime, IAgentTuiAgentRuntime, IAsyncDisposable
 {
     private readonly Agent _agent;
+    private readonly IAgentRuntimeResolver? _runtimeResolver;
     private readonly AgentTuiRuntimeScope _defaultScope;
     private readonly object _gate = new();
     private AgentTuiThreadExecution? _activeExecution;
@@ -14,9 +15,11 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
 
     public InMemoryAgentTuiRuntime(
         Agent agent,
-        AgentTuiRuntimeScope? defaultScope = null)
+        AgentTuiRuntimeScope? defaultScope = null,
+        IAgentRuntimeResolver? runtimeResolver = null)
     {
         _agent = agent ?? throw new ArgumentNullException(nameof(agent));
+        _runtimeResolver = runtimeResolver;
         _defaultScope = defaultScope ?? new AgentTuiRuntimeScope(
             _agent.AgentId,
             "local-session",
@@ -25,28 +28,36 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
 
     public bool CanSwitchAgents => false;
 
-    public async Task<AgentTuiScopeResolution> ResolveInitialScopeAsync(
-        AgentTuiRuntimeScope? requested,
+    public async Task<AgentTuiTargetResolution> ResolveInitialTargetAsync(
+        AgentTuiExecutionTarget? requested,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var scope = requested ?? _defaultScope;
+        var target = requested ?? new DirectAgentTuiExecutionTarget(_defaultScope);
+        var scope = target.Scope;
         var store = _agent.Config?.SessionStore;
+        if (target is ControlledSubAgentTuiExecutionTarget &&
+            (store is null ||
+             await store.LoadSessionAsync(scope.SessionId, cancellationToken).ConfigureAwait(false) is null ||
+             await store.GetThreadAsync(new ThreadKey(scope.SessionId, scope.ThreadId), cancellationToken).ConfigureAwait(false) is null))
+            throw new InvalidOperationException("The controlled subagent target is not durable.");
         if (store is not null &&
             await store.LoadSessionAsync(scope.SessionId, cancellationToken).ConfigureAwait(false) is not null &&
             await store.GetThreadAsync(new ThreadKey(scope.SessionId, scope.ThreadId), cancellationToken).ConfigureAwait(false) is not null)
         {
-            return new AgentTuiScopeResolution(scope, IsDurable: true);
+            return new AgentTuiTargetResolution(target, IsDurable: true);
         }
 
-        return new AgentTuiScopeResolution(scope, IsDurable: store is null);
+        return new AgentTuiTargetResolution(target, IsDurable: store is null);
     }
 
-    public async Task<AgentTuiRuntimeScope> EnsureDurableScopeAsync(
-        AgentTuiRuntimeScope scope,
+    public async Task<AgentTuiExecutionTarget> EnsureDurableTargetAsync(
+        AgentTuiExecutionTarget target,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(target);
         cancellationToken.ThrowIfCancellationRequested();
+        var scope = target.Scope;
         var store = _agent.Config?.SessionStore;
         if (store is not null &&
             await store.LoadSessionAsync(scope.SessionId, cancellationToken).ConfigureAwait(false) is null)
@@ -64,7 +75,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
                 .ConfigureAwait(false);
         }
 
-        return scope;
+        return target;
     }
 
     public async Task<IReadOnlyList<AgentTuiAgentInfo>> ListAgentsAsync(
@@ -463,8 +474,10 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             results.Add(new AgentTuiSubAgentInfo(
                 entry.LocalId.Value, entry.RoleName, entry.Availability, child?.ChildAgentId,
                 child?.ChildThread.SessionId, child?.ChildThread.ThreadId,
-                descriptor?.RuntimeChild?.Status, descriptor?.MessageCount ?? 0,
-                (entry as SubAgentChildTombstone)?.Reason));
+                child is null ? null : (await SubAgentActivityReader.ReadAsync(store, child.ChildThread, cancellationToken).ConfigureAwait(false)).Status, descriptor?.MessageCount ?? 0,
+                (entry as SubAgentChildTombstone)?.Reason,
+                child?.ExecutionPolicy.LockedClients.Chat?.Provider?.Key,
+                child?.ExecutionPolicy.LockedClients.Chat?.ModelName));
         }
         return results;
     }
@@ -691,11 +704,12 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
     }
 
     public async IAsyncEnumerable<AgentTuiEventBatch> ObserveAsync(
-        AgentTuiRuntimeScope scope,
+        AgentTuiExecutionTarget target,
         ThreadJournalCursor after,
         ThreadJournalCursor initialObservedCursor,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        var scope = target.Scope;
         var cursor = after;
         var catchUpMode = after.SequenceNumber == 0
             ? AgentTuiEventDeliveryMode.Historical
@@ -704,24 +718,27 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         if (store is null)
         {
             var signals = Channel.CreateUnbounded<AgentEvent>();
-            using var subscription = _agent.SubscribeAny(evt =>
+            using var subscription = _agent.SubscribeAny(
+                new ThreadKey(scope.SessionId, scope.ThreadId),
+                AgentEventHierarchy.ThreadAndDescendants,
+                evt =>
             {
                 signals.Writer.TryWrite(evt);
                 return ValueTask.CompletedTask;
             });
             await foreach (var evt in signals.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
             {
-                if (IsInScope(evt, scope))
-                {
-                    yield return CreateDeliveryBatch([evt], AgentTuiEventDeliveryMode.Live, initialObservedCursor, 0);
-                }
+                yield return CreateDeliveryBatch([evt], AgentTuiEventDeliveryMode.Live, initialObservedCursor, 0);
             }
 
             yield break;
         }
 
         var liveSignals = Channel.CreateUnbounded<AgentEvent>();
-        using var liveSubscription = _agent.SubscribeAny(evt =>
+        using var liveSubscription = _agent.SubscribeAny(
+            new ThreadKey(scope.SessionId, scope.ThreadId),
+            AgentEventHierarchy.ThreadAndDescendants,
+            evt =>
         {
             liveSignals.Writer.TryWrite(evt);
             return ValueTask.CompletedTask;
@@ -758,8 +775,6 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
 
         await foreach (var evt in liveSignals.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
         {
-            if (!IsInScope(evt, scope))
-                continue;
             var selectedThread = StringComparer.Ordinal.Equals(evt.SessionId, scope.SessionId) &&
                 StringComparer.Ordinal.Equals(evt.ThreadId, scope.ThreadId);
             if (evt.ThreadSequenceNumber > 0 && selectedThread)
@@ -794,12 +809,36 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
     }
 
     public async Task<AgentTuiSubmitResult> SubmitInputAsync(
-        AgentTuiRuntimeScope scope,
+        AgentTuiExecutionTarget target,
         AgentInputEvent input,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(scope);
+        ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(input);
+        var scope = target.Scope;
+        if (target is ControlledSubAgentTuiExecutionTarget controlled)
+        {
+            var store = _agent.Config.SessionStore
+                ?? throw new InvalidOperationException("Controlled subagent submission requires a durable session store.");
+            var resolver = _runtimeResolver
+                ?? throw new InvalidOperationException("Controlled subagent submission requires a registered runtime resolver.");
+            var submission = await SubAgentRuntime.SubmitControlledInputAsync(
+                store,
+                resolver,
+                new ThreadKey(controlled.ControllerScope.SessionId, controlled.ControllerScope.ThreadId),
+                controlled.LocalId,
+                controlled.ChildScope.AgentId,
+                new ThreadKey(controlled.ChildScope.SessionId, controlled.ChildScope.ThreadId),
+                input,
+                cancellationToken).ConfigureAwait(false);
+            return new AgentTuiSubmitResult(
+                submission.Disposition,
+                submission.ThreadExecutionId,
+                submission.ThreadExecutionId is { } id
+                    ? new AgentTuiThreadExecution(
+                        id, scope.AgentId, scope.SessionId, scope.ThreadId, "active", DateTimeOffset.UtcNow)
+                    : null);
+        }
 
         var registration = AgentInputDispatcher.GetBuiltInRegistration(input.GetType());
         if (registration.RoutingClass == AgentInputRoutingClass.ActiveControl)
@@ -1114,7 +1153,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         var store = _agent.Config?.SessionStore;
         if (store is null || string.IsNullOrWhiteSpace(evt.SessionId) || string.IsNullOrWhiteSpace(evt.ThreadId))
         {
-            await _agent.EventCoordinator.EmitAsync(evt, cancellationToken).ConfigureAwait(false);
+            await _agent.EventCoordinator.EmitAsync(evt, AgentEventRoutes.Create(_agent.EventCoordinator, evt), cancellationToken).ConfigureAwait(false);
             return evt;
         }
 
@@ -1122,15 +1161,6 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             new ThreadKey(evt.SessionId, evt.ThreadId),
             evt,
             cancellationToken).ConfigureAwait(false);
-    }
-
-    private static bool IsInScope(
-        AgentEvent evt,
-        AgentTuiRuntimeScope scope)
-    {
-        var sessionMatches = evt.SessionId is null || string.Equals(evt.SessionId, scope.SessionId, StringComparison.Ordinal);
-        var threadMatches = evt.ThreadId is null || string.Equals(evt.ThreadId, scope.ThreadId, StringComparison.Ordinal);
-        return sessionMatches && threadMatches;
     }
 
     private static AgentTuiEventBatch CreateDeliveryBatch(

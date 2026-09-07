@@ -3,8 +3,9 @@ using HPD.TUI.Utilities;
 
 namespace HPD.TUI.Layout;
 
-public sealed class Separator : IComponent
+public sealed class Separator : Component
 {
+    public override ComponentDependencies Dependencies => ComponentDependencies.Static;
     private readonly string? _title;
 
     public Separator(string? title = null)
@@ -20,14 +21,16 @@ public sealed class Separator : IComponent
 
     public int TitleSpacing { get; init; } = 1;
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         ArgumentOutOfRangeException.ThrowIfNegative(maxWidth);
         return new Measurement(Math.Min(maxWidth, 1), maxWidth);
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (maxWidth <= 0)
         {
             return;
@@ -45,7 +48,7 @@ public sealed class Separator : IComponent
         output.Write(buffer, style);
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         return false;
     }

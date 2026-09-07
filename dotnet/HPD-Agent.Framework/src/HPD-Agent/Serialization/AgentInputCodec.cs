@@ -20,6 +20,8 @@ public sealed class AgentInputCodec
             (typeof(UserMessagesInputEvent), EventTypes.Input.USER_MESSAGES_INPUT),
             (typeof(AudioSessionInputEvent), EventTypes.Input.AUDIO_SESSION_INPUT),
             (typeof(CompactThreadInputEvent), EventTypes.Input.COMPACT_THREAD_INPUT),
+            (typeof(Goals.CreateGoalInputEvent), "CREATE_GOAL_INPUT"),
+            (typeof(Goals.GoalContinuationInputEvent), "GOAL_CONTINUATION_INPUT"),
             (typeof(AgentOperationNotificationInputEvent), EventTypes.Input.AGENT_OPERATION_NOTIFICATION_INPUT),
             (typeof(ClientTools.ClientToolOperationOutcomeEvent), EventTypes.ClientTool.CLIENT_TOOL_BACKGROUND_OPERATION_OUTCOME)
         };
@@ -35,6 +37,18 @@ public sealed class AgentInputCodec
     /// <summary>Gets the immutable provider composition used for run-config encoding.</summary>
     public ProviderComposition ProviderComposition { get; }
 
+    /// <summary>Determines whether an input belongs to the explicit public submission surface.</summary>
+    public static bool IsPublicInput(AgentInputEvent input) => input is
+        UserMessagesInputEvent or AudioSessionInputEvent or CompactThreadInputEvent or
+        AgentOperationNotificationInputEvent or ClientTools.ClientToolOperationOutcomeEvent or Goals.CreateGoalInputEvent;
+
+    /// <summary>Hydrates an untrusted public input, rejecting runtime-owned continuation contracts.</summary>
+    public AgentInputEvent DeserializePublic(string json)
+    {
+        var input = Deserialize(json);
+        return IsPublicInput(input) ? input : throw new JsonException("Input is reserved for the internal runtime.");
+    }
+
     /// <summary>Serializes one semantic input and its typed provider run configuration.</summary>
     public string Serialize(AgentInputEvent input, string version = "1.0")
     {
@@ -46,11 +60,25 @@ public sealed class AgentInputCodec
         var prefix = $"\"version\":{JsonSerializer.Serialize(version, AgentEventJsonContext.Default.String)}," +
             $"\"type\":{JsonSerializer.Serialize(entry.Discriminator, AgentEventJsonContext.Default.String)}";
         var envelope = payload == "{}" ? $"{{{prefix}}}" : payload.Insert(1, prefix + ",");
-        if (input.RunConfig is null)
+        if (input.RunConfig is null && input.SubAgentRunConfig is null)
             return envelope;
         var root = JsonNode.Parse(envelope) as JsonObject
             ?? throw new JsonException("Agent input did not serialize to an object.");
-        root["runConfig"] = JsonNode.Parse(HpdAgentConfigSerializer.Serialize(input.RunConfig, ProviderComposition));
+        if (input.RunConfig is not null)
+            root["runConfig"] = JsonNode.Parse(HpdAgentConfigSerializer.Serialize(input.RunConfig, ProviderComposition));
+        if (input.SubAgentRunConfig is not null)
+        {
+            var child = JsonNode.Parse(HpdAgentConfigSerializer.Serialize(input.SubAgentRunConfig, ProviderComposition))
+                as JsonObject ?? throw new JsonException("Subagent run configuration did not serialize to an object.");
+            child["clientPropagation"] = JsonSerializer.SerializeToNode(
+                input.SubAgentRunConfig.ClientPropagation,
+                AgentEventJsonContext.Default.SubAgentClientPropagation);
+            child["descendantDefaults"] = JsonSerializer.SerializeToNode(
+                input.SubAgentRunConfig.DescendantDefaults, AgentEventJsonContext.Default.SubAgentRunDefaults);
+            child["handoffCompaction"] = JsonSerializer.SerializeToNode(
+                input.SubAgentRunConfig.HandoffCompaction, AgentEventJsonContext.Default.CompactionSpecification);
+            root["subAgentRunConfig"] = child;
+        }
         return root.ToJsonString(AgentEventJsonContext.Default.Options);
     }
 
@@ -67,17 +95,41 @@ public sealed class AgentInputCodec
         using var payload = StripEnvelope(document.RootElement, entry.TypeInfo);
         var input = payload.RootElement.Deserialize(entry.TypeInfo) as AgentInputEvent
             ?? throw new JsonException($"Agent input '{discriminator}' hydrated to an invalid value.");
-        if (!document.RootElement.TryGetProperty("runConfig", out var runConfig) ||
-            runConfig.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
-            return input;
+        AgentRunConfig? decodedRunConfig = null;
+        if (document.RootElement.TryGetProperty("runConfig", out var runConfig) &&
+            runConfig.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined))
+            decodedRunConfig = HpdAgentConfigSerializer.DeserializeRunConfig(
+                runConfig.GetRawText(), ProviderComposition);
+        SubAgentRunConfig? decodedSubAgentRunConfig = null;
+        if (document.RootElement.TryGetProperty("subAgentRunConfig", out var subAgentRunConfig) &&
+            subAgentRunConfig.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined))
+        {
+            var childCore = JsonNode.Parse(subAgentRunConfig.GetRawText())!.AsObject();
+            childCore.Remove("clientPropagation");
+            childCore.Remove("descendantDefaults");
+            childCore.Remove("handoffCompaction");
+            var decoded = HpdAgentConfigSerializer.DeserializeRunConfig(
+                childCore.ToJsonString(), ProviderComposition) ?? new AgentRunConfig();
+            var propagation = subAgentRunConfig.TryGetProperty("clientPropagation", out var propagationElement)
+                ? propagationElement.Deserialize(AgentEventJsonContext.Default.SubAgentClientPropagation)
+                : SubAgentClientPropagation.DirectChildren;
+            decodedSubAgentRunConfig = AgentRunConfigSnapshot.Promote(decoded, propagation);
+            if (subAgentRunConfig.TryGetProperty("handoffCompaction", out var handoff))
+                decodedSubAgentRunConfig.HandoffCompaction = handoff.Deserialize(AgentEventJsonContext.Default.CompactionSpecification);
+            if (subAgentRunConfig.TryGetProperty("descendantDefaults", out var defaults))
+                decodedSubAgentRunConfig.DescendantDefaults = defaults.Deserialize(AgentEventJsonContext.Default.SubAgentRunDefaults);
+        }
         return input with
         {
-            RunConfig = HpdAgentConfigSerializer.DeserializeRunConfig(runConfig.GetRawText(), ProviderComposition)
+            RunConfig = decodedRunConfig,
+            SubAgentRunConfig = decodedSubAgentRunConfig
         };
     }
 
     private static JsonTypeInfo RequireTypeInfo(Type type) =>
-        AgentEventJsonContext.Default.GetTypeInfo(type)
+        (type == typeof(Goals.GoalContinuationInputEvent)
+            ? Goals.GoalJsonContext.Default.GetTypeInfo(type)
+            : AgentEventJsonContext.Default.GetTypeInfo(type))
         ?? throw new InvalidOperationException($"Agent input '{type.FullName}' has no source-generated JSON metadata.");
 
     private static JsonDocument StripEnvelope(JsonElement root, JsonTypeInfo typeInfo)
@@ -89,7 +141,8 @@ public sealed class AgentInputCodec
             writer.WriteStartObject();
             foreach (var property in root.EnumerateObject())
             {
-                if (property.NameEquals("version") || property.NameEquals("type") || property.NameEquals("runConfig"))
+                if (property.NameEquals("version") || property.NameEquals("type") ||
+                    property.NameEquals("runConfig") || property.NameEquals("subAgentRunConfig"))
                     continue;
                 if (known.Contains(property.Name))
                     property.WriteTo(writer);

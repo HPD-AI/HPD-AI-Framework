@@ -1224,11 +1224,15 @@ public class ContainerMiddleware : IAgentMiddleware
 
                 if (hasContainerCall)
                 {
-                    // Remove the ENTIRE assistant message (including text)
-                    // The text (e.g., "Let me first see what files...") only makes sense WITH the call
-                    // Leaving orphaned text confuses the LLM
-                    _logger?.LogInformation("BeforeIterationAsync: Removed entire Assistant message containing container call");
-                    context.Messages.RemoveAt(i);
+                    // A parallel response can contain unrelated successful calls. Removing
+                    // its whole message would orphan their results in the next model request.
+                    var remaining = message.Contents.Where(content => content is not FunctionCallContent call ||
+                        (!IsCallRelatedToContainers(call.Name, collapseContainersToFilter) &&
+                         !containerCallIds.Contains(call.CallId))).ToList();
+                    if (remaining.OfType<FunctionCallContent>().Any())
+                        context.Messages[i] = ReplaceMessageContents(message, remaining);
+                    else
+                        context.Messages.RemoveAt(i);
                 }
             }
             else if (message.Role == ChatRole.Tool)
@@ -1249,7 +1253,7 @@ public class ContainerMiddleware : IAgentMiddleware
                     }
                     else
                     {
-                        context.Messages[i] = new ChatMessage(ChatRole.Tool, nonContainerResults);
+                        context.Messages[i] = ReplaceMessageContents(message, nonContainerResults);
                     }
                 }
             }
@@ -1443,6 +1447,19 @@ public class ContainerMiddleware : IAgentMiddleware
     /// </summary>
     /// <param name="turnHistory">The mutable TurnHistory list to modify</param>
     /// <param name="collapsingState">State containing recovered function calls</param>
+    // Rewrites change the model-facing payload, not the identity of a committed message.
+    // RawRepresentation describes the original provider payload and must not survive a rewrite.
+    private static ChatMessage ReplaceMessageContents(ChatMessage original, IList<AIContent> contents)
+        => new(original.Role, contents)
+        {
+            MessageId = original.MessageId,
+            AuthorName = original.AuthorName,
+            CreatedAt = original.CreatedAt,
+            AdditionalProperties = original.AdditionalProperties is null
+                ? null
+                : new AdditionalPropertiesDictionary(original.AdditionalProperties)
+        };
+
     private void RewriteQualifiedCallsInTurnHistory(
         List<ChatMessage> turnHistory,
         ContainerMiddlewareState collapsingState)
@@ -1501,7 +1518,7 @@ public class ContainerMiddleware : IAgentMiddleware
             }
 
             // Replace the message in TurnHistory
-            turnHistory[i] = new ChatMessage(message.Role, newContents);
+            turnHistory[i] = ReplaceMessageContents(message, newContents);
         }
 
         // PHASE 2: Rewrite tool messages (replace recovery message with container expansion message)
@@ -1560,7 +1577,7 @@ public class ContainerMiddleware : IAgentMiddleware
             // Replace tool message if we modified it
             if (modified)
             {
-                turnHistory[i] = new ChatMessage(ChatRole.Tool, newToolContents);
+                turnHistory[i] = ReplaceMessageContents(message, newToolContents);
             }
         }
     }

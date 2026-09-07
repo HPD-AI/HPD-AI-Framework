@@ -12,6 +12,7 @@ using EventChannel = HPD.Events.EventChannel;
 using EventDirection = HPD.Events.EventDirection;
 
 namespace HPD.Agent;
+
 /// <summary>
 /// Provides hierarchical metadata about which agent emitted an event.
 /// Enables event attribution and filtering in multi-agent systems.
@@ -198,6 +199,11 @@ public abstract record AgentInputEvent
 
     /// <summary>Per-run configuration carried with the input event.</summary>
     public AgentRunConfig? RunConfig { get; init; }
+
+    /// <summary>
+    /// Per-run configuration applied to every direct subagent invoked while processing this input.
+    /// </summary>
+    public SubAgentRunConfig? SubAgentRunConfig { get; init; }
 
     /// <summary>Identifier of the accepted input execution assigned by the coordinating runtime.</summary>
     public string? ThreadExecutionId { get; init; }
@@ -450,11 +456,6 @@ public sealed record UserMessagesInputEvent : AgentInputEvent
     [JsonIgnore]
     public Thread? Thread { get; init; }
 
-    [JsonIgnore]
-    internal AgentChatClientHandle? InheritedChatClient { get; init; }
-
-    [JsonIgnore]
-    internal ClientFamilyInheritanceMode InheritedChatMode { get; init; } = ClientFamilyInheritanceMode.UseOwn;
 }
 
 /// <summary>Explicitly compacts the scoped thread without creating a user message or model turn.</summary>
@@ -569,6 +570,9 @@ public record MessageTurnErrorEvent(
     public string? AgentName { get; init; }
     public string? ErrorType { get; init; }
 
+    /// <summary>Trusted cancellation provenance, retained for replay and recovery.</summary>
+    public AgentInputCancellation? Cancellation { get; init; }
+
     // Lazy-computed error details from the exception
     private ErrorHandling.ProviderErrorDetails? _errorDetails;
     private bool _errorDetailsParsed;
@@ -591,7 +595,13 @@ public record MessageTurnErrorEvent(
     /// Error category lazily computed from the exception.
     /// Uses GenericErrorHandler to classify the error.
     /// </summary>
-    public ErrorHandling.ErrorCategory? Category => GetErrorDetails()?.Category;
+    private ErrorHandling.ErrorCategory? _committedCategory;
+    /// <summary>Gets the committed classification, preserved across journal hydration.</summary>
+    public ErrorHandling.ErrorCategory? Category
+    {
+        get => _committedCategory ?? GetErrorDetails()?.Category;
+        init => _committedCategory = value;
+    }
 
     /// <summary>
     /// Error code from the provider, if available.
@@ -1390,40 +1400,6 @@ public record ContinuationResponseEvent(
 }
 
 /// <summary>
-/// Agent/ToolHarness requests user clarification or additional input.
-/// Handler should prompt user and send ClarificationResponseEvent.
-/// </summary>
-[HPD.Agent.Serialization.DurableEvent]
-[HPD.Agent.Serialization.EventType("CLARIFICATION_REQUEST")]
-public record ClarificationRequestEvent(
-    string RequestId,
-    string SourceName,
-    string Question,
-    string? AgentName = null,
-    string[]? Options = null) : AgentEvent, IAgentRequestEvent<ClarificationResponseEvent>
-{
-    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
-}
-
-/// <summary>
-/// Response to clarification request.
-/// Sent by external handler back to waiting agent/ToolHarness.
-/// </summary>
-[HPD.Agent.Serialization.DurableEvent]
-[HPD.Agent.Serialization.EventType("CLARIFICATION_RESPONSE")]
-public record ClarificationResponseEvent(
-    string RequestId,
-    string SourceName,
-    string Question,
-    string Answer) : AgentEvent, IAgentResponseEvent
-{
-    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
-    public override EventDirection Direction { get; init; } = EventDirection.Upstream;
-}
-
-/// <summary>
 /// Middleware reports an error (one-way, no response needed).
 /// This is not a request event - it's just informational.
 /// </summary>
@@ -1785,7 +1761,10 @@ public enum PlanUpdateType
     NoteAdded,
 
     /// <summary>The entire plan was marked as complete</summary>
-    Completed
+    Completed,
+
+    /// <summary>Full current plan seeded into a new or replaced journal.</summary>
+    Snapshot
 }
 
 /// <summary>
@@ -1933,6 +1912,13 @@ public sealed record ToolContextSnapshot(
     string? InputSchemaJson
 );
 
+/// <summary>Identifies preserved summary text in the final request passed to the chat client.</summary>
+/// <param name="MessageId">Durable replacement message identifier.</param>
+/// <param name="Role">Role in the model request.</param>
+/// <param name="TextLength">Number of UTF-16 characters in the summary text.</param>
+/// <param name="TextSha256">Uppercase SHA-256 of the UTF-8 summary text, for comparison with its checkpoint.</param>
+public sealed record CompactionSummaryInputSnapshot(string? MessageId, string Role, int TextLength, string TextSha256);
+
 /// <summary>
 /// Emitted immediately before an LLM call with the non-history context being fed to the model.
 /// Excludes normal chat history; includes instructions, visible tool context, and middleware-injected context messages.
@@ -1951,6 +1937,9 @@ public record IterationContextSnapshotEvent(
     DateTimeOffset Timestamp
 ) : AgentEvent, IObservabilityEvent
 {
+    /// <summary>Gets summaries present at the model-request boundary; this is not a server receipt.</summary>
+    public IReadOnlyList<CompactionSummaryInputSnapshot> CompactionSummaryInputs { get; init; } = [];
+
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 }
 
@@ -1971,21 +1960,19 @@ public sealed record MiddlewareStateEntrySnapshot(
 
 /// <summary>
 /// Emitted at stable lifecycle phases with the current internal middleware state.
+/// Canonical session, thread, and timestamp attribution is inherited from <see cref="AgentEvent"/>.
 /// </summary>
 [HPD.Agent.Serialization.DurableEvent]
 [HPD.Agent.Serialization.EventType("MIDDLEWARE_STATE_SNAPSHOT")]
 public record MiddlewareStateSnapshotEvent(
     string AgentName,
-    string? SessionId,
-    string? ThreadId,
     int Iteration,
     string Phase,
     string? BatchId,
     string? FunctionCallId,
     int? ToolCallIndex,
     int StateCount,
-    IReadOnlyList<MiddlewareStateEntrySnapshot> States,
-    DateTimeOffset Timestamp
+    IReadOnlyList<MiddlewareStateEntrySnapshot> States
 ) : AgentEvent, IObservabilityEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
@@ -2010,21 +1997,19 @@ public sealed record MiddlewareStateChange(
 
 /// <summary>
 /// Emitted when middleware state changes across a stable lifecycle phase.
+/// Canonical session, thread, and timestamp attribution is inherited from <see cref="AgentEvent"/>.
 /// </summary>
 [HPD.Agent.Serialization.DurableEvent]
 [HPD.Agent.Serialization.EventType("MIDDLEWARE_STATE_CHANGED")]
 public record MiddlewareStateChangedEvent(
     string AgentName,
-    string? SessionId,
-    string? ThreadId,
     int Iteration,
     string Phase,
     string? BatchId,
     string? FunctionCallId,
     int? ToolCallIndex,
     int ChangeCount,
-    IReadOnlyList<MiddlewareStateChange> Changes,
-    DateTimeOffset Timestamp
+    IReadOnlyList<MiddlewareStateChange> Changes
 ) : AgentEvent, IObservabilityEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;

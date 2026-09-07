@@ -2,7 +2,7 @@ using HPD.TUI.Core;
 
 namespace HPD.Agent.ToolHarness.Coding.TUI.FileMutations.Views;
 
-internal sealed class CodingDiagnosticsCellView : IComponent
+internal sealed class CodingDiagnosticsCellView : HPD.TUI.Core.Component
 {
     private const int MaxDiagnostics = 5;
     private readonly CodingDiagnosticsCell _cell;
@@ -14,8 +14,9 @@ internal sealed class CodingDiagnosticsCellView : IComponent
         _theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         var rows = 1 + VisibleDiagnostics(_cell.Diagnostics).Take(MaxDiagnostics).Count();
         if (_cell.Truncated)
         {
@@ -25,10 +26,10 @@ internal sealed class CodingDiagnosticsCellView : IComponent
         return new Measurement(1, Math.Min(maxWidth, 100), rows);
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
-        => RenderDiagnosticsBody(_cell.Diagnostics, _cell.Truncated, maxWidth, MaxDiagnostics, _theme, in context, ref output);
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
+        => RenderDiagnosticsBody(_cell.Diagnostics, _cell.Truncated, output.MaxWidth, MaxDiagnostics, _theme, in context, ref output);
 
-    public bool HandleInput(in TuiInputEvent input)
+    public override bool HandleInput(in TuiInputEvent input)
     {
         return false;
     }
@@ -40,7 +41,7 @@ internal sealed class CodingDiagnosticsCellView : IComponent
         int maxDiagnostics,
         CodingHarnessTuiTheme theme,
         in RenderContext context,
-        ref SegmentWriter output)
+        ref DisplayListBuilder output)
     {
         output.Write("Diagnostics".AsSpan(), theme.ResolveMuted(context.Theme));
 
@@ -70,7 +71,7 @@ internal sealed class CodingDiagnosticsCellView : IComponent
         int maxWidth,
         CodingHarnessTuiTheme theme,
         in RenderContext context,
-        ref SegmentWriter output)
+        ref DisplayListBuilder output)
     {
         var style = diagnostic.Severity switch
         {

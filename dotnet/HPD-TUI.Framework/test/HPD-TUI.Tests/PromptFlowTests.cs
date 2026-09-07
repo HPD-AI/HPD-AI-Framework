@@ -88,7 +88,7 @@ public sealed class PromptFlowTests
         Assert.Same(focused, app.Focused);
     }
 
-    private sealed class SubmitOnEnterComponent : IFocusable
+    private sealed class SubmitOnEnterComponent : Component, IFocusable
     {
         private readonly Action _submit;
 
@@ -99,13 +99,14 @@ public sealed class PromptFlowTests
 
         public bool IsFocused { get; set; }
 
-        public Measurement Measure(in RenderContext context, int maxWidth) => new(0, 0);
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints) => new(0, 0);
 
-        public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, ref DisplayListBuilder output)
         {
+            var maxWidth = output.MaxWidth;
         }
 
-        public bool HandleInput(in TuiInputEvent key)
+        public override bool HandleInput(in TuiInputEvent key)
         {
             if (key.Key == KeyCode.Enter)
             {
@@ -117,17 +118,18 @@ public sealed class PromptFlowTests
         }
     }
 
-    private sealed class TestFocusable : IFocusable
+    private sealed class TestFocusable : Component, IFocusable
     {
         public bool IsFocused { get; set; }
 
-        public Measurement Measure(in RenderContext context, int maxWidth) => new(0, 0);
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints) => new(0, 0);
 
-        public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, ref DisplayListBuilder output)
         {
+            var maxWidth = output.MaxWidth;
         }
 
-        public bool HandleInput(in TuiInputEvent key)
+        public override bool HandleInput(in TuiInputEvent key)
         {
             return false;
         }

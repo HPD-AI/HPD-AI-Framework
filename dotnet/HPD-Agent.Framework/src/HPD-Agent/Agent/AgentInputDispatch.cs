@@ -82,7 +82,7 @@ internal sealed class AgentInputHandlingContext
     public AgentChatClientHandle? DefaultChatClient { get; init; }
 
     public ActiveRuntimeInput? ActiveInput { get; init; }
-    public required Func<UserMessagesInputEvent, ActiveRuntimeInput?, IEventCoordinator, CancellationToken, Task<AgentTurnResult>> RunMessagesAsync { get; init; }
+    public required Func<AgentInputEvent, UserMessagesInputEvent, ActiveRuntimeInput?, IEventCoordinator, CancellationToken, Task<AgentTurnResult>> RunMessagesAsync { get; init; }
     public required Func<ClientToolOperationOutcomeEvent, bool> TryResolveClientToolOperation { get; init; }
 }
 
@@ -135,7 +135,8 @@ internal sealed class AgentInputDispatcher
                         cancelledResult.TurnResult,
                         null,
                         cancelled: true,
-                        DateTimeOffset.UtcNow - startedAt),
+                        DateTimeOffset.UtcNow - startedAt,
+                        new AgentInputCancellation(AgentInputCancellationCause.Middleware, before.CancelReason, "input_middleware")),
                     CancellationToken.None)
                 .ConfigureAwait(false);
             return cancelledResult;
@@ -171,7 +172,12 @@ internal sealed class AgentInputDispatcher
                             : AgentTurnResult.Empty,
                         error,
                         cancelled: error is OperationCanceledException,
-                        DateTimeOffset.UtcNow - startedAt),
+                        DateTimeOffset.UtcNow - startedAt,
+                        error is OperationCanceledException
+                            ? context.ActiveInput?.CancellationInfo ?? new AgentInputCancellation(
+                                cancellationToken.IsCancellationRequested ? AgentInputCancellationCause.Caller : AgentInputCancellationCause.Unknown,
+                                null, cancellationToken.IsCancellationRequested ? "caller_token" : "execution")
+                            : null),
                     CancellationToken.None)
                 .ConfigureAwait(false);
         }
@@ -181,6 +187,8 @@ internal sealed class AgentInputDispatcher
     {
         yield return Register(AgentInputRoutingClass.Work, new UserMessagesInputHandler());
         yield return Register(AgentInputRoutingClass.Work, new CompactThreadInputHandler());
+        yield return Register(AgentInputRoutingClass.Work, new Goals.CreateGoalInputHandler());
+        yield return Register(AgentInputRoutingClass.Work, new Goals.GoalContinuationInputHandler());
         yield return Register(AgentInputRoutingClass.Work, new AgentOperationNotificationInputHandler());
         yield return Register(AgentInputRoutingClass.SessionControl, new AudioSessionInputHandler());
         yield return Register(AgentInputRoutingClass.ActiveControl, new ClientToolOperationOutcomeInputHandler());
@@ -252,7 +260,8 @@ internal sealed class CompactThreadInputHandler : IAgentInputHandler<CompactThre
                     compactionStore,
                     context.Services?.GetService<IThreadJournalRebaseSeedProvider>())
                 : context.Services?.GetService<IThreadJournalRebaseSeedProvider>(),
-            CreateSummarizerOptions(chatLease?.Handle.ResolvedConfig as ChatClientConfig));
+            CreateSummarizerOptions(chatLease?.Handle.ResolvedConfig as ChatClientConfig),
+            SummarizerIdentity: chatLease?.Handle.ExecutionIdentity);
         await new ThreadCompactionEngine().ExecuteAsync(
                 engineContext,
                 input.Request.Compaction,
@@ -281,7 +290,7 @@ internal sealed class UserMessagesInputHandler : IAgentInputHandler<UserMessages
         AgentInputHandlingContext context,
         CancellationToken cancellationToken)
     {
-        var turn = await context.RunMessagesAsync(input, context.ActiveInput, context.EventCoordinator, cancellationToken)
+        var turn = await context.RunMessagesAsync(input, input, context.ActiveInput, context.EventCoordinator, cancellationToken)
             .ConfigureAwait(false);
         return Completed(input, turn);
     }
@@ -296,7 +305,7 @@ internal sealed class AgentOperationNotificationInputHandler : IAgentInputHandle
     {
         var userInput = AgentOperationNotificationDispatcher.ToNotificationTurnInput(input);
 
-        var result = await context.RunMessagesAsync(userInput, context.ActiveInput, context.EventCoordinator, cancellationToken)
+        var result = await context.RunMessagesAsync(input, userInput, context.ActiveInput, context.EventCoordinator, cancellationToken)
             .ConfigureAwait(false);
         return Completed(input, result);
     }
@@ -363,7 +372,7 @@ internal sealed class AudioSessionInputHandler : IAgentInputHandler<AudioSession
 
             try
             {
-                await context.RunMessagesAsync(new UserMessagesInputEvent
+                await context.RunMessagesAsync(input, new UserMessagesInputEvent
                 {
                     AgentId = input.AgentId,
                     SessionId = input.SessionId,

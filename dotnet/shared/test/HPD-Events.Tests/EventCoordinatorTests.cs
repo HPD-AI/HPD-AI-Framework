@@ -374,9 +374,8 @@ public class EventCoordinatorTests
     public async Task SetParent_BubblesEventsToParentSubscribersWithoutMutatingDomainEvent()
     {
         using var parent = new EventCoordinator();
-        using var child = new EventCoordinator();
+        using var child = (EventCoordinator)parent.CreateChild(EventChildOwnership.InheritOwner);
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        child.SetParent(parent);
         await using var parentStream = parent.CreateInbox<TestControlEvent>();
 
         var evt = new TestControlEvent("bubbled");
@@ -390,38 +389,36 @@ public class EventCoordinatorTests
     }
 
     [Fact]
-    public async Task SetParent_ParentEnricherAppliesToBubbledEvents()
+    public async Task SetParent_DoesNotReapplyParentEnricherToBubbledEvents()
     {
         using var parent = new EventCoordinator(
             eventEnricher: evt => evt is EnrichableControlEvent control
                 ? control with { ParentEnriched = true }
                 : evt);
-        using var child = new EventCoordinator();
+        using var child = (EventCoordinator)parent.CreateChild(EventChildOwnership.InheritOwner);
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        child.SetParent(parent);
         await using var parentStream = parent.CreateInbox<EnrichableControlEvent>();
 
         child.Emit(new EnrichableControlEvent("bubbled"));
 
         var result = await ReadOneAsync(parentStream.Reader, cts.Token);
 
-        Assert.True(result.ParentEnriched);
+        Assert.False(result.ParentEnriched);
     }
 
     [Fact]
-    public async Task SetParent_ParentFilterAppliesToBubbledEvents()
+    public async Task SetParent_DoesNotReapplyParentEmissionFilterToBubbledEvents()
     {
         using var parent = new EventCoordinator(
             eventFilter: evt => evt is TestControlEvent { Message: "allowed" });
-        using var child = new EventCoordinator();
-        child.SetParent(parent);
+        using var child = (EventCoordinator)parent.CreateChild(EventChildOwnership.InheritOwner);
         await using var parentStream = parent.CreateInbox<TestControlEvent>();
 
         child.Emit(new TestControlEvent("blocked"));
         child.Emit(new TestControlEvent("allowed"));
 
+        Assert.Equal("blocked", (await ReadOneAsync(parentStream.Reader)).Message);
         Assert.Equal("allowed", (await ReadOneAsync(parentStream.Reader)).Message);
-        Assert.False(await WaitToReadSafelyAsync(parentStream.Reader));
     }
 
     [Fact]
@@ -737,6 +734,68 @@ public class EventCoordinatorTests
         Assert.Equal(1, stats.InboxCount);
         Assert.True(stats.TotalQueued >= 1);
         Assert.True(stats.MaxSubscriberDepth >= 1);
+    }
+
+    [Fact]
+    public async Task CreateChild_InheritedOwner_IsVisibleToDefaultParentSubscription()
+    {
+        using var parent = new EventCoordinator();
+        using var child = (EventCoordinator)parent.CreateChild(EventChildOwnership.InheritOwner);
+        await using var inbox = parent.CreateInbox<TestEvent>();
+
+        child.Emit(new TestEvent("same-owner"));
+
+        Assert.Equal("same-owner", (await ReadOneAsync(inbox.Reader)).Message);
+    }
+
+    [Fact]
+    public async Task CreateChild_NewOwner_IsExcludedUnlessAllOwnersIsExplicit()
+    {
+        using var parent = new EventCoordinator();
+        using var child = (EventCoordinator)parent.CreateChild(EventChildOwnership.NewOwner);
+        await using var local = parent.CreateInbox<TestEvent>();
+        await using var hierarchy = parent.CreateInbox<TestEvent>(new EventInboxOptions
+        {
+            OwnerScope = EventOwnerScope.AllOwners
+        });
+
+        child.Emit(new TestEvent("child-owner"));
+
+        Assert.Equal("child-owner", (await ReadOneAsync(hierarchy.Reader)).Message);
+        Assert.False(await WaitToReadSafelyAsync(local.Reader));
+    }
+
+    [Fact]
+    public async Task ForwardTo_PreservesOriginOwnerAndEventIdentity()
+    {
+        using var source = new EventCoordinator();
+        using var destination = new EventCoordinator();
+        using var bridge = source.ForwardTo(destination);
+        await using var local = destination.CreateInbox<TestEvent>();
+        await using var allOwners = destination.CreateInbox<TestEvent>(new EventInboxOptions
+        {
+            OwnerScope = EventOwnerScope.AllOwners
+        });
+        var evt = new TestEvent("forwarded");
+
+        source.Emit(evt);
+
+        Assert.Same(evt, await ReadOneAsync(allOwners.Reader));
+        Assert.False(await WaitToReadSafelyAsync(local.Reader));
+    }
+
+    [Fact]
+    public void ForwardTo_RejectsDuplicateRedundantAndCyclicEdges()
+    {
+        using var first = new EventCoordinator();
+        using var second = new EventCoordinator();
+        using var third = new EventCoordinator();
+        using var firstToSecond = first.ForwardTo(second);
+        using var secondToThird = second.ForwardTo(third);
+
+        Assert.Throws<InvalidOperationException>(() => first.ForwardTo(second));
+        Assert.Throws<InvalidOperationException>(() => first.ForwardTo(third));
+        Assert.Throws<InvalidOperationException>(() => third.ForwardTo(first));
     }
 
     private static async Task<TEvent> ReadOneAsync<TEvent>(

@@ -42,6 +42,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="HPD-Agent.Tests" />
+    <InternalsVisibleTo Include="HPD-Agent.EventRouting.Tests" />
+    <None Update="hpd_agent_events.h" Pack="true" PackagePath="include" />
   </ItemGroup>
 
   <!-- All Provider Package References - ensures they're included in AOT binary -->

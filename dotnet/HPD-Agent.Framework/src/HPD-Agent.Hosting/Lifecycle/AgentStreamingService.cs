@@ -34,26 +34,36 @@ public sealed class AgentStreamingService : IAgentStreamingService
         });
     }
 
+    /// <inheritdoc />
     public async Task<AgentServiceResult<ThreadEventObservationLease>> ObserveThreadEventsAsync(
         string agentId,
-        string sessionId,
-        string threadId,
+        ThreadKey anchor,
+        AgentEventHierarchy hierarchy = AgentEventHierarchy.ExactThread,
         CancellationToken cancellationToken = default)
     {
-        if (await _sessionManager.Store.LoadSessionAsync(sessionId, cancellationToken) == null)
+        if (string.IsNullOrWhiteSpace(anchor.SessionId) || string.IsNullOrWhiteSpace(anchor.ThreadId))
+            return AgentServiceResult<ThreadEventObservationLease>.Validation(
+                "InvalidThreadKey",
+                "A complete non-empty session/thread key is required.");
+        if (hierarchy is < AgentEventHierarchy.ExactThread or > AgentEventHierarchy.ThreadAndDescendants)
+            return AgentServiceResult<ThreadEventObservationLease>.Validation(
+                "InvalidEventHierarchy",
+                $"Unknown agent event hierarchy value '{(int)hierarchy}'.");
+
+        if (await _sessionManager.Store.LoadSessionAsync(anchor.SessionId, cancellationToken) == null)
             return AgentServiceResult<ThreadEventObservationLease>.NotFound;
 
-        var key = new ThreadKey(sessionId, threadId);
-        if (await _sessionManager.Store.GetThreadAsync(key, cancellationToken).ConfigureAwait(false) == null)
+        if (await _sessionManager.Store.GetThreadAsync(anchor, cancellationToken).ConfigureAwait(false) == null)
             return AgentServiceResult<ThreadEventObservationLease>.NotFound;
 
         var liveEvents = _agentManager.CreateRuntimeEventInbox(
             agentId,
-            sessionId,
-            threadId,
+            anchor.SessionId,
+            anchor.ThreadId,
+            hierarchy,
             HPD.Events.EventInboxOptions.Deterministic());
         return AgentServiceResult<ThreadEventObservationLease>.Success(
-            new ThreadEventObservationLease(_sessionManager.Store, key, liveEvents));
+            new ThreadEventObservationLease(_sessionManager.Store, anchor, hierarchy, liveEvents));
     }
 
     public async Task<AgentServiceResult<InputSubmissionDto>> SubmitInputAsync(
@@ -63,6 +73,9 @@ public sealed class AgentStreamingService : IAgentStreamingService
         AgentInputEvent input,
         CancellationToken cancellationToken = default)
     {
+        if (!HPD.Agent.Serialization.AgentInputCodec.IsPublicInput(input))
+            return AgentServiceResult<InputSubmissionDto>.Validation("InternalInput", "This input is reserved for the internal runtime.");
+
         if (input is UserMessagesInputEvent { Delivery: AgentInputDelivery.Steer })
             return await SubmitActiveControlAsync(agentId, sessionId, threadId, input, cancellationToken)
                 .ConfigureAwait(false);
@@ -135,6 +148,66 @@ public sealed class AgentStreamingService : IAgentStreamingService
                 "queued",
                 execution.ThreadExecutionId,
                 execution.StartedAt));
+    }
+
+    /// <inheritdoc />
+    public async Task<AgentServiceResult<InputSubmissionDto>> SubmitSubAgentInputAsync(
+        string controllerAgentId,
+        string controllerSessionId,
+        string controllerThreadId,
+        SubAgentLocalId localId,
+        string childAgentId,
+        string childSessionId,
+        string childThreadId,
+        AgentInputEvent input,
+        CancellationToken cancellationToken = default)
+    {
+        if (!HPD.Agent.Serialization.AgentInputCodec.IsPublicInput(input))
+            return AgentServiceResult<InputSubmissionDto>.Validation("InternalInput", "This input is reserved for the trusted runtime.");
+
+        if (string.IsNullOrWhiteSpace(controllerAgentId) ||
+            string.IsNullOrWhiteSpace(childAgentId) ||
+            string.IsNullOrWhiteSpace(controllerSessionId) ||
+            string.IsNullOrWhiteSpace(controllerThreadId) ||
+            string.IsNullOrWhiteSpace(childSessionId) ||
+            string.IsNullOrWhiteSpace(childThreadId))
+            return AgentServiceResult<InputSubmissionDto>.Validation(
+                "SubAgentRouteRequired", "A complete controller and child route is required.");
+
+        try
+        {
+            var controllerThread = new ThreadKey(controllerSessionId, controllerThreadId);
+            var controllerDescriptor = await _sessionManager.Store
+                .GetThreadAsync(controllerThread, cancellationToken)
+                .ConfigureAwait(false);
+            if (controllerDescriptor is null || !string.Equals(
+                    controllerDescriptor.DefaultAgent.AgentId,
+                    controllerAgentId,
+                    StringComparison.Ordinal))
+                return AgentServiceResult<InputSubmissionDto>.Validation(
+                    "subagent_controller_route_mismatch",
+                    "The claimed controller agent does not own the controller thread.");
+
+            var submission = await SubAgentRuntime.SubmitControlledInputAsync(
+                _sessionManager.Store,
+                new HostedAgentRuntimeResolver(_agentManager),
+                controllerThread,
+                localId,
+                childAgentId,
+                new ThreadKey(childSessionId, childThreadId),
+                input,
+                cancellationToken).ConfigureAwait(false);
+            return AgentServiceResult<InputSubmissionDto>.Success(new InputSubmissionDto(
+                ToWireDisposition(submission.Disposition),
+                submission.ThreadExecutionId,
+                DateTimeOffset.UtcNow));
+        }
+        catch (InvalidOperationException exception) when (exception.Message is
+            "subagent_unknown" or "subagent_route_mismatch" or "subagent_controller_grant_required" or
+            "subagent_locked_client_override_forbidden")
+        {
+            return AgentServiceResult<InputSubmissionDto>.Validation(exception.Message, exception.Message);
+        }
     }
 
     private async Task<AgentServiceResult<InputSubmissionDto>> SubmitActiveControlAsync(

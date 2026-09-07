@@ -43,6 +43,27 @@ public class AgentPlanToolHarness
         _logger = logger;
     }
 
+    /// <summary>Manages the current execution plan through one typed action contract.</summary>
+    [AIFunction(Name = "plan", InvocationModePolicy = AgentInvocationModePolicy.SynchronousOnly)]
+    [Description("Track multi-step work using create, updateStep, addStep, addNote, or complete. The current plan is supplied in context. Continue executing work while tracking progress; completing a plan does not complete a persistent Goal.")]
+    public Task<object> PlanAsync(
+        [Description("The plan action and its action-specific arguments.")] PlanAction operation,
+        FunctionExecutionContext context)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        return operation switch
+        {
+            CreatePlanAction action => CreatePlanAsync(action.Goal, action.Steps, context),
+            UpdatePlanStepAction action when Enum.IsDefined(action.Status) =>
+                UpdatePlanStepAsync(action.StepId, action.Status, context, action.Notes),
+            UpdatePlanStepAction => Result("Error: Invalid plan step status."),
+            AddPlanStepAction action => AddPlanStepAsync(action.Description, context, action.AfterStepId),
+            AddPlanNoteAction action => AddContextNoteAsync(action.Note, context),
+            CompletePlanAction => CompletePlanAsync(context),
+            _ => throw new ArgumentException("Unknown plan action.", nameof(operation))
+        };
+    }
+
     private static Task<object> Result(object value)
         => Task.FromResult(value);
 
@@ -57,9 +78,7 @@ public class AgentPlanToolHarness
         return Result(modelText);
     }
 
-    [AIFunction(Name = "create_plan")]
-    [Description("Create a new execution plan to track progress on multi-step tasks. Use when you need to plan and track complex work.")]
-    public Task<object> CreatePlanAsync(
+    private Task<object> CreatePlanAsync(
         [Description("The goal or objective this plan aims to accomplish")] string goal,
         [Description("Array of step descriptions (e.g., ['Analyze code', 'Refactor auth', 'Run tests'])")] string[] steps,
         FunctionExecutionContext context)
@@ -104,16 +123,14 @@ public class AgentPlanToolHarness
 
         return Result(
             context,
-            $"Created plan {plan.Id} with {plan.Steps.Count} steps:\n{stepList}\n\nUse update_plan_step() to mark progress.",
+            $"Created plan {plan.Id} with {plan.Steps.Count} steps:\n{stepList}\n\nUse plan with action updateStep to mark progress.",
             state => state.WithPlan(conversationId, plan),
             evt);
     }
 
-    [AIFunction(Name = "update_plan_step")]
-    [Description("Update the status of a specific step in the current plan. Use this as you make progress.")]
-    public Task<object> UpdatePlanStepAsync(
+    private Task<object> UpdatePlanStepAsync(
         [Description("The step ID to update (e.g., '1', '2', '3')")] string stepId,
-        [Description("The new status: 'pending', 'in_progress', 'completed', or 'blocked'")] string status,
+        PlanStepStatus status,
         FunctionExecutionContext context,
         [Description("Optional notes about this step's progress, findings, or blockers")] string? notes = null)
     {
@@ -132,27 +149,13 @@ public class AgentPlanToolHarness
         var planState = context.Analyze(s => s.MiddlewareState.PlanModePersistent());
         if (planState == null || !planState.HasActivePlan(conversationId))
         {
-            return Result("Error: No active plan exists for this conversation. Create a plan first using create_plan().");
+            return Result("Error: No active plan exists for this conversation. Create a plan first using plan with action create.");
         }
 
         var plan = planState.GetPlan(conversationId);
         if (plan == null)
         {
-            return Result("Error: No active plan exists for this conversation. Create a plan first using create_plan().");
-        }
-
-        var parsedStatus = status.ToLowerInvariant() switch
-        {
-            "pending" => PlanStepStatus.Pending,
-            "in_progress" or "inprogress" => PlanStepStatus.InProgress,
-            "completed" or "complete" or "done" => PlanStepStatus.Completed,
-            "blocked" => PlanStepStatus.Blocked,
-            _ => (PlanStepStatus?)null
-        };
-
-        if (parsedStatus == null)
-        {
-            return Result($"Error: Invalid status '{status}'. Use: pending, in_progress, completed, or blocked.");
+            return Result("Error: No active plan exists for this conversation. Create a plan first using plan with action create.");
         }
 
         // Check if step exists
@@ -163,18 +166,18 @@ public class AgentPlanToolHarness
         }
 
         var oldStatus = existingStep.Status.ToString();
-        var updatedPlan = plan.WithUpdatedStep(stepId, parsedStatus.Value, notes);
+        var updatedPlan = plan.WithUpdatedStep(stepId, status, notes);
         var evt = new PlanUpdatedEvent(
             PlanId: plan.Id,
             ConversationId: conversationId,
             UpdateType: PlanUpdateType.StepUpdated,
             Plan: updatedPlan,
-            Explanation: $"Updated step {stepId} from {oldStatus} to {parsedStatus.Value}" + (notes != null ? $": {notes}" : ""),
+            Explanation: $"Updated step {stepId} from {oldStatus} to {status}" + (notes != null ? $": {notes}" : ""),
             UpdatedAt: DateTimeOffset.UtcNow);
 
-        _logger?.LogInformation("Updated step {StepId} to {Status} for conversation {ConversationId}", stepId, parsedStatus, conversationId);
+        _logger?.LogInformation("Updated step {StepId} to {Status} for conversation {ConversationId}", stepId, status, conversationId);
 
-        var response = $"Updated step {stepId} to {parsedStatus}";
+        var response = $"Updated step {stepId} to {status}";
         if (notes != null)
         {
             response += $" with notes: {notes}";
@@ -185,13 +188,11 @@ public class AgentPlanToolHarness
             state => ApplyToActivePlan(
                 state,
                 conversationId,
-                current => current.WithUpdatedStep(stepId, parsedStatus.Value, notes)),
+                current => current.WithUpdatedStep(stepId, status, notes)),
             evt);
     }
 
-    [AIFunction(Name = "add_plan_step")]
-    [Description("Add a new step to the current plan. Use this when you discover additional work is needed.")]
-    public Task<object> AddPlanStepAsync(
+    private Task<object> AddPlanStepAsync(
         [Description("Description of the new step to add")] string description,
         FunctionExecutionContext context,
         [Description("Optional: ID of step to insert after (e.g., '2'). If omitted, adds to end.")] string? afterStepId = null)
@@ -211,7 +212,7 @@ public class AgentPlanToolHarness
         var planState = context.Analyze(s => s.MiddlewareState.PlanModePersistent());
         if (planState == null || !planState.HasActivePlan(conversationId))
         {
-            return Result("Error: No active plan exists for this conversation. Create a plan first using create_plan().");
+            return Result("Error: No active plan exists for this conversation. Create a plan first using plan with action create.");
         }
 
         var plan = planState.GetPlan(conversationId);
@@ -247,9 +248,7 @@ public class AgentPlanToolHarness
             evt);
     }
 
-    [AIFunction(Name = "add_context_note")]
-    [Description("Add a context note to the current plan. Use this to record important discoveries, learnings, or context.")]
-    public Task<object> AddContextNoteAsync(
+    private Task<object> AddContextNoteAsync(
         [Description("The note to add (e.g., 'Discovered auth uses JWT not sessions')")] string note,
         FunctionExecutionContext context)
     {
@@ -268,7 +267,7 @@ public class AgentPlanToolHarness
         var planState = context.Analyze(s => s.MiddlewareState.PlanModePersistent());
         if (planState == null || !planState.HasActivePlan(conversationId))
         {
-            return Result("Error: No active plan exists for this conversation. Create a plan first using create_plan().");
+            return Result("Error: No active plan exists for this conversation. Create a plan first using plan with action create.");
         }
 
         var plan = planState.GetPlan(conversationId);
@@ -302,9 +301,7 @@ public class AgentPlanToolHarness
     // via AgentPlanAgentMiddleware, so the agent always has the current plan in context without needing
     // to call a function. This saves tokens and simplifies the API.
 
-    [AIFunction(Name = "complete_plan")]
-    [Description("Mark the entire plan as complete. Use this when all steps are done and the goal is achieved.")]
-    public Task<object> CompletePlanAsync(FunctionExecutionContext context)
+    private Task<object> CompletePlanAsync(FunctionExecutionContext context)
     {
         var conversationId = context.ConversationId;
         if (string.IsNullOrEmpty(conversationId))

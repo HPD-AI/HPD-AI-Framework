@@ -26,6 +26,9 @@ public static class ThreadJournalEncoder
                 GetTurnId(message)));
         }
 
+        if (thread.MiddlewareState.Count > 0)
+            events.Add(ThreadEventFactory.ThreadMiddlewareStateCommitted(thread.SessionId, thread.Id, thread.MiddlewareState));
+        events.AddRange(Planning.PlanJournalSnapshots.Create(thread));
         return events;
     }
 

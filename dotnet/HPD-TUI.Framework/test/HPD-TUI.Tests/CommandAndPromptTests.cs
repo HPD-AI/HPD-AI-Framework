@@ -269,9 +269,9 @@ public sealed class CommandAndPromptTests
         var view = new PromptView(model, controller) { IsFocused = true };
         var context = new RenderContext(12, 1, Theme.Default);
         using var grid = new TerminalGrid(12, 1);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
-        view.Render(in context, 12, ref writer);
+        view.Render(in context, ref writer);
 
         Assert.Equal("Ask anything", ReadLine(grid, 0));
         Assert.True(grid.HasTerminalCursor);
@@ -286,9 +286,9 @@ public sealed class CommandAndPromptTests
         var view = new PromptView(model, controller) { IsFocused = true };
         var context = new RenderContext(12, 1, Theme.Default);
         using var grid = new TerminalGrid(12, 1);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
-        view.Render(in context, 12, ref writer);
+        view.Render(in context, ref writer);
 
         Assert.Equal("|Ask anythin", ReadLine(grid, 0));
     }
@@ -303,9 +303,9 @@ public sealed class CommandAndPromptTests
         var view = new PromptView(model, controller) { IsFocused = true };
         var context = new RenderContext(8, 1, Theme.Default);
         using var grid = new TerminalGrid(8, 1);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
-        view.Render(in context, 8, ref writer);
+        view.Render(in context, ref writer);
 
         Assert.Equal("he|llo  ", ReadLine(grid, 0));
     }
@@ -328,9 +328,9 @@ public sealed class CommandAndPromptTests
         var view = new PromptView(model, controller) { IsFocused = true };
         var context = new RenderContext(8, 1, Theme.Default);
         using var grid = new TerminalGrid(8, 1);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
-        view.Render(in context, 8, ref writer);
+        view.Render(in context, ref writer);
 
         Assert.Equal("> Ask   ", ReadLine(grid, 0));
         Assert.Equal(background, grid.GetCell(0, 0).Style.Background);
@@ -362,10 +362,10 @@ public sealed class CommandAndPromptTests
         var view = new PromptView(model, controller) { IsFocused = true };
         var context = new RenderContext(8, 3, Theme.Default);
         using var grid = new TerminalGrid(8, 3);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
-        var measurement = view.Measure(in context, 8);
-        view.Render(in context, 8, ref writer);
+        var measurement = view.Measure(in context, HPD.TUI.Layout.LayoutConstraints.Loose(8, context.Height));
+        view.Render(in context, ref writer);
 
         Assert.Equal(3, measurement.Height);
         Assert.Equal("        ", ReadLine(grid, 0));
@@ -387,10 +387,10 @@ public sealed class CommandAndPromptTests
         var view = new PromptView(model, controller) { IsFocused = true };
         var context = new RenderContext(5, 3, Theme.Default);
         using var grid = new TerminalGrid(5, 3);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
-        var measurement = view.Measure(in context, 5);
-        view.Render(in context, 5, ref writer);
+        var measurement = view.Measure(in context, HPD.TUI.Layout.LayoutConstraints.Loose(5, context.Height));
+        view.Render(in context, ref writer);
 
         Assert.Equal(3, measurement.Height);
         Assert.Equal("abcde", ReadLine(grid, 0));
@@ -416,10 +416,10 @@ public sealed class CommandAndPromptTests
         var view = new PromptView(model, controller) { MaximumSuggestionRows = 4 };
         var context = new RenderContext(20, 5, Theme.Default);
         using var grid = new TerminalGrid(20, 5);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
-        var measurement = view.Measure(in context, 20);
-        view.Render(in context, 20, ref writer);
+        var measurement = view.Measure(in context, HPD.TUI.Layout.LayoutConstraints.Loose(20, context.Height));
+        view.Render(in context, ref writer);
 
         Assert.Equal(5, measurement.Height);
         Assert.Contains("item-7", ReadLine(grid, 1));
@@ -446,7 +446,7 @@ public sealed class CommandAndPromptTests
         Span<char> buffer = stackalloc char[grid.Width];
         for (var x = 0; x < grid.Width; x++)
         {
-            buffer[x] = (char)grid.GetCell(x, y).Rune.Value;
+            buffer[x] = (char)grid.GetLeadingRune(grid.GetCell(x, y)).Value;
         }
 
         return new string(buffer);

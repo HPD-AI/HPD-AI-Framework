@@ -17,6 +17,33 @@ namespace HPD.Agent.TUI.Tests;
 
 public sealed class CompositionSurfaceTests
 {
+    [Theory]
+    [InlineData(TranscriptHistoryPresentation.TerminalScrollback)]
+    [InlineData(TranscriptHistoryPresentation.Viewport)]
+    public void PreparedPageKeepsItsGeometryUntilNextFramePreparation(TranscriptHistoryPresentation presentation)
+    {
+        var preparedHeights = new List<int>();
+        var registry = new HpdAgentTuiBuilder().AddAgentTuiDefaults().UseTranscriptHistoryPresentation(presentation)
+            .TryAddPage(new HpdAgentTuiPageDescriptor("workspace", context =>
+            {
+                preparedHeights.Add(context.Height);
+                return new Text("Workspace page");
+            })).Build();
+        var model = new ChatShellModel(new AgentTuiRuntimeScope("agent", "session", "main"));
+        model.Navigation.GoToPage("workspace");
+        var view = new DefaultAgentTuiShellView(new AgentTuiShellLayoutContext(model,
+            PromptView.Create("Ask"), registry, registry.ShellChrome));
+        view.PrepareFrame(new HPD.TUI.Terminal.TerminalSize(80, 30), Theme.Default, ColorSystem.TrueColor);
+        // The terminal size can change after preparation, before the renderer samples it.
+        var rendered = TuiCapture.RenderToString(view, 80, 20);
+        rendered.Should().Contain("Workspace page");
+        preparedHeights.Should().ContainSingle();
+        view.PrepareFrame(new HPD.TUI.Terminal.TerminalSize(80, 20), Theme.Default, ColorSystem.TrueColor);
+        preparedHeights.Should().HaveCount(2);
+        preparedHeights[1].Should().BeLessThan(preparedHeights[0]);
+        TuiCapture.RenderToString(view, 80, 20).Should().Contain("Workspace page");
+    }
+
     [Fact]
     public void AddFooterItem_FailsOnDuplicateKey()
     {
@@ -168,7 +195,7 @@ public sealed class CompositionSurfaceTests
         model.Transcript.AddFinal(new TranscriptEntry(
             Id: "row",
             EntryKey: null,
-            new AssistantMessageCell("assistant", new Markdown("hello")),
+            HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant("test-assistant", "hello", 96, HPD.TUI.Markdown.MarkdownTheme.FromTheme(Theme.Default), "assistant"),
             new TranscriptEntryMetadata()));
 
         var view = registry.ShellLayout.Create(new AgentTuiShellLayoutContext(
@@ -302,7 +329,7 @@ public sealed class CompositionSurfaceTests
             Metadata: new TranscriptEntryMetadata());
 
         var rendered = TuiCapture.RenderToString(
-            registry.TranscriptRenderers.Create(entry),
+            registry.TranscriptRenderers.Create(entry, 80, Theme.Default, ColorSystem.TrueColor),
             width: 80,
             height: 4,
             trimTrailingBlankLines: true);
@@ -373,14 +400,14 @@ public sealed class CompositionSurfaceTests
     [Fact]
     public void SetRunConfigComposer_StoresComposerInRegistry()
     {
-        AgentTuiRunConfigComposer composer = context => new AgentRunConfig
+        AgentTuiRunConfigComposer composer = context => new AgentTuiInputRunConfig(new AgentRunConfig
         {
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig
             {
                 Provider = new ProviderReference { Key = context.Scope.AgentId },
                 ModelName = context.Prompt
             } }
-        };
+        }, null);
 
         var registry = new HpdAgentTuiBuilder()
             .SetRunConfigComposer(composer)
@@ -714,7 +741,23 @@ public sealed class CompositionSurfaceTests
             _text = text;
         }
 
-        public IComponent Create(AgentTuiShellLayoutContext context) => new Text(_text);
+        public IAgentTuiShellView Create(AgentTuiShellLayoutContext context) => new TestShell(_text);
+
+        private sealed class TestShell(string text) : Component, IAgentTuiShellView
+        {
+            public long HistoryRevision => 0;
+            public bool IsFullScreen => false;
+            public HPD.TUI.Terminal.ManagedTerminalRecoveryPolicy HistoryResetPolicy => HPD.TUI.Terminal.ManagedTerminalRecoveryPolicy.ClearAndReplay;
+            public void PrepareFrame(HPD.TUI.Terminal.TerminalSize size, Theme theme, ColorSystem colorSystem) { }
+            public void ResetPresentation(long presentationEpoch, in RenderContext context) { }
+            public HPD.TUI.Rendering.ScrollbackBatch? PrepareScrollback(in RenderContext context, int maxRows) => null;
+            public void CommitScrollback(HPD.TUI.Rendering.ScrollbackBatch batch) { }
+            public void RollbackScrollback(HPD.TUI.Rendering.ScrollbackBatch batch) { }
+            public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
+                => new Text(text).Measure(in context, constraints);
+            public override void Render(in RenderContext context, ref DisplayListBuilder output)
+                => output.Write(text, context.Theme.Text);
+        }
     }
 
     private sealed class TextTranscriptRenderer<TCell> : IAgentTuiTranscriptRenderer<TCell>

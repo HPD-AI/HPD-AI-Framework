@@ -133,8 +133,8 @@ public sealed class EvalTurnCaptureTests
             new(ChatRole.Assistant, "world") { MessageId = "assistant-1" }
         };
         return (
-            agentContext.AsBeforeMessageTurn(history[0], history, runConfig),
-            agentContext.AsAfterMessageTurn(new ChatResponse(history[1]), history, runConfig));
+            agentContext.AsBeforeMessageTurn([history[0]], history, runConfig),
+            agentContext.AsAfterMessageTurn(new ChatResponse([history[1]]), history, runConfig));
     }
 
     private static MessageTurnFinishedEvent Finished(string turnId, string traceId, TimeSpan duration)

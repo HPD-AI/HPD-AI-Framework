@@ -33,7 +33,7 @@ const chat = await client.chat.open({
 
 client.onAny((event) => applyEvent(event));
 
-const state = await chat.subscribeLive();
+const state = await chat.subscribeLive({ hierarchy: 'exactThread' });
 
 const submission = await chat.submitMessage({ contents: [{ $type: 'text', text: 'Hello' }] }, {
   runConfig: {
@@ -69,6 +69,13 @@ Handlers may return:
 ## Low-Level Runtime
 
 Raw event APIs remain available for protocol-level behavior that does not belong in transcript state: permission dialogs, clarification UI, continuation controls, middleware/status UI, audio, debugging, custom telemetry, and other app-specific event handling.
+
+Live observation is exact-thread by default. Select `directChildren`,
+`threadAndDirectChildren`, `descendants`, or `threadAndDescendants` explicitly when the
+consumer needs a broader branch. At the transport boundary, `onEvent` receives an
+`AgentEventDelivery` with both the event and its immutable `route`; parsers reject malformed
+routes and unknown hierarchy values. Descendant live events retain their own thread identity
+and never acquire the anchor thread's journal cursor.
 
 ```typescript
 import { AgentClient, EventTypes } from '@hpd-research/hpd-agent-client';

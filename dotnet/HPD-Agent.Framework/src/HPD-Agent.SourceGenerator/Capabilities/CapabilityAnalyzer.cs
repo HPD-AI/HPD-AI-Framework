@@ -1564,6 +1564,23 @@ internal static class CapabilityAnalyzer
                     return fullyQualifiedName;
                 }
             }
+
+            // Roslyn may bind an attribute's constructor without retaining the
+            // constructed generic type arguments on the constructor symbol.
+            // Read the attribute type itself as a fallback so generic metadata
+            // remains available to the generated ToolHarness factory.
+            if (semanticModel.GetTypeInfo(attr).Type is INamedTypeSymbol attributeTypeInfo &&
+                attributeTypeInfo.IsGenericType && attributeTypeInfo.TypeArguments.Length == 1)
+            {
+                return attributeTypeInfo.TypeArguments[0]
+                    .ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            }
+
+            if (attr.Name is GenericNameSyntax genericName && genericName.TypeArgumentList.Arguments.Count == 1 &&
+                semanticModel.GetTypeInfo(genericName.TypeArgumentList.Arguments[0]).Type is ITypeSymbol metadataType)
+            {
+                return metadataType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            }
         }
 
         System.Diagnostics.Debug.WriteLine($"[GetMetadataTypeName] No context type found for method {method.Identifier.ValueText}");

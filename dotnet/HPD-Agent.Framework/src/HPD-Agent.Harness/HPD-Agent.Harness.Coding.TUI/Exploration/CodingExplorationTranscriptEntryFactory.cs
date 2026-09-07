@@ -25,11 +25,11 @@ internal static class CodingExplorationTranscriptEntryFactory
         var entry = Create(group, evt);
         if (group.CaptureIsActive())
         {
-            context.Shell.Transcript.UpsertLive(entry.AsLive());
+            context.Shell.Transcript.UpsertLive(entry.AsLive(), CommittedHistoryMutationPolicy.Reject);
         }
         else
         {
-            context.Shell.Transcript.FinalizeLive(EntryKey(group), entry.AsFinal());
+            context.Shell.Transcript.FinalizeLive(EntryKey(group), entry.AsFinal(), CommittedHistoryMutationPolicy.Reject);
         }
     }
 

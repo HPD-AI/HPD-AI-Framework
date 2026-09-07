@@ -179,19 +179,16 @@ public abstract class AgentManager : IAsyncDisposable
             }
 
             var agent = await BuildAgentAsync(agentId, ct);
-            IDisposable? liveEventBridge = null;
-            if (!string.Equals(cacheKey, agentId, StringComparison.Ordinal))
-            {
-                var liveEventHub = _runtimeEventHubs.GetOrAdd(cacheKey, static _ => new EventCoordinator());
-                liveEventBridge = agent.EventCoordinator.Subscribe<AgentEvent>(
-                    evt => liveEventHub.EmitAsync(evt),
-                    new EventSubscriptionOptions
-                    {
-                        Capacity = 4096,
-                        FullMode = System.Threading.Channels.BoundedChannelFullMode.Wait,
-                        IncludeDerivedTypes = true
-                    });
-            }
+            var liveEventHub = _runtimeEventHubs.GetOrAdd(cacheKey, static _ => new EventCoordinator());
+            var liveEventBridge = agent.EventCoordinator.ForwardTo(
+                liveEventHub,
+                new EventForwardingOptions
+                {
+                    Capacity = 4096,
+                    FullMode = System.Threading.Channels.BoundedChannelFullMode.Wait,
+                    EventType = typeof(AgentEvent),
+                    IncludeDerivedTypes = true
+                });
             _agents[cacheKey] = new AgentEntry(agent, liveEventBridge);
             return agent;
         }
@@ -224,7 +221,6 @@ public abstract class AgentManager : IAsyncDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
-
         var cacheKey = RuntimeCacheKey(agentId, sessionId, threadId);
         return _agents.TryGetValue(cacheKey, out var entry) ? entry.Agent : null;
     }
@@ -251,19 +247,33 @@ public abstract class AgentManager : IAsyncDisposable
     /// runtime. Once that runtime exists, all of its agent events are forwarded into this hub;
     /// descendant events arrive through normal coordinator bubbling.
     /// </summary>
-    public EventInbox<AgentEvent> CreateRuntimeEventInbox(
+    /// <remarks>
+    /// The session and thread identifiers form one complete key. Keyed delivery excludes threadless events and
+    /// sibling branches; descendants require an explicit transitive hierarchy. Each origin retains its own route,
+    /// delivery order, and journal cursor. <paramref name="options"/> controls mailbox capacity and backpressure.
+    /// The caller owns and must asynchronously dispose the returned inbox; disposal stops observation only and
+    /// does not stop the runtime or bubbling.
+    /// </remarks>
+    public DeliveryInbox<AgentEventDelivery> CreateRuntimeEventInbox(
         string agentId,
         string sessionId,
         string threadId,
+        AgentEventHierarchy hierarchy = AgentEventHierarchy.ExactThread,
         EventInboxOptions? options = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
+        if (hierarchy is < AgentEventHierarchy.ExactThread or > AgentEventHierarchy.ThreadAndDescendants)
+            throw new ArgumentOutOfRangeException(nameof(hierarchy), hierarchy, "Unknown agent event hierarchy.");
 
         var cacheKey = RuntimeCacheKey(agentId, sessionId, threadId);
         var hub = _runtimeEventHubs.GetOrAdd(cacheKey, static _ => new EventCoordinator());
-        return hub.CreateInbox<AgentEvent>(options);
+        return AgentEventRoutes.CreateDeliveryInbox(
+            hub,
+            new ThreadKey(sessionId, threadId),
+            hierarchy,
+            options);
     }
 
     /// <summary>

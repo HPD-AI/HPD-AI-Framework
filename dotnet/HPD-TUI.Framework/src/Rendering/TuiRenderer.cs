@@ -11,19 +11,50 @@ public sealed class TuiRenderer : IDisposable
     private static readonly char[] CursorHide = ['\x1b', '[', '?', '2', '5', 'l'];
     private static readonly char[] CursorShow = ['\x1b', '[', '?', '2', '5', 'h'];
     private readonly ITerminal _terminal;
+    private readonly TerminalPublicationCoordinator _publisher;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly AnsiFrameWriter _output = new();
-    private TerminalGrid? _currentGrid;
-    private TerminalGrid? _previousGrid;
+    private readonly RetainedDisplayList _displayList = new();
+    private ScreenBuffer? _currentScreen;
+    private ScreenBuffer? _previousScreen;
+    private int[] _previousDamagedRows = [];
+    private int _previousDamagedRowCount;
     private bool _hasPreviousFrame;
+    private bool _terminalCertain = true;
     private bool _disposed;
+    private TimeSpan _schedulingDelay;
 
     public TuiRenderer(ITerminal terminal)
+        : this(terminal, new SynchronousTerminalOutputTransport(terminal))
+    {
+    }
+
+    /// <summary>Creates an alternate-screen renderer with an explicit output transport.</summary>
+    /// <param name="terminal">The terminal used for sizing.</param>
+    /// <param name="transport">The single-writer output transport.</param>
+    public TuiRenderer(ITerminal terminal, ITerminalOutputTransport transport)
     {
         _terminal = terminal ?? throw new ArgumentNullException(nameof(terminal));
+        _publisher = new TerminalPublicationCoordinator(transport);
+    }
+
+    internal ValueTask WaitUntilWritableAsync(CancellationToken cancellationToken)
+        => _publisher.WaitUntilWritableAsync(cancellationToken);
+
+    internal void PublishControl(ReadOnlySpan<char> controlSequence)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        _output.Clear();
+        _output.Write(controlSequence);
+        PublishFrame(recovery: !_terminalCertain);
     }
 
     public IHpdTuiPerformanceEventSink? PerformanceSink { get; set; }
+
+    /// <summary>Gets or sets the shared cumulative performance-counter recorder.</summary>
+    public TuiPerformanceCounters? PerformanceCounters { get; set; }
+
+    internal TimeSpan SchedulingDelay { set => _schedulingDelay = value; }
 
     public void Render(IComponent root, Theme? theme = null)
     {
@@ -32,53 +63,132 @@ public sealed class TuiRenderer : IDisposable
 
         var size = _terminal.GetSize();
         var sink = PerformanceSink;
+        var frameInstrumentation = sink is null ? null : new TuiFrameInstrumentation();
         var startTimestamp = sink is null ? 0 : Stopwatch.GetTimestamp();
         EnsureGrid(size);
 
         var context = new RenderContext(size.Width, size.Height, theme ?? Theme.Default, elapsed: _clock.Elapsed);
-        _currentGrid!.Clear();
-
-        var writer = new SegmentWriter(_currentGrid);
-        root.Render(in context, size.Width, ref writer);
-        var usedLines = TuiCapture.GetUsedLineCount(_currentGrid);
-
-        _output.Clear();
-        if (!_hasPreviousFrame)
+        var displayStart = sink is null ? 0 : Stopwatch.GetTimestamp();
+        bool cacheHit;
+        if (frameInstrumentation is null && PerformanceCounters is null)
+            cacheHit = _displayList.Prepare(root, in context, size.Width);
+        else
+            using (TuiInstrumentationContext.Enter(frameInstrumentation, PerformanceCounters))
+                cacheHit = _displayList.Prepare(root, in context, size.Width);
+        var displayDuration = sink is null ? TimeSpan.Zero : Stopwatch.GetElapsedTime(displayStart);
+        if (cacheHit && _hasPreviousFrame && _terminalCertain)
         {
-            _output.Write(ClearScreenAndCursorHome);
-            AnsiGridRenderer.WriteFull(_currentGrid, _output);
+            PublishDiagnostics(sink, startTimestamp, displayDuration, TimeSpan.Zero, TimeSpan.Zero,
+                default, 0, false, true, TimeSpan.Zero, frameInstrumentation);
+            return;
+        }
+        var rasterStart = sink is null ? 0 : Stopwatch.GetTimestamp();
+        if (_hasPreviousFrame && !_displayList.RequiresFullRaster)
+        {
+            // The reusable buffer contains frame N-2. Only the rows rasterized for
+            // frame N-1 can differ, so catch those rows up instead of cloning the
+            // complete screen on every small mutation.
+            _currentScreen!.CopyRowsFrom(_previousScreen!, _previousDamagedRows.AsSpan(0, _previousDamagedRowCount));
+            _currentScreen.ClearDamagedRows(_displayList.DamagedRows);
+            _displayList.ReplayDamaged(_currentScreen.Grid);
+            _currentScreen.ComputeFinalRowFingerprints(_displayList.DamagedRows);
         }
         else
         {
-            AnsiGridRenderer.WriteDifferential(_previousGrid!, _currentGrid, _output);
+            _currentScreen!.Clear();
+            _displayList.Replay(_currentScreen.Grid);
+            _currentScreen.ComputeFinalRowFingerprints();
         }
+        var rasterDuration = sink is null ? TimeSpan.Zero : Stopwatch.GetElapsedTime(rasterStart);
+        var usedLines = TuiCapture.GetUsedLineCount(_currentScreen.Grid);
 
-        AppendCursorState(_currentGrid, _output);
-        _output.FlushTo(_terminal);
-        PublishRenderCompleted(sink, "terminal-grid", startTimestamp, usedLines, writer.Count);
-        (_currentGrid, _previousGrid) = (_previousGrid, _currentGrid);
-        _hasPreviousFrame = true;
+        _output.Clear();
+        var recovery = !_terminalCertain;
+        var fullRepaint = !_hasPreviousFrame || recovery;
+        var diffStart = sink is null ? 0 : Stopwatch.GetTimestamp();
+        ScreenDiffMetrics metrics;
+        if (fullRepaint)
+        {
+            _output.Write(ClearScreenAndCursorHome);
+            AnsiGridRenderer.WriteFull(_currentScreen.Grid, _output);
+            metrics = new(size.Height, 0, 0, size.Height, size.Width * size.Height, size.Width * size.Height);
+        }
+        else
+        {
+            metrics = AnsiGridRenderer.WriteDifferential(_previousScreen!, _currentScreen, _output, _displayList.DamagedRows);
+        }
+        var diffDuration = sink is null ? TimeSpan.Zero : Stopwatch.GetElapsedTime(diffStart);
+
+        if (!_hasPreviousFrame || CursorStateChanged(_previousScreen!.Grid, _currentScreen.Grid))
+            AppendCursorState(_currentScreen.Grid, _output);
+        if (_output.Length == 0)
+        {
+            PublishDiagnostics(sink, startTimestamp, displayDuration, rasterDuration, diffDuration, metrics, 0, fullRepaint, cacheHit, TimeSpan.Zero, frameInstrumentation);
+            CommitRenderedFrame(fullRaster: _displayList.RequiresFullRaster);
+            return;
+        }
+        var outputCharacters = _output.Length;
+        var outputStart = sink is null ? 0 : Stopwatch.GetTimestamp();
+        PublishFrame(recovery);
+        var outputDuration = sink is null ? TimeSpan.Zero : Stopwatch.GetElapsedTime(outputStart);
+        PublishDiagnostics(sink, startTimestamp, displayDuration, rasterDuration, diffDuration, metrics, outputCharacters, fullRepaint, cacheHit, outputDuration, frameInstrumentation);
+        CommitRenderedFrame(fullRaster: _displayList.RequiresFullRaster);
     }
 
-    private static void PublishRenderCompleted(
-        IHpdTuiPerformanceEventSink? sink,
-        string surface,
-        long startTimestamp,
-        int rowsRendered,
-        int segmentsWritten)
+    private void PublishFrame(bool recovery)
     {
+        var result = _publisher.TryPublish(_output.WrittenSpan);
+        _output.Clear();
+        if (result.Status == TerminalWriteStatus.Failed)
+        {
+            _terminalCertain = false;
+            throw new InvalidOperationException("Terminal frame publication failed; terminal state is uncertain.", result.Error);
+        }
+        if (result.Status == TerminalWriteStatus.Backpressured)
+            throw new TerminalBackpressureException();
+        if (recovery) _terminalCertain = true;
+    }
+
+    private void PublishDiagnostics(
+        IHpdTuiPerformanceEventSink? sink,
+        long startTimestamp,
+        TimeSpan displayDuration,
+        TimeSpan rasterDuration,
+        TimeSpan diffDuration,
+        ScreenDiffMetrics metrics,
+        int outputCharacters,
+        bool fullRepaint,
+        bool cacheHit,
+        TimeSpan outputDuration,
+        TuiFrameInstrumentation? instrumentation)
+    {
+        if (outputCharacters == 0) PerformanceCounters?.RecordFrameSuppressed();
         if (sink is null)
         {
             return;
         }
 
-        sink.Publish(new TuiRenderCompleted(
-            surface,
-            Stopwatch.GetElapsedTime(startTimestamp),
-            rowsRendered,
-            segmentsWritten,
-            CacheHits: 0,
-            CacheMisses: 0));
+        sink.Publish(new TuiFrameDiagnostics(
+            SchedulingDelay: _schedulingDelay,
+            LayoutDuration: instrumentation?.LayoutDuration ?? TimeSpan.Zero,
+            DisplayListDuration: displayDuration,
+            RasterDuration: rasterDuration,
+            DiffDuration: diffDuration,
+            EncodeDuration: TimeSpan.Zero,
+            OutputDuration: outputDuration,
+            ComponentsMeasured: instrumentation?.ComponentsMeasured ?? 0,
+            ComponentsPainted: _displayList.ComponentsPainted,
+            DisplayCommandsReused: _displayList.CommandsReused,
+            DisplayCommandsBuilt: _displayList.CommandsBuilt,
+            RowsDamaged: _displayList.DamagedRowCount,
+            RowsFingerprintRejected: metrics.RowsFingerprintRejected,
+            RowsSemanticallyCompared: metrics.RowsSemanticallyCompared,
+            ChangedRuns: metrics.ChangedRuns,
+            CellsCompared: metrics.CellsCompared,
+            CellsChanged: metrics.CellsChanged,
+            OutputCharacters: outputCharacters,
+            FullRepaint: fullRepaint,
+            Backpressured: false));
     }
 
     private static void AppendCursorState(TerminalGrid grid, AnsiFrameWriter output)
@@ -90,6 +200,12 @@ public sealed class TuiRenderer : IDisposable
         }
     }
 
+    private static bool CursorStateChanged(TerminalGrid previous, TerminalGrid current)
+        => previous.HasTerminalCursor != current.HasTerminalCursor ||
+           (current.HasTerminalCursor &&
+            (previous.TerminalCursorX != current.TerminalCursorX ||
+             previous.TerminalCursorY != current.TerminalCursorY));
+
     public void Dispose()
     {
         if (_disposed)
@@ -98,26 +214,47 @@ public sealed class TuiRenderer : IDisposable
         }
 
         _disposed = true;
+        _displayList.Dispose();
         _output.Dispose();
-        _currentGrid?.Dispose();
-        _previousGrid?.Dispose();
+        _currentScreen?.Dispose();
+        _previousScreen?.Dispose();
         _terminal.Dispose();
     }
 
     private void EnsureGrid(TerminalSize size)
     {
-        if (_currentGrid is not null &&
-            _previousGrid is not null &&
-            _currentGrid.Width == size.Width &&
-            _currentGrid.Height == size.Height)
+        if (_currentScreen is not null &&
+            _previousScreen is not null &&
+            _currentScreen.Width == size.Width &&
+            _currentScreen.Height == size.Height)
         {
             return;
         }
 
-        _currentGrid?.Dispose();
-        _previousGrid?.Dispose();
-        _currentGrid = new TerminalGrid(size.Width, size.Height);
-        _previousGrid = new TerminalGrid(size.Width, size.Height);
+        _currentScreen?.Dispose();
+        _previousScreen?.Dispose();
+        _currentScreen = new ScreenBuffer(size.Width, size.Height);
+        _previousScreen = new ScreenBuffer(size.Width, size.Height);
+        _previousDamagedRows = new int[size.Height];
+        _previousDamagedRowCount = 0;
         _hasPreviousFrame = false;
+    }
+
+    private void CommitRenderedFrame(bool fullRaster)
+    {
+        _previousDamagedRowCount = 0;
+        if (fullRaster)
+        {
+            for (var row = 0; row < _previousDamagedRows.Length; row++)
+                _previousDamagedRows[_previousDamagedRowCount++] = row;
+        }
+        else
+        {
+            var damage = _displayList.DamagedRows;
+            for (var row = 0; row < damage.Length; row++)
+                if (damage[row]) _previousDamagedRows[_previousDamagedRowCount++] = row;
+        }
+        (_currentScreen, _previousScreen) = (_previousScreen, _currentScreen);
+        _hasPreviousFrame = true;
     }
 }

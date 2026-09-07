@@ -4,7 +4,7 @@ using HPD.TUI.Utilities;
 
 namespace HPD.TUI.Views;
 
-public sealed class ActivityView : IComponent
+public sealed class ActivityView : Component, IAnimationParticipant
 {
     private static readonly string[] SpinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
     private readonly ActivityModel _model;
@@ -20,8 +20,15 @@ public sealed class ActivityView : IComponent
 
     public bool AnimationsEnabled { get; init; } = true;
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    /// <inheritdoc />
+    public bool IsAnimationActive => AnimationsEnabled && _model.IsIndeterminate;
+
+    /// <inheritdoc />
+    public TimeSpan AnimationInterval => FrameInterval;
+
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         var width = 2 + UnicodeWidth.GetWidth(_model.Label);
         if (_model.Progress is not null)
         {
@@ -32,8 +39,9 @@ public sealed class ActivityView : IComponent
         return new Measurement(Math.Min(width, maxWidth), width);
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (maxWidth <= 0)
         {
             return;
@@ -51,7 +59,7 @@ public sealed class ActivityView : IComponent
         }
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         return false;
     }
@@ -117,7 +125,7 @@ public sealed class ActivityView : IComponent
         };
     }
 
-    private static void WritePercent(double progress, Style style, ref SegmentWriter output)
+    private static void WritePercent(double progress, Style style, ref DisplayListBuilder output)
     {
         progress = Math.Clamp(progress, 0, 1);
         Span<char> buffer = stackalloc char[4];

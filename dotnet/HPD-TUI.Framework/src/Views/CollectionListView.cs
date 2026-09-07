@@ -5,12 +5,15 @@ using HPD.TUI.Utilities;
 
 namespace HPD.TUI.Views;
 
-public sealed class CollectionListView<T> : IFocusable
+public sealed class CollectionListView<T> : Component, IFocusable
 {
     private readonly CollectionModel<T> _model;
     private readonly CollectionNavigationController<T> _navigation;
     private readonly Func<CollectionItem<T>, bool>? _isChecked;
     private readonly Func<KeyEvent, bool>? _handleInput;
+    private CollectionListMode _mode;
+    private bool _showCategories;
+    private bool _isFocused;
 
     public CollectionListView(
         CollectionModel<T> model,
@@ -21,7 +24,7 @@ public sealed class CollectionListView<T> : IFocusable
     {
         _model = model ?? throw new ArgumentNullException(nameof(model));
         _navigation = navigation ?? throw new ArgumentNullException(nameof(navigation));
-        Mode = mode;
+        _mode = mode;
         _isChecked = isChecked;
         _handleInput = handleInput;
     }
@@ -30,14 +33,18 @@ public sealed class CollectionListView<T> : IFocusable
 
     public CollectionNavigationController<T> Navigation => _navigation;
 
-    public CollectionListMode Mode { get; set; }
+    /// <summary>Gets or sets the list presentation mode.</summary>
+    public CollectionListMode Mode { get => _mode; set => SetLayout(ref _mode, value); }
 
-    public bool ShowCategories { get; set; }
+    /// <summary>Gets or sets whether category headings are rendered.</summary>
+    public bool ShowCategories { get => _showCategories; set => SetLayout(ref _showCategories, value); }
 
-    public bool IsFocused { get; set; }
+    /// <inheritdoc />
+    public bool IsFocused { get => _isFocused; set => SetPaint(ref _isFocused, value); }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         var width = 0;
         for (var i = 0; i < _model.Items.Count; i++)
         {
@@ -69,8 +76,9 @@ public sealed class CollectionListView<T> : IFocusable
         return new Measurement(Math.Min(width, maxWidth), width, height);
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (_model.VisibleCount == 0)
         {
             output.Write(_model.EmptyText.AsSpan(), context.Theme.Border);
@@ -114,12 +122,14 @@ public sealed class CollectionListView<T> : IFocusable
         }
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
-        return _handleInput?.Invoke(key.KeyEvent) == true;
+        var handled = _handleInput?.Invoke(key.KeyEvent) == true;
+        if (handled) InvalidateLayout();
+        return handled;
     }
 
-    private void RenderItem(in RenderContext context, ref SegmentWriter output, int sourceIndex, CollectionItem<T> item)
+    private void RenderItem(in RenderContext context, ref DisplayListBuilder output, int sourceIndex, CollectionItem<T> item)
     {
         var active = sourceIndex == _navigation.ActiveIndex;
         var style = item.Disabled

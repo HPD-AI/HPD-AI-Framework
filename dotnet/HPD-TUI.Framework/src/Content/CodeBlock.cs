@@ -3,7 +3,7 @@ using HPD.TUI.Utilities;
 
 namespace HPD.TUI.Content;
 
-public sealed class CodeBlock : IContentBlock
+public sealed class CodeBlock : Component, IContentBlock
 {
     private readonly List<string> _lines = [];
 
@@ -43,8 +43,9 @@ public sealed class CodeBlock : IContentBlock
         }
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         var width = 0;
         foreach (var line in _lines)
         {
@@ -59,8 +60,9 @@ public sealed class CodeBlock : IContentBlock
         return new Measurement(Math.Min(width, maxWidth), Math.Min(width, maxWidth));
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (maxWidth <= 0)
         {
             return;
@@ -83,14 +85,14 @@ public sealed class CodeBlock : IContentBlock
         }
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         return false;
     }
 
     public static CodeBlock Create(string code, string? language = null) => new(code, language);
 
-    private static void WriteClipped(string value, int maxWidth, Style style, ref SegmentWriter output)
+    private static void WriteClipped(string value, int maxWidth, Style style, ref DisplayListBuilder output)
     {
         var used = 0;
         var enumerator = new RuneEnumerator(value.AsSpan());

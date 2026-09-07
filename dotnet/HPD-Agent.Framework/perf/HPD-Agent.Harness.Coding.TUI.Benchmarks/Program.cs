@@ -4,6 +4,12 @@ using BenchmarkDotNet.Exporters.Json;
 using BenchmarkDotNet.Running;
 using HPD.Agent.ToolHarness.Coding.TUI.Benchmarks;
 
+if (args.Contains("--evidence", StringComparer.Ordinal))
+{
+    await AgentBenchmarkEvidenceRunner.RunAsync(args);
+    return;
+}
+
 BenchmarkSwitcher
     .FromAssembly(typeof(CodingCommandStreamingBenchmark).Assembly)
     .Run(args, BenchmarkConfig.Instance);

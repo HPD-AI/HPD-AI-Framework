@@ -4,10 +4,12 @@ using HPD.TUI.Models;
 
 namespace HPD.TUI.Views;
 
-public sealed class PromptView : IFocusable
+public sealed class PromptView : Component, IFocusable
 {
     private readonly PromptModel _model;
     private readonly PromptController _controller;
+    private int _maximumSuggestionRows = 8;
+    private bool _isFocused;
 
     public PromptView(PromptModel model, PromptController controller)
     {
@@ -20,12 +22,18 @@ public sealed class PromptView : IFocusable
     public PromptController Controller => _controller;
 
     /// <summary>Gets or sets the maximum number of autocomplete suggestions shown at once.</summary>
-    public int MaximumSuggestionRows { get; set; } = 8;
-
-    public bool IsFocused { get; set; }
-
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public int MaximumSuggestionRows
     {
+        get => _maximumSuggestionRows;
+        set { ArgumentOutOfRangeException.ThrowIfNegativeOrZero(value); SetLayout(ref _maximumSuggestionRows, value); }
+    }
+
+    /// <inheritdoc />
+    public bool IsFocused { get => _isFocused; set => SetLayout(ref _isFocused, value); }
+
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
+    {
+        var maxWidth = constraints.MaxWidth;
         var prefixWidth = GetPrefixWidth();
         var width = _model.ExpandToWidth
             ? maxWidth
@@ -46,8 +54,9 @@ public sealed class PromptView : IFocusable
         return new Measurement(Math.Min(width, maxWidth), Math.Min(width, maxWidth), height);
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (maxWidth <= 0)
         {
             return;
@@ -154,7 +163,7 @@ public sealed class PromptView : IFocusable
         bool visualCursor,
         int prefixWidth,
         ref bool cursorSet,
-        ref SegmentWriter output)
+        ref DisplayListBuilder output)
     {
         var column = prefixWidth;
         var line = 0;
@@ -206,7 +215,7 @@ public sealed class PromptView : IFocusable
         WriteSpaces(maxWidth - column, GetFillStyle(in context), ref output);
     }
 
-    private void WritePromptCharacter(int index, ref int partIndex, in RenderContext context, ref SegmentWriter output)
+    private void WritePromptCharacter(int index, ref int partIndex, in RenderContext context, ref DisplayListBuilder output)
     {
         if (_model.MaskCharacter is { } mask)
         {
@@ -218,10 +227,12 @@ public sealed class PromptView : IFocusable
         output.Write(_model.Text[index], style);
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         var keyEvent = key.KeyEvent;
-        return _controller.HandleInput(in keyEvent);
+        var handled = _controller.HandleInput(in keyEvent);
+        if (handled) InvalidateLayout();
+        return handled;
     }
 
     public static PromptView Create(
@@ -377,7 +388,7 @@ public sealed class PromptView : IFocusable
         return (column, line);
     }
 
-    private int WritePrefix(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    private int WritePrefix(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         if (maxWidth <= 0 || _model.Prefix.Length == 0)
         {
@@ -402,7 +413,7 @@ public sealed class PromptView : IFocusable
         int count,
         in RenderContext context,
         int maxWidth,
-        ref SegmentWriter output)
+        ref DisplayListBuilder output)
     {
         for (var i = 0; i < count; i++)
         {
@@ -415,7 +426,7 @@ public sealed class PromptView : IFocusable
         int count,
         in RenderContext context,
         int maxWidth,
-        ref SegmentWriter output)
+        ref DisplayListBuilder output)
     {
         for (var i = 0; i < count; i++)
         {
@@ -424,12 +435,12 @@ public sealed class PromptView : IFocusable
         }
     }
 
-    private static void WriteSpaces(int count, Style style, ref SegmentWriter output)
+    private static void WriteSpaces(int count, Style style, ref DisplayListBuilder output)
     {
         WriteRepeated(' ', count, style, ref output);
     }
 
-    private static void WriteRepeated(char value, int count, Style style, ref SegmentWriter output)
+    private static void WriteRepeated(char value, int count, Style style, ref DisplayListBuilder output)
     {
         if (count <= 0)
         {

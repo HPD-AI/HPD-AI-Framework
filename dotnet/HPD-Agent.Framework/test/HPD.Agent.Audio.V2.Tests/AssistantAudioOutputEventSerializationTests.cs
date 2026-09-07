@@ -1,5 +1,6 @@
 using HPD.Agent;
 using HPD.Agent.Audio;
+using HPD.Agent.Audio.AgentIntegration.Output;
 using HPD.Agent.Audio.Output;
 using HPD.Agent.Serialization;
 
@@ -9,7 +10,7 @@ public sealed class AssistantAudioOutputEventSerializationTests
 {
     private static readonly AgentEventCodec Codec = AgentEventComposition.Create([
         CoreAgentEventModule.Fragment,
-        GeneratedAgentEventModule_HPD_Agent_Audio_fed5ec5f.Fragment
+        GeneratedAgentEventModule_HPD_Agent_Audio_1448db00.Fragment
     ]).Codec;
     private const string SessionId = "session-audio";
     private const string OutputFlowId = "output-flow";

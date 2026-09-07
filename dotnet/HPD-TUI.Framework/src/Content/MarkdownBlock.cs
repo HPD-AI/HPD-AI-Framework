@@ -1,49 +1,58 @@
 using HPD.TUI.Components;
 using HPD.TUI.Core;
-using Markdig;
-using Markdig.Syntax;
+using HPD.TUI.Markdown;
 
 namespace HPD.TUI.Content;
 
-public sealed class MarkdownBlock : IContentBlock
+/// <summary>Content block over a Markdown layout prepared at a publication boundary.</summary>
+public sealed class MarkdownBlock : Component, IContentBlock
 {
-    private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder()
-        .UseAdvancedExtensions()
-        .Build();
+    private readonly MarkdownView _view;
 
-    private Components.Markdown _component;
-
-    public MarkdownBlock(string source, Theme? theme = null)
+    private MarkdownBlock(string source, MarkdownDocumentSnapshot document, MarkdownLayout layout)
     {
-        Source = source ?? throw new ArgumentNullException(nameof(source));
-        ThemeOverride = theme;
-        Document = Markdig.Markdown.Parse(Source, Pipeline);
-        _component = new Components.Markdown(Source, theme);
+        Source = source;
+        Document = document;
+        Layout = layout;
+        _view = new(layout);
     }
 
+    /// <inheritdoc />
     public ContentBlockKind Kind => ContentBlockKind.Markdown;
 
-    public string Source { get; private set; }
+    /// <summary>Gets the exact canonical source.</summary>
+    public string Source { get; }
 
-    public Theme? ThemeOverride { get; }
+    /// <summary>Gets the parsed immutable document snapshot.</summary>
+    public MarkdownDocumentSnapshot Document { get; }
 
-    public MarkdownDocument Document { get; private set; }
+    /// <summary>Gets the immutable prepared terminal layout.</summary>
+    public MarkdownLayout Layout { get; }
 
-    public void SetSource(string source)
-    {
-        Source = source ?? throw new ArgumentNullException(nameof(source));
-        Document = Markdig.Markdown.Parse(Source, Pipeline);
-        _component = new Components.Markdown(Source, ThemeOverride);
-    }
+    /// <inheritdoc />
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints) => _view.Measure(in context, constraints);
 
-    public Measurement Measure(in RenderContext context, int maxWidth) => _component.Measure(in context, maxWidth);
+    /// <inheritdoc />
+    public override void Render(in RenderContext context, ref DisplayListBuilder output) => output.Render(_view, in context, output.MaxWidth);
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output) => _component.Render(in context, maxWidth, ref output);
-
-    public bool HandleInput(in TuiInputEvent key)
+    /// <inheritdoc />
+    public override bool HandleInput(in TuiInputEvent key)
     {
         return false;
     }
 
-    public static MarkdownBlock Create(string source, Theme? theme = null) => new(source, theme);
+    /// <summary>Parses and prepares a complete document for an exact render context.</summary>
+    /// <remarks>Invoke this at a publication or frame-preparation boundary, never from component measurement or rendering.</remarks>
+    public static MarkdownBlock Prepare(string source, int width, Theme theme,
+        ColorSystem colorSystem = ColorSystem.TrueColor, MarkdownSpacing? spacing = null)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(theme);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
+        var pipeline = MarkdownPipelineFactory.CreateDefault();
+        var document = new MarkdownDocumentParser().Parse(source, new MarkdownParseOptions { Pipeline = pipeline });
+        var layout = new MarkdownLayoutEngine().Layout(document,
+            new MarkdownLayoutOptions(width, MarkdownTheme.FromTheme(theme), colorSystem, Spacing: spacing));
+        return new(source, document, layout);
+    }
 }

@@ -1381,7 +1381,10 @@ public class AgentBuilder
         {
             var telemetryObserver = new TelemetryEventObserver(effectiveSourceName);
             return new CompositeDisposable(
-                coordinator.Subscribe<AgentEvent>(telemetryObserver.HandleAsync),
+                coordinator.Subscribe<AgentEvent>(telemetryObserver.HandleAsync, new HPD.Events.EventSubscriptionOptions
+                {
+                    OwnerScope = HPD.Events.EventOwnerScope.SameOwner
+                }),
                 telemetryObserver);
         });
 
@@ -1418,7 +1421,10 @@ public class AgentBuilder
         {
             var tracing = new TracingObserver(sourceName ?? "HPD.Agent", sanitizerOptions);
             return new CompositeDisposable(
-                coordinator.Subscribe<AgentEvent>(tracing.HandleAsync),
+                coordinator.Subscribe<AgentEvent>(tracing.HandleAsync, new HPD.Events.EventSubscriptionOptions
+                {
+                    OwnerScope = HPD.Events.EventOwnerScope.AllOwners
+                }),
                 tracing);
         });
         return this;
@@ -1520,7 +1526,10 @@ public class AgentBuilder
                 _logger.CreateLogger<LoggingEventObserver>(),
                 enableSensitiveData);
             _eventSubscriptionFactories.Add(coordinator =>
-                coordinator.Subscribe<AgentEvent>(loggingObserver.HandleAsync));
+                coordinator.Subscribe<AgentEvent>(loggingObserver.HandleAsync, new HPD.Events.EventSubscriptionOptions
+                {
+                    OwnerScope = HPD.Events.EventOwnerScope.SameOwner
+                }));
         }
 
         // 3. Store logging options - LoggingMiddleware will be added LAST in RegisterAutoMiddleware()
@@ -1928,7 +1937,17 @@ public class AgentBuilder
             _secretResolverChainBuilt = true;
         }
 
+        if (!_builderAddedToolHarnesses.Contains(nameof(ParentToolHarness)))
+            this.WithToolHarness<ParentToolHarness>();
+        if (!_builderAddedToolHarnesses.Contains(nameof(QuestionToolHarness)))
+            this.WithToolHarness<QuestionToolHarness>();
         var hostServices = _serviceProvider;
+        if (_config.Goals is { Enabled: true } goals)
+        {
+            _goalMiddleware = new Goals.GoalMiddleware(goals, hostServices);
+            if (!_builderAddedToolHarnesses.Contains(nameof(Goals.AgentGoalToolHarness)))
+                this.WithToolHarness<Goals.AgentGoalToolHarness>();
+        }
         var externalRegistry = ResolveExternalIdentityRegistry(hostServices);
         var strategyRegistry = ResolveAuthenticationStrategyRegistry(hostServices);
         var storeRegistry = ResolveAuthorizationStoreRegistry(hostServices);
@@ -2339,6 +2358,8 @@ public class AgentBuilder
     /// Registers all auto-middleware (error handling, compaction, tool Collapsing, etc).
     /// Called by both sync and async build paths to eliminate code duplication.
     /// </summary>
+    private Goals.GoalMiddleware? _goalMiddleware;
+
     private void RegisterAutoMiddleware(AgentBuildDependencies buildData)
     {
         // Set explicitly registered ToolHarnesses in config for Collapsing manager
@@ -2445,6 +2466,10 @@ public class AgentBuilder
                 buildData.MergedOptions.Tools,
                 _config.Collapsing?.Enabled == true,
                 _config.Collapsing?.NeverCollapse));
+
+        _middlewares.Add(new ParentCommunicationMiddleware());
+        if (_goalMiddleware is not null)
+            _middlewares.Add(_goalMiddleware);
 
         // Register LoggingMiddleware LAST (if enabled via WithLogging())
         // This ensures it logs the FINAL state after all other middleware have run

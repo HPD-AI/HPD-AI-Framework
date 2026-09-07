@@ -14,6 +14,7 @@
     <Project Path="eng/HPD-Agent.DebugProtocol.CodeGen/HPD-Agent.DebugProtocol.CodeGen.csproj" />
   </Folder>
   <Folder Name="/AOT Smoke Tests/">
+    <Project Path="test/HPD-Agent.Goals.AotSmoke/HPD-Agent.Goals.AotSmoke.csproj" />
     <Project Path="test/HPD-Agent.Skills.AotSmoke/HPD-Agent.Skills.AotSmoke.csproj" />
     <Project Path="test/HPD-Agent.ToolHarness.AotFixture/HPD-Agent.ToolHarness.AotFixture.csproj" />
     <Project Path="test/HPD-Agent.ToolHarness.AotSmoke/HPD-Agent.ToolHarness.AotSmoke.csproj" />
@@ -125,6 +126,8 @@
     <Project Path="test/HPD-Agent.Debugging.AotSmoke/HPD-Agent.Debugging.AotSmoke.csproj" />
   </Folder>
   <Folder Name="/Tests/">
+    <Project Path="test/HPD-Agent.Goals.Tests/HPD-Agent.Goals.Tests.csproj" />
+    <Project Path="test/HPD-Agent.Planning.Tests/HPD-Agent.Planning.Tests.csproj" />
     <Project Path="test/HPD-Agent.Tests/HPD-Agent.Tests.csproj" />
     <Project Path="test/HPD-Agent.ToolHarness.Runtime.Tests/HPD-Agent.ToolHarness.Runtime.Tests.csproj" />
     <Project Path="test/HPD-Agent.Authority.Tests/HPD-Agent.Authority.Tests.csproj" />

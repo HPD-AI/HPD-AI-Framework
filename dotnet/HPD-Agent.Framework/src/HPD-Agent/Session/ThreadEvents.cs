@@ -114,14 +114,19 @@ public sealed record CompactionPreservationDescriptor(
     };
 }
 
+/// <summary>Records the strategy and evidence policy used to produce a checkpoint.</summary>
+/// <param name="Kind">Compaction strategy discriminator.</param>
+/// <param name="Instructions">Optional host-supplied summarization instructions.</param>
+/// <param name="Evidence">Summarization evidence policy; null for removal.</param>
 public sealed record CompactionStrategyDescriptor(
     string Kind,
-    string? Instructions = null)
+    string? Instructions = null,
+    CompactionEvidenceOptions? Evidence = null)
 {
     public static CompactionStrategyDescriptor From(CompactionStrategy strategy) => strategy switch
     {
         RemovalCompaction => new("removal"),
-        SummarizingCompaction summarizing => new("summarizing", summarizing.Instructions),
+        SummarizingCompaction summarizing => new("summarizing", summarizing.Instructions, summarizing.Evidence),
         _ => throw new ArgumentOutOfRangeException(nameof(strategy))
     };
 }
@@ -139,7 +144,8 @@ public sealed record ThreadHistoryCompactionCheckpointEvent(
     IReadOnlyList<ChatMessage> ReplacementMessages,
     CompactionStrategyDescriptor Strategy,
     CompactionCommitMode CommitMode,
-    DateTimeOffset CompactedAt) : AgentEvent;
+    DateTimeOffset CompactedAt,
+    CompactionSummarizer? Summarizer = null) : AgentEvent;
 
 public static class ThreadEventFactory
 {

@@ -1,3 +1,4 @@
+import type { GoalLifecycleEvent, AgentInputCancellation } from './goals.js';
 import type {
   ClientToolAugmentation,
   ClientToolInvokeOutcomeKind,
@@ -65,6 +66,8 @@ export const AgentMessagePolicyProperties = {
 export const EventTypes = {
   // Input Events
   USER_MESSAGES_INPUT: 'USER_MESSAGES_INPUT',
+  CREATE_GOAL_INPUT: 'CREATE_GOAL_INPUT',
+  SUBAGENT_CONTEXT_RECEIVED: 'SUBAGENT_CONTEXT_RECEIVED',
   COMPACT_THREAD_INPUT: 'COMPACT_THREAD_INPUT',
   AGENT_OPERATION_NOTIFICATION_INPUT: 'AGENT_OPERATION_NOTIFICATION_INPUT',
 
@@ -302,6 +305,12 @@ export interface UserMessagesInputEvent extends AgentInputEvent {
   delivery?: AgentInputDelivery;
 }
 
+/** Creates one persistent outcome; automatic continuation requires a started server runtime. */
+export interface CreateGoalInputEvent extends AgentInputEvent {
+  type: typeof EventTypes.CREATE_GOAL_INPUT;
+  objective: string;
+}
+
 export interface CompactThreadInputEvent extends AgentInputEvent {
   type: typeof EventTypes.COMPACT_THREAD_INPUT;
   request?: ThreadCompactionRequest;
@@ -430,6 +439,7 @@ export interface MessageTurnFinishedEvent extends BaseEvent {
 }
 
 export interface MessageTurnErrorEvent extends BaseEvent {
+  cancellation?: AgentInputCancellation | null;
   type: typeof EventTypes.MESSAGE_TURN_ERROR;
   isError: true;
   errorMessage: string;
@@ -1035,9 +1045,22 @@ export interface ClientToolBackgroundOperationOutcomeEvent extends AgentInputEve
  * Union of all core agent events that clients typically handle.
  * Does not include observability events (which are for debugging).
  */
+/** Text background owned by the child; the parent's operational events are not imported. */
+export interface SubAgentContextReceivedEvent extends BaseEvent {
+  type: typeof EventTypes.SUBAGENT_CONTEXT_RECEIVED;
+  messageId: string;
+  text: string;
+  source: { sessionId: string; threadId: string };
+  sourceCursor: { generation: number; sequenceNumber: number };
+  formatVersion: number;
+}
+
 export type KnownAgentEvent =
+  | SubAgentContextReceivedEvent
+  | GoalLifecycleEvent
   // Input Events
   | UserMessagesInputEvent
+  | CreateGoalInputEvent
   | CompactThreadInputEvent
   | AgentOperationNotificationInputEvent
   // Durable Thread Events
@@ -1109,6 +1132,7 @@ export type AgentEvent = KnownAgentEvent | UnknownAgentEvent;
 
 export type AgentRunInputEvent =
   | UserMessagesInputEvent
+  | CreateGoalInputEvent
   | CompactThreadInputEvent
   | ClientToolBackgroundOperationOutcomeEvent;
 

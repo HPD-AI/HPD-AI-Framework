@@ -14,9 +14,9 @@ public sealed class LayoutTests
         var separator = new Separator();
         var context = new RenderContext(6, 1, Theme.Default);
         using var grid = new TerminalGrid(6, 1);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
-        separator.Render(in context, 6, ref writer);
+        separator.Render(in context, ref writer);
 
         Assert.Equal("──────", ReadLine(grid, 0));
     }
@@ -27,9 +27,9 @@ public sealed class LayoutTests
         var separator = new Separator("A");
         var context = new RenderContext(7, 1, Theme.Default);
         using var grid = new TerminalGrid(7, 1);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
-        separator.Render(in context, 7, ref writer);
+        separator.Render(in context, ref writer);
 
         Assert.Equal("── A ──", ReadLine(grid, 0));
     }
@@ -42,9 +42,9 @@ public sealed class LayoutTests
             .Add(new Text("two"));
         var context = new RenderContext(5, 2, Theme.Default);
         using var grid = new TerminalGrid(5, 2);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
-        stack.Render(in context, 5, ref writer);
+        stack.Render(in context, ref writer);
 
         Assert.Equal("one  ", ReadLine(grid, 0));
         Assert.Equal("two  ", ReadLine(grid, 1));
@@ -58,9 +58,9 @@ public sealed class LayoutTests
             .Add(new Text("xy"));
         var context = new RenderContext(8, 1, Theme.Default);
         using var grid = new TerminalGrid(8, 1);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
-        stack.Render(in context, 8, ref writer);
+        stack.Render(in context, ref writer);
 
         Assert.Equal("abcdef x", ReadLine(grid, 0));
     }
@@ -74,9 +74,9 @@ public sealed class LayoutTests
             .AddRow(new Text("abc"), new Text("de"));
         var context = new RenderContext(8, 1, Theme.Default);
         using var grid = new TerminalGrid(8, 1);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
-        gridComponent.Render(in context, 8, ref writer);
+        gridComponent.Render(in context, ref writer);
 
         Assert.Equal("abc de  ", ReadLine(grid, 0));
     }
@@ -91,9 +91,9 @@ public sealed class LayoutTests
             .AddRow(new Text("c"), new Text("y"));
         var context = new RenderContext(8, 3, Theme.Default);
         using var grid = new TerminalGrid(8, 3);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
-        gridComponent.Render(in context, 8, ref writer);
+        gridComponent.Render(in context, ref writer);
 
         Assert.Equal("a   x   ", ReadLine(grid, 0));
         Assert.Equal("b       ", ReadLine(grid, 1));
@@ -163,7 +163,7 @@ public sealed class LayoutTests
         Span<char> buffer = stackalloc char[grid.Width];
         for (var x = 0; x < grid.Width; x++)
         {
-            buffer[x] = (char)grid.GetCell(x, y).Rune.Value;
+            buffer[x] = (char)grid.GetLeadingRune(grid.GetCell(x, y)).Value;
         }
 
         return new string(buffer);

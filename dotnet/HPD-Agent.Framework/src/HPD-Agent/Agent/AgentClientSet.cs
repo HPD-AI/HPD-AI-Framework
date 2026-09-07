@@ -15,7 +15,6 @@ public sealed class AgentClientSet : IAsyncDisposable
     private bool _disposeRequested;
     private bool _disposed;
     private AgentClientFamilyResolutionSource? _familyResolver;
-    private SubAgentClientInheritanceSource? _componentInheritance;
     private readonly object _componentGate = new();
     private readonly Dictionary<ProviderClientFamily, Task<ComponentSelection>> _components = [];
     private bool _componentsClosed;
@@ -81,9 +80,6 @@ public sealed class AgentClientSet : IAsyncDisposable
     internal void SetFamilyResolver(
         Func<ProviderClientFamily, CancellationToken, ValueTask<object?>> resolver)
         => _familyResolver = new AgentClientFamilyResolutionSource(resolver);
-
-    internal void SetComponentInheritance(SubAgentClientInheritanceSource? inheritance) =>
-        _componentInheritance = inheritance;
 
     internal async ValueTask<TClient?> ResolveFamilyAsync<TClient>(
         ProviderClientFamily family,
@@ -271,18 +267,6 @@ public sealed class AgentClientSet : IAsyncDisposable
         CancellationToken cancellationToken)
         where TComponent : class
     {
-        var mode = _componentInheritance?.GetMode(family) ?? ClientFamilyInheritanceMode.UseOwn;
-        if (mode == ClientFamilyInheritanceMode.InheritResolved)
-            return await GetRequiredParentComponentAsync(family).ConfigureAwait(false);
-        if (mode == ClientFamilyInheritanceMode.FallbackToParent)
-        {
-            try { return await CreateOwnAsync().ConfigureAwait(false); }
-            catch (AgentRunConfigurationException exception) when (
-                exception.Code is "ProviderDefaultRequired" or "ProviderProfileRequired")
-            {
-                return await GetRequiredParentComponentAsync(family).ConfigureAwait(false);
-            }
-        }
         return await CreateOwnAsync().ConfigureAwait(false);
 
         async Task<ComponentSelection> CreateOwnAsync()
@@ -293,27 +277,6 @@ public sealed class AgentClientSet : IAsyncDisposable
                 identity.OperationAdapterKey, identity.UsageSemanticsKey);
             return new ComponentSelection(created.Client, created.Owner, safeIdentity);
         }
-    }
-
-    private async Task<ComponentSelection> GetRequiredParentComponentAsync(ProviderClientFamily family)
-    {
-        var parent = _componentInheritance?.ParentClients;
-        Task<ComponentSelection>? task = null;
-        if (parent is not null)
-        {
-            lock (parent._componentGate)
-                parent._components.TryGetValue(family, out task);
-        }
-        if (task is null)
-            throw new AgentRunConfigurationException(
-                "subagent_parent_client_unavailable",
-                $"clients.{family}",
-                $"The controlling execution has no resolved {family} component.");
-        var parentSelection = await task.ConfigureAwait(false);
-        return new ComponentSelection(
-            parentSelection.Client,
-            NoopAsyncDisposable.Instance,
-            parentSelection.Identity);
     }
 
     private sealed record ComponentSelection(

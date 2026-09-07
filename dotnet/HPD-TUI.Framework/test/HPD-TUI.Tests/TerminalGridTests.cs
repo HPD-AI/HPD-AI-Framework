@@ -13,8 +13,8 @@ public sealed class TerminalGridTests
 
         Assert.True(grid.Write("Hello", Style.Default));
 
-        Assert.Equal(new Rune('H'), grid.GetCell(0, 0).Rune);
-        Assert.Equal(new Rune('o'), grid.GetCell(4, 0).Rune);
+        Assert.Equal(new Rune('H'), grid.GetLeadingRune(grid.GetCell(0, 0)));
+        Assert.Equal(new Rune('o'), grid.GetLeadingRune(grid.GetCell(4, 0)));
     }
 
     [Fact]
@@ -24,10 +24,10 @@ public sealed class TerminalGridTests
 
         Assert.True(grid.Write("A😀B", Style.Default));
 
-        Assert.Equal(new Rune('A'), grid.GetCell(0, 0).Rune);
-        Assert.Equal(new Rune(0x1F600), grid.GetCell(1, 0).Rune);
+        Assert.Equal(new Rune('A'), grid.GetLeadingRune(grid.GetCell(0, 0)));
+        Assert.Equal(new Rune(0x1F600), grid.GetLeadingRune(grid.GetCell(1, 0)));
         Assert.True(grid.GetCell(2, 0).IsContinuation);
-        Assert.Equal(new Rune('B'), grid.GetCell(3, 0).Rune);
+        Assert.Equal(new Rune('B'), grid.GetLeadingRune(grid.GetCell(3, 0)));
     }
 
     [Fact]
@@ -37,9 +37,9 @@ public sealed class TerminalGridTests
 
         Assert.True(grid.Write("abcd", Style.Default));
 
-        Assert.Equal(new Rune('a'), grid.GetCell(0, 0).Rune);
-        Assert.Equal(new Rune('c'), grid.GetCell(2, 0).Rune);
-        Assert.Equal(new Rune('d'), grid.GetCell(0, 1).Rune);
+        Assert.Equal(new Rune('a'), grid.GetLeadingRune(grid.GetCell(0, 0)));
+        Assert.Equal(new Rune('c'), grid.GetLeadingRune(grid.GetCell(2, 0)));
+        Assert.Equal(new Rune('d'), grid.GetLeadingRune(grid.GetCell(0, 1)));
     }
 
     [Fact]
@@ -95,9 +95,11 @@ public sealed class TerminalGridTests
         using var current = new TerminalGrid(4, 1);
         using var output = new AnsiFrameWriter();
 
-        previous.SetCell(2, 0, new Cell(new Rune('C'), Style.Default));
-        current.SetCell(0, 0, new Cell(new Rune('A'), new Style(Color.Cyan, Color.Gray)));
-        current.SetCell(2, 0, new Cell(new Rune('B'), Style.Default));
+        previous.MoveTo(2, 0);
+        previous.Write("C", Style.Default);
+        current.Write("A", new Style(Color.Cyan, Color.Gray));
+        current.MoveTo(2, 0);
+        current.Write("B", Style.Default);
 
         AnsiGridRenderer.WriteDifferential(previous, current, output);
         var rendered = output.ToString();

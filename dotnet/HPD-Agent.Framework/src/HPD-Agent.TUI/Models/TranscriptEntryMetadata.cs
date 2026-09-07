@@ -9,7 +9,8 @@ public sealed record TranscriptEntryMetadata(
     string? SessionId = null,
     string? ThreadId = null,
     string? MessageId = null,
-    string? MessageRole = null)
+    string? MessageRole = null,
+    IReadOnlyDictionary<string, object?>? AdditionalProperties = null)
 {
     public IReadOnlyList<string> AgentChainValue => AgentChain ?? [];
 

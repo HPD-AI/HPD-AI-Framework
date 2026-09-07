@@ -2,6 +2,7 @@ using FluentAssertions;
 using HPD.Agent.TUI;
 using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Models;
+using HPD.Agent.TUI.Markdown;
 using HPD.Agent.TUI.Observability;
 using HPD.Agent.TUI.Runtime;
 using HPD.Agent.TUI.Views;
@@ -10,11 +11,27 @@ using HPD.TUI.Components;
 using HPD.TUI.Observability;
 using HPD.TUI.Rendering;
 using HPD.TUI.Views;
+using HPD.TUI.Markdown;
 
 namespace HPD.Agent.TUI.Tests;
 
 public sealed class AgentTuiPerformanceDiagnosticsTests
 {
+    [Fact]
+    public void MarkdownPerformanceEventIsStructuredAndNeverFormatsSource()
+    {
+        var evt = new MarkdownProjectionMeasured(
+            "agent", "message", MarkdownStreamKind.Assistant, MarkdownMessageState.Completed,
+            MarkdownInvalidationKind.Finalized, MarkdownDegradationReason.None,
+            new MarkdownStreamDiagnosticsSnapshot(12, 3, 2, 1, TimeSpan.FromMilliseconds(1), 0, 1, 0, 0, TimeSpan.FromMilliseconds(2)),
+            new MarkdownProjectionDiagnosticsSnapshot(1, TimeSpan.FromMilliseconds(3), 2, 2, 1, 0, 1, 0, 0));
+
+        var summary = evt.FormatSummary();
+
+        summary.Should().Contain("parses=1").And.Contain("layouts=1");
+        summary.Should().NotContain("secret source");
+    }
+
     [Fact]
     public void TranscriptView_WhenSinkIsConfigured_PublishesDiagnosticEvent()
     {

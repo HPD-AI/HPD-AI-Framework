@@ -6,17 +6,10 @@ public static class HPDAgentStudioBuilderExtensions
     {
         ArgumentNullException.ThrowIfNull(builder);
 
-        return builder.AddModule(
-            "agents",
-            "Agents",
-            "HPD Agent Studio",
-            "active",
-            "agents",
-            "sessions",
-            "threads",
-            "streaming",
-            "content",
-            "multi-agent",
-            "agent-evals");
+        // The platform no longer exposes the former string-based AddModule API.
+        // Agent Studio's contribution is currently packaged as frontend assets;
+        // keep this fluent registration method source-compatible until the
+        // corresponding typed Studio contribution is available.
+        return builder;
     }
 }

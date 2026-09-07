@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text;
 using HPD.TUI.Components;
 using HPD.TUI.Core;
@@ -55,7 +56,47 @@ public sealed class ManagedTerminalTuiRendererTests
     }
 
     [Fact]
-    public void Render_AfterResize_RedrawsAndClearsStaleScrollback()
+    public void Render_AfterPartialFailure_RecoversWithFullPhysicalRepaint()
+    {
+        using var terminal = new TestTerminal(40, 8);
+        var transport = new FailOnceTransport();
+        using var renderer = new ManagedTerminalTuiRenderer(
+            terminal, transport, ManagedTerminalCapabilityProfile.Verified,
+            recoveryPolicy: ManagedTerminalRecoveryPolicy.ClearAndReplay);
+
+        Assert.Throws<InvalidOperationException>(() => renderer.Render(new Text("hello")));
+        renderer.Render(new Text("hello"));
+
+        Assert.Equal(2, transport.Attempts);
+        Assert.Contains("\x1b[2J\x1b[H", transport.AcceptedPayload);
+        Assert.Contains("hello", transport.AcceptedPayload);
+    }
+
+    [Fact]
+    public void Render_AfterUncertainScrollbackWrite_ClearsHistoryBeforeReplay()
+    {
+        using var terminal = new TestTerminal(40, 8);
+        var transport = new FailOnceTransport();
+        using var renderer = new ManagedTerminalTuiRenderer(
+            terminal, transport, ManagedTerminalCapabilityProfile.Verified,
+            recoveryPolicy: ManagedTerminalRecoveryPolicy.ClearAndReplay);
+        var batch = new ScrollbackBatch(1, 1,
+        [
+            new ScrollbackRow("row-1",
+            [
+                new ScrollbackCell("history", default, default, 7)
+            ])
+        ]);
+
+        Assert.Throws<InvalidOperationException>(() => renderer.Render(new Text("live"), scrollback: batch));
+        Assert.Throws<InvalidOperationException>(() => renderer.Render(new Text("live"), scrollback: batch));
+
+        Assert.Contains("\x1b[3J", transport.AcceptedPayload);
+        Assert.Contains("live", transport.AcceptedPayload);
+    }
+
+    [Fact]
+    public void Render_AfterResize_RedrawsWithoutDestroyingScrollback()
     {
         using var terminal = new TestTerminal(40, 8);
         using var renderer = new ManagedTerminalTuiRenderer(terminal);
@@ -66,8 +107,8 @@ public sealed class ManagedTerminalTuiRendererTests
 
         renderer.Render(new Text("hello"), Theme.Default);
 
-        Assert.Contains("\x1b[2J\x1b[H", terminal.Output);
-        Assert.Contains("\x1b[3J", terminal.Output);
+        Assert.Contains("\x1b[J", terminal.Output);
+        Assert.DoesNotContain("\x1b[3J", terminal.Output);
         Assert.DoesNotContain("\x1b[?1049h", terminal.Output);
     }
 
@@ -83,8 +124,8 @@ public sealed class ManagedTerminalTuiRendererTests
         renderer.Render(new Text("hello world"), Theme.Default);
 
         Assert.DoesNotContain("\x1b[2J\x1b[H", terminal.Output);
-        Assert.Contains("\x1b[2K", terminal.Output);
-        Assert.Contains("hello world", terminal.Output);
+        Assert.Contains("\x1b[1;7H", terminal.Output);
+        Assert.Contains("world", terminal.Output);
     }
 
     [Fact]
@@ -110,12 +151,12 @@ public sealed class ManagedTerminalTuiRendererTests
         renderer.Render(new LinesComponent("one", "two"), Theme.Default);
 
         Assert.DoesNotContain("\x1b[2J\x1b[H", terminal.Output);
-        Assert.Contains("\r\n", terminal.Output);
+        Assert.Contains("\x1b[2;1H", terminal.Output);
         Assert.Contains("two", terminal.Output);
     }
 
     [Fact]
-    public void Render_FirstFrameWithLongContent_WritesWholeLogicalBuffer()
+    public void Render_FirstFrameWithLongContent_ClipsToPhysicalScreen()
     {
         using var terminal = new TestTerminal(40, 3);
         using var renderer = new ManagedTerminalTuiRenderer(terminal);
@@ -125,8 +166,8 @@ public sealed class ManagedTerminalTuiRendererTests
         Assert.Contains("one", terminal.Output);
         Assert.Contains("two", terminal.Output);
         Assert.Contains("three", terminal.Output);
-        Assert.Contains("four", terminal.Output);
-        Assert.Contains("five", terminal.Output);
+        Assert.DoesNotContain("four", terminal.Output);
+        Assert.DoesNotContain("five", terminal.Output);
     }
 
     [Fact]
@@ -142,7 +183,7 @@ public sealed class ManagedTerminalTuiRendererTests
     }
 
     [Fact]
-    public void Render_WhenContentShrinks_ClearsAndRendersWholeBuffer()
+    public void Render_WhenContentShrinks_ErasesOnlyStaleRuns()
     {
         using var terminal = new TestTerminal(40, 5);
         using var renderer = new ManagedTerminalTuiRenderer(terminal);
@@ -152,10 +193,11 @@ public sealed class ManagedTerminalTuiRendererTests
 
         renderer.Render(new LinesComponent("zero", "one"), Theme.Default);
 
-        Assert.Contains("\x1b[2J\x1b[H", terminal.Output);
-        Assert.Contains("\x1b[3J", terminal.Output);
-        Assert.Contains("zero", terminal.Output);
-        Assert.Contains("one", terminal.Output);
+        Assert.DoesNotContain("\x1b[2J\x1b[H", terminal.Output);
+        Assert.DoesNotContain("\x1b[3J", terminal.Output);
+        Assert.DoesNotContain("zero", terminal.Output);
+        Assert.DoesNotContain("one", terminal.Output);
+        Assert.Contains("\x1b[3;1H", terminal.Output);
     }
 
     [Fact]
@@ -175,7 +217,7 @@ public sealed class ManagedTerminalTuiRendererTests
     }
 
     [Fact]
-    public void Render_WhenTransientTallContentDisappears_ClearsStaleRows()
+    public void Render_WhenOnlyClippedContentChanges_EmitsNoFrame()
     {
         using var terminal = new TestTerminal(40, 10);
         using var renderer = new ManagedTerminalTuiRenderer(terminal);
@@ -191,9 +233,7 @@ public sealed class ManagedTerminalTuiRendererTests
             "Chat 5", "Chat 6", "Chat 7", "Chat 8", "Chat 9",
             "Chat 10", "Chat 11"), Theme.Default);
 
-        Assert.Contains("\x1b[2J\x1b[H", terminal.Output);
-        Assert.Contains("\x1b[3J", terminal.Output);
-        Assert.DoesNotContain("Selector", terminal.Output);
+        Assert.Empty(terminal.Output);
     }
 
     [Fact]
@@ -206,7 +246,8 @@ public sealed class ManagedTerminalTuiRendererTests
 
         Assert.DoesNotContain("\x1b[4G", terminal.Output);
         Assert.Equal(0, terminal.ShowCursorCount);
-        Assert.Equal(1, terminal.HideCursorCount);
+        Assert.Equal(0, terminal.HideCursorCount);
+        Assert.Contains("\x1b[?25l", terminal.Output);
     }
 
     [Fact]
@@ -220,8 +261,9 @@ public sealed class ManagedTerminalTuiRendererTests
 
         renderer.Render(new CursorComponent(), Theme.Default);
 
-        Assert.Contains("\x1b[4G", terminal.Output);
-        Assert.Equal(1, terminal.ShowCursorCount);
+        Assert.Contains("\x1b[1;4H", terminal.Output);
+        Assert.Contains("\x1b[?25h", terminal.Output);
+        Assert.Equal(0, terminal.ShowCursorCount);
     }
 
     [Fact]
@@ -234,12 +276,62 @@ public sealed class ManagedTerminalTuiRendererTests
 
         renderer.Render(new Text("hello"), Theme.Default);
 
-        var evt = Assert.IsType<TuiRenderCompleted>(Assert.Single(sink.Events));
+        var evt = Assert.IsType<TuiFrameDiagnostics>(Assert.Single(sink.Events));
         Assert.Equal(EventKind.Diagnostic, evt.Kind);
         Assert.Equal(EventChannel.Streaming, evt.Channel);
-        Assert.Equal("managed-terminal", evt.Surface);
-        Assert.True(evt.RowsRendered > 0);
-        Assert.True(evt.SegmentsWritten > 0);
+        Assert.True(evt.RowsDamaged > 0);
+        Assert.True(evt.DisplayCommandsBuilt > 0);
+        Assert.True(evt.OutputCharacters > 0);
+        Assert.True(evt.FullRepaint);
+        Assert.True(evt.EncodeDuration >= TimeSpan.Zero);
+        Assert.True(evt.OutputDuration >= TimeSpan.Zero);
+    }
+
+    [Fact]
+    public void Render_DiagnosticsReportActualLayoutCacheAndNoOpDecisions()
+    {
+        using var terminal = new TestTerminal(40, 8);
+        using var renderer = new ManagedTerminalTuiRenderer(terminal);
+        var sink = new RecordingSink();
+        var counters = new TuiPerformanceCounters();
+        renderer.PerformanceSink = sink;
+        renderer.PerformanceCounters = counters;
+        var root = new DiagnosticsLayoutComponent(new Text("hello"));
+
+        renderer.Render(root);
+        renderer.Render(root);
+
+        var frames = sink.Events.OfType<TuiFrameDiagnostics>().ToArray();
+        Assert.Equal(2, frames.Length);
+        Assert.Equal(1, frames[0].ComponentsMeasured);
+        Assert.True(frames[0].LayoutDuration >= TimeSpan.Zero);
+        Assert.Equal(0, frames[1].ComponentsMeasured);
+        var snapshot = counters.Snapshot();
+        Assert.Equal(1, snapshot.ComponentsMeasured);
+        Assert.Equal(1, snapshot.LayoutCacheMisses);
+        Assert.Equal(1, snapshot.FramesSuppressedAsNoOp);
+    }
+
+    private sealed class DiagnosticsLayoutComponent : Component
+    {
+        private readonly IComponent _child;
+
+        public DiagnosticsLayoutComponent(IComponent child)
+        {
+            _child = child;
+            AdoptChild(child);
+        }
+
+        public override ComponentDependencies Dependencies => ComponentDependencies.Static;
+
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
+            => MeasureChild(_child, in context, constraints);
+
+        public override void Render(in RenderContext context, ref DisplayListBuilder output)
+        {
+            _ = MeasureChild(_child, in context, output.MaxWidth);
+            output.Render(_child, in context, output.MaxWidth);
+        }
     }
 
     [Fact]
@@ -253,7 +345,25 @@ public sealed class ManagedTerminalTuiRendererTests
 
         app.Render();
 
-        Assert.IsType<TuiRenderCompleted>(Assert.Single(sink.Events));
+        Assert.IsType<TuiFrameDiagnostics>(Assert.Single(sink.Events));
+    }
+
+    [Fact]
+    public void Render_BackpressurePublishesMeasuredDeferredFrame()
+    {
+        using var terminal = new TestTerminal(40, 8);
+        var transport = new BackpressureOnceTransport();
+        using var renderer = new ManagedTerminalTuiRenderer(terminal, transport);
+        var sink = new RecordingSink();
+        renderer.PerformanceSink = sink;
+
+        Assert.Throws<TerminalBackpressureException>(() => renderer.Render(new Text("hello")));
+
+        var diagnostics = Assert.IsType<TuiFrameDiagnostics>(Assert.Single(sink.Events));
+        Assert.True(diagnostics.Backpressured);
+        Assert.True(diagnostics.FullRepaint);
+        Assert.True(diagnostics.OutputCharacters > 0);
+        Assert.True(diagnostics.DisplayCommandsBuilt > 0);
     }
 
     [Fact]
@@ -271,7 +381,103 @@ public sealed class ManagedTerminalTuiRendererTests
         await app.RunAsync(cancellationToken: cancellation.Token);
 
         Assert.Equal(1, component.InputCount);
-        Assert.Equal(2, sink.Events.OfType<TuiRenderCompleted>().Count());
+        Assert.Equal(2, sink.Events.OfType<TuiFrameDiagnostics>().Count());
+    }
+
+    [Fact]
+    public async Task Application_BlockedNamedCallback_PublishesStallBoundary()
+    {
+        using var terminal = new TestTerminal(40, 8);
+        using var app = new ManagedTerminalTuiApplication(terminal)
+        {
+            EventLoopStallThreshold = TimeSpan.FromMilliseconds(25)
+        };
+        var sink = new RecordingSink();
+        app.PerformanceSink = sink;
+        app.SetRoot(new Text("hello"));
+        using var runCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var run = app.RunAsync(cancellationToken: runCancellation.Token);
+        await WaitUntilAsync(() => app.IsRunning);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var callback = app.InvokeAsync(
+            "agent-event-batch-apply",
+            async () => await release.Task.ConfigureAwait(false));
+
+        await WaitUntilAsync(() => sink.Events.OfType<TuiEventLoopOperationStalled>().Any());
+        var stalled = Assert.Single(sink.Events.OfType<TuiEventLoopOperationStalled>());
+        Assert.Equal("agent-event-batch-apply", stalled.Operation);
+        Assert.Equal(app.EventLoopStallThreshold, stalled.Threshold);
+
+        release.TrySetResult();
+        await callback;
+        await runCancellation.CancelAsync();
+        await run;
+    }
+
+    [Fact]
+    public async Task Application_CancellationReleasesInvocationWaitingBehindBlockedCallback()
+    {
+        using var terminal = new TestTerminal(40, 8);
+        using var app = new ManagedTerminalTuiApplication(terminal);
+        using var runCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        using var invocationCancellation = new CancellationTokenSource();
+        var callbackStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseCallback = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        app.SetRoot(new Text("hello"));
+        var run = app.RunAsync(cancellationToken: runCancellation.Token);
+
+        async ValueTask BlockEventLoopAsync()
+        {
+            callbackStarted.TrySetResult();
+            await releaseCallback.Task.ConfigureAwait(false);
+        }
+
+        var blockingInvocation = app.InvokeAsync("blocking-callback", BlockEventLoopAsync).AsTask();
+        await callbackStarted.Task;
+
+        var waitingInvocationSource = new TaskCompletionSource<Task>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var invokingThread = new Thread(() => waitingInvocationSource.TrySetResult(
+            app.InvokeAsync(
+                "waiting-callback",
+                () => ValueTask.CompletedTask,
+                invocationCancellation.Token).AsTask()));
+        invokingThread.Start();
+        invokingThread.Join();
+        var waitingInvocation = await waitingInvocationSource.Task;
+
+        await invocationCancellation.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waitingInvocation);
+
+        releaseCallback.TrySetResult();
+        await blockingInvocation;
+        await runCancellation.CancelAsync();
+        await run;
+    }
+
+    [Fact]
+    public async Task Application_DispatcherRetainsLogicalAccessAcrossAsyncCallbacks()
+    {
+        using var terminal = new TestTerminal(40, 8);
+        using var app = new ManagedTerminalTuiApplication(terminal);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        var sequence = new List<int>();
+        app.SetRoot(new Text("hello"));
+        var run = app.RunAsync(cancellationToken: cancellation.Token);
+
+        await app.InvokeAsync(async () =>
+        {
+            sequence.Add(1);
+            await Task.Yield();
+            Assert.True(app.CheckAccess());
+            await app.InvokeAsync(() => sequence.Add(2));
+            sequence.Add(3);
+        });
+        await cancellation.CancelAsync();
+        await run;
+
+        Assert.Equal([1, 2, 3], sequence);
     }
 
     [Fact]
@@ -289,7 +495,27 @@ public sealed class ManagedTerminalTuiRendererTests
         await app.RunAsync(cancellationToken: cancellation.Token);
 
         Assert.Equal(0, component.InputCount);
-        Assert.Equal(2, sink.Events.OfType<TuiRenderCompleted>().Count());
+        Assert.Equal(2, sink.Events.OfType<TuiFrameDiagnostics>().Count());
+    }
+
+    [Fact]
+    public async Task Application_Backpressure_RetriesLatestFrameAndCommitsScrollbackOnce()
+    {
+        using var terminal = new TestTerminal(40, 8);
+        var transport = new BackpressureOnceTransport();
+        using var app = new ManagedTerminalTuiApplication(terminal, transport);
+        var source = new RecordingScrollbackSource();
+        app.ScrollbackSource = source;
+        app.SetRoot(new Text("live"));
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(40));
+
+        await app.RunAsync(cancellationToken: cancellation.Token);
+
+        Assert.Equal(3, transport.Attempts);
+        Assert.Equal(1, source.CommitCount);
+        Assert.Equal(1, source.RollbackCount);
+        Assert.Contains("history", transport.AcceptedPayload);
+        Assert.Contains("live", transport.AcceptedPayload);
     }
 
     [Fact]
@@ -298,18 +524,15 @@ public sealed class ManagedTerminalTuiRendererTests
         var writer = new StringWriter();
         var sink = new TextWriterTuiPerformanceEventSink(writer);
 
-        sink.Publish(new TuiRenderCompleted(
-            Surface: "managed-terminal",
-            Duration: TimeSpan.FromMilliseconds(4.25),
-            RowsRendered: 3,
-            SegmentsWritten: 2,
-            CacheHits: 1,
-            CacheMisses: 0));
+        sink.Publish(new TuiFrameDiagnostics(
+            TimeSpan.Zero, TimeSpan.Zero, TimeSpan.FromMilliseconds(4.25), TimeSpan.Zero,
+            TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, 1, 1, 2, 0, 3, 0, 3, 2, 12, 4,
+            20, FullRepaint: false, Backpressured: false));
 
-        Assert.Contains("tui frame 4.25ms surface=managed-terminal rows=3 segments=2 cache=1/0", writer.ToString());
+        Assert.Contains("display=4.25ms", writer.ToString());
     }
 
-    private sealed class TestTerminal : ITerminal, ITerminalInput
+    private sealed class TestTerminal : ITerminal, ITerminalInput, IManagedTerminalCapabilitySource
     {
         private readonly StringBuilder _output = new();
         private readonly Queue<TerminalInputEvent> _events = new();
@@ -327,6 +550,8 @@ public sealed class ManagedTerminalTuiRendererTests
         public int ShowCursorCount { get; private set; }
 
         public ITerminalInput Input => this;
+
+        public ManagedTerminalCapabilityProfile ManagedTerminalCapabilities => ManagedTerminalCapabilityProfile.Verified;
 
         public TerminalSize GetSize() => _size;
 
@@ -388,15 +613,99 @@ public sealed class ManagedTerminalTuiRendererTests
 
     private sealed class RecordingSink : IHpdTuiPerformanceEventSink
     {
-        public List<Event> Events { get; } = [];
+        public ConcurrentQueue<Event> Events { get; } = new();
 
         public void Publish(Event evt)
         {
-            Events.Add(evt);
+            Events.Enqueue(evt);
         }
     }
 
-    private sealed class LinesComponent : IComponent
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        while (!condition())
+            await Task.Delay(5, timeout.Token);
+    }
+
+    private sealed class BackpressureOnceTransport : ITerminalOutputTransport
+    {
+        public int Attempts { get; private set; }
+        public string AcceptedPayload { get; private set; } = string.Empty;
+
+        public ValueTask<TerminalWriteResult> TryWriteFrameAsync(
+            TerminalFrameLease frame,
+            CancellationToken cancellationToken = default)
+        {
+            Attempts++;
+            if (Attempts == 1)
+                return ValueTask.FromResult(TerminalWriteResult.Backpressured);
+            AcceptedPayload += frame.Payload.ToString();
+            return ValueTask.FromResult(TerminalWriteResult.Written);
+        }
+
+        public ValueTask WaitUntilWritableAsync(CancellationToken cancellationToken = default)
+            => ValueTask.CompletedTask;
+    }
+
+    private sealed class RecordingScrollbackSource : IScrollbackSource
+    {
+        public long HistoryRevision => 0;
+        public bool IsFullScreen => false;
+        public ManagedTerminalRecoveryPolicy HistoryResetPolicy => ManagedTerminalRecoveryPolicy.ClearAndReplay;
+
+        private readonly ScrollbackBatch _batch = new(
+            0,
+            0,
+            [new ScrollbackRow("row:0", [new ScrollbackCell("history", Style.Default, default, 7)])]);
+        private bool _committed;
+        public int CommitCount { get; private set; }
+        public int RollbackCount { get; private set; }
+
+        public void ResetPresentation(long presentationEpoch, in RenderContext context)
+        {
+        }
+
+        public ScrollbackBatch? PrepareScrollback(in RenderContext context, int maxRows)
+            => _committed ? null : _batch;
+
+        public void CommitScrollback(ScrollbackBatch batch)
+        {
+            Assert.Same(_batch, batch);
+            _committed = true;
+            CommitCount++;
+        }
+
+        public void RollbackScrollback(ScrollbackBatch batch)
+        {
+            Assert.Same(_batch, batch);
+            RollbackCount++;
+        }
+    }
+
+    private sealed class FailOnceTransport : ITerminalOutputTransport
+    {
+        public int Attempts { get; private set; }
+        public string AcceptedPayload { get; private set; } = string.Empty;
+
+        public ValueTask<TerminalWriteResult> TryWriteFrameAsync(
+            TerminalFrameLease frame,
+            CancellationToken cancellationToken = default)
+        {
+            Attempts++;
+            if (Attempts == 1)
+                return ValueTask.FromResult(new TerminalWriteResult(
+                    TerminalWriteStatus.Failed,
+                    new IOException("partial write")));
+            AcceptedPayload = frame.Payload.ToString();
+            return ValueTask.FromResult(TerminalWriteResult.Written);
+        }
+
+        public ValueTask WaitUntilWritableAsync(CancellationToken cancellationToken = default)
+            => ValueTask.CompletedTask;
+    }
+
+    private sealed class LinesComponent : Component
     {
         private readonly string[] _lines;
 
@@ -405,10 +714,11 @@ public sealed class ManagedTerminalTuiRendererTests
             _lines = lines;
         }
 
-        public Measurement Measure(in RenderContext context, int maxWidth) => new(maxWidth, _lines.Length);
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints) => new(constraints.MaxWidth, _lines.Length);
 
-        public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, ref DisplayListBuilder output)
         {
+            var maxWidth = output.MaxWidth;
             for (var i = 0; i < _lines.Length; i++)
             {
                 if (i > 0)
@@ -420,73 +730,77 @@ public sealed class ManagedTerminalTuiRendererTests
             }
         }
 
-        public bool HandleInput(in TuiInputEvent key)
+        public override bool HandleInput(in TuiInputEvent key)
         {
             return false;
         }
     }
 
-    private sealed class CursorComponent : IComponent
+    private sealed class CursorComponent : Component
     {
-        public Measurement Measure(in RenderContext context, int maxWidth) => new(4, 4);
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints) => new(4, 4);
 
-        public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, ref DisplayListBuilder output)
         {
+            var maxWidth = output.MaxWidth;
             output.Write("text", context.Theme.Text);
             output.SetTerminalCursor(3, 0);
         }
 
-        public bool HandleInput(in TuiInputEvent key)
+        public override bool HandleInput(in TuiInputEvent key)
         {
             return false;
         }
     }
 
-    private sealed class ContextHeightComponent : IComponent
+    private sealed class ContextHeightComponent : Component
     {
         public int ObservedHeight { get; private set; }
 
-        public Measurement Measure(in RenderContext context, int maxWidth) => new(1, 1);
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints) => new(1, 1);
 
-        public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, ref DisplayListBuilder output)
         {
+            var maxWidth = output.MaxWidth;
             ObservedHeight = context.Height;
             output.Write("x", context.Theme.Text);
         }
 
-        public bool HandleInput(in TuiInputEvent key) => false;
+        public override bool HandleInput(in TuiInputEvent key) => false;
     }
 
-    private sealed class StyledFillLineComponent : IComponent
+    private sealed class StyledFillLineComponent : Component
     {
         private static readonly Style Fill = new(Color.White, new Color(10, 20, 30));
 
-        public Measurement Measure(in RenderContext context, int maxWidth) => new(maxWidth, maxWidth);
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints) => new(constraints.MaxWidth, constraints.MaxWidth);
 
-        public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, ref DisplayListBuilder output)
         {
+            var maxWidth = output.MaxWidth;
             output.Write("x", Fill);
             output.Write(new string(' ', Math.Max(0, maxWidth - 1)), Fill);
         }
 
-        public bool HandleInput(in TuiInputEvent key)
+        public override bool HandleInput(in TuiInputEvent key)
         {
             return false;
         }
     }
 
-    private sealed class InputCountingComponent : IComponent
+    private sealed class InputCountingComponent : Component
     {
         public int InputCount { get; private set; }
 
-        public Measurement Measure(in RenderContext context, int maxWidth) => new(1, 1);
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints) => new(1, 1);
 
-        public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, ref DisplayListBuilder output)
         {
+            var maxWidth = output.MaxWidth;
             output.Write(InputCount.ToString(), context.Theme.Text);
         }
 
-        public bool HandleInput(in TuiInputEvent key)
+        public override bool HandleInput(in TuiInputEvent key)
         {
             InputCount++;
             return true;

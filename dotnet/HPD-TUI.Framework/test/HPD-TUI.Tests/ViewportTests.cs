@@ -16,12 +16,12 @@ public sealed class ViewportTests
         viewport.ScrollBy(1);
         var context = new RenderContext(10, 3, Theme.Default);
         using var grid = new TerminalGrid(10, 3);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
-        viewport.Render(in context, 10, ref writer);
+        viewport.Render(in context, ref writer);
 
-        Assert.Equal(new Rune('t'), grid.GetCell(0, 0).Rune);
-        Assert.Equal(new Rune('t'), grid.GetCell(0, 1).Rune);
+        Assert.Equal(new Rune('t'), grid.GetLeadingRune(grid.GetCell(0, 0)));
+        Assert.Equal(new Rune('t'), grid.GetLeadingRune(grid.GetCell(0, 1)));
         Assert.Equal(1, viewport.ScrollOffset);
     }
 

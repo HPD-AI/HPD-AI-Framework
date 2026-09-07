@@ -10,6 +10,7 @@ using HPD.Agent.Audio.Policies;
 using HPD.Agent.Audio.Runtime.Thread;
 using HPD.Agent.Audio.Trace;
 using HPD.Agent.Middleware;
+using HPD.Agent.Serialization;
 using HPD.Events.Core;
 using HPD.Events.Struct;
 using Microsoft.Extensions.AI;
@@ -1413,7 +1414,8 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             CancellationToken.None,
             traceId: "00000000000000000000000000000003",
             contentStore: contentStore,
-            structEvents: new HPD.Events.Struct.StructEventHub());
+            structEvents: new HPD.Events.Struct.StructEventHub(),
+            config: new AgentConfig { EventComposition = PreparedOutputExecutionTestFixture.EventComposition });
         var assistant = new ChatMessage(ChatRole.Assistant, assistantText);
         var finalResponse = new ChatResponse([assistant])
         {
@@ -1426,7 +1428,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
 
         return (AfterMessageTurnContext)factory.Invoke(
             agentContext,
-            [finalResponse, new List<ChatMessage> { assistant }, new AgentRunConfig()])!;
+            [finalResponse, new List<ChatMessage> { assistant }, new AgentRunConfig(), AgentTurnTriggerSource.UserInput, new[] { assistant }, Array.Empty<ChatMessage>()])!;
     }
 
     private static Session CreateSession(string sessionId)

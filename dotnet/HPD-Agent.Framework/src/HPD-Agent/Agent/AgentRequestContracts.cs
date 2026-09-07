@@ -41,7 +41,9 @@ public enum AgentRespondStatus
     /// <summary>The execution that owned the request has ended.</summary>
     ExecutionEnded,
     /// <summary>The owning execution is active, but its response waiter is unavailable.</summary>
-    RuntimeUnavailable
+    RuntimeUnavailable,
+    /// <summary>The answer does not satisfy its request contract.</summary>
+    InvalidResponse
 }
 
 /// <summary>Result returned for every valid Agent response attempt.</summary>

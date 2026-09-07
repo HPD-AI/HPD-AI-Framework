@@ -23,6 +23,21 @@ internal sealed class AnsiFrameWriter : IDisposable
 
     public int Length => _written;
 
+    internal ReadOnlySpan<char> WrittenSpan
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return _buffer.AsSpan(0, _written);
+        }
+    }
+
+    public TerminalFrameLease CreateLease()
+    {
+        ThrowIfDisposed();
+        return new TerminalFrameLease(_buffer.AsSpan(0, _written));
+    }
+
     public void Clear()
     {
         ThrowIfDisposed();

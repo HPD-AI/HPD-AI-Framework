@@ -1,12 +1,22 @@
 using HPD.Agent.TUI.Models;
 using HPD.TUI.Core;
 using HPD.TUI.Views;
+using HPD.TUI.Rendering;
 
 namespace HPD.Agent.TUI.Composition;
 
+/// <summary>Creates a complete agent shell with mandatory preparation and history-publication ownership.</summary>
 public interface IAgentTuiShellLayout
 {
-    IComponent Create(AgentTuiShellLayoutContext context);
+    /// <summary>Creates the shell presentation for a conversation and its configured contributions.</summary>
+    /// <param name="context">Conversation models, prompt, registry, and chrome shared by the shell.</param>
+    IAgentTuiShellView Create(AgentTuiShellLayoutContext context);
+}
+
+/// <summary>Owns an agent shell's rendering, frame preparation, and terminal-history lifecycle.</summary>
+/// <remarks>Shell wrappers must forward these contracts; history publication cannot be an optional runtime cast.</remarks>
+public interface IAgentTuiShellView : IComponent, IAgentTuiFramePreparable, IScrollbackSource
+{
 }
 
 public sealed class AgentTuiShellLayoutContext

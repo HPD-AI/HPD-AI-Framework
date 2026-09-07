@@ -62,6 +62,9 @@ public abstract class HookContext
     /// </summary>
     public AgentClientSet? ClientSet => Base.ClientSet;
 
+    /// <summary>Gets the input-scoped run configuration for direct subagent invocations.</summary>
+    public SubAgentRunConfig? SubAgentRunConfig => Base.SubAgentRunConfig;
+
     /// <summary>
     /// Explicit content store configured for this agent.
     /// </summary>

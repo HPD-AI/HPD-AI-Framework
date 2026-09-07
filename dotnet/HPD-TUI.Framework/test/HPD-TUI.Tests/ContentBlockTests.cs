@@ -19,7 +19,7 @@ public sealed class ContentBlockTests
     [Fact]
     public void MarkdownBlock_CachesParsedDocumentAndRenders()
     {
-        var block = MarkdownBlock.Create("# Title");
+        var block = MarkdownBlock.Prepare("# Title", 10, Theme.Default);
         using var grid = Render(block, 10, 1);
 
         Assert.Equal(ContentBlockKind.Markdown, block.Kind);
@@ -78,8 +78,8 @@ public sealed class ContentBlockTests
     {
         var context = new RenderContext(width, height, Theme.Default);
         var grid = new TerminalGrid(width, height);
-        var writer = new SegmentWriter(grid);
-        block.Render(in context, width, ref writer);
+        var writer = new DisplayListBuilder(grid, grid.Width);
+        block.Render(in context, ref writer);
         return grid;
     }
 
@@ -88,7 +88,7 @@ public sealed class ContentBlockTests
         Span<char> buffer = stackalloc char[grid.Width];
         for (var x = 0; x < grid.Width; x++)
         {
-            buffer[x] = (char)grid.GetCell(x, y).Rune.Value;
+            buffer[x] = (char)grid.GetLeadingRune(grid.GetCell(x, y)).Value;
         }
 
         return new string(buffer);

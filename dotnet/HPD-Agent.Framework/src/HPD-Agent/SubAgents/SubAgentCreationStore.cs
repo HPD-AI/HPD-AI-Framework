@@ -17,6 +17,8 @@ public sealed record SubAgentCreationRequest
     public required string ChildAgentId { get; init; }
     /// <summary>Gets the resolved child topology.</summary>
     public required SubAgentCreationContext Context { get; init; }
+    /// <summary>Gets the parent snapshot reserved for a context handoff.</summary>
+    public ThreadJournalCursor? ContextSourceCursor { get; init; }
     /// <summary>Gets a stable fingerprint of the initial semantic input.</summary>
     public required string InputFingerprint { get; init; }
     /// <summary>Gets the complete resolved durable execution policy.</summary>
@@ -172,7 +174,12 @@ public sealed class JournalSubAgentCreationStore(ISessionStore store) : ISubAgen
                     .ConfigureAwait(false);
                 return new SubAgentCreationReservationResult(record, Created: true);
             }
-            catch (ThreadAppendConflictException) when (attempt < 15) { }
+            catch (ThreadAppendConflictException)
+            {
+                if (attempt == 15) break;
+                await Task.Delay(TimeSpan.FromMilliseconds(Math.Min(1 << Math.Min(attempt, 5), 32)), cancellationToken)
+                    .ConfigureAwait(false);
+            }
         }
         throw new InvalidOperationException("subagent_creation_conflict");
     }
@@ -237,7 +244,12 @@ public sealed class JournalSubAgentCreationStore(ISessionStore store) : ISubAgen
                     .ConfigureAwait(false);
                 return;
             }
-            catch (ThreadAppendConflictException) when (attempt < 15) { }
+            catch (ThreadAppendConflictException)
+            {
+                if (attempt == 15) break;
+                await Task.Delay(TimeSpan.FromMilliseconds(Math.Min(1 << Math.Min(attempt, 5), 32)), cancellationToken)
+                    .ConfigureAwait(false);
+            }
         }
         throw new InvalidOperationException("subagent_creation_write_conflict");
     }

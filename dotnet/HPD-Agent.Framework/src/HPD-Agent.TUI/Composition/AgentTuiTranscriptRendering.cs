@@ -1,3 +1,4 @@
+using HPD.TUI.Markdown;
 using HPD.Agent.TUI.Models;
 using HPD.TUI.Core;
 using HPD.TUI.Utilities;
@@ -31,11 +32,17 @@ public sealed class AgentTuiTranscriptRenderContext<TCell>
     public AgentTuiTranscriptRenderContext(
         TranscriptEntry entry,
         TCell cell,
-        AgentTuiTranscriptRenderServices services)
+        AgentTuiTranscriptRenderServices services,
+        int width,
+        Theme theme,
+        ColorSystem colorSystem)
     {
         Entry = entry ?? throw new ArgumentNullException(nameof(entry));
         Cell = cell ?? throw new ArgumentNullException(nameof(cell));
         Services = services ?? throw new ArgumentNullException(nameof(services));
+        Width = width;
+        Theme = theme ?? throw new ArgumentNullException(nameof(theme));
+        ColorSystem = colorSystem;
     }
 
     public TranscriptEntry Entry { get; }
@@ -47,11 +54,36 @@ public sealed class AgentTuiTranscriptRenderContext<TCell>
     public string DepthIndent => Services.GetDepthIndent(Metadata);
 
     public AgentTuiTranscriptRenderServices Services { get; }
+    public int Width { get; }
+    public Theme Theme { get; }
+
+    /// <summary>Gets the resolved Markdown palette for this message, including reasoning overrides.</summary>
+    public MarkdownTheme MarkdownTheme => Services.ResolveMarkdownTheme(Theme, Cell is ReasoningMessageCell);
+    public ColorSystem ColorSystem { get; }
 }
 
 public sealed class AgentTuiTranscriptRenderServices
 {
     public static readonly AgentTuiTranscriptRenderServices Default = new();
+    private readonly MarkdownTheme? _markdownTheme;
+    private readonly MarkdownTheme? _reasoningMarkdownTheme;
+
+    /// <summary>Creates transcript services with optional independent Markdown palettes.</summary>
+    /// <param name="markdownTheme">Normal-response palette, or null to derive defaults from the UI theme.</param>
+    /// <param name="reasoningMarkdownTheme">Reasoning palette, or null to derive muted defaults.</param>
+    public AgentTuiTranscriptRenderServices(MarkdownTheme? markdownTheme = null, MarkdownTheme? reasoningMarkdownTheme = null)
+    {
+        _markdownTheme = markdownTheme;
+        _reasoningMarkdownTheme = reasoningMarkdownTheme;
+    }
+
+    /// <summary>Resolves the immutable palette used for preparation, rendering, and publication.</summary>
+    /// <param name="theme">The UI theme used when no explicit palette is configured.</param>
+    /// <param name="reasoning">Whether this is reasoning content.</param>
+    /// <returns>The configured palette or derived defaults.</returns>
+    public MarkdownTheme ResolveMarkdownTheme(Theme theme, bool reasoning = false)
+        => reasoning ? _reasoningMarkdownTheme ?? MarkdownTheme.FromTheme(CreateMutedTheme(theme)) :
+            _markdownTheme ?? MarkdownTheme.FromTheme(theme);
 
     public IComponent Prefix(
         IComponent body,
@@ -155,7 +187,7 @@ public sealed class AgentTuiTranscriptRenderServices
     public static readonly Style Success = new(Color.Green, Color.Default);
     public static readonly Style Error = new(Color.Red, Color.Default);
 
-    private sealed class PrefixedComponent : IComponent
+    private sealed class PrefixedComponent : Component
     {
         private readonly IComponent _body;
         private readonly string _firstPrefix;
@@ -174,11 +206,12 @@ public sealed class AgentTuiTranscriptRenderServices
             _style = style;
         }
 
-        public Measurement Measure(in RenderContext context, int maxWidth)
-            => new(Math.Min(maxWidth, 1), maxWidth);
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
+            => new(Math.Min(constraints.MaxWidth, 1), constraints.MaxWidth);
 
-        public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, ref DisplayListBuilder output)
         {
+            var maxWidth = output.MaxWidth;
             if (maxWidth <= 0)
             {
                 return;
@@ -193,17 +226,17 @@ public sealed class AgentTuiTranscriptRenderServices
             output.Write(_firstPrefix.AsSpan(), style);
 
             var sink = new PrefixingSink(output.Sink, _subsequentPrefix, style);
-            var prefixedOutput = new SegmentWriter(sink);
-            _body.Render(in context, bodyWidth, ref prefixedOutput);
+            var prefixedOutput = new DisplayListBuilder(sink, output.MaxWidth);
+            prefixedOutput.Render(_body, in context, bodyWidth);
         }
 
-        public bool HandleInput(in TuiInputEvent key)
+        public override bool HandleInput(in TuiInputEvent key)
         {
             return _body.HandleInput(in key);
         }
     }
 
-    private sealed class PrefixedTextComponent : IComponent
+    private sealed class PrefixedTextComponent : Component
     {
         private readonly string _text;
         private readonly string _firstPrefix;
@@ -222,11 +255,12 @@ public sealed class AgentTuiTranscriptRenderServices
             _textStyle = textStyle;
         }
 
-        public Measurement Measure(in RenderContext context, int maxWidth)
-            => new(Math.Min(maxWidth, 1), maxWidth);
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
+            => new(Math.Min(constraints.MaxWidth, 1), constraints.MaxWidth);
 
-        public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, ref DisplayListBuilder output)
         {
+            var maxWidth = output.MaxWidth;
             if (maxWidth <= 0)
             {
                 return;
@@ -237,11 +271,11 @@ public sealed class AgentTuiTranscriptRenderServices
                 UnicodeWidth.GetWidth(_subsequentPrefix)));
             output.Write(_firstPrefix.AsSpan(), context.Theme.Border);
             var sink = new PrefixingSink(output.Sink, _subsequentPrefix, context.Theme.Border);
-            var prefixedOutput = new SegmentWriter(sink);
+            var prefixedOutput = new DisplayListBuilder(sink, output.MaxWidth);
             WriteWrappedText(_text, bodyWidth, GetTextStyle(_textStyle, context.Theme), ref prefixedOutput);
         }
 
-        public bool HandleInput(in TuiInputEvent key)
+        public override bool HandleInput(in TuiInputEvent key)
         {
             return false;
         }
@@ -265,7 +299,7 @@ public sealed class AgentTuiTranscriptRenderServices
 
         public int CursorY => _inner.CursorY;
 
-        public bool Write(scoped ReadOnlySpan<char> text, Style style)
+        public bool Write(scoped ReadOnlySpan<char> text, Style style, TerminalRunMetadata metadata = default)
         {
             if (_needsPrefix)
             {
@@ -276,7 +310,7 @@ public sealed class AgentTuiTranscriptRenderServices
                 }
             }
 
-            return _inner.Write(text, style);
+            return _inner.Write(text, style, metadata);
         }
 
         public bool WriteLineBreak()
@@ -297,7 +331,7 @@ public sealed class AgentTuiTranscriptRenderServices
         }
     }
 
-    private static void WriteWrappedText(string text, int maxWidth, Style style, ref SegmentWriter output)
+    private static void WriteWrappedText(string text, int maxWidth, Style style, ref DisplayListBuilder output)
     {
         if (maxWidth <= 0 || text.Length == 0)
         {
@@ -386,7 +420,7 @@ internal interface IAgentTuiTranscriptRendererAdapter
 
     Type CellType { get; }
 
-    IComponent Create(TranscriptEntry entry, AgentTuiTranscriptRenderServices services);
+    IComponent Create(TranscriptEntry entry, AgentTuiTranscriptRenderServices services, int width, Theme theme, ColorSystem colorSystem);
 }
 
 internal sealed class AgentTuiTranscriptRendererAdapter<TCell> : IAgentTuiTranscriptRendererAdapter
@@ -406,7 +440,7 @@ internal sealed class AgentTuiTranscriptRendererAdapter<TCell> : IAgentTuiTransc
 
     public IAgentTuiTranscriptRenderer<TCell> Renderer { get; }
 
-    public IComponent Create(TranscriptEntry entry, AgentTuiTranscriptRenderServices services)
+    public IComponent Create(TranscriptEntry entry, AgentTuiTranscriptRenderServices services, int width, Theme theme, ColorSystem colorSystem)
     {
         if (entry.Cell is not TCell cell)
         {
@@ -414,6 +448,15 @@ internal sealed class AgentTuiTranscriptRendererAdapter<TCell> : IAgentTuiTransc
                 $"Transcript renderer '{Key}' expected cell type '{typeof(TCell).Name}' but received '{entry.Cell.GetType().Name}'.");
         }
 
-        return Renderer.Create(new AgentTuiTranscriptRenderContext<TCell>(entry, cell, services));
+        return Renderer.Create(new AgentTuiTranscriptRenderContext<TCell>(entry, cell, services, width, theme, colorSystem));
     }
+}
+
+/// <summary>Declares that a renderer preserves prepared Markdown rows for irreversible range publication.</summary>
+/// <remarks>The rendered Markdown rows must match the prepared layout in order and geometry. Decorations
+/// before the Markdown must have a fixed height; renderers that transform or omit Markdown must not implement this contract.</remarks>
+public interface IAgentTuiMarkdownPublicationRenderer
+{
+    /// <summary>Gets the fixed number of decoration rows before the first prepared Markdown row.</summary>
+    int MarkdownRowOffset { get; }
 }

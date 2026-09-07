@@ -3,7 +3,7 @@ using HPD.TUI.Core;
 
 namespace HPD.Agent.ToolHarness.Coding.TUI.FileMutations.Views;
 
-internal sealed class FileMutationCellView : IComponent
+internal sealed class FileMutationCellView : HPD.TUI.Core.Component
 {
     private const int MaxDiagnostics = 4;
     private readonly FileMutationCell _cell;
@@ -17,9 +17,10 @@ internal sealed class FileMutationCellView : IComponent
         _source = new AnnotatedSourceView(CreateDocument(cell), theme);
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
-        var source = _source.Measure(in context, maxWidth);
+        var maxWidth = constraints.MaxWidth;
+        var source = _source.Measure(in context, HPD.TUI.Layout.LayoutConstraints.Loose(maxWidth, context.Height));
         var rows = source.Height;
 
         if (ShouldRenderDiagnostics(_cell.Diagnostics, _cell.DiagnosticsTruncated))
@@ -34,24 +35,25 @@ internal sealed class FileMutationCellView : IComponent
         return new Measurement(source.MinWidth, Math.Min(maxWidth, 100), rows);
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (maxWidth <= 0)
         {
             return;
         }
 
-        _source.Render(in context, maxWidth, ref output);
+        output.Render(_source, in context, maxWidth);
 
         RenderDiagnosticsIfNeeded(in context, maxWidth, ref output);
     }
 
-    public bool HandleInput(in TuiInputEvent input)
+    public override bool HandleInput(in TuiInputEvent input)
     {
         return false;
     }
 
-    private void RenderDiagnosticsIfNeeded(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    private void RenderDiagnosticsIfNeeded(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         if (!ShouldRenderDiagnostics(_cell.Diagnostics, _cell.DiagnosticsTruncated))
         {

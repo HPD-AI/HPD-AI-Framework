@@ -131,6 +131,7 @@ public sealed class FunctionExecutionContext
         };
         _stateSnapshot = request.State;
         RunConfig = request.RunConfig;
+        SubAgentRunConfig = request.SubAgentRunConfig;
         InvocationMode = request.InvocationMode;
         Permission = new FunctionExecutionPermission(request.PermissionRequired, request.PermissionGrant);
         ResultMetadata = request.ResultMetadata;
@@ -157,6 +158,7 @@ public sealed class FunctionExecutionContext
         Permission = source.Permission;
         _stateSnapshot = source._stateSnapshot;
         RunConfig = source.RunConfig;
+        SubAgentRunConfig = source.SubAgentRunConfig;
         ResultMetadata = new ToolResultMetadata();
         EventCoordinator = source.EventCoordinator;
         ThreadEvents = source.ThreadEvents;
@@ -173,6 +175,9 @@ public sealed class FunctionExecutionContext
         _toolHarnessExecutionScope = null;
         _operationCommitGate = source._operationCommitGate;
     }
+
+    /// <summary>Gets the captured configuration for direct subagents invoked during this input.</summary>
+    public SubAgentRunConfig? SubAgentRunConfig { get; }
 
     /// <summary>Creates an operation-owned context projection and acquires its client lifetime lease.</summary>
     /// <param name="executionOwner">Receives the lease that must be owned by the operation.</param>
@@ -259,6 +264,7 @@ public sealed class FunctionExecutionContext
     public IContentStore? ContentStore => _contentStore;
 
     internal AgentClientSet? ClientSet => _clientSet;
+    internal AgentConfig? ParentConfig => _parentConfig;
     internal ToolHarnessExecutionScope? ToolHarnessExecutionScope => _toolHarnessExecutionScope;
 
     /// <summary>Gets the unified operation registry owned by the active runtime.</summary>
@@ -391,7 +397,7 @@ public sealed class FunctionExecutionContext
         if (!codec.TryGetByType(scoped.GetType(), out _))
             throw new InvalidOperationException($"Agent event type '{scoped.GetType().FullName}' is not present in codec '{codec.Digest}'.");
         scoped = scoped with { ThreadSequenceNumber = 0 };
-        await EventCoordinator.EmitAsync(scoped, cancellationToken).ConfigureAwait(false);
+        await EventCoordinator.EmitAsync(scoped, AgentEventRoutes.Create(EventCoordinator, scoped), cancellationToken).ConfigureAwait(false);
         return scoped;
     }
 
@@ -411,7 +417,8 @@ public sealed class FunctionExecutionContext
     public async Task<TResponse> RequestAsync<TRequest, TResponse>(
         TRequest request,
         CancellationToken cancellationToken,
-        TimeSpan? timeout = null)
+        TimeSpan? timeout = null,
+        Func<TRequest, CancellationToken, ValueTask>? onPublished = null)
         where TRequest : AgentEvent, IAgentRequestEvent<TResponse>
         where TResponse : AgentEvent, IAgentResponseEvent
     {
@@ -421,8 +428,10 @@ public sealed class FunctionExecutionContext
             throw new InvalidOperationException("Function execution context does not have an event coordinator.");
 
         var tracedRequest = WithInvocationScope(request);
+        var route = AgentEventRoutes.Create(EventCoordinator, tracedRequest);
         var handle = EventCoordinator.RegisterRequest<TRequest, TResponse>(
             tracedRequest,
+            route,
             new RequestOptions
             {
                 Timeout = timeout,
@@ -444,9 +453,11 @@ public sealed class FunctionExecutionContext
             }
             else
             {
-                await EventCoordinator.EmitAsync(tracedRequest, cancellationToken).ConfigureAwait(false);
+                await EventCoordinator.EmitAsync(tracedRequest, route, cancellationToken).ConfigureAwait(false);
             }
 
+            if (onPublished is not null)
+                await onPublished(tracedRequest, cancellationToken).ConfigureAwait(false);
             return (TResponse)await handle.Response.ConfigureAwait(false);
         }
         catch (TimeoutException)

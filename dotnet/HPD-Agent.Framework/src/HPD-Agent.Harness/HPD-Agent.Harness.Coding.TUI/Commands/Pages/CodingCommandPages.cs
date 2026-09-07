@@ -22,7 +22,7 @@ internal static class CodingCommandPages
         };
 }
 
-internal abstract class CodingCommandPageComponentBase : IComponent
+internal abstract class CodingCommandPageComponentBase : HPD.TUI.Core.Component
 {
     protected CodingCommandPageComponentBase(AgentTuiStateBag state, CodingHarnessTuiTheme theme)
     {
@@ -33,12 +33,12 @@ internal abstract class CodingCommandPageComponentBase : IComponent
     protected AgentTuiStateBag State { get; }
     protected CodingHarnessTuiTheme Theme { get; }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
-        => new(Math.Min(20, maxWidth), Math.Min(120, maxWidth), 1);
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
+        => new(Math.Min(20, constraints.MaxWidth), Math.Min(120, constraints.MaxWidth), 1);
 
-    public abstract void Render(in RenderContext context, int maxWidth, ref SegmentWriter output);
+    public abstract override void Render(in RenderContext context, ref DisplayListBuilder output);
 
-    public bool HandleInput(in TuiInputEvent input)
+    public override bool HandleInput(in TuiInputEvent input)
     {
         return false;
     }
@@ -51,7 +51,7 @@ internal abstract class CodingCommandPageComponentBase : IComponent
         int maxWidth,
         int tailRows,
         in RenderContext context,
-        ref SegmentWriter output)
+        ref DisplayListBuilder output)
     {
         var title = $"{CodingCommandRenderText.VerbFor(command)} {command.DisplayCommand}";
         CodingCommandPanelText.WriteClipped(title, maxWidth, Theme.ResolveCommandState(MapState(command.DisplayState), context.Theme), ref output);
@@ -65,7 +65,7 @@ internal abstract class CodingCommandPageComponentBase : IComponent
         int maxWidth,
         int tailRows,
         in RenderContext context,
-        ref SegmentWriter output)
+        ref DisplayListBuilder output)
     {
         CodingCommandPanelText.WriteClipped($"• {command.DisplayCommand}", maxWidth, Theme.ResolveCommandState(MapState(command.DisplayState), context.Theme), ref output);
         WriteBackgroundDetail("handle", command.OperationId ?? command.CommandId, maxWidth, in context, ref output);
@@ -83,7 +83,7 @@ internal abstract class CodingCommandPageComponentBase : IComponent
         string value,
         int maxWidth,
         in RenderContext context,
-        ref SegmentWriter output)
+        ref DisplayListBuilder output)
     {
         output.WriteLineBreak();
         output.Write($"  {label} ".AsSpan(), Theme.ResolvePrefix(context.Theme));
@@ -133,7 +133,7 @@ internal abstract class CodingCommandPageComponentBase : IComponent
         CodingCommandExecutionState command,
         int maxWidth,
         in RenderContext context,
-        ref SegmentWriter output)
+        ref DisplayListBuilder output)
     {
         var parts = new List<string>();
         if (!string.IsNullOrWhiteSpace(command.WorkingDirectory))
@@ -172,7 +172,7 @@ internal abstract class CodingCommandPageComponentBase : IComponent
         int maxWidth,
         int tailRows,
         in RenderContext context,
-        ref SegmentWriter output)
+        ref DisplayListBuilder output)
     {
         var outputWidth = Math.Max(0, maxWidth - 2);
         var snapshot = command.Output.CreateSnapshot(
@@ -224,8 +224,9 @@ internal sealed class CodingCommandsPageComponent : CodingCommandPageComponentBa
     {
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         output.Write("Coding commands".AsSpan(), Theme.ResolveCommandState(CodingCommandTranscriptState.Running, context.Theme));
         if (!TryGetStore(out var store))
         {
@@ -264,8 +265,9 @@ internal sealed class CodingBackgroundCommandsPageComponent : CodingCommandPageC
     {
     }
 
-    public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         output.Write("Background commands".AsSpan(), Theme.ResolveCommandState(CodingCommandTranscriptState.Backgrounded, context.Theme));
         if (!TryGetStore(out var store) || store.ActiveBackground.Count == 0)
         {

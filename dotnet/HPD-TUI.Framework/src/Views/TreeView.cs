@@ -5,10 +5,11 @@ using HPD.TUI.Utilities;
 
 namespace HPD.TUI.Views;
 
-public sealed class TreeView<T> : IFocusable
+public sealed class TreeView<T> : Component, IFocusable
 {
     private readonly TreeModel<T> _model;
     private readonly TreeController<T> _controller;
+    private bool _isFocused;
 
     public TreeView(TreeModel<T> model, TreeController<T>? controller = null)
     {
@@ -20,12 +21,14 @@ public sealed class TreeView<T> : IFocusable
 
     public TreeController<T> Controller => _controller;
 
-    public bool IsFocused { get; set; }
+    /// <inheritdoc />
+    public bool IsFocused { get => _isFocused; set => SetPaint(ref _isFocused, value); }
 
     public TreeViewMode Mode { get; init; } = TreeViewMode.Outline;
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         var width = 0;
         foreach (var node in _controller.GetVisibleNodes())
         {
@@ -35,8 +38,9 @@ public sealed class TreeView<T> : IFocusable
         return new Measurement(Math.Min(width, maxWidth), Math.Min(width, maxWidth));
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (Mode == TreeViewMode.Breadcrumb)
         {
             RenderBreadcrumb(in context, maxWidth, ref output);
@@ -73,10 +77,12 @@ public sealed class TreeView<T> : IFocusable
         }
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         var keyEvent = key.KeyEvent;
-        return _controller.HandleInput(in keyEvent);
+        var handled = _controller.HandleInput(in keyEvent);
+        if (handled) InvalidateLayout();
+        return handled;
     }
 
     public static TreeView<T> Create(IEnumerable<TreeNode<T>> roots)
@@ -92,7 +98,7 @@ public sealed class TreeView<T> : IFocusable
         return new TreeView<T>(model);
     }
 
-    private void RenderCompact(IReadOnlyList<TreeVisibleNode<T>> visible, in RenderContext context, int maxWidth, ref SegmentWriter output)
+    private void RenderCompact(IReadOnlyList<TreeVisibleNode<T>> visible, in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         var first = true;
         foreach (var item in visible)
@@ -113,7 +119,7 @@ public sealed class TreeView<T> : IFocusable
         }
     }
 
-    private void RenderBreadcrumb(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    private void RenderBreadcrumb(in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         var path = _controller.GetSelectedPath();
         for (var i = 0; i < path.Count; i++)
@@ -138,7 +144,7 @@ public sealed class TreeView<T> : IFocusable
         return _model.IsExpanded(item.Node.Key) ? "▾" : "▸";
     }
 
-    private static void WriteIndent(int depth, Style style, ref SegmentWriter output)
+    private static void WriteIndent(int depth, Style style, ref DisplayListBuilder output)
     {
         for (var i = 0; i < depth; i++)
         {

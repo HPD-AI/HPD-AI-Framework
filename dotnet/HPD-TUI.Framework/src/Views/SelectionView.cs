@@ -5,7 +5,7 @@ using HPD.TUI.Utilities;
 
 namespace HPD.TUI.Views;
 
-public sealed class SelectionView<T> : IFocusable
+public sealed class SelectionView<T> : Component, IFocusable
 {
     private readonly SelectionModel<T> _model;
     private readonly SelectionController<T> _controller;
@@ -34,9 +34,10 @@ public sealed class SelectionView<T> : IFocusable
         set => _list.IsFocused = value;
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
-        var listMeasurement = _list.Measure(in context, maxWidth);
+        var maxWidth = constraints.MaxWidth;
+        var listMeasurement = _list.Measure(in context, constraints);
         if (!_model.AllowFilter)
         {
             return listMeasurement;
@@ -49,11 +50,12 @@ public sealed class SelectionView<T> : IFocusable
             Math.Min(context.Height, listMeasurement.Height + 1));
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (!_model.AllowFilter)
         {
-            _list.Render(in context, maxWidth, ref output);
+            output.Render(_list, in context, maxWidth);
             return;
         }
 
@@ -70,10 +72,10 @@ public sealed class SelectionView<T> : IFocusable
             context.Theme,
             context.ColorSystem,
             context.Elapsed);
-        _list.Render(in listContext, maxWidth, ref output);
+        output.Render(_list, in listContext, maxWidth);
     }
 
-    public bool HandleInput(in TuiInputEvent key) => _list.HandleInput(in key);
+    public override bool HandleInput(in TuiInputEvent key) => _list.HandleInput(in key);
 
     private string GetSearchText()
         => string.IsNullOrEmpty(_model.Query)

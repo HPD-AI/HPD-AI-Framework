@@ -16,6 +16,7 @@ public sealed class AudioProviderV9ContractTests
     public void OpenAiBuilders_AuthorAtomicApiKeySelectionsForAllAudioFamilies()
     {
         var builder = new AgentBuilder(new AgentConfig())
+            .WithEventApplicationIdentity("HPD.Agent.Audio.V2.Tests")
             .WithOpenAISpeechToText("whisper-test")
             .WithOpenAITextToSpeech("tts-test")
             .WithOpenAIRealtime("realtime-test");
@@ -29,6 +30,7 @@ public sealed class AudioProviderV9ContractTests
     public void ElevenLabsBuilders_AuthorAtomicApiKeySelectionsForBothFamilies()
     {
         var builder = new AgentBuilder(new AgentConfig())
+            .WithEventApplicationIdentity("HPD.Agent.Audio.V2.Tests")
             .WithElevenLabsSpeechToText("scribe-test")
             .WithElevenLabsTextToSpeech("eleven-test");
 

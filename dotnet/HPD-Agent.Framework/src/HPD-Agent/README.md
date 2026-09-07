@@ -2,6 +2,38 @@
 
 A middleware-driven agentic AI framework built on Microsoft.Extensions.AI for building intelligent, tool-using agents.
 
+## Thread-scoped event subscriptions
+
+Subscriptions without a thread key observe only events owned by that `Agent` instance. They include
+the agent's per-run coordinators, but exclude events originating in independently owned subagents:
+
+```csharp
+using var local = agent.Subscribe<TextDeltaEvent>(evt => Console.Write(evt.Text));
+```
+
+Use the complete `(SessionId, ThreadId)` key to observe one concrete child invocation:
+
+```csharp
+var child = new ThreadKey(childSessionId, childThreadId);
+using var exact = agent.Subscribe<TextDeltaEvent>(child, evt => Console.Write(evt.Text));
+```
+
+Request hierarchy explicitly to supervise an entire branch at every depth. Sibling branches are
+excluded, and each delivery retains its root-to-origin route:
+
+```csharp
+using var subtree = agent.SubscribeAny(
+    child,
+    AgentEventHierarchy.ThreadAndDescendants,
+    evt => Observe(evt));
+```
+
+Thread-keyed subscriptions exclude threadless events. Live descendant delivery multiplexes events
+from independent thread journals; it does not merge their journal cursors. Callbacks run on the
+subscription's mailbox pump, publication does not wait for callback completion, and disposal stops
+observation without stopping execution or event bubbling. Framework infrastructure that truly needs
+every owner must opt into global observation explicitly.
+
 ## Install
 
 ```bash

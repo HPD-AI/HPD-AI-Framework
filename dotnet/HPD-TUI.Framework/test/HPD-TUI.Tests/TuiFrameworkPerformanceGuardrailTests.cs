@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using HPD.TUI.Components;
+using HPD.TUI.Content;
 using HPD.TUI.Core;
 using HPD.TUI.Rendering;
 using HPD.TUI.Utilities;
@@ -38,9 +39,9 @@ public sealed class TuiFrameworkPerformanceGuardrailTests
     [Fact]
     public void Markdown_Render_RepeatedSameWidth_IsStableAndBounded()
     {
-        var markdown = new HPD.TUI.Components.Markdown(string.Join(
+        var markdown = MarkdownBlock.Prepare(string.Join(
             "\n",
-            Enumerable.Range(0, 200).Select(static i => $"- item {i:D4} with enough words to wrap at narrow widths")));
+            Enumerable.Range(0, 200).Select(static i => $"- item {i:D4} with enough words to wrap at narrow widths")), 48, Theme.Default);
 
         var expected = TuiCapture.RenderToString(markdown, width: 48, height: 80, trimTrailingBlankLines: true);
         var stopwatch = Stopwatch.StartNew();
@@ -58,18 +59,17 @@ public sealed class TuiFrameworkPerformanceGuardrailTests
     [Fact]
     public void Markdown_Render_WidthChange_InvalidatesOnlyWidthDependentCache()
     {
-        var markdown = new HPD.TUI.Components.Markdown(string.Join(
-            "\n",
-            Enumerable.Range(0, 200).Select(static i => $"- item {i:D4} with enough words to wrap at narrow widths")));
-        TuiCapture.RenderToString(markdown, width: 80, height: 80, trimTrailingBlankLines: true);
+        var source = string.Join("\n", Enumerable.Range(0, 200).Select(static i => $"- item {i:D4} with enough words to wrap at narrow widths"));
+        var narrow = MarkdownBlock.Prepare(source, 40, Theme.Default);
+        var wide = MarkdownBlock.Prepare(source, 100, Theme.Default);
 
         var narrowElapsed = Measure(() => TuiCapture.RenderToString(
-            markdown,
+            narrow,
             width: 40,
             height: 80,
             trimTrailingBlankLines: true));
         var wideElapsed = Measure(() => TuiCapture.RenderToString(
-            markdown,
+            wide,
             width: 100,
             height: 80,
             trimTrailingBlankLines: true));
@@ -112,10 +112,10 @@ public sealed class TuiFrameworkPerformanceGuardrailTests
     }
 
     [Fact]
-    public void SegmentWriter_WriteRepeated_StaysChunkBounded()
+    public void DisplayListBuilder_WriteRepeated_StaysChunkBounded()
     {
         var sink = new CountingSink();
-        var writer = new SegmentWriter(sink);
+        var writer = new DisplayListBuilder(sink, 80);
 
         Assert.True(writer.WriteRepeated('x', 10_000, Style.Default));
 
@@ -163,7 +163,7 @@ public sealed class TuiFrameworkPerformanceGuardrailTests
 
         public int CursorY { get; private set; }
 
-        public bool Write(scoped ReadOnlySpan<char> text, Style style)
+        public bool Write(scoped ReadOnlySpan<char> text, Style style, TerminalRunMetadata metadata = default)
         {
             CharactersWritten += text.Length;
             CursorX += text.Length;

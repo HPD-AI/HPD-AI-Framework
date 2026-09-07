@@ -18,6 +18,11 @@
   <ItemGroup>
     <ProjectReference Include="../../src/HPD-Agent/HPD-Agent.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj" ReferenceOutputAssembly="true" />
+    <Compile Include="../HPD-Agent.Tests/Middleware/ToolScopingMiddlewareTests.cs" Link="ToolScopingMiddlewareTests.cs" />
+    <Compile Include="../HPD-Agent.Tests/Middleware/ContainerHistoryRewriteTests.cs" Link="ContainerHistoryRewriteTests.cs" />
+    <Compile Include="../HPD-Agent.Tests/Infrastructure/TestAgentFactory.cs" Link="TestAgentFactory.cs" />
+    <Compile Include="../HPD-Agent.Tests/Infrastructure/FakeChatClient.cs" Link="FakeChatClient.cs" />
+    <Compile Include="../HPD-Agent.Tests/Infrastructure/ScopedPluginTestHelper.cs" Link="ScopedPluginTestHelper.cs" />
     <Compile Include="../HPD-Agent.Tests/Tools/ActionScopedFunctionInvocationTests.cs" Link="ActionScopedFunctionInvocationTests.cs" />
     <Compile Include="../HPD-Agent.Tests/SourceGenerator/HPDToolSourceGeneratorTests.cs" Link="HPDToolSourceGeneratorTests.cs" />
   </ItemGroup>

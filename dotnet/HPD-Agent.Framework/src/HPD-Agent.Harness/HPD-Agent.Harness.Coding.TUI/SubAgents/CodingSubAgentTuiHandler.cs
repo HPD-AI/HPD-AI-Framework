@@ -111,9 +111,9 @@ internal sealed class CodingSubAgentTuiHandler : IAgentTuiEventHandler, IAgentTu
                 state.ContextPolicy, state.Mode, state.Detail),
             TranscriptEntryMetadata.FromEvent(evt));
         if (state.State is CodingSubAgentState.Preparing or CodingSubAgentState.Running)
-            context.Shell.Transcript.UpsertLive(transcriptEntry.AsLive());
+            context.Shell.Transcript.UpsertLive(transcriptEntry.AsLive(), CommittedHistoryMutationPolicy.Reject);
         else
-            context.Shell.Transcript.FinalizeLive(key, transcriptEntry.AsFinal());
+            context.Shell.Transcript.FinalizeLive(key, transcriptEntry.AsFinal(), CommittedHistoryMutationPolicy.Reject);
     }
 
     private static bool IsSubAgents(string? name)

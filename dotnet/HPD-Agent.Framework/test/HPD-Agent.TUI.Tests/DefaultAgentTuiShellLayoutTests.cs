@@ -3,6 +3,7 @@ using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Models;
 using HPD.Agent.TUI.Runtime;
 using HPD.TUI.Components;
+using HPD.TUI.Core;
 using HPD.TUI.Rendering;
 using HPD.TUI.Views;
 
@@ -101,13 +102,29 @@ public sealed class DefaultAgentTuiShellLayoutTests
 
         var registry = new HpdAgentTuiBuilder()
             .AddAgentTuiDefaults()
-            .ReplaceHeader(_ => new Markdown("logo one\nlogo two\nlogo three\nlogo four\nlogo five\nlogo six"))
+            .ReplaceHeader(_ => HPD.TUI.Content.TextBlock.Create("logo one\nlogo two\nlogo three\nlogo four\nlogo five\nlogo six"))
             .Build();
         var shell = CreateShell(model, registry);
 
         var lines = TuiCapture.RenderToLines(shell, width: 96, height: 18);
 
         lines.Should().Contain(line => line.Contains("Ask HPD", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Render_TranscriptGrowthDoesNotMovePromptOrChangeViewportHeight()
+    {
+        var model = new ChatShellModel(new AgentTuiRuntimeScope("agent", "session", "main"));
+        var shell = CreateShell(model);
+
+        var empty = TuiCapture.RenderToLines(shell, width: 96, height: 24);
+        model.Transcript.AddFinal(Row("row-1", "assistant", "hello"));
+        var populated = TuiCapture.RenderToLines(shell, width: 96, height: 24);
+
+        Array.FindIndex(empty, line => line.Contains("Ask HPD", StringComparison.Ordinal))
+            .Should().Be(Array.FindIndex(populated,
+                line => line.Contains("Ask HPD", StringComparison.Ordinal)));
+        populated.Should().HaveCount(empty.Length);
     }
 
     [Fact]
@@ -151,7 +168,7 @@ public sealed class DefaultAgentTuiShellLayoutTests
         => new(
             id,
             EntryKey: null,
-            new AssistantMessageCell(label, new Markdown(text)),
+            HPD.Agent.TUI.Markdown.MarkdownMessageFactory.CreateAssistant(id, text, 96, HPD.TUI.Markdown.MarkdownTheme.FromTheme(Theme.Default), label),
             new TranscriptEntryMetadata());
 
     private static int CountMessages(string text)

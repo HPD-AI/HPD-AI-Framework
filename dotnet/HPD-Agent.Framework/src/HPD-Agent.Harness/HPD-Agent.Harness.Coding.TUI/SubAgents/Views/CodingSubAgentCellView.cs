@@ -3,18 +3,19 @@ using HPD.TUI.Utilities;
 
 namespace HPD.Agent.ToolHarness.Coding.TUI.SubAgents.Views;
 
-internal sealed class CodingSubAgentCellView(CodingSubAgentCell cell, CodingHarnessTuiTheme theme) : IComponent
+internal sealed class CodingSubAgentCellView(CodingSubAgentCell cell, CodingHarnessTuiTheme theme) : HPD.TUI.Core.Component
 {
     private readonly CodingSubAgentCell _cell = cell ?? throw new ArgumentNullException(nameof(cell));
     private readonly CodingHarnessTuiTheme _theme = theme ?? throw new ArgumentNullException(nameof(theme));
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
-        => new(1, Math.Min(maxWidth, 100), string.IsNullOrWhiteSpace(_cell.Detail)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
+        => new(1, Math.Min(constraints.MaxWidth, 100), string.IsNullOrWhiteSpace(_cell.Detail)
             ? 1
-            : 1 + Wrap(_cell.Detail, Math.Max(1, maxWidth - 4), 3).Count);
+            : 1 + Wrap(_cell.Detail, Math.Max(1, constraints.MaxWidth - 4), 3).Count);
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (maxWidth <= 0) return;
 
         var metadata = new List<string> { StateText(_cell.State) };
@@ -35,7 +36,7 @@ internal sealed class CodingSubAgentCellView(CodingSubAgentCell cell, CodingHarn
         }
     }
 
-    public bool HandleInput(in TuiInputEvent input) => false;
+    public override bool HandleInput(in TuiInputEvent input) => false;
 
     private static string StateText(CodingSubAgentState state) => state.ToString().ToLowerInvariant();
 

@@ -18,9 +18,9 @@ public sealed class TableAndTreeTests
         var view = new TableView<Row>(model) { StackedBreakpoint = 10 };
         var context = new RenderContext(20, 2, Theme.Default);
         using var grid = new TerminalGrid(20, 2);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
-        view.Render(in context, 20, ref writer);
+        view.Render(in context, ref writer);
 
         Assert.Equal("Name   Kind         ", ReadLine(grid, 0));
         Assert.Equal("alpha  file         ", ReadLine(grid, 1));
@@ -36,9 +36,9 @@ public sealed class TableAndTreeTests
         var view = new TableView<Row>(model) { StackedBreakpoint = 20 };
         var context = new RenderContext(12, 2, Theme.Default);
         using var grid = new TerminalGrid(12, 2);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
-        view.Render(in context, 12, ref writer);
+        view.Render(in context, ref writer);
 
         Assert.Equal("Name: alpha ", ReadLine(grid, 0));
         Assert.Equal("Kind: file  ", ReadLine(grid, 1));
@@ -120,7 +120,7 @@ public sealed class TableAndTreeTests
         var model = new CollectionModel<string>().Add("wide", "你好");
         var view = new CollectionListView<string>(model, new Controllers.CollectionNavigationController<string>(model));
 
-        var measurement = view.Measure(new RenderContext(20, 1, Theme.Default), 20);
+        var measurement = view.Measure(new RenderContext(20, 1, Theme.Default), HPD.TUI.Layout.LayoutConstraints.Loose(20, 1));
 
         Assert.Equal(6, measurement.MaxWidth);
     }
@@ -167,9 +167,9 @@ public sealed class TableAndTreeTests
         var view = new TreeView<string>(model);
         var context = new RenderContext(12, 2, Theme.Default);
         using var grid = new TerminalGrid(12, 2);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
-        view.Render(in context, 12, ref writer);
+        view.Render(in context, ref writer);
 
         Assert.Equal("▾ root      ", ReadLine(grid, 0));
         Assert.Equal("  • child   ", ReadLine(grid, 1));
@@ -185,9 +185,9 @@ public sealed class TableAndTreeTests
         var view = new TreeView<string>(model);
         var context = new RenderContext(12, 2, Theme.Default);
         using var grid = new TerminalGrid(12, 2);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
-        view.Render(in context, 12, ref writer);
+        view.Render(in context, ref writer);
 
         Assert.Equal("▸ root      ", ReadLine(grid, 0));
         Assert.Equal("            ", ReadLine(grid, 1));
@@ -266,7 +266,7 @@ public sealed class TableAndTreeTests
         Span<char> buffer = stackalloc char[grid.Width];
         for (var x = 0; x < grid.Width; x++)
         {
-            buffer[x] = (char)grid.GetCell(x, y).Rune.Value;
+            buffer[x] = (char)grid.GetLeadingRune(grid.GetCell(x, y)).Value;
         }
 
         return new string(buffer);

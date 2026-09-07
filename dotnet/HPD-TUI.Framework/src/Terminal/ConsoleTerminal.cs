@@ -3,7 +3,7 @@ using System.Text;
 
 namespace HPD.TUI.Terminal;
 
-public class ConsoleTerminal : ITerminal, ITerminalInput
+public class ConsoleTerminal : ITerminal, ITerminalInput, IManagedTerminalCapabilitySource
 {
     private const string BracketedPasteStart = "[200~";
     private const string BracketedPasteEnd = "\x1b[201~";
@@ -18,6 +18,10 @@ public class ConsoleTerminal : ITerminal, ITerminalInput
     {
         _lastObservedSize = GetSize();
     }
+
+    /// <summary>Gets capabilities selected for this process's actual output terminal.</summary>
+    public ManagedTerminalCapabilityProfile ManagedTerminalCapabilities { get; } =
+        ManagedTerminalCapabilityProfile.FromEnvironment(Environment.GetEnvironmentVariable, Console.IsOutputRedirected);
 
     public ITerminalInput Input => this;
 

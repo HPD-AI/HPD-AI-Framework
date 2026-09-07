@@ -1,4 +1,5 @@
 using HPD.Agent.ModelsDev;
+using HPD.Agent.Providers;
 using HPD.Agent.TUI;
 using HPD.Agent.TUI.Models;
 
@@ -26,6 +27,9 @@ internal sealed class ConsoleModelsDevModelCatalog(
             var status = await providerState.GetStatusAsync(hpdProviderKey, cancellationToken);
             providers.Add(new AgentTuiProviderChoice(
                 hpdProviderKey,
+                hpdProviderKey,
+                hpdProviderKey,
+                new ProviderReference { Key = hpdProviderKey },
                 DisplayProviderName(hpdProviderKey),
                 status.IsRegistered,
                 status.IsAuthenticated,
@@ -39,29 +43,29 @@ internal sealed class ConsoleModelsDevModelCatalog(
 
     public async ValueTask<IReadOnlyList<AgentTuiModelChoice>> GetModelsAsync(
         AgentTuiModelCatalogContext context,
-        string providerKey,
+        AgentTuiProviderChoice providerChoice,
         AgentTuiModelQuery query,
         CancellationToken cancellationToken = default)
     {
-        var modelsDevProviderId = mappings.ToModelsDevProviderId(providerKey);
+        var modelsDevProviderId = mappings.ToModelsDevProviderId(providerChoice.Provider.Key);
         if (modelsDevProviderId is null)
         {
             return [];
         }
 
         var database = (await store.GetSnapshotAsync(cancellationToken: cancellationToken)).Database;
-        if (!database.Providers.TryGetValue(modelsDevProviderId, out var provider))
+        if (!database.Providers.TryGetValue(modelsDevProviderId, out var modelsDevProvider))
         {
             return [];
         }
 
-        return provider.Models
+        return modelsDevProvider.Models
             .Where(pair => MatchesQuery(pair.Key, pair.Value, query))
             .OrderByDescending(static pair => IsRecommended(pair.Value))
             .ThenBy(static pair => pair.Value.Cost?.Input == 0m && pair.Value.Cost?.Output == 0m ? 0 : 1)
             .ThenBy(static pair => pair.Value.Name ?? pair.Key, StringComparer.OrdinalIgnoreCase)
             .Select(pair => new AgentTuiModelChoice(
-                providerKey,
+                providerChoice.SelectionId,
                 pair.Key,
                 pair.Value.Name,
                 IsRecommended(pair.Value),

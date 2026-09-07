@@ -41,9 +41,8 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
         var evt = new PermissionResponseEvent(
             PermissionId: "perm-123",
             SourceName: "TestSource",
-            Approved: true,
-            Reason: "Approved for testing",
-            Choice: PermissionChoice.Ask);
+            ChoiceId: "allow_once",
+            Feedback: "Approved for testing");
 
         // Act
         var response = await PostEventAsync(
@@ -76,15 +75,15 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
     }
 
     [Fact]
-    public async Task Respond_AcceptsClarificationResponseEvent()
+    public async Task Respond_AcceptsQuestionResponseEvent()
     {
         // Arrange
         var sessionId = await CreateTestSession();
-        var evt = new ClarificationResponseEvent(
+        var evt = new QuestionResponseEvent(
             RequestId: "clar-456",
             SourceName: "TestSource",
-            Question: "Which environment?",
-            Answer: "staging");
+            Outcome: QuestionOutcome.Answered,
+            Answers: [new("environment", [], "staging")]);
 
         // Act
         var response = await PostEventAsync(
@@ -127,7 +126,7 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
         var evt = new PermissionResponseEvent(
             PermissionId: "perm-missing-session",
             SourceName: "TestSource",
-            Approved: true);
+            ChoiceId: "allow_once");
 
         // Act
         var response = await PostEventAsync(
@@ -146,7 +145,7 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
         var evt = new PermissionResponseEvent(
             PermissionId: "perm-missing-thread",
             SourceName: "TestSource",
-            Approved: true);
+            ChoiceId: "allow_once");
 
         // Act
         var response = await PostEventAsync(

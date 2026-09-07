@@ -1,15 +1,35 @@
 namespace HPD.TUI.Core;
 
+/// <summary>Defines a retained, revision-owned terminal user-interface component.</summary>
 public interface IComponent
 {
-    Measurement Measure(in RenderContext context, int maxWidth);
+    internal IComponentLifecycle Lifecycle { get; }
 
-    void Render(in RenderContext context, int maxWidth, ref SegmentWriter output);
+    /// <summary>Gets the revision that identifies the component's current layout state.</summary>
+    TuiRevision LayoutRevision { get; }
 
+    /// <summary>Gets the revision that identifies the component's current painted state.</summary>
+    TuiRevision PaintRevision { get; }
+
+    /// <summary>Gets the render-context fields observed by this component.</summary>
+    ComponentDependencies Dependencies { get; }
+
+    /// <summary>Gets whether framework layout roots may cache this component's measurements.</summary>
+    LayoutCachePolicy LayoutCachePolicy { get; }
+
+    /// <summary>Measures the component within two-dimensional layout constraints.</summary>
+    Measurement Measure(in RenderContext context, Layout.LayoutConstraints constraints);
+
+    /// <summary>Records paint commands into the bounded display-list builder.</summary>
+    void Render(in RenderContext context, ref DisplayListBuilder output);
+
+    /// <summary>Handles an input event and reports whether it was consumed.</summary>
     bool HandleInput(in TuiInputEvent input);
 }
 
+/// <summary>Defines a component that can receive keyboard focus.</summary>
 public interface IFocusable : IComponent
 {
+    /// <summary>Gets or sets whether the component currently owns focus.</summary>
     bool IsFocused { get; set; }
 }

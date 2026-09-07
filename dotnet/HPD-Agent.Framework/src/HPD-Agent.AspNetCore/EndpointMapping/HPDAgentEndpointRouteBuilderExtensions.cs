@@ -71,7 +71,9 @@ public static class HPDAgentEndpointRouteBuilderExtensions
         var routeGroup = endpoints.MapGroup(options.RoutePrefix);
 
         var pair = endpoints.ServiceProvider.GetRequiredService<HPDAgentRegistry>().Get(name);
-        var hostingServices = pair.HostingServices;
+        var hostingServices = endpoints.ServiceProvider
+            .GetRequiredService<IHPDAgentHostingServicesProvider>()
+            .Get(name);
         var eventComposition = pair.EventComposition;
 
         routeGroup.MapGet("/event-catalog", () => Results.Json(

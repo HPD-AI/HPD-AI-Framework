@@ -8,9 +8,13 @@ public sealed class ChatShellModel
     public ChatShellModel(AgentTuiRuntimeScope scope)
     {
         Scope = scope ?? throw new ArgumentNullException(nameof(scope));
+        Target = new DirectAgentTuiExecutionTarget(scope);
     }
 
     public AgentTuiRuntimeScope Scope { get; }
+
+    /// <summary>Gets or sets the complete execution target represented by this shell.</summary>
+    public AgentTuiExecutionTarget Target { get; internal set; }
 
     public string HeaderText { get; set; } = "";
 
@@ -22,9 +26,24 @@ public sealed class ChatShellModel
 
     public IHpdAgentTuiRuntime? Runtime { get; set; }
 
-    public Func<AgentTuiRuntimeScope, CancellationToken, ValueTask>? SwitchScopeAsync { get; set; }
+    public Func<AgentTuiExecutionTarget, CancellationToken, ValueTask>? SwitchTargetAsync { get; set; }
+
+    // Compatibility bridge for legacy console integrations.
+    public Func<AgentTuiRuntimeScope, CancellationToken, ValueTask>? SwitchScopeAsync
+    {
+        get => SwitchTargetAsync is null
+            ? null
+            : (scope, cancellationToken) => SwitchTargetAsync(
+                new DirectAgentTuiExecutionTarget(scope), cancellationToken);
+        set => SwitchTargetAsync = value is null
+            ? null
+            : (target, cancellationToken) => value(target.Scope, cancellationToken);
+    }
 
     public Func<string, CancellationToken, ValueTask>? SetPromptDraftAsync { get; set; }
+
+    /// <summary>Reopens live questions minimized in this conversation.</summary>
+    public Func<CancellationToken, ValueTask<int>>? ReopenQuestionsAsync { get; set; }
 
     public AgentTuiNavigationModel Navigation { get; } = new();
 
@@ -35,6 +54,9 @@ public sealed class ChatShellModel
     public WidgetSlotModel AboveEditor { get; } = new();
 
     public WidgetSlotModel BelowEditor { get; } = new();
+
+    /// <summary>Focus order shared by registered widgets and the shell input controller.</summary>
+    public HPD.Agent.TUI.Composition.AgentTuiWidgetFocus WidgetFocus { get; } = new();
 
     internal Action? FocusPromptAction { get; set; }
 

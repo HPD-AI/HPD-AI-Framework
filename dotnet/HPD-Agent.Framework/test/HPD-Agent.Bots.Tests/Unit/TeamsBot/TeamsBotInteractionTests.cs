@@ -4,6 +4,7 @@ using HPD.Agent.Bots.Session;
 using HPD.Agent.Bots.Teams;
 using HPD.Agent.Bots.Tests.TestInfrastructure;
 using HPD.Agent.Hosting.Lifecycle;
+using HPD.Agent.Providers;
 using Microsoft.Agents.Builder.App;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
@@ -150,7 +151,7 @@ public class TeamsBotInteractionTests
             MaxAgenticIterations = 1,
             SystemInstructions = "You are a Teams permission test agent.",
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
-                ProviderKey = "test",
+                Provider = new ProviderReference { Key = "test" },
                 ModelName = "test-model",
             } },
             AgenticLoop = new AgenticLoopConfig
@@ -163,6 +164,7 @@ public class TeamsBotInteractionTests
                 NormalizeErrors = true,
             },
             SessionStore = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec),
+            EventComposition = HPD.Agent.Serialization.CoreAgentEventComposition.Instance,
         };
 
     private sealed class StaticAgentManager(HpdAgent agent) : AgentManager(new InMemoryAgentStore())

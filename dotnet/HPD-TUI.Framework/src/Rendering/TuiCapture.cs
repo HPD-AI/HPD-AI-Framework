@@ -19,8 +19,7 @@ public static class TuiCapture
 
         var context = new RenderContext(width, height, theme ?? Theme.Default, colorSystem, elapsed);
         var grid = new TerminalGrid(width, height);
-        var writer = new SegmentWriter(grid);
-        component.Render(in context, width, ref writer);
+        Render(component, grid, in context);
         return grid;
     }
 
@@ -36,8 +35,7 @@ public static class TuiCapture
 
         grid.Clear();
         var context = new RenderContext(grid.Width, grid.Height, theme ?? Theme.Default, colorSystem, elapsed);
-        var writer = new SegmentWriter(grid);
-        component.Render(in context, grid.Width, ref writer);
+        Render(component, grid, in context);
     }
 
     public static string[] RenderToLines(
@@ -109,7 +107,6 @@ public static class TuiCapture
         }
 
         var builder = new StringBuilder(grid.Width);
-        Span<char> runeBuffer = stackalloc char[2];
         for (var x = 0; x < grid.Width; x++)
         {
             var cell = grid.GetCell(x, y);
@@ -118,10 +115,7 @@ public static class TuiCapture
                 continue;
             }
 
-            if (cell.Rune.TryEncodeToUtf16(runeBuffer, out var written))
-            {
-                builder.Append(runeBuffer[..written]);
-            }
+            builder.Append(grid.GetGrapheme(cell));
         }
 
         return builder.ToString();
@@ -131,16 +125,22 @@ public static class TuiCapture
     {
         ArgumentNullException.ThrowIfNull(grid);
 
-        var lineCount = Math.Clamp(grid.CursorY + 1, 1, grid.Height);
-        while (lineCount > 1 && IsBlankLine(grid, lineCount - 1))
-        {
-            lineCount--;
-        }
-
+        // CursorY is the segment sink's transient write head. Its final value depends on whether
+        // rasterization replayed the full display list or only damaged operations, so it cannot
+        // describe semantic screen extent.
+        var lineCount = grid.HasTerminalCursor
+            ? Math.Clamp(grid.TerminalCursorY + 1, 1, grid.Height)
+            : 1;
+        for (var row = grid.Height - 1; row >= lineCount; row--)
+            if (!IsBlankLine(grid, row))
+            {
+                lineCount = row + 1;
+                break;
+            }
         return lineCount;
     }
 
-    public static void WriteLineTo(TerminalGrid grid, int y, ref SegmentWriter output)
+    public static void WriteLineTo(TerminalGrid grid, int y, ref DisplayListBuilder output)
     {
         ArgumentNullException.ThrowIfNull(grid);
         ArgumentOutOfRangeException.ThrowIfNegative(y);
@@ -149,7 +149,6 @@ public static class TuiCapture
             throw new ArgumentOutOfRangeException(nameof(y));
         }
 
-        Span<char> runeBuffer = stackalloc char[2];
         for (var x = 0; x < grid.Width; x++)
         {
             var cell = grid.GetCell(x, y);
@@ -158,10 +157,10 @@ public static class TuiCapture
                 continue;
             }
 
-            if (cell.Rune.TryEncodeToUtf16(runeBuffer, out var written))
-            {
-                output.Write(runeBuffer[..written], cell.Style);
-            }
+            output.Write(
+                grid.GetGrapheme(cell),
+                cell.Style,
+                new TerminalRunMetadata(grid.GetHyperlink(cell)));
         }
     }
 
@@ -184,7 +183,7 @@ public static class TuiCapture
                 continue;
             }
 
-            if (cell.Rune.Value != ' ')
+            if (!grid.GetGrapheme(cell).SequenceEqual(" "))
             {
                 return false;
             }
@@ -196,5 +195,12 @@ public static class TuiCapture
         }
 
         return true;
+    }
+
+    private static void Render(IComponent component, TerminalGrid grid, in RenderContext context)
+    {
+        using var displayList = new RetainedDisplayList();
+        displayList.Prepare(component, in context, grid.Width);
+        displayList.Replay(grid);
     }
 }

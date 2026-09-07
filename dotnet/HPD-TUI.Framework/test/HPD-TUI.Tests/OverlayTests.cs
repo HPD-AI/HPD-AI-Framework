@@ -12,11 +12,11 @@ public sealed class OverlayTests
         var overlay = new Overlay(new Text("X"), x: 3, y: 1, width: 5);
         var context = new RenderContext(8, 3, Theme.Default);
         using var grid = new TerminalGrid(8, 3);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
-        overlay.Render(in context, 8, ref writer);
+        overlay.Render(in context, ref writer);
 
-        Assert.Equal(new Rune('X'), grid.GetCell(3, 1).Rune);
+        Assert.Equal(new Rune('X'), grid.GetLeadingRune(grid.GetCell(3, 1)));
     }
 
     [Fact]
@@ -31,11 +31,11 @@ public sealed class OverlayTests
             verticalPlacement: OverlayVerticalPlacement.Bottom);
         var context = new RenderContext(8, 6, Theme.Default);
         using var grid = new TerminalGrid(8, 6);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
-        overlay.Render(in context, 8, ref writer);
+        overlay.Render(in context, ref writer);
 
-        Assert.Equal(new Rune('X'), grid.GetCell(2, 3).Rune);
+        Assert.Equal(new Rune('X'), grid.GetLeadingRune(grid.GetCell(2, 3)));
     }
 
     [Fact]
@@ -49,11 +49,11 @@ public sealed class OverlayTests
             height: 4);
         var context = new RenderContext(8, 10, Theme.Default);
         using var grid = new TerminalGrid(8, 10);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
-        overlay.Render(in context, 8, ref writer);
+        overlay.Render(in context, ref writer);
 
-        Assert.Equal(new Rune('4'), grid.GetCell(0, 0).Rune);
+        Assert.Equal(new Rune('4'), grid.GetLeadingRune(grid.GetCell(0, 0)));
     }
 
     [Fact]
@@ -68,23 +68,23 @@ public sealed class OverlayTests
             clearBackground: true);
         var context = new RenderContext(8, 4, Theme.Default);
         using var grid = new TerminalGrid(8, 4);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
         writer.MoveTo(0, 1);
         writer.Write("abcdefgh".AsSpan(), Theme.Default.Text);
         writer.MoveTo(0, 2);
         writer.Write("ABCDEFGH".AsSpan(), Theme.Default.Text);
 
-        overlay.Render(in context, 8, ref writer);
+        overlay.Render(in context, ref writer);
 
-        Assert.Equal(new Rune('a'), grid.GetCell(0, 1).Rune);
-        Assert.Equal(new Rune('X'), grid.GetCell(1, 1).Rune);
-        Assert.Equal(new Rune(' '), grid.GetCell(2, 1).Rune);
-        Assert.Equal(new Rune(' '), grid.GetCell(4, 1).Rune);
-        Assert.Equal(new Rune('f'), grid.GetCell(5, 1).Rune);
-        Assert.Equal(new Rune('A'), grid.GetCell(0, 2).Rune);
-        Assert.Equal(new Rune(' '), grid.GetCell(1, 2).Rune);
-        Assert.Equal(new Rune(' '), grid.GetCell(4, 2).Rune);
-        Assert.Equal(new Rune('F'), grid.GetCell(5, 2).Rune);
+        Assert.Equal(new Rune('a'), grid.GetLeadingRune(grid.GetCell(0, 1)));
+        Assert.Equal(new Rune('X'), grid.GetLeadingRune(grid.GetCell(1, 1)));
+        Assert.Equal(new Rune(' '), grid.GetLeadingRune(grid.GetCell(2, 1)));
+        Assert.Equal(new Rune(' '), grid.GetLeadingRune(grid.GetCell(4, 1)));
+        Assert.Equal(new Rune('f'), grid.GetLeadingRune(grid.GetCell(5, 1)));
+        Assert.Equal(new Rune('A'), grid.GetLeadingRune(grid.GetCell(0, 2)));
+        Assert.Equal(new Rune(' '), grid.GetLeadingRune(grid.GetCell(1, 2)));
+        Assert.Equal(new Rune(' '), grid.GetLeadingRune(grid.GetCell(4, 2)));
+        Assert.Equal(new Rune('F'), grid.GetLeadingRune(grid.GetCell(5, 2)));
     }
 
     [Fact]
@@ -94,24 +94,24 @@ public sealed class OverlayTests
         host.Push(new Overlay(new Text("Z"), x: 1, y: 0, width: 2));
         var context = new RenderContext(8, 3, Theme.Default);
         using var grid = new TerminalGrid(8, 3);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
-        host.Render(in context, 8, ref writer);
+        host.Render(in context, ref writer);
 
-        Assert.Equal(new Rune('a'), grid.GetCell(0, 0).Rune);
-        Assert.Equal(new Rune('Z'), grid.GetCell(1, 0).Rune);
-        Assert.Equal(new Rune('c'), grid.GetCell(2, 0).Rune);
+        Assert.Equal(new Rune('a'), grid.GetLeadingRune(grid.GetCell(0, 0)));
+        Assert.Equal(new Rune('Z'), grid.GetLeadingRune(grid.GetCell(1, 0)));
+        Assert.Equal(new Rune('c'), grid.GetLeadingRune(grid.GetCell(2, 0)));
     }
 
-    private sealed class ContextHeightComponent : IComponent
+    private sealed class ContextHeightComponent : Component
     {
-        public Measurement Measure(in RenderContext context, int maxWidth)
+        public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
             => new(1, 1);
 
-        public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        public override void Render(in RenderContext context, ref DisplayListBuilder output)
             => output.Write(context.Height.ToString().AsSpan(), context.Theme.Text);
 
-        public bool HandleInput(in TuiInputEvent key)
+        public override bool HandleInput(in TuiInputEvent key)
         {
             return false;
         }

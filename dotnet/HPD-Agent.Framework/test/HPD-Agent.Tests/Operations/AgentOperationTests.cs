@@ -347,6 +347,7 @@ public sealed class AgentOperationTests
                 var admitted = notification with { ThreadExecutionId = Guid.NewGuid().ToString("N") };
                 return new PreparedAgentWorkAdmission(admitted, () => input.Writer.TryWrite(admitted), () => { });
             },
+            null,
             null);
         var first = TerminalNotificationSnapshot("op-1", "same-policy-key");
         var second = TerminalNotificationSnapshot("op-2", "same-policy-key");
@@ -448,6 +449,7 @@ public sealed class AgentOperationTests
                 var admitted = notification with { ThreadExecutionId = "notification-execution" };
                 return new PreparedAgentWorkAdmission(admitted, () => input.Writer.TryWrite(admitted), () => { });
             },
+            null,
             null);
         var operation = TerminalNotificationSnapshot("operation", "policy");
 

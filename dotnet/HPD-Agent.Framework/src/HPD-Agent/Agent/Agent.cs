@@ -374,6 +374,7 @@ public sealed partial class Agent : IAsyncDisposable
         // Create event coordinator for Middleware events and human-in-the-loop
         // Direct use of HPD.Events.EventCoordinator (no wrapper)
         _eventCoordinator = new HPD.Events.Core.EventCoordinator();
+        AgentEventRoutes.Initialize(_eventCoordinator);
         var operationThreadEvents = Config.SessionStore is null
             ? null
             : CreateEventPublisher(Config.SessionStore, _eventCoordinator);
@@ -564,30 +565,27 @@ public sealed partial class Agent : IAsyncDisposable
             return new AgentCapabilityRefreshResult(false, 0, "This agent has no capability catalog.");
 
         var previousEpoch = CapabilityEpoch;
-        await _eventCoordinator.EmitAsync(
-            EnrichOutputEvent(new AgentCapabilityRefreshStartedEvent(previousEpoch, reason)),
-            cancellationToken).ConfigureAwait(false);
+        var refreshStarted = EnrichOutputEvent(new AgentCapabilityRefreshStartedEvent(previousEpoch, reason));
+        await _eventCoordinator.EmitAsync(refreshStarted, AgentEventRoutes.Create(_eventCoordinator, refreshStarted), cancellationToken).ConfigureAwait(false);
         var result = await _capabilityCatalog.RefreshAsync(reason, cancellationToken).ConfigureAwait(false);
         if (!result.Published)
         {
-            await _eventCoordinator.EmitAsync(
-                EnrichOutputEvent(new AgentCapabilityRefreshRejectedEvent(
+            var refreshRejected = EnrichOutputEvent(new AgentCapabilityRefreshRejectedEvent(
                     result.Epoch,
                     BoundCapabilityRefreshError(result.Error),
-                    reason)),
-                cancellationToken).ConfigureAwait(false);
+                    reason));
+            await _eventCoordinator.EmitAsync(refreshRejected, AgentEventRoutes.Create(_eventCoordinator, refreshRejected), cancellationToken).ConfigureAwait(false);
             return result;
         }
 
         await using var lease = _capabilityCatalog.Acquire();
         _messageProcessor.ReplaceCapabilityFunctions(lease.Snapshot.Functions);
         _containerMiddleware?.ReplaceCapabilityFunctions(lease.Snapshot.Functions);
-        await _eventCoordinator.EmitAsync(
-            EnrichOutputEvent(new AgentCapabilityRefreshPublishedEvent(
+        var refreshPublished = EnrichOutputEvent(new AgentCapabilityRefreshPublishedEvent(
                 previousEpoch,
                 result.Epoch,
-                reason)),
-            cancellationToken).ConfigureAwait(false);
+                reason));
+        await _eventCoordinator.EmitAsync(refreshPublished, AgentEventRoutes.Create(_eventCoordinator, refreshPublished), cancellationToken).ConfigureAwait(false);
         return result;
     }
 
@@ -691,8 +689,14 @@ public sealed partial class Agent : IAsyncDisposable
     }
 
     /// <summary>
-    /// Registers a removable ordered subscriber for the exact event type.
+    /// Registers a removable ordered subscriber for this agent owner's events.
     /// </summary>
+    /// <remarks>
+    /// Same-agent runtime events remain visible after bubbling, while events originating from
+    /// independently owned subagents are excluded. Threadless same-owner events are included.
+    /// The callback runs on a subscriber pump; publication does not await callback completion.
+    /// Disposal stops observation without stopping execution or bubbling.
+    /// </remarks>
     public IDisposable Subscribe<TEvent>(Func<TEvent, ValueTask> handler)
         where TEvent : AgentEvent
     {
@@ -700,9 +704,26 @@ public sealed partial class Agent : IAsyncDisposable
         return _eventCoordinator.Subscribe(handler);
     }
 
+    /// <summary>Subscribes to events whose complete session/thread key equals <paramref name="thread"/>.</summary>
+    /// <remarks>Threadless and descendant events are excluded. Callback execution is asynchronous to publication; disposal affects observation only.</remarks>
+    public IDisposable Subscribe<TEvent>(ThreadKey thread, Func<TEvent, ValueTask> handler)
+        where TEvent : AgentEvent =>
+        Subscribe(thread, AgentEventHierarchy.ExactThread, handler);
+
+    /// <summary>Subscribes to events in an explicitly selected hierarchy rooted at <paramref name="anchor"/>.</summary>
+    /// <remarks>Matching uses the complete session/thread key, is transitive where selected, and excludes sibling branches. Live child events keep their own journal identity. Disposal affects observation only.</remarks>
+    public IDisposable Subscribe<TEvent>(ThreadKey anchor, AgentEventHierarchy hierarchy, Func<TEvent, ValueTask> handler)
+        where TEvent : AgentEvent
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        ValidateThreadKey(anchor);
+        return _eventCoordinator.Subscribe(handler, CreateHierarchyOptions(anchor, hierarchy));
+    }
+
     /// <summary>
-    /// Registers a removable ordered subscriber for the exact event type.
+    /// Registers a removable ordered task subscriber for same-owner events, including threadless events but excluding independently owned descendants.
     /// </summary>
+    /// <remarks>The callback runs on the subscription pump in delivery order; publication does not await it. Disposal stops observation without stopping execution or bubbling.</remarks>
     public IDisposable Subscribe<TEvent>(Func<TEvent, Task> handler)
         where TEvent : AgentEvent
     {
@@ -710,9 +731,20 @@ public sealed partial class Agent : IAsyncDisposable
         return Subscribe<TEvent>(evt => new ValueTask(handler(evt)));
     }
 
+    /// <summary>Subscribes a task callback to events originating from exactly <paramref name="thread"/>.</summary>
+    /// <remarks>Matching uses the complete thread key; threadless and descendant events are excluded. The callback runs on a pump, and disposal stops observation only.</remarks>
+    public IDisposable Subscribe<TEvent>(ThreadKey thread, Func<TEvent, Task> handler)
+        where TEvent : AgentEvent => Subscribe<TEvent>(thread, AgentEventHierarchy.ExactThread, evt => new ValueTask(handler(evt)));
+
+    /// <summary>Subscribes a task callback to an explicitly selected thread hierarchy.</summary>
+    /// <remarks>Transitive scopes exclude sibling branches and retain each origin's journal identity. The callback runs on a pump; disposal does not stop execution or bubbling.</remarks>
+    public IDisposable Subscribe<TEvent>(ThreadKey anchor, AgentEventHierarchy hierarchy, Func<TEvent, Task> handler)
+        where TEvent : AgentEvent => Subscribe<TEvent>(anchor, hierarchy, evt => new ValueTask(handler(evt)));
+
     /// <summary>
-    /// Registers a removable ordered subscriber for the exact event type.
+    /// Registers a removable ordered action subscriber for same-owner events, including threadless events but excluding independently owned descendants.
     /// </summary>
+    /// <remarks>The action runs on the subscription pump in delivery order; publication does not await it. Disposal stops observation without stopping execution or bubbling.</remarks>
     public IDisposable Subscribe<TEvent>(Action<TEvent> handler)
         where TEvent : AgentEvent
     {
@@ -724,27 +756,64 @@ public sealed partial class Agent : IAsyncDisposable
         });
     }
 
+    /// <summary>Subscribes an action to events originating from exactly <paramref name="thread"/>.</summary>
+    /// <remarks>Matching uses the complete thread key; threadless and descendant events are excluded. Publication does not wait for the action, and disposal stops observation only.</remarks>
+    public IDisposable Subscribe<TEvent>(ThreadKey thread, Action<TEvent> handler)
+        where TEvent : AgentEvent => Subscribe<TEvent>(thread, AgentEventHierarchy.ExactThread, evt => handler(evt));
+
+    /// <summary>Subscribes an action to an explicitly selected thread hierarchy.</summary>
+    /// <remarks>Transitive scopes exclude sibling branches and retain each origin's journal identity. Publication does not wait for the action; disposal affects observation only.</remarks>
+    public IDisposable Subscribe<TEvent>(ThreadKey anchor, AgentEventHierarchy hierarchy, Action<TEvent> handler)
+        where TEvent : AgentEvent => Subscribe<TEvent>(anchor, hierarchy, evt =>
+        {
+            handler(evt);
+            return ValueTask.CompletedTask;
+        });
+
     /// <summary>
-    /// Registers a removable ordered catch-all subscriber.
+    /// Registers a removable ordered catch-all subscriber for same-owner events.
     /// </summary>
+    /// <remarks>Threadless same-owner events are included; independently owned descendant events require a keyed hierarchy or explicit infrastructure scope. Callbacks run on a pump and disposal affects observation only.</remarks>
     public IDisposable SubscribeAny(Func<AgentEvent, ValueTask> handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
         return _eventCoordinator.Subscribe<AgentEvent>(handler);
     }
 
+    /// <summary>Subscribes to every agent event originating from exactly <paramref name="thread"/>.</summary>
+    /// <remarks>Threadless and descendant events are excluded. Callbacks run on a pump, and disposal stops observation without stopping execution.</remarks>
+    public IDisposable SubscribeAny(ThreadKey thread, Func<AgentEvent, ValueTask> handler) =>
+        SubscribeAny(thread, AgentEventHierarchy.ExactThread, handler);
+
+    /// <summary>Subscribes to every agent event in an explicitly selected thread hierarchy.</summary>
+    /// <remarks>Transitive scopes exclude sibling branches and do not merge child journal cursors. Callbacks run on a pump; disposal affects observation only.</remarks>
+    public IDisposable SubscribeAny(ThreadKey anchor, AgentEventHierarchy hierarchy, Func<AgentEvent, ValueTask> handler) =>
+        Subscribe(anchor, hierarchy, handler);
+
     /// <summary>
-    /// Registers a removable ordered catch-all subscriber.
+    /// Registers a removable ordered catch-all task subscriber for same-owner events.
     /// </summary>
+    /// <remarks>Threadless same-owner events are included and independently owned descendants are excluded. The callback runs on the ordered pump; disposal affects observation only.</remarks>
     public IDisposable SubscribeAny(Func<AgentEvent, Task> handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
         return SubscribeAny(evt => new ValueTask(handler(evt)));
     }
 
+    /// <summary>Subscribes a task callback to every event from exactly one thread.</summary>
+    /// <remarks>Complete-key matching excludes threadless events and descendants. Disposal stops observation only.</remarks>
+    public IDisposable SubscribeAny(ThreadKey thread, Func<AgentEvent, Task> handler) =>
+        SubscribeAny(thread, AgentEventHierarchy.ExactThread, evt => new ValueTask(handler(evt)));
+
+    /// <summary>Subscribes a task callback to every event in a selected hierarchy.</summary>
+    /// <remarks>Transitive scopes exclude siblings and preserve per-origin ordering/cursors. Disposal stops observation only.</remarks>
+    public IDisposable SubscribeAny(ThreadKey anchor, AgentEventHierarchy hierarchy, Func<AgentEvent, Task> handler) =>
+        SubscribeAny(anchor, hierarchy, evt => new ValueTask(handler(evt)));
+
     /// <summary>
-    /// Registers a removable ordered catch-all subscriber.
+    /// Registers a removable ordered catch-all action subscriber for same-owner events.
     /// </summary>
+    /// <remarks>Threadless same-owner events are included and independently owned descendants are excluded. The action runs on the ordered pump; disposal affects observation only.</remarks>
     public IDisposable SubscribeAny(Action<AgentEvent> handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
@@ -753,6 +822,101 @@ public sealed partial class Agent : IAsyncDisposable
             handler(evt);
             return ValueTask.CompletedTask;
         });
+    }
+
+    /// <summary>Subscribes an action to every event from exactly one thread.</summary>
+    /// <remarks>Complete-key matching excludes threadless events and descendants. Publication does not await the action.</remarks>
+    public IDisposable SubscribeAny(ThreadKey thread, Action<AgentEvent> handler) =>
+        SubscribeAny(thread, AgentEventHierarchy.ExactThread, handler);
+
+    /// <summary>Subscribes an action to every event in a selected hierarchy.</summary>
+    /// <remarks>Transitive scopes exclude siblings and preserve per-origin ordering/cursors. Publication does not await the action.</remarks>
+    public IDisposable SubscribeAny(ThreadKey anchor, AgentEventHierarchy hierarchy, Action<AgentEvent> handler) =>
+        SubscribeAny(anchor, hierarchy, evt =>
+        {
+            handler(evt);
+            return ValueTask.CompletedTask;
+        });
+
+    /// <summary>Creates a caller-owned inbox for one complete session/thread key.</summary>
+    /// <remarks>Threadless events and descendants are excluded. Disposal completes observation without affecting execution or bubbling.</remarks>
+    public HPD.Events.EventInbox<TEvent> CreateEventInbox<TEvent>(
+        ThreadKey thread,
+        HPD.Events.EventInboxOptions? options = null)
+        where TEvent : AgentEvent =>
+        CreateEventInbox<TEvent>(thread, AgentEventHierarchy.ExactThread, options);
+
+    /// <summary>Creates a caller-owned inbox for a selected thread hierarchy.</summary>
+    /// <remarks>Transitive selections retain branch isolation and each event's own thread journal identity. Source order is retained per origin; no global sibling ordering is promised.</remarks>
+    public HPD.Events.EventInbox<TEvent> CreateEventInbox<TEvent>(
+        ThreadKey anchor,
+        AgentEventHierarchy hierarchy,
+        HPD.Events.EventInboxOptions? options = null)
+        where TEvent : AgentEvent
+    {
+        ValidateThreadKey(anchor);
+        ValidateHierarchy(hierarchy);
+        if (_eventCoordinator is not HPD.Events.Core.EventCoordinator coordinator)
+            throw new NotSupportedException("Routed agent inboxes require the built-in EventCoordinator.");
+        return coordinator.CreateFilteredInbox<TEvent>(
+            HPD.Events.EventOwnerScope.AllOwners,
+            new AgentHierarchyDeliveryPolicy(anchor, hierarchy),
+            options);
+    }
+
+    internal HPD.Events.DeliveryInbox<AgentEventDelivery> CreateEventDeliveryInbox(
+        ThreadKey anchor,
+        AgentEventHierarchy hierarchy,
+        HPD.Events.EventInboxOptions? options = null)
+    {
+        ValidateThreadKey(anchor);
+        ValidateHierarchy(hierarchy);
+        if (_eventCoordinator is not HPD.Events.Core.EventCoordinator coordinator)
+            throw new NotSupportedException("Routed agent inboxes require the built-in EventCoordinator.");
+        return coordinator.CreateProjectedDeliveryInbox<AgentEvent, AgentEventDelivery>(
+            HPD.Events.EventOwnerScope.AllOwners,
+            new AgentHierarchyDeliveryPolicy(anchor, hierarchy),
+            AgentDeliveryProjector.Instance,
+            options);
+    }
+
+    /// <summary>Returns pending requests whose immutable routes match a selected thread hierarchy.</summary>
+    /// <param name="anchor">The exact thread or hierarchy root to inspect.</param>
+    /// <param name="hierarchy">The relative hierarchy included in the result.</param>
+    public IReadOnlyList<HPD.Events.PendingRequestSnapshot> GetPendingRequests(
+        ThreadKey anchor,
+        AgentEventHierarchy hierarchy = AgentEventHierarchy.ExactThread)
+    {
+        ValidateThreadKey(anchor);
+        ValidateHierarchy(hierarchy);
+        var policy = new AgentHierarchyDeliveryPolicy(anchor, hierarchy);
+        return _eventCoordinator.GetPendingRequests()
+            .Where(snapshot => snapshot.Request is AgentEvent && policy.Includes(snapshot.Delivery))
+            .ToArray();
+    }
+
+    private static HPD.Events.EventSubscriptionOptions CreateHierarchyOptions(
+        ThreadKey anchor,
+        AgentEventHierarchy hierarchy)
+    {
+        ValidateHierarchy(hierarchy);
+        return new HPD.Events.EventSubscriptionOptions
+        {
+            OwnerScope = HPD.Events.EventOwnerScope.AllOwners,
+            DeliveryPolicy = new AgentHierarchyDeliveryPolicy(anchor, hierarchy)
+        };
+    }
+
+    private static void ValidateHierarchy(AgentEventHierarchy hierarchy)
+    {
+        if (!Enum.IsDefined(hierarchy))
+            throw new ArgumentOutOfRangeException(nameof(hierarchy), hierarchy, "Unknown agent event hierarchy.");
+    }
+
+    private static void ValidateThreadKey(ThreadKey thread)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(thread.SessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(thread.ThreadId);
     }
 
     /// <summary>
@@ -1112,7 +1276,8 @@ public sealed partial class Agent : IAsyncDisposable
         string? conversationId,
         Exception exception,
         MessageTurnUsageSummary usage,
-        HPD.Events.IEventCoordinator eventCoordinator)
+        HPD.Events.IEventCoordinator eventCoordinator,
+        AgentInputCancellation? cancellation = null)
     {
         if (string.IsNullOrWhiteSpace(messageTurnId))
             return;
@@ -1124,7 +1289,8 @@ public sealed partial class Agent : IAsyncDisposable
                 ConversationId = conversationId,
                 AgentId = AgentId,
                 AgentName = _name,
-                ErrorType = exception.GetType().FullName
+                ErrorType = exception.GetType().FullName,
+                Cancellation = cancellation
             },
             eventCoordinator,
             CancellationToken.None).ConfigureAwait(false);
@@ -1161,7 +1327,7 @@ public sealed partial class Agent : IAsyncDisposable
         }
     }
 
-    private static bool TryCreateProviderUsageMeasurement(
+    internal static bool TryCreateProviderUsageMeasurement(
         AgentEvent evt,
         [NotNullWhen(true)] out ProviderUsageMeasurement? measurement)
     {
@@ -1346,7 +1512,7 @@ public sealed partial class Agent : IAsyncDisposable
                 $"Canonical event '{evt.GetType().Name}' could not be scoped to thread '{thread.Id}'.");
     }
 
-    internal AgentInputResult.Control CancelRuntimeExecution(string threadExecutionId)
+    internal AgentInputResult.Control CancelRuntimeExecution(string threadExecutionId, string? reason = null, string source = "thread_execution_controller")
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(threadExecutionId);
         CancellationTokenSource? executionCancellation = null;
@@ -1362,6 +1528,7 @@ public sealed partial class Agent : IAsyncDisposable
                     activeInput.ThreadExecutionId);
             else
             {
+                activeInput.RecordCancellation(new(AgentInputCancellationCause.Explicit, reason, source));
                 executionCancellation = activeInput.Cancellation;
                 result = new AgentInputResult.Control(AgentInputDisposition.Accepted, activeInput.ThreadExecutionId);
             }
@@ -1460,6 +1627,7 @@ public sealed partial class Agent : IAsyncDisposable
     }
 
     private async Task<AgentTurnResult> RunMessagesInputAsync(
+        AgentInputEvent sourceInput,
         UserMessagesInputEvent input,
         ActiveRuntimeInput? activeInput,
         HPD.Events.IEventCoordinator eventCoordinator,
@@ -1479,9 +1647,7 @@ public sealed partial class Agent : IAsyncDisposable
                 eventCoordinator,
                 input.ClientInputId,
                 activeInput,
-                cancellationToken,
-                input.InheritedChatClient,
-                input.InheritedChatMode).ConfigureAwait(false))
+                cancellationToken, sourceInput: sourceInput).ConfigureAwait(false))
             {
                 result.Add(evt);
             }
@@ -1505,9 +1671,7 @@ public sealed partial class Agent : IAsyncDisposable
                 eventCoordinator,
                 input.ClientInputId,
                 activeInput,
-                cancellationToken,
-                input.InheritedChatClient,
-                input.InheritedChatMode).ConfigureAwait(false))
+                cancellationToken, sourceInput: sourceInput).ConfigureAwait(false))
             {
                 result.Add(evt);
             }
@@ -1529,9 +1693,7 @@ public sealed partial class Agent : IAsyncDisposable
             eventCoordinator,
             input.ClientInputId,
             activeInput,
-            cancellationToken,
-            input.InheritedChatClient,
-            input.InheritedChatMode).ConfigureAwait(false))
+            cancellationToken, sourceInput: sourceInput).ConfigureAwait(false))
         {
             unsessionedResult.Add(evt);
         }
@@ -1904,7 +2066,7 @@ public sealed partial class Agent : IAsyncDisposable
             if (!codec.TryGetByType(evt.GetType(), out _))
                 throw new InvalidOperationException($"Agent event type '{evt.GetType().FullName}' is not present in codec '{codec.Digest}'.");
             var live = evt with { ThreadSequenceNumber = 0 };
-            await runtimeCoordinator.EmitAsync(live, cancellationToken).ConfigureAwait(false);
+            await runtimeCoordinator.EmitAsync(live, AgentEventRoutes.Create(runtimeCoordinator, live), cancellationToken).ConfigureAwait(false);
             return live;
         }
 
@@ -1919,7 +2081,7 @@ public sealed partial class Agent : IAsyncDisposable
                 ?? throw new InvalidOperationException("Agent runtime has no event composition authority.");
             if (!codec.TryGetByType(stateless.GetType(), out _))
                 throw new InvalidOperationException($"Agent event type '{stateless.GetType().FullName}' is not present in codec '{codec.Digest}'.");
-            await runtimeCoordinator.EmitAsync(stateless, cancellationToken).ConfigureAwait(false);
+            await runtimeCoordinator.EmitAsync(stateless, AgentEventRoutes.Create(runtimeCoordinator, stateless), cancellationToken).ConfigureAwait(false);
             return stateless;
         }
 
@@ -1951,15 +2113,16 @@ public sealed partial class Agent : IAsyncDisposable
             if (_runtimeStarting || (!_runtimeStopping && _runtimeLoopTask is { IsCompleted: false }))
             {
                 _runtimeNotificationDispatcher?.UpdateRunConfig(
-                    AgentRunConfigSnapshot.Capture(runConfig, _chatClientResolver.Composition));
+                    AgentRunConfigSnapshot.Capture(runConfig, _chatClientResolver.Composition),
+                    null);
                 return;
             }
 
             _runtimeStarting = true;
             _runtimeCts?.Dispose();
             runtimeCts = new CancellationTokenSource();
-            runtimeCoordinator = new HPD.Events.Core.EventCoordinator();
-            runtimeCoordinator.SetParent(_eventCoordinator);
+            runtimeCoordinator = _eventCoordinator.CreateChild(HPD.Events.EventChildOwnership.InheritOwner);
+            AgentEventRoutes.AttachCoordinator(runtimeCoordinator, _eventCoordinator);
             runtimeThreadEvents = Config?.SessionStore is { } store
                 ? CreateEventPublisher(store, runtimeCoordinator)
                 : null;
@@ -1980,7 +2143,16 @@ public sealed partial class Agent : IAsyncDisposable
                 runtimeInbox.Writer,
                 async (runtimeInput, ct) =>
                 {
-                    using var receipt = await SubmitRuntimeInputAsync(runtimeInput, ct).ConfigureAwait(false);
+                    var registration = _inputDispatcher.GetRegistration(runtimeInput.GetType());
+                    if (registration.RoutingClass == AgentInputRoutingClass.Work)
+                    {
+                        using var receipt = await SubmitRuntimeInputAsync(runtimeInput, ct).ConfigureAwait(false);
+                        _ = await receipt.Completion.ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        _ = await RunCapturedInputAsync(runtimeInput, ct).ConfigureAwait(false);
+                    }
                 },
                 HasActiveRuntimeInputs,
                 runtimeCts.Token,
@@ -2006,7 +2178,8 @@ public sealed partial class Agent : IAsyncDisposable
                 _eventCoordinator,
                 runtimeThreadEvents,
                 input => PrepareOperationNotificationAdmission(input, runtimeWorkScheduler),
-                AgentRunConfigSnapshot.Capture(runConfig, _chatClientResolver.Composition));
+                AgentRunConfigSnapshot.Capture(runConfig, _chatClientResolver.Composition),
+                null);
 
             _runtimeCts = runtimeCts;
             _runtimeEventCoordinator = runtimeCoordinator;
@@ -2052,6 +2225,7 @@ public sealed partial class Agent : IAsyncDisposable
                 if (ReferenceEquals(_runtimeContext, runtimeContext))
                     _runtimeStarting = false;
             }
+            await ReconcileRestoredGoalsOnStartAsync(cancellationToken).ConfigureAwait(false);
         }
         catch
         {
@@ -2182,6 +2356,7 @@ public sealed partial class Agent : IAsyncDisposable
 
         if (!drainPendingInputs)
         {
+            RecordRuntimeShutdownCancellation();
             runtimeCts.Cancel();
             CancelActiveRuntimeInputs();
         }
@@ -2200,6 +2375,7 @@ public sealed partial class Agent : IAsyncDisposable
             }
             catch (Exception ex) when (ex is TimeoutException or OperationCanceledException)
             {
+                RecordRuntimeShutdownCancellation();
                 runtimeCts.Cancel();
                 CancelActiveRuntimeInputs();
 
@@ -2229,6 +2405,7 @@ public sealed partial class Agent : IAsyncDisposable
             }
         }
 
+        RecordRuntimeShutdownCancellation();
         runtimeCts.Cancel();
         runtimeContext.MarkStopped();
 
@@ -2283,6 +2460,12 @@ public sealed partial class Agent : IAsyncDisposable
 
         if (exceptions is { Count: > 0 })
             throw new AggregateException("One or more runtime stop operations failed.", exceptions);
+    }
+
+    private void RecordRuntimeShutdownCancellation()
+    {
+        lock (_runtimeLock)
+            _activeRuntimeInput?.RecordCancellation(new(AgentInputCancellationCause.RuntimeShutdown, "runtime_stopping", "runtime"));
     }
 
     private void CancelActiveRuntimeInputs()
@@ -2473,6 +2656,7 @@ public sealed partial class Agent : IAsyncDisposable
                     {
                         if (ReferenceEquals(_activeRuntimeInput?.Input, input))
                         {
+                            _activeRuntimeInput.RecordCancellation(new(AgentInputCancellationCause.Caller, null, "caller_token"));
                             activeCancellation = _activeRuntimeInput.Cancellation;
                         }
                         else if (_runtimeInputCompletions.Remove(input, out var queuedCompletion))
@@ -2539,9 +2723,40 @@ public sealed partial class Agent : IAsyncDisposable
     private async ValueTask<AgentRespondResult> CompleteRequestResponseAsync(
         IAgentResponseEvent response,
         HPD.Events.Event responseEvent,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, ThreadKey? respondingController = null)
     {
         var coordinator = GetActiveEventCoordinator();
+        var pending = coordinator.GetPendingRequests().FirstOrDefault(p =>
+            p.Request is IAgentRequestEvent request && request.RequestId == response.RequestId);
+        if (pending?.Request is AgentEvent source && responseEvent is AgentEvent supplied)
+        {
+            if ((supplied.SessionId is not null && supplied.SessionId != source.SessionId) ||
+                (supplied.ThreadId is not null && supplied.ThreadId != source.ThreadId) ||
+                (supplied.ThreadExecutionId is not null && supplied.ThreadExecutionId != source.ThreadExecutionId))
+                return new AgentRespondResult(AgentRespondStatus.TargetMismatch, response.RequestId,
+                    "The response does not target the request's owning execution.");
+            responseEvent = supplied with
+            {
+                SessionId = source.SessionId, ThreadId = source.ThreadId, ThreadExecutionId = source.ThreadExecutionId
+            };
+        }
+        if (pending?.Request is ParentQuestionRequestEvent parentQuestion && parentQuestion.Controller != respondingController)
+            return new AgentRespondResult(AgentRespondStatus.TargetMismatch, response.RequestId, "This request requires its execution controller.");
+        var questions = pending?.Request switch
+        {
+            UserQuestionRequestEvent human => human.Questions,
+            ParentQuestionRequestEvent parent => parent.Questions,
+            _ => null
+        };
+        if (responseEvent is QuestionResponseEvent questionResponse && questions is not null)
+        {
+            try { QuestionValidation.ValidateResponse(questions, questionResponse); }
+            catch (ArgumentException exception)
+            {
+                return new AgentRespondResult(AgentRespondStatus.InvalidResponse, response.RequestId, exception.Message);
+            }
+        }
+
         if (responseEvent is not AgentEvent agentResponse ||
             string.IsNullOrWhiteSpace(agentResponse.SessionId) ||
             string.IsNullOrWhiteSpace(agentResponse.ThreadId))
@@ -2589,12 +2804,19 @@ public sealed partial class Agent : IAsyncDisposable
     /// <summary>
     /// Sends user text input to the agent.
     /// </summary>
+    /// <param name="userMessage">The user message to process.</param>
+    /// <param name="sessionId">Optional durable session identifier.</param>
+    /// <param name="threadId">Optional durable thread identifier.</param>
+    /// <param name="runConfig">Per-invocation configuration for this agent.</param>
+    /// <param name="subAgentRunConfig">Per-invocation configuration for every direct child invoked by this input.</param>
+    /// <param name="cancellationToken">Cancels input admission or execution.</param>
     /// <returns>The completed turn result, including final text, emitted events, and completion metadata.</returns>
     public Task<AgentTurnResult> RunAsync(
         string userMessage,
         string? sessionId = null,
         string? threadId = "main",
         AgentRunConfig? runConfig = null,
+        SubAgentRunConfig? subAgentRunConfig = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(userMessage);
@@ -2602,7 +2824,8 @@ public sealed partial class Agent : IAsyncDisposable
         return RunTextAsync(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, userMessage)],
             SessionId = sessionId,
             ThreadId = threadId,
-            RunConfig = runConfig
+            RunConfig = runConfig,
+            SubAgentRunConfig = subAgentRunConfig
         }, cancellationToken);
     }
 
@@ -2618,20 +2841,46 @@ public sealed partial class Agent : IAsyncDisposable
 
     private AgentInputEvent CaptureInput(AgentInputEvent input)
     {
+        if (input.RunConfig?.Goals is { } goalRunConfig)
+        {
+            var goals = _middlewarePipeline.Middlewares.OfType<Goals.GoalMiddleware>().SingleOrDefault()
+                ?? throw new AgentRunConfigurationException("goals_not_enabled", "Goals", "Run configuration cannot enable an uninstalled Goal capability.");
+            goals.ValidateRunConfig(goalRunConfig);
+        }
+        if (input.SubAgentRunConfig is not null &&
+            input is not (UserMessagesInputEvent or AgentOperationNotificationInputEvent or Goals.CreateGoalInputEvent or Goals.GoalContinuationInputEvent))
+        {
+            throw new AgentRunConfigurationException(
+                "subagent_run_config_not_supported_for_input",
+                nameof(AgentInputEvent.SubAgentRunConfig),
+                $"Input '{input.GetType().Name}' cannot invoke model tools and does not accept subagent run configuration.");
+        }
+        if (input.SubAgentRunConfig is { Clients.Chat: null, ClientPropagation: not DirectSubAgentClientPropagation })
+        {
+            throw new AgentRunConfigurationException(
+                "subagent_client_propagation_requires_explicit_chat",
+                nameof(SubAgentRunConfig.ClientPropagation),
+                "Non-default propagation requires an explicit Chat selection in the subagent run configuration.");
+        }
         var runConfig = AgentRunConfigSnapshot.Capture(input.RunConfig, _chatClientResolver.Composition);
+        var subAgentRunConfig = AgentRunConfigSnapshot.Capture(
+            input.SubAgentRunConfig,
+            _chatClientResolver.Composition);
         return input switch
         {
             UserMessagesInputEvent messages => messages with
             {
                 RunConfig = runConfig,
+                SubAgentRunConfig = subAgentRunConfig,
                 Messages = messages.Messages.ToArray()
             },
             AgentOperationNotificationInputEvent notification => notification with
             {
                 RunConfig = runConfig,
+                SubAgentRunConfig = subAgentRunConfig,
                 Notifications = notification.Notifications.ToArray()
             },
-            _ => input with { RunConfig = runConfig }
+            _ => input with { RunConfig = runConfig, SubAgentRunConfig = subAgentRunConfig }
         };
     }
 
@@ -2670,7 +2919,8 @@ public sealed partial class Agent : IAsyncDisposable
         ProviderOperationAccountingBridge? accountingBridge = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default,
         AgentChatClientHandle? inheritedChatClient = null,
-        ClientFamilyInheritanceMode inheritedChatMode = ClientFamilyInheritanceMode.UseOwn)
+        ClientFamilyInheritanceMode inheritedChatMode = ClientFamilyInheritanceMode.UseOwn,
+        AgentInputEvent? sourceInput = null)
     {
         eventCoordinator ??= _eventCoordinator;
         var orchestrationStartTime = DateTime.UtcNow;
@@ -2907,7 +3157,7 @@ public sealed partial class Agent : IAsyncDisposable
                 services: toolHarnessExecutionScope.Services,
                 runtimeCapabilities: _runtimeContext?.RuntimeCapabilities,
                 traceId: traceId,                // Propagate trace ID to all middleware-emitted events
-                threadExecutionId: activeInput?.ThreadExecutionId,
+                threadExecutionId: sourceInput?.ThreadExecutionId ?? activeInput?.ThreadExecutionId,
                 agentId: AgentId,
                 parentAgentMetadata: AgentMetadata,
                 parentAgentStore: Config?.AgentStore,
@@ -2917,8 +3167,10 @@ public sealed partial class Agent : IAsyncDisposable
                 structEvents: GetActiveStructEvents(),
                 inputHandler: async (input, ct) =>
                     _ = await RunAsync(TargetActiveExecution(input), ct).ConfigureAwait(false),
+                subAgentRunConfig: sourceInput?.SubAgentRunConfig ?? activeInput?.Input.SubAgentRunConfig,
                 toolHarnessExecutionScope: toolHarnessExecutionScope,
-                agentResources: _agentResources.Resources);
+                agentResources: _agentResources.Resources,
+                sourceInput: sourceInput ?? activeInput?.Input ?? new UserMessagesInputEvent { Messages = turn.NewInputMessages.ToArray() });
 
             // IMPORTANT: Create runConfig instance ONCE and reuse it throughout the entire turn
             // Middleware may modify the consolidated per-run concern objects.
@@ -3385,7 +3637,13 @@ public sealed partial class Agent : IAsyncDisposable
                         {
                             TraceId = traceId,
                             SpanId = GenerateSpanId(),
-                            ParentSpanId = iterSpanId
+                            ParentSpanId = iterSpanId,
+                            CompactionSummaryInputs = modelRequest.Messages
+                                .Where(CompactionEvidence.IsPriorSummary)
+                                .Select(static message => new CompactionSummaryInputSnapshot(
+                                    message.MessageId, message.Role.ToString(), message.Text.Length,
+                                    Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(message.Text)))))
+                                .ToArray()
                         };
 
                         yield return BuildMiddlewareStateSnapshotEvent(
@@ -4143,6 +4401,24 @@ public sealed partial class Agent : IAsyncDisposable
                         // Check if middleware signaled to skip tool execution (e.g., circuit breaker)
                         if (beforeToolContext.SkipToolExecution)
                         {
+                            // The assistant call message is already durable. Settle every rejected call
+                            // before continuing so providers never receive dangling tool calls.
+                            var reason = beforeToolContext.OverrideResponse?.Text ?? "Tool execution was skipped by middleware.";
+                            var skippedResults = new ChatMessage(ChatRole.Tool, toolRequests.Select(call =>
+                                (AIContent)new FunctionResultContent(call.CallId, reason)).ToList())
+                            { MessageId = Guid.NewGuid().ToString("N") };
+                            sharedMessages.Add(skippedResults);
+                            turnHistory.Add(skippedResults);
+                            await CommitThreadMessagesAsync(session, thread, [skippedResults], null, eventCoordinator,
+                                effectiveCancellationToken).ConfigureAwait(false);
+                            foreach (var call in toolRequests)
+                            {
+                                yield return new ToolCallEndEvent(call.CallId, assistantMessageId, call.Name,
+                                    FunctionCallArgumentSerializer.Serialize(call)) { TraceId = traceId };
+                                yield return new ToolCallResultEvent(call.CallId, new ToolResultPayload(Text: reason),
+                                    LookupToolHarness(call.Name), LookupCallType(call.Name), call.Name)
+                                { TraceId = traceId, MessageId = skippedResults.MessageId };
+                            }
                             // Check for termination
                             if (state.IsTerminated)
                             {
@@ -4224,12 +4500,6 @@ public sealed partial class Agent : IAsyncDisposable
                         // V2: Sync state after middleware (middleware may have updated state)
                         state = agentContext.State;
 
-                        // Check if middleware signaled termination
-                        if (state.IsTerminated)
-                        {
-                            break;
-                        }
-
                         // UPDATE STATE WITH COMPLETED FUNCTIONS
                         foreach (var functionName in successfulFunctions)
                         {
@@ -4285,7 +4555,8 @@ public sealed partial class Agent : IAsyncDisposable
                                         $"Missing normalized tool result payload for call '{result.CallId}'.");
                                 }
 
-                                yield return new ToolCallResultEvent(result.CallId, resultPayload, toolharnessName, callType, toolRequest.Name) { TraceId = traceId };
+                                yield return new ToolCallResultEvent(result.CallId, resultPayload, toolharnessName, callType, toolRequest.Name)
+                                { TraceId = traceId, MessageId = toolResultMessage.MessageId };
                             }
                         }
                         // Shared reference: state.CurrentMessages already sees the changes via MessagesRef
@@ -4295,6 +4566,9 @@ public sealed partial class Agent : IAsyncDisposable
 
                         // Clear responseUpdates after building the response
                         responseUpdates.Clear();
+
+                        // A terminating function still owns a tool result. Commit and emit it before stopping.
+                        if (state.IsTerminated) break;
                     }
                     else
                     {
@@ -4958,7 +5232,7 @@ public sealed partial class Agent : IAsyncDisposable
             cancellationToken: cancellationToken))
         {
             var outputEvent = EnrichOutputEvent(evt);
-            await _eventCoordinator.EmitAsync(outputEvent, cancellationToken).ConfigureAwait(false);
+            await _eventCoordinator.EmitAsync(outputEvent, AgentEventRoutes.Create(_eventCoordinator, outputEvent), cancellationToken).ConfigureAwait(false);
             yield return outputEvent;
         }
     }
@@ -5139,7 +5413,8 @@ public sealed partial class Agent : IAsyncDisposable
         ActiveRuntimeInput? activeInput,
         [EnumeratorCancellation] CancellationToken cancellationToken,
         AgentChatClientHandle? inheritedChatClient = null,
-        ClientFamilyInheritanceMode inheritedChatMode = ClientFamilyInheritanceMode.UseOwn)
+        ClientFamilyInheritanceMode inheritedChatMode = ClientFamilyInheritanceMode.UseOwn,
+        AgentInputEvent? sourceInput = null)
     {
         ThrowIfShutdownStarted();
         // Validation
@@ -5207,7 +5482,8 @@ public sealed partial class Agent : IAsyncDisposable
             accountingBridge: accountingBridge,
             cancellationToken: cancellationToken,
             inheritedChatClient: inheritedChatClient,
-            inheritedChatMode: inheritedChatMode);
+            inheritedChatMode: inheritedChatMode,
+            sourceInput: sourceInput);
 
         await using var enumerator = internalStream.GetAsyncEnumerator(cancellationToken);
         string? messageTurnId = null;
@@ -5215,6 +5491,7 @@ public sealed partial class Agent : IAsyncDisposable
         var currentIteration = 0;
         var isResume = inputMessages.Count == 0 && thread?.Messages.Count > 0;
         var turnFinished = false;
+        var goalStreamCompleted = false;
         var stagedTextMessages = new HashSet<string>(StringComparer.Ordinal);
         var stagedReasoningMessages = new HashSet<string>(StringComparer.Ordinal);
         MessageTurnUsageCollector? usageCollector = null;
@@ -5276,7 +5553,10 @@ public sealed partial class Agent : IAsyncDisposable
                             usageCollector is null
                                 ? MessageTurnUsageSummary.Empty
                                 : await usageCollector.CloseAsync(CancellationToken.None).ConfigureAwait(false),
-                            eventCoordinator).ConfigureAwait(false);
+                            eventCoordinator, ex is OperationCanceledException
+                            ? activeInput?.CancellationInfo ?? new AgentInputCancellation(
+                                cancellationToken.IsCancellationRequested ? AgentInputCancellationCause.Caller : AgentInputCancellationCause.Unknown,
+                                null, cancellationToken.IsCancellationRequested ? "caller_token" : "event_flow") : null).ConfigureAwait(false);
                     }
 
                     throw;
@@ -5396,13 +5676,17 @@ public sealed partial class Agent : IAsyncDisposable
                         usageCollector is null
                             ? MessageTurnUsageSummary.Empty
                             : await usageCollector.CloseAsync(CancellationToken.None).ConfigureAwait(false),
-                        eventCoordinator).ConfigureAwait(false);
+                        eventCoordinator, ex is OperationCanceledException
+                            ? activeInput?.CancellationInfo ?? new AgentInputCancellation(
+                                cancellationToken.IsCancellationRequested ? AgentInputCancellationCause.Caller : AgentInputCancellationCause.Unknown,
+                                null, cancellationToken.IsCancellationRequested ? "caller_token" : "event_flow") : null).ConfigureAwait(false);
                     throw;
                 }
             }
 
                 yield return outputEvent;
             }
+            goalStreamCompleted = true;
         }
         finally
         {
@@ -5411,6 +5695,24 @@ public sealed partial class Agent : IAsyncDisposable
                 messageTurnId, conversationId, currentIteration,
                 inputMessages.Count, isResume, turnHistory.Count,
                 eventCoordinator).ConfigureAwait(false);
+            if (thread is not null && sourceInput is not null && Config?.SessionStore is { } goalStore &&
+                _middlewarePipeline.Middlewares.OfType<Goals.GoalMiddleware>().SingleOrDefault() is { } goals)
+            {
+                bool stopping;
+                lock (_runtimeLock) stopping = activeInput?.CancellationInfo is { } cancellationInfo
+                    ? cancellationInfo.Cause == AgentInputCancellationCause.RuntimeShutdown : _runtimeStopping;
+                await goals.CloseExecutionAsync(goalStore, new AgentEventPublisher(goalStore, eventCoordinator),
+                    thread, sourceInput, goalStreamCompleted, cancellationToken.IsCancellationRequested, stopping,
+                    IsRunning, options, async input =>
+                    {
+                        try
+                        {
+                            _ = await SubmitRuntimeInputAsync(input, CancellationToken.None).ConfigureAwait(false);
+                            return true;
+                        }
+                        catch (InvalidOperationException) when (!IsRunning) { return false; }
+                    }).ConfigureAwait(false);
+            }
         }
     }
 
@@ -5504,7 +5806,7 @@ public sealed partial class Agent : IAsyncDisposable
             // ═══════════════════════════════════════════════════════════════
             // PASS-THROUGH: All request events (built-in + custom)
             // Uses interface check - supports PermissionRequestEvent,
-            // ContinuationRequestEvent, ClarificationRequestEvent, and any
+            // ContinuationRequestEvent, UserQuestionRequestEvent, and any
             // custom events implementing IAgentRequestEvent
             // ═══════════════════════════════════════════════════════════════
             if (evt is IAgentRequestEvent)
@@ -6694,11 +6996,15 @@ public sealed partial class Agent : IAsyncDisposable
         if (events is not null)
         {
             await _operationRegistry.RehydrateAsync(events).ConfigureAwait(false);
-            await _capabilityCatalog.EnsureReadyAsync(cancellationToken).ConfigureAwait(false);
-            await _capabilityCatalog.ReconcileAsync(
-                _operationRegistry.LiveOperations(), cancellationToken).ConfigureAwait(false);
+            if (_capabilityCatalog is not null)
+            {
+                await _capabilityCatalog.EnsureReadyAsync(cancellationToken).ConfigureAwait(false);
+                await _capabilityCatalog.ReconcileAsync(
+                    _operationRegistry.LiveOperations(), cancellationToken).ConfigureAwait(false);
+            }
         }
 
+        await ReconcileRestoredGoalAsync(thread).ConfigureAwait(false);
         return (session, thread);
     }
 
@@ -7309,6 +7615,8 @@ public sealed partial class Agent : IAsyncDisposable
                     newThread.SessionId, newThread.Id, newThread.MiddlewareState));
             }
         }
+        plannedTargetEvents.AddRange(HPD.Agent.Planning.PlanJournalSnapshots.Create(newThread)
+            .Where(seed => plannedTargetEvents.All(existing => existing.EventId != seed.EventId)));
         plannedTargetEvents.AddRange(registryEvents);
         var targetSeedFingerprint = ComputeTargetSeedFingerprint(store.EventCodec, plannedTargetEvents);
         if (forkOperation.TargetSeedFingerprint is { } admittedTargetSeed &&
@@ -7774,6 +8082,7 @@ public sealed partial class Agent : IAsyncDisposable
             TextMessageEndEvent data => copiedMessageIds.Contains(data.MessageId),
             ThreadMessageReplacedEvent data => copiedMessageIds.Contains(data.MessageId),
             UserMessageEvent data => copiedMessageIds.Contains(data.MessageId),
+            SubAgentContextReceivedEvent data => copiedMessageIds.Contains(data.MessageId),
             ReasoningMessageStartEvent data => copiedMessageIds.Contains(data.MessageId),
             ReasoningDeltaEvent data => copiedMessageIds.Contains(data.MessageId),
             ReasoningMessageEndEvent data => copiedMessageIds.Contains(data.MessageId),
@@ -8734,19 +9043,17 @@ public sealed partial class Agent : IAsyncDisposable
         var entries = BuildMiddlewareStateEntrySnapshots(stateFactories, state);
         return new MiddlewareStateSnapshotEvent(
             AgentName: agentName,
-            SessionId: sessionId,
-            ThreadId: threadId,
             Iteration: iteration,
             Phase: phase,
             BatchId: batchId,
             FunctionCallId: functionCallId,
             ToolCallIndex: toolCallIndex,
             StateCount: entries.Count,
-            States: entries,
-            Timestamp: DateTimeOffset.UtcNow)
+            States: entries)
         {
             SessionId = sessionId,
-            ThreadId = threadId
+            ThreadId = threadId,
+            Timestamp = DateTimeOffset.UtcNow
         };
     }
 
@@ -8767,19 +9074,17 @@ public sealed partial class Agent : IAsyncDisposable
 
         await context.PublishAsync(new MiddlewareStateChangedEvent(
             AgentName: agentName,
-            SessionId: context.Session?.Id,
-            ThreadId: context.Thread?.Id,
             Iteration: context.State.Iteration,
             Phase: phase,
             BatchId: batchId,
             FunctionCallId: functionCallId,
             ToolCallIndex: toolCallIndex,
             ChangeCount: changes.Count,
-            Changes: changes,
-            Timestamp: DateTimeOffset.UtcNow)
+            Changes: changes)
         {
             SessionId = context.Session?.Id,
-            ThreadId = context.Thread?.Id
+            ThreadId = context.Thread?.Id,
+            Timestamp = DateTimeOffset.UtcNow
         });
     }
 

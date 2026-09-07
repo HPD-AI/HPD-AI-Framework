@@ -3,7 +3,7 @@ using HPD.TUI.Rendering;
 
 namespace HPD.TUI.Layout;
 
-public sealed class Grid : IComponent
+public sealed class Grid : Component
 {
     private readonly List<GridColumn> _columns = [];
     private readonly List<GridRow> _rows = [];
@@ -17,15 +17,19 @@ public sealed class Grid : IComponent
 
     public IReadOnlyList<GridRow> Rows => _rows;
 
+    public override ComponentDependencies Dependencies => ComponentDependencies.Static;
+
     public Grid AddColumn(SizePolicy width)
     {
         _columns.Add(new GridColumn(width));
+        InvalidateLayout();
         return this;
     }
 
     public Grid AddColumn(GridColumn column)
     {
         _columns.Add(column);
+        InvalidateLayout();
         return this;
     }
 
@@ -49,12 +53,15 @@ public sealed class Grid : IComponent
             throw new InvalidOperationException("Row has more cells than the grid has columns.");
         }
 
+        AdoptChildren(row.Cells);
         _rows.Add(row);
+        InvalidateLayout();
         return this;
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         if (_columns.Count == 0)
         {
             return new Measurement(0, 0);
@@ -84,8 +91,9 @@ public sealed class Grid : IComponent
         return new Measurement(Math.Min(width, maxWidth), width, height);
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (_columns.Count == 0 || _rows.Count == 0 || maxWidth <= 0)
         {
             return;
@@ -121,7 +129,7 @@ public sealed class Grid : IComponent
         }
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         foreach (var row in _rows)
         {
@@ -214,7 +222,7 @@ public sealed class Grid : IComponent
             }
 
             var padding = _columns[columnIndex].Padding.Horizontal;
-            width = Math.Max(width, row.Cells[columnIndex].Measure(in context, context.Width).MaxWidth + padding);
+            width = Math.Max(width, MeasureChild(row.Cells[columnIndex], in context, context.Width).MaxWidth + padding);
         }
 
         return width;
@@ -237,14 +245,14 @@ public sealed class Grid : IComponent
                 continue;
             }
 
-            var measurement = row.Cells[columnIndex].Measure(in context, cellWidth);
+            var measurement = MeasureChild(row.Cells[columnIndex], in context, cellWidth);
             height = Math.Max(height, measurement.Height + column.Padding.Vertical);
         }
 
         return Math.Max(1, Math.Min(height, maxHeight));
     }
 
-    private void RenderCell(IComponent cell, GridColumn column, LayoutRect rect, in RenderContext context, ref SegmentWriter output)
+    private void RenderCell(IComponent cell, GridColumn column, LayoutRect rect, in RenderContext context, ref DisplayListBuilder output)
     {
         if (rect.IsEmpty)
         {
@@ -301,7 +309,7 @@ public sealed class Grid : IComponent
                 continue;
             }
 
-            if (cell.Rune.Value != ' ')
+            if (!grid.GetGrapheme(cell).SequenceEqual(" "))
             {
                 width = x + 1;
             }
@@ -310,14 +318,13 @@ public sealed class Grid : IComponent
         return width;
     }
 
-    private static void WriteCapturedLineTo(Terminal.TerminalGrid grid, int y, int maxWidth, ref SegmentWriter output)
+    private static void WriteCapturedLineTo(Terminal.TerminalGrid grid, int y, int maxWidth, ref DisplayListBuilder output)
     {
         if (maxWidth <= 0)
         {
             return;
         }
 
-        Span<char> runeBuffer = stackalloc char[2];
         var writtenWidth = 0;
         for (var x = 0; x < grid.Width && writtenWidth < maxWidth; x++)
         {
@@ -327,11 +334,11 @@ public sealed class Grid : IComponent
                 continue;
             }
 
-            if (cell.Rune.TryEncodeToUtf16(runeBuffer, out var written))
-            {
-                output.Write(runeBuffer[..written], cell.Style);
-                writtenWidth++;
-            }
+            output.Write(
+                grid.GetGrapheme(cell),
+                cell.Style,
+                new TerminalRunMetadata(grid.GetHyperlink(cell)));
+            writtenWidth += cell.DisplayWidth;
         }
     }
 }

@@ -3,6 +3,55 @@ using System.Threading.Channels;
 
 namespace HPD.Events.Core;
 
+internal readonly record struct RoutedEvent(
+    Event Value,
+    EventDeliveryContext Context,
+    EventDeliveryTraversal Traversal)
+{
+    internal RoutedEvent NextHop() => this with
+    {
+        Context = Context with { HopCount = checked(Context.HopCount + 1) }
+    };
+
+    internal bool TryVisit(Guid coordinatorId, out RoutedEvent delivery)
+    {
+        if (!Traversal.TryVisit(coordinatorId))
+        {
+            delivery = default;
+            return false;
+        }
+        delivery = this;
+        return true;
+    }
+
+    internal RoutedEvent EnterForwarding(Guid coordinatorId)
+    {
+        Traversal.EnterForwarding(coordinatorId);
+        return this;
+    }
+}
+
+internal sealed class EventDeliveryTraversal
+{
+    private readonly object _gate = new();
+    private HashSet<Guid>? _visited;
+
+    internal void EnterForwarding(Guid coordinatorId)
+    {
+        lock (_gate)
+        {
+            _visited ??= [];
+            _visited.Add(coordinatorId);
+        }
+    }
+
+    internal bool TryVisit(Guid coordinatorId)
+    {
+        lock (_gate)
+            return _visited is null || _visited.Add(coordinatorId);
+    }
+}
+
 /// <summary>
 /// Routes semantic HPD events through per-subscriber fan-out mailboxes.
 /// </summary>
@@ -12,6 +61,7 @@ internal sealed class EventChannelRouter : IDisposable
     private readonly ConcurrentDictionary<string, TerminalRequestState> _terminalRequests = new();
     private readonly ConcurrentDictionary<EventChannelRouter, byte> _children = new();
     private readonly List<IClassEventSubscriber> _subscribers = new();
+    private readonly List<ForwardingBridge> _forwardingBridges = new();
     private readonly EventFlowRegistry _eventFlowRegistry = new();
     private readonly Func<Event, Event>? _eventEnricher;
     private readonly Func<Event, bool>? _eventFilter;
@@ -20,13 +70,18 @@ internal sealed class EventChannelRouter : IDisposable
     private long _totalDropped;
     private IEventCoordinator? _parentCoordinator;
     private bool _disposed;
+    private readonly Guid _coordinatorId = Guid.NewGuid();
+
+    internal EventOwnerId OwnerId { get; }
 
     public EventChannelRouter(
         Func<Event, Event>? eventEnricher = null,
-        Func<Event, bool>? eventFilter = null)
+        Func<Event, bool>? eventFilter = null,
+        EventOwnerId? ownerId = null)
     {
         _eventEnricher = eventEnricher;
         _eventFilter = eventFilter;
+        OwnerId = ownerId ?? EventOwnerId.Create();
     }
 
     public IEventFlowRegistry EventFlows => _eventFlowRegistry;
@@ -47,7 +102,7 @@ internal sealed class EventChannelRouter : IDisposable
         _children.TryRemove(child, out _);
     }
 
-    public void Emit(Event evt)
+    public void Emit(Event evt, EventRouteDescriptor? route = null)
     {
         ArgumentNullException.ThrowIfNull(evt);
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -56,11 +111,15 @@ internal sealed class EventChannelRouter : IDisposable
         if (enriched is null)
             return;
 
-        PublishPrepared(enriched, skipSubscriberId: null);
-        BubblePrepared(enriched);
+        var delivery = new RoutedEvent(
+            enriched,
+            new EventDeliveryContext(OwnerId, route, 0),
+            new EventDeliveryTraversal());
+        PublishPrepared(delivery, skipSubscriberId: null);
+        BubblePrepared(delivery);
     }
 
-    public async ValueTask EmitAsync(Event evt, CancellationToken ct = default)
+    public async ValueTask EmitAsync(Event evt, EventRouteDescriptor? route = null, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(evt);
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -69,9 +128,15 @@ internal sealed class EventChannelRouter : IDisposable
         if (enriched is null)
             return;
 
-        await PublishPreparedAsync(enriched, skipSubscriberId: null, ct).ConfigureAwait(false);
-        await BubblePreparedAsync(enriched, ct).ConfigureAwait(false);
+        var delivery = new RoutedEvent(
+            enriched,
+            new EventDeliveryContext(OwnerId, route, 0),
+            new EventDeliveryTraversal());
+        await PublishPreparedAsync(delivery, skipSubscriberId: null, ct).ConfigureAwait(false);
+        await BubblePreparedAsync(delivery, ct).ConfigureAwait(false);
     }
+
+    public ValueTask EmitAsync(Event evt, CancellationToken ct) => EmitAsync(evt, null, ct);
 
     public IDisposable Subscribe<TEvent>(
         Func<TEvent, ValueTask> handler,
@@ -123,6 +188,75 @@ internal sealed class EventChannelRouter : IDisposable
         return CreateInbox<Event>(options);
     }
 
+    internal DeliveryInbox<TDelivery> CreateProjectedDeliveryInbox<TEvent, TDelivery>(
+        EventOwnerScope ownerScope,
+        IEventDeliveryPolicy policy,
+        IEventDeliveryProjector<TEvent, TDelivery> projector,
+        EventInboxOptions? options = null)
+        where TEvent : Event
+    {
+        ArgumentNullException.ThrowIfNull(policy);
+        ArgumentNullException.ThrowIfNull(projector);
+        options ??= new EventInboxOptions();
+        var subscriptionOptions = options.ToSubscriptionOptions() with
+        {
+            OwnerScope = ownerScope,
+            DeliveryPolicy = policy
+        };
+        var subscriber = new ProjectedEventSubscriber<TEvent, TDelivery>(
+            OwnerId, subscriptionOptions, projector, OnSubscriberDropped,
+            (id, exception) =>
+            {
+                RemoveSubscriber(id);
+                PublishDiagnostic(new EventSubscriberFaultedEvent(
+                    id.ToString("N"), typeof(TEvent).Name,
+                    exception.GetType().Name, exception.Message), id);
+            });
+        lock (_subscribers)
+            _subscribers.Add(subscriber);
+        return new DeliveryInbox<TDelivery>(
+            subscriber.Reader,
+            subscriber.Writer,
+            writer => RemoveSubscriberByWriter(writer));
+    }
+
+    internal EventInbox<TEvent> CreateFilteredInbox<TEvent>(
+        EventOwnerScope ownerScope,
+        IEventDeliveryPolicy policy,
+        EventInboxOptions? options = null)
+        where TEvent : Event
+    {
+        options ??= new EventInboxOptions();
+        var subscriber = CreateSubscriber<TEvent>(isInbox: true, options.ToSubscriptionOptions() with
+        {
+            OwnerScope = ownerScope,
+            DeliveryPolicy = policy
+        });
+        return new EventInbox<TEvent>(
+            subscriber.Reader,
+            subscriber.Writer,
+            writer => RemoveSubscriberByWriter(writer));
+    }
+
+    internal IDisposable CreateForwardingBridge(
+        EventCoordinator destination,
+        EventForwardingOptions? options,
+        Action<EventCoordinator> removeEdge)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        options ??= new EventForwardingOptions();
+        if (options.Capacity <= 0)
+            throw new ArgumentOutOfRangeException(nameof(options), "Forwarding capacity must be positive.");
+        if (options.EventType is { } eventType && !typeof(Event).IsAssignableFrom(eventType))
+            throw new ArgumentException("Forwarding event type must derive from Event.", nameof(options));
+
+        var bridge = new ForwardingBridge(this, destination, options, removeEdge);
+        lock (_forwardingBridges)
+            _forwardingBridges.Add(bridge);
+        bridge.Start();
+        return bridge;
+    }
+
     public void SetParent(IEventCoordinator parent, IEventCoordinator owner)
     {
         ArgumentNullException.ThrowIfNull(parent);
@@ -154,6 +288,8 @@ internal sealed class EventChannelRouter : IDisposable
             }
         }
 
+        if (parent is not EventCoordinator)
+            throw new NotSupportedException("Hierarchical routed delivery requires an EventCoordinator parent.");
         _parentCoordinator = parent;
     }
 
@@ -162,11 +298,19 @@ internal sealed class EventChannelRouter : IDisposable
         RequestOptions? options = null)
         where TRequest : Event, IRequestEvent
         where TResponse : Event, IResponseEvent
+        => StartRequest<TRequest, TResponse>(request, null, options);
+
+    public RequestHandle StartRequest<TRequest, TResponse>(
+        TRequest request,
+        EventRouteDescriptor? route,
+        RequestOptions? options = null)
+        where TRequest : Event, IRequestEvent
+        where TResponse : Event, IResponseEvent
     {
-        var handle = RegisterRequest<TRequest, TResponse>(request, options);
+        var handle = RegisterRequest<TRequest, TResponse>(request, route, options);
         try
         {
-            Emit(request);
+            Emit(request, route);
             return handle;
         }
         catch
@@ -178,6 +322,14 @@ internal sealed class EventChannelRouter : IDisposable
 
     public RequestHandle RegisterRequest<TRequest, TResponse>(
         TRequest request,
+        RequestOptions? options = null)
+        where TRequest : Event, IRequestEvent
+        where TResponse : Event, IResponseEvent
+        => RegisterRequest<TRequest, TResponse>(request, null, options);
+
+    public RequestHandle RegisterRequest<TRequest, TResponse>(
+        TRequest request,
+        EventRouteDescriptor? route,
         RequestOptions? options = null)
         where TRequest : Event, IRequestEvent
         where TResponse : Event, IResponseEvent
@@ -204,7 +356,8 @@ internal sealed class EventChannelRouter : IDisposable
             options.Timeout,
             request.ResponsePolicy,
             request.Target,
-            request.Visibility);
+            request.Visibility,
+            new EventDeliveryContext(OwnerId, route, 0));
 
         if (!_requestSessions.TryAdd(request.RequestId, session))
         {
@@ -258,7 +411,7 @@ internal sealed class EventChannelRouter : IDisposable
             var snapshot = session.ToSnapshot();
             if (snapshot.State == RequestState.Pending)
             {
-                pending.Add(new PendingRequestSnapshot(session.Request, snapshot));
+                pending.Add(new PendingRequestSnapshot(session.Request, snapshot, session.Delivery));
             }
         }
 
@@ -439,7 +592,7 @@ internal sealed class EventChannelRouter : IDisposable
         if (options.Capacity <= 0)
             throw new ArgumentOutOfRangeException(nameof(options), "Event subscription capacity must be greater than zero.");
 
-        var subscriber = new EventSubscriber<TEvent>(options, isInbox, OnSubscriberDropped);
+        var subscriber = new EventSubscriber<TEvent>(OwnerId, options, isInbox, OnSubscriberDropped);
         lock (_subscribers)
         {
             _subscribers.Add(subscriber);
@@ -480,7 +633,7 @@ internal sealed class EventChannelRouter : IDisposable
         return enriched;
     }
 
-    private void PublishPrepared(Event evt, Guid? skipSubscriberId)
+    private void PublishPrepared(in RoutedEvent delivery, Guid? skipSubscriberId)
     {
         var subscribers = SnapshotSubscribers();
         foreach (var subscriber in subscribers)
@@ -488,15 +641,23 @@ internal sealed class EventChannelRouter : IDisposable
             if (skipSubscriberId == subscriber.Id)
                 continue;
 
-            if (!subscriber.Matches(evt))
+            if (!subscriber.Matches(delivery))
                 continue;
 
-            if (!subscriber.TryPublish(evt))
+            if (!subscriber.TryPublish(delivery))
                 OnSubscriberDropped();
+        }
+
+        var bridges = SnapshotForwardingBridges();
+        if (bridges.Length > 0)
+        {
+            var forwarded = delivery.EnterForwarding(_coordinatorId);
+            foreach (var bridge in bridges)
+                bridge.TryPublish(forwarded);
         }
     }
 
-    private async ValueTask PublishPreparedAsync(Event evt, Guid? skipSubscriberId, CancellationToken ct)
+    private async ValueTask PublishPreparedAsync(RoutedEvent delivery, Guid? skipSubscriberId, CancellationToken ct)
     {
         var subscribers = SnapshotSubscribers();
         foreach (var subscriber in subscribers)
@@ -504,20 +665,28 @@ internal sealed class EventChannelRouter : IDisposable
             if (skipSubscriberId == subscriber.Id)
                 continue;
 
-            if (!subscriber.Matches(evt))
+            if (!subscriber.Matches(delivery))
                 continue;
 
-            if (subscriber.TryPublish(evt))
+            if (subscriber.TryPublish(delivery))
                 continue;
 
             if (subscriber.Options.FullMode == BoundedChannelFullMode.Wait)
             {
-                await subscriber.PublishAsync(evt, ct).ConfigureAwait(false);
+                await subscriber.PublishAsync(delivery, ct).ConfigureAwait(false);
             }
             else
             {
                 OnSubscriberDropped();
             }
+        }
+
+        var bridges = SnapshotForwardingBridges();
+        if (bridges.Length > 0)
+        {
+            var forwarded = delivery.EnterForwarding(_coordinatorId);
+            foreach (var bridge in bridges)
+                await bridge.PublishAsync(forwarded, ct).ConfigureAwait(false);
         }
     }
 
@@ -525,19 +694,78 @@ internal sealed class EventChannelRouter : IDisposable
     {
         Interlocked.Increment(ref _sequenceCounter);
 
-        PublishPrepared(diagnostic, skipSubscriberId);
-        BubblePrepared(diagnostic);
+        var delivery = new RoutedEvent(
+            diagnostic,
+            new EventDeliveryContext(OwnerId, null, 0),
+            new EventDeliveryTraversal());
+        PublishPrepared(delivery, skipSubscriberId);
+        BubblePrepared(delivery);
     }
 
-    private void BubblePrepared(Event evt)
+    private void BubblePrepared(in RoutedEvent delivery)
     {
-        _parentCoordinator?.Emit(evt);
+        if (_parentCoordinator is EventCoordinator parent)
+            parent.ReceiveFromChild(delivery.NextHop());
     }
 
-    private async ValueTask BubblePreparedAsync(Event evt, CancellationToken ct)
+    private async ValueTask BubblePreparedAsync(RoutedEvent delivery, CancellationToken ct)
     {
-        if (_parentCoordinator is not null)
-            await _parentCoordinator.EmitAsync(evt, ct).ConfigureAwait(false);
+        if (_parentCoordinator is EventCoordinator parent)
+            await parent.ReceiveFromChildAsync(delivery.NextHop(), ct).ConfigureAwait(false);
+    }
+
+    internal void ReceiveFromChild(in RoutedEvent delivery)
+    {
+        if (!delivery.TryVisit(_coordinatorId, out var prepared))
+        {
+            RejectReentry(delivery.Value);
+            return;
+        }
+        PublishPrepared(prepared, skipSubscriberId: null);
+        BubblePrepared(prepared);
+    }
+
+    internal async ValueTask ReceiveFromChildAsync(RoutedEvent delivery, CancellationToken ct)
+    {
+        if (!delivery.TryVisit(_coordinatorId, out var prepared))
+        {
+            RejectReentry(delivery.Value);
+            return;
+        }
+        await PublishPreparedAsync(prepared, skipSubscriberId: null, ct).ConfigureAwait(false);
+        await BubblePreparedAsync(prepared, ct).ConfigureAwait(false);
+    }
+
+    internal void ReceiveForwarded(in RoutedEvent delivery)
+    {
+        if (!delivery.TryVisit(_coordinatorId, out var prepared))
+        {
+            RejectReentry(delivery.Value);
+            return;
+        }
+        PublishPrepared(prepared, skipSubscriberId: null);
+        BubblePrepared(prepared);
+    }
+
+    private void RejectReentry(Event evt)
+    {
+        OnSubscriberDropped();
+        PublishDiagnostic(new EventRouteReentryRejectedEvent(
+            evt.GetType().Name,
+            _coordinatorId.ToString("N")),
+            skipSubscriberId: null);
+    }
+
+    private ForwardingBridge[] SnapshotForwardingBridges()
+    {
+        lock (_forwardingBridges)
+            return _forwardingBridges.ToArray();
+    }
+
+    private void RemoveForwardingBridge(ForwardingBridge bridge)
+    {
+        lock (_forwardingBridges)
+            _forwardingBridges.Remove(bridge);
     }
 
     private IClassEventSubscriber[] SnapshotSubscribers()
@@ -561,8 +789,7 @@ internal sealed class EventChannelRouter : IDisposable
         }
     }
 
-    private void RemoveSubscriberByWriter<TEvent>(ChannelWriter<TEvent> writer)
-        where TEvent : Event
+    private void RemoveSubscriberByWriter<T>(ChannelWriter<T> writer)
     {
         lock (_subscribers)
         {
@@ -889,6 +1116,10 @@ internal sealed class EventChannelRouter : IDisposable
             _subscribers.Clear();
         }
 
+
+        foreach (var bridge in SnapshotForwardingBridges())
+            bridge.Dispose();
+
         foreach (var (requestId, session) in _requestSessions)
         {
             if (!session.TryMarkCancelled(DateTimeOffset.UtcNow) ||
@@ -925,7 +1156,8 @@ internal sealed class EventChannelRouter : IDisposable
             TimeSpan? timeout,
             ResponsePolicy responsePolicy,
             ResponderTarget? target,
-            RequestVisibility visibility)
+            RequestVisibility visibility,
+            EventDeliveryContext delivery)
         {
             RequestId = requestId;
             SourceName = sourceName;
@@ -938,6 +1170,7 @@ internal sealed class EventChannelRouter : IDisposable
             ResponsePolicy = responsePolicy;
             Target = target;
             Visibility = visibility;
+            Delivery = delivery;
             CreatedAt = DateTimeOffset.UtcNow;
         }
 
@@ -952,6 +1185,7 @@ internal sealed class EventChannelRouter : IDisposable
         public ResponsePolicy ResponsePolicy { get; }
         public ResponderTarget? Target { get; }
         public RequestVisibility Visibility { get; }
+        public EventDeliveryContext Delivery { get; }
         public DateTimeOffset CreatedAt { get; }
         public CancellationTokenRegistration CancellationRegistration { get; set; }
 
@@ -1029,16 +1263,105 @@ internal sealed class EventChannelRouter : IDisposable
 
     private sealed record TerminalRequestState(RespondStatus Status, string? Message);
 
+    private sealed class ForwardingBridge : IDisposable
+    {
+        private readonly EventChannelRouter _source;
+        private readonly EventCoordinator _destination;
+        private readonly EventForwardingOptions _options;
+        private readonly Action<EventCoordinator> _removeEdge;
+        private readonly Channel<RoutedEvent> _channel;
+        private readonly CancellationTokenSource _stop = new();
+        private Task? _pump;
+        private int _disposed;
+
+        internal ForwardingBridge(
+            EventChannelRouter source,
+            EventCoordinator destination,
+            EventForwardingOptions options,
+            Action<EventCoordinator> removeEdge)
+        {
+            _source = source;
+            _destination = destination;
+            _options = options;
+            _removeEdge = removeEdge;
+            _channel = Channel.CreateBounded<RoutedEvent>(new BoundedChannelOptions(options.Capacity)
+            {
+                SingleReader = true,
+                SingleWriter = false,
+                FullMode = options.FullMode,
+                AllowSynchronousContinuations = false
+            }, itemDropped: _ => source.OnSubscriberDropped());
+        }
+
+        internal void Start() => _pump = Task.Run(PumpAsync);
+
+        private bool Matches(in RoutedEvent delivery)
+        {
+            if (_options.Channel is { } channel && delivery.Value.Channel != channel)
+                return false;
+            if (_options.EventType is not { } type)
+                return true;
+            return _options.IncludeDerivedTypes
+                ? type.IsInstanceOfType(delivery.Value)
+                : delivery.Value.GetType() == type;
+        }
+
+        internal void TryPublish(in RoutedEvent delivery)
+        {
+            if (!Matches(delivery))
+                return;
+            if (!_channel.Writer.TryWrite(delivery))
+                _source.OnSubscriberDropped();
+        }
+
+        internal async ValueTask PublishAsync(RoutedEvent delivery, CancellationToken ct)
+        {
+            if (!Matches(delivery))
+                return;
+            if (_channel.Writer.TryWrite(delivery))
+                return;
+            if (_options.FullMode == BoundedChannelFullMode.Wait)
+                await _channel.Writer.WriteAsync(delivery, ct).ConfigureAwait(false);
+            else
+                _source.OnSubscriberDropped();
+        }
+
+        private async Task PumpAsync()
+        {
+            try
+            {
+                await foreach (var delivery in _channel.Reader.ReadAllAsync(_stop.Token).ConfigureAwait(false))
+                    _destination.ReceiveForwarded(delivery.NextHop());
+            }
+            catch (OperationCanceledException) when (_stop.IsCancellationRequested)
+            {
+                // Normal bridge disposal.
+            }
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+                return;
+            _source.RemoveForwardingBridge(this);
+            _channel.Writer.TryComplete();
+            _stop.Cancel();
+            _pump?.GetAwaiter().GetResult();
+            _removeEdge(_destination);
+            _stop.Dispose();
+        }
+    }
+
     private interface IClassEventSubscriber
     {
         Guid Id { get; }
         EventSubscriptionOptions Options { get; }
         bool IsInbox { get; }
         int Depth { get; }
-        bool Matches(Event evt);
-        bool TryPublish(Event evt);
-        ValueTask PublishAsync(Event evt, CancellationToken ct);
-        bool IsWriter<TEvent>(ChannelWriter<TEvent> writer) where TEvent : Event;
+        bool Matches(in RoutedEvent delivery);
+        bool TryPublish(in RoutedEvent delivery);
+        ValueTask PublishAsync(RoutedEvent delivery, CancellationToken ct);
+        bool IsWriter<T>(ChannelWriter<T> writer);
         void Complete();
     }
 
@@ -1050,11 +1373,13 @@ internal sealed class EventChannelRouter : IDisposable
         private int _depth;
 
         public EventSubscriber(
+            EventOwnerId ownerId,
             EventSubscriptionOptions options,
             bool isInbox,
             Action onDropped)
         {
             Options = options;
+            OwnerId = ownerId;
             IsInbox = isInbox;
             _onDropped = onDropped;
             _channel = Channel.CreateBounded<TEvent>(
@@ -1073,14 +1398,20 @@ internal sealed class EventChannelRouter : IDisposable
         }
 
         public Guid Id { get; } = Guid.NewGuid();
+        private EventOwnerId OwnerId { get; }
         public EventSubscriptionOptions Options { get; }
         public bool IsInbox { get; }
         public int Depth => Volatile.Read(ref _depth);
         public ChannelReader<TEvent> Reader => _channel.Reader;
         public ChannelWriter<TEvent> Writer => _channel.Writer;
 
-        public bool Matches(Event evt)
+        public bool Matches(in RoutedEvent delivery)
         {
+            var evt = delivery.Value;
+            if (Options.OwnerScope == EventOwnerScope.SameOwner && delivery.Context.OriginOwner != OwnerId)
+                return false;
+            if (Options.DeliveryPolicy is { } policy && !policy.Includes(delivery.Context))
+                return false;
             if (Options.Channel is { } channel && evt.Channel != channel)
                 return false;
 
@@ -1090,8 +1421,9 @@ internal sealed class EventChannelRouter : IDisposable
             return evt.GetType() == typeof(TEvent);
         }
 
-        public bool TryPublish(Event evt)
+        public bool TryPublish(in RoutedEvent delivery)
         {
+            var evt = delivery.Value;
             if (evt is not TEvent typed)
                 return false;
 
@@ -1102,8 +1434,9 @@ internal sealed class EventChannelRouter : IDisposable
             return written;
         }
 
-        public async ValueTask PublishAsync(Event evt, CancellationToken ct)
+        public async ValueTask PublishAsync(RoutedEvent delivery, CancellationToken ct)
         {
+            var evt = delivery.Value;
             if (evt is not TEvent typed)
                 return;
 
@@ -1123,11 +1456,107 @@ internal sealed class EventChannelRouter : IDisposable
             while (Interlocked.CompareExchange(ref _depth, current - 1, current) != current);
         }
 
-        public bool IsWriter<T>(ChannelWriter<T> writer)
-            where T : Event =>
+        public bool IsWriter<T>(ChannelWriter<T> writer) =>
             ReferenceEquals(_channel.Writer, writer);
 
         public void Complete() => _channel.Writer.TryComplete();
+    }
+
+    private sealed class ProjectedEventSubscriber<TEvent, TDelivery> : IClassEventSubscriber
+        where TEvent : Event
+    {
+        private readonly Channel<TDelivery> _channel;
+        private readonly IEventDeliveryProjector<TEvent, TDelivery> _projector;
+        private readonly EventOwnerId _ownerId;
+        private readonly Action _onDropped;
+        private readonly Action<Guid, Exception> _onFaulted;
+        private int _depth;
+        private int _faulted;
+
+        internal ProjectedEventSubscriber(
+            EventOwnerId ownerId,
+            EventSubscriptionOptions options,
+            IEventDeliveryProjector<TEvent, TDelivery> projector,
+            Action onDropped,
+            Action<Guid, Exception> onFaulted)
+        {
+            _ownerId = ownerId;
+            Options = options;
+            _projector = projector;
+            _onDropped = onDropped;
+            _onFaulted = onFaulted;
+            _channel = Channel.CreateBounded<TDelivery>(new BoundedChannelOptions(options.Capacity)
+            {
+                SingleReader = true,
+                SingleWriter = false,
+                FullMode = options.FullMode,
+                AllowSynchronousContinuations = false
+            }, itemDropped: _ => { DecrementDepth(); _onDropped(); });
+        }
+
+        public Guid Id { get; } = Guid.NewGuid();
+        public EventSubscriptionOptions Options { get; }
+        public bool IsInbox => true;
+        public int Depth => Volatile.Read(ref _depth);
+        internal ChannelReader<TDelivery> Reader => _channel.Reader;
+        internal ChannelWriter<TDelivery> Writer => _channel.Writer;
+
+        public bool Matches(in RoutedEvent delivery)
+        {
+            if (Options.OwnerScope == EventOwnerScope.SameOwner && delivery.Context.OriginOwner != _ownerId)
+                return false;
+            if (Options.DeliveryPolicy is { } policy && !policy.Includes(delivery.Context))
+                return false;
+            if (Options.Channel is { } channel && delivery.Value.Channel != channel)
+                return false;
+            return Options.IncludeDerivedTypes
+                ? delivery.Value is TEvent
+                : delivery.Value.GetType() == typeof(TEvent);
+        }
+
+        public bool TryPublish(in RoutedEvent delivery)
+        {
+            if (delivery.Value is not TEvent evt)
+                return false;
+            TDelivery projected;
+            try { projected = _projector.Project(evt, delivery.Context); }
+            catch (Exception exception) { Fault(exception); return true; }
+            var written = _channel.Writer.TryWrite(projected);
+            if (written) Interlocked.Increment(ref _depth);
+            return written;
+        }
+
+        public async ValueTask PublishAsync(RoutedEvent delivery, CancellationToken ct)
+        {
+            if (delivery.Value is not TEvent evt)
+                return;
+            TDelivery projected;
+            try { projected = _projector.Project(evt, delivery.Context); }
+            catch (Exception exception) { Fault(exception); return; }
+            await _channel.Writer.WriteAsync(projected, ct).ConfigureAwait(false);
+            Interlocked.Increment(ref _depth);
+        }
+
+        private void DecrementDepth()
+        {
+            int current;
+            do
+            {
+                current = Volatile.Read(ref _depth);
+                if (current <= 0) return;
+            } while (Interlocked.CompareExchange(ref _depth, current - 1, current) != current);
+        }
+
+        public bool IsWriter<T>(ChannelWriter<T> writer) => ReferenceEquals(_channel.Writer, writer);
+        public void Complete() => _channel.Writer.TryComplete();
+
+        private void Fault(Exception exception)
+        {
+            if (Interlocked.Exchange(ref _faulted, 1) != 0)
+                return;
+            _channel.Writer.TryComplete(exception);
+            _onFaulted(Id, exception);
+        }
     }
 
     private sealed class HandlerSubscription<TEvent> : IDisposable

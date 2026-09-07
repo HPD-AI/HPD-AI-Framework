@@ -25,6 +25,7 @@ public sealed class AudioRuntimeConsumerSetupTests
         var artifacts = new List<AssistantAudioOutputArtifactCapturedEvent>();
 
         var agent = await AgentBuilder.Create()
+            .WithEventApplicationIdentity("HPD.Agent.Audio.V2.Tests")
             .WithChatClient(chatClient)
             .WithContentStore(contentStore)
             .WithAudioRuntimeAttachment(options =>
@@ -66,6 +67,7 @@ public sealed class AudioRuntimeConsumerSetupTests
         var resolver = new AnyInputContentResolver([9, 8, 7, 6]);
 
         var agent = await AgentBuilder.Create()
+            .WithEventApplicationIdentity("HPD.Agent.Audio.V2.Tests")
             .WithChatClient(chatClient)
             .WithAudioRuntimeAttachment(options =>
             {
@@ -135,7 +137,10 @@ public sealed class AudioRuntimeConsumerSetupTests
             };
         }
 
-        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+        public object? GetService(Type serviceType, object? serviceKey = null) =>
+            serviceType == typeof(HPD.Agent.Providers.ProviderClientExecutionIdentity)
+                ? PreparedOutputExecutionTestFixture.ChatClientIdentity
+                : null;
 
         public void Dispose()
         {

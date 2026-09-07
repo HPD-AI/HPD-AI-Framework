@@ -50,6 +50,8 @@ public sealed record FunctionRequest
     public HPD.Agent.Permissions.FunctionPermissionGrant? PermissionGrant { get; init; }
     /// <summary>Gets whether permission was effectively required after all typed overrides.</summary>
     public bool PermissionRequired { get; init; }
+    /// <summary>Optional invocation cancellation override supplied by wrapping middleware.</summary>
+    public CancellationToken? CancellationToken { get; init; }
     internal AgentContext? ExecutionContext { get; init; }
     internal FunctionOperationCommitGate? OperationCommitGate { get; init; }
     /// <summary>
@@ -83,6 +85,9 @@ public sealed record FunctionRequest
     /// requiring mutable global state or rebuilding the agent.
     /// </summary>
     public AgentRunConfig RunConfig { get; init; } = new();
+
+    /// <summary>Gets the captured configuration for subagents invoked by this function.</summary>
+    public SubAgentRunConfig? SubAgentRunConfig { get; init; }
 
     /// <summary>
     /// Runtime-assigned invocation metadata, if this request belongs to a model tool-call batch.

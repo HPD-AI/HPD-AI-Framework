@@ -80,6 +80,10 @@ public sealed class LiveAudioParticipantCatalogSourceGenerator : IIncrementalGen
     {
         if (context.Node is not ClassDeclarationSyntax declaration ||
             context.SemanticModel.GetDeclaredSymbol(declaration) is not INamedTypeSymbol type) return null;
+        // The framework owns a private explicit-catalog implementation nested
+        // inside the abstract base. It is an internal construction detail, not
+        // an application-provided catalog and must not trigger HPDA005.
+        if (type.ContainingType?.ToDisplayString() == CatalogBase) return null;
         for (var current = type.BaseType; current is not null; current = current.BaseType)
             if (current.ToDisplayString() == CatalogBase) return type;
         return null;

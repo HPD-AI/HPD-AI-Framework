@@ -3,7 +3,7 @@ using HPD.TUI.Utilities;
 
 namespace HPD.TUI.Content;
 
-public sealed class ListBlock : IContentBlock
+public sealed class ListBlock : Component, IContentBlock
 {
     private readonly List<ListBlockItem> _items = [];
 
@@ -19,8 +19,9 @@ public sealed class ListBlock : IContentBlock
         return this;
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         var width = 0;
         for (var i = 0; i < _items.Count; i++)
         {
@@ -31,8 +32,9 @@ public sealed class ListBlock : IContentBlock
         return new Measurement(Math.Min(width, maxWidth), Math.Min(width, maxWidth));
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         for (var i = 0; i < _items.Count; i++)
         {
             var item = _items[i];
@@ -55,7 +57,7 @@ public sealed class ListBlock : IContentBlock
         }
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         return false;
     }

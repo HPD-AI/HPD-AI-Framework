@@ -344,7 +344,7 @@ public class PlanModeTests
         var active = PlanModePersistentStateData.CreatePlan("existing", ["step"]);
         var context = CreateFunctionContext(new PlanModePersistentStateData().WithPlan(ConvId, active));
 
-        var result = await new AgentPlanToolHarness().CreatePlanAsync("replacement", ["new step"], context);
+        var result = await new AgentPlanToolHarness().PlanAsync(new CreatePlanAction("replacement", ["new step"]), context);
 
         Assert.Contains("still active", Assert.IsType<string>(result));
         Assert.False(context.ResultMetadata.TryGet<PlanUpdatedEvent>(PlanToolMetadataKeys.Event, out _));
@@ -356,7 +356,7 @@ public class PlanModeTests
         var completed = PlanModePersistentStateData.CreatePlan("existing", ["step"]).AsCompleted();
         var context = CreateFunctionContext(new PlanModePersistentStateData().WithPlan(ConvId, completed));
 
-        var result = await new AgentPlanToolHarness().CreatePlanAsync("replacement", ["new step"], context);
+        var result = await new AgentPlanToolHarness().PlanAsync(new CreatePlanAction("replacement", ["new step"]), context);
 
         Assert.Contains("Created plan", Assert.IsType<string>(result));
         Assert.True(context.ResultMetadata.TryGet<PlanUpdatedEvent>(PlanToolMetadataKeys.Event, out var evt));
@@ -369,7 +369,7 @@ public class PlanModeTests
         var active = PlanModePersistentStateData.CreatePlan("existing", ["step"]);
         var context = CreateFunctionContext(new PlanModePersistentStateData().WithPlan(ConvId, active));
 
-        var result = await new AgentPlanToolHarness().AddPlanStepAsync("new step", context, "missing");
+        var result = await new AgentPlanToolHarness().PlanAsync(new AddPlanStepAction("new step", "missing"), context);
 
         Assert.Contains("not found", Assert.IsType<string>(result));
         Assert.False(context.ResultMetadata.TryGet<PlanUpdatedEvent>(PlanToolMetadataKeys.Event, out _));
@@ -384,8 +384,8 @@ public class PlanModeTests
         var secondContext = CreateFunctionContext(snapshot);
         var harness = new AgentPlanToolHarness();
 
-        await harness.UpdatePlanStepAsync("1", "completed", firstContext, "first done");
-        await harness.UpdatePlanStepAsync("2", "completed", secondContext, "second done");
+        await harness.PlanAsync(new UpdatePlanStepAction("1", PlanStepStatus.Completed, "first done"), firstContext);
+        await harness.PlanAsync(new UpdatePlanStepAction("2", PlanStepStatus.Completed, "second done"), secondContext);
 
         Assert.True(firstContext.ResultMetadata.TryGet<Func<PlanModePersistentStateData, PlanModePersistentStateData>>(
             PlanToolMetadataKeys.Apply,
@@ -414,15 +414,15 @@ public class PlanModeTests
     }
 
     [Fact]
-    public void DefaultInstructions_MentionsAllFiveFunctions()
+    public void DefaultInstructions_MentionsSingleToolAndFiveActions()
     {
         var instructions = AgentPlanAgentMiddleware.GetDefaultPlanModeInstructions();
 
-        Assert.Contains("create_plan", instructions);
-        Assert.Contains("update_plan_step", instructions);
-        Assert.Contains("add_plan_step", instructions);
-        Assert.Contains("add_context_note", instructions);
-        Assert.Contains("complete_plan", instructions);
+        Assert.Contains("create", instructions);
+        Assert.Contains("updateStep", instructions);
+        Assert.Contains("addStep", instructions);
+        Assert.Contains("addNote", instructions);
+        Assert.Contains("complete", instructions);
     }
 
     [Fact]
@@ -436,11 +436,7 @@ public class PlanModeTests
         Assert.IsType<AgentPlanToolHarness>(registration.Instance);
         Assert.Contains(builder.Middlewares, middleware => middleware is AgentPlanAgentMiddleware);
         var factory = builder._availableToolHarnesses[nameof(AgentPlanToolHarness)];
-        Assert.Contains("create_plan", factory.FunctionNames);
-        Assert.Contains("update_plan_step", factory.FunctionNames);
-        Assert.Contains("add_plan_step", factory.FunctionNames);
-        Assert.Contains("add_context_note", factory.FunctionNames);
-        Assert.Contains("complete_plan", factory.FunctionNames);
+        Assert.Equal("plan", Assert.Single(factory.FunctionNames!));
     }
 
     // ═══════════════════════════════════════════════════════════════════

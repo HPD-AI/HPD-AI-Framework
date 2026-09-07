@@ -2,11 +2,29 @@ using HPD.Agent.Authority;
 using HPD.Agent.Audio.Authority;
 using HPD.Agent.Audio.Runtime.Output;
 using HPD.Agent.Audio.Runtime.Providers;
+using HPD.Agent.Serialization;
+using HPD.Agent.Providers;
 
 namespace HPD.Agent.Audio.V2.Tests;
 
 internal static class PreparedOutputExecutionTestFixture
 {
+    internal static ProviderClientExecutionIdentity ChatClientIdentity => new()
+    {
+        ProviderKey = "test",
+        BackendKey = "local",
+        Family = ProviderClientFamily.Chat,
+        ModelName = "test-model",
+        OperationAdapterKey = "test/chat",
+        UsageSemanticsKey = "test",
+        SafeConfigurationFingerprint = "test-fixture"
+    };
+
+    internal static AgentEventComposition EventComposition => AgentEventComposition.Create([
+        CoreAgentEventModule.Fragment,
+        GeneratedAgentEventModule_HPD_Agent_Audio_1448db00.Fragment
+    ]);
+
     internal static PreparedOutputExecutionV2 Create()
     {
         var session = new SessionAuthorityStampV1(RuntimeGenerationId.Create(), LiveSessionId.Create());

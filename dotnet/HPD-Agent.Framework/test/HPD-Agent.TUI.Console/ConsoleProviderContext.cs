@@ -121,4 +121,7 @@ internal sealed class ConsoleProviderContext
 internal sealed record ConsoleProviderMetadata(
     string ProviderKey,
     string DisplayName,
-    IReadOnlyList<string> RequiredSecretKeys);
+    IReadOnlyList<string> RequiredSecretKeys)
+{
+    public string Key => ProviderKey;
+}

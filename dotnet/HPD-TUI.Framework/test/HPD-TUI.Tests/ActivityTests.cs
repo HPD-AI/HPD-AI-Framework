@@ -16,11 +16,11 @@ public sealed class ActivityTests
         var view = new ActivityView(model);
         var context = new RenderContext(10, 1, Theme.Default, elapsed: TimeSpan.FromMilliseconds(80));
         using var grid = new TerminalGrid(10, 1);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
-        view.Render(in context, 10, ref writer);
+        view.Render(in context, ref writer);
 
-        Assert.Equal(new Rune('⠙'), grid.GetCell(0, 0).Rune);
+        Assert.Equal(new Rune('⠙'), grid.GetLeadingRune(grid.GetCell(0, 0)));
         Assert.Equal("⠙ Work    ", ReadLine(grid, 0));
     }
 
@@ -31,9 +31,9 @@ public sealed class ActivityTests
         var view = new ActivityView(model) { AnimationsEnabled = false };
         var context = new RenderContext(10, 1, Theme.Default, elapsed: TimeSpan.FromMilliseconds(80));
         using var grid = new TerminalGrid(10, 1);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
-        view.Render(in context, 10, ref writer);
+        view.Render(in context, ref writer);
 
         Assert.Equal("⋯ Work    ", ReadLine(grid, 0));
     }
@@ -45,9 +45,9 @@ public sealed class ActivityTests
         var view = new ActivityView(model);
         var context = new RenderContext(16, 1, Theme.Default);
         using var grid = new TerminalGrid(16, 1);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
-        view.Render(in context, 16, ref writer);
+        view.Render(in context, ref writer);
 
         Assert.Equal("● Index 42%     ", ReadLine(grid, 0));
     }
@@ -59,9 +59,9 @@ public sealed class ActivityTests
         var view = new ActivityView(model);
         var context = new RenderContext(10, 1, Theme.Default);
         using var grid = new TerminalGrid(10, 1);
-        var writer = new SegmentWriter(grid);
+        var writer = new DisplayListBuilder(grid, grid.Width);
 
-        view.Render(in context, 10, ref writer);
+        view.Render(in context, ref writer);
 
         Assert.Equal("● Done    ", ReadLine(grid, 0));
     }
@@ -134,7 +134,7 @@ public sealed class ActivityTests
         Span<char> buffer = stackalloc char[grid.Width];
         for (var x = 0; x < grid.Width; x++)
         {
-            buffer[x] = (char)grid.GetCell(x, y).Rune.Value;
+            buffer[x] = (char)grid.GetLeadingRune(grid.GetCell(x, y)).Value;
         }
 
         return new string(buffer);

@@ -53,6 +53,23 @@ public sealed class TuiCaptureTests
     }
 
     [Fact]
+    public void GetUsedLineCount_UsesSemanticCellsAndTerminalCursorInsteadOfRasterWriteHead()
+    {
+        using var grid = new Terminal.TerminalGrid(8, 6);
+        grid.MoveTo(0, 4);
+        grid.Write("x", Style.Default);
+        grid.MoveTo(0, 1); // Simulates the final operation in a damage-only replay.
+
+        Assert.Equal(5, TuiCapture.GetUsedLineCount(grid));
+
+        grid.Clear();
+        grid.MoveTo(0, 1); // A transient write head must not extend an otherwise blank screen.
+        grid.SetTerminalCursor(3, 5);
+
+        Assert.Equal(6, TuiCapture.GetUsedLineCount(grid));
+    }
+
+    [Fact]
     public void RenderToAnsi_CapturesAnsiOutput()
     {
         var ansi = TuiCapture.RenderToAnsi(new Text("x"), width: 1, height: 1);

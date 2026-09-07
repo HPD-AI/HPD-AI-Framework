@@ -3,7 +3,7 @@ using HPD.TUI.Utilities;
 
 namespace HPD.TUI.Content;
 
-public sealed class MarkupBlock : IContentBlock
+public sealed class MarkupBlock : Component, IContentBlock
 {
     private readonly MarkupParser _parser;
     private StyledTextRun[] _runs;
@@ -29,8 +29,9 @@ public sealed class MarkupBlock : IContentBlock
         _runs = _parser.Parse(Source);
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         var maxLine = 0;
         var currentLine = 0;
         var maxWord = 0;
@@ -76,8 +77,9 @@ public sealed class MarkupBlock : IContentBlock
         return new Measurement(Math.Min(maxWidth, maxWord), Math.Min(maxWidth, maxLine));
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (maxWidth <= 0)
         {
             return;
@@ -90,14 +92,14 @@ public sealed class MarkupBlock : IContentBlock
         }
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         return false;
     }
 
     public static MarkupBlock Create(string source, Theme? theme = null) => new(source, theme);
 
-    private static void WriteRun(StyledTextRun run, int maxWidth, ref int lineWidth, ref SegmentWriter output)
+    private static void WriteRun(StyledTextRun run, int maxWidth, ref int lineWidth, ref DisplayListBuilder output)
     {
         var lineStart = 0;
         var pos = 0;

@@ -343,7 +343,8 @@ public class DtoSerializationTests
         deserialized.RunConfig.Clients.Chat.ModelName.Should().Be("claude-sonnet-4-5");
         deserialized.RunConfig.SystemInstructions!.Append.Should().Be("Be concise");
         deserialized.RunConfig.Context!.Properties.Should().ContainKey("key");
-        deserialized.RunConfig.Security.PermissionOverrides.Should().ContainKey("file_write");
+        deserialized.RunConfig.Security.PermissionOverrides.Should()
+            .ContainSingle(value => value.Selector.FunctionName == "file_write");
         deserialized.RunConfig.Streaming!.CoalesceDeltas.Should().BeTrue();
     }
 

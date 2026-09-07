@@ -3,7 +3,7 @@ using HPD.TUI.Core;
 
 namespace HPD.TUI.Controllers;
 
-public sealed class DialogHost : IComponent
+public sealed class DialogHost : Component
 {
     private readonly IComponent _content;
     private readonly FocusManager _focus;
@@ -13,6 +13,7 @@ public sealed class DialogHost : IComponent
     {
         _content = content ?? throw new ArgumentNullException(nameof(content));
         _focus = focus ?? throw new ArgumentNullException(nameof(focus));
+        AdoptChild(_content);
     }
 
     public int Count => _layers.Count;
@@ -66,22 +67,25 @@ public sealed class DialogHost : IComponent
         }
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
-        return _content.Measure(in context, maxWidth);
+        var maxWidth = constraints.MaxWidth;
+        return _content.Measure(in context, constraints);
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
-        _content.Render(in context, maxWidth, ref output);
+        var maxWidth = output.MaxWidth;
+        output.Render(_content, in context, maxWidth);
 
         foreach (var layer in _layers)
         {
-            layer.Overlay?.Render(in context, maxWidth, ref output);
+            if (layer.Overlay is { } overlay)
+                output.Render(overlay, in context, maxWidth);
         }
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         if (_layers.Count > 0)
         {

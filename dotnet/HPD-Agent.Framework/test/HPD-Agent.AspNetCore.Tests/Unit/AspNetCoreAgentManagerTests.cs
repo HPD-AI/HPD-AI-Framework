@@ -367,6 +367,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
         private static AgentConfig MakeConfig(string name) => new AgentConfig
         {
             Name = name,
+            EventComposition = HPD.Agent.AspNetCore.Tests.TestEventApplication.Composition,
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig { Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" }, ModelName = "test-model" } }
         };
     }

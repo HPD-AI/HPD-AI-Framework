@@ -13,6 +13,7 @@ using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
 using HPD.Agent.Providers.Audio.Meai;
 using HPD.Agent.Middleware;
+using HPD.Agent.Serialization;
 using HPD.Events.Struct;
 using HPD.Events.Core;
 using Microsoft.Extensions.AI;
@@ -34,6 +35,7 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
                 OutputMode = AudioOutputMode.TextOnly
             }
         })
+            .WithEventApplicationIdentity("HPD.Agent.Audio.V2.Tests")
             .BuildAsync();
 
         var audioIndex = IndexOfMiddleware<AudioRuntimeAttachment>(agent.Middlewares);
@@ -58,6 +60,7 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
             {
                 Enabled = false
             })
+            .WithEventApplicationIdentity("HPD.Agent.Audio.V2.Tests")
             .BuildAsync();
 
         Assert.Single(agent.Middlewares.OfType<AudioRuntimeAttachment>());
@@ -68,6 +71,7 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
     {
         var contentStore = new InMemoryContentStore();
         var agent = await AgentBuilder.Create()
+            .WithEventApplicationIdentity("HPD.Agent.Audio.V2.Tests")
             .WithContentStore(contentStore)
             .WithAudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
             {
@@ -527,7 +531,8 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
             thread: thread,
             CancellationToken.None,
             traceId: "00000000000000000000000000000001",
-            structEvents: new HPD.Events.Struct.StructEventHub());
+            structEvents: new HPD.Events.Struct.StructEventHub(),
+            config: new AgentConfig { EventComposition = PreparedOutputExecutionTestFixture.EventComposition });
 
         var factory = typeof(AgentContext).GetMethod(
             "AsBeforeMessageTurn",
@@ -536,7 +541,7 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
 
         return (BeforeMessageTurnContext)factory.Invoke(
             agentContext,
-            [userMessage, new List<ChatMessage>(), runConfig ?? new AgentRunConfig()])!;
+            [new[] { userMessage }, new List<ChatMessage>(), runConfig ?? new AgentRunConfig()])!;
     }
 
     private static BeforeIterationContext CreateBeforeIterationContext(
@@ -554,7 +559,8 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
             thread: null,
             CancellationToken.None,
             traceId: "00000000000000000000000000000001",
-            structEvents: new HPD.Events.Struct.StructEventHub());
+            structEvents: new HPD.Events.Struct.StructEventHub(),
+            config: new AgentConfig { EventComposition = PreparedOutputExecutionTestFixture.EventComposition });
 
         var factory = typeof(AgentContext).GetMethod(
             "AsBeforeIteration",

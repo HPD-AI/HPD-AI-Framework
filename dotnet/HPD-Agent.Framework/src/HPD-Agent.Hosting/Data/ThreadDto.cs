@@ -75,7 +75,9 @@ public sealed record SubAgentDto(
     string? ThreadId,
     string? Status,
     int MessageCount,
-    string? Reason);
+    string? Reason,
+    string? ProviderKey,
+    string? ModelName);
 
 /// <summary>
 /// A set of branch choices that diverge from the same semantic fork point.

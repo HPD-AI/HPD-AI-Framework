@@ -1,0 +1,12 @@
+{
+  "name": "hpd-opentui-comparison",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "benchmark": "bun run benchmark.ts"
+  },
+  "dependencies": {
+    "react": "19.2.3",
+    "react-reconciler": "0.33.0"
+  }
+}

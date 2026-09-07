@@ -4,91 +4,59 @@ using HPD.TUI.Utilities;
 
 namespace HPD.TUI.Layout;
 
-public sealed class Frame : IComponent
+public sealed class Frame : Component
 {
+    public override ComponentDependencies Dependencies => ComponentDependencies.Static;
     private readonly IComponent _child;
     private Terminal.TerminalGrid? _childGrid;
+    private BorderSpec _border = BorderSpec.Square;
+    private Thickness _padding = Thickness.None;
+    private FrameHeader? _header;
+    private FrameFooter? _footer;
+    private OverflowPolicy _overflow = OverflowPolicy.Clip;
+    private int? _width;
+    private int? _height;
 
     public Frame(IComponent child)
     {
         _child = child ?? throw new ArgumentNullException(nameof(child));
+        AdoptChild(_child);
     }
 
-    public BorderSpec Border { get; init; } = BorderSpec.Square;
+    public BorderSpec Border { get => _border; set => SetLayout(ref _border, value); }
 
-    public Thickness Padding { get; init; } = Thickness.None;
+    public Thickness Padding { get => _padding; set => SetLayout(ref _padding, value); }
 
-    public FrameHeader? Header { get; init; }
+    public FrameHeader? Header { get => _header; set => SetLayout(ref _header, value); }
 
-    public FrameFooter? Footer { get; init; }
+    public FrameFooter? Footer { get => _footer; set => SetLayout(ref _footer, value); }
 
-    public OverflowPolicy Overflow { get; init; } = OverflowPolicy.Clip;
+    public OverflowPolicy Overflow { get => _overflow; set => SetLayout(ref _overflow, value); }
 
-    public int? Width { get; init; }
+    public int? Width { get => _width; set => SetLayout(ref _width, value); }
 
-    public int? Height { get; init; }
+    public int? Height { get => _height; set => SetLayout(ref _height, value); }
 
     public static Frame Create(IComponent child) => new(child);
 
-    public Frame WithBorder(BorderSpec border) => new(_child)
-    {
-        Border = border,
-        Padding = Padding,
-        Header = Header,
-        Footer = Footer,
-        Overflow = Overflow,
-        Width = Width,
-        Height = Height
-    };
+    public Frame WithBorder(BorderSpec border) { Border = border; return this; }
 
     public Frame WithPadding(int all) => WithPadding(new Thickness(all));
 
-    public Frame WithPadding(Thickness padding) => new(_child)
-    {
-        Border = Border,
-        Padding = padding,
-        Header = Header,
-        Footer = Footer,
-        Overflow = Overflow,
-        Width = Width,
-        Height = Height
-    };
+    public Frame WithPadding(Thickness padding) { Padding = padding; return this; }
 
-    public Frame WithHeader(string text, Alignment alignment = Alignment.Start) => new(_child)
-    {
-        Border = Border,
-        Padding = Padding,
-        Header = new FrameHeader(text, alignment),
-        Footer = Footer,
-        Overflow = Overflow,
-        Width = Width,
-        Height = Height
-    };
+    public Frame WithHeader(string text, Alignment alignment = Alignment.Start)
+    { Header = new FrameHeader(text, alignment); return this; }
 
-    public Frame WithFooter(string text, Alignment alignment = Alignment.Start) => new(_child)
-    {
-        Border = Border,
-        Padding = Padding,
-        Header = Header,
-        Footer = new FrameFooter(text, alignment),
-        Overflow = Overflow,
-        Width = Width,
-        Height = Height
-    };
+    public Frame WithFooter(string text, Alignment alignment = Alignment.Start)
+    { Footer = new FrameFooter(text, alignment); return this; }
 
-    public Frame WithSize(int? width = null, int? height = null) => new(_child)
-    {
-        Border = Border,
-        Padding = Padding,
-        Header = Header,
-        Footer = Footer,
-        Overflow = Overflow,
-        Width = width,
-        Height = height
-    };
+    public Frame WithSize(int? width = null, int? height = null)
+    { Width = width; Height = height; return this; }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         if (maxWidth <= 0)
         {
             return new Measurement(0, 0);
@@ -97,7 +65,7 @@ public sealed class Frame : IComponent
         var edgeWidth = Border.IsVisible ? 2 : 0;
         var innerMaxWidth = Math.Max(0, ResolveWidth(maxWidth) - edgeWidth - Padding.Horizontal);
         var child = innerMaxWidth > 0
-            ? _child.Measure(in context, innerMaxWidth)
+            ? MeasureChild(_child, in context, innerMaxWidth)
             : new Measurement(0, 0);
         var min = child.MinWidth + edgeWidth + Padding.Horizontal;
         var max = child.MaxWidth + edgeWidth + Padding.Horizontal;
@@ -124,8 +92,9 @@ public sealed class Frame : IComponent
         return new Measurement(Math.Min(min, max), max, height);
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         var frameWidth = ResolveWidth(maxWidth);
         if (frameWidth <= 0)
         {
@@ -163,7 +132,7 @@ public sealed class Frame : IComponent
         }
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         return _child.HandleInput(in key);
     }
@@ -179,7 +148,7 @@ public sealed class Frame : IComponent
         return Height is { } fixedHeight ? Math.Min(fixedHeight, context.Height) : context.Height;
     }
 
-    private void WriteChildRows(in RenderContext context, int frameWidth, int innerWidth, bool showBorder, Style borderStyle, ref SegmentWriter output)
+    private void WriteChildRows(in RenderContext context, int frameWidth, int innerWidth, bool showBorder, Style borderStyle, ref DisplayListBuilder output)
     {
         var childWidth = Math.Max(0, innerWidth - Padding.Horizontal);
         if (childWidth <= 0)
@@ -221,7 +190,7 @@ public sealed class Frame : IComponent
         return _childGrid;
     }
 
-    private void WriteVerticalPadding(int count, int innerWidth, bool showBorder, Style borderStyle, Style contentStyle, ref SegmentWriter output)
+    private void WriteVerticalPadding(int count, int innerWidth, bool showBorder, Style borderStyle, Style contentStyle, ref DisplayListBuilder output)
     {
         for (var i = 0; i < count; i++)
         {
@@ -229,7 +198,7 @@ public sealed class Frame : IComponent
         }
     }
 
-    private void WriteEmptyInnerRow(int innerWidth, bool showBorder, Style borderStyle, Style contentStyle, ref SegmentWriter output)
+    private void WriteEmptyInnerRow(int innerWidth, bool showBorder, Style borderStyle, Style contentStyle, ref DisplayListBuilder output)
     {
         WriteSide(showBorder, Border.Glyphs.Left, borderStyle, ref output);
         WriteSpaces(innerWidth, contentStyle, ref output);
@@ -237,7 +206,7 @@ public sealed class Frame : IComponent
         output.WriteLineBreak();
     }
 
-    private static void WriteSide(bool showBorder, char glyph, Style style, ref SegmentWriter output)
+    private static void WriteSide(bool showBorder, char glyph, Style style, ref DisplayListBuilder output)
     {
         if (!showBorder)
         {
@@ -256,7 +225,7 @@ public sealed class Frame : IComponent
         object? title,
         Style style,
         int width,
-        ref SegmentWriter output)
+        ref DisplayListBuilder output)
     {
         Span<char> buffer = width <= 256 ? stackalloc char[width] : new char[width];
         if (width == 1)
@@ -305,7 +274,7 @@ public sealed class Frame : IComponent
         buffer[start + 1 + title.Length] = ' ';
     }
 
-    private static void WriteSpaces(int count, Style style, ref SegmentWriter output)
+    private static void WriteSpaces(int count, Style style, ref DisplayListBuilder output)
     {
         if (count <= 0)
         {

@@ -194,6 +194,7 @@ namespace HPD.Agent.FFI;
 [JsonSerializable(typeof(AgentOperationReceipt))]
 [JsonSerializable(typeof(AgentOperationNotification))]
 [JsonSerializable(typeof(AgentOperationTombstone))]
+[JsonSerializable(typeof(AgentEventRoute))]
 [JsonSerializable(typeof(FunctionInvocationSnapshot))]
 [JsonSerializable(typeof(ToolInvocationInfo))]
 [JsonSerializable(typeof(ToolResultPayload))]
@@ -207,6 +208,7 @@ namespace HPD.Agent.FFI;
 
 // --- Structured Output Types ---
 [JsonSerializable(typeof(StructuredOutputOptions))]
+[JsonSerializable(typeof(StructuredOutputErrorEvent))]
 [JsonSerializable(typeof(StructuredResultEventDto))]
 
 // --- Agent State Types ---

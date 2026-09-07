@@ -236,8 +236,8 @@ public sealed class DebugExecutionStartOrchestratorV3Tests
 
         public async ValueTask DisposeAsync()
         {
-            await Operations.DisposeAsync();
             await Manager.DisposeAsync();
+            await Operations.DisposeAsync();
         }
 
         private FunctionExecutionContext CreateExecutionContext()

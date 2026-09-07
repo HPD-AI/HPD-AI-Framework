@@ -17,20 +17,47 @@ internal sealed class AgentTuiDialogService : IAgentTuiDialogService
     private readonly WidgetSlotModel _inlineSlot;
     private readonly AgentTuiNavigationModel _navigation;
     private readonly Action _requestRender;
+    private readonly ITuiDispatcher? _dispatcher;
+    private readonly Func<bool>? _dispatcherRunning;
     private readonly Dictionary<string, int> _keys = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// Creates a dialog service. When a <paramref name="dispatcher"/> is supplied, dialogs are
+    /// presented on the application mailbox so component and focus mutations always observe the
+    /// owning-mailbox guard even when a dialog is opened from an off-mailbox interaction handler.
+    /// Presentation falls back to the caller thread when the mailbox is not yet running (for example
+    /// while a shell is constructed before the event loop starts), at which point no component is
+    /// attached and the owning-mailbox guard cannot trip.
+    /// </summary>
     public AgentTuiDialogService(
         DialogHost host,
         AgentTuiDialogChrome chrome,
         WidgetSlotModel inlineSlot,
         AgentTuiNavigationModel navigation,
-        Action? requestRender = null)
+        Action? requestRender = null,
+        ITuiDispatcher? dispatcher = null,
+        Func<bool>? dispatcherRunning = null)
     {
         _host = host ?? throw new ArgumentNullException(nameof(host));
         _chrome = chrome ?? throw new ArgumentNullException(nameof(chrome));
         _inlineSlot = inlineSlot ?? throw new ArgumentNullException(nameof(inlineSlot));
         _navigation = navigation ?? throw new ArgumentNullException(nameof(navigation));
         _requestRender = requestRender ?? (() => { });
+        _dispatcher = dispatcher;
+        _dispatcherRunning = dispatcherRunning;
+    }
+
+    private void Present(Action action)
+    {
+        if (_dispatcher is { } dispatcher &&
+            !dispatcher.CheckAccess() &&
+            (_dispatcherRunning?.Invoke() ?? true))
+        {
+            dispatcher.InvokeAsync(action).AsTask().GetAwaiter().GetResult();
+            return;
+        }
+
+        action();
     }
 
     public bool HasOpenDialog => _host.HasOpenDialog;
@@ -274,29 +301,32 @@ internal sealed class AgentTuiDialogService : IAgentTuiDialogService
             _keys[key] = layerIndex;
         }
 
-        _inlineSlot.Add(card);
-        var frameId = _navigation.PushDialog(navigationTitle, () => PopTo(layerIndex));
-        _host.PushInline(
-            card,
-            content.Focus ?? content.Component,
-            () =>
-            {
-                _navigation.RemoveDialog(frameId);
-                _inlineSlot.Remove(card);
-                content.Closed?.Invoke();
-                if (trackKey)
+        Present(() =>
+        {
+            _inlineSlot.Add(card);
+            var frameId = _navigation.PushDialog(navigationTitle, () => PopTo(layerIndex));
+            _host.PushInline(
+                card,
+                content.Focus ?? content.Component,
+                () =>
                 {
-                    _keys.Remove(key);
-                }
+                    _navigation.RemoveDialog(frameId);
+                    _inlineSlot.Remove(card);
+                    content.Closed?.Invoke();
+                    if (trackKey)
+                    {
+                        _keys.Remove(key);
+                    }
 
-                _requestRender();
-                if (Interlocked.Exchange(ref completed, 1) == 0)
-                {
-                    completion.TrySetResult(AgentTuiDialogResult<TResult>.Dismissed());
-                }
-            },
-            content.FocusHandlesEscape);
-        _requestRender();
+                    _requestRender();
+                    if (Interlocked.Exchange(ref completed, 1) == 0)
+                    {
+                        completion.TrySetResult(AgentTuiDialogResult<TResult>.Dismissed());
+                    }
+                },
+                content.FocusHandlesEscape);
+            _requestRender();
+        });
         return completion.Task;
     }
 
@@ -307,14 +337,15 @@ internal sealed class AgentTuiDialogService : IAgentTuiDialogService
             .WithSize(_chrome.Width > 0 ? _chrome.Width : int.MaxValue);
 
     private void PopTo(int initialCount)
-    {
-        while (_host.Count > initialCount)
+        => Present(() =>
         {
-            _host.Pop();
-        }
+            while (_host.Count > initialCount)
+            {
+                _host.Pop();
+            }
 
-        _requestRender();
-    }
+            _requestRender();
+        });
 
     private sealed record DialogContent(
         IComponent Component,

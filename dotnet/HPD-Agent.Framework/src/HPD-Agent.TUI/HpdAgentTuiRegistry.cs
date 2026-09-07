@@ -1,6 +1,8 @@
+using HPD.TUI.Markdown;
 using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Commands;
 using HPD.Agent.TUI.Interactions;
+using HPD.Agent.TUI.Markdown;
 using HPD.Agent.TUI.Models;
 using HPD.TUI.Core;
 
@@ -40,10 +42,14 @@ public sealed class HpdAgentTuiRegistry
         IAgentTuiShellLayout? shellLayout,
         AgentTuiShellChrome shellChrome,
         Theme? theme,
+        MarkdownTheme? markdownTheme,
+        MarkdownTheme? reasoningMarkdownTheme,
         bool includeSlashCommandAutocomplete,
         AgentTuiRunConfigComposer? runConfigComposer,
         IAgentTuiThreadStateReconciler? threadStateReconciler,
-        TranscriptHistoryPresentation transcriptHistoryPresentation)
+        TranscriptHistoryPresentation transcriptHistoryPresentation,
+        bool showReasoning,
+        MarkdownIncompleteLinePolicy markdownIncompleteLinePolicy)
     {
         _commands = commands.ToDictionary(command => command.SlashName, StringComparer.OrdinalIgnoreCase);
         _commandList = _commands.Values
@@ -89,7 +95,8 @@ public sealed class HpdAgentTuiRegistry
                 pair.Value.Handler,
                 pair.Value.Scope))
             .ToArray();
-        TranscriptRenderers = new AgentTuiTranscriptRendererRegistry(transcriptRenderers);
+        TranscriptRenderers = new AgentTuiTranscriptRendererRegistry(transcriptRenderers,
+            new AgentTuiTranscriptRenderServices(markdownTheme, reasoningMarkdownTheme));
         Header = header;
         PromptStatus = promptStatus;
         Footer = footer;
@@ -100,6 +107,8 @@ public sealed class HpdAgentTuiRegistry
         RunConfigComposer = runConfigComposer;
         ThreadStateReconciler = threadStateReconciler;
         TranscriptHistoryPresentation = transcriptHistoryPresentation;
+        ShowReasoning = showReasoning;
+        MarkdownIncompleteLinePolicy = markdownIncompleteLinePolicy;
     }
 
     public IReadOnlyList<HpdAgentTuiCommandDescriptor> Commands => _commandList;
@@ -108,6 +117,10 @@ public sealed class HpdAgentTuiRegistry
 
     public string? DefaultPageId => _pages.Count > 0 ? _pages.Values.First().Id : null;
 
+    /// <summary>Gets the header shown before the conversation transcript.</summary>
+    /// <remarks>Native chat publishes the header once per presentation, before its first transcript rows.
+    /// Full-screen pages and setup surfaces retain a live header. Later header changes require a new
+    /// chat presentation to replace the published snapshot.</remarks>
     public IAgentTuiShellComponent? Header { get; }
 
     /// <summary>Gets the component rendered immediately above the prompt.</summary>
@@ -131,6 +144,12 @@ public sealed class HpdAgentTuiRegistry
     public IAgentTuiThreadStateReconciler? ThreadStateReconciler { get; }
 
     public TranscriptHistoryPresentation TranscriptHistoryPresentation { get; }
+
+    /// <summary>Gets whether reasoning events are projected into the transcript.</summary>
+    public bool ShowReasoning { get; }
+
+    /// <summary>Gets how incomplete live Markdown lines are presented.</summary>
+    public MarkdownIncompleteLinePolicy MarkdownIncompleteLinePolicy { get; }
 
     public AgentTuiTranscriptRendererRegistry TranscriptRenderers { get; }
 

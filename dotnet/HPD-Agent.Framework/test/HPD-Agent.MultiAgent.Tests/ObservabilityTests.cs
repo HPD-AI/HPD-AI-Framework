@@ -1,8 +1,10 @@
 using System.Diagnostics;
+using HPD.Agent.Providers;
 using HPD.Events;
 using HPD.Events.Core;
 using HPD.MultiAgent;
 using HPD.MultiAgent.Observability;
+using Microsoft.Extensions.AI;
 using HPD.Graph.Abstractions.Events;
 using HPD.Graph.Abstractions.Execution;
 using MessageTurnFinishedEvent = HPD.Agent.MessageTurnFinishedEvent;
@@ -323,7 +325,7 @@ public class ObservabilityTests
         var (executionId, nodeId) = await StartWorkflowAndNode(observer);
 
         var usage = new Microsoft.Extensions.AI.UsageDetails { InputTokenCount = 120, OutputTokenCount = 0 };
-        await observer.HandleAsync(new MessageTurnFinishedEvent("t", "c", "A", TimeSpan.Zero, Usage: usage));
+        await observer.HandleAsync(new MessageTurnFinishedEvent("t", "c", "agent", "A", TimeSpan.Zero, ToSummary(usage)));
 
         var node = observer.GetActiveWorkflow(executionId)!.NodeMetrics[nodeId];
         node.InputTokens.Should().Be(120);
@@ -338,7 +340,7 @@ public class ObservabilityTests
         var (executionId, nodeId) = await StartWorkflowAndNode(observer);
 
         var usage = new Microsoft.Extensions.AI.UsageDetails { InputTokenCount = 0, OutputTokenCount = 60 };
-        await observer.HandleAsync(new MessageTurnFinishedEvent("t", "c", "A", TimeSpan.Zero, Usage: usage));
+        await observer.HandleAsync(new MessageTurnFinishedEvent("t", "c", "agent", "A", TimeSpan.Zero, ToSummary(usage)));
 
         var node = observer.GetActiveWorkflow(executionId)!.NodeMetrics[nodeId];
         node.OutputTokens.Should().Be(60);
@@ -353,7 +355,7 @@ public class ObservabilityTests
         var (executionId, nodeId) = await StartWorkflowAndNode(observer);
 
         var act = async () => await observer.HandleAsync(
-            new MessageTurnFinishedEvent("t", "c", "A", TimeSpan.Zero, Usage: null));
+            new MessageTurnFinishedEvent("t", "c", "agent", "A", TimeSpan.Zero, HPD.Agent.MessageTurnUsageSummary.Empty));
 
         await act.Should().NotThrowAsync();
         observer.GetActiveWorkflow(executionId)!.NodeMetrics[nodeId].InputTokens.Should().Be(0);
@@ -374,7 +376,7 @@ public class ObservabilityTests
 
         var usage = new Microsoft.Extensions.AI.UsageDetails { InputTokenCount = 50, OutputTokenCount = 25 };
         var act = async () => await observer.HandleAsync(
-            new MessageTurnFinishedEvent("t", "c", "A", TimeSpan.Zero, Usage: usage));
+            new MessageTurnFinishedEvent("t", "c", "agent", "A", TimeSpan.Zero, ToSummary(usage)));
 
         await act.Should().NotThrowAsync();
     }
@@ -387,11 +389,11 @@ public class ObservabilityTests
         var observer = new MetricsObserver();
         var (executionId, nodeId) = await StartWorkflowAndNode(observer);
 
-        await observer.HandleAsync(new MessageTurnFinishedEvent("t1", "c", "A", TimeSpan.Zero,
-            Usage: new Microsoft.Extensions.AI.UsageDetails { InputTokenCount = 100, OutputTokenCount = 50 }));
+        await observer.HandleAsync(new MessageTurnFinishedEvent("t1", "c", "agent", "A", TimeSpan.Zero,
+            ToSummary(new UsageDetails { InputTokenCount = 100, OutputTokenCount = 50 })));
 
-        await observer.HandleAsync(new MessageTurnFinishedEvent("t2", "c", "A", TimeSpan.Zero,
-            Usage: new Microsoft.Extensions.AI.UsageDetails { InputTokenCount = 200, OutputTokenCount = 75 }));
+        await observer.HandleAsync(new MessageTurnFinishedEvent("t2", "c", "agent", "A", TimeSpan.Zero,
+            ToSummary(new UsageDetails { InputTokenCount = 200, OutputTokenCount = 75 })));
 
         var node = observer.GetActiveWorkflow(executionId)!.NodeMetrics[nodeId];
         node.InputTokens.Should().Be(300);
@@ -523,8 +525,8 @@ public class ObservabilityTests
             HandlerName = "H",
             GraphContext = new GraphExecutionContext { GraphId = executionId, TotalNodes = 2 }
         });
-        await observer.HandleAsync(new MessageTurnFinishedEvent("t1", "c", "A", TimeSpan.Zero,
-            Usage: new Microsoft.Extensions.AI.UsageDetails { InputTokenCount = 50, OutputTokenCount = 10 }));
+        await observer.HandleAsync(new MessageTurnFinishedEvent("t1", "c", "agent", "A", TimeSpan.Zero,
+            ToSummary(new UsageDetails { InputTokenCount = 50, OutputTokenCount = 10 })));
         await observer.HandleAsync(new NodeExecutionCompletedEvent
         {
             NodeId = "node-A",
@@ -541,8 +543,8 @@ public class ObservabilityTests
             HandlerName = "H",
             GraphContext = new GraphExecutionContext { GraphId = executionId, TotalNodes = 2 }
         });
-        await observer.HandleAsync(new MessageTurnFinishedEvent("t2", "c", "A", TimeSpan.Zero,
-            Usage: new Microsoft.Extensions.AI.UsageDetails { InputTokenCount = 200, OutputTokenCount = 80 }));
+        await observer.HandleAsync(new MessageTurnFinishedEvent("t2", "c", "agent", "A", TimeSpan.Zero,
+            ToSummary(new UsageDetails { InputTokenCount = 200, OutputTokenCount = 80 })));
 
         var wf = observer.GetActiveWorkflow(executionId)!;
         wf.NodeMetrics["node-A"].InputTokens.Should().Be(50);
@@ -916,6 +918,25 @@ public class ObservabilityTests
 
         observer.Dispose();
     }
+
+    private static HPD.Agent.MessageTurnUsageSummary ToSummary(Microsoft.Extensions.AI.UsageDetails? usage)
+        => usage is null
+            ? HPD.Agent.MessageTurnUsageSummary.Empty
+            : new HPD.Agent.MessageTurnUsageSummary(
+                [new HPD.Agent.ProviderUsageMeasurement(
+                    "test-source",
+                    "test-turn",
+                    0,
+                    "test-operation",
+                    null,
+                    1,
+                    HPD.Agent.ProviderOperationKind.ChatModelResponse,
+                    ProviderClientFamily.Chat,
+                    HPD.Agent.ProviderOperationOutcome.Succeeded,
+                    usage,
+                    "test",
+                    "test-model",
+                    null)]);
 
     #endregion
 }

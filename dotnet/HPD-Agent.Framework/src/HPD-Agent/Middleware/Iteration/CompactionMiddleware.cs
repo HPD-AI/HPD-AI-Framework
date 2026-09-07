@@ -17,7 +17,7 @@ public sealed class CompactionMiddleware : IAgentMiddleware
         BeforeIterationContext context,
         CancellationToken cancellationToken)
     {
-        var automatic = context.RunConfig.Compaction?.Automatic ?? Config.Automatic;
+        var automatic = context.RunConfig.Compaction is { } runPolicy ? runPolicy.Automatic : Config.Automatic;
         if (automatic is null || context.Thread is null || !ShouldCompact(automatic.Trigger, context.Messages))
             return;
 
@@ -35,7 +35,8 @@ public sealed class CompactionMiddleware : IAgentMiddleware
                     compactionStore,
                     context.Services?.GetService<IThreadJournalRebaseSeedProvider>())
                 : context.Services?.GetService<IThreadJournalRebaseSeedProvider>(),
-            CreateSummarizerOptions(chatLease?.Handle.ResolvedConfig as ChatClientConfig));
+            CreateSummarizerOptions(chatLease?.Handle.ResolvedConfig as ChatClientConfig),
+            SummarizerIdentity: chatLease?.Handle.ExecutionIdentity);
         var result = await Engine.ExecuteAsync(
                 engineContext,
                 automatic.Compaction,
@@ -84,7 +85,8 @@ public sealed class CompactionMiddleware : IAgentMiddleware
             Publisher: null,
             SummarizerClient: chatLease?.Client,
             RebaseSeedProvider: null,
-            SummarizerOptions: CreateSummarizerOptions(chatLease?.Handle.ResolvedConfig as ChatClientConfig));
+            SummarizerOptions: CreateSummarizerOptions(chatLease?.Handle.ResolvedConfig as ChatClientConfig),
+            SummarizerIdentity: chatLease?.Handle.ExecutionIdentity);
         var prepared = await Engine.PrepareAsync(engineContext, specification, cancellationToken)
             .ConfigureAwait(false);
         if (prepared is null)

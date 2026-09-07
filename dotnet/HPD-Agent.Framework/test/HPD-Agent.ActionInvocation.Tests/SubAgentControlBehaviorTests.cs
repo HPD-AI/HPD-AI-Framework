@@ -24,7 +24,7 @@ public sealed class SubAgentControlBehaviorTests
             CreationContext = SubAgentCreationContext.Fresh,
             CreationInvocationId = "create-3",
             ParentToolCallId = "call-3",
-            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
+            ExecutionPolicy = SubAgentTestPolicies.Default,
             CreatedAt = DateTimeOffset.UtcNow
         });
         await store.AppendThreadEventsAsync(parent,
@@ -48,7 +48,7 @@ public sealed class SubAgentControlBehaviorTests
         var waited = Assert.IsType<SubAgentWaitResult>(await SubAgentRuntime.ControlAsync(
             "wait", waitJson.RootElement, context, CancellationToken.None));
         Assert.False(waited.TimedOut);
-        Assert.Contains(waited.Children, child => child.Child == "worker-1" && child.Status == ThreadExecutionStatus.Succeeded);
+        Assert.Contains(waited.Children, child => child.Child == "worker-1" && child.Status == "stopped without result");
         Assert.Contains(waited.Children, child => child.Child == "worker-2" && child.Status == "idle");
         Assert.Contains(waited.Children, child => child.Child == "worker-3" && child.Status == "unavailable");
     }
@@ -142,7 +142,7 @@ public sealed class SubAgentControlBehaviorTests
             CreationContext = SubAgentCreationContext.Fresh,
             CreationInvocationId = $"create-{localId}",
             ParentToolCallId = $"call-{localId}",
-            ExecutionPolicy = SubAgentRunConfig.Inherit().CompilePolicy(),
+            ExecutionPolicy = SubAgentTestPolicies.Default,
             CreatedAt = DateTimeOffset.UtcNow
         });
         return route;

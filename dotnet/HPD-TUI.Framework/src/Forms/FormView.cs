@@ -3,12 +3,13 @@ using HPD.TUI.Utilities;
 
 namespace HPD.TUI.Forms;
 
-public sealed class FormView : IFocusable
+public sealed class FormView : Component, IFocusable
 {
     private const int WideLayoutMinimum = 48;
     private readonly FormModel _model;
     private readonly FormController _controller;
     private readonly FormUpdateMode _updateMode;
+    private bool _isFocused;
 
     public FormView(
         FormModel model,
@@ -23,12 +24,14 @@ public sealed class FormView : IFocusable
         MaxVisibleRows = maxVisibleRows;
     }
 
-    public bool IsFocused { get; set; }
+    /// <inheritdoc />
+    public bool IsFocused { get => _isFocused; set => SetPaint(ref _isFocused, value); }
 
     public int MaxVisibleRows { get; }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         _model.ReconcileActiveField();
         var visibleCount = _model.VisibleFieldCount;
         if (visibleCount == 0)
@@ -64,8 +67,9 @@ public sealed class FormView : IFocusable
         return new Measurement(width, width, Math.Max(1, rowCount + extraRows));
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         _model.ReconcileActiveField();
         var visibleCount = _model.VisibleFieldCount;
         if (visibleCount == 0)
@@ -117,16 +121,18 @@ public sealed class FormView : IFocusable
         output.Write(Truncate(BuildHint(active, _updateMode), maxWidth).AsSpan(), context.Theme.Border);
     }
 
-    public bool HandleInput(in TuiInputEvent input)
+    public override bool HandleInput(in TuiInputEvent input)
     {
         var keyEvent = input.KeyEvent;
-        return _controller.HandleInput(in keyEvent);
+        var handled = _controller.HandleInput(in keyEvent);
+        if (handled) InvalidateLayout();
+        return handled;
     }
 
     private static void RenderField(
         in RenderContext context,
         int maxWidth,
-        ref SegmentWriter output,
+        ref DisplayListBuilder output,
         IFormField field,
         bool active,
         bool wide,

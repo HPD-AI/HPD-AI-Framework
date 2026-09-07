@@ -206,9 +206,10 @@ public sealed class HostedAgentTuiRuntimeValidationTests
         });
         var scope = new AgentTuiRuntimeScope("agent", "session", "main");
 
-        var result = await runtime.EnsureDurableScopeAsync(scope);
+        var target = new DirectAgentTuiExecutionTarget(scope);
+        var result = await runtime.EnsureDurableTargetAsync(target);
 
-        result.Should().Be(scope);
+        result.Should().Be(target);
         handler.Requests.Should().Equal(
             "GET sessions/session",
             "GET sessions/session/threads/main",
@@ -233,9 +234,10 @@ public sealed class HostedAgentTuiRuntimeValidationTests
             DefaultScope = scope
         });
 
-        var resolution = await runtime.ResolveInitialScopeAsync(requested: null);
+        var resolution = await runtime.ResolveInitialTargetAsync(requested: null);
 
-        resolution.Should().Be(new AgentTuiScopeResolution(scope, IsDurable: false));
+        resolution.Should().Be(new AgentTuiTargetResolution(
+            new DirectAgentTuiExecutionTarget(scope), IsDurable: false));
         handler.Requests.Should().Equal(
             "GET sessions/session",
             "GET sessions/session/threads/main");
@@ -286,7 +288,7 @@ public sealed class HostedAgentTuiRuntimeValidationTests
         var scope = new AgentTuiRuntimeScope("agent", "session", "main");
 
         var result = await runtime.SubmitInputAsync(
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             new UserMessagesInputEvent
             {
                 Delivery = AgentInputDelivery.Steer,
@@ -331,7 +333,7 @@ public sealed class HostedAgentTuiRuntimeValidationTests
         var observed = new List<AgentEvent>();
 
         await foreach (var batch in runtime.ObserveAsync(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
+            new DirectAgentTuiExecutionTarget(new AgentTuiRuntimeScope("agent", "session", "main")),
             after: ThreadJournalCursor.Start(1),
             initialObservedCursor: new ThreadJournalCursor(1, 2),
             cancellationToken: timeout.Token))
@@ -344,7 +346,7 @@ public sealed class HostedAgentTuiRuntimeValidationTests
         }
 
         observed.Select(static evt => evt.ThreadSequenceNumber).Should().Equal(1, 2);
-        handler.Requests.Should().Equal("?after=1:0", "?after=1:1");
+        handler.Requests.Should().Equal("?after=1:0&hierarchy=threadAndDescendants", "?after=1:1&hierarchy=threadAndDescendants");
     }
 
     [Fact]
@@ -363,8 +365,8 @@ public sealed class HostedAgentTuiRuntimeValidationTests
             ThreadSequenceNumber = 5
         };
         var handler = new RawSequentialSseHandler(
-            $"event: live-agent-event\ndata: {TestEventComposition.Codec.Serialize(live)}\n\n",
-            $"id: 1:5\nevent: agent-event\ndata: {TestEventComposition.Codec.Serialize(committed)}\n\n");
+            $"event: live-agent-event\ndata: {DeliveryJson(live)}\n\n",
+            $"id: 1:5\nevent: agent-event\ndata: {DeliveryJson(committed)}\n\n");
         using var http = new HttpClient(handler)
         {
             BaseAddress = new Uri("http://127.0.0.1/api/hpd-agent/")
@@ -379,7 +381,7 @@ public sealed class HostedAgentTuiRuntimeValidationTests
         var batches = new List<AgentTuiEventBatch>();
 
         await foreach (var batch in runtime.ObserveAsync(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
+            new DirectAgentTuiExecutionTarget(new AgentTuiRuntimeScope("agent", "session", "main")),
             after: new ThreadJournalCursor(1, 4),
             initialObservedCursor: new ThreadJournalCursor(1, 4),
             cancellationToken: timeout.Token))
@@ -393,7 +395,7 @@ public sealed class HostedAgentTuiRuntimeValidationTests
         batches[0].LastCursor.Should().Be(new ThreadJournalCursor(1, 4));
         batches[1].Events.Should().ContainSingle().Which.Should().BeEquivalentTo(committed);
         batches[1].LastCursor.Should().Be(new ThreadJournalCursor(1, 5));
-        handler.Requests.Should().Equal("?after=1:4", "?after=1:4");
+        handler.Requests.Should().Equal("?after=1:4&hierarchy=threadAndDescendants", "?after=1:4&hierarchy=threadAndDescendants");
     }
 
     [Fact]
@@ -412,8 +414,8 @@ public sealed class HostedAgentTuiRuntimeValidationTests
             ThreadSequenceNumber = 7
         };
         var handler = new RawSequentialSseHandler(
-            $"id: 1:6\nevent: live-agent-event\ndata: {TestEventComposition.Codec.Serialize(live)}\n\n",
-            $"id: 1:7\nevent: agent-event\ndata: {TestEventComposition.Codec.Serialize(next)}\n\n");
+            $"id: 1:6\nevent: live-agent-event\ndata: {DeliveryJson(live)}\n\n",
+            $"id: 1:7\nevent: agent-event\ndata: {DeliveryJson(next)}\n\n");
         using var http = new HttpClient(handler)
         {
             BaseAddress = new Uri("http://127.0.0.1/api/hpd-agent/")
@@ -428,7 +430,7 @@ public sealed class HostedAgentTuiRuntimeValidationTests
         var batches = new List<AgentTuiEventBatch>();
 
         await foreach (var batch in runtime.ObserveAsync(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
+            new DirectAgentTuiExecutionTarget(new AgentTuiRuntimeScope("agent", "session", "main")),
             after: new ThreadJournalCursor(1, 5),
             initialObservedCursor: new ThreadJournalCursor(1, 5),
             cancellationToken: timeout.Token))
@@ -440,7 +442,7 @@ public sealed class HostedAgentTuiRuntimeValidationTests
 
         batches[0].LastCursor.Should().Be(new ThreadJournalCursor(1, 6));
         batches[1].LastCursor.Should().Be(new ThreadJournalCursor(1, 7));
-        handler.Requests.Should().Equal("?after=1:5", "?after=1:6");
+        handler.Requests.Should().Equal("?after=1:5&hierarchy=threadAndDescendants", "?after=1:6&hierarchy=threadAndDescendants");
     }
 
     private sealed class JsonHandler(string json) : HttpMessageHandler
@@ -479,7 +481,7 @@ public sealed class HostedAgentTuiRuntimeValidationTests
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
-                    $"id: 1:{evt.ThreadSequenceNumber}\ndata: {TestEventComposition.Codec.Serialize(evt)}\n\n",
+                    $"id: 1:{evt.ThreadSequenceNumber}\ndata: {DeliveryJson(evt)}\n\n",
                     Encoding.UTF8,
                     "text/event-stream")
             });
@@ -513,6 +515,16 @@ public sealed class HostedAgentTuiRuntimeValidationTests
             Encoding.UTF8,
             "application/json")
     };
+
+    private static string DeliveryJson(AgentEvent evt)
+    {
+        var eventJson = TestEventComposition.Codec.Serialize(evt);
+        var route = JsonSerializer.Serialize(new AgentEventRoute(
+            new ThreadKey(evt.SessionId!, evt.ThreadId!),
+            [new ThreadKey(evt.SessionId!, evt.ThreadId!)],
+            evt.ThreadExecutionId));
+        return $"{{\"event\":{eventJson},\"route\":{route}}}";
+    }
 
     private sealed class ScopeInitializationHandler : HttpMessageHandler
     {

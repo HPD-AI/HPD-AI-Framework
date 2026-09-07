@@ -1,9 +1,14 @@
 using HPD.Agent.Serialization;
+using System.Text.Json;
 
 namespace HPD.Agent.AspNetCore.Tests.TestInfrastructure;
 
 internal static class SseTestEventReader
 {
+    internal static AgentEvent DeserializeDeliveryEvent(string json) =>
+        HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec.DeserializeEvent(
+            JsonDocument.Parse(json).RootElement.GetProperty("event").GetRawText());
+
     public static async Task<IReadOnlyList<AgentEvent>> ReadUntilAsync(
         HttpClient client,
         string sessionId,
@@ -34,7 +39,7 @@ internal static class SseTestEventReader
                 if (line is null)
                     break;
                 if (line.StartsWith("data: ", StringComparison.Ordinal))
-                    events.Add(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec.DeserializeEvent(line[6..]));
+                    events.Add(DeserializeDeliveryEvent(line[6..]));
             }
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)

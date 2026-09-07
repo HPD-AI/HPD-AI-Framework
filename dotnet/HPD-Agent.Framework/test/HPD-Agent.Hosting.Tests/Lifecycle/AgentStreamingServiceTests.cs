@@ -273,7 +273,7 @@ public sealed class AgentStreamingServiceTests : IAsyncLifetime
             }
         }, "agent-1");
 
-        var result = await _service.ObserveThreadEventsAsync(stored.Id, sessionId, threadId);
+        var result = await _service.ObserveThreadEventsAsync(stored.Id, new ThreadKey(sessionId, threadId));
 
         result.Status.Should().Be(AgentServiceStatus.Success);
         _agentManager.GetRuntimeAgent(stored.Id, sessionId, threadId).Should().BeNull();
@@ -289,6 +289,31 @@ public sealed class AgentStreamingServiceTests : IAsyncLifetime
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         var received = await observation.LiveEvents.Reader.ReadAsync(timeout.Token);
         received.Should().BeSameAs(live);
+    }
+
+    [Fact]
+    public async Task ObserveThreadEventsAsync_RejectsUnknownHierarchyBeforeInstallingInbox()
+    {
+        var result = await _service.ObserveThreadEventsAsync(
+            "agent-1",
+            new ThreadKey("session", "thread"),
+            (AgentEventHierarchy)99);
+
+        result.Status.Should().Be(AgentServiceStatus.ValidationError);
+        result.ErrorCode.Should().Be("InvalidEventHierarchy");
+    }
+
+    [Theory]
+    [InlineData("", "thread")]
+    [InlineData("session", " ")]
+    public async Task ObserveThreadEventsAsync_RejectsIncompleteThreadKey(string sessionId, string threadId)
+    {
+        var result = await _service.ObserveThreadEventsAsync(
+            "agent-1",
+            new ThreadKey(sessionId, threadId));
+
+        result.Status.Should().Be(AgentServiceStatus.ValidationError);
+        result.ErrorCode.Should().Be("InvalidThreadKey");
     }
 
     [Fact]

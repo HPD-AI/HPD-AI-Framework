@@ -7,298 +7,689 @@ namespace HPD.TUI.Rendering;
 
 public sealed class ManagedTerminalTuiRenderer : IDisposable
 {
-    private const int DefaultCaptureRows = 16_384;
     private static readonly char[] BeginSynchronizedOutput = ['\x1b', '[', '?', '2', '0', '2', '6', 'h'];
     private static readonly char[] EndSynchronizedOutput = ['\x1b', '[', '?', '2', '0', '2', '6', 'l'];
+    private static readonly char[] DisableAutowrap = ['\x1b', '[', '?', '7', 'l'];
+    private static readonly char[] EnableAutowrap = ['\x1b', '[', '?', '7', 'h'];
+    private static readonly char[] HideHardwareCursor = ['\x1b', '[', '?', '2', '5', 'l'];
+    private static readonly char[] ShowHardwareCursor = ['\x1b', '[', '?', '2', '5', 'h'];
     private static readonly char[] ClearScreenAndCursorHome = ['\x1b', '[', '2', 'J', '\x1b', '[', 'H'];
-    private static readonly char[] ClearScreenCursorHomeAndScrollback = ['\x1b', '[', '2', 'J', '\x1b', '[', 'H', '\x1b', '[', '3', 'J'];
+    private static readonly char[] ClearScrollback = ['\x1b', '[', '3', 'J'];
+    private static readonly char[] EnterAlternateScreen = ['\x1b', '[', '?', '1', '0', '4', '9', 'h'];
+    private static readonly char[] LeaveAlternateScreen = ['\x1b', '[', '?', '1', '0', '4', '9', 'l'];
+    private static readonly char[] VisibleEpochBoundary = ['\r', '\n', '-', '-', '-', ' ', 'n', 'e', 'w', ' ', 'p', 'r', 'e', 's', 'e', 'n', 't', 'a', 't', 'i', 'o', 'n', ' ', 'e', 'p', 'o', 'c', 'h', ' ', '-', '-', '-', '\r', '\n'];
     private readonly ITerminal _terminal;
+    private readonly TerminalPublicationCoordinator _publisher;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly AnsiFrameWriter _output = new();
-    private TerminalGrid? _currentGrid;
-    private TerminalGrid? _previousGrid;
+    private readonly RetainedDisplayList _displayList = new();
+    private readonly ManagedScrollbackJournal _scrollbackJournal;
+    private ScreenBuffer? _currentBuffer;
+    private ScreenBuffer? _previousBuffer;
     private int _previousWidth;
     private int _previousHeight;
-    private int _previousUsedLineCount;
-    private int _previousViewportTop;
     private int _hardwareCursorRow;
     private bool _hasPreviousFrame;
+    private bool _scrollbackUncertain;
     private bool _disposed;
+    private TimeSpan _lastEncodeDuration;
+    private TimeSpan _lastDiffDuration;
+    private TimeSpan _lastOutputDuration;
+    private ScreenDiffMetrics _lastDiffMetrics;
+    private int _lastOutputCharacters;
+    private bool _lastFullRepaint;
+    private readonly ManagedTerminalCapabilityProfile _capabilities;
+    private readonly bool _splitFooterEnabled;
+    private readonly ManagedTerminalRecoveryPolicy _recoveryPolicy;
+    private long _presentationEpoch;
+    private bool _hasPresentationEpoch;
+    private bool _alternateScreen;
+    private bool _recoveryAlternateScreen;
+    private bool _aborted;
+    private bool _shutdown;
+    private TimeSpan _schedulingDelay;
+    private int _liveTop;
+    private int _liveHeight;
+    private bool _liveAnchorKnown;
+    private int _normalLiveTop;
+    private int _normalLiveHeight;
+    private bool TerminalCertain => _publisher.State.Certainty == TerminalCertainty.Known;
+
+    /// <summary>Gets the active presentation epoch. It advances when terminal-visible history cannot be retracted.</summary>
+    public long PresentationEpoch => _presentationEpoch;
+
+    /// <summary>Gets whether verified capabilities permit append-only history with a pinned footer.</summary>
+    public bool SupportsManagedScrollback => _splitFooterEnabled;
+
+    /// <summary>Gets the accepted physical row at which the mutable presentation starts.</summary>
+    public int LiveTop => _liveTop;
+
+    /// <summary>Gets the accepted height of the mutable presentation.</summary>
+    public int LiveHeight => _liveHeight;
+
+    /// <summary>Gets whether a possibly partial write requires a coordinated history transition.</summary>
+    public bool RequiresRecovery => !TerminalCertain;
+
+    /// <summary>Gets the recovery policy selected when this terminal presentation was created.</summary>
+    public ManagedTerminalRecoveryPolicy RecoveryPolicy => _recoveryPolicy;
 
     public ManagedTerminalTuiRenderer(ITerminal terminal)
+        : this(terminal, new SynchronousTerminalOutputTransport(terminal), ManagedTerminalCapabilityProfile.Detect(terminal))
+    {
+    }
+
+    /// <summary>Creates a renderer that publishes through the supplied output transport.</summary>
+    /// <param name="terminal">The terminal used for sizing and cursor visibility.</param>
+    /// <param name="transport">The single-writer frame transport.</param>
+    public ManagedTerminalTuiRenderer(ITerminal terminal, ITerminalOutputTransport transport)
+        : this(terminal, transport, ManagedTerminalCapabilityProfile.Detect(terminal))
+    {
+    }
+
+    /// <summary>Creates a renderer with an explicit, immutable capability profile.</summary>
+    public ManagedTerminalTuiRenderer(
+        ITerminal terminal,
+        ITerminalOutputTransport transport,
+        ManagedTerminalCapabilityProfile capabilities,
+        ManagedTerminalFallbackPolicy fallbackPolicy = ManagedTerminalFallbackPolicy.BoundedScreen,
+        ManagedTerminalRecoveryPolicy recoveryPolicy = ManagedTerminalRecoveryPolicy.VisibleEpochBoundary)
     {
         _terminal = terminal ?? throw new ArgumentNullException(nameof(terminal));
+        _publisher = new TerminalPublicationCoordinator(transport);
+        _scrollbackJournal = new ManagedScrollbackJournal(PublishScrollbackAsync);
+        _capabilities = capabilities;
+        _recoveryPolicy = recoveryPolicy;
+        _splitFooterEnabled = capabilities.SupportsSplitFooter;
+        if (!_splitFooterEnabled && fallbackPolicy == ManagedTerminalFallbackPolicy.Reject)
+            throw new NotSupportedException("Managed split-footer publication requires absolute cursor addressing, erase-in-line, and controllable autowrap.");
     }
+
+    internal ValueTask WaitUntilWritableAsync(CancellationToken cancellationToken)
+        => _publisher.WaitUntilWritableAsync(cancellationToken);
 
     public bool TrackHardwareCursor { get; set; }
 
     public IHpdTuiPerformanceEventSink? PerformanceSink { get; set; }
 
-    public void Render(IComponent root, Theme? theme = null)
+    /// <summary>Gets or sets the shared cumulative performance-counter recorder.</summary>
+    public TuiPerformanceCounters? PerformanceCounters { get; set; }
+
+    internal TimeSpan SchedulingDelay
+    {
+        set => _schedulingDelay = value;
+    }
+
+    public void Render(IComponent root, Theme? theme = null, ScrollbackBatch? scrollback = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_aborted) throw new InvalidOperationException("The managed terminal presentation was aborted by its recovery policy.");
         ArgumentNullException.ThrowIfNull(root);
-
+        if (scrollback is not null && !_splitFooterEnabled)
+            throw new NotSupportedException("Scrollback publication is disabled because the terminal capability profile does not satisfy the split-footer protocol.");
         var sink = PerformanceSink;
+        var frameInstrumentation = sink is null ? null : new TuiFrameInstrumentation();
         var startTimestamp = sink is null ? 0 : Stopwatch.GetTimestamp();
         var size = _terminal.GetSize();
-        var captureHeight = Math.Max(size.Height, DefaultCaptureRows);
         var hadPreviousFrame = _hasPreviousFrame;
         var sizeChanged = _previousWidth != 0 && (
             _previousWidth != size.Width ||
             _previousHeight != size.Height);
-        EnsureGrid(size.Width, captureHeight);
+        if (scrollback is not null && !_hasPresentationEpoch)
+        {
+            _presentationEpoch = scrollback.PresentationEpoch;
+            _hasPresentationEpoch = true;
+            _scrollbackJournal.StartEpoch(_presentationEpoch);
+        }
+        else if (scrollback is not null && scrollback.PresentationEpoch != _presentationEpoch)
+            throw new InvalidOperationException($"Scrollback batch epoch {scrollback.PresentationEpoch} does not match renderer epoch {_presentationEpoch}.");
+        EnsureBuffer(size.Width, size.Height);
+        ResetPublicationMetrics();
 
-        _currentGrid!.Clear();
-        // The backing grid is deliberately taller than the viewport so a frame can
-        // retain logical scrollback. Layout, however, must be constrained by the
-        // physical terminal or viewport-filling components will size themselves to
-        // the capture buffer instead of the rows the user can actually see.
         var context = new RenderContext(size.Width, size.Height, theme ?? Theme.Default, elapsed: _clock.Elapsed);
-        var writer = new SegmentWriter(_currentGrid);
-        root.Render(in context, size.Width, ref writer);
-
-        var usedLines = TuiCapture.GetUsedLineCount(_currentGrid);
-
-        if (!hadPreviousFrame && !sizeChanged)
+        var displayStart = sink is null ? 0 : Stopwatch.GetTimestamp();
+        bool cacheHit;
+        using (TuiInstrumentationContext.Enter(frameInstrumentation, PerformanceCounters))
+            cacheHit = _displayList.Prepare(root, in context, size.Width);
+        var displayDuration = sink is null ? TimeSpan.Zero : Stopwatch.GetElapsedTime(displayStart);
+        if (cacheHit && hadPreviousFrame && !sizeChanged && TerminalCertain && scrollback is null)
         {
-            FullRender(size, usedLines, FullRenderClearMode.Screen);
-            PublishRenderCompleted(sink, startTimestamp, usedLines, writer.Count);
+            PublishRenderCompleted(sink, startTimestamp, displayDuration, TimeSpan.Zero, false, frameInstrumentation);
             return;
         }
-
-        if (sizeChanged)
+        var rasterStart = sink is null ? 0 : Stopwatch.GetTimestamp();
+        if (hadPreviousFrame && !sizeChanged && !_displayList.RequiresFullRaster)
         {
-            FullRender(size, usedLines, FullRenderClearMode.ScreenAndScrollback);
-            PublishRenderCompleted(sink, startTimestamp, usedLines, writer.Count);
-            return;
+            _currentBuffer!.CopyFrom(_previousBuffer!);
+            _currentBuffer.ClearDamagedRows(_displayList.DamagedRows);
+            _displayList.ReplayDamaged(_currentBuffer.Grid);
+            _currentBuffer.ComputeFinalRowFingerprints(_displayList.DamagedRows);
         }
-
-        var changed = FindChangedLineRange(_previousGrid!, _currentGrid, _previousUsedLineCount, usedLines);
-        if (changed.First < 0)
+        else
         {
-            PositionHardwareCursor(_currentGrid, usedLines);
-            CommitFrame(size, captureHeight, usedLines);
-            PublishRenderCompleted(sink, startTimestamp, usedLines, writer.Count);
-            return;
+            _currentBuffer!.Clear();
+            _displayList.Replay(_currentBuffer.Grid);
+            _currentBuffer.ComputeFinalRowFingerprints();
         }
+        var rasterDuration = sink is null ? TimeSpan.Zero : Stopwatch.GetElapsedTime(rasterStart);
 
-        if (usedLines < _previousUsedLineCount || changed.First < _previousViewportTop)
+        var usedLines = TuiCapture.GetUsedLineCount(_currentBuffer.Grid);
+        try
         {
-            FullRender(size, usedLines, FullRenderClearMode.ScreenAndScrollback);
-            PublishRenderCompleted(sink, startTimestamp, usedLines, writer.Count);
-            return;
-        }
+            if (!TerminalCertain)
+            {
+                Recover(size, usedLines);
+                if (scrollback is not null)
+                    throw new InvalidOperationException(
+                        "A batch involved in uncertain output cannot be retried; prepare it in the new presentation epoch.");
+                PublishRenderCompleted(sink, startTimestamp, displayDuration, rasterDuration, false, frameInstrumentation);
+                return;
+            }
 
-        PatchChangedLines(size, changed.First, changed.Last, usedLines);
-        PublishRenderCompleted(sink, startTimestamp, usedLines, writer.Count);
+            if (!_splitFooterEnabled)
+            {
+                BoundedRender(size, usedLines);
+                PublishRenderCompleted(sink, startTimestamp, displayDuration, rasterDuration, false, frameInstrumentation);
+                return;
+            }
+
+            if (scrollback is not null)
+            {
+                using var lease = new ScrollbackBatchLease(scrollback);
+                var result = _scrollbackJournal.CommitAsync(lease, new ScrollbackCommitOptions())
+                    .GetAwaiter().GetResult();
+                if (result.Status == ScrollbackCommitStatus.Backpressured)
+                    throw new TerminalBackpressureException();
+                if (result.Status == ScrollbackCommitStatus.Failed)
+                    throw new InvalidOperationException("Managed scrollback publication failed; terminal state is uncertain.", result.Error);
+                PublishRenderCompleted(sink, startTimestamp, displayDuration, rasterDuration, false, frameInstrumentation);
+                return;
+            }
+
+            if (!hadPreviousFrame || sizeChanged || _liveTop + usedLines > size.Height)
+            {
+                FullRender(size, usedLines, _liveAnchorKnown ? FullRenderClearMode.None : FullRenderClearMode.Screen);
+                PublishRenderCompleted(sink, startTimestamp, displayDuration, rasterDuration, false, frameInstrumentation);
+                return;
+            }
+
+            var screenChanged = false;
+            var compared = 0;
+            var rejected = 0;
+            for (var row = 0; row < size.Height; row++)
+            {
+                compared++;
+                if (_currentBuffer.RowEquals(_previousBuffer!, row)) rejected++;
+                else screenChanged = true;
+            }
+            if (!screenChanged)
+            {
+                _lastDiffMetrics = new(0, rejected, compared, 0, 0, compared * size.Width);
+                PublishCursorOnlyIfChanged(_currentBuffer.Grid, usedLines);
+                CommitFrame(size, usedLines);
+                PublishRenderCompleted(sink, startTimestamp, displayDuration, rasterDuration, false, frameInstrumentation);
+                return;
+            }
+
+            PatchChangedRuns(size, usedLines);
+            PublishRenderCompleted(sink, startTimestamp, displayDuration, rasterDuration, false, frameInstrumentation);
+        }
+        catch (TerminalBackpressureException)
+        {
+            PublishRenderCompleted(sink, startTimestamp, displayDuration, rasterDuration, true, frameInstrumentation);
+            throw;
+        }
     }
 
-    private static void PublishRenderCompleted(
+    /// <summary>Starts a new visible history epoch after a model rebase or uncertain-output recovery.</summary>
+    /// <returns>The new nonnegative epoch.</returns>
+    public long StartPresentationEpoch()
+    {
+        _presentationEpoch = _hasPresentationEpoch ? checked(_presentationEpoch + 1) : 0;
+        _hasPresentationEpoch = true;
+        _scrollbackJournal.StartEpoch(_presentationEpoch);
+        _hasPreviousFrame = false;
+        return _presentationEpoch;
+    }
+
+    /// <summary>Publishes external-process output through the same ordered lease queue and invalidates the live anchor.</summary>
+    public void PublishExternalOutput(ReadOnlySpan<char> output)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_aborted) throw new InvalidOperationException("The managed terminal presentation is aborted.");
+        var state = _publisher.State with { Certainty = TerminalCertainty.Uncertain };
+        var result = _publisher.TryPublish(output, acceptedState: state);
+        if (result.Status != TerminalWriteStatus.Written)
+            throw new InvalidOperationException("External terminal output was not completely accepted.", result.Error);
+    }
+
+    /// <summary>Applies the explicit policy for a model edit that targets terminal-visible committed history.</summary>
+    public ManagedHistoryRebaseResult RebaseCommittedHistory(ManagedTerminalRecoveryPolicy policy)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (policy == ManagedTerminalRecoveryPolicy.ClearAndReplay &&
+            (_capabilities.Features & ManagedTerminalFeatures.ClearScrollback) == 0)
+            return new(ManagedHistoryRebaseStatus.Failed, _presentationEpoch,
+                new NotSupportedException("Clear-and-replay requires a terminal that supports clearing saved history."));
+        if (policy == ManagedTerminalRecoveryPolicy.Abort)
+        {
+            _aborted = true;
+            return new(ManagedHistoryRebaseStatus.Aborted, _presentationEpoch);
+        }
+        var epoch = _hasPresentationEpoch ? checked(_presentationEpoch + 1) : 0;
+        try
+        {
+            WriteFrame(output =>
+            {
+                BeginFrame(output);
+                // After an uncertain page write, the accepted mode flag cannot establish
+                // which buffer is active. Explicitly select the normal buffer for recovery.
+                if (policy != ManagedTerminalRecoveryPolicy.SwitchToAlternateScreen)
+                    output.Write(LeaveAlternateScreen);
+                if (policy == ManagedTerminalRecoveryPolicy.ClearAndReplay) output.Write(ClearScrollback);
+                else if (policy == ManagedTerminalRecoveryPolicy.SwitchToAlternateScreen) output.Write(EnterAlternateScreen);
+                else
+                {
+                    AnsiGridRenderer.WriteCursorMove(0, Math.Max(0, _terminal.GetSize().Height - 1), output);
+                    output.Write(VisibleEpochBoundary);
+                    for (var row = 0; row < _terminal.GetSize().Height - 1; row++) output.Write("\r\n");
+                }
+                output.Write(ClearScreenAndCursorHome);
+                EndFrame(output);
+            }, recovery: true, acceptedState: new TerminalPresentationState(
+                epoch, 0, 0, 0, 0, false, TerminalCertainty.Known));
+            _presentationEpoch = epoch;
+            _hasPresentationEpoch = true;
+            _scrollbackJournal.StartEpoch(epoch);
+            _hasPreviousFrame = false;
+            _liveTop = _liveHeight = 0;
+            _liveAnchorKnown = false;
+            _alternateScreen = policy == ManagedTerminalRecoveryPolicy.SwitchToAlternateScreen;
+            _recoveryAlternateScreen = _alternateScreen;
+            return new(ManagedHistoryRebaseStatus.Written, epoch);
+        }
+        catch (TerminalBackpressureException exception)
+        {
+            return new(ManagedHistoryRebaseStatus.Backpressured, _presentationEpoch, exception);
+        }
+        catch (Exception exception)
+        {
+            return new(ManagedHistoryRebaseStatus.Failed, _presentationEpoch, exception);
+        }
+    }
+
+    /// <summary>Enters or leaves a temporary full-screen page without discarding normal-screen history.</summary>
+    /// <param name="fullScreen">Whether the page surface should own the alternate screen.</param>
+    public void SetFullScreen(bool fullScreen)
+    {
+        if (_recoveryAlternateScreen) return;
+        if (_alternateScreen == fullScreen) return;
+        WriteFrame(output => output.Write(fullScreen ? EnterAlternateScreen : LeaveAlternateScreen));
+        if (fullScreen)
+        {
+            _normalLiveTop = _liveTop;
+            _normalLiveHeight = _liveHeight;
+            _liveTop = _liveHeight = 0;
+            _liveAnchorKnown = false;
+        }
+        else
+        {
+            _liveTop = _normalLiveTop;
+            _liveHeight = _normalLiveHeight;
+            _liveAnchorKnown = true;
+        }
+        _alternateScreen = fullScreen;
+        _hasPreviousFrame = false;
+    }
+
+    /// <summary>Publishes terminal shutdown controls through the ordered publisher.</summary>
+    public TerminalWriteResult Shutdown()
+    {
+        if (_shutdown) return TerminalWriteResult.Written;
+        _output.Clear();
+        if (_alternateScreen) _output.Write(LeaveAlternateScreen);
+        if ((_capabilities.Features & ManagedTerminalFeatures.ControllableAutowrap) != 0) _output.Write(EnableAutowrap);
+        _output.Write(ShowHardwareCursor);
+        var result = _publisher.TryPublish(_output.WrittenSpan,
+            acceptedState: _publisher.State with { CursorVisible = true });
+        _output.Clear();
+        if (result.Status == TerminalWriteStatus.Written)
+            _shutdown = true;
+        return result;
+    }
+
+    private void PatchChangedRuns(TerminalSize size, int usedLines)
+    {
+        var acceptedHardwareCursorRow = _hardwareCursorRow;
+        WriteFrame(output =>
+        {
+            BeginFrame(output);
+            var diffStart = PerformanceSink is null ? 0 : Stopwatch.GetTimestamp();
+            _lastDiffMetrics = AnsiGridRenderer.WriteDifferential(_previousBuffer!, _currentBuffer!, output, default, _liveTop, Math.Max(_liveHeight, usedLines));
+            _lastDiffDuration = PerformanceSink is null ? TimeSpan.Zero : Stopwatch.GetElapsedTime(diffStart);
+            WriteCursorState(output, _currentBuffer!.Grid, usedLines, _liveTop, ref acceptedHardwareCursorRow);
+            EndFrame(output);
+        }, acceptedState: AcceptedState(size,
+            TrackHardwareCursor && _currentBuffer!.Grid.HasTerminalCursor
+                ? _liveTop + Math.Clamp(_currentBuffer.Grid.TerminalCursorY, 0, Math.Max(0, usedLines - 1))
+                : acceptedHardwareCursorRow,
+            TrackHardwareCursor && _currentBuffer!.Grid.HasTerminalCursor) with { LiveHeight = usedLines });
+        _liveHeight = usedLines;
+        _hardwareCursorRow = acceptedHardwareCursorRow;
+        CommitFrame(size, usedLines);
+    }
+
+    private void BoundedRender(TerminalSize size, int usedLines)
+    {
+        _lastFullRepaint = true;
+        var cursorRow = Math.Max(0, usedLines - 1);
+        WriteFrame(output =>
+        {
+            output.Write('\r');
+            WriteBoundedLines(output, _currentBuffer!.Grid, usedLines);
+        }, acceptedState: AcceptedState(size, cursorRow, false));
+        _hardwareCursorRow = cursorRow;
+        CommitFrame(size, usedLines);
+    }
+
+    private void Recover(TerminalSize size, int usedLines) => Recover(size, usedLines, _recoveryPolicy);
+
+    private void Recover(TerminalSize size, int usedLines, ManagedTerminalRecoveryPolicy policy)
+    {
+        switch (policy)
+        {
+            case ManagedTerminalRecoveryPolicy.ClearAndReplay:
+                if ((_capabilities.Features & ManagedTerminalFeatures.ClearScrollback) == 0)
+                    throw new InvalidOperationException("Clear-and-replay recovery requires explicit CSI 3 J capability.");
+                StartPresentationEpoch();
+                FullRender(size, usedLines, FullRenderClearMode.Screen, recovery: true);
+                break;
+            case ManagedTerminalRecoveryPolicy.VisibleEpochBoundary:
+                StartPresentationEpoch();
+                WriteFrame(output =>
+                {
+                    output.Write(VisibleEpochBoundary);
+                    if (_splitFooterEnabled) output.Write(ClearScreenAndCursorHome);
+                    WriteLines(output, _currentBuffer!.Grid, 0, usedLines - 1);
+                }, recovery: true, acceptedState: AcceptedState(size, Math.Max(0, usedLines - 1), false));
+                CommitFrame(size, usedLines);
+                break;
+            case ManagedTerminalRecoveryPolicy.SwitchToAlternateScreen:
+                StartPresentationEpoch();
+                WriteFrame(output =>
+                {
+                    output.Write(EnterAlternateScreen);
+                    output.Write(ClearScreenAndCursorHome);
+                    WriteLines(output, _currentBuffer!.Grid, 0, usedLines - 1);
+                }, recovery: true, acceptedState: AcceptedState(size, Math.Max(0, usedLines - 1), false));
+                _alternateScreen = true;
+                _recoveryAlternateScreen = true;
+                CommitFrame(size, usedLines);
+                break;
+            case ManagedTerminalRecoveryPolicy.Abort:
+                _aborted = true;
+                throw new InvalidOperationException("Managed terminal output aborted after terminal state became uncertain.");
+        }
+    }
+
+    private void PublishRenderCompleted(
         IHpdTuiPerformanceEventSink? sink,
         long startTimestamp,
-        int rowsRendered,
-        int segmentsWritten)
+        TimeSpan displayDuration,
+        TimeSpan rasterDuration,
+        bool backpressured,
+        TuiFrameInstrumentation? instrumentation)
     {
+        if (!backpressured && _lastOutputCharacters == 0)
+            PerformanceCounters?.RecordFrameSuppressed();
         if (sink is null)
         {
             return;
         }
 
-        sink.Publish(new TuiRenderCompleted(
-            "managed-terminal",
-            Stopwatch.GetElapsedTime(startTimestamp),
-            rowsRendered,
-            segmentsWritten,
-            CacheHits: 0,
-            CacheMisses: 0));
+        sink.Publish(new TuiFrameDiagnostics(
+            SchedulingDelay: _schedulingDelay,
+            LayoutDuration: instrumentation?.LayoutDuration ?? TimeSpan.Zero,
+            DisplayListDuration: displayDuration,
+            RasterDuration: rasterDuration,
+            DiffDuration: _lastDiffDuration,
+            EncodeDuration: _lastEncodeDuration - _lastDiffDuration,
+            OutputDuration: _lastOutputDuration,
+            ComponentsMeasured: instrumentation?.ComponentsMeasured ?? 0,
+            ComponentsPainted: _displayList.ComponentsPainted,
+            DisplayCommandsReused: _displayList.CommandsReused,
+            DisplayCommandsBuilt: _displayList.CommandsBuilt,
+            RowsDamaged: _displayList.DamagedRowCount,
+            RowsFingerprintRejected: _lastDiffMetrics.RowsFingerprintRejected,
+            RowsSemanticallyCompared: _lastDiffMetrics.RowsSemanticallyCompared,
+            ChangedRuns: _lastDiffMetrics.ChangedRuns,
+            CellsCompared: _lastDiffMetrics.CellsCompared,
+            CellsChanged: _lastDiffMetrics.CellsChanged,
+            OutputCharacters: _lastOutputCharacters,
+            FullRepaint: _lastFullRepaint,
+            Backpressured: backpressured));
     }
 
-    private void FullRender(TerminalSize size, int usedLines, FullRenderClearMode clearMode)
-    {
-        var viewportTop = GetViewportTop(usedLines, size.Height);
-        WriteFrame(BuildFullFrame);
-
-        _previousViewportTop = viewportTop;
-        _hardwareCursorRow = Math.Max(0, usedLines - 1);
-        CommitFrame(size, _currentGrid!.Height, usedLines);
-        PositionHardwareCursor(_previousGrid!, usedLines);
-
-        void BuildFullFrame(AnsiFrameWriter output)
-        {
-            output.Write(BeginSynchronizedOutput);
-            if (clearMode == FullRenderClearMode.Screen)
-            {
-                output.Write(ClearScreenAndCursorHome);
-            }
-            else if (clearMode == FullRenderClearMode.ScreenAndScrollback)
-            {
-                output.Write(ClearScreenCursorHomeAndScrollback);
-            }
-
-            WriteLines(output, _currentGrid!, 0, usedLines - 1);
-            output.Write(EndSynchronizedOutput);
-        }
-    }
-
-    private void PatchChangedLines(
+    private void FullRender(
         TerminalSize size,
-        int firstChanged,
-        int lastChanged,
-        int usedLines)
+        int usedLines,
+        FullRenderClearMode clearMode,
+        ScrollbackBatch? scrollback = null,
+        bool recovery = false)
     {
-        if (firstChanged >= usedLines)
+        var liveHeight = Math.Clamp(usedLines, 1, size.Height);
+        var oldTop = clearMode == FullRenderClearMode.Screen && scrollback is null ? 0 :
+            Math.Clamp(_liveTop, 0, size.Height - 1);
+        var rowCount = scrollback?.Rows.Count ?? 0;
+        var liveTop = (int)Math.Min((long)oldTop + rowCount, size.Height - liveHeight);
+        var cursorRow = liveTop + Math.Clamp(_currentBuffer!.Grid.TerminalCursorY, 0, liveHeight - 1);
+        var watermark = scrollback is null ? _publisher.State.CommittedWatermark :
+            checked(scrollback.FirstSequence + rowCount);
+        _lastFullRepaint = true;
+        _lastDiffMetrics = new(liveHeight, 0, 0, liveHeight, size.Width * liveHeight, size.Width * liveHeight);
+        WriteFrame(output =>
         {
-            FullRender(size, usedLines, FullRenderClearMode.ScreenAndScrollback);
-            return;
-        }
-
-        var viewportTop = _previousViewportTop;
-        var appendStart = firstChanged == _previousUsedLineCount && firstChanged > 0;
-        var targetRow = appendStart ? firstChanged - 1 : firstChanged;
-        var viewportBottom = viewportTop + size.Height - 1;
-        var renderEnd = Math.Min(lastChanged, usedLines - 1);
-        var viewportTopAfterBuild = viewportTop;
-        WriteFrame(BuildPatchFrame);
-
-        _hardwareCursorRow = renderEnd;
-        _previousViewportTop = Math.Max(viewportTopAfterBuild, GetViewportTop(usedLines, size.Height));
-        CommitFrame(size, _currentGrid!.Height, usedLines);
-        PositionHardwareCursor(_previousGrid!, usedLines);
-
-        void BuildPatchFrame(AnsiFrameWriter output)
-        {
-            var frameViewportTop = viewportTop;
-            var frameHardwareCursorRow = _hardwareCursorRow;
-            output.Write(BeginSynchronizedOutput);
-
-            if (targetRow > viewportBottom)
+            BeginFrame(output);
+            output.Write(HideHardwareCursor);
+            output.Write(DisableAutowrap);
+            if (recovery && (_capabilities.Features & ManagedTerminalFeatures.ClearScrollback) != 0)
+                output.Write(ClearScrollback);
+            if (clearMode == FullRenderClearMode.Screen && scrollback is null)
+                output.Write(ClearScreenAndCursorHome);
+            AnsiGridRenderer.WriteCursorMove(0, oldTop, output);
+            output.Write("\x1b[J");
+            if (scrollback is not null)
             {
-                MoveToRow(output, viewportBottom, frameViewportTop, ref frameHardwareCursorRow);
-
-                var scrollRows = targetRow - viewportBottom;
-                for (var i = 0; i < scrollRows; i++)
+                foreach (var row in scrollback.Rows)
                 {
+                    output.Write("\x1b[2K");
+                    AnsiGridRenderer.WriteScrollbackRow(row, output);
                     output.Write("\r\n");
                 }
-
-                frameViewportTop += scrollRows;
-                frameHardwareCursorRow = targetRow;
             }
-            else
+            // Reserve only the actual live height. Full-screen line feeds preserve history
+            // on terminals that discard rows when a partial scroll region is used.
+            for (var row = 1; row < liveHeight; row++) output.Write("\r\n");
+            for (var row = 0; row < liveHeight; row++)
             {
-                MoveToRow(output, targetRow, frameViewportTop, ref frameHardwareCursorRow);
+                AnsiGridRenderer.WriteCursorMove(0, liveTop + row, output);
+                output.Write("\x1b[2K");
+                AnsiGridRenderer.WriteLine(_currentBuffer.Grid, row, output);
             }
-
-            if (appendStart)
-            {
-                output.Write("\r\n");
-
-                frameViewportTop = Math.Max(frameViewportTop, GetViewportTop(usedLines, size.Height));
-                frameHardwareCursorRow = firstChanged;
-            }
-            else
-            {
-                output.Write('\r');
-            }
-
-            WriteLines(output, _currentGrid!, firstChanged, renderEnd);
-            output.Write(EndSynchronizedOutput);
-
-            viewportTopAfterBuild = frameViewportTop;
-        }
+            WriteCursorState(output, _currentBuffer.Grid, liveHeight, liveTop, ref cursorRow);
+            output.Write(EnableAutowrap);
+            EndFrame(output);
+        }, recovery, containsScrollback: scrollback is not null,
+            acceptedState: new TerminalPresentationState(_presentationEpoch, watermark,
+                liveTop, liveHeight, cursorRow,
+                TrackHardwareCursor && _currentBuffer.Grid.HasTerminalCursor, TerminalCertainty.Known));
+        _liveAnchorKnown = true;
+        _liveTop = liveTop;
+        _liveHeight = liveHeight;
+        _hardwareCursorRow = cursorRow;
+        if (scrollback is not null) PerformanceCounters?.RecordScrollbackCommitted(rowCount);
+        CommitFrame(size, usedLines);
     }
 
-    private void MoveToRow(AnsiFrameWriter output, int targetRow, int viewportTop)
+    private ValueTask<ScrollbackCommitResult> PublishScrollbackAsync(
+        ScrollbackBatch batch,
+        ScrollbackCommitOptions options,
+        CancellationToken cancellationToken)
     {
-        var hardwareCursorRow = _hardwareCursorRow;
-        MoveToRow(output, targetRow, viewportTop, ref hardwareCursorRow);
-        _hardwareCursorRow = hardwareCursorRow;
+        cancellationToken.ThrowIfCancellationRequested();
+        try
+        {
+            if (!TerminalCertain && options.RecoveryPolicy == ManagedTerminalRecoveryPolicy.Abort)
+                return ValueTask.FromResult(new ScrollbackCommitResult(
+                    ScrollbackCommitStatus.Failed, batch.FirstSequence,
+                    new InvalidOperationException("Terminal state is uncertain and recovery policy is Abort.")));
+            FullRender(_terminal.GetSize(), TuiCapture.GetUsedLineCount(_currentBuffer!.Grid),
+                FullRenderClearMode.None, batch, recovery: !TerminalCertain);
+            return ValueTask.FromResult(new ScrollbackCommitResult(ScrollbackCommitStatus.Written,
+                checked(batch.FirstSequence + batch.Rows.Count)));
+        }
+        catch (TerminalBackpressureException)
+        {
+            return ValueTask.FromResult(new ScrollbackCommitResult(ScrollbackCommitStatus.Backpressured, batch.FirstSequence));
+        }
+        catch (Exception exception)
+        {
+            return ValueTask.FromResult(new ScrollbackCommitResult(ScrollbackCommitStatus.Failed, batch.FirstSequence, exception));
+        }
     }
 
-    private static void MoveToRow(AnsiFrameWriter output, int targetRow, int viewportTop, ref int hardwareCursorRow)
+    private void PublishCursorOnlyIfChanged(TerminalGrid grid, int lineCount)
     {
-        var currentScreenRow = hardwareCursorRow - viewportTop;
-        var targetScreenRow = targetRow - viewportTop;
-        var rowDelta = targetScreenRow - currentScreenRow;
-        if (rowDelta > 0)
-        {
-            output.Write("\x1b[");
-            output.WriteInt(rowDelta);
-            output.Write('B');
-        }
-        else if (rowDelta < 0)
-        {
-            output.Write("\x1b[");
-            output.WriteInt(-rowDelta);
-            output.Write('A');
-        }
+        var previous = _previousBuffer!.Grid;
+        var previousVisible = TrackHardwareCursor && previous.HasTerminalCursor;
+        var currentVisible = TrackHardwareCursor && grid.HasTerminalCursor;
+        if (previousVisible == currentVisible &&
+            (!currentVisible ||
+             (grid.TerminalCursorX == previous.TerminalCursorX && grid.TerminalCursorY == previous.TerminalCursorY)))
+            return;
 
-        hardwareCursorRow = targetRow;
+        var hardwareRow = currentVisible ? _liveTop + Math.Clamp(grid.TerminalCursorY, 0, Math.Max(0, lineCount - 1)) : _hardwareCursorRow;
+        WriteFrame(output =>
+        {
+            BeginFrame(output);
+            WriteCursorState(output, grid, lineCount, _liveTop, ref hardwareRow);
+            EndFrame(output);
+        }, acceptedState: _publisher.State with
+        {
+            CursorRow = hardwareRow,
+            CursorVisible = currentVisible,
+            Certainty = TerminalCertainty.Known
+        });
+        _hardwareCursorRow = hardwareRow;
     }
 
-    private void PositionHardwareCursor(TerminalGrid grid, int lineCount)
+    private void WriteCursorState(
+        AnsiFrameWriter output,
+        TerminalGrid grid,
+        int lineCount,
+        int viewportTop,
+        ref int hardwareCursorRow)
     {
         if (!TrackHardwareCursor || !grid.HasTerminalCursor || lineCount <= 0)
         {
-            _terminal.HideCursor();
+            output.Write(HideHardwareCursor);
             return;
         }
 
         var targetRow = Math.Clamp(grid.TerminalCursorY, 0, Math.Max(0, lineCount - 1));
-        var currentScreenRow = _hardwareCursorRow - _previousViewportTop;
-        var targetScreenRow = targetRow - _previousViewportTop;
-        var rowDelta = targetScreenRow - currentScreenRow;
-        _output.Clear();
-        if (rowDelta > 0)
-        {
-            _output.Write("\x1b[");
-            _output.WriteInt(rowDelta);
-            _output.Write('B');
-        }
-        else if (rowDelta < 0)
-        {
-            _output.Write("\x1b[");
-            _output.WriteInt(-rowDelta);
-            _output.Write('A');
-        }
-
-        _output.Write("\x1b[");
-        _output.WriteInt(grid.TerminalCursorX + 1);
-        _output.Write('G');
-        _output.FlushTo(_terminal);
-        _hardwareCursorRow = targetRow;
-        _terminal.ShowCursor();
+        AnsiGridRenderer.WriteCursorMove(grid.TerminalCursorX, targetRow + viewportTop, output);
+        output.Write(ShowHardwareCursor);
+        hardwareCursorRow = targetRow + viewportTop;
     }
 
-    private void CommitFrame(TerminalSize size, int captureHeight, int usedLines)
+    private void CommitFrame(TerminalSize size, int usedLines)
     {
-        (_currentGrid, _previousGrid) = (_previousGrid, _currentGrid);
+        (_currentBuffer, _previousBuffer) = (_previousBuffer, _currentBuffer);
         _previousWidth = size.Width;
         _previousHeight = size.Height;
-        _previousUsedLineCount = usedLines;
         _hasPreviousFrame = true;
     }
 
-    private static int GetViewportTop(int lineCount, int height)
+    private void WriteFrame(
+        FrameBuilder builder,
+        bool recovery = false,
+        bool containsScrollback = false,
+        TerminalPresentationState? acceptedState = null)
     {
-        return Math.Max(0, lineCount - height);
+        if (!TerminalCertain && !recovery)
+            throw new InvalidOperationException("Terminal state is uncertain; this renderer cannot safely publish another frame.");
+        _output.Clear();
+        var encodeStart = PerformanceSink is null ? 0 : Stopwatch.GetTimestamp();
+        builder(_output);
+        _lastEncodeDuration += PerformanceSink is null ? TimeSpan.Zero : Stopwatch.GetElapsedTime(encodeStart);
+        _lastOutputCharacters += _output.Length;
+        var outputStart = PerformanceSink is null ? 0 : Stopwatch.GetTimestamp();
+        var result = _publisher.TryPublish(_output.WrittenSpan, acceptedState: acceptedState);
+        _lastOutputDuration += PerformanceSink is null ? TimeSpan.Zero : Stopwatch.GetElapsedTime(outputStart);
+        _output.Clear();
+        if (result.Status == TerminalWriteStatus.Failed)
+        {
+            _scrollbackUncertain |= containsScrollback;
+            throw new InvalidOperationException("Managed terminal publication failed; terminal state is uncertain.", result.Error);
+        }
+        if (result.Status == TerminalWriteStatus.Backpressured)
+            throw new TerminalBackpressureException();
+        if (recovery)
+        {
+            _scrollbackUncertain = false;
+        }
     }
 
-    private void WriteFrame(FrameBuilder builder)
+    private void ResetPublicationMetrics()
     {
-        _output.Clear();
-        builder(_output);
-        _output.FlushTo(_terminal);
+        _lastEncodeDuration = TimeSpan.Zero;
+        _lastDiffDuration = TimeSpan.Zero;
+        _lastOutputDuration = TimeSpan.Zero;
+        _lastDiffMetrics = default;
+        _lastOutputCharacters = 0;
+        _lastFullRepaint = false;
+    }
+
+    private void MarkUncertain()
+    {
+        var result = _publisher.TryPublish(ReadOnlySpan<char>.Empty,
+            acceptedState: _publisher.State with { Certainty = TerminalCertainty.Uncertain });
+        if (result.Status != TerminalWriteStatus.Written)
+            throw new InvalidOperationException("Could not serialize the terminal uncertainty transition.", result.Error);
+    }
+
+    private void BeginFrame(AnsiFrameWriter output)
+    {
+        if ((_capabilities.Features & ManagedTerminalFeatures.SynchronizedOutput) != 0)
+            output.Write(BeginSynchronizedOutput);
+        output.Write(DisableAutowrap);
+    }
+
+    private void EndFrame(AnsiFrameWriter output)
+    {
+        output.Write(EnableAutowrap);
+        if ((_capabilities.Features & ManagedTerminalFeatures.SynchronizedOutput) != 0)
+            output.Write(EndSynchronizedOutput);
     }
 
     private delegate void FrameBuilder(AnsiFrameWriter output);
 
+    private TerminalPresentationState AcceptedState(
+        TerminalSize size,
+        int cursorRow,
+        bool cursorVisible,
+        long? watermark = null) => new(
+            _presentationEpoch,
+            watermark ?? _publisher.State.CommittedWatermark,
+            _liveTop,
+            _liveHeight,
+            cursorRow,
+            cursorVisible,
+            TerminalCertainty.Known);
+
     private enum FullRenderClearMode
     {
         None,
-        Screen,
-        ScreenAndScrollback
+        Screen
     }
 
     private static void WriteLines(
@@ -324,58 +715,29 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         }
     }
 
-    private static (int First, int Last) FindChangedLineRange(
-        TerminalGrid previous,
-        TerminalGrid current,
-        int previousUsedLines,
-        int currentUsedLines)
+    private static void WriteBoundedLines(AnsiFrameWriter output, TerminalGrid grid, int lineCount)
     {
-        var count = Math.Max(previousUsedLines, currentUsedLines);
-        var first = -1;
-        var last = -1;
-        for (var y = 0; y < count; y++)
+        for (var y = 0; y < lineCount; y++)
         {
-            if (y < previousUsedLines &&
-                y < currentUsedLines &&
-                RowsEqual(previous, current, y))
-            {
-                continue;
-            }
-
-            first = first < 0 ? y : first;
-            last = y;
+            if (y > 0) output.Write("\r\n");
+            AnsiGridRenderer.WriteLine(grid, y, output);
         }
-
-        return (first, last);
     }
 
-    private static bool RowsEqual(TerminalGrid previous, TerminalGrid current, int y)
+    private void EnsureBuffer(int width, int height)
     {
-        for (var x = 0; x < current.Width; x++)
-        {
-            if (current.GetCell(x, y) != previous.GetCell(x, y))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private void EnsureGrid(int width, int virtualHeight)
-    {
-        if (_currentGrid is not null &&
-            _previousGrid is not null &&
-            _currentGrid.Width == width &&
-            _currentGrid.Height == virtualHeight)
+        if (_currentBuffer is not null &&
+            _previousBuffer is not null &&
+            _currentBuffer.Width == width &&
+            _currentBuffer.Height == height)
         {
             return;
         }
 
-        _currentGrid?.Dispose();
-        _previousGrid?.Dispose();
-        _currentGrid = new TerminalGrid(width, virtualHeight);
-        _previousGrid = new TerminalGrid(width, virtualHeight);
+        _currentBuffer?.Dispose();
+        _previousBuffer?.Dispose();
+        _currentBuffer = new ScreenBuffer(width, height);
+        _previousBuffer = new ScreenBuffer(width, height);
         _hasPreviousFrame = false;
     }
 
@@ -386,9 +748,17 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
             return;
         }
 
+        var shutdown = Shutdown();
+        if (shutdown.Status == TerminalWriteStatus.Backpressured)
+            throw new InvalidOperationException("Managed terminal shutdown is backpressured; wait for writability and retry before disposing.");
+        if (shutdown.Status == TerminalWriteStatus.Failed)
+            throw new InvalidOperationException("Managed terminal shutdown failed; terminal state is uncertain.", shutdown.Error);
         _disposed = true;
+        _displayList.Dispose();
         _output.Dispose();
-        _currentGrid?.Dispose();
-        _previousGrid?.Dispose();
+        _currentBuffer?.Dispose();
+        _previousBuffer?.Dispose();
     }
 }
+
+internal sealed class TerminalBackpressureException : Exception;

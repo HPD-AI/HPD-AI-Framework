@@ -47,6 +47,8 @@ public static class ThreadEventStoreExtensions
                 thread.MiddlewareState));
         }
 
+        events.AddRange(Planning.PlanJournalSnapshots.Create(thread));
+
         await store.AppendThreadEventsAsync(
             new ThreadKey(sessionId, thread.Id),
             events,

@@ -4,7 +4,7 @@ using HPD.TUI.Utilities;
 
 namespace HPD.TUI.Views;
 
-public sealed class ActivityGroupView : IComponent
+public sealed class ActivityGroupView : Component, IAnimationParticipant
 {
     private readonly ActivityGroupModel _model;
 
@@ -19,13 +19,21 @@ public sealed class ActivityGroupView : IComponent
 
     public bool AnimationsEnabled { get; init; } = true;
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    /// <inheritdoc />
+    public bool IsAnimationActive => AnimationsEnabled && _model.GetVisibleActivities().Any(static activity => activity.IsIndeterminate);
+
+    /// <inheritdoc />
+    public TimeSpan AnimationInterval => TimeSpan.FromMilliseconds(80);
+
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         var width = string.IsNullOrEmpty(_model.Title) ? 0 : UnicodeWidth.GetWidth(_model.Title);
         var activities = _model.GetVisibleActivities();
         foreach (var activity in activities)
         {
-            width = Math.Max(width, new ActivityView(activity).Measure(in context, maxWidth).MaxWidth);
+            width = Math.Max(width, new ActivityView(activity).Measure(in context,
+                HPD.TUI.Layout.LayoutConstraints.Loose(maxWidth, context.Height)).MaxWidth);
         }
 
         width = Math.Min(width, maxWidth);
@@ -39,8 +47,9 @@ public sealed class ActivityGroupView : IComponent
         return new Measurement(width, width, height);
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         if (maxWidth <= 0)
         {
             return;
@@ -70,17 +79,17 @@ public sealed class ActivityGroupView : IComponent
         RenderDetailed(activities, in context, maxWidth, ref output);
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         return false;
     }
 
-    private void RenderDetailed(IReadOnlyList<ActivityModel> activities, in RenderContext context, int maxWidth, ref SegmentWriter output)
+    private void RenderDetailed(IReadOnlyList<ActivityModel> activities, in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         for (var i = 0; i < activities.Count; i++)
         {
             var view = new ActivityView(activities[i]) { AnimationsEnabled = AnimationsEnabled };
-            view.Render(in context, maxWidth, ref output);
+            output.Render(view, in context, maxWidth);
             if (i < activities.Count - 1)
             {
                 output.WriteLineBreak();
@@ -88,7 +97,7 @@ public sealed class ActivityGroupView : IComponent
         }
     }
 
-    private static void RenderCompact(IReadOnlyList<ActivityModel> activities, in RenderContext context, int maxWidth, ref SegmentWriter output)
+    private static void RenderCompact(IReadOnlyList<ActivityModel> activities, in RenderContext context, int maxWidth, ref DisplayListBuilder output)
     {
         var running = 0;
         var completed = 0;
@@ -127,7 +136,7 @@ public sealed class ActivityGroupView : IComponent
         WriteClipped(text, maxWidth, style, ref output);
     }
 
-    private static void WriteClipped(string value, int maxWidth, Style style, ref SegmentWriter output)
+    private static void WriteClipped(string value, int maxWidth, Style style, ref DisplayListBuilder output)
     {
         if (maxWidth <= 0)
         {

@@ -1,6 +1,8 @@
+using HPD.TUI.Markdown;
 using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Commands;
 using HPD.Agent.TUI.Interactions;
+using HPD.Agent.TUI.Markdown;
 using HPD.Agent.TUI.Models;
 using HPD.Agent.TUI.Views;
 using HPD.TUI.Components;
@@ -30,10 +32,29 @@ public sealed class HpdAgentTuiBuilder
     private IAgentTuiShellLayout? _shellLayout;
     private AgentTuiShellChrome _shellChrome = new();
     private Theme? _theme;
+    private MarkdownTheme? _markdownTheme;
+    private MarkdownTheme? _reasoningMarkdownTheme;
     private bool _includeSlashCommandAutocomplete;
     private AgentTuiRunConfigComposer? _runConfigComposer;
     private IAgentTuiThreadStateReconciler? _threadStateReconciler;
     private TranscriptHistoryPresentation _transcriptHistoryPresentation;
+    private bool _showReasoning = true;
+    private MarkdownIncompleteLinePolicy _markdownIncompleteLinePolicy = MarkdownIncompleteLinePolicy.StreamRich;
+
+    /// <summary>Controls whether reasoning events are projected into the transcript.</summary>
+    public HpdAgentTuiBuilder ShowReasoning(bool show = true)
+    {
+        _showReasoning = show;
+        return this;
+    }
+
+    /// <summary>Chooses how incomplete live Markdown lines are presented.</summary>
+    public HpdAgentTuiBuilder UseMarkdownIncompleteLinePolicy(MarkdownIncompleteLinePolicy policy)
+    {
+        if (!Enum.IsDefined(policy)) throw new ArgumentOutOfRangeException(nameof(policy));
+        _markdownIncompleteLinePolicy = policy;
+        return this;
+    }
 
     public HpdAgentTuiBuilder UseTranscriptHistoryPresentation(
         TranscriptHistoryPresentation presentation)
@@ -59,6 +80,20 @@ public sealed class HpdAgentTuiBuilder
         TryAddInteractionHandler<PermissionRequestEvent>(
             "hpd.permission",
             new PermissionRequestInteractionHandler(_permissionPresentationRenderers));
+        return this;
+    }
+
+    /// <summary>Adds queued human questions and durable question history for the selected scope.</summary>
+    public HpdAgentTuiBuilder AddQuestionInteraction(AgentTuiEventScope scope = AgentTuiEventScope.CurrentThread)
+    {
+        var handler = new UserQuestionInteractionHandler();
+        TryAddInteractionHandler<UserQuestionRequestEvent>("hpd.questions", handler, scope);
+        TryAddEventHandler("hpd.question-history", new QuestionTranscriptHandler(handler.Settle), scope);
+        AddSlashCommand(new HpdAgentTuiCommandDescriptor("questions", async context =>
+        {
+            var reopened = context.Shell.ReopenQuestionsAsync is { } reopen ? await reopen(CancellationToken.None) : 0;
+            if (reopened == 0) AgentTuiModelSelectionFlow.AppendNotice(context, "Questions", "No minimized questions are waiting.", TranscriptSeverity.Info);
+        }) { Title = "/questions", Description = "Reopen minimized questions without losing draft answers." });
         return this;
     }
 
@@ -157,7 +192,7 @@ public sealed class HpdAgentTuiBuilder
 
     public HpdAgentTuiBuilder AddDefaultShellCommands()
     {
-        TryAddPage(new HpdAgentTuiPageDescriptor("hpd.help", _ =>
+        TryAddPage(new HpdAgentTuiPageDescriptor("hpd.help", context =>
         {
             var commands = string.Join("\n", _commands.Values
                 .Where(static command => !command.Hidden)
@@ -171,7 +206,8 @@ public sealed class HpdAgentTuiBuilder
                     return $"- `/{command.SlashName}` {description}";
                 }));
 
-            return new Markdown($"**Commands**\n\n{commands}");
+            return HPD.TUI.Content.MarkdownBlock.Prepare(
+                $"**Commands**\n\n{commands}", context.Width, context.Theme, context.ColorSystem);
         })
         {
             Title = "Commands",
@@ -188,7 +224,7 @@ public sealed class HpdAgentTuiBuilder
             Description = "Show available shell commands.",
             Order = 600
         });
-        TryAddSlashCommand(new HpdAgentTuiCommandDescriptor("clear", context => context.Shell.Transcript.ClearAll())
+        TryAddSlashCommand(new HpdAgentTuiCommandDescriptor("clear", context => context.Shell.Transcript.ClearAll(CommittedHistoryMutationPolicy.Reject))
         {
             Title = "/clear",
             Description = "Clear the transcript.",
@@ -474,6 +510,26 @@ public sealed class HpdAgentTuiBuilder
         return this;
     }
 
+    /// <summary>Configures an independent Markdown palette for normal responses.</summary>
+    /// <param name="theme">Immutable element and code syntax styles to use for this application.</param>
+    /// <returns>This builder.</returns>
+    /// <remarks>The palette is fixed when the registry is built. Previously published terminal history
+    /// can only be recolored by an explicit new presentation and replay.</remarks>
+    public HpdAgentTuiBuilder UseMarkdownTheme(MarkdownTheme theme)
+    {
+        _markdownTheme = theme ?? throw new ArgumentNullException(nameof(theme));
+        return this;
+    }
+
+    /// <summary>Configures an independent Markdown palette for reasoning content.</summary>
+    /// <param name="theme">Immutable reasoning styles; these are not overwritten by UI muting.</param>
+    /// <returns>This builder.</returns>
+    public HpdAgentTuiBuilder UseReasoningMarkdownTheme(MarkdownTheme theme)
+    {
+        _reasoningMarkdownTheme = theme ?? throw new ArgumentNullException(nameof(theme));
+        return this;
+    }
+
     public HpdAgentTuiBuilder ConfigureShellChrome(Action<AgentTuiShellChrome> configure)
     {
         ArgumentNullException.ThrowIfNull(configure);
@@ -497,7 +553,7 @@ public sealed class HpdAgentTuiBuilder
         AgentTuiModelSelectionState selection)
     {
         ArgumentNullException.ThrowIfNull(selection);
-        return SetRunConfigComposer(_ => selection.ToRunConfig());
+        return SetRunConfigComposer(_ => new AgentTuiInputRunConfig(selection.ToRunConfig()));
     }
 
     public HpdAgentTuiBuilder AddModelSelectionCommand(
@@ -1039,10 +1095,14 @@ public sealed class HpdAgentTuiBuilder
             _shellLayout,
             _shellChrome,
             _theme,
+            _markdownTheme,
+            _reasoningMarkdownTheme,
             _includeSlashCommandAutocomplete,
             _runConfigComposer,
             _threadStateReconciler,
-            _transcriptHistoryPresentation);
+            _transcriptHistoryPresentation,
+            _showReasoning,
+            _markdownIncompleteLinePolicy);
     }
 
 }

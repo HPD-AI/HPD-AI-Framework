@@ -1961,6 +1961,7 @@ public sealed class ExecuteCommandTests : IDisposable
         public AgentEventCodec EventCodec => CodingEventTestCodec.Codec;
         public Task<Session?> LoadSessionAsync(string sessionId, CancellationToken cancellationToken = default) => Task.FromResult<Session?>(null);
         public Task SaveSessionAsync(Session session, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public ValueTask<SessionPreparationResult> TryPrepareSessionAsync(Session session, CancellationToken cancellationToken = default) => ValueTask.FromResult(SessionPreparationResult.Created);
         public Task<List<string>> ListSessionIdsAsync(CancellationToken cancellationToken = default) => Task.FromResult(new List<string>());
         public Task DeleteSessionAsync(string sessionId, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<Thread?> ProjectThreadAsync(string sessionId, string threadId, CancellationToken cancellationToken = default) => Task.FromResult<Thread?>(null);

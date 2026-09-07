@@ -103,6 +103,9 @@ internal static class ThreadDescriptorProjection
     {
         switch (evt)
         {
+            case SubAgentContextReceivedEvent context:
+                messageIds.Add(context.MessageId);
+                break;
             case ContentAddedEvent content when !string.IsNullOrWhiteSpace(content.MessageId):
                 messageIds.Add(content.MessageId);
                 break;
@@ -134,8 +137,11 @@ internal static class ThreadDescriptorProjection
         string? subAgentSourceKind,
         string? parentToolCallId,
         string? contextPolicy)
-        => parentSessionId is null && parentThreadId is null && subAgentName is null
+    {
+        AgentEventRoutes.ValidateParentPair(parentSessionId, parentThreadId);
+        return parentSessionId is null && parentThreadId is null && subAgentName is null
             ? null
             : new ThreadRuntimeChildDescriptor(parentSessionId, parentThreadId, subAgentName, invocationId,
                 subAgentSourceKind, parentToolCallId, contextPolicy, Status: null);
+    }
 }

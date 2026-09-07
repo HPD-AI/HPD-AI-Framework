@@ -35,7 +35,7 @@ public sealed class DefaultPromptStatusShellComponent : IAgentTuiShellComponent
         => new ShellText(context, static shell => shell.PromptStatusText);
 }
 
-internal sealed class ShellText : IComponent
+internal sealed class ShellText : Component
 {
     private readonly AgentTuiShellContext _context;
     private readonly Func<Models.ChatShellModel, string> _resolve;
@@ -46,20 +46,22 @@ internal sealed class ShellText : IComponent
         _resolve = resolve ?? throw new ArgumentNullException(nameof(resolve));
     }
 
-    public Measurement Measure(in RenderContext context, int maxWidth)
+    public override Measurement Measure(in RenderContext context, HPD.TUI.Layout.LayoutConstraints constraints)
     {
+        var maxWidth = constraints.MaxWidth;
         var value = _resolve(_context.Shell);
         var width = Math.Min(maxWidth, value.Length);
         return new Measurement(width, width);
     }
 
-    public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    public override void Render(in RenderContext context, ref DisplayListBuilder output)
     {
+        var maxWidth = output.MaxWidth;
         var value = _resolve(_context.Shell);
         output.Write(value.AsSpan(0, Math.Min(value.Length, maxWidth)), context.Theme.Text);
     }
 
-    public bool HandleInput(in TuiInputEvent key)
+    public override bool HandleInput(in TuiInputEvent key)
     {
         return false;
     }

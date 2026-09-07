@@ -12,6 +12,15 @@ namespace HPD.Agent.TUI.Tests;
 
 public sealed class ModelSelectionCommandTests
 {
+    [Fact]
+    public void ReasoningChoicesIntersectCatalogWithImplementedLevels()
+    {
+        var capabilities = new AgentTuiModelCapabilities(SupportsReasoning: true,
+            SupportedReasoningEfforts: ["low", "medium", "max", "ultra"], DefaultReasoningEffort: "medium");
+        AgentTuiModelConfigFlow.SelectableReasoningEfforts(capabilities).Should()
+            .Equal(ReasoningEffort.Low, ReasoningEffort.Medium);
+    }
+
     private static AgentTuiProviderChoice ProviderChoice(
         string providerKey,
         string displayName,
@@ -67,7 +76,7 @@ public sealed class ModelSelectionCommandTests
         var shell = new ChatShellModel(scope);
 
         await command.ExecuteAsync(new AgentTuiCommandContext(
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             shell,
             shell.Navigation,
             new NoopRuntime(),
@@ -81,12 +90,12 @@ public sealed class ModelSelectionCommandTests
         selection.Current.ModelId.Should().Be("deepseek/deepseek-chat");
 
         var runConfig = registry.RunConfigComposer!(new AgentTuiRunConfigContext(
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             shell,
             "hello"));
         runConfig.Should().NotBeNull();
-        runConfig!.Clients.Chat!.Provider!.Key.Should().Be("openrouter");
-        runConfig.Clients.Chat.ModelName.Should().Be("deepseek/deepseek-chat");
+        runConfig!.RunConfig!.Clients.Chat!.Provider!.Key.Should().Be("openrouter");
+        runConfig.RunConfig.Clients.Chat.ModelName.Should().Be("deepseek/deepseek-chat");
     }
 
     [Fact]
@@ -106,7 +115,7 @@ public sealed class ModelSelectionCommandTests
         var shell = new ChatShellModel(scope);
 
         await command.ExecuteAsync(new AgentTuiCommandContext(
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             shell,
             shell.Navigation,
             new NoopRuntime(),
@@ -134,7 +143,7 @@ public sealed class ModelSelectionCommandTests
         var shell = new ChatShellModel(scope);
 
         await command.ExecuteAsync(new AgentTuiCommandContext(
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             shell,
             shell.Navigation,
             new NoopRuntime(),
@@ -182,7 +191,7 @@ public sealed class ModelSelectionCommandTests
         var shell = new ChatShellModel(scope);
 
         await command.ExecuteAsync(new AgentTuiCommandContext(
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             shell,
             shell.Navigation,
             new NoopRuntime(),
@@ -229,7 +238,7 @@ public sealed class ModelSelectionCommandTests
         var shell = new ChatShellModel(scope);
 
         await command.ExecuteAsync(new AgentTuiCommandContext(
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             shell,
             shell.Navigation,
             new NoopRuntime(),
@@ -292,7 +301,7 @@ public sealed class ModelSelectionCommandTests
             inputs: []);
 
         await command.ExecuteAsync(new AgentTuiCommandContext(
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             shell,
             shell.Navigation,
             new NoopRuntime(),
@@ -336,7 +345,7 @@ public sealed class ModelSelectionCommandTests
         var dialogs = new QueuedDialogs(selections: [null], inputs: []);
 
         await command.ExecuteAsync(new AgentTuiCommandContext(
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             shell,
             shell.Navigation,
             new NoopRuntime(),
@@ -393,7 +402,7 @@ public sealed class ModelSelectionCommandTests
             inputs: []);
 
         await command.ExecuteAsync(new AgentTuiCommandContext(
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             shell,
             shell.Navigation,
             new NoopRuntime(),
@@ -454,7 +463,7 @@ public sealed class ModelSelectionCommandTests
             inputs: []);
 
         await command.ExecuteAsync(new AgentTuiCommandContext(
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             shell,
             shell.Navigation,
             new NoopRuntime(),
@@ -525,7 +534,7 @@ public sealed class ModelSelectionCommandTests
         var shell = new ChatShellModel(scope);
 
         await command.ExecuteAsync(new AgentTuiCommandContext(
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             shell,
             shell.Navigation,
             new NoopRuntime(),
@@ -575,7 +584,7 @@ public sealed class ModelSelectionCommandTests
         var shell = new ChatShellModel(scope);
 
         await command.ExecuteAsync(new AgentTuiCommandContext(
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             shell,
             shell.Navigation,
             new NoopRuntime(),
@@ -629,7 +638,7 @@ public sealed class ModelSelectionCommandTests
             inputs: []);
 
         await command.ExecuteAsync(new AgentTuiCommandContext(
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             shell,
             shell.Navigation,
             new NoopRuntime(),
@@ -677,7 +686,7 @@ public sealed class ModelSelectionCommandTests
         var shell = new ChatShellModel(scope);
 
         await command.ExecuteAsync(new AgentTuiCommandContext(
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             shell,
             shell.Navigation,
             new NoopRuntime(),
@@ -726,7 +735,7 @@ public sealed class ModelSelectionCommandTests
         var shell = new ChatShellModel(scope);
 
         await command.ExecuteAsync(new AgentTuiCommandContext(
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             shell,
             shell.Navigation,
             new NoopRuntime(),
@@ -790,7 +799,7 @@ public sealed class ModelSelectionCommandTests
         var shell = new ChatShellModel(scope);
 
         await command.ExecuteAsync(new AgentTuiCommandContext(
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             shell,
             shell.Navigation,
             new NoopRuntime(),
@@ -1134,20 +1143,20 @@ public sealed class ModelSelectionCommandTests
 
     private sealed class NoopRuntime : IHpdAgentTuiRuntime
     {
-        public Task<AgentTuiScopeResolution> ResolveInitialScopeAsync(
-            AgentTuiRuntimeScope? requested,
+        public Task<AgentTuiTargetResolution> ResolveInitialTargetAsync(
+            AgentTuiExecutionTarget? requested,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(new AgentTuiScopeResolution(
-                requested ?? new AgentTuiRuntimeScope("agent", "session", "main"),
+            => Task.FromResult(new AgentTuiTargetResolution(
+                requested ?? new DirectAgentTuiExecutionTarget(new AgentTuiRuntimeScope("agent", "session", "main")),
                 IsDurable: true));
 
-        public Task<AgentTuiRuntimeScope> EnsureDurableScopeAsync(
-            AgentTuiRuntimeScope scope,
+        public Task<AgentTuiExecutionTarget> EnsureDurableTargetAsync(
+            AgentTuiExecutionTarget target,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(scope);
+            => Task.FromResult(target);
 
         public async IAsyncEnumerable<AgentTuiEventBatch> ObserveAsync(
-            AgentTuiRuntimeScope scope,
+            AgentTuiExecutionTarget target,
             ThreadJournalCursor after,
             ThreadJournalCursor initialObservedCursor,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
@@ -1157,10 +1166,10 @@ public sealed class ModelSelectionCommandTests
         }
 
         public Task<AgentTuiSubmitResult> SubmitInputAsync(
-            AgentTuiRuntimeScope scope,
+            AgentTuiExecutionTarget target,
             AgentInputEvent input,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(Submitted(scope));
+            => Task.FromResult(Submitted(target.Scope));
 
         public Task<AgentRespondResult> AnswerRequestAsync(
             AgentTuiRuntimeScope scope,

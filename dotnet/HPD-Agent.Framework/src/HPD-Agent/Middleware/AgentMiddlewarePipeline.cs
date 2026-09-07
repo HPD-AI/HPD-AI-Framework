@@ -388,7 +388,7 @@ public class AgentMiddlewarePipeline
 
             handler = async (req) =>
             {
-                return await middleware.WrapFunctionCallAsync(req, previousHandler, cancellationToken)
+                return await middleware.WrapFunctionCallAsync(req, previousHandler, req.CancellationToken ?? cancellationToken)
                     .ConfigureAwait(false);
             };
         }
