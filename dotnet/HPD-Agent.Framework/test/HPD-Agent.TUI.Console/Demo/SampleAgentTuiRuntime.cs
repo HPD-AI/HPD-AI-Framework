@@ -13,20 +13,20 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
     private readonly object _gate = new();
     private AgentTuiThreadExecution? _activeExecution;
 
-    public Task<AgentTuiScopeResolution> ResolveInitialScopeAsync(
-        AgentTuiRuntimeScope? requested,
+    public Task<AgentTuiTargetResolution> ResolveInitialTargetAsync(
+        AgentTuiExecutionTarget? requested,
         CancellationToken cancellationToken = default)
-        => Task.FromResult(new AgentTuiScopeResolution(
-            requested ?? new AgentTuiRuntimeScope("sample-agent", "local-session", "main"),
+        => Task.FromResult(new AgentTuiTargetResolution(
+            requested ?? new DirectAgentTuiExecutionTarget(new AgentTuiRuntimeScope("sample-agent", "local-session", "main")),
             IsDurable: true));
 
-    public Task<AgentTuiRuntimeScope> EnsureDurableScopeAsync(
-        AgentTuiRuntimeScope scope,
+    public Task<AgentTuiExecutionTarget> EnsureDurableTargetAsync(
+        AgentTuiExecutionTarget target,
         CancellationToken cancellationToken = default)
-        => Task.FromResult(scope);
+        => Task.FromResult(target);
 
     public async IAsyncEnumerable<AgentTuiEventBatch> ObserveAsync(
-        AgentTuiRuntimeScope scope,
+        AgentTuiExecutionTarget target,
         ThreadJournalCursor after,
         ThreadJournalCursor initialObservedCursor,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
@@ -43,10 +43,11 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
     }
 
     public Task<AgentTuiSubmitResult> SubmitInputAsync(
-        AgentTuiRuntimeScope scope,
+        AgentTuiExecutionTarget target,
         AgentInputEvent input,
         CancellationToken cancellationToken = default)
     {
+        var scope = target.Scope;
         var executionId = Guid.NewGuid().ToString("N");
         var startedAt = DateTimeOffset.UtcNow;
         _activeExecution = new AgentTuiThreadExecution(executionId, scope.AgentId, scope.SessionId, scope.ThreadId, "active", startedAt);

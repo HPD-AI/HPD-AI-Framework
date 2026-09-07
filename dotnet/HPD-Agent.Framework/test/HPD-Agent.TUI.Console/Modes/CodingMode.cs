@@ -1,6 +1,7 @@
 using HPD.Agent.Sandbox.Local;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.TUI.Runtime;
+using HPD.Agent.TUI.Composition;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.TUI.Console.Modes;
@@ -57,7 +58,7 @@ internal static class CodingMode
         await using var runtime = new InMemoryAgentTuiRuntime(agent, scope);
         await using var app = HpdAgentTuiApp.Create(
             runtime,
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             tui => tui
                 .AddAgentTuiDefaults()
                 .AddConsoleBranding("coding")
@@ -68,7 +69,7 @@ internal static class CodingMode
                     runConfig.Context ??= new AgentContextRunConfig();
                     runConfig.Context.Properties ??= new Dictionary<string, object>();
                     runConfig.Context.Properties[AgentWorkspace.ContextKey] = workspace;
-                    return runConfig;
+                    return new AgentTuiInputRunConfig(runConfig);
                 })
                 .AddConsoleProviderCommands(providers)
                 .AddConsoleCodingAgent());

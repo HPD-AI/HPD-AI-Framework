@@ -179,20 +179,16 @@ public abstract class AgentManager : IAsyncDisposable
             }
 
             var agent = await BuildAgentAsync(agentId, ct);
-            IDisposable? liveEventBridge = null;
-            if (!string.Equals(cacheKey, agentId, StringComparison.Ordinal))
-            {
-                var liveEventHub = _runtimeEventHubs.GetOrAdd(cacheKey, static _ => new EventCoordinator());
-                liveEventBridge = agent.EventCoordinator.ForwardTo(
-                    liveEventHub,
-                    new EventForwardingOptions
-                    {
-                        Capacity = 4096,
-                        FullMode = System.Threading.Channels.BoundedChannelFullMode.Wait,
-                        EventType = typeof(AgentEvent),
-                        IncludeDerivedTypes = true
-                    });
-            }
+            var liveEventHub = _runtimeEventHubs.GetOrAdd(cacheKey, static _ => new EventCoordinator());
+            var liveEventBridge = agent.EventCoordinator.ForwardTo(
+                liveEventHub,
+                new EventForwardingOptions
+                {
+                    Capacity = 4096,
+                    FullMode = System.Threading.Channels.BoundedChannelFullMode.Wait,
+                    EventType = typeof(AgentEvent),
+                    IncludeDerivedTypes = true
+                });
             _agents[cacheKey] = new AgentEntry(agent, liveEventBridge);
             return agent;
         }

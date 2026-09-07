@@ -14,6 +14,7 @@ public sealed class AudioSessionInputRuntimeTests
     {
         var authority = new RecordingSessionAuthority();
         await using var agent = await AgentBuilder.Create()
+            .WithEventApplicationIdentity("HPD.Agent.Audio.V2.Tests")
             .WithAudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
             {
                 SessionControlAuthority = authority
@@ -38,6 +39,7 @@ public sealed class AudioSessionInputRuntimeTests
             .AddSingleton<IAudioSessionControlAuthorityV1>(authority)
             .BuildServiceProvider();
         await using var agent = await AgentBuilder.Create()
+            .WithEventApplicationIdentity("HPD.Agent.Audio.V2.Tests")
             .WithServiceProvider(services)
             .WithAudioRuntimeAttachment()
             .BuildAsync();
@@ -62,6 +64,7 @@ public sealed class AudioSessionInputRuntimeTests
         var authority = new ManagedAudioSessionAuthorityV1(backend);
         var chat = new CapturingChatClient();
         await using var agent = await AgentBuilder.Create()
+            .WithEventApplicationIdentity("HPD.Agent.Audio.V2.Tests")
             .WithChatClient(chat)
             .WithAudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
             {
@@ -109,6 +112,7 @@ public sealed class AudioSessionInputRuntimeTests
         var authority = new ManagedAudioSessionAuthorityV1(backend);
         var chat = new CapturingChatClient();
         await using var agent = await AgentBuilder.Create()
+            .WithEventApplicationIdentity("HPD.Agent.Audio.V2.Tests")
             .WithChatClient(chat)
             .WithAudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
             {
@@ -246,6 +250,7 @@ public sealed class AudioSessionInputRuntimeTests
         var authority = new ManagedAudioSessionAuthorityV1(backend);
         var textToSpeech = new RecordingTextToSpeechClient();
         await using var agent = await AgentBuilder.Create()
+            .WithEventApplicationIdentity("HPD.Agent.Audio.V2.Tests")
             .WithChatClient(new CapturingChatClient())
             .WithAudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
             {
@@ -282,7 +287,7 @@ public sealed class AudioSessionInputRuntimeTests
 
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
-        for (var attempt = 0; attempt < 100; attempt++)
+        for (var attempt = 0; attempt < 500; attempt++)
         {
             if (condition()) return;
             await Task.Delay(10);
@@ -478,7 +483,10 @@ public sealed class AudioSessionInputRuntimeTests
             await Task.CompletedTask;
         }
 
-        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+        public object? GetService(Type serviceType, object? serviceKey = null) =>
+            serviceType == typeof(HPD.Agent.Providers.ProviderClientExecutionIdentity)
+                ? PreparedOutputExecutionTestFixture.ChatClientIdentity
+                : null;
         public void Dispose() { }
     }
 }

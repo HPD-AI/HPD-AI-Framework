@@ -338,7 +338,7 @@ public class ThreadEndpointsTests : IClassFixture<TestWebApplicationFactory>
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Created);
-        var thread = await response.Content.ReadFromJsonAsync<ThreadDto>();
+        var thread = (await response.Content.ReadFromJsonAsync<ThreadForkResultDto>())?.Target;
         thread.Should().NotBeNull();
         thread!.Id.Should().Be("forked");
         thread.ForkedFrom.Should().Be("main");
@@ -374,7 +374,7 @@ public class ThreadEndpointsTests : IClassFixture<TestWebApplicationFactory>
             request);
 
         response.StatusCode.Should().Be(HttpStatusCode.Created);
-        var thread = await response.Content.ReadFromJsonAsync<ThreadDto>();
+        var thread = (await response.Content.ReadFromJsonAsync<ThreadForkResultDto>())?.Target;
         thread.Should().NotBeNull();
         thread!.Id.Should().Be("root-fork");
         thread.ForkedFrom.Should().Be("main");
@@ -397,7 +397,7 @@ public class ThreadEndpointsTests : IClassFixture<TestWebApplicationFactory>
             request);
 
         // Assert
-        var thread = await response.Content.ReadFromJsonAsync<ThreadDto>();
+        var thread = (await response.Content.ReadFromJsonAsync<ThreadForkResultDto>())?.Target;
         thread!.ForkedFrom.Should().Be("main");
         thread.ForkedAtMessageId.Should().Be(forkMessageId);
         thread.ForkedAtMessageIndex.Should().Be(0);
@@ -417,7 +417,7 @@ public class ThreadEndpointsTests : IClassFixture<TestWebApplicationFactory>
             request);
 
         // Assert
-        var thread = await response.Content.ReadFromJsonAsync<ThreadDto>();
+        var thread = (await response.Content.ReadFromJsonAsync<ThreadForkResultDto>())?.Target;
         thread!.Ancestors.Should().NotBeNull();
         thread.Ancestors!.Should().ContainKey("0");
     }

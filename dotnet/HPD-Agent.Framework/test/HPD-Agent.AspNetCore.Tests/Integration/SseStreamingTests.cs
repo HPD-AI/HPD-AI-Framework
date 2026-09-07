@@ -78,6 +78,7 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
         submission.Should().NotBeNull();
         submission!.ThreadExecutionId.Should().NotBeNullOrWhiteSpace();
 
+
         var threadEvents = await ObserveUntilAsync(
             sessionId,
             events => events.OfType<UserMessageEvent>().Any(e => e.Text == "admit this text") &&
@@ -244,7 +245,7 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
             if (!line.StartsWith("data: ", StringComparison.Ordinal))
                 continue;
 
-            observed.Add(HPD.Agent.AspNetCore.Tests.TestEventApplication.Codec.DeserializeEvent(line[6..]));
+            observed.Add(SseTestEventReader.DeserializeDeliveryEvent(line[6..]));
         }
 
         return observed;

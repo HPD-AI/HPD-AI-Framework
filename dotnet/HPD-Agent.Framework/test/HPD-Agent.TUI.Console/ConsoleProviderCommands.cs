@@ -152,7 +152,12 @@ internal static class ConsoleProviderCommands
         }
 
         var modelId = args[2];
-        providers.ModelSelection.Set(provider.ProviderKey, modelId);
+        providers.ModelSelection.Set(
+            provider.ProviderKey,
+            provider.ProviderKey,
+            provider.ProviderKey,
+            new HPD.Agent.Providers.ProviderReference { Key = provider.ProviderKey },
+            modelId);
         AppendNotice(context, "Model selected", $"{provider.ProviderKey} / {modelId}");
     }
 

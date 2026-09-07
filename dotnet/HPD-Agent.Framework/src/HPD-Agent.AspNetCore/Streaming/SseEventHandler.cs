@@ -21,7 +21,9 @@ internal static class SseEventHandler
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(observation);
 
-        var applicationLifetime = context.RequestServices.GetService<IHostApplicationLifetime>();
+        var applicationLifetime = context.RequestServices is { } services
+            ? services.GetService<IHostApplicationLifetime>()
+            : null;
         using var streamLifetime = applicationLifetime is null
             ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
             : CancellationTokenSource.CreateLinkedTokenSource(
@@ -43,6 +45,7 @@ internal static class SseEventHandler
         var head = await store.GetThreadEventHeadAsync(thread, streamCancellationToken).ConfigureAwait(false)
             ?? throw new BadHttpRequestException("The requested thread does not exist.");
         var cursor = ParseAppliedCursor(context.Request, head.Generation);
+        await context.Response.WriteAsync(": connected\n\n", streamCancellationToken).ConfigureAwait(false);
         await context.Response.Body.FlushAsync(streamCancellationToken).ConfigureAwait(false);
 
         try

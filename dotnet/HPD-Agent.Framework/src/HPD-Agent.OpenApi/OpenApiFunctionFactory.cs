@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using HPD.Agent;
 using HPD.Agent.Middleware;
 using HPD.OpenApi.Core;
 using HPD.OpenApi.Core.Model;
@@ -109,7 +110,9 @@ internal static partial class OpenApiFunctionFactory
             {
                 Name = functionName,
                 Description = operation.Description ?? $"{operation.Method} {operation.Path}",
-                RequiresPermission = config.RequiresPermission,
+                FunctionPermission = config.RequiresPermission
+                    ? AIFunctionPermissionDeclaration.Required(functionName)
+                    : null,
                 SchemaProvider = () => schema,
                 AdditionalProperties = new Dictionary<string, object?>
                 {

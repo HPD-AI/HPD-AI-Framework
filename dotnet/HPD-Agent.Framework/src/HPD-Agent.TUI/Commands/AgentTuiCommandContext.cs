@@ -41,6 +41,12 @@ public sealed class AgentTuiCommandContext
 
     public Func<AgentTuiExecutionTarget, CancellationToken, ValueTask> SwitchTargetAsync { get; }
 
+    // Compatibility bridge for console commands authored before execution targets
+    // replaced direct runtime scopes.
+    public Func<AgentTuiRuntimeScope, CancellationToken, ValueTask> SwitchScopeAsync
+        => (scope, cancellationToken) =>
+            SwitchTargetAsync(new DirectAgentTuiExecutionTarget(scope), cancellationToken);
+
     public HpdAgentTuiCommandDescriptor Command { get; }
 
     public string Arguments { get; }

@@ -63,7 +63,10 @@ internal sealed class FakeJudgeChatClient : IChatClient
         };
     }
 
-    public object? GetService(Type serviceType, object? serviceKey = null) => null;
+    public object? GetService(Type serviceType, object? serviceKey = null)
+        => serviceType == typeof(HPD.Agent.Providers.ProviderClientExecutionIdentity)
+            ? HPD.Agent.Providers.ProviderClientExecutionIdentity.CreateSafe("test", "platform", HPD.Agent.Providers.ProviderClientFamily.Chat, "judge", "test/chat", "test/final")
+            : null;
 
     public void Dispose() { }
 }

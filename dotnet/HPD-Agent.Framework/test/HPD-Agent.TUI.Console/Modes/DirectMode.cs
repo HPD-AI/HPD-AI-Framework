@@ -23,7 +23,7 @@ internal static class DirectMode
         await using var runtime = new InMemoryAgentTuiRuntime(agent, scope);
         await using var app = HpdAgentTuiApp.Create(
             runtime,
-            scope,
+            new DirectAgentTuiExecutionTarget(scope),
             tui => tui
                 .AddAgentTuiDefaults()
                 .AddConsoleBranding("direct")

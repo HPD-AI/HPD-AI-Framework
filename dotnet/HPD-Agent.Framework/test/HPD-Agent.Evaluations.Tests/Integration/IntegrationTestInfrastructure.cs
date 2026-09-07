@@ -101,7 +101,10 @@ internal sealed class StubChatClient : IChatClient
         yield return new ChatResponseUpdate { Contents = [new TextContent(text)], FinishReason = ChatFinishReason.Stop };
     }
 
-    public object? GetService(Type serviceType, object? serviceKey = null) => null;
+    public object? GetService(Type serviceType, object? serviceKey = null)
+        => serviceType == typeof(ProviderClientExecutionIdentity)
+            ? ProviderClientExecutionIdentity.CreateSafe("test", "platform", ProviderClientFamily.Chat, "stub", "test/chat", "test/final")
+            : null;
     public void Dispose() { }
 }
 
@@ -150,7 +153,10 @@ internal sealed class StubDeterministicEvaluator : HpdDeterministicEvaluatorBase
 /// </summary>
 internal sealed class FakeSessionStore : ISessionStore
 {
-    private readonly InMemorySessionStore _inner = new();
+    private readonly InMemorySessionStore _inner = new(
+        HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
+
+    public HPD.Agent.Serialization.AgentEventCodec EventCodec => _inner.EventCodec;
 
     public void AddThread(string sessionId, Thread thread)
     {
@@ -161,6 +167,8 @@ internal sealed class FakeSessionStore : ISessionStore
 
     public Task<Session?> LoadSessionAsync(string sessionId, CancellationToken ct = default) => _inner.LoadSessionAsync(sessionId, ct);
     public Task SaveSessionAsync(Session session, CancellationToken ct = default) => _inner.SaveSessionAsync(session, ct);
+    public ValueTask<SessionPreparationResult> TryPrepareSessionAsync(Session session, CancellationToken ct = default) =>
+        _inner.TryPrepareSessionAsync(session, ct);
     public Task<List<string>> ListSessionIdsAsync(CancellationToken ct = default) => _inner.ListSessionIdsAsync(ct);
     public Task DeleteSessionAsync(string sessionId, CancellationToken ct = default) => _inner.DeleteSessionAsync(sessionId, ct);
     public ValueTask<ThreadEventAppendResult> AppendThreadEventsAsync(ThreadKey thread, IReadOnlyList<AgentEvent> events, ThreadAppendCondition condition = default, CancellationToken ct = default) =>

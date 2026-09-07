@@ -2143,7 +2143,16 @@ public sealed partial class Agent : IAsyncDisposable
                 runtimeInbox.Writer,
                 async (runtimeInput, ct) =>
                 {
-                    using var receipt = await SubmitRuntimeInputAsync(runtimeInput, ct).ConfigureAwait(false);
+                    var registration = _inputDispatcher.GetRegistration(runtimeInput.GetType());
+                    if (registration.RoutingClass == AgentInputRoutingClass.Work)
+                    {
+                        using var receipt = await SubmitRuntimeInputAsync(runtimeInput, ct).ConfigureAwait(false);
+                        _ = await receipt.Completion.ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        _ = await RunCapturedInputAsync(runtimeInput, ct).ConfigureAwait(false);
+                    }
                 },
                 HasActiveRuntimeInputs,
                 runtimeCts.Token,
@@ -6987,9 +6996,12 @@ public sealed partial class Agent : IAsyncDisposable
         if (events is not null)
         {
             await _operationRegistry.RehydrateAsync(events).ConfigureAwait(false);
-            await _capabilityCatalog.EnsureReadyAsync(cancellationToken).ConfigureAwait(false);
-            await _capabilityCatalog.ReconcileAsync(
-                _operationRegistry.LiveOperations(), cancellationToken).ConfigureAwait(false);
+            if (_capabilityCatalog is not null)
+            {
+                await _capabilityCatalog.EnsureReadyAsync(cancellationToken).ConfigureAwait(false);
+                await _capabilityCatalog.ReconcileAsync(
+                    _operationRegistry.LiveOperations(), cancellationToken).ConfigureAwait(false);
+            }
         }
 
         await ReconcileRestoredGoalAsync(thread).ConfigureAwait(false);

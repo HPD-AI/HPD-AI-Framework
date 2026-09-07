@@ -1,5 +1,6 @@
 using System.Text.Json;
 using HPD.Agent.FFI;
+using HPD.Agent.Serialization;
 using HPD.Agent.StructuredOutput;
 using Xunit;
 

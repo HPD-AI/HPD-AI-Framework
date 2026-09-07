@@ -737,6 +737,7 @@ public sealed class RunEvalsTests
                 new AgentConfig
                 {
                     Name = nameof(CapturingAgent),
+                    EventComposition = HPD.Agent.Serialization.CoreAgentEventComposition.Instance,
                     Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
                         Provider = TestProviderSelections.Anonymous("openai"),
                         ModelName = "gpt-test",
@@ -813,7 +814,10 @@ public sealed class RunEvalsTests
                 };
             }
 
-            public object? GetService(Type serviceType, object? serviceKey = null) => null;
+        public object? GetService(Type serviceType, object? serviceKey = null)
+            => serviceType == typeof(HPD.Agent.Providers.ProviderClientExecutionIdentity)
+                ? HPD.Agent.Providers.ProviderClientExecutionIdentity.CreateSafe("test", "platform", HPD.Agent.Providers.ProviderClientFamily.Chat, "capturing", "test/chat", "test/final")
+                : null;
             public void Dispose() { }
 
             private static string LastUserText(IEnumerable<ChatMessage> messages)

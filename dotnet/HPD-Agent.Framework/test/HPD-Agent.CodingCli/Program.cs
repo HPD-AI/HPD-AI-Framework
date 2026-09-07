@@ -25,7 +25,7 @@ var agentBuilder = CreateAgentBuilder(options.ConfigPath)
 ConfigureDefaultCompaction(agentBuilder);
 
 var sessionStorePath = ResolveProjectSessionStorePath();
-agentBuilder.WithSessionStore(sessionStorePath);
+agentBuilder.WithSessionStore(new FileSessionStore(sessionStorePath, CoreAgentEventComposition.Instance.Codec));
 
 if (string.IsNullOrWhiteSpace(options.ConfigPath))
 {

@@ -225,7 +225,7 @@ var plannedEvent = new DebugExecutionPlannedEvent
 };
 var plannedPayload = eventCodec.Serialize(plannedEvent);
 if (eventCodec.DeserializeEvent(plannedPayload)
-    is not { AdapterStartMethod: DebugAdapterStartMethod.Attach })
+    is not DebugExecutionPlannedEvent { AdapterStartMethod: DebugAdapterStartMethod.Attach })
     return 20;
 var breakpointSelectionEvent = new DebugBreakpointSelectionAppliedEvent
 {
@@ -295,11 +295,11 @@ var treeCompletedEvent = new DebugTreeCompletedEvent
     ProjectionFailures = 0
 };
 if (eventCodec.DeserializeEvent(eventCodec.Serialize(breakpointSelectionEvent))
-        is not { After.Count: 1 } ||
+        is not DebugBreakpointSelectionAppliedEvent { After.Count: 1 } ||
     eventCodec.DeserializeEvent(eventCodec.Serialize(stopSummaryEvent))
-        is not { SuspensionEpoch: 2 } ||
+        is not DebugPrimaryStopAvailableEvent { SuspensionEpoch: 2 } ||
     eventCodec.DeserializeEvent(eventCodec.Serialize(treeCompletedEvent))
-        is not { BreakpointStopCount: 1 })
+        is not DebugTreeCompletedEvent { BreakpointStopCount: 1 })
     return 22;
 var activatingEvent = new DebugExecutionActivatingEvent
 {

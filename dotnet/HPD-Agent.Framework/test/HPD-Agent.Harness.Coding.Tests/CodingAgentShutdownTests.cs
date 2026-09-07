@@ -116,6 +116,8 @@ public sealed class CodingAgentShutdownTests
 
     private sealed class BlockingCodingHarnessClient(ConcurrentQueue<string> events) : IChatClient
     {
+        public ChatClientMetadata Metadata => new("BlockingCodingHarnessClient");
+
         private int _stage;
         internal TaskCompletionSource BlockedAfterExpansion { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -150,7 +152,16 @@ public sealed class CodingAgentShutdownTests
             }
         }
 
-        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+        public object? GetService(Type serviceType, object? serviceKey = null)
+            => serviceType == typeof(HPD.Agent.Providers.ProviderClientExecutionIdentity)
+                ? new HPD.Agent.Providers.ProviderClientExecutionIdentity
+                {
+                    ProviderKey = "test", BackendKey = "platform",
+                    Family = HPD.Agent.Providers.ProviderClientFamily.Chat,
+                    ModelName = "coding-shutdown", OperationAdapterKey = "test/chat",
+                    UsageSemanticsKey = "test/final", SafeConfigurationFingerprint = "test-coding-shutdown"
+                }
+                : null;
         public void Dispose()
         {
             Disposed = true;

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.AI;
+using HPD.Agent.Providers;
 using System.Runtime.CompilerServices;
 
 namespace HPD.Agent.AspNetCore.Tests.TestInfrastructure;
@@ -292,7 +293,18 @@ public sealed class FakeChatClient : IChatClient
 
     public object? GetService(Type serviceType, object? serviceKey = null)
     {
-        return null;
+        return serviceType == typeof(ProviderClientExecutionIdentity)
+            ? new ProviderClientExecutionIdentity
+            {
+                ProviderKey = "test",
+                BackendKey = "local",
+                Family = ProviderClientFamily.Chat,
+                ModelName = "test-model",
+                OperationAdapterKey = "test/chat",
+                UsageSemanticsKey = "test",
+                SafeConfigurationFingerprint = "aspnet-test"
+            }
+            : null;
     }
 
     public void Dispose()

@@ -75,7 +75,7 @@ internal static class ConsoleBranding
                 .Add(new Text(SelectLogo(maxWidth), LogoStyle))
                 .Add(new Text(detail, DetailStyle));
 
-            stack.Render(in context, maxWidth, ref output);
+            output.Render(stack, in context, maxWidth);
         }
 
         public bool HandleInput(in TuiInputEvent key)

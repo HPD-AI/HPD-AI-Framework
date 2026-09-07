@@ -40,7 +40,7 @@ public class AgentMiddlewareResponseServiceTests : IAsyncLifetime
             stored.Id,
             sessionId,
             threadId,
-            new PermissionResponseEvent("permission-1", "test", Approved: true));
+            new PermissionResponseEvent("permission-1", "test", "allow_once"));
 
         result.Status.Should().Be(AgentServiceStatus.Success);
         result.Value!.Status.Should().Be(AgentRespondStatus.NotFound);
@@ -57,7 +57,7 @@ public class AgentMiddlewareResponseServiceTests : IAsyncLifetime
             stored.Id,
             sessionId,
             threadId,
-            new PermissionResponseEvent("permission-1", "test", Approved: true));
+            new PermissionResponseEvent("permission-1", "test", "allow_once"));
 
         result.Status.Should().Be(AgentServiceStatus.Success);
         result.Value!.Status.Should().Be(AgentRespondStatus.NotFound);
@@ -82,7 +82,7 @@ public class AgentMiddlewareResponseServiceTests : IAsyncLifetime
             stored.Id,
             sessionId,
             threadId,
-            new PermissionResponseEvent("permission-1", "test", Approved: true));
+            new PermissionResponseEvent("permission-1", "test", "allow_once"));
 
         result.Status.Should().Be(AgentServiceStatus.Success);
         result.Value!.Status.Should().Be(AgentRespondStatus.Accepted);

@@ -6,13 +6,9 @@ public static class HPDRagStudioBuilderExtensions
     {
         ArgumentNullException.ThrowIfNull(builder);
 
-        return builder.AddModule(
-            "rag",
-            "RAG",
-            "HPD RAG Studio",
-            "active",
-            "rag",
-            "retrieval",
-            "indexes");
+        // The platform no longer exposes the former string-based AddModule API.
+        // RAG Studio currently contributes no typed Studio module; retain this
+        // fluent registration point until that contribution is introduced.
+        return builder;
     }
 }

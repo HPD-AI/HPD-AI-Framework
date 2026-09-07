@@ -2,9 +2,11 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Hosting;
 using HPD.Agent.AspNetCore;
 using HPD.Agent.Hosting.Configuration;
+using HPD.Agent.Providers;
 
 namespace HPD.Agent.AspNetCore.Tests.TestInfrastructure;
 
@@ -130,7 +132,13 @@ internal class TestWebApplicationAgentFactory : IAgentFactory
         {
             Name = sessionId,
             MaxAgenticIterations = 50,
+            EventComposition = HPD.Agent.AspNetCore.Tests.TestEventApplication.Composition,
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
+                Override = ClientOverride<IChatClient>.Borrow(
+                    _fakeChatClient,
+                    providerKey: "test",
+                    backendKey: "local",
+                    operationAdapterKey: "test/chat"),
                 Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" },
                 ModelName = "test-model"
             } }

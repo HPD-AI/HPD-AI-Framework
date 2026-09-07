@@ -28,6 +28,18 @@ public sealed class ChatShellModel
 
     public Func<AgentTuiExecutionTarget, CancellationToken, ValueTask>? SwitchTargetAsync { get; set; }
 
+    // Compatibility bridge for legacy console integrations.
+    public Func<AgentTuiRuntimeScope, CancellationToken, ValueTask>? SwitchScopeAsync
+    {
+        get => SwitchTargetAsync is null
+            ? null
+            : (scope, cancellationToken) => SwitchTargetAsync(
+                new DirectAgentTuiExecutionTarget(scope), cancellationToken);
+        set => SwitchTargetAsync = value is null
+            ? null
+            : (target, cancellationToken) => value(target.Scope, cancellationToken);
+    }
+
     public Func<string, CancellationToken, ValueTask>? SetPromptDraftAsync { get; set; }
 
     /// <summary>Reopens live questions minimized in this conversation.</summary>

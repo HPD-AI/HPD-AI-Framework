@@ -41,9 +41,8 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
         var evt = new PermissionResponseEvent(
             PermissionId: "perm-123",
             SourceName: "TestSource",
-            Approved: true,
-            Reason: "Approved for testing",
-            Choice: PermissionChoice.Ask);
+            ChoiceId: "allow_once",
+            Feedback: "Approved for testing");
 
         // Act
         var response = await PostEventAsync(
@@ -127,7 +126,7 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
         var evt = new PermissionResponseEvent(
             PermissionId: "perm-missing-session",
             SourceName: "TestSource",
-            Approved: true);
+            ChoiceId: "allow_once");
 
         // Act
         var response = await PostEventAsync(
@@ -146,7 +145,7 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
         var evt = new PermissionResponseEvent(
             PermissionId: "perm-missing-thread",
             SourceName: "TestSource",
-            Approved: true);
+            ChoiceId: "allow_once");
 
         // Act
         var response = await PostEventAsync(

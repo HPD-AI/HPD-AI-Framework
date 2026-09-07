@@ -1175,20 +1175,20 @@ public sealed class ExecuteCommandTuiLifecycleTests
 
     private sealed class NoopRuntime : IHpdAgentTuiRuntime
     {
-        public Task<AgentTuiScopeResolution> ResolveInitialScopeAsync(
-            AgentTuiRuntimeScope? requested,
+        public Task<AgentTuiTargetResolution> ResolveInitialTargetAsync(
+            AgentTuiExecutionTarget? requested,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(new AgentTuiScopeResolution(
-                requested ?? new AgentTuiRuntimeScope("agent", "session", "main"),
+            => Task.FromResult(new AgentTuiTargetResolution(
+                requested ?? new DirectAgentTuiExecutionTarget(new AgentTuiRuntimeScope("agent", "session", "main")),
                 IsDurable: true));
 
-        public Task<AgentTuiRuntimeScope> EnsureDurableScopeAsync(
-            AgentTuiRuntimeScope scope,
+        public Task<AgentTuiExecutionTarget> EnsureDurableTargetAsync(
+            AgentTuiExecutionTarget target,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(scope);
+            => Task.FromResult(target);
 
         public async IAsyncEnumerable<AgentTuiEventBatch> ObserveAsync(
-            AgentTuiRuntimeScope scope,
+            AgentTuiExecutionTarget target,
             ThreadJournalCursor after,
             ThreadJournalCursor initialObservedCursor,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
@@ -1198,13 +1198,13 @@ public sealed class ExecuteCommandTuiLifecycleTests
         }
 
         public Task<AgentTuiSubmitResult> SubmitInputAsync(
-            AgentTuiRuntimeScope scope,
+            AgentTuiExecutionTarget target,
             AgentInputEvent input,
             CancellationToken cancellationToken = default)
             => Task.FromResult(new AgentTuiSubmitResult(
                 AgentInputDisposition.Queued,
                 "run",
-                new AgentTuiThreadExecution("run", scope.AgentId, scope.SessionId, scope.ThreadId, "active", DateTimeOffset.UtcNow)));
+                new AgentTuiThreadExecution("run", target.Scope.AgentId, target.Scope.SessionId, target.Scope.ThreadId, "active", DateTimeOffset.UtcNow)));
 
         public Task<AgentRespondResult> AnswerRequestAsync(
             AgentTuiRuntimeScope scope,

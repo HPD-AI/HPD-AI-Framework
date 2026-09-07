@@ -4,6 +4,7 @@ using HPD.Agent;
 using HPD.Agent.Bots.Streaming;
 using HPD.Agent.Bots.Tests.TestInfrastructure;
 using HPD.Agent.Hosting.Lifecycle;
+using HPD.Agent.Providers;
 using Microsoft.Extensions.AI;
 using HpdAgent = HPD.Agent.Agent;
 
@@ -104,7 +105,7 @@ public class BotStreamingRunnerTests
             MaxAgenticIterations = 3,
             SystemInstructions = "You are a streaming test agent.",
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
-                ProviderKey = "test",
+                Provider = new ProviderReference { Key = "test" },
                 ModelName = "test-model",
             } },
             AgenticLoop = new AgenticLoopConfig
@@ -116,7 +117,8 @@ public class BotStreamingRunnerTests
                 MaxRetries = 0,
                 NormalizeErrors = true,
             },
-            SessionStore = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec),
+                SessionStore = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec),
+                EventComposition = HPD.Agent.Serialization.CoreAgentEventComposition.Instance,
             SessionStoreOptions = new SessionStoreOptions
             {
                 PersistAfterTurn = true,
@@ -138,6 +140,8 @@ public class BotStreamingRunnerTests
         IReadOnlyList<string> chunks,
         TimeSpan? delayBetweenChunks = null) : IChatClient
     {
+        public ChatClientMetadata Metadata => new("StreamingChatClient");
+
         public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
             IEnumerable<ChatMessage> chatMessages,
             ChatOptions? options = null,
@@ -169,7 +173,15 @@ public class BotStreamingRunnerTests
             => Task.FromResult(new ChatResponse(
                 [new ChatMessage(ChatRole.Assistant, string.Concat(chunks))]));
 
-        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+        public object? GetService(Type serviceType, object? serviceKey = null)
+            => serviceType == typeof(ProviderClientExecutionIdentity)
+                ? new ProviderClientExecutionIdentity
+                {
+                    ProviderKey = "test", BackendKey = "platform", Family = ProviderClientFamily.Chat,
+                    ModelName = "streaming", OperationAdapterKey = "test/chat",
+                    UsageSemanticsKey = "test/final", SafeConfigurationFingerprint = "test-streaming"
+                }
+                : null;
 
         public void Dispose()
         {

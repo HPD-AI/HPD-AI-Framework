@@ -100,6 +100,7 @@ public sealed class AgentEvaluationConvenienceExtensionsTests
             new AgentConfig
             {
                 Name = "EvalConvenienceAgent",
+                EventComposition = HPD.Agent.Serialization.CoreAgentEventComposition.Instance,
                 Clients = new AgentClientsConfig
                 {
                     Chat = new ChatClientConfig
@@ -138,7 +139,10 @@ public sealed class AgentEvaluationConvenienceExtensionsTests
             };
         }
 
-        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+    public object? GetService(Type serviceType, object? serviceKey = null)
+        => serviceType == typeof(HPD.Agent.Providers.ProviderClientExecutionIdentity)
+            ? HPD.Agent.Providers.ProviderClientExecutionIdentity.CreateSafe("test", "platform", HPD.Agent.Providers.ProviderClientFamily.Chat, "echo", "test/chat", "test/final")
+            : null;
 
         public void Dispose() { }
 

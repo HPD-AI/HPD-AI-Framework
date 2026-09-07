@@ -231,6 +231,11 @@ internal static class AgentLocalOperationScheduler
             {
                 cancellationToken.ThrowIfCancellationRequested();
             }
+            catch (ObjectDisposedException)
+            {
+                // Shutdown can race a terminal observer's final transition.
+                return;
+            }
         }
     }
 

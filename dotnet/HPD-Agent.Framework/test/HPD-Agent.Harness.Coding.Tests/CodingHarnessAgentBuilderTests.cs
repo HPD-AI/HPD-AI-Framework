@@ -45,9 +45,7 @@ public class CodingToolHarnessAgentBuilderTests
             "GlobSearch",
             "Grep",
             "ExecuteCommand",
-            "explore",
-            "worker",
-            "reviewer"
+            "SubAgents"
         ]);
     }
 
@@ -68,9 +66,9 @@ public class CodingToolHarnessAgentBuilderTests
         worker.ContextPolicy.Should().Be(SubAgentContextPolicy.ModelChoice);
         reviewer.ContextPolicy.Should().Be(SubAgentContextPolicy.ModelChoice);
 
-        explorer.RunConfig.InheritedFields.Should().Be(SubAgentRunConfigFields.Default);
-        worker.RunConfig.InheritedFields.Should().Be(SubAgentRunConfigFields.Default);
-        reviewer.RunConfig.InheritedFields.Should().Be(SubAgentRunConfigFields.Default);
+        explorer.Configuration.Should().BeOfType<SuppliedAgentConfiguration>();
+        worker.Configuration.Should().BeOfType<SuppliedAgentConfiguration>();
+        reviewer.Configuration.Should().BeOfType<SuppliedAgentConfiguration>();
 
         GetCodingFunctions(explorer).Should().BeEquivalentTo([
             "ReadFile", "ListDirectory", "GlobSearch", "Grep"
@@ -117,7 +115,8 @@ public class CodingToolHarnessAgentBuilderTests
         // model-visible subset. The generated activation remains present so scoped middleware
         // and graph relationships can be resolved without reflection.
         toolNames.Should().BeEquivalentTo([
-            nameof(CodingToolHarness), "ReadFile", "ListDirectory", "GlobSearch", "Grep"
+            nameof(CodingToolHarness), "ReadFile", "ListDirectory", "GlobSearch", "Grep",
+            "Parent", "AskUser", "SubAgents"
         ]);
         agent.Middlewares.Should().ContainSingle(middleware => middleware is ContainerMiddleware);
 
@@ -169,7 +168,7 @@ public class CodingToolHarnessAgentBuilderTests
         chatClient.ToolNamesByRequest.Should().HaveCount(2);
         chatClient.ToolNamesByRequest[0].Should().BeEquivalentTo([nameof(CodingToolHarness)]);
         chatClient.ToolNamesByRequest[1].Should().BeEquivalentTo([
-            "ReadFile", "ListDirectory", "GlobSearch", "Grep"
+            "ReadFile", "ListDirectory", "GlobSearch", "Grep", "SubAgents"
         ]);
         chatClient.ToolNamesByRequest[1].Should().NotContain([
             "EditFile", "WriteFile", "ExecuteCommand", "explore", "worker", "reviewer"
@@ -441,7 +440,15 @@ public class CodingToolHarnessAgentBuilderTests
             };
         }
 
-        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+        public object? GetService(Type serviceType, object? serviceKey = null)
+            => serviceType == typeof(ProviderClientExecutionIdentity)
+                ? new ProviderClientExecutionIdentity
+                {
+                    ProviderKey = "test", BackendKey = "platform", Family = ProviderClientFamily.Chat,
+                    ModelName = "test-model", OperationAdapterKey = "test/chat",
+                    UsageSemanticsKey = "test/final", SafeConfigurationFingerprint = "test-builder"
+                }
+                : null;
 
         public TService? GetService<TService>(object? serviceKey = null)
             where TService : class => null;
@@ -490,7 +497,15 @@ public class CodingToolHarnessAgentBuilderTests
             };
         }
 
-        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+        public object? GetService(Type serviceType, object? serviceKey = null)
+            => serviceType == typeof(ProviderClientExecutionIdentity)
+                ? new ProviderClientExecutionIdentity
+                {
+                    ProviderKey = "test", BackendKey = "platform", Family = ProviderClientFamily.Chat,
+                    ModelName = "test-model", OperationAdapterKey = "test/chat",
+                    UsageSemanticsKey = "test/final", SafeConfigurationFingerprint = "test-recording"
+                }
+                : null;
 
         public TService? GetService<TService>(object? serviceKey = null)
             where TService : class => null;

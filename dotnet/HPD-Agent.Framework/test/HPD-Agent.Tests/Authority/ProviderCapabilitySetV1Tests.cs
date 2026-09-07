@@ -8,7 +8,7 @@ public sealed class ProviderCapabilitySetV1Tests
     [Fact]
     public void ClosedEnums_HaveExactRegisteredNumericValues()
     {
-        Assert.Equal(new ushort[] { 1, 2, 3, 4, 5, 6, 7, 8 }, Enum.GetValues<ProviderRoleV1>().Select(static value => (ushort)value));
+        Assert.Equal(new ushort[] { 1, 2, 3, 4, 5, 6, 7, 8, 9 }, Enum.GetValues<ProviderRoleV1>().Select(static value => (ushort)value));
         Assert.Equal(new ushort[] { 1, 2, 3, 4 }, Enum.GetValues<ProviderLifetimeV1>().Select(static value => (ushort)value));
     }
 

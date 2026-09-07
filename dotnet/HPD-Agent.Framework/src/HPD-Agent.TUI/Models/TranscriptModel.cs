@@ -237,6 +237,10 @@ public sealed class TranscriptModel
         }
     }
 
+    /// <summary>Legacy live-entry update using the default clear-and-replay policy.</summary>
+    public TranscriptMutationResult UpsertLive(TranscriptEntry entry)
+        => UpsertLive(entry, CommittedHistoryMutationPolicy.ClearAndReplay);
+
     /// <summary>Finalizes or appends a keyed entry under an explicit committed-history policy.</summary>
     /// <returns>The mutation disposition and required presentation recovery.</returns>
     public TranscriptMutationResult FinalizeLive(string entryKey, TranscriptEntry finalEntry, CommittedHistoryMutationPolicy committedHistoryPolicy)

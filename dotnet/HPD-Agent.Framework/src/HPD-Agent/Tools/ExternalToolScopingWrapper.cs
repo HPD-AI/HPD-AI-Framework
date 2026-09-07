@@ -394,13 +394,8 @@ public static class ExternalToolCollapsingWrapper
     /// </summary>
     private static JsonElement CreateEmptyContainerSchema()
     {
-        return global::Microsoft.Extensions.AI.AIJsonUtilities.CreateJsonSchema(
-            null,
-            serializerOptions: HPDJsonContext.Default.Options,
-            inferenceOptions: new global::Microsoft.Extensions.AI.AIJsonSchemaCreateOptions
-            {
-                IncludeSchemaKeyword = false
-            }
-        );
+        using JsonDocument document = JsonDocument.Parse(
+            "{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}");
+        return document.RootElement.Clone();
     }
 }
