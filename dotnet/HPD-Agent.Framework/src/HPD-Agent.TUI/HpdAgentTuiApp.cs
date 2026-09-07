@@ -304,7 +304,9 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             _registry.ShellChrome.Dialog,
             _state.Shell.AboveEditor,
             _state.Shell.Navigation,
-            RequestRender);
+            RequestRender,
+            _application,
+            () => _application.IsRunning);
         _application.SetRoot(dialogHost);
         _application.SetFocus(_prompt);
         _prompt.IsFocused = true;
