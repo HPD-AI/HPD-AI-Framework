@@ -2,6 +2,7 @@ using FluentAssertions;
 using HPD.Agent.Hosting.Lifecycle;
 using HPD.Agent;
 using HPD.Agent.Providers;
+using HPD.Agent.Hosting.Tests;
 using HPD.Agent.Hosting.Tests.Infrastructure;
 
 namespace HPD.Agent.Hosting.Tests.Lifecycle;
@@ -400,7 +401,8 @@ public class AgentManagerTests : IAsyncLifetime
             var registry = new TestProviderRegistry(chatClient);
             return await new AgentBuilder(stored.Config, registry)
                 .WithAgentId(stored.Id)
-                .WithSessionStore(new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec))
+                .WithEventComposition(TestEventApplication.Composition)
+                .WithSessionStore(new InMemorySessionStore(TestEventApplication.Codec))
                 .BuildAsync(ct);
         }
 

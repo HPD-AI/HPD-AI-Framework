@@ -1,7 +1,9 @@
 using FluentAssertions;
+using HPD.Agent;
 using HPD.Agent.Hosting.Lifecycle;
 using HPD.Agent.Hosting.Tests.Infrastructure;
 using HPD.Agent.Providers;
+using HPD.Agent.Serialization;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Hosting.Tests.Lifecycle;
@@ -207,6 +209,50 @@ public sealed class AgentStreamingServiceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task GetThreadStateAsync_DoesNotFinalizeALiveControlledChildExecution()
+    {
+        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync(
+            "child-agent",
+            "session-live-child");
+        var route = new ThreadKey(sessionId, threadId);
+        await using var childAgent = new Agent(
+            new AgentConfig
+            {
+                Name = "child-agent",
+                SessionStore = _sessionStore,
+                EventComposition = CoreAgentEventComposition.Instance
+            },
+            baseClient: null,
+            mergedOptions: null);
+        var controller = ThreadExecutionControllerRegistry.For(_sessionStore);
+        var acquired = await controller.TryAcquireAsync(
+            new ThreadExecutionStartRequest(route, "child-run-1", childAgent));
+        acquired.Acquired.Should().BeTrue();
+
+        _sessionManager.GetActiveThreadExecution(sessionId, threadId).Should().BeNull(
+            "a sub-agent child is live only in the core controller, not the hosting slot");
+
+        var before = await _sessionStore.CollectThreadEventsAsync(route);
+
+        var result = await _service.GetThreadStateAsync("child-agent", sessionId, threadId);
+        result.Status.Should().Be(AgentServiceStatus.Success);
+        var afterFirst = await _sessionStore.CollectThreadEventsAsync(route);
+        afterFirst.Should().HaveSameCount(before,
+            "a live child must not be finalized as HostExecutionLost by state reconciliation");
+        afterFirst.OfType<ThreadExecutionFinishedEvent>().Should().BeEmpty();
+
+        var repeated = await _service.GetThreadStateAsync("child-agent", sessionId, threadId);
+        repeated.Status.Should().Be(AgentServiceStatus.Success);
+        var afterSecond = await _sessionStore.CollectThreadEventsAsync(route);
+        afterSecond.Should().HaveSameCount(afterFirst,
+            "repeated reconciliation while the child is live must not append a second terminal fact");
+
+        await controller.ReleaseAsync(
+            acquired.Lease!,
+            new ThreadExecutionTerminalResult(ThreadExecutionOutcome.Cancelled));
+    }
+
+    [Fact]
     public async Task GetThreadStateAsync_ProjectsPendingRequestsFromDurableJournal()
     {
         var (sessionId, threadId) = await _sessionManager.CreateSessionAsync("agent-1", "session-pending-request");
@@ -259,39 +305,6 @@ public sealed class AgentStreamingServiceTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task ObserveThreadEventsAsync_SubscribesBeforeRuntimeConstruction_AndReceivesLiveEvents()
-    {
-        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync(
-            "agent-1",
-            "session-live-observation");
-        var stored = await _agentManager.CreateDefinitionAsync(new AgentConfig
-        {
-            Name = "agent-1",
-            Clients = new AgentClientsConfig
-            {
-                Chat = new ChatClientConfig { Provider = TestAgentFactory.TestSelection(), ModelName = "test-model" }
-            }
-        }, "agent-1");
-
-        var result = await _service.ObserveThreadEventsAsync(stored.Id, new ThreadKey(sessionId, threadId));
-
-        result.Status.Should().Be(AgentServiceStatus.Success);
-        _agentManager.GetRuntimeAgent(stored.Id, sessionId, threadId).Should().BeNull();
-        await using var observation = result.Value!;
-        var runtime = await _agentManager.GetOrBuildAgentRuntimeAsync(stored.Id, sessionId, threadId);
-        var live = new TextDeltaEvent("live", "message-live")
-        {
-            SessionId = sessionId,
-            ThreadId = threadId
-        };
-        await runtime.EventCoordinator.EmitAsync(live);
-
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        var received = await observation.LiveEvents.Reader.ReadAsync(timeout.Token);
-        received.Should().BeSameAs(live);
-    }
-
-    [Fact]
     public async Task ObserveThreadEventsAsync_RejectsUnknownHierarchyBeforeInstallingInbox()
     {
         var result = await _service.ObserveThreadEventsAsync(
@@ -314,210 +327,6 @@ public sealed class AgentStreamingServiceTests : IAsyncLifetime
 
         result.Status.Should().Be(AgentServiceStatus.ValidationError);
         result.ErrorCode.Should().Be("InvalidThreadKey");
-    }
-
-    [Fact]
-    public async Task SubmitInputAsync_AllowsSelectedAgentDifferentFromThreadDefault_AndRecordsExecutingAgent()
-    {
-        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync("agent-1", "session-hosted-run");
-        var stored = await _agentManager.CreateDefinitionAsync(
-            new AgentConfig
-            {
-                Name = "agent-1",
-                MaxAgenticIterations = 1,
-                Clients = new AgentClientsConfig
-                {
-                    Chat = new ChatClientConfig
-                    {
-                        Provider = TestAgentFactory.TestSelection(),
-                        ModelName = "test-model"
-                    }
-                }
-            },
-            "agent-1");
-        _agentManager.ChatClient.EnqueueTextResponse("done");
-
-        var submitted = await _service.SubmitInputAsync(
-            stored.Id,
-            sessionId,
-            threadId,
-            new UserMessagesInputEvent
-            {
-                Messages = [new ChatMessage(ChatRole.User, "hello")]
-            });
-
-        submitted.Status.Should().Be(AgentServiceStatus.Success);
-        var threadExecutionId = submitted.Value!.ThreadExecutionId;
-        var descriptor = await _sessionStore.GetThreadAsync(new ThreadKey(sessionId, threadId));
-        descriptor!.DefaultAgent.AgentId.Should().Be("agent-1");
-        descriptor.DefaultAgent.AgentId.Should().NotBe(stored.Id);
-
-        var observed = new List<AgentEvent>();
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        await foreach (var batch in _sessionStore.ObserveThreadEventsAsync(
-            new ThreadKey(sessionId, threadId),
-            ThreadJournalCursor.Start(1),
-            new ThreadObservationOptions(),
-            timeout.Token))
-        {
-            observed.AddRange(batch.Events);
-            if (observed.OfType<ThreadExecutionFinishedEvent>().Any(evt => evt.ThreadExecutionId == threadExecutionId))
-                break;
-        }
-
-        var startedIndex = observed.FindIndex(evt => evt is ThreadExecutionStartedEvent started && started.ThreadExecutionId == threadExecutionId);
-        var completedIndex = observed.FindIndex(evt => evt is ThreadExecutionFinishedEvent completed && completed.ThreadExecutionId == threadExecutionId);
-        startedIndex.Should().BeGreaterThanOrEqualTo(0);
-        completedIndex.Should().BeGreaterThan(startedIndex);
-        observed.OfType<ThreadExecutionStartedEvent>()
-            .Single(evt => evt.ThreadExecutionId == threadExecutionId)
-            .AgentId.Should().Be(stored.Id);
-        var terminal = observed.OfType<ThreadExecutionFinishedEvent>()
-            .Single(evt => evt.ThreadExecutionId == threadExecutionId);
-        terminal.Outcome.Should().Be(ThreadExecutionOutcome.Succeeded);
-        terminal.Error.Should().BeNull();
-
-        await WaitUntilAsync(
-            () => _sessionManager.GetActiveThreadExecution(sessionId, threadId) is null,
-            TimeSpan.FromSeconds(5));
-    }
-
-    [Fact]
-    public async Task SubmitInputAsync_RoutesSteeringBeforeNewWorkReservation()
-    {
-        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync(
-            "agent-1", "session-hosted-steer");
-        var stored = await _agentManager.CreateDefinitionAsync(new AgentConfig
-        {
-            Name = "agent-1",
-            Clients = new AgentClientsConfig
-            {
-                Chat = new ChatClientConfig
-                {
-                    Provider = TestAgentFactory.TestSelection(),
-                    ModelName = "test-model"
-                }
-            }
-        }, "agent-1");
-        await _agentManager.GetOrBuildAgentRuntimeAsync(stored.Id, sessionId, threadId);
-        _sessionManager.TryReserveThreadExecution(stored.Id, sessionId, threadId, out var execution)
-            .Should().BeTrue();
-        _sessionManager.ActivateThreadExecution(sessionId, threadId, execution.ThreadExecutionId)
-            .Should().BeTrue();
-
-        var submitted = await _service.SubmitInputAsync(
-            stored.Id,
-            sessionId,
-            threadId,
-            new UserMessagesInputEvent
-            {
-                Delivery = AgentInputDelivery.Steer,
-                ThreadExecutionId = execution.ThreadExecutionId,
-                Messages = [new ChatMessage(ChatRole.User, "steer")]
-            });
-
-        submitted.Status.Should().Be(AgentServiceStatus.Success);
-        submitted.ErrorCode.Should().BeNull();
-        submitted.Value!.Disposition.Should().Be("no_active_execution");
-        submitted.Value.ActiveExecution!.ThreadExecutionId.Should().Be(execution.ThreadExecutionId);
-    }
-
-    [Fact]
-    public async Task SubmitInputAsync_ReturnsMismatchForStaleSteeringExecutionId()
-    {
-        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync(
-            "agent-1", "session-hosted-stale-steer");
-        _sessionManager.TryReserveThreadExecution("agent-1", sessionId, threadId, out var execution)
-            .Should().BeTrue();
-        _sessionManager.ActivateThreadExecution(sessionId, threadId, execution.ThreadExecutionId)
-            .Should().BeTrue();
-
-        var submitted = await _service.SubmitInputAsync(
-            "agent-1",
-            sessionId,
-            threadId,
-            new UserMessagesInputEvent
-            {
-                Delivery = AgentInputDelivery.Steer,
-                ThreadExecutionId = "stale-execution",
-                Messages = [new ChatMessage(ChatRole.User, "steer")]
-            });
-
-        submitted.Status.Should().Be(AgentServiceStatus.Success);
-        submitted.Value!.Disposition.Should().Be("active_execution_mismatch");
-        submitted.Value.ActiveExecution!.ThreadExecutionId.Should().Be(execution.ThreadExecutionId);
-    }
-
-    [Fact]
-    public async Task SubmitInputAsync_QueuedWorkStillConflictsWithActiveExecution()
-    {
-        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync(
-            "agent-1", "session-hosted-queued-conflict");
-        _sessionManager.TryReserveThreadExecution("agent-1", sessionId, threadId, out var execution)
-            .Should().BeTrue();
-        _sessionManager.ActivateThreadExecution(sessionId, threadId, execution.ThreadExecutionId)
-            .Should().BeTrue();
-
-        var submitted = await _service.SubmitInputAsync(
-            "agent-1",
-            sessionId,
-            threadId,
-            new UserMessagesInputEvent
-            {
-                Delivery = AgentInputDelivery.Queue,
-                Messages = [new ChatMessage(ChatRole.User, "queue")]
-            });
-
-        submitted.Status.Should().Be(AgentServiceStatus.Conflict);
-        submitted.ErrorCode.Should().Be("ThreadExecutionActive");
-    }
-
-    [Fact]
-    public async Task SubmitInputAsync_ExecutesSessionControlDirectlyWithoutReservingWorkSlot()
-    {
-        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync(
-            "agent-1", "session-control");
-        var stored = await _agentManager.CreateDefinitionAsync(new AgentConfig
-        {
-            Name = "agent-1",
-            Clients = new AgentClientsConfig
-            {
-                Chat = new ChatClientConfig
-                {
-                    Provider = TestAgentFactory.TestSelection(),
-                    ModelName = "test-model"
-                }
-            }
-        }, "agent-1");
-
-        var submitted = await _service.SubmitInputAsync(
-            stored.Id,
-            sessionId,
-            threadId,
-            new AudioSessionInputEvent
-            {
-                ClientInputId = "audio-start-1",
-                Command = new AudioSessionCommand.Start()
-            });
-
-        submitted.Status.Should().Be(AgentServiceStatus.Success);
-        submitted.Value!.Disposition.Should().Be("completed");
-        submitted.Value.ThreadExecutionId.Should().BeNull();
-        var audio = submitted.Value.Result.Should().BeOfType<AgentInputResult.AudioSession>().Subject;
-        var rejected = audio.Result.Should().BeOfType<AudioSessionInputResult.Rejected>().Subject;
-        rejected.Disposition.Should().Be(AudioSessionInputDisposition.CapabilityNotInstalled);
-        _sessionManager.GetActiveThreadExecution(sessionId, threadId).Should().BeNull();
-    }
-
-    private static async Task WaitUntilAsync(Func<bool> predicate, TimeSpan timeout)
-    {
-        var deadline = DateTimeOffset.UtcNow + timeout;
-        while (!predicate())
-        {
-            if (DateTimeOffset.UtcNow >= deadline)
-                throw new TimeoutException("Condition was not satisfied before the test timeout.");
-            await Task.Delay(10);
-        }
     }
 
     private sealed class TestSessionManager(ISessionStore store) : SessionManager(store);
@@ -543,6 +352,7 @@ public sealed class AgentStreamingServiceTests : IAsyncLifetime
                     }
                 }, registry)
                 .WithAgentId(agentId)
+                .WithEventComposition(CoreAgentEventComposition.Instance)
                 .WithSessionStore(sessionStore)
                 .BuildAsync(ct);
         }

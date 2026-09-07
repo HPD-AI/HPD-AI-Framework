@@ -90,11 +90,12 @@ public interface IThreadExecutionController
 }
 
 /// <summary>Resolves one shared controller for every agent using the same store instance.</summary>
-internal static class ThreadExecutionControllerRegistry
+public static class ThreadExecutionControllerRegistry
 {
     private static readonly ConditionalWeakTable<ISessionStore, InProcessThreadExecutionController> Controllers = new();
 
-    internal static IThreadExecutionController For(ISessionStore store) =>
+    /// <summary>Returns the process-wide controller shared by every execution bound to the given store instance.</summary>
+    public static IThreadExecutionController For(ISessionStore store) =>
         Controllers.GetValue(store, static authority => new InProcessThreadExecutionController(authority));
 }
 

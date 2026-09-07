@@ -1,5 +1,6 @@
 using FluentAssertions;
 using HPD.Agent;
+using HPD.Agent.Hosting.Tests;
 using HPD.Agent.Hosting.Tests.Infrastructure;
 using HPD.Agent.Providers;
 using HPD.Agent.Hosting.Lifecycle;
@@ -75,7 +76,11 @@ public class AgentMiddlewareResponseServiceTests : IAsyncLifetime
             "function",
             null,
             "call-1",
-            null);
+            null)
+        {
+            SessionId = sessionId,
+            ThreadId = threadId
+        };
         var handle = runtime.EventCoordinator.RegisterRequest<PermissionRequestEvent, PermissionResponseEvent>(request);
 
         var result = await _service.AnswerRequestAsync(
@@ -137,7 +142,8 @@ public class AgentMiddlewareResponseServiceTests : IAsyncLifetime
             var registry = new TestProviderRegistry(new FakeChatClient());
             return await new AgentBuilder(stored.Config, registry)
                 .WithAgentId(stored.Id)
-                .WithSessionStore(new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec))
+                .WithEventComposition(TestEventApplication.Composition)
+                .WithSessionStore(new InMemorySessionStore(TestEventApplication.Codec))
                 .BuildAsync(ct);
         }
 

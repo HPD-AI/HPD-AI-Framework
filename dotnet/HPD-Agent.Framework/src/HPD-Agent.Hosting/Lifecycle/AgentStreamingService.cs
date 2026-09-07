@@ -401,11 +401,13 @@ public sealed class AgentStreamingService : IAgentStreamingService
             return AgentServiceResult<ThreadRuntimeStateDto>.NotFound;
 
         var activeState = _sessionManager.GetActiveThreadExecution(sessionId, threadId);
+        var liveExecutionId = await ResolveLiveExecutionIdAsync(key, activeState?.ThreadExecutionId, cancellationToken)
+            .ConfigureAwait(false);
         journal = await ReconcileInterruptedExecutionsAsync(
             agentId,
             key,
             journal,
-            activeState?.ThreadExecutionId,
+            liveExecutionId,
             cancellationToken).ConfigureAwait(false);
         var head = await _sessionManager.Store.GetThreadEventHeadAsync(key, cancellationToken)
             .ConfigureAwait(false)
@@ -423,6 +425,24 @@ public sealed class AgentStreamingService : IAgentStreamingService
             head.Cursor,
             activeExecution,
             pendingRequests));
+    }
+
+    /// <summary>
+    /// Resolves the id of the live owner for a thread across both liveness authorities: the Hosting
+    /// <see cref="SessionManager"/> slot (populated by the top-level streaming path) and the core
+    /// <see cref="IThreadExecutionController"/> (populated by sub-agent children and other entry points).
+    /// A thread whose execution is live in either authority must not be reconciled as interrupted.
+    /// </summary>
+    private async ValueTask<string?> ResolveLiveExecutionIdAsync(
+        ThreadKey thread,
+        string? sessionManagerActiveId,
+        CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(sessionManagerActiveId))
+            return sessionManagerActiveId;
+        var controller = ThreadExecutionControllerRegistry.For(_sessionManager.Store);
+        var active = await controller.FindActiveAsync(thread, cancellationToken).ConfigureAwait(false);
+        return active.IsActive ? active.ThreadExecutionId : null;
     }
 
     private async ValueTask<IReadOnlyList<AgentEvent>> ReconcileInterruptedExecutionsAsync(
