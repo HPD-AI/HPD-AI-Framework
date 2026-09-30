@@ -21,7 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\src\HPD-Events\HPD-Events.csproj" />
-    <ProjectReference Include="..\..\..\src\HPD-RealtimeMedia\src\HPD.Media.Diagnostics\HPD-Media.Diagnostics.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-RealtimeMedia\src\HPD-Media.Diagnostics\HPD-Media.Diagnostics.csproj" />
   </ItemGroup>
 
 </Project>

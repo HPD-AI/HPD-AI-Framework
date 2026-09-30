@@ -20,7 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\src\HPD-RealtimeMedia\src\HPD.Media.WebRTC\HPD-Media.WebRTC.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-RealtimeMedia\src\HPD-Media.WebRTC\HPD-Media.WebRTC.csproj" />
   </ItemGroup>
 
 </Project>

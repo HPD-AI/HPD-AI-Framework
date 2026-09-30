@@ -20,8 +20,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\src\HPD-RealtimeMedia\src\HPD.Audio.WebRTC\HPD-Audio.WebRTC.csproj" />
-    <ProjectReference Include="..\..\..\src\HPD-RealtimeMedia\src\HPD.Media.Rtp\HPD-Media.Rtp.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-RealtimeMedia\src\HPD-Audio.WebRTC\HPD-Audio.WebRTC.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-RealtimeMedia\src\HPD-Media.Rtp\HPD-Media.Rtp.csproj" />
   </ItemGroup>
 
 </Project>

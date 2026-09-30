@@ -193,18 +193,17 @@ static async Task<int> ContinueAfterRestartAsync(
         "continue", continueJson.RootElement, functionContext, CancellationToken.None);
     var operation = continueResult as SubAgentOperationResult;
     var continuedEvents = await restartStore.CollectThreadEventsAsync(childRoute.SessionId, childRoute.ThreadId);
-    var diagStatus = operation?.Status == SubAgentOperationStatus.Completed;
-    var diagInherited = inheritedClient.CallCount == 1;
-    var diagChildDefault = childDefaultClient.CallCount == 0;
-    var diagLease = resolver.LeaseCount == 1;
-    var diagFinished = continuedEvents.OfType<ThreadExecutionFinishedEvent>()
-        .Any(value => value.Outcome == ThreadExecutionOutcome.Succeeded);
-    Console.Error.WriteLine(
-        $"DIAG status={diagStatus}({operation?.Status}) inherited={inheritedClient.CallCount} " +
-        $"childDefault={childDefaultClient.CallCount} lease={resolver.LeaseCount} finished={diagFinished} " +
-        $"events={continuedEvents.Count} types={string.Join(",", continuedEvents.Select(static e => e.GetType().Name).Distinct())} " +
-        $"err={operation?.Error?.Code}:{operation?.Error?.Message}");
-    return diagStatus && diagInherited && diagChildDefault && diagLease && diagFinished ? 0 : 7;
+    // KNOWN FAILURE: this asserts a completed subagent continuation. Subagent continuation must run
+    // inside a started agent loop (Agent.StartAsync) because only a live loop owns the agentic
+    // iteration, tool dispatch and durable report submission. This test drives
+    // SubAgentRuntime.ControlAsync from a hand-built AgentContext, so client resolution never finds
+    // a provider composition and the continuation ends at Failed rather than Completed.
+    return operation?.Status == SubAgentOperationStatus.Completed &&
+           inheritedClient.CallCount == 1 &&
+           childDefaultClient.CallCount == 0 &&
+           resolver.LeaseCount == 1 &&
+           continuedEvents.OfType<ThreadExecutionFinishedEvent>()
+               .Any(value => value.Outcome == ThreadExecutionOutcome.Succeeded) ? 0 : 7;
 }
 
 /// <summary>Commits operation facts to the durable child thread journal.</summary>

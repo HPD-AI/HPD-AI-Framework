@@ -20,11 +20,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\src\HPD-RealtimeMedia\src\HPD.Audio.Codecs.G711\HPD-Audio.Codecs.G711.csproj" />
-    <ProjectReference Include="..\..\..\src\HPD-RealtimeMedia\src\HPD.Audio.Codecs.Opus\HPD-Audio.Codecs.Opus.csproj" />
-    <ProjectReference Include="..\..\..\src\HPD-RealtimeMedia\src\HPD.Audio.Codecs\HPD-Audio.Codecs.csproj" />
-    <ProjectReference Include="..\..\..\src\HPD-RealtimeMedia\src\HPD.Audio.Primitives\HPD-Audio.Primitives.csproj" />
-    <ProjectReference Include="..\..\..\src\HPD-RealtimeMedia\src\HPD.Media.Diagnostics\HPD-Media.Diagnostics.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-RealtimeMedia\src\HPD-Audio.Codecs.G711\HPD-Audio.Codecs.G711.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-RealtimeMedia\src\HPD-Audio.Codecs.Opus\HPD-Audio.Codecs.Opus.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-RealtimeMedia\src\HPD-Audio.Codecs\HPD-Audio.Codecs.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-RealtimeMedia\src\HPD-Audio.Primitives\HPD-Audio.Primitives.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-RealtimeMedia\src\HPD-Media.Diagnostics\HPD-Media.Diagnostics.csproj" />
   </ItemGroup>
 
 </Project>

@@ -20,8 +20,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\src\HPD-RealtimeMedia\src\HPD.Media.Diagnostics\HPD-Media.Diagnostics.csproj" />
-    <ProjectReference Include="..\..\..\src\HPD-RealtimeMedia\src\HPD.Media.Rtcp\HPD-Media.Rtcp.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-RealtimeMedia\src\HPD-Media.Diagnostics\HPD-Media.Diagnostics.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-RealtimeMedia\src\HPD-Media.Rtcp\HPD-Media.Rtcp.csproj" />
   </ItemGroup>
 
 </Project>

@@ -20,8 +20,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\src\HPD-RealtimeMedia\src\HPD.Media.Rtp.Audio.Sdp\HPD-Media.Rtp.Audio.Sdp.csproj" />
-    <ProjectReference Include="..\..\..\src\HPD-RealtimeMedia\src\HPD.Media.Sdp\HPD-Media.Sdp.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-RealtimeMedia\src\HPD-Media.Rtp.Audio.Sdp\HPD-Media.Rtp.Audio.Sdp.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-RealtimeMedia\src\HPD-Media.Sdp\HPD-Media.Sdp.csproj" />
   </ItemGroup>
 
 </Project>
