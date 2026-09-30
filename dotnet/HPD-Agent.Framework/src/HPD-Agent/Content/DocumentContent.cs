@@ -12,13 +12,14 @@ using Microsoft.Extensions.AI;
 namespace HPD.Agent;
 
 /// <summary>
-/// Represents document content for text extraction.
+/// Represents document content.
 /// Extends DataContent with document-specific conveniences.
 /// </summary>
 /// <remarks>
 /// <para>
-/// DocumentContent flows through DocumentHandlingMiddleware for automatic
-/// text extraction via TextExtractionUtility.
+/// Document bytes are stored by ContentUploadMiddleware. Text extraction is intentionally
+/// not built in: applications that need document text in the model context supply their own
+/// middleware (for example, backed by HPD-Extract).
 /// </para>
 /// <para>
 /// <b>Supported Formats:</b> PDF, Word (.doc/.docx), Excel (.xls/.xlsx),
@@ -28,7 +29,6 @@ namespace HPD.Agent;
 /// <b>Middleware Behavior:</b>
 /// <list type="bullet">
 /// <item>ContentUploadMiddleware: Uploads to IContentStore with kind=upload metadata</item>
-/// <item>DocumentHandlingMiddleware: Extracts text, replaces with TextContent</item>
 /// </list>
 /// </para>
 /// </remarks>

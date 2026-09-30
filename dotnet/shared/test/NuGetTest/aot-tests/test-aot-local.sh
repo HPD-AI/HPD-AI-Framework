@@ -127,7 +127,6 @@ test_package "HPD-Extract.Web" "../HPD-Extract.Framework/src/HPD-Extract.Web/HPD
 test_package "HPD-Extract.Office" "../HPD-Extract.Framework/src/HPD-Extract.Office/HPD-Extract.Office.csproj"
 test_package "HPD-Extract.Images" "../HPD-Extract.Framework/src/HPD-Extract.Images/HPD-Extract.Images.csproj"
 test_package "HPD-Extract" "../HPD-Extract.Framework/src/HPD-Extract/HPD-Extract.csproj"
-test_package "HPD-Agent.TextExtraction" "HPD-Agent.TextExtraction/HPD-Agent.TextExtraction.csproj"
 test_package "HPD-Agent.Framework" "HPD-Agent/HPD-Agent.csproj"
 test_package "HPD-Agent.FFI" "HPD-Agent.FFI/HPD-Agent.FFI.csproj"
 test_package "HPD-Agent.MCP" "HPD-Agent.MCP/HPD-Agent.MCP.csproj"

@@ -31,8 +31,6 @@ Supported inputs include:
 - Microsoft Word, Excel, and PowerPoint Open XML documents
 - Images through an injected OCR engine
 
-For HPD agent middleware, use `HPD-Agent.TextExtraction`, which builds on this package.
-
 ## Quick Start
 
 ```csharp

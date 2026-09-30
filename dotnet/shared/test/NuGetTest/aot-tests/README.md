@@ -41,7 +41,6 @@ The script tests these HPD-Agent packages individually:
 - HPD-Extract.Office
 - HPD-Extract.Images
 - HPD-Extract
-- HPD-Agent.TextExtraction
 - HPD-Agent.Framework
 - HPD-Agent.FFI
 - HPD-Agent.MCP

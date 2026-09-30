@@ -12,7 +12,6 @@ using HPD.Agent.Audio.Runtime.Output;
 using HPD.Agent.Audio.Trace;
 using HPD.Agent.Providers;
 using HPD.Agent.Providers.Audio.ElevenLabs;
-using HPD.Agent.Providers.Audio.Meai;
 using HPD.Agent.Providers.Audio.OpenAI;
 using Microsoft.Extensions.AI;
 

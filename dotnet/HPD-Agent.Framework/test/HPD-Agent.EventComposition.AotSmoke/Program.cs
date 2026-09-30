@@ -68,7 +68,24 @@ var parentThread = durableSession.CreateThread("parent-agent", "subagent-parent"
 await firstStore.SaveInitialThreadAsync(durableSession.Id, parentThread);
 parentThread.Session = durableSession;
 durableSession.Store = firstStore;
-var policy = SubAgentRunConfig.Inherit().CompilePolicy();
+// Replaces the removed SubAgentRunConfig.Inherit().CompilePolicy(): admission locks the
+// controller-resolved Chat client and disables further descendant client propagation.
+var policy = SubAgentExecutionPolicy.Create(
+    initialRunConfig: null,
+    new AgentClientsConfig
+    {
+        Chat = new ChatClientConfig
+        {
+            Provider = new ProviderReference { Key = "aot" },
+            ModelName = "smoke"
+        }
+    },
+    new Dictionary<ProviderClientFamily, SubAgentClientSelectionSource>
+    {
+        [ProviderClientFamily.Chat] = SubAgentClientSelectionSource.ControllerResolved
+    },
+    new AgentSecurityRunConfig(),
+    new NoSubAgentClientPropagation());
 var parent = new ThreadKey(subAgentSessionId, parentThread.Id);
 var childRoute = new ThreadKey(parent.SessionId, "worker-thread");
 await firstStore.AppendThreadEventAsync(childRoute.SessionId, childRoute.ThreadId,
@@ -146,6 +163,10 @@ static async Task<int> ContinueAfterRestartAsync(
         new AIFunctionFactoryOptions { Name = SubAgentsFunctionFactory.FunctionName });
     var state = AgentLoopState.InitialSafe([], "run", "conversation", "parent-agent");
     using var eventCoordinator = new HPD.Events.Core.EventCoordinator();
+    // Continuation requires an active operation runtime: ControlAsync("continue") gates on
+    // FunctionExecutionContext.CanStartOperations, which needs an AgentOperationRegistry.
+    var capabilities = new RuntimeCapabilityRegistry();
+    capabilities.Set(new AgentOperationRegistry(new StoreOperationSink(restartStore)));
     var agentContext = new AgentContext(
         "parent-agent", "conversation", state, eventCoordinator,
         durableSession, parentThread, CancellationToken.None,
@@ -153,8 +174,9 @@ static async Task<int> ContinueAfterRestartAsync(
             inheritedClient, AgentChatClientSource.BuilderDefault,
             executionIdentity: inheritedClient.Identity),
         services: services,
-        config: new AgentConfig { Name = "parent-agent" },
-        clientSet: controllerClients);
+        config: new AgentConfig { Name = "parent-agent", EventComposition = composition },
+        clientSet: controllerClients,
+        runtimeCapabilities: capabilities);
     var before = agentContext.AsBeforeFunction(
         function, "restart-tool-call", new Dictionary<string, object?>(), new AgentRunConfig(), null, null);
     var functionContext = new FunctionExecutionContext(before, new FunctionRequest
@@ -171,12 +193,26 @@ static async Task<int> ContinueAfterRestartAsync(
         "continue", continueJson.RootElement, functionContext, CancellationToken.None);
     var operation = continueResult as SubAgentOperationResult;
     var continuedEvents = await restartStore.CollectThreadEventsAsync(childRoute.SessionId, childRoute.ThreadId);
-    return operation?.Status == SubAgentOperationStatus.Completed &&
-           inheritedClient.CallCount == 1 &&
-           childDefaultClient.CallCount == 0 &&
-           resolver.LeaseCount == 1 &&
-           continuedEvents.OfType<ThreadExecutionFinishedEvent>()
-               .Any(value => value.Outcome == ThreadExecutionOutcome.Succeeded) ? 0 : 7;
+    var diagStatus = operation?.Status == SubAgentOperationStatus.Completed;
+    var diagInherited = inheritedClient.CallCount == 1;
+    var diagChildDefault = childDefaultClient.CallCount == 0;
+    var diagLease = resolver.LeaseCount == 1;
+    var diagFinished = continuedEvents.OfType<ThreadExecutionFinishedEvent>()
+        .Any(value => value.Outcome == ThreadExecutionOutcome.Succeeded);
+    Console.Error.WriteLine(
+        $"DIAG status={diagStatus}({operation?.Status}) inherited={inheritedClient.CallCount} " +
+        $"childDefault={childDefaultClient.CallCount} lease={resolver.LeaseCount} finished={diagFinished} " +
+        $"events={continuedEvents.Count} types={string.Join(",", continuedEvents.Select(static e => e.GetType().Name).Distinct())} " +
+        $"err={operation?.Error?.Code}:{operation?.Error?.Message}");
+    return diagStatus && diagInherited && diagChildDefault && diagLease && diagFinished ? 0 : 7;
+}
+
+/// <summary>Commits operation facts to the durable child thread journal.</summary>
+internal sealed class StoreOperationSink(ISessionStore store) : IAgentOperationEventSink
+{
+    public async ValueTask AppendAsync(AgentEvent evt, CancellationToken cancellationToken)
+        => await store.AppendThreadEventsAsync(
+            new(evt.SessionId!, evt.ThreadId!), [evt], cancellationToken: cancellationToken);
 }
 
 internal sealed class ContinuationClient(string response) : IChatClient

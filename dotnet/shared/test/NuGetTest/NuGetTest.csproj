@@ -27,7 +27,6 @@
     <PackageReference Include="HPD-Agent.FFI" Version="0.2.0" />
     <PackageReference Include="HPD-Agent.MCP" Version="0.2.0" />
     <PackageReference Include="HPD-Agent.Memory" Version="0.2.0" />
-    <PackageReference Include="HPD-Agent.TextExtraction" Version="0.2.0" />
 
     <!-- ToolHarness packages -->
     <PackageReference Include="HPD-Agent.ToolHarness.FileSystem" Version="0.2.0" />

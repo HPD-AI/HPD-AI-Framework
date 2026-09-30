@@ -1,6 +1,5 @@
 using FluentAssertions;
 using HPD.Agent.MCP;
-using HPD.Agent.MCP.Tasks;
 using ModelContextProtocol.Extensions.Tasks;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;

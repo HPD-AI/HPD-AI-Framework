@@ -20,6 +20,7 @@ The qualified ONNX Runtime 1.23.0 CPU assets cover `linux-arm64`, `linux-x64`,
 prewarms the model before returning a source. Every audio session receives
 isolated recurrent state while the immutable inference host is shared.
 
-For repository qualification only, run `eng/fetch-silero-vad-v6.2.sh`. It pins
+For repository qualification only, run
+`dotnet run --file eng/fetch-silero-vad-v6.2.cs`. It pins
 upstream commit `be95df9152c0d7618fa1edfeb296fc3dae32376f` and SHA-256
 `1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3`.

@@ -16,7 +16,7 @@
     <Using Include="Xunit" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../../src/HPD-Agent.Audio.LiveKit.SourceGenerator/HPD-Agent.Audio.LiveKit.SourceGenerator.csproj" />
-    <ProjectReference Include="../../src/HPD-Agent.Audio/HPD-Agent.Audio.LiveKit/HPD-Agent.Audio.LiveKit.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Audio/HPD-Agent.Audio.LiveKit/HPD-Agent.Audio.LiveKit.SourceGenerator/HPD-Agent.Audio.LiveKit.SourceGenerator.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Audio/HPD-Agent.Audio.LiveKit/HPD-Agent.Audio.LiveKit/HPD-Agent.Audio.LiveKit.csproj" />
   </ItemGroup>
 </Project>

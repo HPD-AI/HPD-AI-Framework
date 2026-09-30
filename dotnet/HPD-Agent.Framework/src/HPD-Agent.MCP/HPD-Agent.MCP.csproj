@@ -21,7 +21,6 @@
     <InternalsVisibleTo Include="HPD-Agent" />
     <InternalsVisibleTo Include="HPD-Agent.FFI" />
     <InternalsVisibleTo Include="HPD-Agent.Tests" />
-    <InternalsVisibleTo Include="HPD-Agent.MCP.Tasks" />
     <InternalsVisibleTo Include="HPD-Agent.MCP.AotSmoke" />
     <InternalsVisibleTo Include="AgentConsoleTest" />
     <InternalsVisibleTo Include="AgentAPI" />
@@ -35,6 +34,7 @@
 
     <!-- MCP Support -->
     <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
+    <PackageReference Include="ModelContextProtocol.Extensions.Tasks" Version="2.2.0" />
   </ItemGroup>
 
   <ItemGroup>

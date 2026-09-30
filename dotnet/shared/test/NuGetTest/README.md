@@ -41,7 +41,6 @@ dotnet add package HPD-Extract.Web -v 0.2.0
 dotnet add package HPD-Extract.Office -v 0.2.0
 dotnet add package HPD-Extract.Images -v 0.2.0
 dotnet add package HPD-Extract -v 0.2.0
-dotnet add package HPD-Agent.TextExtraction -v 0.2.0
 
 # ToolHarness packages
 dotnet add package HPD-Agent.ToolHarness.FileSystem -v 0.2.0
@@ -98,7 +97,6 @@ The following packages will be packed (same as the publish workflow):
 - HPD-Extract.Office
 - HPD-Extract.Images
 - HPD-Extract
-- HPD-Agent.TextExtraction
 
 **ToolHarnesses:**
 - HPD-Agent.ToolHarness.FileSystem

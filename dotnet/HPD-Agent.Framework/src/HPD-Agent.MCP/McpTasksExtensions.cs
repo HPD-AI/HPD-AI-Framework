@@ -2,9 +2,8 @@ using System.Text.Json;
 using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
 using ModelContextProtocol.Protocol;
-using HPD.Agent.MCP;
 
-namespace HPD.Agent.MCP.Tasks;
+namespace HPD.Agent.MCP;
 
 /// <summary>Activates the optional stable SDK Tasks extension for an MCP source.</summary>
 public static class McpTasksExtensions

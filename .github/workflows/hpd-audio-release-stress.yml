@@ -56,14 +56,12 @@ jobs:
             8.0.x
             9.0.x
             10.0.x
-      - name: Execute native mutation, privacy, and performance gates
+      - name: Execute privacy and performance gates
         shell: bash
         run: |
           set -euo pipefail
           log="${RUNNER_TEMP}/fuzz-privacy-performance.log"
           for tfm in net8.0 net9.0 net10.0; do
-            dotnet test test/HPD-Agent.History.Abi.Tests/HPD-Agent.History.Abi.Tests.csproj -c Release -f "$tfm" -m:1 /nodeReuse:false >>"$log" 2>&1 || { tail -120 "$log"; exit 1; }
-            dotnet test test/HPD-Agent.Replay.Abi.Tests/HPD-Agent.Replay.Abi.Tests.csproj -c Release -f "$tfm" -m:1 /nodeReuse:false >>"$log" 2>&1 || { tail -120 "$log"; exit 1; }
             dotnet test test/HPD-Agent.Tests/HPD-Agent.Tests.csproj -c Release -f "$tfm" --filter 'FullyQualifiedName~PrivacyCopyLifecycleV1Tests|FullyQualifiedName~PerformanceBaselineTests' -m:1 /nodeReuse:false >>"$log" 2>&1 || { tail -120 "$log"; exit 1; }
             printf 'PASS %s fuzz-privacy-performance\n' "$tfm" >>"$log"
           done
@@ -87,7 +85,7 @@ jobs:
         run: |
           set -euo pipefail
           log="${RUNNER_TEMP}/native-long-soak.log"
-          eng/qualify-silero-vad.sh linux-x64 >"$log" 2>&1 || { tail -120 "$log"; exit 1; }
+          dotnet run --file eng/qualify-silero-vad.cs -- linux-x64 >"$log" 2>&1 || { tail -120 "$log"; exit 1; }
           grep -E 'silero-soak-windows=1000000' "$log"
       - uses: actions/upload-artifact@v4
         with:

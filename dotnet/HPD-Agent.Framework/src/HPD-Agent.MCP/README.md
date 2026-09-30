@@ -54,7 +54,7 @@ Reserved MCP headers cannot be configured. HTTP operation is stateless from HPD'
 
 Ordinary tools invoke the SDK-provided `McpClientTool`. HPD registers bounded client handlers through `IMcpInputResolver`; SDK 2.x owns `input_required` reconstruction, retries, cancellation, and its round limit. Resolver values are JSON and never become successful output while unresolved.
 
-Remote MCP Tasks are optional and live in the separate `HPD-Agent.MCP.Tasks` package. Installing that package alone changes nothing; opt a source in explicitly with `options.AddTasksExtension()`. The base package therefore has no Tasks-extension dependency or runtime activation.
+Remote MCP Tasks support ships in this package and is inert until a source opts in explicitly with `options.AddTasksExtension()`.
 
 Remote MCP Tasks are provider-owned durable work. They are distinct from HPD sessions and from local background execution. HPD assigns its own `OperationId`; a remote task ID is retained separately as `ProviderOperationId`. Detaching local observation does not imply remote cancellation.
 

@@ -64,7 +64,6 @@ PROJECTS=(
   "HPD-Agent.FFI/HPD-Agent.FFI.csproj"
   "HPD-Agent.MCP/HPD-Agent.MCP.csproj"
   "HPD-Agent.Memory/HPD-Agent.Memory.csproj"
-  "HPD-Agent.TextExtraction/HPD-Agent.TextExtraction.csproj"
   "HPD-Agent.ToolHarness/HPD-Agent.ToolHarness.FileSystem/HPD-Agent.ToolHarness.FileSystem.csproj"
   "HPD-Agent.ToolHarness/HPD-Agent.ToolHarness.WebSearch/HPD-Agent.ToolHarness.WebSearch.csproj"
   "HPD-Agent.ToolHarness/HPD-Agent.ToolHarness.Coding/HPD-Agent.ToolHarness.Coding.csproj"
