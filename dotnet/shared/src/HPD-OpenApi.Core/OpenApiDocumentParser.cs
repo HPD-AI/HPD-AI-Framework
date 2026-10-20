@@ -2,8 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using HPD.Serialization;
 using HPD.OpenApi.Core.Model;
-using Microsoft.OpenApi.Models;
-using Microsoft.OpenApi.Models.Interfaces;
+using Microsoft.OpenApi;
 using Microsoft.OpenApi.Reader;
 
 namespace HPD.OpenApi.Core;
@@ -417,7 +416,7 @@ public sealed class OpenApiDocumentParser
         return s.TryGetProperty(key, out var nested) ? nested : null;
     }
 
-    private static string? GetSupportedMediaType(IDictionary<string, OpenApiMediaType> content)
+    private static string? GetSupportedMediaType(IDictionary<string, IOpenApiMediaType> content)
     {
         foreach (var supported in s_supportedMediaTypes)
             foreach (var key in content.Keys)
