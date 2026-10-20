@@ -48,6 +48,25 @@ internal sealed class TerminalLayoutBuilder
         var offset = 0;
         while (offset < value.Length)
         {
+            var asciiLength = 0;
+            while (offset + asciiLength < value.Length &&
+                   value[offset + asciiLength] is >= '!' and <= '~')
+                asciiLength++;
+            if (asciiLength >= 64)
+            {
+                WriteAsciiRun(
+                    value,
+                    ref offset,
+                    asciiLength,
+                    style,
+                    hyperlink,
+                    sourceStart,
+                    sourceEndExclusive,
+                    hasExactSourceRange,
+                    decorative);
+                continue;
+            }
+
             var length = StringInfo.GetNextTextElementLength(value.AsSpan(offset));
             var grapheme = value.AsSpan(offset, length);
             if (grapheme.SequenceEqual("\r")) { offset += length; continue; }
@@ -86,6 +105,38 @@ internal sealed class TerminalLayoutBuilder
             if (graphemeEnd.HasValue) ConsumedSourceEndExclusive = Math.Max(ConsumedSourceEndExclusive, graphemeEnd.Value);
             _column += displayWidth;
             offset += length;
+        }
+    }
+
+    private void WriteAsciiRun(
+        string value,
+        ref int offset,
+        int length,
+        Style style,
+        TerminalHyperlink? hyperlink,
+        int? sourceStart,
+        int? sourceEndExclusive,
+        bool hasExactSourceRange,
+        bool decorative)
+    {
+        var end = offset + length;
+        while (offset < end)
+        {
+            if (_column >= _width)
+            {
+                NewLine(wrapped: true);
+                if (LimitExceeded) return;
+            }
+
+            var count = Math.Min(end - offset, _width - _column);
+            if (count <= 0) return;
+            var runStart = hasExactSourceRange ? sourceStart + offset : sourceStart;
+            var runEnd = hasExactSourceRange ? runStart + count : sourceEndExclusive;
+            Append(value.Substring(offset, count), style, hyperlink, runStart, runEnd, decorative);
+            if (runEnd.HasValue)
+                ConsumedSourceEndExclusive = Math.Max(ConsumedSourceEndExclusive, runEnd.Value);
+            _column += count;
+            offset += count;
         }
     }
 
@@ -207,7 +258,27 @@ internal sealed class TerminalLayoutBuilder
             var visualStart = line[^1].Text.Length;
             line[^1].Text.Append(text);
             if (sourceStart.HasValue && sourceEndExclusive.HasValue)
-                line[^1].SourceMap.Add(new(visualStart, visualStart + text.Length, sourceStart.Value, sourceEndExclusive.Value));
+            {
+                var sourceMap = line[^1].SourceMap;
+                if (sourceMap.Count > 0 &&
+                    sourceMap[^1].VisualEndExclusive == visualStart &&
+                    sourceMap[^1].SourceEndExclusive == sourceStart.Value)
+                {
+                    sourceMap[^1] = sourceMap[^1] with
+                    {
+                        VisualEndExclusive = visualStart + text.Length,
+                        SourceEndExclusive = sourceEndExclusive.Value
+                    };
+                }
+                else
+                {
+                    sourceMap.Add(new(
+                        visualStart,
+                        visualStart + text.Length,
+                        sourceStart.Value,
+                        sourceEndExclusive.Value));
+                }
+            }
             if (line[^1].SourceEndExclusive == sourceStart)
                 line[^1].SourceEndExclusive = sourceEndExclusive;
         }

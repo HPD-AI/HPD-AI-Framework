@@ -143,6 +143,12 @@ internal sealed class TerminalMarkdownRenderer : RendererBase
     internal void WriteTransformed(MarkdownObject node, string rendered, Style style)
     {
         var (sourceStart, sourceEnd) = NormalizeSpan(node);
+        if (_document.Source.AsSpan(sourceStart, sourceEnd - sourceStart)
+            .SequenceEqual(rendered.AsSpan()))
+        {
+            Builder.Write(rendered, style, ActiveHyperlink, sourceStart, sourceEnd);
+            return;
+        }
         var cursor = sourceStart;
         for (var visual = 0; visual < rendered.Length;)
         {
