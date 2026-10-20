@@ -44,6 +44,27 @@ dotnet add package HPD-Agent.Framework
 
 Use this package when you need this HPD Agent capability in an agent application.
 
+## Event composition
+
+Agent events need one immutable application schema so live events, durable thread
+journals, replay, and source-generated Native AOT metadata agree. Applications
+usually do not configure this manually:
+
+- An executable or a project with `HpdAgentApplication=true` generates and
+  auto-registers one complete application composition.
+- A library generates and auto-registers its own event module. When no full
+  application composition is present, `AgentBuilder` composes the loaded
+  generated modules automatically.
+- Select with `WithEventApplicationIdentity(...)` only when multiple generated
+  applications are loaded into one process.
+- Supply `WithEventComposition(...)` for a custom or intentionally core-only
+  event surface.
+
+Use the builder's session-store helpers, such as
+`WithInMemorySessionStore()` or `WithFileSessionStore(path)`, so the store is
+created with the selected composition's codec. A manually created store must use
+that same codec.
+
 ## Pre-1.0 API Evolution
 
 HPD-Agent is still pre-1.0. Until `1.0.0`, minor and patch releases may refine

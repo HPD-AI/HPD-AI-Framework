@@ -628,7 +628,8 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
                 return;
 
             context.AddSource("GeneratedAgentEventModule.g.cs",
-                GenerateEventModule(validAgentEvents, moduleId, jsonContextType));
+                GenerateEventModule(validAgentEvents, moduleId, jsonContextType,
+                    compilation.AssemblyName ?? "HPD.Agent.Module"));
         }
         if (isApplication)
         {
@@ -773,7 +774,8 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
     private static string GenerateEventModule(
         List<CustomEventInfo> events,
         string moduleId,
-        INamedTypeSymbol jsonContextType)
+        INamedTypeSymbol jsonContextType,
+        string assemblyIdentity)
     {
         var contextName = jsonContextType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         var providerTypeName = GetGeneratedProviderTypeName(moduleId);
@@ -830,6 +832,14 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
             sb.AppendLine("        AgentEventComposition.Create([CoreAgentEventModule.Fragment]);");
             sb.AppendLine("}");
         }
+
+        sb.AppendLine();
+        sb.AppendLine("internal static class GeneratedAgentEventModuleRegistration");
+        sb.AppendLine("{");
+        sb.AppendLine("    [global::System.Runtime.CompilerServices.ModuleInitializer]");
+        sb.AppendLine("    internal static void Register() => AgentEventCompositionHost.RegisterModule(");
+        sb.AppendLine($"        {providerTypeName}.Fragment, \"{EscapeString(assemblyIdentity)}\");");
+        sb.AppendLine("}");
 
         return sb.ToString();
     }

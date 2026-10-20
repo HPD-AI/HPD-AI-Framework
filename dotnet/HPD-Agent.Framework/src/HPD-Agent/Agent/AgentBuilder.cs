@@ -2067,8 +2067,15 @@ public class AgentBuilder
             return;
         }
 
+        if (identities.Count == 0 &&
+            AgentEventCompositionHost.TryComposeRegisteredModules(out var moduleComposition))
+        {
+            _config.EventComposition = moduleComposition;
+            return;
+        }
+
         throw new InvalidOperationException(identities.Count == 0
-            ? "No agent event composition is registered. Supply WithEventComposition(...) or publish a generated application composition."
+            ? "No agent event composition is available. Supply WithEventComposition(...), reference a generated event module, or publish a generated application composition."
             : $"Multiple agent event compositions are registered ({string.Join(", ", identities)}). Select one with WithEventApplicationIdentity(...)." );
     }
 

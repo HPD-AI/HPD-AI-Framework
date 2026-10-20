@@ -14,6 +14,17 @@ namespace HPD.Agent.Tests.Middleware;
 public sealed class RuntimeExecutionIntegrationTests
 {
     [Fact]
+    public async Task LibraryHost_WithoutApplicationComposition_UsesGeneratedModuleComposition()
+    {
+        await using var agent = await new AgentBuilder(new AgentConfig
+        {
+            Name = "library-module-composition"
+        }).BuildAsync();
+
+        Assert.NotNull(agent);
+    }
+
+    [Fact]
     public async Task ConcurrentRunAsync_OnOneAgent_UsesIsolatedExecutionRegistriesAndInstances()
     {
         ExecutionIsolationMiddleware.Reset();
@@ -127,14 +138,19 @@ public sealed class RuntimeExecutionIntegrationTests
 
     private static Task<Agent> BuildAgentAsync(string name, IServiceProvider? services = null)
     {
-        var builder = new AgentBuilder(new AgentConfig
+        var config = new AgentConfig
         {
             Name = name,
             MaxAgenticIterations = 5
-        })
-        .WithChatClient(new HarnessDrivingChatClient())
-        .WithEventComposition(CoreAgentEventComposition.Instance)
-        .WithToolHarness<ExecutionIsolationHarness>();
+        };
+        config.EnsureChatClientConfig().Override = HPD.Agent.Providers.ClientOverride<IChatClient>.Borrow(
+            new HarnessDrivingChatClient(),
+            "test",
+            "local",
+            "test.adapter");
+        var builder = new AgentBuilder(config)
+            .WithEventComposition(CoreAgentEventComposition.Instance)
+            .WithToolHarness<ExecutionIsolationHarness>();
         if (services is not null)
             builder.WithServiceProvider(services);
         return builder.BuildAsync();

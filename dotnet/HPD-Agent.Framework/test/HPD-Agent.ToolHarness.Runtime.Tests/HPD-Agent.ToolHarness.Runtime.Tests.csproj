@@ -4,6 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>HPD.Agent.Tests</RootNamespace>
     <AssemblyName>HPD-Agent.ToolHarness.Runtime.Tests</AssemblyName>
+    <HpdAgentApplication>false</HpdAgentApplication>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
@@ -38,6 +39,7 @@
     <Compile Include="../HPD-Agent.Tests/Middleware/AgentMiddlewarePipelineTests.cs" Link="Middleware/AgentMiddlewarePipelineTests.cs" />
     <Compile Include="../HPD-Agent.Tests/Middleware/ToolScopingMiddlewareTests.cs" Link="Middleware/ToolScopingMiddlewareTests.cs" />
     <Compile Include="../HPD-Agent.Tests/Middleware/V2/TestHelpers.cs" Link="Middleware/V2/TestHelpers.cs" />
+    <Compile Include="../HPD-Agent.Tests/Infrastructure/TestEventComposition.cs" Link="Infrastructure/TestEventComposition.cs" />
     <Compile Include="../HPD-Agent.Tests/Infrastructure/ScopedPluginTestHelper.cs" Link="Infrastructure/ScopedPluginTestHelper.cs" />
     <Compile Include="../HPD-Agent.Tests/Infrastructure/FakeChatClient.cs" Link="Infrastructure/FakeChatClient.cs" />
     <Compile Include="../HPD-Agent.Tests/Operations/AgentOperationTests.cs" Link="Operations/AgentOperationTests.cs" />

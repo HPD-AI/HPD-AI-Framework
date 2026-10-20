@@ -37,8 +37,11 @@ internal sealed class HPDAgentRegistry
         var options = optionsMonitor.Get(name);
         var eventComposition = options.EventComposition
             ?? _serviceProvider.GetService<AgentEventComposition>()
+            ?? (AgentEventCompositionHost.TryComposeRegisteredModules(out var moduleComposition)
+                ? moduleComposition
+                : null)
             ?? throw new InvalidOperationException(
-                "HPD Agent Hosting requires an explicit or generated AgentEventComposition before activation.");
+                "HPD Agent Hosting requires an explicit, generated application, or generated module AgentEventComposition before activation.");
 
         ISessionStore sessionStore = options.SessionStore
             ?? (options.SessionStorePath != null

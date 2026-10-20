@@ -394,7 +394,7 @@ public sealed class AgentEventComposition
             throw new InvalidOperationException($"Event '{descriptor.Discriminator}' has an invalid content-retention policy.");
     }
 
-    private static bool AreEquivalent(AgentEventModuleFragment left, AgentEventModuleFragment right)
+    internal static bool AreEquivalent(AgentEventModuleFragment left, AgentEventModuleFragment right)
     {
         if (left.Events.Count != right.Events.Count)
             return false;
@@ -447,6 +447,8 @@ public static class AgentEventCompositionHost
 {
     private static readonly ConcurrentDictionary<string, AgentEventComposition> Applications =
         new(StringComparer.Ordinal);
+    private static readonly ConcurrentDictionary<string, AgentEventModuleFragment> Modules =
+        new(StringComparer.Ordinal);
 
     /// <summary>Publishes one already-built application composition under its assembly identity.</summary>
     public static void RegisterApplication(AgentEventComposition composition, string applicationAssemblyIdentity)
@@ -466,4 +468,38 @@ public static class AgentEventCompositionHost
     /// <summary>Gets the currently published application identities for standalone ambiguity diagnostics.</summary>
     public static IReadOnlyList<string> GetApplicationIdentities() =>
         Applications.Keys.OrderBy(static identity => identity, StringComparer.Ordinal).ToArray();
+
+    /// <summary>Publishes the generated event fragment owned by one assembly or capability module.</summary>
+    public static void RegisterModule(AgentEventModuleFragment fragment, string assemblyIdentity)
+    {
+        ArgumentNullException.ThrowIfNull(fragment);
+        ArgumentException.ThrowIfNullOrWhiteSpace(assemblyIdentity);
+        ArgumentException.ThrowIfNullOrWhiteSpace(fragment.ModuleId);
+        var registered = Modules.GetOrAdd(fragment.ModuleId, fragment);
+        if (!AgentEventComposition.AreEquivalent(registered, fragment))
+        {
+            throw new InvalidOperationException(
+                $"Module '{fragment.ModuleId}' from assembly '{assemblyIdentity}' conflicts with the already registered fragment for that module identity.");
+        }
+    }
+
+    /// <summary>Composes every currently loaded generated module when no application composition is available.</summary>
+    public static bool TryComposeRegisteredModules(out AgentEventComposition composition)
+    {
+        var modules = Modules.Values
+            .OrderBy(static module => module.ModuleId, StringComparer.Ordinal)
+            .ToArray();
+        if (modules.Length == 0)
+        {
+            composition = null!;
+            return false;
+        }
+
+        composition = AgentEventComposition.Create(modules);
+        return true;
+    }
+
+    /// <summary>Gets the currently registered module identities for diagnostics.</summary>
+    public static IReadOnlyList<string> GetModuleIdentities() =>
+        Modules.Keys.OrderBy(static identity => identity, StringComparer.Ordinal).ToArray();
 }
