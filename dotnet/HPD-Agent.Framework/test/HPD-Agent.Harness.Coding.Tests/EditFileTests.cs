@@ -592,7 +592,8 @@ public sealed class EditFileTests : IDisposable
             eventCoordinator ?? new EventCoordinator(),
             new Session("test-session"),
             new Thread("test-session", "test-agent"),
-            CancellationToken.None);
+            CancellationToken.None,
+            config: new AgentConfig { EventComposition = CodingEventTestCodec.Composition });
     }
 
     private static BeforeFunctionContext CreateBeforeFunctionContext(AgentContext? agentContext = null)

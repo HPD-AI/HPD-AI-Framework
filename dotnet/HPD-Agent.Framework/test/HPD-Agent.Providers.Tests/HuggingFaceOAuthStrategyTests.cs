@@ -13,6 +13,7 @@ public sealed class HuggingFaceOAuthStrategyTests
     {
         var handler = new TokenHandler((_, _) => throw new Xunit.Sdk.XunitException("OAuth network access is forbidden during build."));
         var builder = new AgentBuilder(new AgentConfig())
+            .WithEventApplicationIdentity("HPD-Agent.Providers.Tests")
             .WithHuggingFaceOAuth(
                 "mistralai/Mistral-7B-Instruct-v0.2",
                 "personal",

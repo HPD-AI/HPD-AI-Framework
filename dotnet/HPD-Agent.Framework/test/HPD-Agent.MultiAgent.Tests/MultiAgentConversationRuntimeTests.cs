@@ -112,6 +112,7 @@ public class MultiAgentConversationRuntimeTests
     {
         var store = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
         var agent = await new AgentBuilder(MinimalConfig())
+            .WithEventComposition(HPD.Agent.Serialization.CoreAgentEventComposition.Instance)
             .WithSessionStore(store)
             .BuildAsync(CancellationToken.None);
         await agent.CreateSessionAsync(
@@ -140,6 +141,7 @@ public class MultiAgentConversationRuntimeTests
     private static async Task<AgentGraphContext> CreateContextAsync(ISessionStore store)
     {
         var agent = await new AgentBuilder(MinimalConfig())
+            .WithEventComposition(HPD.Agent.Serialization.CoreAgentEventComposition.Instance)
             .WithSessionStore(store)
             .BuildAsync(CancellationToken.None);
         var graph = new GraphBuilder()

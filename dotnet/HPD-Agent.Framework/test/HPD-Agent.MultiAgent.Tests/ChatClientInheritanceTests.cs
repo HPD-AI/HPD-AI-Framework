@@ -123,7 +123,8 @@ public class ChatClientInheritanceTests
         // Assert
         await act.Should()
             .ThrowAsync<InvalidOperationException>()
-            .WithMessage("*No chat model is available for this invocation*");
+            .WithMessage(
+                "*Provider client resolution requires a generated provider composition*");
     }
 
     [Fact]

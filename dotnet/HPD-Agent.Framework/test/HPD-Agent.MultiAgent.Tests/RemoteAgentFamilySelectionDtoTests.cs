@@ -49,7 +49,7 @@ public sealed class RemoteAgentFamilySelectionDtoTests
             .Which.SecretKey.Should().Be("openai:ApiKey");
         bound.Temperature.Should().Be(0.25f);
         restored.Deadline.Should().Be(deadline);
-        Assert.DoesNotContain("apiKey", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("\"apiKey\":", json, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

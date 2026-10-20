@@ -32,8 +32,8 @@ public class EventBubblingTests
     {
         // Arrange
         var parentCoordinator = new EventCoordinator();
-        var childCoordinator = new EventCoordinator();
-        childCoordinator.SetParent(parentCoordinator);
+        var childCoordinator =
+            parentCoordinator.CreateChild(EventChildOwnership.InheritOwner);
         await using var subscription = parentCoordinator.CreateChannelInbox(EventChannel.Streaming);
 
         var receivedEvents = new List<Event>();
@@ -63,8 +63,8 @@ public class EventBubblingTests
     {
         // Arrange
         var parentCoordinator = new EventCoordinator();
-        var childCoordinator = new EventCoordinator();
-        childCoordinator.SetParent(parentCoordinator);
+        var childCoordinator =
+            parentCoordinator.CreateChild(EventChildOwnership.InheritOwner);
         await using var subscription = parentCoordinator.CreateChannelInbox(EventChannel.Streaming);
 
         var receivedEvents = new List<Event>();

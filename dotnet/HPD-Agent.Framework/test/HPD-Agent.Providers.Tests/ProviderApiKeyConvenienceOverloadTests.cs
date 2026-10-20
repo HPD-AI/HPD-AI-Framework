@@ -34,7 +34,9 @@ public sealed class ProviderApiKeyConvenienceOverloadTests
     public async Task OpenAICodex_DisconnectedAccountReferenceBuildsWithoutAuthorization()
     {
         var builder = HPD.Agent.Providers.OpenAI.AgentBuilderExtensions.WithOpenAICodex(
-            new AgentBuilder(), "gpt-5-codex", "personal");
+                new AgentBuilder().WithEventApplicationIdentity("HPD-Agent.Providers.Tests"),
+                "gpt-5-codex",
+                "personal");
 
         await using var agent = await builder.BuildAsync(CancellationToken.None);
 

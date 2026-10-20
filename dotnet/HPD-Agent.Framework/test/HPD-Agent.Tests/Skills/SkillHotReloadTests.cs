@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Agent.Tests.Skills;
 
+[Collection(SkillHotReloadCollection.Name)]
 public sealed class SkillHotReloadTests
 {
     [Fact]

@@ -14,6 +14,7 @@ using HPD.TUI.Core;
 
 namespace HPD.Agent.TUI.Tests;
 
+[Collection(TuiPerformanceCollection.Name)]
 public sealed class TranscriptViewPerformanceTests
 {
     [Fact]
