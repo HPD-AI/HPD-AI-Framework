@@ -22,7 +22,7 @@ public sealed record LiveKitNativeArtifactVerification(
 public static class LiveKitRuntimeSupport
 {
     public const string QualifiedRuntimeIdentifier = "osx-arm64";
-    public const string QualifiedNativeSha256 = "cf034115fb3b94b5682151d2d36cb5ea351e97b881cd5ac0b97d0873b2a2b1da";
+    public const string QualifiedNativeSha256 = "27782cdca31ffb3d99fd4c58b602aa72574f71d579a00a70a2376d05253ca865";
 
     private static readonly LiveKitRuntimeSupportCell[] Matrix =
     [

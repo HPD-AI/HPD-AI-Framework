@@ -258,27 +258,11 @@ internal sealed class TerminalLayoutBuilder
             var visualStart = line[^1].Text.Length;
             line[^1].Text.Append(text);
             if (sourceStart.HasValue && sourceEndExclusive.HasValue)
-            {
-                var sourceMap = line[^1].SourceMap;
-                if (sourceMap.Count > 0 &&
-                    sourceMap[^1].VisualEndExclusive == visualStart &&
-                    sourceMap[^1].SourceEndExclusive == sourceStart.Value)
-                {
-                    sourceMap[^1] = sourceMap[^1] with
-                    {
-                        VisualEndExclusive = visualStart + text.Length,
-                        SourceEndExclusive = sourceEndExclusive.Value
-                    };
-                }
-                else
-                {
-                    sourceMap.Add(new(
-                        visualStart,
-                        visualStart + text.Length,
-                        sourceStart.Value,
-                        sourceEndExclusive.Value));
-                }
-            }
+                line[^1].SourceMap.Add(new(
+                    visualStart,
+                    visualStart + text.Length,
+                    sourceStart.Value,
+                    sourceEndExclusive.Value));
             if (line[^1].SourceEndExclusive == sourceStart)
                 line[^1].SourceEndExclusive = sourceEndExclusive;
         }

@@ -6,11 +6,11 @@
     <PackageId>HPD-Agent.Audio.LiveKit.NativeAssets</PackageId>
     <Description>Pinned, execution-qualified native LiveKit FFI asset for HPD Agent Audio.</Description>
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
-    <LiveKitNativeSha256>CF034115FB3B94B5682151D2D36CB5EA351E97B881CD5AC0B97D0873B2A2B1DA</LiveKitNativeSha256>
+    <LiveKitNativeSha256>27782CDCA31FFB3D99FD4C58B602AA72574F71D579A00A70A2376D05253CA865</LiveKitNativeSha256>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Livekit.Rtc.Dotnet" Version="0.1.3"
+    <PackageReference Include="Livekit.Rtc.Dotnet" Version="0.1.4"
                       PrivateAssets="all" GeneratePathProperty="true" />
     <_LiveKitNativeAsset Include="$(PkgLivekit_Rtc_Dotnet)/runtimes/osx-arm64/native/liblivekit_ffi.dylib" />
     <None Include="@(_LiveKitNativeAsset)" Pack="true"

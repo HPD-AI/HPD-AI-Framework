@@ -20,6 +20,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.ML.OnnxRuntimeGenAI" Version="0.14.1" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntimeGenAI" Version="0.18.0" />
   </ItemGroup>
 </Project>

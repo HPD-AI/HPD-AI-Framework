@@ -489,7 +489,7 @@ internal static class LiveKitFfiGeneratedProtocol
     internal const string DescriptorSha256 = "c19e07a6ade57bd49b4e0f2340d79bb555a30b0a5c840e00c522371f5fccf4d8";
     internal const string HeaderSha256 = "fb33a01ca733b32738620f4b167ab1156a1dd291aacc53b108579a432008dd8f";
     internal const string QualifiedRid = "osx-arm64";
-    internal const string QualifiedLibrarySha256 = "cf034115fb3b94b5682151d2d36cb5ea351e97b881cd5ac0b97d0873b2a2b1da";
+    internal const string QualifiedLibrarySha256 = "27782cdca31ffb3d99fd4c58b602aa72574f71d579a00a70a2376d05253ca865";
 
     internal static ReadOnlySpan<LiveKitFfiOperation> Operations =>
     [
@@ -549,12 +549,12 @@ internal static class LiveKitFfiGeneratedProtocol
     ];
     internal static ImmutableArray<LiveKitFfiArtifactExpectation> Artifacts { get; } =
     [
-        new("osx-arm64", "f9021cf5da0f1aae11b63c3d6cec2b049d74c9ba54a8f26527a7dcd717ea0ffe", "liblivekit_ffi.dylib", "cf034115fb3b94b5682151d2d36cb5ea351e97b881cd5ac0b97d0873b2a2b1da", true, true),
-        new("osx-x64", "74a3612d2f7f1b32d309c5653fa82e5f3dde4d9a8e14e8ba679b77a2e877070a", "liblivekit_ffi.dylib", "d4c16cedfe4eb45a8d17533313a9a67036450acf35c418ae252c8699a9cf77f9", false, false),
-        new("linux-arm64", "dde0eaada4224a16ea72d1b292650e57b436a83af361f8d7ddec9fe753429771", "liblivekit_ffi.so", "363ceaf8018cc6f182e06f3511bf641312acab9fa94623d3430a36c47c834765", false, false),
-        new("linux-x64", "413b6a6be0d61ba551b899e3520cde6bb35a39eb49edf12484ce74bbe84eafb7", "liblivekit_ffi.so", "86e0cd105071083a475d11f3fe268b88f91077a1597ead805bc2585c633a9490", false, false),
-        new("win-arm64", "f4d6e59724076a26dd087ff31b3841fb19a50d25a6f14b04b9bbc618aac31c58", "livekit_ffi.dll", "b9872f3413591f49ef849b221a539ec09ee643d498fc3be4435ebc03fcfc8654", false, false),
-        new("win-x64", "dd67eb2fd021442566a3003c775884ff151a22215beaadf4b321b80670430817", "livekit_ffi.dll", "4eb322a0df83674b4b5424dcdf0d27daba998b09d7e25efde7fa9e4b78aba3f2", false, false)
+        new("osx-arm64", "f9021cf5da0f1aae11b63c3d6cec2b049d74c9ba54a8f26527a7dcd717ea0ffe", "liblivekit_ffi.dylib", "27782cdca31ffb3d99fd4c58b602aa72574f71d579a00a70a2376d05253ca865", true, true),
+        new("osx-x64", "74a3612d2f7f1b32d309c5653fa82e5f3dde4d9a8e14e8ba679b77a2e877070a", "liblivekit_ffi.dylib", "f6b8730b3623af48147933ed43f89868aeeaae37f8883063c15e4e3bc9e9ee29", false, false),
+        new("linux-arm64", "dde0eaada4224a16ea72d1b292650e57b436a83af361f8d7ddec9fe753429771", "liblivekit_ffi.so", "15b16edce4497c05f17cb7c88cb4e1100bd6c9ffa27584526422982ef54dcfde", false, false),
+        new("linux-x64", "413b6a6be0d61ba551b899e3520cde6bb35a39eb49edf12484ce74bbe84eafb7", "liblivekit_ffi.so", "5de04dab65d3a0db885092ac9b9123bf0b0817aaf50b2468c555a17b74050a4b", false, false),
+        new("win-arm64", "f4d6e59724076a26dd087ff31b3841fb19a50d25a6f14b04b9bbc618aac31c58", "livekit_ffi.dll", "b411a74357c64dcff7aed4ecad55c1acd96e610763ab47df52f389e8a5d0b519", false, false),
+        new("win-x64", "dd67eb2fd021442566a3003c775884ff151a22215beaadf4b321b80670430817", "livekit_ffi.dll", "dc9a5f8734cf7bf1fb4d386b1eb1d69d545b8e6f973ecfdfcd46b0f68c101fdc", false, false)
     ];
 
     internal static bool TryGetOperation(LiveKitFfiRequestCase requestCase, out LiveKitFfiOperation operation)
