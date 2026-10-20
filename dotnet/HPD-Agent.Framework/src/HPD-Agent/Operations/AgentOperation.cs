@@ -278,7 +278,7 @@ internal sealed class AgentOperation : IAsyncDisposable
         await _transitionLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) == 2, this);
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
             if (_snapshot.ObservationStatus != AgentOperationObservationStatus.Reconciling)
                 throw new InvalidOperationException("Live resources may only attach while an operation is reconciling.");
             if (Controller is not null || Observer is not null)
@@ -303,7 +303,7 @@ internal sealed class AgentOperation : IAsyncDisposable
         await _transitionLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) == 2, this);
             var current = _snapshot;
             if (current.Version != expectedVersion)
                 throw new AgentOperationVersionConflictException(expectedVersion, current.Version);
@@ -371,7 +371,6 @@ internal sealed class AgentOperation : IAsyncDisposable
         try
         {
             executionOwner = Interlocked.Exchange(ref _executionOwner, null);
-            Volatile.Write(ref _disposed, 2);
         }
         finally
         {

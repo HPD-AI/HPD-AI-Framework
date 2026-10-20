@@ -92,6 +92,6 @@ public class SubAgentContextPolicyTests
 
         fixedSchema.GetProperty("properties").TryGetProperty("context", out _).Should().BeFalse();
         choiceSchema.GetProperty("properties").GetProperty("context")
-            .GetProperty("enum").GetArrayLength().Should().Be(2);
+            .GetProperty("enum").GetArrayLength().Should().Be(3);
     }
 }

@@ -100,78 +100,79 @@ public class SubAgentRuntimeTests
     }
 
     [Fact]
-    public async Task InvokeAsync_ReturnsOnlyThePersistedAssistantResponse()
+    public async Task InvokeAsync_ReturnsTheExplicitParentReport()
     {
-        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
-        var client = new FakeChatClient();
-        client.EnqueueTextResponse("Review complete.");
-        var agent = await BuildAgentAsync(store, client);
-        await agent.CreateSessionAsync("parent-session");
-        var parentThread = (await store.ProjectThreadAsync(
-            "parent-session",
-            "main",
-            ThreadProjectionPurpose.ThreadHistory))!;
-        parentThread.AddMessage(new ChatMessage(ChatRole.User, "Please review this input."));
-        await AppendMessagesAsync(store, parentThread);
-        var services = new ServiceCollection()
-            .AddSingleton<IAgentRuntimeResolver>(new FixedAgentRuntimeResolver(agent))
-            .BuildServiceProvider();
-        var context = await CreateFunctionContextAsync(store, "parent-session", "main", services);
-        var subAgent = SubAgent.FromConfig(
-            "test/reviewer",
-            "Reviewer",
-            "Reviews the current thread.",
-            MinimalConfig());
-
-        var result = await SubAgentRuntime.InvokeAsync(
-            new SubAgentRuntime.SubAgentInvocationRequest
+        var childClient = new FakeChatClient();
+        childClient.EnqueueToolCall("Parent", "report-1", new Dictionary<string, object?>
+        {
+            ["request"] = new Dictionary<string, object?>
             {
-                Definition = subAgent,
-                Input = "Review this input.",
-                CapabilityId = CapabilityId.Create("test:reviewer"),
-                ParentContext = context
-            },
-            CancellationToken.None);
+                ["action"] = "complete",
+                ["report"] = "Review complete."
+            }
+        });
+        var result = await InvokeThroughParentAsync(childClient);
 
         result.Text.Should().Be("Review complete.");
     }
 
     [Fact]
-    public async Task InvokeAsync_WithoutAssistantResponse_FailsInsteadOfEchoingInput()
+    public async Task InvokeAsync_WithoutExplicitReport_StopsWithoutResult()
     {
-        var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
-        var client = new FakeChatClient();
-        client.EnqueueTextResponse("");
-        var agent = await BuildAgentAsync(store, client);
-        await agent.CreateSessionAsync("parent-session");
-        var parentThread = (await store.ProjectThreadAsync(
-            "parent-session",
-            "main",
-            ThreadProjectionPurpose.ThreadHistory))!;
-        parentThread.AddMessage(new ChatMessage(ChatRole.Assistant, "Inherited parent response."));
-        await AppendMessagesAsync(store, parentThread);
-        var services = new ServiceCollection()
-            .AddSingleton<IAgentRuntimeResolver>(new FixedAgentRuntimeResolver(agent))
-            .BuildServiceProvider();
-        var context = await CreateFunctionContextAsync(store, "parent-session", "main", services);
-        var subAgent = SubAgent.FromConfig(
-            "test/reviewer",
-            "Reviewer",
-            "Reviews the current thread.",
-            MinimalConfig());
+        var childClient = new FakeChatClient();
+        childClient.EnqueueTextResponse("Ordinary assistant prose is not a submitted result.");
+        var result = await InvokeThroughParentAsync(childClient);
+        var operation = result.ToolResult.Should().BeOfType<SubAgentOperationResult>().Subject;
 
-        Func<Task> act = async () => await SubAgentRuntime.InvokeAsync(
-            new SubAgentRuntime.SubAgentInvocationRequest
+        operation.Status.Should().Be(SubAgentOperationStatus.StoppedWithoutResult);
+        operation.Output.Should().BeNull();
+        result.Text.Should().BeNull();
+    }
+
+    private static async Task<AgentInvocationResult> InvokeThroughParentAsync(FakeChatClient childClient)
+    {
+        var store = new InMemorySessionStore(TestEventApplication.Codec);
+        await using var child = await BuildAgentAsync(store, childClient);
+        await child.StartAsync();
+        using var services = new ServiceCollection()
+            .AddSingleton<IAgentRuntimeResolver>(new FixedAgentRuntimeResolver(child))
+            .BuildServiceProvider();
+        AgentInvocationResult? result = null;
+        var definition = SubAgent.FromConfig("test/reviewer", "Reviewer", "Reviews work.", MinimalConfig());
+        var invoke = HPDAIFunctionFactory.Create(async (_, context, ct) =>
+        {
+            result = await SubAgentRuntime.InvokeAsync(new SubAgentRuntime.SubAgentInvocationRequest
             {
-                Definition = subAgent,
-                Input = "Do not echo this input.",
+                Definition = definition,
+                Input = "Review this input.",
                 CapabilityId = CapabilityId.Create("test:reviewer"),
                 ParentContext = context
-            },
-            CancellationToken.None);
-
-        await act.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("*completed without an assistant response*");
+            }, ct);
+            return result.Text;
+        }, new HPDAIFunctionFactoryOptions { Name = "invoke_reviewer" });
+        var parentClient = new FakeChatClient();
+        parentClient.EnqueueToolCall("invoke_reviewer", "invoke-1", new Dictionary<string, object?>());
+        parentClient.EnqueueTextResponse("Parent finished.");
+        var config = MinimalConfig();
+        config.Name = "ParentAgent";
+        config.Clients.Chat!.Override = ClientOverride<IChatClient>.Borrow(
+            parentClient, "test", "local", "test.adapter");
+        config.ServerConfiguredTools = [invoke];
+        await using var parent = await new AgentBuilder(config, new TestProviderRegistry(parentClient))
+            .WithEventComposition(TestEventApplication.Composition)
+            .WithSessionStore(store)
+            .WithServiceProvider(services)
+            .BuildAsync();
+        await parent.CreateSessionAsync("parent-session");
+        await parent.StartAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await parent.RunAsync(new UserMessagesInputEvent
+        {
+            Messages = [new ChatMessage(ChatRole.User, "Review work.")],
+            SessionId = "parent-session",
+            ThreadId = "main"
+        }, timeout.Token);
+        return Assert.IsType<AgentInvocationResult>(result);
     }
 
     [Fact]

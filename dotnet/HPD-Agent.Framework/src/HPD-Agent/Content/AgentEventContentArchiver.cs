@@ -67,13 +67,18 @@ public sealed class AgentEventContentArchiver : IAgentEventContentArchiver
         var eventId = string.IsNullOrWhiteSpace(value.EventId)
             ? throw new InvalidOperationException("A retained event requires an event identity.")
             : value.EventId;
-        var contentId = $"events/{descriptor.Discriminator}/{eventId}.json";
+        var contentName = $"events/{descriptor.Discriminator}/{eventId}.json";
         var scope = ContentScope.Create(scopeValue);
 
         try
         {
-            if (await _store.StatAsync(new ContentAddress(scope, contentId), cancellationToken).ConfigureAwait(false) is not null)
+            var existing = await FindArchiveAsync(scope, contentName, policy.Kind, cancellationToken).ConfigureAwait(false);
+            if (existing is not null)
+            {
+                if (!MatchesEvent(existing, descriptor.Discriminator, eventId))
+                    Report(value, "A conflicting content object occupies the event archive name.");
                 return;
+            }
 
             var tags = new Dictionary<string, string>(StringComparer.Ordinal)
             {
@@ -95,7 +100,7 @@ public sealed class AgentEventContentArchiver : IAgentEventContentArchiver
                 stream,
                 new ContentMetadata
                 {
-                    Name = contentId,
+                    Name = contentName,
                     ContentType = policy.ContentType,
                     Origin = policy.Origin,
                     Tags = tags
@@ -103,7 +108,6 @@ public sealed class AgentEventContentArchiver : IAgentEventContentArchiver
                 new ContentWriteOptions
                 {
                     Mode = ContentWriteMode.Create,
-                    ContentId = contentId,
                     FailIfNameExists = true
                 },
                 cancellationToken).ConfigureAwait(false);
@@ -114,13 +118,9 @@ public sealed class AgentEventContentArchiver : IAgentEventContentArchiver
             // Treat the exact same event archive as converged success, not an archival failure.
             try
             {
-                var existing = await _store.StatAsync(new ContentAddress(scope, contentId), cancellationToken)
+                var existing = await FindArchiveAsync(scope, contentName, policy.Kind, cancellationToken)
                     .ConfigureAwait(false);
-                if (existing?.Tags is not null &&
-                    existing.Tags.TryGetValue("event.type", out var existingType) &&
-                    existing.Tags.TryGetValue("event.id", out var existingId) &&
-                    StringComparer.Ordinal.Equals(existingType, descriptor.Discriminator) &&
-                    StringComparer.Ordinal.Equals(existingId, eventId))
+                if (existing is not null && MatchesEvent(existing, descriptor.Discriminator, eventId))
                     return;
                 Report(value, "A conflicting content object occupies the deterministic event archive identity.");
             }
@@ -136,6 +136,27 @@ public sealed class AgentEventContentArchiver : IAgentEventContentArchiver
             Report(value, "Content archival failed.", exception);
         }
     }
+
+    private async ValueTask<ContentInfo?> FindArchiveAsync(
+        ContentScope scope,
+        string name,
+        string kind,
+        CancellationToken cancellationToken)
+    {
+        var matches = await _store!.QueryAsync(scope, new ContentQuery
+        {
+            Name = name,
+            Tags = new Dictionary<string, string> { ["kind"] = kind }
+        }, cancellationToken).ConfigureAwait(false);
+        return matches.SingleOrDefault(info => StringComparer.Ordinal.Equals(info.Name, name));
+    }
+
+    private static bool MatchesEvent(ContentInfo info, string discriminator, string eventId) =>
+        info.Tags is not null &&
+        info.Tags.TryGetValue("event.type", out var existingType) &&
+        info.Tags.TryGetValue("event.id", out var existingId) &&
+        StringComparer.Ordinal.Equals(existingType, discriminator) &&
+        StringComparer.Ordinal.Equals(existingId, eventId);
 
     private void Report(AgentEvent value, string reason, Exception? exception = null) =>
         _diagnostics?.Invoke(new AgentEventArchiveDiagnostic(value.GetType(), reason, exception));

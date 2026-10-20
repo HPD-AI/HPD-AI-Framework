@@ -628,7 +628,17 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                 "ClientToolDefinition", out var clientValue) == true &&
             clientValue is HPD.Agent.ClientTools.ClientToolDefinition clientDefinition)
         {
-            var resolved = arguments is null ? null : clientDefinition.ResolveOperation(arguments);
+            HPD.Agent.ClientTools.ClientToolResolvedOperation? resolved;
+            try
+            {
+                resolved = arguments is null ? null : clientDefinition.ResolveOperation(arguments);
+            }
+            catch (ArgumentException exception)
+            {
+                permissionKey = $"function/{Uri.EscapeDataString(functionName)}";
+                validationError = exception.Message;
+                return false;
+            }
             var declaration = resolved?.Policy.Permission ??
                 HPD.Agent.ClientTools.ClientToolPolicy.Resolve(clientDefinition.DefaultPolicy).Permission;
             permissionKey = declaration?.Authority ?? $"function/{Uri.EscapeDataString(functionName)}";

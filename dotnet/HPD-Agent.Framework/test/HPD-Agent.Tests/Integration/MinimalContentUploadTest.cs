@@ -32,9 +32,15 @@ public class MinimalContentUploadTest
             var chatClient = new FakeChatClient();
             chatClient.EnqueueTextResponse("Response");
 
-            var agent = await new AgentBuilder()
-                .WithName("MinimalAgent")
-                .WithChatClient(chatClient)
+            var config = new AgentConfig { Name = "MinimalAgent" };
+            config.EnsureChatClientConfig().Override =
+                HPD.Agent.Providers.ClientOverride<IChatClient>.Borrow(
+                    chatClient,
+                    "test",
+                    "local",
+                    "test.chat");
+            var agent = await new AgentBuilder(config)
+                .WithEventComposition(HPD.Agent.Tests.TestEventApplication.Composition)
                 .WithContentStore(contentStore)
                 .BuildAsync();
 

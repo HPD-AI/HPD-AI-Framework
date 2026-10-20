@@ -137,7 +137,7 @@ public class ContentUploadMiddlewareTests
             session,
             message,
             capture.Coordinator,
-            clientSet: new AgentClientSet { HostedFiles = hostedClient });
+            clientSet: CreateHostedClientSet(hostedClient));
 
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
@@ -170,7 +170,8 @@ public class ContentUploadMiddlewareTests
                         Purpose = "vision",
                         Limit = 25
                     }
-                }
+                },
+                ExecutionIdentities = HostedExecutionIdentities()
             });
 
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
@@ -196,7 +197,7 @@ public class ContentUploadMiddlewareTests
             session,
             message,
             capture.Coordinator,
-            clientSet: new AgentClientSet { HostedFiles = hostedClient });
+            clientSet: CreateHostedClientSet(hostedClient));
 
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
@@ -263,6 +264,26 @@ public class ContentUploadMiddlewareTests
         var context = CreateAgentContext(session, coordinator, clientSet);
         return context.AsBeforeMessageTurn([userMessage], new List<ChatMessage>(), runConfig ?? new AgentRunConfig());
     }
+
+    private static AgentClientSet CreateHostedClientSet(IHostedFileClient hostedClient) => new()
+    {
+        HostedFiles = hostedClient,
+        ExecutionIdentities = HostedExecutionIdentities()
+    };
+
+    private static IReadOnlyDictionary<ProviderClientFamily, ProviderClientExecutionIdentity> HostedExecutionIdentities() =>
+        new Dictionary<ProviderClientFamily, ProviderClientExecutionIdentity>
+        {
+            [ProviderClientFamily.HostedFiles] = new()
+            {
+                ProviderKey = "test",
+                BackendKey = "local",
+                Family = ProviderClientFamily.HostedFiles,
+                OperationAdapterKey = "test.hosted-files",
+                UsageSemanticsKey = "test/default",
+                SafeConfigurationFingerprint = "test-hosted-files"
+            }
+        };
 
     private static AgentContext CreateAgentContext(
         SessionModel session,

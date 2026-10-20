@@ -14,12 +14,19 @@ public class AgentClientMiddlewareTests
         var fake = new FakeChatClient();
         fake.EnqueueTextResponse("ok");
 
-        var agent = await new AgentBuilder(new AgentConfig
-            {
-                Name = "middleware-test",
-                SystemInstructions = "You are terse."
-            })
-            .WithChatClient(fake)
+        var config = new AgentConfig
+        {
+            Name = "middleware-test",
+            SystemInstructions = "You are terse."
+        };
+        config.EnsureChatClientConfig().Override =
+            HPD.Agent.Providers.ClientOverride<IChatClient>.Borrow(
+                fake,
+                "test",
+                "local",
+                "test.chat");
+        var agent = await new AgentBuilder(config)
+            .WithEventComposition(HPD.Agent.Tests.TestEventApplication.Composition)
             .UseChatClientMiddleware((client, _) => new RecordingChatClient(client, calls, "first"))
             .UseChatClientMiddleware((client, _) => new RecordingChatClient(client, calls, "second"))
             .BuildAsync();

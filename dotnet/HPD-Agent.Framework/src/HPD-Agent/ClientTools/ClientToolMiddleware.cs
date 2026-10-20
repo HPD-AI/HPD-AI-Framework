@@ -661,14 +661,9 @@ public class ClientToolMiddleware : IAgentMiddleware
     /// </summary>
     private static JsonElement CreateEmptySchema()
     {
-        return Microsoft.Extensions.AI.AIJsonUtilities.CreateJsonSchema(
-            null,
-            serializerOptions: HPDJsonContext.Default.Options,
-            inferenceOptions: new Microsoft.Extensions.AI.AIJsonSchemaCreateOptions
-            {
-                IncludeSchemaKeyword = false
-            }
-        );
+        using var document = JsonDocument.Parse(
+            """{"type":"object","properties":{},"additionalProperties":false}""");
+        return document.RootElement.Clone();
     }
 
     // ============================================

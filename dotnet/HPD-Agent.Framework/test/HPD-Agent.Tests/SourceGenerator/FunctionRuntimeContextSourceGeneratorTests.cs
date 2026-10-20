@@ -285,7 +285,10 @@ public partial class RuntimeToolHarness
 
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
         Assert.Contains("advanced", generatedCode);
-        Assert.DoesNotContain("context", generatedCode.Substring(generatedCode.IndexOf("ParameterDescriptions", StringComparison.Ordinal)));
+        var descriptions = Assert.Single(CSharpSyntaxTree.ParseText(generatedCode).GetRoot()
+            .DescendantNodes().OfType<Microsoft.CodeAnalysis.CSharp.Syntax.AssignmentExpressionSyntax>()
+            .Where(assignment => assignment.Left.ToString() == "ParameterDescriptions"));
+        Assert.DoesNotContain("\"context\"", descriptions.Right.ToString());
     }
 
     [Fact]
@@ -309,14 +312,21 @@ public partial class RuntimeToolHarness
     }
 
     [Fact]
-    public void SubAgentWrapperGenerator_UsesExplicitFunctionExecutionContext()
+    public void SubAgentGenerator_EmitsImmutableActionDescriptors()
     {
-        var source = System.IO.File.ReadAllText(System.IO.Path.Combine(
-            FindRepoRoot(),
-            "dotnet/HPD-Agent.Framework/src/HPD-Agent.SourceGenerator/Capabilities/SubAgentCapability.cs"));
-
-        Assert.Contains("async (arguments, functionContext, cancellationToken)", source);
-        Assert.DoesNotContain("CurrentFunctionContext", source);
+        var source = """
+using HPD.Agent;
+public partial class ReviewHarness
+{
+    [SubAgent]
+    public SubAgent Review() => SubAgent.FromConfig("review", "Reviewer", "Reviews work", new AgentConfig());
+}
+""";
+        var (generatedCode, diagnostics) = RunGenerator(source);
+        Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
+        Assert.Contains("CreateSubAgentActions", generatedCode);
+        Assert.Contains("SubAgentActionDescriptor", generatedCode);
+        Assert.DoesNotContain("CurrentFunctionContext", generatedCode);
     }
 
     [Fact]

@@ -848,7 +848,8 @@ public class ClientToolMiddlewareTests
         {
             Name = name,
             Description = $"Test tool {name}",
-            ParametersSchema = JsonDocument.Parse("{}").RootElement
+            ParametersSchema = JsonDocument.Parse(
+                """{"type":"object","properties":{},"additionalProperties":false}""").RootElement
         };
     }
 

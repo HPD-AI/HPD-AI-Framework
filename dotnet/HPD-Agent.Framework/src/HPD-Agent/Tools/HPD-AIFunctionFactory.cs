@@ -106,6 +106,7 @@ public class HPDAIFunctionFactory
                 : options.OperationContract is { } operationContract
                     ? AgentInvocationModes.CreateActionSchema(methodSchema, operationContract)
                     : AgentInvocationModes.CreateSchema(methodSchema, options.InvocationModePolicy);
+            JsonSchema = EnsureStrictObjectSchemas(JsonSchema);
             Name = options.Name ?? _method?.Name ?? "Unknown";
             Description = options.Description ?? "";
             ContractDescriptor = JsonSchema.ValueKind == JsonValueKind.Undefined
@@ -116,6 +117,38 @@ public class HPDAIFunctionFactory
                 (JsonSchema.ValueKind == JsonValueKind.Undefined
                     ? null
                     : CanonicalJsonInputContract.Create(JsonSchema));
+        }
+
+        private static JsonElement EnsureStrictObjectSchemas(JsonElement schema)
+        {
+            if (schema.ValueKind == JsonValueKind.Undefined)
+                return schema;
+
+            var node = JsonNode.Parse(schema.GetRawText());
+            Normalize(node);
+            using var document = JsonDocument.Parse(node?.ToJsonString() ?? "null");
+            return document.RootElement.Clone();
+
+            static void Normalize(JsonNode? current)
+            {
+                if (current is JsonArray array)
+                {
+                    foreach (var item in array)
+                        Normalize(item);
+                    return;
+                }
+                if (current is not JsonObject obj)
+                    return;
+
+                var declaresObject = obj["type"] is JsonValue typeValue &&
+                    typeValue.TryGetValue<string>(out var type) &&
+                    string.Equals(type, "object", StringComparison.Ordinal);
+                if (declaresObject && !obj.ContainsKey("additionalProperties"))
+                    obj["additionalProperties"] = false;
+
+                foreach (var property in obj)
+                    Normalize(property.Value);
+            }
         }
 
         private static HPDAIFunctionFactoryOptions SnapshotOptions(HPDAIFunctionFactoryOptions source) => new()

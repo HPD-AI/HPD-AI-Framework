@@ -270,7 +270,8 @@ public class ChannelRoutingTests
         var parent = new HPD.Events.Core.EventCoordinator();
         var child = new HPD.Events.Core.EventCoordinator();
         child.SetParent(parent);
-        await using var subscription = parent.CreateChannelInbox(EventChannel.Control);
+        await using var subscription = parent.CreateChannelInbox(EventChannel.Control,
+            new EventInboxOptions { OwnerScope = EventOwnerScope.AllOwners });
 
         var interruption = new InterruptionHandledEvent("stream1", "test", InterruptionSource.User);
 

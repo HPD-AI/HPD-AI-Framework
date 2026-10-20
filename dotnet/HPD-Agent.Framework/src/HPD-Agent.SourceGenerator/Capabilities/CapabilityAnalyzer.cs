@@ -967,10 +967,8 @@ internal static class CapabilityAnalyzer
         var returnType = method.ReturnType.ToString();
         var isAsync = returnType.Contains("Task");
 
-        // Resolve the canonical attribute by semantic identity; same-named attributes are not permission authority.
-        var permissionType = semanticModel.Compilation.GetTypeByMetadataName("HPD.Agent.RequiresPermissionAttribute");
         var permissionAttribute = symbol.GetAttributes().FirstOrDefault(attribute =>
-            permissionType is not null && SymbolEqualityComparer.Default.Equals(attribute.AttributeClass, permissionType));
+            IsFrameworkRequiresPermissionAttribute(attribute));
         var requiresPermission = permissionAttribute is not null;
         var permissionAuthority = GetNamedString(permissionAttribute, "PermissionAuthority");
         var permissionPolicyDescriptorId = GetNamedTypeId(permissionAttribute, "PermissionPolicy");
@@ -1285,21 +1283,28 @@ internal static class CapabilityAnalyzer
         {
             var actual = attr.Name switch
             {
-                IdentifierNameSyntax identifier => identifier.Identifier.ValueText,
-                QualifiedNameSyntax qualified => qualified.Right.Identifier.ValueText,
-                AliasQualifiedNameSyntax alias => alias.Name.Identifier.ValueText,
+                SimpleNameSyntax simple => simple.Identifier.ValueText,
+                QualifiedNameSyntax qualified => GetUnqualifiedName(qualified.Right),
+                AliasQualifiedNameSyntax alias => GetUnqualifiedName(alias.Name),
                 _ => attr.Name.ToString().Split('.').Last()
             };
             return string.Equals(actual, name, System.StringComparison.Ordinal) ||
                 string.Equals(actual, name + "Attribute", System.StringComparison.Ordinal);
         });
+
+        static string GetUnqualifiedName(NameSyntax name) => name switch
+        {
+            SimpleNameSyntax simple => simple.Identifier.ValueText,
+            QualifiedNameSyntax qualified => GetUnqualifiedName(qualified.Right),
+            AliasQualifiedNameSyntax alias => GetUnqualifiedName(alias.Name),
+            _ => name.ToString()
+        };
     }
 
     private static bool HasFrameworkPermission(MethodDeclarationSyntax method, SemanticModel semanticModel)
     {
-        var permissionType = semanticModel.Compilation.GetTypeByMetadataName("HPD.Agent.RequiresPermissionAttribute");
-        return permissionType is not null && semanticModel.GetDeclaredSymbol(method)?.GetAttributes().Any(attribute =>
-            SymbolEqualityComparer.Default.Equals(attribute.AttributeClass, permissionType)) == true;
+        return semanticModel.GetDeclaredSymbol(method)?.GetAttributes()
+            .Any(IsFrameworkRequiresPermissionAttribute) == true;
     }
 
     private static void DiagnoseUnsupportedPermissionCustomization(
@@ -1307,15 +1312,21 @@ internal static class CapabilityAnalyzer
         SemanticModel semanticModel,
         List<Diagnostic> diagnostics)
     {
-        var permissionType = semanticModel.Compilation.GetTypeByMetadataName("HPD.Agent.RequiresPermissionAttribute");
         var attribute = semanticModel.GetDeclaredSymbol(method)?.GetAttributes().FirstOrDefault(candidate =>
-            permissionType is not null && SymbolEqualityComparer.Default.Equals(candidate.AttributeClass, permissionType));
+            IsFrameworkRequiresPermissionAttribute(candidate));
         if (attribute?.NamedArguments.Any(pair =>
                 pair.Key is "PermissionAuthority" or "PermissionPolicy" or "PermissionInteraction") == true)
             diagnostics.Add(Diagnostic.Create(PermissionDiagnostics.InvalidDeclaration,
                 attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation() ?? method.GetLocation(),
                 "custom permission authority, policy, and interaction properties are supported only on AIFunction capabilities"));
     }
+
+    private static bool IsFrameworkRequiresPermissionAttribute(AttributeData attribute) =>
+        attribute.AttributeClass is
+        {
+            Name: "RequiresPermissionAttribute",
+            ContainingAssembly.Name: "HPD-Agent"
+        };
 
     private static AttributeArgumentSyntax? GetNamedArgument(AttributeSyntax attr, string name) =>
         attr.ArgumentList?.Arguments.FirstOrDefault(a =>

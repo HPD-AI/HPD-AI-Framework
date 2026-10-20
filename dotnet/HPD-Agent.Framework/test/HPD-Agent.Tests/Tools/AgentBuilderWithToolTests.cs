@@ -5,6 +5,7 @@ using HPD.Agent.Providers;
 using HPD.MultiAgent;
 using Microsoft.Extensions.AI;
 using Xunit;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Agent.Tests.Tools;
 
@@ -257,7 +258,14 @@ public class AgentBuilderWithToolTests
                     ["input"] = "help with this order"
                 }
             });
-        client.EnqueueTextResponse("child handled escalation");
+        var childClient = new FakeChatClient();
+        childClient.EnqueueToolCall("Parent", "report-1", new Dictionary<string, object?>
+        {
+            ["request"] = new Dictionary<string, object?>
+            {
+                ["action"] = "complete", ["report"] = "child handled escalation"
+            }
+        });
         client.EnqueueTextResponse("parent saw escalation");
 
         var config = new AgentConfig
@@ -277,22 +285,42 @@ public class AgentBuilderWithToolTests
                 MaxTurnDuration = TimeSpan.FromSeconds(20)
             }
         };
-        config.Clients.Chat!.Override = ClientOverride<IChatClient>.Borrow(client, "test", "local", "test.chat");
+        config.Clients.Chat!.Override = ClientOverride<IChatClient>.Borrow(client, "test", "local", "test.adapter");
 
-        var agent = await new AgentBuilder(config, new TestProviderRegistry(client))
+        var store = new InMemorySessionStore(TestEventApplication.Codec);
+        await using var child = TestAgentFactory.Create(new AgentConfig
+        {
+            Name = "Support Escalation",
+            SessionStore = store,
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig
+            {
+                Provider = new ProviderReference { Key = "test" }, ModelName = "test-model"
+            }}
+        }, childClient);
+        await child.StartAsync();
+        using var services = new ServiceCollection()
+            .AddSingleton<IAgentRuntimeResolver>(new RunningChildResolver(child)).BuildServiceProvider();
+        await using var agent = await new AgentBuilder(config, new TestProviderRegistry(client))
+            .WithEventComposition(HPD.Agent.Tests.TestEventApplication.Composition)
             .WithAgentStore(new InMemoryAgentStore())
+            .WithSessionStore(store)
+            .WithServiceProvider(services)
             .WithToolHarness<ReflectionAdvancedToolHarness>()
             .BuildAsync(CancellationToken.None);
         await agent.CreateSessionAsync("generated-lifecycle");
+        await agent.StartAsync();
         await agent.RunAsync(new UserMessagesInputEvent
         {
             Messages = [new ChatMessage(ChatRole.User, "Please escalate this.")],
             SessionId = "generated-lifecycle",
-            ThreadId = "main"
+            ThreadId = "main",
+            RunConfig = new AgentRunConfig { Security = new AgentSecurityRunConfig { Approval = AgentApprovalPolicy.AutoApprove } }
         }, CancellationToken.None);
 
         var parentEvents = await agent.Config.SessionStore!.CollectThreadEventsAsync("generated-lifecycle", "main");
-        var invocation = Assert.Single(parentEvents!.OfType<SubAgentInvocationStartedEvent>());
+        Assert.True(parentEvents!.OfType<SubAgentInvocationStartedEvent>().Any(),
+            string.Join("\n", parentEvents.Select(evt => TestEventApplication.Codec.Serialize(evt))));
+        var invocation = Assert.Single(parentEvents.OfType<SubAgentInvocationStartedEvent>());
         Assert.Equal("test/support-escalation", invocation.ChildAgentId);
         Assert.Equal("support_escalation", invocation.RoleName);
         Assert.Equal(SubAgentContextPolicy.Isolated, invocation.ContextPolicy);
@@ -336,6 +364,17 @@ public class AgentBuilderWithToolTests
         Assert.Contains(HPDCapabilityKind.Function, kinds);
         Assert.Contains(HPDCapabilityKind.SkillActivation, kinds);
         Assert.Contains(HPDCapabilityKind.MultiAgent, kinds);
+    }
+
+    private sealed class RunningChildResolver(Agent child) : IAgentRuntimeResolver
+    {
+        public Task<IAgentRuntimeLease> GetOrBuildAsync(string agentId, string sessionId, string threadId,
+            CancellationToken cancellationToken = default) => Task.FromResult<IAgentRuntimeLease>(new Lease(child));
+        private sealed class Lease(Agent child) : IAgentRuntimeLease
+        {
+            public Agent Agent => child;
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
     }
 
     private static ToolHarnessFactory GetAdvancedFactory()
@@ -412,7 +451,11 @@ public class ReflectionAdvancedToolHarness
         new AgentConfig
         {
             Name = "Support Escalation",
-            SystemInstructions = "You are a support escalation specialist."
+            SystemInstructions = "You are a support escalation specialist.",
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig
+            {
+                Provider = new ProviderReference { Key = "test" }, ModelName = "test-model"
+            }}
         },
         SubAgentContextPolicy.Isolated);
 

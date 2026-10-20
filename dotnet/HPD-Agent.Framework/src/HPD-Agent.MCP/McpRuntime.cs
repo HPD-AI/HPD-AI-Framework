@@ -100,7 +100,7 @@ public sealed class McpRuntime : IAsyncDisposable
             "arguments": {
               "type": "object",
               "description": "Optional prompt arguments keyed by MCP prompt argument name.",
-              "additionalProperties": true
+              "additionalProperties": { "type": "string" }
             },
             "maxChars": {
               "type": "integer",

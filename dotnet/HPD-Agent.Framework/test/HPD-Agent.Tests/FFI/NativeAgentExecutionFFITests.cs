@@ -47,9 +47,10 @@ public sealed class NativeAgentExecutionFFITests
                 MaxTurnDuration = TimeSpan.FromSeconds(10),
             },
         };
-        config.Clients.Chat!.Override = ClientOverride<IChatClient>.Borrow(fakeClient, "test", "local", "test.chat");
+        config.Clients.Chat!.Override = ClientOverride<IChatClient>.Borrow(fakeClient, "test", "local", "test.adapter");
 
         var agent = await new AgentBuilder(config, new TestProviderRegistry(fakeClient))
+            .WithEventComposition(HPD.Agent.Tests.TestEventApplication.Composition)
             .WithPermissions()
             .BuildAsync(CancellationToken.None);
 
@@ -74,7 +75,7 @@ public sealed class NativeAgentExecutionFFITests
                 streamEvents.Add(eventJson);
 
                 using var document = JsonDocument.Parse(eventJson);
-                var root = document.RootElement;
+                var root = document.RootElement.GetProperty("event");
                 var type = root.GetProperty("type").GetString();
                 if (type == "PERMISSION_REQUEST")
                 {
@@ -85,7 +86,7 @@ public sealed class NativeAgentExecutionFFITests
                         agentHandle,
                         approvedPermissionId,
                         approved: 1,
-                        permissionChoice: 1);
+                        permissionChoice: 0);
 
                     Assert.Equal(1, responded);
                 }
@@ -98,7 +99,7 @@ public sealed class NativeAgentExecutionFFITests
                 callback,
                 IntPtr.Zero);
 
-            Assert.Equal(1, result);
+            Assert.True(result == 1, string.Join("\n", streamEvents));
             Assert.True(sawEndOfStream);
             Assert.NotEmpty(approvedPermissionId);
             Assert.Contains(streamEvents, json => json.Contains("\"type\":\"PERMISSION_REQUEST\"", StringComparison.Ordinal));

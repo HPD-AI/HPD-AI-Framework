@@ -1,4 +1,5 @@
 using System.Text.Json;
+using HPD.Agent;
 using HPD.Agent.Planning;
 using Xunit;
 
@@ -8,7 +9,10 @@ public class PlanActionContractTests
 {
     private static HPDAIFunctionFactory.HPDAIFunction Function()
     {
-        var factory = HPD.Agent.Generated.ToolHarnessRegistry.All.Single(x => x.ToolHarnessType == typeof(AgentPlanToolHarness));
+        var registryType = typeof(AgentPlanToolHarness).Assembly.GetType("HPD.Agent.Generated.ToolHarnessRegistry")
+            ?? throw new InvalidOperationException("Core ToolHarness registry was not generated.");
+        var factories = (ToolHarnessFactory[])registryType.GetField("All")!.GetValue(null)!;
+        var factory = factories.Single(x => x.ToolHarnessType == typeof(AgentPlanToolHarness));
         return Assert.IsType<HPDAIFunctionFactory.HPDAIFunction>(Assert.Single(factory.CreateFunctions(new AgentPlanToolHarness(), null, null)));
     }
 

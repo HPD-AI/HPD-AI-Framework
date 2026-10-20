@@ -5,6 +5,7 @@ using HPD.Agent.Permissions;
 using HPD.Agent.Tests.Middleware.V2;
 using HPD.Events.Core;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
 using Xunit;
 
@@ -96,7 +97,25 @@ public class PermissionMiddlewareRunConfigTests
     public async Task BeforeFunction_ReturnToModelDenial_DoesNotInterruptTurn()
     {
         var middleware = new PermissionMiddleware();
-        var function = CreateFunction("SensitiveTool", requiresPermission: true);
+        var function = HPDAIFunctionFactory.Create(
+            async (_, _, _) => "ok",
+            new HPDAIFunctionFactoryOptions
+            {
+                Name = "SensitiveTool",
+                FunctionPermission = AIFunctionPermissionDeclaration.Required("SensitiveTool") with
+                {
+                    PolicyDescriptorId = "test.return-to-model"
+                },
+                PermissionDescriptors = new Dictionary<string, AIFunctionPermissionDescriptor>
+                {
+                    ["test.return-to-model"] = new()
+                    {
+                        DescriptorId = "test.return-to-model",
+                        PolicyFactory = _ => new ReturnToModelPolicy()
+                    }
+                }
+            });
+        using var services = new ServiceCollection().BuildServiceProvider();
         var coordinator = new EventCoordinator();
         var interruptions = new List<InterruptionHandledEvent>();
         using var interruptionSubscription = coordinator.Subscribe<InterruptionHandledEvent>(handled =>
@@ -113,7 +132,7 @@ public class PermissionMiddlewareRunConfigTests
                 Feedback: "Use the read-only status tool instead."));
             return ValueTask.CompletedTask;
         });
-        var agentContext = CreateAgentContext(coordinator);
+        var agentContext = CreateAgentContext(coordinator, services);
         var context = agentContext.AsBeforeFunction(
             function,
             "call-1",
@@ -185,6 +204,30 @@ public class PermissionMiddlewareRunConfigTests
             .Contain("Client tool request rejected: Unknown compound tool action 'unknown'.");
     }
 
+    private sealed class ReturnToModelPolicy : IPermissionPolicy
+    {
+        public ValueTask<PermissionEvaluation> EvaluateAsync(
+            PermissionEvaluationContext context, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new PermissionEvaluation
+            {
+                PolicyId = "test.return-to-model",
+                PolicyRevision = "1",
+                Authority = context.Authority,
+                Title = "Allow SensitiveTool?",
+                Risk = PermissionRisk.Medium,
+                Choices = new PermissionChoiceSet
+                {
+                    Items = [new PermissionChoiceDescriptor
+                    {
+                        Id = "deny_once",
+                        Label = "Deny",
+                        Decision = PermissionDecisionKind.Deny,
+                        DeniedBehavior = PermissionDeniedBehavior.ReturnToModel
+                    }]
+                }
+            });
+    }
+
     private static AIFunction CreateFunction(string name, bool requiresPermission)
         => HPDAIFunctionFactory.Create(
             async (_, _, _) => "ok",
@@ -209,7 +252,7 @@ public class PermissionMiddlewareRunConfigTests
             runConfig);
     }
 
-    private static AgentContext CreateAgentContext(EventCoordinator coordinator)
+    private static AgentContext CreateAgentContext(EventCoordinator coordinator, IServiceProvider? services = null)
     {
         var state = AgentLoopState.InitialSafe(
             new List<ChatMessage>(),
@@ -224,6 +267,8 @@ public class PermissionMiddlewareRunConfigTests
             coordinator,
             new HPD.Agent.Session("test-session"),
             new HPD.Agent.Thread("test-session", "test-agent") { Id = "test-thread" },
-            CancellationToken.None);
+            CancellationToken.None,
+            config: new AgentConfig { EventComposition = HPD.Agent.Tests.Infrastructure.TestEventComposition.Current },
+            services: services);
     }
 }

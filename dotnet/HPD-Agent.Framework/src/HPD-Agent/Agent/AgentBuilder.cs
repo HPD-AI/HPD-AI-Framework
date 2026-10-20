@@ -4480,6 +4480,7 @@ public static class AgentBuilderToolHarnessExtensions
     public static AgentBuilder WithToolHarness<T>(this AgentBuilder builder, T instance, IToolMetadata? context = null) where T : class
     {
         RuntimeHelpers.RunModuleConstructor(typeof(T).Assembly.ManifestModule.ModuleHandle);
+        builder.LoadToolRegistryFromAssembly(typeof(T).Assembly);
         builder.LoadGeneratedRegistries();
         var toolharnessName = typeof(T).Name;
 

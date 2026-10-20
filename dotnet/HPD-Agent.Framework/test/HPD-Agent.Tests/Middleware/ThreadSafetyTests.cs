@@ -214,7 +214,7 @@ public class ThreadSafetyTests
 
         // Test ExecuteBeforeMessageTurnAsync
         var beforeMsgTurnCtx = context.AsBeforeMessageTurn(
-            null,
+            new List<ChatMessage>(),
             new List<ChatMessage>(),
             new AgentRunConfig());
         await pipeline.ExecuteBeforeMessageTurnAsync(beforeMsgTurnCtx, CancellationToken.None);

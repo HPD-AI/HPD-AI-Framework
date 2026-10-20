@@ -154,6 +154,14 @@ public static class SubAgentRuntime
                 "invalid_invocation_mode");
         }
 
+        if (mode == AgentInvocationMode.Background && request.ParentContext is null)
+        {
+            return AgentInvocationModes.CreateFailureResult(
+                GetCreationStorageName(request),
+                AgentOperationSourceKind.SubAgent,
+                "Background invocation requires an active agent runtime.");
+        }
+
         var admission = await AdmitInvocationAsync(request, cancellationToken).ConfigureAwait(false);
 
         if (admission.Creation.Phase == SubAgentCreationPhase.Terminal)
