@@ -55,7 +55,10 @@ public sealed class RealtimeConsumerSetupTests
                             Realtime = new RealtimeClientConfig
                             {
                                 Override = ClientOverride<IRealtimeClient>.Borrow(
-                                    new ConsumerRealtimeClient(realtimeSession))
+                                    new ConsumerRealtimeClient(realtimeSession),
+                                    "test",
+                                    "local",
+                                    "test.realtime")
                             }
                         }
                     }

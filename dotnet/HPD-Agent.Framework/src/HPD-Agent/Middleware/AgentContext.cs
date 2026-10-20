@@ -1,5 +1,6 @@
 using Microsoft.Extensions.AI;
 using HPD.Agent.ClientTools;
+using HPD.Agent.Serialization;
 using HPD.Events;
 using HPD.Events.Struct;
 
@@ -415,6 +416,9 @@ public sealed class AgentContext
         if (_threadEvents is not null)
             return await _threadEvents.PublishLiveAsync(evt, cancellationToken).ConfigureAwait(false);
         var codec = _config?.EventComposition?.Codec
+            ?? (AgentEventCompositionHost.TryGetDefaultApplication(out var defaultComposition)
+                ? defaultComposition.Codec
+                : null)
             ?? throw new InvalidOperationException("Agent context has no event composition authority.");
         if (!codec.TryGetByType(evt.GetType(), out _))
             throw new InvalidOperationException($"Agent event type '{evt.GetType().FullName}' is not present in codec '{codec.Digest}'.");

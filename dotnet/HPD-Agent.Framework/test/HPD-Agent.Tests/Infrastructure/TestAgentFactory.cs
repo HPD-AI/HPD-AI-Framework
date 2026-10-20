@@ -45,7 +45,7 @@ public static class TestAgentFactory
         config ??= CreateDefaultConfig();
         chatClient ??= new FakeChatClient();
         config.Clients.Chat ??= new ChatClientConfig();
-        config.Clients.Chat.Override = ClientOverride<IChatClient>.Borrow(chatClient, "test", "local");
+        config.Clients.Chat.Override = ClientOverride<IChatClient>.Borrow(chatClient, "test", "local", "test.chat");
 
         // Add tools before constructing the builder. AgentBuilder owns a configuration
         // snapshot, so mutations made afterward intentionally do not affect the agent.
@@ -57,7 +57,8 @@ public static class TestAgentFactory
         }
 
         // Create builder with test provider registry that knows about our chat client
-        var builder = new AgentBuilder(config, new TestProviderRegistry(chatClient));
+        var builder = new AgentBuilder(config, new TestProviderRegistry(chatClient))
+            .WithEventComposition(HPD.Agent.Tests.TestEventApplication.Composition);
 
         // Register standard iteration middlewares for loop protection
         // These are essential for preventing infinite loops in tests

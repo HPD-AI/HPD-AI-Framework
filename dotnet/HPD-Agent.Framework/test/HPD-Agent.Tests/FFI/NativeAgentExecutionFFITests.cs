@@ -47,7 +47,7 @@ public sealed class NativeAgentExecutionFFITests
                 MaxTurnDuration = TimeSpan.FromSeconds(10),
             },
         };
-        config.Clients.Chat!.Override = ClientOverride<IChatClient>.Borrow(fakeClient, "test", "local");
+        config.Clients.Chat!.Override = ClientOverride<IChatClient>.Borrow(fakeClient, "test", "local", "test.chat");
 
         var agent = await new AgentBuilder(config, new TestProviderRegistry(fakeClient))
             .WithPermissions()

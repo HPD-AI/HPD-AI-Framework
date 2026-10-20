@@ -23,7 +23,7 @@ public class PermissionTests : AgentTestBase
         config.EnsureChatClientConfig();
         config.EnsureChatClientConfig().Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" };
         config.EnsureChatClientConfig().ModelName = "test-model";
-        config.EnsureChatClientConfig().Override = ClientOverride<IChatClient>.Borrow(client, "test", "local");
+        config.EnsureChatClientConfig().Override = ClientOverride<IChatClient>.Borrow(client, "test", "local", "test.chat");
         config.ServerConfiguredTools ??= new List<AITool>();
         foreach (var tool in tools)
             config.ServerConfiguredTools.Add(tool);

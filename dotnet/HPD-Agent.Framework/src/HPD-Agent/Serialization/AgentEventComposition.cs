@@ -449,6 +449,7 @@ public static class AgentEventCompositionHost
         new(StringComparer.Ordinal);
     private static readonly ConcurrentDictionary<string, AgentEventModuleFragment> Modules =
         new(StringComparer.Ordinal);
+    private static string? _defaultApplicationIdentity;
 
     /// <summary>Publishes one already-built application composition under its assembly identity.</summary>
     public static void RegisterApplication(AgentEventComposition composition, string applicationAssemblyIdentity)
@@ -468,6 +469,27 @@ public static class AgentEventCompositionHost
     /// <summary>Gets the currently published application identities for standalone ambiguity diagnostics.</summary>
     public static IReadOnlyList<string> GetApplicationIdentities() =>
         Applications.Keys.OrderBy(static identity => identity, StringComparer.Ordinal).ToArray();
+
+    /// <summary>Selects the application composition used when a host loads multiple generated applications.</summary>
+    public static void SetDefaultApplication(string applicationAssemblyIdentity)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(applicationAssemblyIdentity);
+        Volatile.Write(ref _defaultApplicationIdentity, applicationAssemblyIdentity);
+    }
+
+    /// <summary>Gets the selected default application composition if it has registered.</summary>
+    public static bool TryGetDefaultApplication(out AgentEventComposition composition)
+    {
+        var identity = Volatile.Read(ref _defaultApplicationIdentity);
+        if (identity is not null && Applications.TryGetValue(identity, out composition!))
+            return true;
+
+        composition = null!;
+        return false;
+    }
+
+    /// <summary>Gets the selected default application identity for diagnostics.</summary>
+    public static string? DefaultApplicationIdentity => Volatile.Read(ref _defaultApplicationIdentity);
 
     /// <summary>Publishes the generated event fragment owned by one assembly or capability module.</summary>
     public static void RegisterModule(AgentEventModuleFragment fragment, string assemblyIdentity)

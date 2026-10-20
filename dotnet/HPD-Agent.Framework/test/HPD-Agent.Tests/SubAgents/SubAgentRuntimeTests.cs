@@ -285,7 +285,7 @@ public class SubAgentRuntimeTests
         params IAgentMiddleware[] middlewares)
     {
         var config = MinimalConfig();
-        config.Clients.Chat!.Override = ClientOverride<IChatClient>.Borrow(client, "test", "local");
+        config.Clients.Chat!.Override = ClientOverride<IChatClient>.Borrow(client, "test", "local", "test.chat");
         var builder = new AgentBuilder(config, new TestProviderRegistry(client))
             .WithSessionStore(store);
 

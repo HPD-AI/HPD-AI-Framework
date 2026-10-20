@@ -39,7 +39,11 @@ public class AgentContextEmitTests
             session: null,
             thread: null,
             cancellationToken: CancellationToken.None,
-            traceId: traceId);
+            traceId: traceId,
+            config: new AgentConfig
+            {
+                EventComposition = HPD.Agent.Tests.TestEventApplication.Composition
+            });
         return (context, coordinator);
     }
 

@@ -871,7 +871,11 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                 Transport = AgentModelTransportMode.Realtime,
                 Realtime = new RealtimeClientConfig
                 {
-                    Override = ClientOverride<IRealtimeClient>.Borrow(new FakeRealtimeClient(session)),
+                    Override = ClientOverride<IRealtimeClient>.Borrow(
+                        new FakeRealtimeClient(session),
+                        "test",
+                        "local",
+                        "test.realtime"),
                     Transcription = realtimeTranscriptionOptions is null
                         ? null
                         : new RealtimeTranscriptionRunConfig

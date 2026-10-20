@@ -2067,6 +2067,12 @@ public class AgentBuilder
             return;
         }
 
+        if (AgentEventCompositionHost.TryGetDefaultApplication(out var defaultApplication))
+        {
+            _config.EventComposition = defaultApplication;
+            return;
+        }
+
         if (identities.Count == 0 &&
             AgentEventCompositionHost.TryComposeRegisteredModules(out var moduleComposition))
         {

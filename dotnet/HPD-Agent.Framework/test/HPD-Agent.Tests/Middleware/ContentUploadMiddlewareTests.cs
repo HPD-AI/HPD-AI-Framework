@@ -104,7 +104,11 @@ public class ContentUploadMiddlewareTests
             {
                 HostedFiles = new HostedFilesClientConfig
                 {
-                    Override = ClientOverride<IHostedFileClient>.Borrow(hostedClient)
+                    Override = ClientOverride<IHostedFileClient>.Borrow(
+                        hostedClient,
+                        "test",
+                        "local",
+                        "test.hosted-files")
                 }
             }
         };

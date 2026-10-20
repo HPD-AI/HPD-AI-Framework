@@ -295,7 +295,7 @@ public sealed class SkillHotReloadTests
                 Chat = new ChatClientConfig { Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" }, ModelName = "test-model" }
             }
         };
-        config.Clients.Chat!.Override = HPD.Agent.Providers.ClientOverride<IChatClient>.Borrow(client, "test", "local");
+        config.Clients.Chat!.Override = HPD.Agent.Providers.ClientOverride<IChatClient>.Borrow(client, "test", "local", "test.chat");
         var agent = await new AgentBuilder(config, new TestProviderRegistry(client))
             .WithToolHarness<CombinedCapabilitiesTools>()
             .BuildAsync();
@@ -352,7 +352,7 @@ public sealed class SkillHotReloadTests
                 Chat = new ChatClientConfig { Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" }, ModelName = "test-model" }
             }
         };
-        config.Clients.Chat!.Override = HPD.Agent.Providers.ClientOverride<IChatClient>.Borrow(client, "test", "local");
+        config.Clients.Chat!.Override = HPD.Agent.Providers.ClientOverride<IChatClient>.Borrow(client, "test", "local", "test.chat");
         var agent = await new AgentBuilder(config, new TestProviderRegistry(client))
             .WithServiceProvider(services)
             .WithToolHarness<CombinedCapabilitiesTools>(options => options.AddSkillSource(source))
@@ -397,7 +397,7 @@ public sealed class SkillHotReloadTests
                 Chat = new ChatClientConfig { Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" }, ModelName = "test-model" }
             }
         };
-        config.Clients.Chat!.Override = HPD.Agent.Providers.ClientOverride<IChatClient>.Borrow(client, "test", "local");
+        config.Clients.Chat!.Override = HPD.Agent.Providers.ClientOverride<IChatClient>.Borrow(client, "test", "local", "test.chat");
         var agent = await new AgentBuilder(config, new TestProviderRegistry(client))
             .WithToolHarness<CombinedCapabilitiesTools>(options => options.AddSkillSource(source))
             .BuildAsync();

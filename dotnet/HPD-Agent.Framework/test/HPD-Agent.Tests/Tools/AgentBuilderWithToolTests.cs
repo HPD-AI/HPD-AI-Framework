@@ -277,7 +277,7 @@ public class AgentBuilderWithToolTests
                 MaxTurnDuration = TimeSpan.FromSeconds(20)
             }
         };
-        config.Clients.Chat!.Override = ClientOverride<IChatClient>.Borrow(client, "test", "local");
+        config.Clients.Chat!.Override = ClientOverride<IChatClient>.Borrow(client, "test", "local", "test.chat");
 
         var agent = await new AgentBuilder(config, new TestProviderRegistry(client))
             .WithAgentStore(new InMemoryAgentStore())
