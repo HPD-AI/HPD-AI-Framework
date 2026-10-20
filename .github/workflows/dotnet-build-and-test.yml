@@ -75,7 +75,6 @@ jobs:
           8.0.x
           9.0.x
           10.0.x
-          11.0.100-preview.7.26381.103
 
     - name: Provision required debugger adapters
       if: matrix.collect-coverage
@@ -233,7 +232,6 @@ jobs:
           8.0.x
           9.0.x
           10.0.x
-          11.0.100-preview.7.26381.103
 
     - name: Install Linux seccomp helper toolchain
       run: |
