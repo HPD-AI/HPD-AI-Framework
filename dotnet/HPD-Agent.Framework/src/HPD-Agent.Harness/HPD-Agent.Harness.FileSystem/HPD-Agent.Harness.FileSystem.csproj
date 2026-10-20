@@ -20,8 +20,8 @@
   <ItemGroup>
     <!-- Core dependencies (match HPD-Agent versions) -->
     <PackageReference Include="CliWrap" Version="3.10.5" />
-    <PackageReference Include="Microsoft.Extensions.AI" Version="10.7.0" />
-    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.7.0" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.11.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.11.0" />
 
     <!-- File operations -->
     <PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" Version="10.0.13" />

@@ -29,8 +29,8 @@
   <ItemGroup>
     <!-- Core AI Framework (Protocol-Agnostic) -->
     <!-- Microsoft.Agents.AI.Abstractions removed - core is now protocol-agnostic -->
-    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.7.0" />
-        <PackageReference Include="Microsoft.Extensions.AI" Version="10.7.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.11.0" />
+        <PackageReference Include="Microsoft.Extensions.AI" Version="10.11.0" />
     <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.13" />
     <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.13" />
     <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="10.0.13" />

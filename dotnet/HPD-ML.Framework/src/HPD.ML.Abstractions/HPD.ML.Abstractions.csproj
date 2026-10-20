@@ -12,7 +12,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../../../../../../../HPD-Math-Framework/Helium/src/Helium.Primitives/Helium.Primitives.csproj" />
-    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.8.3" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.11.0" />
     <PackageReference Include="System.Numerics.Tensors" Version="10.0.10" />
   </ItemGroup>
 

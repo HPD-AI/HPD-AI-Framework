@@ -25,7 +25,7 @@
     <PackageReference Include="Microsoft.Extensions.DataIngestion" Version="10.7.0-preview.1.26309.5" />
     <PackageReference Include="Microsoft.Extensions.DataIngestion.Markdig" Version="10.7.0-preview.1.26309.5" />
     <PackageReference Include="Microsoft.Extensions.DataIngestion.MarkItDown" Version="10.7.0-preview.1.26309.5" />
-    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.7.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.11.0" />
     <PackageReference Include="Microsoft.Extensions.VectorData.Abstractions" Version="10.7.0" />
   </ItemGroup>
 </Project>
