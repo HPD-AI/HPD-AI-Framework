@@ -332,6 +332,123 @@ public sealed class LocalEnvironmentVerticalSliceTests
     }
 
     [Fact]
+    public async Task Reviewed_host_executable_runs_with_bounded_environment()
+    {
+        string root = Path.Combine(
+            "/tmp",
+            "hpd-local-reviewed-command",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var registry = new EnvironmentProviderRegistry();
+        registry.RegisterModule(new LocalEnvironmentProviderModule(
+            new LocalEnvironmentProviderOptions
+            {
+                WorkloadStateRoot = root,
+                AllowedHostExecutableRoots = ["/usr/bin"],
+                AllowedHostEnvironmentVariables = ["HPD_REVIEWED_VALUE"],
+            }));
+        var runtime = new InMemoryEnvironmentRuntime(registry);
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> host =
+            await runtime.EnsureHostAsync(new RuntimeHostSpec
+            {
+                PreferredProvider =
+                    LocalEnvironmentProviderDescriptor.ProviderId,
+                Platform =
+                    LocalEnvironmentProviderDescriptor.CurrentPlatform(),
+            });
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> unit =
+            await runtime.EnsureExecutionUnitAsync(new ExecutionUnitSpec
+            {
+                PreferredHost = Ref(host.Metadata),
+            });
+        try
+        {
+            ProcessInvocationResult result = await runtime.RunProcessAsync(
+                new ProcessInvocationSpec
+                {
+                    Target = unit.Status.Handle!.Value,
+                    Command = new ProcessCommandSpec
+                    {
+                        FileName = "/usr/bin/env",
+                        WorkingDirectory = root,
+                        Environment = new Dictionary<string, string?>
+                        {
+                            ["HPD_REVIEWED_VALUE"] = "accepted",
+                        },
+                    },
+                });
+
+            Assert.Equal(0, result.ExitCode);
+            string output = System.Text.Encoding.UTF8.GetString(
+                result.Output.Stdout.CapturedBytes.Span);
+            Assert.Contains(
+                "HPD_REVIEWED_VALUE=accepted",
+                output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            await runtime.DeleteExecutionUnitAsync(Ref(unit.Metadata));
+            await runtime.DeleteHostAsync();
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Reviewed_host_executable_outside_configured_roots_is_rejected()
+    {
+        string root = Path.Combine(
+            "/tmp",
+            "hpd-local-reviewed-command",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var registry = new EnvironmentProviderRegistry();
+        registry.RegisterModule(new LocalEnvironmentProviderModule(
+            new LocalEnvironmentProviderOptions
+            {
+                WorkloadStateRoot = root,
+            }));
+        var runtime = new InMemoryEnvironmentRuntime(registry);
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> host =
+            await runtime.EnsureHostAsync(new RuntimeHostSpec
+            {
+                PreferredProvider =
+                    LocalEnvironmentProviderDescriptor.ProviderId,
+                Platform =
+                    LocalEnvironmentProviderDescriptor.CurrentPlatform(),
+            });
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> unit =
+            await runtime.EnsureExecutionUnitAsync(new ExecutionUnitSpec
+            {
+                PreferredHost = Ref(host.Metadata),
+            });
+        try
+        {
+            InvalidOperationException exception =
+                await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                    runtime.RunProcessAsync(new ProcessInvocationSpec
+                    {
+                        Target = unit.Status.Handle!.Value,
+                        Command = new ProcessCommandSpec
+                        {
+                            FileName = "/usr/bin/env",
+                        },
+                    }).AsTask());
+
+            Assert.Contains(
+                "ReviewedExecutableRejected",
+                exception.Message,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            await runtime.DeleteExecutionUnitAsync(Ref(unit.Metadata));
+            await runtime.DeleteHostAsync();
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Failed_post_start_setup_confirms_process_cleanup_before_releasing_ownership()
     {
         string root = Path.Combine(

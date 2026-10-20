@@ -207,9 +207,50 @@ internal sealed class LocalProcessProvider(LocalProviderState state)
                 argument.Contains(
                     "/usr/bin/docker",
                     StringComparison.Ordinal));
-        if (engineOperation)
-            ValidateEngineAuthority(spec);
+        if (spec.Command.FileName == "/bin/sh")
+        {
+            if (spec.Command.Arguments.Count < 3 ||
+                spec.Command.Arguments[0] is not ("-ceu" or "-cu") ||
+                !AllowedComposeOperations.Contains(
+                    spec.Command.Arguments[2]) ||
+                spec.Command.Arguments.Any(argument =>
+                    argument.Contains('\0')))
+            {
+                string shellFlags = spec.Command.Arguments.Count > 0
+                    ? spec.Command.Arguments[0]
+                    : "missing";
+                string operation = spec.Command.Arguments.Count > 2
+                    ? spec.Command.Arguments[2]
+                    : "missing";
+                throw new InvalidOperationException(
+                    "LocalEnvironment.HostShellRejected: provider-controlled shell invocations require an exact HPDOS Compose operation envelope " +
+                    $"(flags='{shellFlags}', operation='{operation}', argumentCount={spec.Command.Arguments.Count}).");
+            }
+            string shellDocker = ResolveDockerCli();
+            return new LocalResolvedCommand(
+                "/bin/sh",
+                RewriteArguments(
+                    spec.Command.Arguments,
+                    shellDocker,
+                    state.CurrentEngineSocketPath),
+                workingDirectory,
+                DockerConfigDirectory: null,
+                IsReviewedHostCommand: false,
+                Environment: new Dictionary<string, string>(
+                    StringComparer.Ordinal));
+        }
+        if (!engineOperation)
+        {
+            return new LocalResolvedCommand(
+                ResolveReviewedHostExecutable(spec.Command.FileName),
+                spec.Command.Arguments.ToArray(),
+                workingDirectory,
+                DockerConfigDirectory: null,
+                IsReviewedHostCommand: true,
+                Environment: ResolveReviewedHostEnvironment(spec));
+        }
 
+        ValidateEngineAuthority(spec);
         string docker = ResolveDockerCli();
         bool requiresComposePlugin =
             spec.Command.Arguments.Any(argument =>
@@ -233,28 +274,6 @@ internal sealed class LocalProcessProvider(LocalProviderState state)
             fileName = docker;
             arguments = RewriteArguments(spec.Command.Arguments, docker, socket);
         }
-        else if (spec.Command.FileName == "/bin/sh")
-        {
-            if (spec.Command.Arguments.Count < 3 ||
-                spec.Command.Arguments[0] is not ("-ceu" or "-cu") ||
-                !AllowedComposeOperations.Contains(
-                    spec.Command.Arguments[2]) ||
-                spec.Command.Arguments.Any(argument =>
-                    argument.Contains('\0')))
-            {
-                string shellFlags = spec.Command.Arguments.Count > 0
-                    ? spec.Command.Arguments[0]
-                    : "missing";
-                string operation = spec.Command.Arguments.Count > 2
-                    ? spec.Command.Arguments[2]
-                    : "missing";
-                throw new InvalidOperationException(
-                    "LocalEnvironment.HostShellRejected: provider-controlled shell invocations require an exact HPDOS Compose operation envelope " +
-                    $"(flags='{shellFlags}', operation='{operation}', argumentCount={spec.Command.Arguments.Count}).");
-            }
-            fileName = "/bin/sh";
-            arguments = RewriteArguments(spec.Command.Arguments, docker, socket);
-        }
         else
         {
             throw new InvalidOperationException(
@@ -265,7 +284,128 @@ internal sealed class LocalProcessProvider(LocalProviderState state)
             fileName,
             arguments,
             workingDirectory,
-            dockerConfigDirectory);
+            dockerConfigDirectory,
+            IsReviewedHostCommand: false,
+            Environment: new Dictionary<string, string>(
+                StringComparer.Ordinal));
+    }
+
+    private string ResolveReviewedHostExecutable(string command)
+    {
+        if (string.IsNullOrWhiteSpace(command) ||
+            !Path.IsPathFullyQualified(command) ||
+            command.Contains('\0'))
+        {
+            throw new InvalidOperationException(
+                "LocalEnvironment.ReviewedExecutablePathInvalid: native executables require an absolute path.");
+        }
+
+        string candidate = ResolveFinalPath(command);
+        if (!File.Exists(candidate))
+        {
+            throw new InvalidOperationException(
+                $"LocalEnvironment.ReviewedExecutableMissing: executable '{candidate}' does not exist.");
+        }
+
+        string[] roots = state.Options.AllowedHostExecutableRoots
+            .Where(static root => !string.IsNullOrWhiteSpace(root))
+            .Select(ResolveFinalPath)
+            .ToArray();
+        if (!roots.Any(root => IsPathWithin(candidate, root)))
+        {
+            throw new InvalidOperationException(
+                $"LocalEnvironment.ReviewedExecutableRejected: executable '{candidate}' is outside the configured reviewed roots.");
+        }
+
+        if (!OperatingSystem.IsWindows())
+        {
+            UnixFileMode mode = File.GetUnixFileMode(candidate);
+            if ((mode & (
+                    UnixFileMode.UserExecute |
+                    UnixFileMode.GroupExecute |
+                    UnixFileMode.OtherExecute)) == 0)
+            {
+                throw new InvalidOperationException(
+                    $"LocalEnvironment.ReviewedExecutableNotExecutable: file '{candidate}' has no execute bit.");
+            }
+        }
+        return candidate;
+    }
+
+    private IReadOnlyDictionary<string, string> ResolveReviewedHostEnvironment(
+        ProcessInvocationSpec spec)
+    {
+        HashSet<string> allowed = new(
+            state.Options.AllowedHostEnvironmentVariables,
+            StringComparer.Ordinal);
+        var environment = new Dictionary<string, string>(
+            StringComparer.Ordinal);
+        foreach ((string key, string? value) in spec.Command.Environment)
+        {
+            if (!allowed.Contains(key))
+            {
+                throw new InvalidOperationException(
+                    $"LocalEnvironment.ReviewedEnvironmentRejected: environment variable '{key}' is not in the configured allowlist.");
+            }
+            if (!IsEnvironmentName(key) ||
+                value is null ||
+                value.Contains('\0'))
+            {
+                throw new InvalidOperationException(
+                    "LocalEnvironment.ReviewedEnvironmentInvalid: reviewed environment entries require valid non-null names and values without NUL characters.");
+            }
+            environment[key] = value;
+        }
+        return environment;
+    }
+
+    private static bool IsEnvironmentName(string value)
+    {
+        if (value.Length == 0 ||
+            !(value[0] == '_' || char.IsAsciiLetter(value[0])))
+        {
+            return false;
+        }
+        foreach (char character in value.AsSpan(1))
+        {
+            if (character != '_' &&
+                !char.IsAsciiLetterOrDigit(character))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static string ResolveFinalPath(string path)
+    {
+        string fullPath = Path.GetFullPath(path);
+        try
+        {
+            FileSystemInfo? target =
+                File.ResolveLinkTarget(fullPath, returnFinalTarget: true);
+            return target?.FullName is { Length: > 0 } final
+                ? Path.GetFullPath(final)
+                : fullPath;
+        }
+        catch (IOException)
+        {
+            return fullPath;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return fullPath;
+        }
+    }
+
+    private static bool IsPathWithin(string candidate, string root)
+    {
+        string relative = Path.GetRelativePath(root, candidate);
+        return !Path.IsPathRooted(relative) &&
+            relative != ".." &&
+            !relative.StartsWith(
+                $"..{Path.DirectorySeparatorChar}",
+                StringComparison.Ordinal);
     }
 
     private string? ResolveWorkingDirectory(string? requested)
@@ -504,7 +644,9 @@ internal sealed class LocalProcessProvider(LocalProviderState state)
         string FileName,
         IReadOnlyList<string> Arguments,
         string? WorkingDirectory,
-        string? DockerConfigDirectory);
+        string? DockerConfigDirectory,
+        bool IsReviewedHostCommand,
+        IReadOnlyDictionary<string, string> Environment);
 }
 
 internal sealed class LocalProcessOperation :
@@ -580,13 +722,23 @@ internal sealed class LocalProcessOperation :
         start.Environment["PATH"] =
             "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin";
         start.Environment["HOME"] = _state.WorkloadStateRoot;
-        start.Environment["DOCKER_HOST"] =
-            $"unix://{_state.CurrentEngineSocketPath}";
-        if (_command.DockerConfigDirectory is { } dockerConfig)
-            start.Environment["DOCKER_CONFIG"] = dockerConfig;
-        if (Spec.Command.Environment.Count != 0)
-            throw new InvalidOperationException(
-                "LocalEnvironment.HostProcessEnvironmentRejected: provider-controlled host processes accept only the provider's fixed PATH, HOME, and DOCKER_HOST environment.");
+        if (_command.IsReviewedHostCommand)
+        {
+            foreach ((string key, string value) in _command.Environment)
+                start.Environment[key] = value;
+        }
+        else
+        {
+            start.Environment["DOCKER_HOST"] =
+                $"unix://{_state.CurrentEngineSocketPath}";
+            if (_command.DockerConfigDirectory is { } dockerConfig)
+                start.Environment["DOCKER_CONFIG"] = dockerConfig;
+            if (Spec.Command.Environment.Count != 0)
+            {
+                throw new InvalidOperationException(
+                    "LocalEnvironment.HostProcessEnvironmentRejected: engine operations accept only the provider's fixed PATH, HOME, DOCKER_HOST, and DOCKER_CONFIG environment.");
+            }
+        }
         foreach (string argument in _command.Arguments)
             start.ArgumentList.Add(argument);
         Directory.CreateDirectory(start.WorkingDirectory);

@@ -251,10 +251,9 @@ internal sealed class LocalDockerEngineProbe(
             ? value.GetString() ?? string.Empty
             : string.Empty;
 
-    private static bool IsRootlessSocket(string path) =>
-        path.Contains("/run/user/", StringComparison.OrdinalIgnoreCase) ||
-        path.Contains(
-            "/podman/",
+    internal static bool IsRootlessSocket(string path) =>
+        path.StartsWith(
+            "/run/user/",
             StringComparison.OrdinalIgnoreCase);
 
     private static bool HasRootlessSecurityOption(JsonElement info) =>

@@ -5,6 +5,19 @@ using System.Text;
 
 public sealed class LocalDockerEngineProbeTests
 {
+    [Theory]
+    [InlineData("/run/podman/podman.sock", false)]
+    [InlineData("/root/.local/share/containers/podman.sock", false)]
+    [InlineData("/run/user/501/podman/podman.sock", true)]
+    public void Socket_path_rootless_detection_matches_podman_layout(
+        string path,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            LocalDockerEngineProbe.IsRootlessSocket(path));
+    }
+
     [Fact]
     public void Explicit_configuration_wins_over_discovery()
     {

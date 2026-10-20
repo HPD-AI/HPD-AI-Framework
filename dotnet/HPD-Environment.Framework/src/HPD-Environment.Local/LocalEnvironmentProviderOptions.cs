@@ -28,4 +28,8 @@ public sealed record LocalEnvironmentProviderOptions
     public TimeSpan ProbeTimeout { get; init; } = TimeSpan.FromSeconds(3);
     public bool AllowRootfulEngine { get; init; } = true;
     public bool EnableWellKnownSocketDiscovery { get; init; } = true;
+    public IReadOnlyList<string> AllowedHostExecutableRoots { get; init; } =
+        Array.Empty<string>();
+    public IReadOnlyList<string> AllowedHostEnvironmentVariables { get; init; } =
+        Array.Empty<string>();
 }

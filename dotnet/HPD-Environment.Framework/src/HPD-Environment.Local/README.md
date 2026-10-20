@@ -12,8 +12,10 @@ Environment provider, not a direct Docker bypass.
   host-process execution.
 - Engine operations require a current, short-lived Environment authority
   binding. An engine-incarnation change fences old authority and endpoints.
-- Provider-controlled host processes use a fixed environment and a strict
-  command allowlist.
+- Provider-controlled engine processes use a fixed environment and a strict
+  command allowlist. Reviewed native executables require an explicitly
+  configured filesystem root and may receive only explicitly allowlisted
+  environment variables.
 - App endpoints are published only through an HPD-owned IPv4 loopback route.
   Broad host bindings and undeclared ports are rejected.
 - The provider never starts or stops the user-owned container engine.
@@ -44,6 +46,27 @@ Configuration wins over discovery. Without an explicit endpoint, discovery
 checks only a bounded well-known list and rejects ambiguity. Local startup
 reports an unavailable engine; it does not launch Docker Desktop or another
 daemon.
+
+Reviewed native executables require explicit policy:
+
+```csharp
+new LocalEnvironmentProviderOptions
+{
+    AllowedHostExecutableRoots = ["/opt/hpd/applications"],
+    AllowedHostEnvironmentVariables =
+    [
+        "WAYLAND_DISPLAY",
+        "XDG_RUNTIME_DIR",
+        "DISPLAY",
+        "XAUTHORITY",
+    ],
+}
+```
+
+Executable paths must be absolute and resolve beneath an allowed root. Shell
+execution is not made available by listing `/bin`; HPD container and Compose
+operations keep their dedicated envelopes. Native processes receive only the
+fixed provider environment plus variables explicitly present in the allowlist.
 
 ## Lifecycle
 
