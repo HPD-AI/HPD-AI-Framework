@@ -142,6 +142,7 @@ public sealed class ProviderManifestSourceGeneratorTests
             .Where(static assembly => !assembly.IsDynamic && !string.IsNullOrEmpty(assembly.Location))
             .Append(typeof(Microsoft.Extensions.DependencyInjection.IServiceCollection).Assembly)
             .Append(typeof(Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions).Assembly)
+            .Append(typeof(IServiceProvider).Assembly)
             .Distinct()
             .Select(static assembly => MetadataReference.CreateFromFile(assembly.Location));
         var compilation = CSharpCompilation.Create(

@@ -17,6 +17,6 @@
     <ProjectReference Include="../HPD.Auth.Infrastructure/HPD.Auth.Infrastructure.csproj" />
     <ProjectReference Include="../../../shared/src/HPD-Events/HPD-Events.csproj" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
-    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.13" />
   </ItemGroup>
 </Project>

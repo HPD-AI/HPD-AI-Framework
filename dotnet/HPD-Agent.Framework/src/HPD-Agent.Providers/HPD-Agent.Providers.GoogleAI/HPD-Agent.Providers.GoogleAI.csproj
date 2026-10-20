@@ -24,8 +24,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Google_GenerativeAI" Version="3.6.6" />
-    <PackageReference Include="Google_GenerativeAI.Microsoft" Version="3.6.6" />
+    <PackageReference Include="Google_GenerativeAI" Version="3.6.8" />
+    <PackageReference Include="Google_GenerativeAI.Microsoft" Version="3.6.8" />
         <PackageReference Include="Microsoft.Extensions.AI" Version="10.7.0" />
     <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.7.0" />
   </ItemGroup>
