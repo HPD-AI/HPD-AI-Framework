@@ -70,8 +70,6 @@ jobs:
             "dotnet/HPD-Graph.Framework/src/HPD-Graph.Abstractions/HPD-Graph.Abstractions.csproj"
             "dotnet/HPD-Graph.Framework/src/HPD-Graph.SourceGenerator/HPD-Graph.SourceGenerator.csproj"
             "dotnet/HPD-Graph.Framework/src/HPD-Graph.Core/HPD-Graph.Core.csproj"
-            "dotnet/HPD-Graph.Framework/src/HPD-Graph.Hosting/HPD-Graph.Hosting.csproj"
-            "dotnet/HPD-Graph.Framework/src/HPD-Graph.AspNetCore/HPD-Graph.AspNetCore.csproj"
             "dotnet/HPD-Graph.Framework/src/HPD-Graph.Connectors/HPD-Graph.Connectors.SourceGenerator/HPD-Graph.Connectors.SourceGenerator.csproj"
             "dotnet/HPD-Graph.Framework/src/HPD-Graph.Connectors/HPD-Graph.Connectors.Abstractions/HPD-Graph.Connectors.Abstractions.csproj"
             "dotnet/HPD-Graph.Framework/src/HPD-Graph.Connectors/HPD-Graph.Connectors.Core/HPD-Graph.Connectors.Core.csproj"

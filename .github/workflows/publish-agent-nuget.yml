@@ -11,10 +11,6 @@ on:
         description: 'HPD-Environment package version to validate against. Defaults to latest stable on NuGet.'
         required: false
         type: string
-      hpd_extract_version:
-        description: 'HPD-Extract package version to validate against. Defaults to latest stable on NuGet.'
-        required: false
-        type: string
       hpd_graph_version:
         description: 'HPD-Graph package version to validate against. Defaults to latest stable on NuGet.'
         required: false
@@ -114,7 +110,6 @@ jobs:
       - name: Validate and pack Agent packages
         env:
           INPUT_HPD_ENVIRONMENT_VERSION: ${{ inputs.hpd_environment_version }}
-          INPUT_HPD_EXTRACT_VERSION: ${{ inputs.hpd_extract_version }}
           INPUT_HPD_GRAPH_VERSION: ${{ inputs.hpd_graph_version }}
           INPUT_HPD_TUI_VERSION: ${{ inputs.hpd_tui_version }}
           INPUT_HPD_REALTIME_MEDIA_VERSION: ${{ inputs.hpd_realtime_media_version }}
@@ -130,7 +125,6 @@ jobs:
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Audio/HPD-Agent.Audio/HPD-Agent.Audio.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.FFI/HPD-Agent.FFI.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.MCP/HPD-Agent.MCP.csproj"
-            "dotnet/HPD-Agent.Framework/src/HPD-Agent.TextExtraction/HPD-Agent.TextExtraction.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Hosting/HPD-Agent.Hosting.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.Core/HPD-Agent.Sandbox.Core.csproj"
@@ -159,7 +153,6 @@ jobs:
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.OpenAI/HPD-Agent.Providers.Audio.OpenAI.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.ElevenLabs/HPD-Agent.Providers.Audio.ElevenLabs.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.Silero/HPD-Agent.Providers.Audio.Silero.csproj"
-            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.Meai/HPD-Agent.Providers.Audio.Meai.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Anthropic/HPD-Agent.Providers.Anthropic.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.AzureAI/HPD-Agent.Providers.AzureAI.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Bedrock/HPD-Agent.Providers.Bedrock.csproj"
@@ -226,7 +219,6 @@ jobs:
           }
 
           HPD_ENVIRONMENT_VERSION="$(resolve_nuget_version "HPD-Environment.Abstractions" "$INPUT_HPD_ENVIRONMENT_VERSION")"
-          HPD_EXTRACT_VERSION="$(resolve_nuget_version "HPD-Extract" "$INPUT_HPD_EXTRACT_VERSION")"
           HPD_GRAPH_VERSION="$(resolve_nuget_version "HPD-Graph.Core" "$INPUT_HPD_GRAPH_VERSION")"
           HPD_TUI_VERSION="$(resolve_nuget_version "HPD-TUI" "$INPUT_HPD_TUI_VERSION")"
           HPD_REALTIME_MEDIA_VERSION="$(resolve_nuget_version "HPD-Audio.Primitives" "$INPUT_HPD_REALTIME_MEDIA_VERSION")"
@@ -236,7 +228,6 @@ jobs:
 
           echo "Using published HPD dependency versions:"
           echo "  HPD-Environment.*: $HPD_ENVIRONMENT_VERSION"
-          echo "  HPD-Extract: $HPD_EXTRACT_VERSION"
           echo "  HPD-Graph.*: $HPD_GRAPH_VERSION"
           echo "  HPD-TUI: $HPD_TUI_VERSION"
           echo "  HPD-RealtimeMedia: $HPD_REALTIME_MEDIA_VERSION"
@@ -247,7 +238,6 @@ jobs:
           PUBLISHED_HPD_PROPS=(
             "-p:UsePublishedHpdDependencies=true"
             "-p:HPDEnvironmentVersion=$HPD_ENVIRONMENT_VERSION"
-            "-p:HPDExtractVersion=$HPD_EXTRACT_VERSION"
             "-p:HPDGraphVersion=$HPD_GRAPH_VERSION"
             "-p:HPDTuiVersion=$HPD_TUI_VERSION"
             "-p:HPDRealtimeMediaVersion=$HPD_REALTIME_MEDIA_VERSION"
