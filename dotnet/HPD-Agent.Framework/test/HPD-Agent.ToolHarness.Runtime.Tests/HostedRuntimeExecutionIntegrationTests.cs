@@ -62,17 +62,27 @@ public sealed class HostedRuntimeExecutionIntegrationTests
         private readonly HostedHarnessClient _client = new();
 
         protected override Task<Agent> BuildAgentAsync(string agentId, CancellationToken ct) =>
-            new AgentBuilder(new AgentConfig
-                {
-                    Name = agentId,
-                    MaxAgenticIterations = 5
-                })
+            new AgentBuilder(CreateConfig(agentId, _client))
                 .WithAgentId(agentId)
                 .WithSessionStore(sessions)
-                .WithChatClient(_client)
                 .WithEventComposition(CoreAgentEventComposition.Instance)
                 .WithToolHarness<HostedIsolationHarness>()
                 .BuildAsync(ct);
+
+        private static AgentConfig CreateConfig(string agentId, IChatClient client)
+        {
+            var config = new AgentConfig
+            {
+                Name = agentId,
+                MaxAgenticIterations = 5
+            };
+            config.EnsureChatClientConfig().Override = HPD.Agent.Providers.ClientOverride<IChatClient>.Borrow(
+                client,
+                "test",
+                "local",
+                "test.adapter");
+            return config;
+        }
 
         protected override TimeSpan GetIdleTimeout() => TimeSpan.FromMinutes(30);
     }

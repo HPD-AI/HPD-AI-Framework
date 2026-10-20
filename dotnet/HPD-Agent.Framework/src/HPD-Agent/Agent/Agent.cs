@@ -1842,21 +1842,29 @@ public sealed partial class Agent : IAsyncDisposable
             }
             catch (Exception exception)
             {
-                await PublishScopedRuntimeEventAsync(new ThreadExecutionFinishedEvent(
-                    executionId,
-                    input.AgentId ?? _name,
-                    exception is OperationCanceledException
-                        ? ThreadExecutionOutcome.Cancelled
-                        : ThreadExecutionOutcome.Failed,
-                    DateTimeOffset.UtcNow,
-                    exception is OperationCanceledException
-                        ? null
-                        : new ThreadExecutionError(exception.GetType().Name, exception.Message))
+                try
                 {
-                    SessionId = input.SessionId,
-                    ThreadId = input.ThreadId,
-                    ThreadExecutionId = executionId
-                }, eventCoordinator, CancellationToken.None).ConfigureAwait(false);
+                    await PublishScopedRuntimeEventAsync(new ThreadExecutionFinishedEvent(
+                        executionId,
+                        input.AgentId ?? _name,
+                        exception is OperationCanceledException
+                            ? ThreadExecutionOutcome.Cancelled
+                            : ThreadExecutionOutcome.Failed,
+                        DateTimeOffset.UtcNow,
+                        exception is OperationCanceledException
+                            ? null
+                            : new ThreadExecutionError(exception.GetType().Name, exception.Message))
+                    {
+                        SessionId = input.SessionId,
+                        ThreadId = input.ThreadId,
+                        ThreadExecutionId = executionId
+                    }, eventCoordinator, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception publicationFailure) when (publicationFailure is ObjectDisposedException or OperationCanceledException)
+                {
+                    // Shutdown may dispose the runtime publication path before an in-flight
+                    // turn observes cancellation. Preserve the original turn outcome.
+                }
                 throw;
             }
         }
