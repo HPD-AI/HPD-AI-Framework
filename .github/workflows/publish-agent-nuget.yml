@@ -141,7 +141,17 @@ jobs:
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.OpenApi/HPD-Agent.OpenApi.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.TUI/HPD-Agent.TUI.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.ModelsDev/HPD-Agent.ModelsDev.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Audio/HPD-Agent.Audio.LiveKit/HPD-Agent.Audio.LiveKit.NativeAssets/HPD-Agent.Audio.LiveKit.NativeAssets.csproj"
+            # Bots
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Bots/HPD-Agent.Bots.Abstractions/HPD-Agent.Bots.Abstractions.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Bots/HPD-Agent.Bots.AspNetCore/HPD-Agent.Bots.AspNetCore.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Bots/HPD-Agent.Bots.Discord/HPD-Agent.Bots.Discord.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Bots/HPD-Agent.Bots.Slack/HPD-Agent.Bots.Slack.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Bots/HPD-Agent.Bots.Teams/HPD-Agent.Bots.Teams.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Bots/HPD-Agent.Bots.Telegram/HPD-Agent.Bots.Telegram.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Bots/HPD-Agent.Bots.WhatsApp/HPD-Agent.Bots.WhatsApp.csproj"
             # ToolHarnesses
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.FileSystem/HPD-Agent.Harness.FileSystem.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.WebSearch/HPD-Agent.Harness.WebSearch.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding.TUI/HPD-Agent.Harness.Coding.TUI.csproj"
@@ -185,6 +195,9 @@ jobs:
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Venice/HPD-Agent.Providers.Venice.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Xai/HPD-Agent.Providers.Xai.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Zai/HPD-Agent.Providers.Zai.csproj"
+            # HPD-Agent.MultiAgent.AspNetCore remains blocked on publishing
+            # HPD-Base.AspNetCore and HPD-Graph.Base. HPD-Agent.Studio uses a
+            # separate Studio release path.
           )
 
           VERSION_PREFIX="${{ needs.determine-version.outputs.version_prefix }}"
