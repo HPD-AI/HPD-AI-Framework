@@ -6,18 +6,27 @@ namespace HPD.Agent.Providers.Tests;
 
 public sealed class ProviderStreamingUsageSemanticsFixtureTests
 {
-    public static TheoryData<string, string> PassThroughAdapters => new()
+    public static TheoryData<string, string> PassThroughAdapters
     {
-        { "anthropic", "HPD.Agent.Providers.Anthropic.AnthropicConfiguredChatClient, HPD-Agent.Providers.Anthropic" },
-        { "cohere", "HPD.Agent.Providers.Cohere.CohereProvider+CohereConfiguredChatClient, HPD-Agent.Providers.Cohere" },
-        { "dashscope", "HPD.Agent.Providers.DashScope.DashScopeProvider+DashScopeConfiguredChatClient, HPD-Agent.Providers.DashScope" },
-        { "deepinfra", "HPD.Agent.Providers.DeepInfra.DeepInfraProvider+DeepInfraConfiguredChatClient, HPD-Agent.Providers.DeepInfra" },
-        { "fireworks", "HPD.Agent.Providers.Fireworks.FireworksProvider+FireworksConfiguredChatClient, HPD-Agent.Providers.Fireworks" },
-        { "mistral", "HPD.Agent.Providers.Mistral.MistralProvider+MistralConfiguredChatClient, HPD-Agent.Providers.Mistral" },
-        { "ollama", "HPD.Agent.Providers.Ollama.OllamaConfiguredChatClient, HPD-Agent.Providers.Ollama" },
-        { "onnx-runtime", "HPD.Agent.Providers.OnnxRuntime.StructuredToolCallingOnnxRuntimeChatClient, HPD-Agent.Providers.OnnxRuntime" },
-        { "together", "HPD.Agent.Providers.Together.TogetherProvider+TogetherConfiguredChatClient, HPD-Agent.Providers.Together" }
-    };
+        get
+        {
+            var adapters = new TheoryData<string, string>
+            {
+                { "anthropic", "HPD.Agent.Providers.Anthropic.AnthropicConfiguredChatClient, HPD-Agent.Providers.Anthropic" },
+                { "ollama", "HPD.Agent.Providers.Ollama.OllamaConfiguredChatClient, HPD-Agent.Providers.Ollama" },
+                { "onnx-runtime", "HPD.Agent.Providers.OnnxRuntime.StructuredToolCallingOnnxRuntimeChatClient, HPD-Agent.Providers.OnnxRuntime" }
+            };
+#if NET10_0
+            adapters.Add("cohere", "HPD.Agent.Providers.Cohere.CohereProvider+CohereConfiguredChatClient, HPD-Agent.Providers.Cohere");
+            adapters.Add("dashscope", "HPD.Agent.Providers.DashScope.DashScopeProvider+DashScopeConfiguredChatClient, HPD-Agent.Providers.DashScope");
+            adapters.Add("deepinfra", "HPD.Agent.Providers.DeepInfra.DeepInfraProvider+DeepInfraConfiguredChatClient, HPD-Agent.Providers.DeepInfra");
+            adapters.Add("fireworks", "HPD.Agent.Providers.Fireworks.FireworksProvider+FireworksConfiguredChatClient, HPD-Agent.Providers.Fireworks");
+            adapters.Add("mistral", "HPD.Agent.Providers.Mistral.MistralProvider+MistralConfiguredChatClient, HPD-Agent.Providers.Mistral");
+            adapters.Add("together", "HPD.Agent.Providers.Together.TogetherProvider+TogetherConfiguredChatClient, HPD-Agent.Providers.Together");
+#endif
+            return adapters;
+        }
+    }
 
     [Theory]
     [MemberData(nameof(PassThroughAdapters))]
@@ -41,6 +50,7 @@ public sealed class ProviderStreamingUsageSemanticsFixtureTests
             .Should().Be(UsageUpdateSemantics.FinalOnly);
     }
 
+#if NET10_0
     [Fact]
     public void HuggingFace_projection_maps_a_usage_chunk_to_one_usage_content()
     {
@@ -68,6 +78,7 @@ public sealed class ProviderStreamingUsageSemanticsFixtureTests
         ProviderStreamingUsageSemanticsCatalog.Resolve("huggingface", ProviderClientFamily.Chat)
             .Should().Be(UsageUpdateSemantics.FinalOnly);
     }
+#endif
 
     private static object CreateAdapter(Type adapterType, IChatClient inner)
     {
