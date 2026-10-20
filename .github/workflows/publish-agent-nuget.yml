@@ -96,6 +96,7 @@ jobs:
             8.0.x
             9.0.x
             10.0.x
+            11.0.100-preview.7.26381.103
 
       - name: Install Linux seccomp helper toolchain
         run: |
@@ -126,9 +127,10 @@ jobs:
           PROJECTS=(
             # Core
             "dotnet/HPD-Agent.Framework/src/HPD-Agent/HPD-Agent.csproj"
-            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Audio/HPD-Agent.Audio.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Audio/HPD-Agent.Audio/HPD-Agent.Audio.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.FFI/HPD-Agent.FFI.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.MCP/HPD-Agent.MCP.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.TextExtraction/HPD-Agent.TextExtraction.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Hosting/HPD-Agent.Hosting.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.Core/HPD-Agent.Sandbox.Core.csproj"
@@ -147,6 +149,7 @@ jobs:
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.OpenAI/HPD-Agent.Providers.Audio.OpenAI.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.ElevenLabs/HPD-Agent.Providers.Audio.ElevenLabs.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.Silero/HPD-Agent.Providers.Audio.Silero.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.Meai/HPD-Agent.Providers.Audio.Meai.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Anthropic/HPD-Agent.Providers.Anthropic.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.AzureAI/HPD-Agent.Providers.AzureAI.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Bedrock/HPD-Agent.Providers.Bedrock.csproj"

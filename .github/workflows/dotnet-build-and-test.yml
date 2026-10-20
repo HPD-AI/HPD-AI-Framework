@@ -75,6 +75,7 @@ jobs:
           8.0.x
           9.0.x
           10.0.x
+          11.0.100-preview.7.26381.103
 
     - name: Provision required debugger adapters
       if: matrix.collect-coverage
@@ -115,6 +116,7 @@ jobs:
       if: matrix.collect-coverage
       run: |
         dotnet test dotnet/HPD-Agent.Framework/HPD-Agent.slnx \
+          -m:1 \
           -f ${{ matrix.targetFramework }} \
           -c ${{ matrix.configuration }} \
           --no-build \
@@ -128,6 +130,7 @@ jobs:
       shell: bash
       run: |
         dotnet test dotnet/HPD-Agent.Framework/HPD-Agent.slnx \
+          -m:1 \
           -f ${{ matrix.targetFramework }} \
           -c ${{ matrix.configuration }} \
           --no-build \
@@ -230,6 +233,7 @@ jobs:
           8.0.x
           9.0.x
           10.0.x
+          11.0.100-preview.7.26381.103
 
     - name: Install Linux seccomp helper toolchain
       run: |
