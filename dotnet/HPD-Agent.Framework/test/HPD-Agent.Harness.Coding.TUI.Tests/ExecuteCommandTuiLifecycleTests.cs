@@ -1068,27 +1068,38 @@ public sealed class ExecuteCommandTuiLifecycleTests
             .TranscriptRenderers;
 
     private static string RenderShell(HpdAgentTuiRegistry registry, AgentTuiSessionState state)
-        => TuiCapture.RenderToString(
-            registry.ShellLayout.Create(new AgentTuiShellLayoutContext(
-                state.Shell,
-                PromptView.Create("Ask HPD..."),
-                registry,
-                registry.ShellChrome,
-                state.State)),
+    {
+        var view = registry.ShellLayout.Create(new AgentTuiShellLayoutContext(
+            state.Shell,
+            PromptView.Create("Ask HPD..."),
+            registry,
+            registry.ShellChrome,
+            state.State));
+        view.PrepareFrame(
+            new HPD.TUI.Terminal.TerminalSize(100, 24),
+            Theme.Default,
+            ColorSystem.TrueColor);
+        return TuiCapture.RenderToString(
+            view,
             width: 100,
             height: 24,
             trimTrailingBlankLines: true);
+    }
 
     private static string RenderShellAnsi(HpdAgentTuiRegistry registry, AgentTuiSessionState state)
-        => TuiCapture.RenderToAnsi(
-            registry.ShellLayout.Create(new AgentTuiShellLayoutContext(
-                state.Shell,
-                PromptView.Create("Ask HPD..."),
-                registry,
-                registry.ShellChrome,
-                state.State)),
-            width: 100,
-            height: 24);
+    {
+        var view = registry.ShellLayout.Create(new AgentTuiShellLayoutContext(
+            state.Shell,
+            PromptView.Create("Ask HPD..."),
+            registry,
+            registry.ShellChrome,
+            state.State));
+        view.PrepareFrame(
+            new HPD.TUI.Terminal.TerminalSize(100, 24),
+            Theme.Default,
+            ColorSystem.TrueColor);
+        return TuiCapture.RenderToAnsi(view, width: 100, height: 24);
+    }
 
     private sealed class TestDialogService : IAgentTuiDialogService
     {

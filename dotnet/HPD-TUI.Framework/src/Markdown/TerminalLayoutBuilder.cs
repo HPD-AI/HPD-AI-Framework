@@ -145,6 +145,7 @@ internal sealed class TerminalLayoutBuilder
         var lines = ImmutableArray.CreateBuilder<StyledTerminalLine>(_lines.Count);
         foreach (var line in _lines)
         {
+            CoalesceAdjacentRuns(line);
             if (line.Count > 0)
             {
                 var final = line[^1];
@@ -158,6 +159,44 @@ internal sealed class TerminalLayoutBuilder
                 run.SourceEndExclusive, run.Decorative, run.SourceMap.ToImmutableArray())).ToImmutableArray()));
         }
         return new() { SourceStart = sourceStart, SourceEndExclusive = sourceEndExclusive, Lines = lines.ToImmutable() };
+    }
+
+    private static void CoalesceAdjacentRuns(List<MutableRun> line)
+    {
+        for (var index = 1; index < line.Count;)
+        {
+            var left = line[index - 1];
+            var right = line[index];
+            if (left.Style != right.Style ||
+                left.Hyperlink != right.Hyperlink ||
+                left.Decorative != right.Decorative)
+            {
+                index++;
+                continue;
+            }
+
+            var sourceRangesContiguous = left.SourceEndExclusive == right.SourceStart;
+            var mapsPreserveSources = left.SourceMap.Count > 0 && right.SourceMap.Count > 0;
+            if (!sourceRangesContiguous && !mapsPreserveSources)
+            {
+                index++;
+                continue;
+            }
+
+            var visualOffset = left.Text.Length;
+            left.Text.Append(right.Text);
+            foreach (var segment in right.SourceMap)
+            {
+                left.SourceMap.Add(segment with
+                {
+                    VisualStart = segment.VisualStart + visualOffset,
+                    VisualEndExclusive = segment.VisualEndExclusive + visualOffset
+                });
+            }
+            if (left.SourceEndExclusive == right.SourceStart)
+                left.SourceEndExclusive = right.SourceEndExclusive;
+            line.RemoveAt(index);
+        }
     }
 
     private void Append(string text, Style style, TerminalHyperlink? hyperlink, int? sourceStart, int? sourceEndExclusive, bool decorative)

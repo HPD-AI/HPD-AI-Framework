@@ -130,6 +130,7 @@ internal sealed class AnnotatedSourceView : HPD.TUI.Core.Component
         var contentWidth = Math.Max(1, maxWidth - gutter.PrefixWidth);
         var expandedText = ExpandTabs(line.Text);
         var wrapped = Wrap(expandedText, contentWidth);
+        var hasTrailing = !string.IsNullOrWhiteSpace(line.TrailingText);
         WriteContentRow(
             wrapped[0],
             _document.Language,
@@ -137,6 +138,7 @@ internal sealed class AnnotatedSourceView : HPD.TUI.Core.Component
             maxWidth,
             textStyle,
             context.Theme,
+            fillRemaining: wrapped.Count > 1 || !hasTrailing,
             ref output);
         for (var i = 1; i < wrapped.Count; i++)
         {
@@ -149,10 +151,11 @@ internal sealed class AnnotatedSourceView : HPD.TUI.Core.Component
                 maxWidth,
                 textStyle,
                 context.Theme,
+                fillRemaining: i < wrapped.Count - 1 || !hasTrailing,
                 ref output);
         }
 
-        if (string.IsNullOrWhiteSpace(line.TrailingText))
+        if (!hasTrailing)
         {
             return;
         }
@@ -170,6 +173,11 @@ internal sealed class AnnotatedSourceView : HPD.TUI.Core.Component
             return;
         }
 
+        FillBackground(
+            gutter.PrefixWidth + lastWidth,
+            maxWidth,
+            textStyle,
+            ref output);
         output.WriteLineBreak();
         WriteContinuationGutter(gutter.PrefixWidth, gutterStyle, ref output);
         var trailingRows = Wrap(line.TrailingText, contentWidth);
@@ -192,10 +200,14 @@ internal sealed class AnnotatedSourceView : HPD.TUI.Core.Component
         int maxWidth,
         Style style,
         Theme theme,
+        bool fillRemaining,
         ref DisplayListBuilder output)
     {
         SourceTextHighlighter.Render(text, language, style, theme, ref output);
-        FillBackground(prefixWidth + UnicodeWidth.GetWidth(text.AsSpan()), maxWidth, style, ref output);
+        if (fillRemaining)
+        {
+            FillBackground(prefixWidth + UnicodeWidth.GetWidth(text.AsSpan()), maxWidth, style, ref output);
+        }
     }
 
     private static void FillBackground(

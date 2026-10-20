@@ -1,4 +1,5 @@
 using Markdig.Syntax;
+using Markdig.Syntax.Inlines;
 using HPD.TUI.Observability;
 
 namespace HPD.TUI.Markdown;
@@ -191,13 +192,28 @@ public sealed class ConservativeIncrementalMarkdownParser : IIncrementalMarkdown
 
     private static void ShiftTree(MarkdownObject root, int offset)
     {
-        Shift(root);
-        foreach (var node in root.Descendants()) Shift(node);
-        void Shift(MarkdownObject node)
+        ShiftNode(root, offset);
+
+        static void ShiftNode(MarkdownObject node, int offset)
         {
-            if (node.Span.Start < 0) return;
-            node.Span = new SourceSpan(
-                checked(node.Span.Start + offset), checked(node.Span.End + offset));
+            if (node.Span.Start >= 0)
+            {
+                node.Span = new SourceSpan(
+                    checked(node.Span.Start + offset), checked(node.Span.End + offset));
+            }
+
+            if (node is ContainerBlock block)
+            {
+                foreach (var child in block)
+                    ShiftNode(child, offset);
+            }
+            if (node is LeafBlock { Inline: { } inline })
+                ShiftNode(inline, offset);
+            if (node is ContainerInline container)
+            {
+                for (var child = container.FirstChild; child is not null; child = child.NextSibling)
+                    ShiftNode(child, offset);
+            }
         }
     }
 
