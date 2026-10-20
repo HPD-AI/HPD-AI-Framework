@@ -22,7 +22,7 @@ namespace HPD.Agent.Providers.Bedrock;
 /// This provider uses AWS SDK for .NET:
 /// - AWSSDK.BedrockRuntime for chat completions
 /// - AWSSDK.Core for AWS client configuration
-/// - AWSSDK.Extensions.Bedrock.MEAI for Microsoft.Extensions.AI integration
+/// - AWS.Bedrock.MEAI for Microsoft.Extensions.AI integration
 /// </para>
 /// <para>
 /// Supported Model Families:
