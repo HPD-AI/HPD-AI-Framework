@@ -53,7 +53,10 @@ public sealed record AgentNodeConfig
     /// <summary>
     /// Full agent configuration (embeds entire AgentConfig - serializable).
     /// </summary>
-    public required AgentConfig Agent { get; init; }
+    public AgentConfig? Agent { get; init; }
+
+    /// <summary>Agent JSON/YAML file, relative to the workflow file. Mutually exclusive with Agent.</summary>
+    public string? AgentFile { get; init; }
 
     /// <summary>
     /// Output mode for this agent.
@@ -252,6 +255,9 @@ public sealed record ConditionConfig
 /// </summary>
 public sealed record WorkflowSettingsConfig
 {
+    /// <summary>Maximum concurrently executing nodes in a workflow layer. Null uses the graph default.</summary>
+    public int? MaxConcurrency { get; init; }
+
     /// <summary>
     /// Default timeout for all agents.
     /// </summary>

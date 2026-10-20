@@ -57,7 +57,10 @@ public class MultiAgent
         // Add agents from config
         foreach (var (nodeId, nodeConfig) in config.Agents)
         {
-            _agentConfigs[nodeId] = nodeConfig.Agent;
+            if (nodeConfig.AgentFile is not null)
+                throw new InvalidOperationException($"Agent node '{nodeId}' has an unresolved agentFile. Load references using MultiAgent.FromFile().");
+            _agentConfigs[nodeId] = nodeConfig.Agent
+                ?? throw new InvalidOperationException($"Agent node '{nodeId}' has no resolved configuration. Load agentFile references using MultiAgent.FromFile().");
             _options[nodeId] = ConvertToOptions(nodeConfig);
         }
 
@@ -260,6 +263,9 @@ public class MultiAgent
                 "A session store is required when multi-agent conversation policies are enabled. " +
                 "Call WithSessionStore(), WithInMemorySessionStore(), or WithFileSessionStore().");
         }
+
+        if (_settings.MaxConcurrency is <= 0)
+            throw new ArgumentOutOfRangeException(nameof(_settings.MaxConcurrency), "Workflow concurrency must be positive.");
 
         // Create agent factories for deferred building (agents are built at execution time
         // so they can inherit the parent's chat client when no provider is configured)

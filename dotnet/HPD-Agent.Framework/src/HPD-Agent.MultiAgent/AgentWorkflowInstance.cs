@@ -502,7 +502,8 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
         var agents = await BuildAgentsAsync(cancellationToken);
 
         // Create event coordinator for unified streaming
-        var eventCoordinator = new EventCoordinator();
+        using var eventCoordinator = new EventCoordinator();
+        using var executionLifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
         // Internal graph events remain local. Only the public event produced by
         // WrapGraphEvent crosses the workflow boundary below.
@@ -561,7 +562,7 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
 
         // Interactive execution has no independent durable checkpoint authority.
         // Hosted durable execution is owned by HPD.Base activations.
-        var orchestrator = new GraphOrchestrator<AgentGraphContext>(_serviceProvider);
+        var orchestrator = new GraphOrchestrator<AgentGraphContext>(_serviceProvider, maxLayerConcurrency: _settings.MaxConcurrency);
 
         var eventChannel = Channel.CreateUnbounded<Event>();
         using var eventSubscription = eventCoordinator.SubscribeAny(evt =>
@@ -575,7 +576,7 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
         {
             try
             {
-                await orchestrator.ExecuteAsync(context, cancellationToken);
+                await orchestrator.ExecuteAsync(context, executionLifetime.Token);
             }
             catch (Exception ex)
             {
@@ -590,33 +591,27 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
             {
                 eventChannel.Writer.TryComplete();
             }
-        }, cancellationToken);
+        }, CancellationToken.None);
 
-        // Stream events from coordinator, wrapping graph events into agent-idiomatic workflow events
-        await foreach (var evt in eventChannel.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+        // Drain terminal events too; a completed graph may still have queued public events.
+        try
         {
-            // Wrap graph events into AgentEvent-derived workflow events
-            var wrappedEvent = WrapGraphEvent(evt, workflowContext);
-            if (wrappedEvent != null)
+            await foreach (var evt in eventChannel.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
             {
+                var wrappedEvent = WrapGraphEvent(evt, workflowContext);
+                if (wrappedEvent is null) continue;
                 await _eventCoordinator.PublishAsync(wrappedEvent, cancellationToken).ConfigureAwait(false);
                 if (parentCoordinator is not null && !ReferenceEquals(parentCoordinator, _eventCoordinator.Inner))
-                {
                     await parentCoordinator.EmitAsync(wrappedEvent, cancellationToken).ConfigureAwait(false);
-                }
-
                 yield return wrappedEvent;
             }
-
-            // Check if execution is complete
-            if (context.IsComplete || context.IsCancelled)
-            {
-                break;
-            }
         }
-
-        // Wait for execution to complete
-        await executionTask;
+        finally
+        {
+            // Stopping a stream must also stop and drain its owned graph execution.
+            if (!executionTask.IsCompleted) await executionLifetime.CancelAsync().ConfigureAwait(false);
+            await executionTask.ConfigureAwait(false);
+        }
     }
 
     private IMultiAgentConversationRuntime CreateConversationRuntime(
