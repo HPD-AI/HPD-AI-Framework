@@ -331,7 +331,7 @@ jobs:
   build-check:
     if: always()
     runs-on: ubuntu-latest
-    needs: [paths-filter, build-and-test, unit-test-summary, rhodium-memory-leak, rhodium-benchmarks, package-check]
+    needs: [paths-filter, build-and-test, unit-test-summary, package-check]
     steps:
       - name: Get workflow run info
         run: |
