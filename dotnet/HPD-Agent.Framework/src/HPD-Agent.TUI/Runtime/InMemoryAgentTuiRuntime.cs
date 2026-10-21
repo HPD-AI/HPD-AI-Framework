@@ -863,68 +863,42 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             return new AgentTuiSubmitResult(disposition, controlExecutionId, current);
         }
 
-        var executionId = input.ThreadExecutionId ?? Guid.NewGuid().ToString("N");
-        var startedAt = DateTimeOffset.UtcNow;
+        // This token reserves the adapter's submission slot, not an execution identity.
+        // The agent allocates and journals the execution identity when admitting work.
+        var reservationId = Guid.NewGuid().ToString("N");
         var scopedInput = input with
         {
             AgentId = scope.AgentId,
             SessionId = scope.SessionId,
-            ThreadId = scope.ThreadId,
-            ThreadExecutionId = executionId
+            ThreadId = scope.ThreadId
         };
 
-        if (!TryReserveExecution(executionId))
+        if (!TryReserveExecution(reservationId))
         {
             throw new InvalidOperationException(
                 $"Thread '{scope.ThreadId}' in session '{scope.SessionId}' already has an active execution.");
         }
 
-        var startCommitted = false;
         try
         {
             await _agent.StartAsync(input.RunConfig, CancellationToken.None).ConfigureAwait(false);
-            await PublishRuntimeEventAsync(new ThreadExecutionStartedEvent(executionId, scope.AgentId, startedAt)
-            {
-                SessionId = scope.SessionId,
-                ThreadId = scope.ThreadId
-            }, cancellationToken).ConfigureAwait(false);
-            startCommitted = true;
-
+            var submission = await _agent.SubmitRuntimeInputAsync(scopedInput, cancellationToken).ConfigureAwait(false);
+            var executionId = submission.Input.ThreadExecutionId
+                ?? throw new InvalidOperationException("Admitted work has no execution identity.");
             var activeExecution = new AgentTuiThreadExecution(
-                executionId,
-                scope.AgentId,
-                scope.SessionId,
-                scope.ThreadId,
-                "active",
-                startedAt);
-            if (!ActivateReservedExecution(activeExecution))
-                throw new InvalidOperationException($"Thread execution '{executionId}' lost its reserved ownership before activation.");
-
-            var submission = await _agent.SubmitRuntimeInputAsync(scopedInput, CancellationToken.None).ConfigureAwait(false);
-            _ = CompleteSubmittedInputAsync(scope, submission, executionId);
-            return new AgentTuiSubmitResult(AgentInputDisposition.Queued, executionId, activeExecution);
-        }
-        catch (Exception ex)
-        {
-            if (startCommitted)
+                executionId, scope.AgentId, scope.SessionId, scope.ThreadId, "active", DateTimeOffset.UtcNow);
+            if (!ActivateReservedExecution(activeExecution, reservationId))
             {
-                await PublishRuntimeEventAsync(new ThreadExecutionFinishedEvent(
-                    executionId,
-                    scope.AgentId,
-                    ex is OperationCanceledException
-                        ? ThreadExecutionOutcome.Cancelled
-                        : ThreadExecutionOutcome.Failed,
-                    DateTimeOffset.UtcNow,
-                    ex is OperationCanceledException
-                        ? null
-                        : new ThreadExecutionError(ex.GetType().Name, ex.Message))
-                {
-                    SessionId = scope.SessionId,
-                    ThreadId = scope.ThreadId
-                }, CancellationToken.None).ConfigureAwait(false);
+                submission.Dispose();
+                throw new InvalidOperationException($"Thread execution '{executionId}' lost its reserved ownership before activation.");
             }
 
-            ReleaseExecution(executionId);
+            _ = CompleteSubmittedInputAsync(submission, executionId);
+            return new AgentTuiSubmitResult(AgentInputDisposition.Queued, executionId, activeExecution);
+        }
+        catch
+        {
+            ReleaseExecution(reservationId);
             throw;
         }
     }
@@ -945,40 +919,21 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             active));
     }
 
-    private async Task CompleteSubmittedInputAsync(
-        AgentTuiRuntimeScope scope,
-        RuntimeInputReceipt submission,
-        string executionId)
+    private async Task CompleteSubmittedInputAsync(RuntimeInputReceipt submission, string executionId)
     {
         try
         {
-            var outcome = await submission.Completion.ConfigureAwait(false);
-
-            await PublishRuntimeEventAsync(new ThreadExecutionFinishedEvent(
-                executionId,
-                scope.AgentId,
-                outcome.Error is not null
-                    ? ThreadExecutionOutcome.Failed
-                    : outcome.Cancelled
-                        ? ThreadExecutionOutcome.Cancelled
-                        : ThreadExecutionOutcome.Succeeded,
-                DateTimeOffset.UtcNow,
-                outcome.Error is null
-                    ? null
-                    : new ThreadExecutionError(outcome.Error.GetType().Name, outcome.Error.Message))
-            {
-                SessionId = scope.SessionId,
-                ThreadId = scope.ThreadId
-            }, CancellationToken.None).ConfigureAwait(false);
-
+            // Lifecycle facts belong to the agent's execution coordinator.
+            await submission.Completion.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (submission.CallerToken.IsCancellationRequested)
+        {
+            // A caller can cancel queued work before execution begins.
+        }
+        finally
+        {
             ReleaseExecution(executionId);
             submission.Dispose();
-        }
-        catch
-        {
-            submission.Dispose();
-            // A missing terminal commit must leave ownership visible instead of presenting
-            // an unjournaled completion as authoritative state.
         }
     }
 
@@ -1122,11 +1077,11 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         }
     }
 
-    private bool ActivateReservedExecution(AgentTuiThreadExecution activeExecution)
+    private bool ActivateReservedExecution(AgentTuiThreadExecution activeExecution, string reservationId)
     {
         lock (_gate)
         {
-            if (!string.Equals(_reservedExecutionId, activeExecution.ThreadExecutionId, StringComparison.Ordinal) || _activeExecution is not null)
+            if (!string.Equals(_reservedExecutionId, reservationId, StringComparison.Ordinal) || _activeExecution is not null)
                 return false;
 
             _reservedExecutionId = null;
@@ -1144,23 +1099,6 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             if (string.Equals(_activeExecution?.ThreadExecutionId, executionId, StringComparison.Ordinal))
                 _activeExecution = null;
         }
-    }
-
-    private async Task<AgentEvent> PublishRuntimeEventAsync(
-        AgentEvent evt,
-        CancellationToken cancellationToken)
-    {
-        var store = _agent.Config?.SessionStore;
-        if (store is null || string.IsNullOrWhiteSpace(evt.SessionId) || string.IsNullOrWhiteSpace(evt.ThreadId))
-        {
-            await _agent.EventCoordinator.EmitAsync(evt, AgentEventRoutes.Create(_agent.EventCoordinator, evt), cancellationToken).ConfigureAwait(false);
-            return evt;
-        }
-
-        return await new AgentEventPublisher(store, _agent.EventCoordinator).CommitAndPublishAsync(
-            new ThreadKey(evt.SessionId, evt.ThreadId),
-            evt,
-            cancellationToken).ConfigureAwait(false);
     }
 
     private static AgentTuiEventBatch CreateDeliveryBatch(
