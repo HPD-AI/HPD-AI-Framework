@@ -211,6 +211,7 @@ public partial class CodingToolHarness
 
         ExecuteCommandOutputStoreSession? outputStore = null;
         IProcessInvocationHandle? handle = null;
+        var processStarted = false;
 
         try
         {
@@ -234,6 +235,7 @@ public partial class CodingToolHarness
                 processSpec,
                 outputSink,
                 cancellationToken).ConfigureAwait(false);
+            processStarted = true;
 
             var background = new ExecuteCommandProcessOperation(
                 request.CommandId,
@@ -350,7 +352,9 @@ public partial class CodingToolHarness
         {
             await CleanupFailedBackgroundStartAsync(handle, outputStore, cancellationToken).ConfigureAwait(false);
             return FormatExecuteCommandError(new ExecuteCommandError(
-                ExecuteCommandErrorKind.StartFailed,
+                processStarted
+                    ? ExecuteCommandErrorKind.ExecutionFailed
+                    : ExecuteCommandErrorKind.StartFailed,
                 request.Command,
                 request.WorkingDirectory,
                 ex.Message));
@@ -379,6 +383,7 @@ public partial class CodingToolHarness
         ExecuteCommandOutputStoreSession? outputStore = null;
         IProcessInvocationHandle? handle = null;
         var ownershipTransferred = false;
+        var processStarted = false;
 
         try
         {
@@ -402,6 +407,7 @@ public partial class CodingToolHarness
                 processSpec,
                 outputSink,
                 cancellationToken).ConfigureAwait(false);
+            processStarted = true;
 
             await context.TryPublishAsync(new ExecuteCommandProcessStartedEvent
             {
@@ -556,7 +562,9 @@ public partial class CodingToolHarness
         {
             stopwatch.Stop();
             return FormatExecuteCommandError(new ExecuteCommandError(
-                ExecuteCommandErrorKind.StartFailed,
+                processStarted
+                    ? ExecuteCommandErrorKind.ExecutionFailed
+                    : ExecuteCommandErrorKind.StartFailed,
                 request.Command,
                 request.WorkingDirectory,
                 ex.Message));
@@ -2004,6 +2012,7 @@ internal enum ExecuteCommandErrorKind
     WorkingDirectoryIsFile,
     MissingRunner,
     StartFailed,
+    ExecutionFailed,
     Cancelled,
     BackgroundUnavailable,
     BackgroundLimitExceeded,
@@ -2601,23 +2610,71 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
         ExecuteCommandOutputHandle stderr,
         ExecuteCommandOutputHandle combined)
     {
-        var metadata = new Dictionary<string, object?>
+        using var buffer = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(buffer))
         {
-            ["command_id"] = _commandId,
-            ["command"] = _request.Command,
-            ["cwd"] = _request.WorkingDirectory,
-            ["shell"] = shell,
-            ["exit_code"] = result.ExitCode,
-            ["completion_kind"] = result.CompletionKind.ToString(),
-            ["stdout_bytes_observed"] = result.Output.Stdout.BytesObserved,
-            ["stderr_bytes_observed"] = result.Output.Stderr.BytesObserved,
-            ["output_drain_timed_out"] = result.Output.OutputDrainTimedOut,
-            ["stdout"] = stdout,
-            ["stderr"] = stderr,
-            ["combined"] = combined
-        };
+            writer.WriteStartObject();
+            writer.WriteString("command_id", _commandId);
+            writer.WriteString("command", _request.Command);
+            writer.WriteString("cwd", _request.WorkingDirectory);
+            writer.WriteString("shell", shell);
+            if (result.ExitCode is { } exitCode)
+                writer.WriteNumber("exit_code", exitCode);
+            else
+                writer.WriteNull("exit_code");
+            writer.WriteString("completion_kind", result.CompletionKind.ToString());
+            writer.WriteNumber("stdout_bytes_observed", result.Output.Stdout.BytesObserved);
+            writer.WriteNumber("stderr_bytes_observed", result.Output.Stderr.BytesObserved);
+            writer.WriteBoolean("output_drain_timed_out", result.Output.OutputDrainTimedOut);
+            WriteOutputHandle(writer, "stdout", stdout);
+            WriteOutputHandle(writer, "stderr", stderr);
+            WriteOutputHandle(writer, "combined", combined);
+            writer.WriteEndObject();
+        }
 
-        return JsonSerializer.SerializeToUtf8Bytes(metadata);
+        return buffer.ToArray();
+    }
+
+    private static void WriteOutputHandle(
+        Utf8JsonWriter writer,
+        string propertyName,
+        ExecuteCommandOutputHandle handle)
+    {
+        writer.WriteStartObject(propertyName);
+        WriteNullableString(writer, "ArtifactPath", handle.ArtifactPath);
+        WriteNullableString(writer, "ContentId", handle.ContentId);
+        WriteNullableString(writer, "LocalPath", handle.LocalPath);
+        writer.WriteString("ContentType", handle.ContentType);
+        writer.WriteNumber("Bytes", handle.Bytes);
+        writer.WriteBoolean("Truncated", handle.Truncated);
+        writer.WriteBoolean("Binary", handle.Binary);
+        if (handle.Address is { } address)
+        {
+            writer.WriteStartObject("Address");
+            writer.WriteStartObject("Scope");
+            writer.WriteString("Value", address.Scope.Value);
+            writer.WriteEndObject();
+            writer.WriteString("ContentId", address.ContentId);
+            WriteNullableString(writer, "Version", address.Version);
+            WriteNullableString(writer, "Sha256", address.Sha256);
+            writer.WriteEndObject();
+        }
+        else
+        {
+            writer.WriteNull("Address");
+        }
+        writer.WriteEndObject();
+    }
+
+    private static void WriteNullableString(
+        Utf8JsonWriter writer,
+        string propertyName,
+        string? value)
+    {
+        if (value is null)
+            writer.WriteNull(propertyName);
+        else
+            writer.WriteString(propertyName, value);
     }
 
     private static ExecuteCommandOutputHandle CreateLocalHandle(

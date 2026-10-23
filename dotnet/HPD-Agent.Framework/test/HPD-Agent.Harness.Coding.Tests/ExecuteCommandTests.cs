@@ -733,6 +733,79 @@ public sealed class ExecuteCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task ExecuteCommand_ForegroundRun_WritesExplicitMetadataJson()
+    {
+        var store = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
+        var contentStore = new LocalFileContentStore(Path.Combine(_tempRoot, "content"));
+        var runner = new FakeProcessProvider
+        {
+            Result = CreateResult(stdout: "metadata stdout\n", stderr: "metadata stderr\n", exitCode: 0)
+        };
+
+        await new CodingToolHarness().ExecuteCommandCore(
+            context: CreateContext(runner, store, contentStore: contentStore),
+            command: "dotnet test");
+
+        var artifacts = await contentStore.QueryAsync(ContentScope.Create("session-1"), new ContentQuery
+        {
+            Tags = new Dictionary<string, string> { ["kind"] = "artifact" }
+        });
+        var metadataInfo = artifacts.Should().ContainSingle(item =>
+            item.Name.EndsWith("/metadata.json", StringComparison.Ordinal)).Subject;
+        await using var content = await contentStore.OpenReadAsync(metadataInfo.Address);
+        content.Should().NotBeNull();
+        using var metadata = await JsonDocument.ParseAsync(content!.Content);
+        var root = metadata.RootElement;
+        root.GetProperty("command_id").GetString().Should().StartWith("cmd_");
+        root.GetProperty("command").GetString().Should().Be("dotnet test");
+        root.GetProperty("exit_code").GetInt32().Should().Be(0);
+        root.GetProperty("completion_kind").GetString().Should().Be("Completed");
+        root.GetProperty("stdout").GetProperty("ContentType").GetString().Should().Be("text/plain");
+        root.GetProperty("stdout").GetProperty("Bytes").GetInt64().Should().BeGreaterThan(0);
+        root.GetProperty("stderr").GetProperty("Bytes").GetInt64().Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public async Task ExecuteCommand_PostStartFailure_IsNotClassifiedAsStartFailed()
+    {
+        var completion = new TaskCompletionSource<ProcessInvocationResult>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        completion.SetException(new InvalidOperationException("post-start failure"));
+        var runner = new FakeProcessProvider
+        {
+            Completion = completion.Task
+        };
+
+        var result = await new CodingToolHarness().ExecuteCommandCore(
+            context: CreateContext(runner),
+            command: "dotnet test");
+
+        var error = XDocument.Parse(result.ToString()).Root;
+        error.Should().NotBeNull();
+        error!.Name.LocalName.Should().Be("execute_command_error");
+        error.Attribute("kind")?.Value.Should().Be("execution_failed");
+        error.Value.Should().Contain("post-start failure");
+    }
+
+    [Fact]
+    public async Task ExecuteCommand_StartFailure_RemainsClassifiedAsStartFailed()
+    {
+        var runner = new FakeProcessProvider
+        {
+            StartException = new InvalidOperationException("process start failure")
+        };
+
+        var result = await new CodingToolHarness().ExecuteCommandCore(
+            context: CreateContext(runner),
+            command: "dotnet test");
+
+        var error = XDocument.Parse(result.ToString()).Root;
+        error.Should().NotBeNull();
+        error!.Attribute("kind")?.Value.Should().Be("start_failed");
+        error.Value.Should().Contain("process start failure");
+    }
+
+    [Fact]
     public async Task ExecuteCommand_ForegroundRun_CommitsArtifactsWhenSessionContentStoreExists()
     {
         var store = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec);
@@ -1847,6 +1920,7 @@ public sealed class ExecuteCommandTests : IDisposable
         public IReadOnlyList<Task<ProcessInvocationResult>>? Completions { get; init; }
         public bool EmitOutputEvents { get; init; }
         public IReadOnlyList<string> OutputChunks { get; init; } = [];
+        public Exception? StartException { get; init; }
 
         public async ValueTask<IProcessInvocationHandle> StartAsync(
             ProcessInvocationSpec spec,
@@ -1856,6 +1930,8 @@ public sealed class ExecuteCommandTests : IDisposable
             StartCalls++;
             LastSpec = spec;
             LastOutputSink = output;
+            if (StartException is not null)
+                throw StartException;
             var result = Results is { Count: > 0 }
                 ? Results[Math.Min(StartCalls - 1, Results.Count - 1)]
                 : Result;

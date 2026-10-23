@@ -32,6 +32,9 @@ internal sealed class ExecuteCommandResultTuiHandler : AgentTuiEventHandler<Tool
 
         switch (root.Name.LocalName)
         {
+            case "execute_command_error":
+                HandleError(evt, context, store, root);
+                break;
             case "execute_command_stop":
                 HandleStop(evt, context, store, root);
                 break;
@@ -44,6 +47,49 @@ internal sealed class ExecuteCommandResultTuiHandler : AgentTuiEventHandler<Tool
         }
 
         return ValueTask.CompletedTask;
+    }
+
+    private static void HandleError(
+        ToolCallResultEvent evt,
+        AgentTuiEventContext context,
+        CodingCommandExecutionStore store,
+        XElement root)
+    {
+        var operationId = Attr(root, "operation_id");
+        var command = Attr(root, "command") ?? "ExecuteCommand";
+        var workingDirectory = Attr(root, "cwd") ?? "";
+        var state = store.TryGetByToolCallId(evt.CallId, out var existing)
+            ? existing
+            : store.GetOrCreateSynthetic(
+                operationId ?? $"error-{evt.CallId}",
+                evt.CallId,
+                "ExecuteCommand",
+                command,
+                GetBaseCommand(command),
+                ExecuteCommandCategory.Unknown,
+                workingDirectory);
+
+        state.OperationId = operationId ?? state.OperationId;
+        state.CompletedAt = DateTimeOffset.UtcNow;
+        state.ExitCode = ParseInt(Attr(root, "exit_code"));
+        state.CompletionKind = ResolveErrorCompletionKind(Attr(root, "kind"));
+        state.DisplayState = state.CompletionKind == ExecuteCommandCompletionKind.Cancelled
+            ? CodingCommandDisplayState.Cancelled
+            : CodingCommandDisplayState.Failed;
+        if (!string.IsNullOrWhiteSpace(root.Value))
+        {
+            state.Output.Append(
+                ExecuteCommandStreamKind.Stderr,
+                root.Value.Trim() + "\n",
+                suppressed: false,
+                binary: false,
+                truncated: false);
+            state.OutputObserved = true;
+        }
+
+        store.IndexOperation(state);
+        ExecuteCommandTuiHandlerBase<ExecuteCommandProcessStartedEvent>
+            .UpdateTranscript(context, state, evt);
     }
 
     private static void HandleStop(
@@ -204,6 +250,14 @@ internal sealed class ExecuteCommandResultTuiHandler : AgentTuiEventHandler<Tool
             ? result
             : null;
 
+    private static ExecuteCommandCompletionKind ResolveErrorCompletionKind(string? kind)
+        => kind switch
+        {
+            "cancelled" => ExecuteCommandCompletionKind.Cancelled,
+            "start_failed" => ExecuteCommandCompletionKind.FailedToStart,
+            _ => ExecuteCommandCompletionKind.Faulted
+        };
+
     private static string? Attr(XElement element, string name)
         => element.Attribute(name)?.Value;
 
@@ -228,6 +282,7 @@ internal sealed class ExecuteCommandResultTuiHandler : AgentTuiEventHandler<Tool
         {
             document = XDocument.Parse(text);
             return document.Root?.Name.LocalName is
+                "execute_command_error" or
                 "execute_command_stop" or
                 "execute_command_output" or
                 "execute_command_background";

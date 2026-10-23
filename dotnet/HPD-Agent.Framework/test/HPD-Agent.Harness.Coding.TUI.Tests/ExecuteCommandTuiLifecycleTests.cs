@@ -385,6 +385,24 @@ public sealed class ExecuteCommandTuiLifecycleTests
     }
 
     [Fact]
+    public async Task StartError_FinalizesRunningCommandAndRendersFailure()
+    {
+        var state = CreateState();
+
+        await state.ApplyEventAsync(Started(command: "cd /repo && dotnet build"));
+        await state.ApplyEventAsync(ExecuteCommandResult(
+            """
+            <execute_command_error kind="start_failed" command="cd /repo &amp;&amp; dotnet build" cwd="/repo">Reflection-based serialization has been disabled.</execute_command_error>
+            """));
+
+        var row = ReadRows(state.Shell.Transcript).Should().ContainSingle().Subject;
+        row.State.Should().Be(TranscriptEntryState.Final);
+        var rendered = RenderTranscript(state);
+        rendered.Should().Contain("• Failed cd /repo && dotnet build");
+        rendered.Should().Contain("Reflection-based serialization has been disabled.");
+    }
+
+    [Fact]
     public async Task BackgroundedCommand_StaysOneRowAndFinalizesByCommandId()
     {
         var state = CreateState();
