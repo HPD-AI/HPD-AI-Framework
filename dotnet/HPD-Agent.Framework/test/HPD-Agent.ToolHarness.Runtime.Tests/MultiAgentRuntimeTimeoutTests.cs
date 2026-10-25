@@ -14,7 +14,11 @@ public sealed class MultiAgentRuntimeTimeoutTests
         var error = await Assert.ThrowsAsync<TimeoutException>(() =>
             MultiAgentRuntime.InvokeAsync(Request(workflow, TimeSpan.FromMilliseconds(30)), timeout.Token));
 
-        Assert.Contains("deadline", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("timeout-test", error.Message, StringComparison.Ordinal);
+        Assert.True(
+            error.Message.Contains("within", StringComparison.OrdinalIgnoreCase) ||
+            error.Message.Contains("exceeded", StringComparison.OrdinalIgnoreCase),
+            $"Expected a construction or execution timeout message, but received: {error.Message}");
         await workflow.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(2));
     }
 
