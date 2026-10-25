@@ -692,6 +692,20 @@ internal static class CapabilityAnalyzer
                 method.Identifier.GetLocation(),
                 methodName));
         }
+        if (timeoutSeconds <= 0)
+        {
+            diagnostics.Add(Diagnostic.Create(
+                new DiagnosticDescriptor(
+                    "HPDHIN008",
+                    "Invalid workflow timeout",
+                    "Multi-agent workflow '{0}' must declare a positive timeout.",
+                    "HPD.Inheritance",
+                    DiagnosticSeverity.Error,
+                    isEnabledByDefault: true),
+                method.Identifier.GetLocation(),
+                methodName));
+            return null;
+        }
 
         // Extract conditional and context metadata (same as other capabilities)
         var conditionalExpression = GetConditionalExpression(attrs);
@@ -986,7 +1000,7 @@ internal static class CapabilityAnalyzer
         var invocationModePolicy = GetInvocationModePolicy(attrs);
         var invocationModeHandling = GetInvocationModeHandling(attrs);
 
-        if (!ValidateActionContract(parameters, kind, diagnostics, method.GetLocation(), semanticModel))
+        if (!ValidateActionContract(parameters, kind, diagnostics, method.GetLocation(), semanticModel.Compilation))
             return null;
 
         var functionCapability = new FunctionCapability
@@ -1023,6 +1037,203 @@ internal static class CapabilityAnalyzer
 
         diagnostics.AddRange(parameterDiagnostics);
         return functionCapability;
+    }
+
+    internal static FunctionCapability? AnalyzeFunctionSymbol(
+        IMethodSymbol method, Compilation compilation, string ownerName, string ownerNamespace,
+        List<Diagnostic> diagnostics)
+    {
+        var lineage = new List<IMethodSymbol>();
+        for (var current = method; current is not null; current = current.OverriddenMethod)
+            lineage.Add(current);
+        var attributes = lineage.SelectMany(member => member.GetAttributes()).ToArray();
+        var declarations = attributes.Where(attribute =>
+            HarnessSymbolDiscovery.Classify(attribute, compilation) == CapabilityType.Function).ToArray();
+        if (declarations.Length == 0) return null;
+        var declarationMethod = lineage.First(member => member.GetAttributes().Any(attribute =>
+            HarnessSymbolDiscovery.Classify(attribute, compilation) == CapabilityType.Function));
+        var declaringType = declarationMethod.ContainingType;
+        var declaringNamespace = declaringType.ContainingNamespace.IsGlobalNamespace
+            ? string.Empty
+            : declaringType.ContainingNamespace.ToDisplayString();
+        object? Setting(string name) => declarations.SelectMany(attribute => attribute.NamedArguments)
+            .FirstOrDefault(pair => pair.Key == name).Value.Value;
+        string EnumSetting(string name, string fallback)
+        {
+            var argument = declarations.SelectMany(attribute => attribute.NamedArguments)
+                .FirstOrDefault(pair => pair.Key == name);
+            return argument.Value.Type?.GetMembers().OfType<IFieldSymbol>()
+                .FirstOrDefault(field => field.HasConstantValue && Equals(field.ConstantValue, argument.Value.Value))
+                ?.Name ?? fallback;
+        }
+        string? Text(string name) => attributes.FirstOrDefault(attribute =>
+            SymbolEqualityComparer.Default.Equals(attribute.AttributeClass,
+                compilation.GetTypeByMetadataName(name)))?.ConstructorArguments.FirstOrDefault().Value as string;
+        var parameters = ParameterAnalyzer.Analyze(method, compilation, out var parameterDiagnostics);
+        diagnostics.AddRange(parameterDiagnostics);
+        var permission = attributes.FirstOrDefault(IsFrameworkRequiresPermissionAttribute);
+        var location = method.Locations.FirstOrDefault() ?? Location.None;
+        if (!ValidatePermissionAttribute(permission, compilation, diagnostics, location)) return null;
+        var kind = EnumSetting("Kind", "Function");
+        if (!ValidateActionContract(parameters, kind, diagnostics, location, compilation)) return null;
+        return new FunctionCapability
+        {
+            Name = method.Name,
+            CustomName = Setting("Name") as string,
+            Description = Text("AIDescriptionAttribute") ?? Text("System.ComponentModel.DescriptionAttribute") ??
+                Setting("Description") as string ?? $"Function: {method.Name}",
+            ParentToolHarnessName = ownerName,
+            ParentNamespace = ownerNamespace,
+            ContextTypeSymbol = declarations.Select(attribute => attribute.AttributeClass)
+                .FirstOrDefault(type => type is { IsGenericType: true, TypeArguments.Length: 1 })?.TypeArguments[0],
+            ContextTypeName = declarations.Select(attribute => attribute.AttributeClass)
+                .FirstOrDefault(type => type is { IsGenericType: true, TypeArguments.Length: 1 })
+                ?.TypeArguments[0].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            ConditionalExpression = Text("ConditionalFunctionAttribute"),
+            Parameters = parameters,
+            ReturnType = method.ReturnType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            DeclaringHarnessIdentity =
+                $"{declaringType.ContainingAssembly.Name}:{declaringNamespace}:{declaringType.Name}",
+            ImplementationIdentity =
+                $"{method.ContainingAssembly.Name}:{method.ContainingType.ToDisplayString()}:{method.Name}",
+            IsAsync = method.ReturnType is INamedTypeSymbol returnType &&
+                returnType.ContainingNamespace.ToDisplayString() == "System.Threading.Tasks" &&
+                returnType.Name is "Task" or "ValueTask",
+            StaticDeclaringType = method.IsStatic
+                ? method.ContainingType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) : null,
+            RequiresPermission = permission is not null,
+            PermissionAuthority = GetNamedString(permission, "PermissionAuthority"),
+            PermissionPolicyDescriptorId = GetNamedTypeId(permission, "PermissionPolicy"),
+            PermissionInteractionDescriptorId = GetNamedTypeId(permission, "PermissionInteraction"),
+            PermissionPolicyType = permission?.NamedArguments
+                .FirstOrDefault(pair => pair.Key == "PermissionPolicy").Value.Value as ITypeSymbol,
+            PermissionInteractionType = permission?.NamedArguments
+                .FirstOrDefault(pair => pair.Key == "PermissionInteraction").Value.Value as ITypeSymbol,
+            Kind = kind,
+            InvocationModePolicy = EnumSetting("InvocationModePolicy", "SynchronousOnly"),
+            InvocationModeHandling = EnumSetting("InvocationModeHandling", "Runtime")
+        };
+    }
+
+    internal static BaseCapability? AnalyzeFactorySymbol(
+        IMethodSymbol method, Compilation compilation, string ownerName, string ownerNamespace,
+        List<Diagnostic> diagnostics)
+    {
+        var declaration = HarnessSymbolDiscovery.GetCapabilityAttribute(method, compilation);
+        if (declaration is null) return null;
+        var kind = HarnessSymbolDiscovery.Classify(declaration, compilation);
+        var lineage = new List<IMethodSymbol>();
+        for (var current = method; current is not null; current = current.OverriddenMethod) lineage.Add(current);
+        var attributes = lineage.SelectMany(member => member.GetAttributes()).ToArray();
+        var declarations = attributes.Where(attribute => HarnessSymbolDiscovery.Classify(attribute, compilation) == kind).ToArray();
+        object? Setting(string name) => declarations.SelectMany(attribute => attribute.NamedArguments)
+            .FirstOrDefault(pair => pair.Key == name).Value.Value;
+        string? Text(string name) => attributes.FirstOrDefault(attribute =>
+            SymbolEqualityComparer.Default.Equals(attribute.AttributeClass, compilation.GetTypeByMetadataName(name)))
+            ?.ConstructorArguments.FirstOrDefault().Value as string;
+        string EnumSetting(string name, string fallback)
+        {
+            var value = declarations.SelectMany(attribute => attribute.NamedArguments).FirstOrDefault(pair => pair.Key == name).Value;
+            return value.Type?.GetMembers().OfType<IFieldSymbol>().FirstOrDefault(field =>
+                field.HasConstantValue && Equals(field.ConstantValue, value.Value))?.Name ?? fallback;
+        }
+        var location = method.Locations.FirstOrDefault() ?? Location.None;
+        if (method.Parameters.Length != 0 || method.IsGenericMethod)
+        {
+            diagnostics.Add(Diagnostic.Create(new DiagnosticDescriptor("HPDHIN006", "Invalid capability factory",
+                "Capability factory '{0}' must be parameterless and non-generic.", "HPD.Inheritance", DiagnosticSeverity.Error, true),
+                location, method.Name));
+            return null;
+        }
+        var permission = attributes.FirstOrDefault(IsFrameworkRequiresPermissionAttribute);
+        if (permission?.NamedArguments.Any(pair => pair.Key is "PermissionAuthority" or "PermissionPolicy" or "PermissionInteraction") == true)
+            diagnostics.Add(Diagnostic.Create(PermissionDiagnostics.InvalidDeclaration, location,
+                "custom permission authority, policy, and interaction properties are supported only on AIFunction capabilities"));
+        var returns = method.ReturnType;
+        var asyncWorkflow = returns is INamedTypeSymbol task && task.Name == "Task" && task.TypeArguments.Length == 1;
+        var actualReturn = asyncWorkflow ? ((INamedTypeSymbol)returns).TypeArguments[0] : returns;
+        var expected = kind switch
+        {
+            CapabilityType.Skill => "Skill",
+            CapabilityType.SubAgent => "SubAgent",
+            CapabilityType.MultiAgent => "AgentWorkflowInstance",
+            CapabilityType.MCPServer => "McpServerConfig",
+            CapabilityType.OpenApi => "OpenApiConfig",
+            _ => string.Empty
+        };
+        if (actualReturn.Name != expected || (asyncWorkflow && kind != CapabilityType.MultiAgent))
+        {
+            var descriptor = kind switch
+            {
+                CapabilityType.MultiAgent => MultiAgentDiagnostics.InvalidReturnType,
+                CapabilityType.OpenApi => OpenApiDiagnostics.InvalidReturnType,
+                CapabilityType.MCPServer => MCPServerDiagnostics.InvalidReturnType,
+                _ => new DiagnosticDescriptor("HPDHIN007", "Invalid capability factory return",
+                    "Capability factory '{0}' returns '{1}', which is not its required definition type.",
+                    "HPD.Inheritance", DiagnosticSeverity.Error, true)
+            };
+            diagnostics.Add(Diagnostic.Create(descriptor, location, method.Name, returns.ToDisplayString()));
+            return null;
+        }
+        var description = Text("AIDescriptionAttribute") ?? Text("System.ComponentModel.DescriptionAttribute");
+        BaseCapability? capability = kind switch
+        {
+            CapabilityType.Skill => new SkillCapability
+            {
+                Name = method.Name, MethodName = method.Name, MethodIsStatic = method.IsStatic,
+                RequiresPermission = permission is not null
+            },
+            CapabilityType.SubAgent => new SubAgentCapability
+            {
+                Name = method.Name, MethodName = method.Name, SubAgentName = method.Name,
+                IsStatic = method.IsStatic, RequiresPermission = true
+            },
+            CapabilityType.MultiAgent => new MultiAgentCapability
+            {
+                Name = Setting("Name") as string ?? method.Name, MethodName = method.Name,
+                IsStatic = method.IsStatic, IsAsync = asyncWorkflow, RequiresPermission = true,
+                StreamEvents = Setting("StreamEvents") as bool? ?? true,
+                TimeoutSeconds = Setting("TimeoutSeconds") as int? ?? 300,
+                InvocationModePolicy = EnumSetting("InvocationModePolicy", "SynchronousOnly")
+            },
+            CapabilityType.MCPServer => new MCPServerCapability
+            {
+                Name = Setting("Name") as string ?? method.Name, MethodName = method.Name,
+                IsStatic = method.IsStatic, FromManifest = Setting("FromManifest") as string,
+                ManifestServerName = declaration.ConstructorArguments.FirstOrDefault().Value as string,
+                CollapseWithinToolHarness = Setting("CollapseWithinToolHarness") as bool? ?? false,
+                RequiresPermission = permission is not null
+            },
+            CapabilityType.OpenApi => new OpenApiCapability
+            {
+                Name = method.Name, MethodName = method.Name, IsStatic = method.IsStatic,
+                Prefix = Setting("Prefix") as string, RequiresPermission = permission is not null
+            },
+            _ => null
+        };
+        if (capability is null) return null;
+        if (capability is MultiAgentCapability workflow && workflow.TimeoutSeconds <= 0)
+        {
+            diagnostics.Add(Diagnostic.Create(
+                new DiagnosticDescriptor(
+                    "HPDHIN008",
+                    "Invalid workflow timeout",
+                    "Multi-agent workflow '{0}' must declare a positive timeout.",
+                    "HPD.Inheritance",
+                    DiagnosticSeverity.Error,
+                    isEnabledByDefault: true),
+                location,
+                method.Name));
+            return null;
+        }
+        capability.Description = description ?? Setting("Description") as string ??
+            (kind == CapabilityType.MultiAgent ? declaration.ConstructorArguments.FirstOrDefault().Value as string : null) ?? string.Empty;
+        capability.ParentNamespace = ownerNamespace;
+        capability.ParentToolHarnessName = ownerName;
+        capability.ContextTypeSymbol = HarnessSymbolDiscovery.GetMetadataType(method, compilation);
+        capability.ContextTypeName = capability.ContextTypeSymbol?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        capability.ConditionalExpression = Text("ConditionalSkillAttribute") ?? Text("ConditionalSubAgentAttribute") ?? Text("ConditionalFunctionAttribute");
+        return capability;
     }
 
     private static string? GetNamedString(AttributeData? attribute, string name) =>
@@ -1120,7 +1331,7 @@ internal static class CapabilityAnalyzer
         string toolKind,
         List<Diagnostic> diagnostics,
         Location location,
-        SemanticModel semanticModel)
+        Compilation compilation)
     {
         var misplaced = parameters.Where(parameter =>
             parameter.Symbol?.Type.GetAttributes().Any(attribute =>
@@ -1143,9 +1354,9 @@ internal static class CapabilityAnalyzer
                     declaredUnion.Cases.Select(static unionCase => unionCase.ConcreteType),
                     SymbolEqualityComparer.Default)
                 : new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
-            foreach (var syntaxTree in semanticModel.Compilation.SyntaxTrees)
+            foreach (var syntaxTree in compilation.SyntaxTrees)
             {
-                var treeModel = semanticModel.Compilation.GetSemanticModel(syntaxTree);
+                var treeModel = compilation.GetSemanticModel(syntaxTree);
                 foreach (var declaration in syntaxTree.GetRoot().DescendantNodes().OfType<TypeDeclarationSyntax>())
                 {
                     if (treeModel.GetDeclaredSymbol(declaration) is not INamedTypeSymbol type ||
@@ -1214,7 +1425,7 @@ internal static class CapabilityAnalyzer
                     $"action '{unionCase.Discriminator}' cannot combine NotRequired with permission details"));
                 valid = false;
             }
-            if (!ValidatePermissionAttribute(actionAttribute, semanticModel.Compilation, diagnostics, location))
+            if (!ValidatePermissionAttribute(actionAttribute, compilation, diagnostics, location))
                 valid = false;
             if (string.IsNullOrWhiteSpace(declared) ||
                 !string.Equals(declared, unionCase.Discriminator, StringComparison.Ordinal))
@@ -1546,56 +1757,10 @@ internal static class CapabilityAnalyzer
     /// </summary>
     private static string? GetMetadataTypeName(MethodDeclarationSyntax method, SemanticModel semanticModel)
     {
-        // Check for AIFunction<TMetadata>, Skill<TMetadata>, and SubAgent<TMetadata> attributes
-        var genericAttributes = method.AttributeLists
-            .SelectMany(attrList => attrList.Attributes)
-            .Where(attr => attr.Name.ToString().Contains("AIFunction") ||
-                          attr.Name.ToString().Contains("Skill") ||
-                          attr.Name.ToString().Contains("SubAgent"));
-
-        foreach (var attr in genericAttributes)
-        {
-            System.Diagnostics.Debug.WriteLine($"[GetMetadataTypeName] Checking attribute: {attr.Name}");
-
-            var symbolInfo = semanticModel.GetSymbolInfo(attr);
-            System.Diagnostics.Debug.WriteLine($"[GetMetadataTypeName] Symbol: {symbolInfo.Symbol?.GetType().Name ?? "null"}");
-
-            if (symbolInfo.Symbol is IMethodSymbol methodSymbol)
-            {
-                var attributeType = methodSymbol.ContainingType;
-                System.Diagnostics.Debug.WriteLine($"[GetMetadataTypeName] AttributeType: {attributeType.Name}, IsGeneric: {attributeType.IsGenericType}");
-
-                // Check if it's a generic attribute (AIFunction<TMetadata>, Skill<TMetadata>, or SubAgent<TMetadata>)
-                if (attributeType.IsGenericType && attributeType.TypeArguments.Length == 1)
-                {
-                    var contextType = attributeType.TypeArguments[0];
-                    // Use fully qualified name for code generation (global:: prefix ensures no ambiguity)
-                    var fullyQualifiedName = contextType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                    System.Diagnostics.Debug.WriteLine($"[GetMetadataTypeName] Found context type: {fullyQualifiedName}");
-                    return fullyQualifiedName;
-                }
-            }
-
-            // Roslyn may bind an attribute's constructor without retaining the
-            // constructed generic type arguments on the constructor symbol.
-            // Read the attribute type itself as a fallback so generic metadata
-            // remains available to the generated ToolHarness factory.
-            if (semanticModel.GetTypeInfo(attr).Type is INamedTypeSymbol attributeTypeInfo &&
-                attributeTypeInfo.IsGenericType && attributeTypeInfo.TypeArguments.Length == 1)
-            {
-                return attributeTypeInfo.TypeArguments[0]
-                    .ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            }
-
-            if (attr.Name is GenericNameSyntax genericName && genericName.TypeArgumentList.Arguments.Count == 1 &&
-                semanticModel.GetTypeInfo(genericName.TypeArgumentList.Arguments[0]).Type is ITypeSymbol metadataType)
-            {
-                return metadataType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            }
-        }
-
-        System.Diagnostics.Debug.WriteLine($"[GetMetadataTypeName] No context type found for method {method.Identifier.ValueText}");
-        return null;
+        return semanticModel.GetDeclaredSymbol(method) is IMethodSymbol symbol
+            ? HarnessSymbolDiscovery.GetMetadataType(symbol, semanticModel.Compilation)
+                ?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+            : null;
     }
 
     /// <summary>

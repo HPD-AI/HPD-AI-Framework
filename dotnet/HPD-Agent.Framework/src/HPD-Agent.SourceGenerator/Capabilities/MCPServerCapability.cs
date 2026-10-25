@@ -63,11 +63,12 @@ internal class MCPServerCapability : BaseCapability
         var provider = IsStatic
             ? $"{toolharness.ClassName}.{MethodName}()"
             : $"(({toolharness.ClassName})instance!).{MethodName}()";
-        var sourceId = $"mcp.toolharness:{toolharness.EffectiveName}:{Name}";
+        var ownerIdentity = $"{toolharness.AssemblyName}:{toolharness.Namespace}:{toolharness.EffectiveName}";
+        var sourceId = $"mcp.toolharness:{ownerIdentity}:{Name}";
         var permission = RequiresPermission ? "true" : "null";
         var factory = FromManifest is null
-            ? $"static {(IsStatic ? "_" : "instance")} => HPD.Agent.MCP.McpCapabilitySourceFactory.FromServer(\"{EscapeString(sourceId)}\", {provider}!, \"{EscapeString(toolharness.EffectiveName)}\", {CollapseWithinToolHarness.ToString().ToLower()}, {permission})"
-            : $"static _ => HPD.Agent.MCP.McpCapabilitySourceFactory.FromManifestServer(\"{EscapeString(sourceId)}\", \"{EscapeString(FromManifest)}\", \"{EscapeString(ManifestServerName ?? Name)}\", \"{EscapeString(toolharness.EffectiveName)}\", {CollapseWithinToolHarness.ToString().ToLower()}, {permission})";
+            ? $"static {(IsStatic ? "_" : "instance")} => HPD.Agent.MCP.McpCapabilitySourceFactory.FromServer(\"{EscapeString(sourceId)}\", {provider}!, \"{EscapeString(ownerIdentity)}\", {CollapseWithinToolHarness.ToString().ToLower()}, {permission})"
+            : $"static _ => HPD.Agent.MCP.McpCapabilitySourceFactory.FromManifestServer(\"{EscapeString(sourceId)}\", \"{EscapeString(FromManifest)}\", \"{EscapeString(ManifestServerName ?? Name)}\", \"{EscapeString(ownerIdentity)}\", {CollapseWithinToolHarness.ToString().ToLower()}, {permission})";
         return $"new HPD.Agent.McpServerSource(\"{EscapeString(Name)}\", \"{EscapeString(Description)}\", \"{EscapeString(toolharness.EffectiveName)}\", {CollapseWithinToolHarness.ToString().ToLower()}, {(FromManifest is null ? "null" : $"\"{EscapeString(FromManifest)}\"")}, {(FromManifest is null ? "null" : $"\"{EscapeString(ManifestServerName ?? Name)}\"")}, {permission}, {factory})";
     }
 
@@ -80,17 +81,18 @@ internal class MCPServerCapability : BaseCapability
         var provider = IsStatic
             ? $"{toolharness.ClassName}.{MethodName}()"
             : $"(({toolharness.ClassName})instance!).{MethodName}()";
-        var sourceId = $"mcp.toolharness:{toolharness.EffectiveName}:{Name}";
+        var ownerIdentity = $"{toolharness.AssemblyName}:{toolharness.Namespace}:{toolharness.EffectiveName}";
+        var sourceId = $"mcp.toolharness:{ownerIdentity}:{Name}";
         var permission = RequiresPermission ? "true" : "null";
         var factoryProvider = FromManifest is null
-            ? $"static {(IsStatic ? "_" : "instance")} => HPD.Agent.MCP.McpCapabilitySourceFactory.FromServer(\"{EscapeString(sourceId)}\", {provider}!, \"{EscapeString(toolharness.EffectiveName)}\", {CollapseWithinToolHarness.ToString().ToLower()}, {permission})"
-            : $"static _ => HPD.Agent.MCP.McpCapabilitySourceFactory.FromManifestServer(\"{EscapeString(sourceId)}\", \"{EscapeString(FromManifest)}\", \"{EscapeString(ManifestServerName ?? Name)}\", \"{EscapeString(toolharness.EffectiveName)}\", {CollapseWithinToolHarness.ToString().ToLower()}, {permission})";
+            ? $"static {(IsStatic ? "_" : "instance")} => HPD.Agent.MCP.McpCapabilitySourceFactory.FromServer(\"{EscapeString(sourceId)}\", {provider}!, \"{EscapeString(ownerIdentity)}\", {CollapseWithinToolHarness.ToString().ToLower()}, {permission})"
+            : $"static _ => HPD.Agent.MCP.McpCapabilitySourceFactory.FromManifestServer(\"{EscapeString(sourceId)}\", \"{EscapeString(FromManifest)}\", \"{EscapeString(ManifestServerName ?? Name)}\", \"{EscapeString(ownerIdentity)}\", {CollapseWithinToolHarness.ToString().ToLower()}, {permission})";
 
         return
             "            __mcpCollector(new HPD.Agent.McpServerSource(\n" +
             $"                Name: \"{EscapeString(Name)}\",\n" +
             $"                Description: \"{EscapeString(Description)}\",\n" +
-            $"                ParentToolHarness: \"{toolharness.EffectiveName}\",\n" +
+            $"                ParentToolHarness: \"{EscapeString(ownerIdentity)}\",\n" +
             $"                CollapseWithinToolHarness: {CollapseWithinToolHarness.ToString().ToLower()},\n" +
             $"                FromManifest: {(FromManifest is null ? "null" : $"\"{EscapeString(FromManifest)}\"")},\n" +
             $"                ManifestServerName: {(FromManifest is null ? "null" : $"\"{EscapeString(ManifestServerName ?? Name)}\"")},\n" +

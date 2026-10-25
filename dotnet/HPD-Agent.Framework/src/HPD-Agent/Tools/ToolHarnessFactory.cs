@@ -160,7 +160,7 @@ public record ToolHarnessFactory(
     /// Delegate to collect MCP server registrations from [McpServer] methods.
     /// Null when the toolharness has no MCP servers.
     /// </summary>
-    Action<object, Action<McpServerSource>>? CollectMcpServers = null,
+    Action<object, IToolMetadata?, Func<string, bool>?, Action<McpServerSource>>? CollectMcpServers = null,
 
     // ========== NEW: OPENAPI SOURCE SUPPORT ==========
 
@@ -177,7 +177,7 @@ public record ToolHarnessFactory(
     /// Cast to OpenApiConfig happens inside OpenApiLoader.LoadAllAsync.
     /// ISecretResolver is available via constructor injection — no threading through this delegate.
     /// </summary>
-    Action<object, Action<string, object, string>>? CollectOpenApiSources = null,
+    Action<object, IToolMetadata?, Func<string, bool>?, Action<string, object, string>>? CollectOpenApiSources = null,
 
     /// <summary>Agent-owned resources required by generated middleware activation.</summary>
     IReadOnlyList<ToolHarnessAgentResourceDescriptor>? AgentResources = null,
@@ -191,8 +191,26 @@ public record ToolHarnessFactory(
     /// </summary>
     AgentEventModuleFragment? EventModule = null,
 
+    /// <summary>All generated event modules required by the effective capability surface.</summary>
+    IReadOnlyList<AgentEventModuleFragment>? RequiredEventModules = null,
+
     /// <summary>Creates immutable subagent role descriptors without emitting independent functions.</summary>
-    Func<object, IReadOnlyList<SubAgentActionDescriptor>>? CreateSubAgentActions = null
+    Func<object, IToolMetadata?, IReadOnlySet<string>?, IReadOnlyList<SubAgentActionDescriptor>>? CreateSubAgentActions = null,
+
+    /// <summary>Native role factory member names available for admission before evaluation.</summary>
+    IReadOnlyList<string>? SubAgentDeclarationNames = null,
+
+    /// <summary>Evaluates native skill definition factories once for the owning instance.</summary>
+    Func<object, IToolMetadata?, IReadOnlySet<string>?, IReadOnlyList<GeneratedSkillDefinition>>? CreateSkills = null,
+
+    /// <summary>Native factory member names available for admission before evaluation.</summary>
+    IReadOnlyList<string>? SkillDeclarationNames = null,
+
+    /// <summary>Model-facing source names available before source discovery.</summary>
+    IReadOnlyList<string>? SourceNames = null,
+
+    /// <summary>Base harness identities whose behavior is inherited by this concrete owner.</summary>
+    IReadOnlyList<string>? InheritedHarnessIdentities = null
 )
 {
     /// <summary>Gets the non-empty stable activation identity.</summary>

@@ -54,66 +54,27 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
         if (node is not ClassDeclarationSyntax classDecl)
             return false;
 
-        var className = classDecl.Identifier.ValueText;
-        System.Diagnostics.Debug.WriteLine($"[HPDToolSourceGenerator] Checking class: {className}");
-
-        // Skip private classes - they cannot be accessed by generated Registration classes
-        // This prevents compilation errors when private test classes have [Skill] or [AIFunction] attributes
-        if (classDecl.Modifiers.Any(SyntaxKind.PrivateKeyword))
-        {
-            System.Diagnostics.Debug.WriteLine($"[HPDToolSourceGenerator]   Class {className} is private - SKIPPED");
-            return false;
-        }
-
-        var methods = classDecl.Members.OfType<MethodDeclarationSyntax>().ToList();
-        System.Diagnostics.Debug.WriteLine($"[HPDToolSourceGenerator]   Class {className} has {methods.Count} methods");
-
-        var hasCollapseAttribute = classDecl.AttributeLists
-            .SelectMany(attrList => attrList.Attributes)
-            .Select(attr => attr.Name.ToString())
-            .Any(name => name is "Collapse" or "CollapseAttribute" ||
-                         name.EndsWith(".Collapse", System.StringComparison.Ordinal) ||
-                         name.EndsWith(".CollapseAttribute", System.StringComparison.Ordinal));
-
-        if (hasCollapseAttribute)
-        {
-            System.Diagnostics.Debug.WriteLine($"[HPDToolSourceGenerator]   Class {className} has [Collapse] - SELECTED");
-            return true;
-        }
-
-        // PHASE 2: Unified detection - check for ANY capability attribute
-        // This replaces the 3 separate detection threads (AIFunction, Skill, SubAgent)
-        var hasCapabilityMethods = methods.Any(method =>
-        {
-            var attrs = method.AttributeLists
-                .SelectMany(attrList => attrList.Attributes)
-                .Select(attr => attr.Name.ToString());
-
-            // A ToolHarness class has methods with any of these attributes
-            return attrs.Any(name =>
-                name.Contains("AIFunction") ||
-                name.Contains("Skill") ||
-                name.Contains("SubAgent") ||
-                name.Contains("McpServer") ||
-                name.Contains("OpenApi"));
-        });
-
-        if (hasCapabilityMethods)
-        {
-            System.Diagnostics.Debug.WriteLine($"[HPDToolSourceGenerator]   Class {className} has capability methods - SELECTED");
-        }
-
-        return hasCapabilityMethods;
+        // Syntax is only a cheap candidate filter. Resolve capability identity semantically.
+        // The first part of a partial type may contain no attributes or methods. It still
+        // owns canonical analysis when a later part supplies the harness declarations.
+        return !classDecl.Modifiers.Any(SyntaxKind.PrivateKeyword);
     }
 
     private static ToolHarnessInfo? GetToolDeclaration(GeneratorSyntaxContext context, CancellationToken cancellationToken)
     {
         var classDecl = (ClassDeclarationSyntax)context.Node;
         var semanticModel = context.SemanticModel;
+        if (semanticModel.GetDeclaredSymbol(classDecl, cancellationToken) is not INamedTypeSymbol owner)
+            return null;
+        var firstDeclaration = owner.DeclaringSyntaxReferences.FirstOrDefault();
+        if (firstDeclaration is null || firstDeclaration.SyntaxTree != classDecl.SyntaxTree ||
+            firstDeclaration.Span != classDecl.Span)
+            return null;
 
         // Get class info (needed for capability analysis)
         var className = classDecl.Identifier.ValueText;
-        var namespaceName = GetNamespace(classDecl);
+        var namespaceName = owner.ContainingNamespace.IsGlobalNamespace
+            ? string.Empty : owner.ContainingNamespace.ToDisplayString();
 
         // PHASE 5: Unified analysis for ALL capability types (Functions, Skills, SubAgents, MultiAgents)
         // Use CapabilityAnalyzer to discover all capabilities
@@ -121,21 +82,37 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
         var capabilityDiagnostics = new List<Microsoft.CodeAnalysis.Diagnostic>();
         var capabilities = new List<HPD.Agent.SourceGenerator.Capabilities.ICapability>();
 
-        foreach (var method in classDecl.Members.OfType<MethodDeclarationSyntax>())
+        foreach (var method in HarnessSymbolDiscovery.GetCapabilityMethods(owner, semanticModel.Compilation))
         {
-            var capability = HPD.Agent.SourceGenerator.Capabilities.CapabilityAnalyzer.AnalyzeMethod(
-                method, semanticModel, context, className, namespaceName, out var methodDiagnostics);
-
-            capabilityDiagnostics.AddRange(methodDiagnostics);
-
-            if (capability != null)
+            var attribute = HarnessSymbolDiscovery.GetCapabilityAttribute(method, semanticModel.Compilation)!;
+            if (HarnessSymbolDiscovery.Classify(attribute, semanticModel.Compilation) == CapabilityType.Function)
             {
-                capabilities.Add(capability);
+                var function = CapabilityAnalyzer.AnalyzeFunctionSymbol(method, semanticModel.Compilation,
+                    className, namespaceName, capabilityDiagnostics);
+                if (function is not null) capabilities.Add(function);
+                continue;
             }
+            var capability = CapabilityAnalyzer.AnalyzeFactorySymbol(method, semanticModel.Compilation,
+                className, namespaceName, capabilityDiagnostics);
+            if (capability is not null) capabilities.Add(capability);
         }
 
-        // Check for [Collapse] attribute and validate dual-context configuration
-        var (isCollapsed, containerDescription, FunctionResult, FunctionResultExpression, FunctionResultIsStatic, SystemPrompt, SystemPromptExpression, SystemPromptIsStatic, diagnostics, customName) = GetCollapseAttribute(classDecl, semanticModel);
+        var collapseDeclarations = GetCollapseDeclarations(owner, semanticModel.Compilation);
+        var isCollapsed = collapseDeclarations.Count != 0;
+        var containerDescription = collapseDeclarations.LastOrDefault()?.ConstructorArguments.FirstOrDefault().Value as string;
+        string? Instructions(string field)
+        {
+            var values = collapseDeclarations.Select(attribute => attribute.NamedArguments
+                    .FirstOrDefault(pair => pair.Key == field).Value.Value as string)
+                .Where(value => !string.IsNullOrEmpty(value)).ToArray();
+            return values.Length == 0 ? null : string.Join("\n\n", values);
+        }
+        var FunctionResult = Instructions("FunctionResult");
+        var SystemPrompt = Instructions("SystemPrompt");
+        string? FunctionResultExpression = null, SystemPromptExpression = null;
+        var FunctionResultIsStatic = true;
+        var SystemPromptIsStatic = true;
+        var diagnostics = new List<Diagnostic>();
 
         // Must have at least one capability or collapse metadata.
         // Partial toolharnesses commonly put [Collapse] on one partial declaration and
@@ -147,10 +124,28 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
         // Merge capability diagnostics with toolharness diagnostics
         diagnostics.AddRange(capabilityDiagnostics);
 
+        var seenMembers = new HashSet<string>(StringComparer.Ordinal);
+        var seenCallableNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var function in capabilities.OfType<FunctionCapability>())
+        {
+            if (!seenMembers.Add(function.Name) || !seenCallableNames.Add(function.FunctionName))
+                diagnostics.Add(Diagnostic.Create(
+                    new DiagnosticDescriptor("HPDHIN001", "Ambiguous inherited function",
+                        "Harness '{0}' contains conflicting function declarations for '{1}'. Hide/overload collisions must be resolved explicitly.",
+                        "HPD.Inheritance", DiagnosticSeverity.Error, true),
+                    classDecl.GetLocation(), className, function.FunctionName));
+        }
+        if (owner.Arity != 0 && (capabilities.Count != 0 || isCollapsed))
+            diagnostics.Add(Diagnostic.Create(
+                new DiagnosticDescriptor("HPDHIN002", "Open generic harness owner",
+                    "Harness '{0}' must be a closed, non-generic owner. Derive a concrete class from its generic base to register it.",
+                    "HPD.Inheritance", DiagnosticSeverity.Error, true), classDecl.GetLocation(), className));
+
         // Diagnostics will be stored in ToolHarnessInfo and reported in GenerateToolRegistrations
 
         // Check if the class has a parameterless constructor (either explicit or implicit)
-        var hasParameterlessConstructor = HasParameterlessConstructor(classDecl);
+        var hasParameterlessConstructor = !owner.IsAbstract && owner.InstanceConstructors.Any(ctor =>
+            ctor.DeclaredAccessibility == Accessibility.Public && ctor.Parameters.Length == 0);
 
         // Check if the class is publicly accessible (for ToolHarnessRegistry.All inclusion)
         // A class is publicly accessible if it's public and not nested inside a non-public class
@@ -165,29 +160,45 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
         var description = BuildToolHarnessDescription(functionCount, skillCount, subAgentCount, mcpServerCount, openApiCount);
 
         // NEW: Extract function names for selective registration
-        var functionNames = capabilities
-            .OfType<HPD.Agent.SourceGenerator.Capabilities.FunctionCapability>()
-            .Select(f => f.FunctionName)
+        var functionNames = capabilities.Where(capability => capability.EmitsIntoCreateTools)
+            .Select(capability => capability is FunctionCapability function ? function.FunctionName : capability.Name)
             .ToList();
 
         // NEW: Extract config constructor type (single-parameter constructor with *Config type)
-        var configConstructorTypeName = GetConfigConstructorTypeName(classDecl, semanticModel);
+        var configConstructorTypeName = owner.InstanceConstructors.FirstOrDefault(ctor =>
+            ctor.DeclaredAccessibility == Accessibility.Public && ctor.Parameters.Length == 1 &&
+            ctor.Parameters[0].Type.Name.EndsWith("Config", StringComparison.Ordinal))
+            ?.Parameters[0].Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
         // NEW: Detect ISecretResolver-only constructor
-        var hasSecretsConstructor = HasSecretsOnlyConstructor(classDecl);
+        var hasSecretsConstructor = owner.InstanceConstructors.Any(ctor =>
+            ctor.DeclaredAccessibility == Accessibility.Public && ctor.Parameters.Length == 1 &&
+            ctor.Parameters[0].Type.ToDisplayString() == "HPD.Agent.Secrets.ISecretResolver");
 
         // NEW: Extract metadata type from capabilities
-        var metadataTypeName = capabilities
-            .OfType<HPD.Agent.SourceGenerator.Capabilities.BaseCapability>()
-            .Where(c => !string.IsNullOrEmpty(c.ContextTypeName))
-            .Select(c => c.ContextTypeName)
-            .FirstOrDefault();
+        var metadataTypes = capabilities.OfType<BaseCapability>()
+            .Select(capability => capability.ContextTypeSymbol).OfType<INamedTypeSymbol>()
+            .GroupBy(type => type, SymbolEqualityComparer.Default).Select(group => group.First()).ToArray();
+        bool Satisfies(INamedTypeSymbol candidate, INamedTypeSymbol required)
+        {
+            for (var type = candidate; type is not null; type = type.BaseType)
+                if (SymbolEqualityComparer.Default.Equals(type, required)) return true;
+            return candidate.AllInterfaces.Any(type => SymbolEqualityComparer.Default.Equals(type, required));
+        }
+        var metadataType = metadataTypes.SingleOrDefault(candidate => metadataTypes.All(required => Satisfies(candidate, required)));
+        var metadataTypeName = metadataType?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        if (metadataTypes.Length != 0 && metadataType is null)
+            diagnostics.Add(Diagnostic.Create(
+                new DiagnosticDescriptor("HPDHIN004", "Incompatible harness metadata contracts",
+                    "Harness '{0}' requires unrelated metadata contracts: {1}. Supply a shared derived metadata contract in the declarations; one object must satisfy the full surface.",
+                    "HPD.Inheritance", DiagnosticSeverity.Error, true), classDecl.GetLocation(), className,
+                string.Join(", ", metadataTypes.Select(type => type.ToDisplayString()))));
 
         // ToolHarness-scoped middleware (015): extract [Collapse(Middlewares = [...])] type names
         List<CollapseMiddlewareEntry>? collapseMiddlewareEntries = null;
         if (isCollapsed)
         {
-            collapseMiddlewareEntries = GetCollapseMiddlewareEntries(classDecl, semanticModel, diagnostics);
+            collapseMiddlewareEntries = GetCollapseMiddlewareEntries(classDecl, semanticModel, diagnostics, collapseDeclarations);
         }
 
         return new ToolHarnessInfo
@@ -410,6 +421,10 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
 
                 return new ToolHarnessInfo
                 {
+                    OwnerType = compilation.GetTypeByMetadataName(
+                        string.IsNullOrEmpty(first.Namespace)
+                            ? first.ClassName
+                            : $"{first.Namespace}.{first.ClassName}"),
                     ClassName = first.ClassName,
                     Description = BuildToolHarnessDescription(functionCount, skillCount, subAgentCount, mcpServerCount, openApiCount),
                     Namespace = first.Namespace,
@@ -449,6 +464,10 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
                 context.ReportDiagnostic(diagnostic);
             }
         }
+
+        // Invalid owners must not emit duplicate binders or otherwise misleading registrations.
+        ToolHarnessGroups.RemoveAll(harness => harness.Diagnostics.Any(diagnostic =>
+            diagnostic.Severity == DiagnosticSeverity.Error));
 
         // DIAGNOSTIC: Generate detailed diagnostic report AFTER grouping
         var reportLines = string.Join("\\n", _diagnosticMessages.Select(m => m.Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "")));
@@ -583,7 +602,7 @@ namespace HPD.Agent.Diagnostics {{
         // NEW: Generate ToolHarness registry catalog for AOT-compatible ToolHarness discovery
         if (ToolHarnessGroups.Any())
         {
-            var registrySource = GenerateToolHarnessRegistry(ToolHarnessGroups, GetEventModuleProvider(compilation));
+            var registrySource = GenerateToolHarnessRegistry(ToolHarnessGroups, compilation);
             context.AddSource("HPD.Agent.Generated.ToolHarnessRegistry.g.cs", registrySource);
         }
     }
@@ -595,7 +614,7 @@ namespace HPD.Agent.Diagnostics {{
     /// </summary>
     private static string GenerateToolHarnessRegistry(
         List<ToolHarnessInfo> ToolHarnesses,
-        string? eventModuleProvider)
+        Compilation compilation)
     {
         // Filter to only include ToolHarnesses that can be instantiated via the registry:
         // 1. Must have parameterless constructor, config constructor, or ISecretResolver-only constructor
@@ -638,6 +657,8 @@ namespace HPD.Agent.Diagnostics {{
 
         foreach (var ToolHarness in instantiableToolHarnesses)
         {
+            var requiredEventProviders = GetEventModuleProviders(ToolHarness.OwnerType, compilation);
+            var inheritedHarnessIdentities = GetBaseHarnessIdentities(ToolHarness.OwnerType);
             var ns = string.IsNullOrEmpty(ToolHarness.Namespace) ? "" : $"{ToolHarness.Namespace}.";
             var fullTypeName = $"{ns}{ToolHarness.ClassName}";
 
@@ -722,7 +743,9 @@ namespace HPD.Agent.Diagnostics {{
                 ? $"new string[] {{ {string.Join(", ", ToolHarness.FunctionNames.Select(n => $"\"{n}\""))} }}"
                 : "Array.Empty<string>()";
             sb.AppendLine($"                FunctionNames: {functionNamesArray},");
-            sb.AppendLine($"                CreateSubAgentActions: {(ToolHarness.SubAgentCapabilities.Any() ? $"instance => {ToolHarness.ClassName}Registration.CreateSubAgentActions(instance)" : "null")},");
+            sb.AppendLine($"                CreateSubAgentActions: {(ToolHarness.SubAgentCapabilities.Any() ? $"{ToolHarness.ClassName}Registration.CreateSubAgentActions" : "null")},");
+            if (ToolHarness.SubAgentCapabilities.Any())
+                sb.AppendLine($"                SubAgentDeclarationNames: new string[] {{ {string.Join(", ", ToolHarness.SubAgentCapabilities.Select(role => "\"" + role.MethodName + "\""))} }},");
 
             // NEW: MCP Server support
             sb.AppendLine($"                // ========== MCP SERVERS ==========");
@@ -807,10 +830,37 @@ namespace HPD.Agent.Diagnostics {{
                 sb.AppendLine($"                Middleware: null");
             }
 
-            if (eventModuleProvider is not null)
+            if (inheritedHarnessIdentities.Count > 0)
             {
                 sb.AppendLine(",");
-                sb.AppendLine($"                EventModule: {eventModuleProvider}.Fragment");
+                sb.AppendLine($"                InheritedHarnessIdentities: new string[] {{ {string.Join(", ", inheritedHarnessIdentities.Select(identity => "\"" + EscapeForVerbatim(identity) + "\""))} }}");
+            }
+
+            if (ToolHarness.SkillCapabilities.Any())
+            {
+                sb.AppendLine(",");
+                sb.AppendLine($"                CreateSkills: {ToolHarness.ClassName}Registration.CreateSkills,");
+                sb.AppendLine($"                SkillDeclarationNames: new string[] {{ {string.Join(", ", ToolHarness.SkillCapabilities.Select(skill => "\"" + skill.MethodName + "\""))} }}");
+            }
+
+            var sourceNames = ToolHarness.MCPServerCapabilities.Select(source => source.Name)
+                .Concat(ToolHarness.OpenApiCapabilities.Select(source => source.Prefix ?? source.MethodName))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            if (sourceNames.Length > 0)
+            {
+                sb.AppendLine(",");
+                sb.AppendLine($"                SourceNames: new string[] {{ {string.Join(", ", sourceNames.Select(name => "\"" + name + "\""))} }}");
+            }
+
+            if (requiredEventProviders.Count > 0)
+            {
+                sb.AppendLine(",");
+                sb.AppendLine($"                RequiredEventModules: new global::HPD.Agent.Serialization.AgentEventModuleFragment[]");
+                sb.AppendLine("                {");
+                foreach (var provider in requiredEventProviders)
+                    sb.AppendLine($"                    {provider}.Fragment,");
+                sb.AppendLine("                }");
             }
 
             sb.AppendLine($"            ),");
@@ -880,6 +930,46 @@ namespace HPD.Agent.Diagnostics {{
         }
 
         return null;
+    }
+
+    private static IReadOnlyList<string> GetEventModuleProviders(
+        INamedTypeSymbol? owner,
+        Compilation compilation)
+    {
+        var providers = new HashSet<string>(StringComparer.Ordinal);
+        if (GetEventModuleProvider(compilation) is { } currentProvider)
+            providers.Add(currentProvider);
+
+        for (var type = owner?.BaseType; type is not null; type = type.BaseType)
+        {
+            foreach (var attribute in type.ContainingAssembly.GetAttributes())
+            {
+                if (attribute.AttributeClass?.Name == "HpdAgentEventModuleManifestAttribute" &&
+                    attribute.ConstructorArguments.Length > 1 &&
+                    attribute.ConstructorArguments[1].Value is INamedTypeSymbol providerType)
+                {
+                    providers.Add(providerType.ToDisplayString(
+                        SymbolDisplayFormat.FullyQualifiedFormat));
+                }
+            }
+        }
+
+        return providers.OrderBy(provider => provider, StringComparer.Ordinal).ToArray();
+    }
+
+    private static IReadOnlyList<string> GetBaseHarnessIdentities(INamedTypeSymbol? owner)
+    {
+        var identities = new List<string>();
+        for (var type = owner?.BaseType;
+             type is not null && type.SpecialType != SpecialType.System_Object;
+             type = type.BaseType)
+        {
+            var ns = type.ContainingNamespace.IsGlobalNamespace
+                ? string.Empty
+                : type.ContainingNamespace.ToDisplayString();
+            identities.Add($"{type.ContainingAssembly.Name}:{ns}:{type.Name}");
+        }
+        return identities;
     }
 
     private static string GetGeneratedEventProviderTypeName(string moduleId)
@@ -1256,7 +1346,9 @@ namespace HPD.Agent.Diagnostics {{
         foreach (var function in ToolHarness.FunctionCapabilities)
         {
             sb.AppendLine();
-            sb.AppendLine(AIBindingSourceEmitter.Emit(function));
+            sb.AppendLine(AIBindingSourceEmitter.Emit(
+                function,
+                $"{ToolHarness.ClassName}_{function.Name}Args"));
         }
 
         // PHASE 2B: Generate context resolvers for ALL capabilities (Functions, Skills, SubAgents)
@@ -1279,17 +1371,26 @@ namespace HPD.Agent.Diagnostics {{
             sb.AppendLine(SkillCodeGenerator.GenerateAllSkillCode(ToolHarness));
         }
 
+        if (ToolHarness.SkillCapabilities.Any())
+            sb.AppendLine(GenerateSkillFactoryCollection(ToolHarness));
+
         // Generate MCP Server registrations
         if (ToolHarness.MCPServerCapabilities.Any())
         {
             sb.AppendLine();
             sb.AppendLine("        // MCP Server configurations");
-            sb.AppendLine("        public static void CollectMcpServers(object __instance, System.Action<HPD.Agent.McpServerSource> __mcpCollector)");
+            sb.AppendLine("        public static void CollectMcpServers(object __instance, IToolMetadata? context, System.Func<string, bool>? sourceFilter, System.Action<HPD.Agent.McpServerSource> __mcpCollector)");
             sb.AppendLine("        {");
 
             foreach (var mcp in ToolHarness.MCPServerCapabilities)
             {
+                var condition = mcp.IsConditional && mcp.HasTypedMetadata
+                    ? $"Evaluate{mcp.Name}Condition(context)"
+                    : "true";
+                sb.AppendLine($"            if ((sourceFilter is null || sourceFilter(\"{mcp.Name.Replace("\"", "\"\"")}\")) && ({condition}))");
+                sb.AppendLine("            {");
                 sb.AppendLine($"            {mcp.GenerateSourceCode(ToolHarness)}");
+                sb.AppendLine("            }");
             }
 
             sb.AppendLine("        }");
@@ -1306,12 +1407,15 @@ namespace HPD.Agent.Diagnostics {{
             sb.AppendLine("        /// Config is passed as object so ToolHarnessFactory has no compile-time dep on HPD-Agent.OpenApi.");
             sb.AppendLine("        /// Cast to OpenApiConfig happens inside OpenApiLoader.LoadAllAsync.");
             sb.AppendLine("        /// </summary>");
-            sb.AppendLine($"        public static void CollectOpenApiSources(object __instance, System.Action<string, object, string> __openApiCollector)");
+            sb.AppendLine($"        public static void CollectOpenApiSources(object __instance, IToolMetadata? context, System.Func<string, bool>? sourceFilter, System.Action<string, object, string> __openApiCollector)");
             sb.AppendLine("        {");
 
             foreach (var openApi in ToolHarness.OpenApiCapabilities)
             {
+                sb.AppendLine($"            if (sourceFilter is null || sourceFilter(\"{EscapeForVerbatim(openApi.Prefix ?? openApi.MethodName)}\"))");
+                sb.AppendLine("            {");
                 sb.AppendLine($"            {openApi.GenerateRegistrationCode(ToolHarness)}");
+                sb.AppendLine("            }");
             }
 
             sb.AppendLine("        }");
@@ -1322,6 +1426,33 @@ namespace HPD.Agent.Diagnostics {{
         return sb.ToString();
     }
 
+    private static string GenerateSkillFactoryCollection(ToolHarnessInfo harness)
+    {
+        var typeName = string.IsNullOrEmpty(harness.Namespace) ? harness.ClassName : $"{harness.Namespace}.{harness.ClassName}";
+        var sb = new StringBuilder();
+        sb.AppendLine("    public static IReadOnlyList<GeneratedSkillDefinition> CreateSkills(object __instance, IToolMetadata? context, IReadOnlySet<string>? declarations)");
+        sb.AppendLine("    {");
+        sb.AppendLine($"        var instance = ({typeName})__instance;");
+        sb.AppendLine("        var definitions = new List<GeneratedSkillDefinition>();");
+        foreach (var skill in harness.SkillCapabilities)
+        {
+            var provider = skill.MethodIsStatic ? typeName : "instance";
+            var condition = skill.IsConditional && skill.HasTypedMetadata ? $"Evaluate{skill.Name}Condition(context)" : "true";
+            sb.AppendLine($"        if ((declarations is null || declarations.Contains(@\"{skill.MethodName}\")) && ({condition}))");
+            sb.AppendLine("        {");
+            sb.AppendLine($"            var definition = {provider}.{skill.MethodName}();");
+            if (skill.HasDynamicDescription && skill.HasTypedMetadata)
+                sb.AppendLine($"            definition = definition with {{ Description = Resolve{skill.Name}Description(context) }};");
+            else if (!string.IsNullOrEmpty(skill.Description))
+                sb.AppendLine($"            definition = definition with {{ Description = @\"{skill.Description.Replace("\"", "\"\"")}\" }};");
+            sb.AppendLine($"            definitions.Add(new GeneratedSkillDefinition(@\"{skill.MethodName}\", definition, {skill.RequiresPermission.ToString().ToLowerInvariant()}));");
+            sb.AppendLine("        }");
+        }
+        sb.AppendLine("        return definitions;");
+        sb.AppendLine("    }");
+        return sb.ToString();
+    }
+
     private static string GenerateSubAgentActionCollectionMethod(ToolHarnessInfo toolHarness)
     {
         var sb = new StringBuilder();
@@ -1329,23 +1460,31 @@ namespace HPD.Agent.Diagnostics {{
             ? toolHarness.ClassName
             : $"{toolHarness.Namespace}.{toolHarness.ClassName}";
         sb.AppendLine("    /// <summary>Creates the immutable subagent action descriptors declared by this harness.</summary>");
-        sb.AppendLine("    public static System.Collections.Generic.IReadOnlyList<global::HPD.Agent.SubAgentActionDescriptor> CreateSubAgentActions(object __instance)");
+        sb.AppendLine("    public static System.Collections.Generic.IReadOnlyList<global::HPD.Agent.SubAgentActionDescriptor> CreateSubAgentActions(object __instance, IToolMetadata? context, IReadOnlySet<string>? declarations)");
         sb.AppendLine("    {");
         if (toolHarness.SubAgentCapabilities.Any(static capability => !capability.IsStatic))
             sb.AppendLine($"        var instance = ({typeName})__instance;");
-        sb.AppendLine("        return new global::HPD.Agent.SubAgentActionDescriptor[]");
-        sb.AppendLine("        {");
+        sb.AppendLine("        var actions = new List<global::HPD.Agent.SubAgentActionDescriptor>();");
         foreach (var capability in toolHarness.SubAgentCapabilities)
         {
             var definition = capability.IsStatic
                 ? $"{typeName}.{capability.MethodName}()"
                 : $"instance.{capability.MethodName}()";
-            sb.AppendLine("            CreateDescriptor(");
+            var condition = capability.IsConditional && capability.HasTypedMetadata ? $"Evaluate{capability.Name}Condition(context)" : "true";
+            sb.AppendLine($"        if ((declarations is null || declarations.Contains(@\"{capability.MethodName}\")) && ({condition}))");
+            sb.AppendLine("        {");
+            sb.AppendLine("            var descriptor = CreateDescriptor(");
             sb.AppendLine($"                {definition},");
             sb.AppendLine($"                global::HPD.Agent.CapabilityId.Create(@\"generated:{toolHarness.ClassName}.{capability.SubAgentName.Replace("\"", "\"\"")}\"),");
-            sb.AppendLine($"                {capability.RequiresPermission.ToString().ToLowerInvariant()}),");
+            sb.AppendLine($"                {capability.RequiresPermission.ToString().ToLowerInvariant()}) with {{ DeclarationMemberName = @\"{capability.MethodName}\" }};");
+            if (capability.HasDynamicDescription && capability.HasTypedMetadata)
+                sb.AppendLine($"            descriptor = descriptor with {{ Description = Resolve{capability.Name}Description(context) }};");
+            else if (!string.IsNullOrEmpty(capability.Description))
+                sb.AppendLine($"            descriptor = descriptor with {{ Description = @\"{capability.Description.Replace("\"", "\"\"")}\" }};");
+            sb.AppendLine("            actions.Add(descriptor);");
+            sb.AppendLine("        }");
         }
-        sb.AppendLine("        };");
+        sb.AppendLine("        return actions;");
         sb.AppendLine();
         sb.AppendLine("        static global::HPD.Agent.SubAgentActionDescriptor CreateDescriptor(global::HPD.Agent.SubAgent definition, global::HPD.Agent.CapabilityId capabilityId, bool requiresPermission) => new()");
         sb.AppendLine("        {");
@@ -1438,7 +1577,7 @@ $@"    /// <summary>
         {
             if (!function.Parameters.Any(p => p.IsModelFacing)) continue;
 
-            var dtoName = $"{function.Name}Args";
+            var dtoName = $"{ToolHarness.ClassName}_{function.Name}Args";
             contextSerializableTypes.Add(dtoName);
 
             sb.AppendLine(
@@ -1584,10 +1723,8 @@ $@"    /// <summary>
     /// </summary>
     private static void ValidateTemplateString(SourceProductionContext context, string template, ITypeSymbol contextType, SyntaxNode location, string locationDescription)
     {
-        var regex = new Regex(@"\{context\.([a-zA-Z_][a-zA-Z0-9_]*)\}");
-        var availableProperties = contextType.GetMembers()
-            .OfType<IPropertySymbol>()
-            .Where(p => p.DeclaredAccessibility == Accessibility.Public)
+        var regex = new Regex(@"\{metadata\.([a-zA-Z_][a-zA-Z0-9_]*)\}");
+        var availableProperties = HarnessSymbolDiscovery.GetMetadataProperties(contextType)
             .Select(p => p.Name)
             .ToList();
 
@@ -1624,9 +1761,7 @@ $@"    /// <summary>
 
         // Finally validate property existence (existing logic)
         var propertyNames = ExtractPropertyNames(expression);
-        var availableProperties = contextType.GetMembers()
-            .OfType<IPropertySymbol>()
-            .Where(p => p.DeclaredAccessibility == Accessibility.Public)
+        var availableProperties = HarnessSymbolDiscovery.GetMetadataProperties(contextType)
             .Select(p => p.Name)
             .ToList();
 
@@ -1810,9 +1945,8 @@ $@"    /// <summary>
 
         foreach (var part in parts)
         {
-            var property = currentType.GetMembers(part)
-                .OfType<IPropertySymbol>()
-                .FirstOrDefault();
+            var property = HarnessSymbolDiscovery.GetMetadataProperties(currentType)
+                .FirstOrDefault(property => property.Name == part);
 
             if (property == null)
                 return null;
@@ -2001,10 +2135,21 @@ $@"    /// <summary>
     /// Extracts middleware type info from <c>[Collapse(Middlewares = [typeof(T1), typeof(T2)])]</c>.
     /// Emits ordered, explicitly owned activation descriptors for middleware declared by a ToolHarness.
     /// </summary>
+    private static IReadOnlyList<AttributeData> GetCollapseDeclarations(INamedTypeSymbol owner, Compilation compilation)
+    {
+        var attributeType = compilation.GetTypeByMetadataName("HPD.Agent.CollapseAttribute");
+        var hierarchy = new Stack<INamedTypeSymbol>();
+        for (var type = owner; type is not null && type.SpecialType != SpecialType.System_Object; type = type.BaseType)
+            hierarchy.Push(type);
+        return hierarchy.SelectMany(type => type.GetAttributes()).Where(attribute =>
+            SymbolEqualityComparer.Default.Equals(attribute.AttributeClass, attributeType)).ToArray();
+    }
+
     private static List<CollapseMiddlewareEntry>? GetCollapseMiddlewareEntries(
             ClassDeclarationSyntax classDecl,
             SemanticModel semanticModel,
-            List<Diagnostic> diagnostics)
+            List<Diagnostic> diagnostics,
+            IReadOnlyList<AttributeData> collapseDeclarations)
     {
         var lifetimeAttributeType = semanticModel.Compilation.GetTypeByMetadataName(
             "HPD.Agent.ToolHarnessMiddlewareLifetimeAttribute");
@@ -2035,84 +2180,43 @@ $@"    /// <summary>
                 : null;
         }
 
-        var allAttributes = classDecl.AttributeLists
-            .SelectMany(attrList => attrList.Attributes);
-
-        var attr = allAttributes.FirstOrDefault(a =>
-            a.Name.ToString() == "Collapse" || a.Name.ToString() == "CollapseAttribute");
-
-        if (attr?.ArgumentList == null)
-            return null;
-
-        AttributeArgumentSyntax? middlewaresArg = null;
-        foreach (var arg in attr.ArgumentList.Arguments)
-        {
-            var name = arg.NameEquals?.Name.Identifier.ValueText;
-            if (name == "Middlewares")
-            {
-                middlewaresArg = arg;
-                break;
-            }
-        }
-
-        if (middlewaresArg == null)
-            return null;
-
-        // Expression should be an array initializer: [typeof(T1), typeof(T2)]
-        // Represented as CollectionExpressionSyntax (C# 12) or ArrayCreationExpression / ImplicitArrayCreation
         var entries = new List<CollapseMiddlewareEntry>();
         var seenTypes = new HashSet<string>(StringComparer.Ordinal);
         var location = classDecl.GetLocation();
-
-        System.Collections.Generic.IEnumerable<ExpressionSyntax>? elements = null;
-
-        if (middlewaresArg.Expression is CollectionExpressionSyntax collExpr)
+        foreach (var declaration in collapseDeclarations)
         {
-            elements = collExpr.Elements.OfType<ExpressionElementSyntax>().Select(e => e.Expression);
-        }
-        else if (middlewaresArg.Expression is ImplicitArrayCreationExpressionSyntax implicitArray)
-        {
-            elements = implicitArray.Initializer.Expressions;
-        }
-        else if (middlewaresArg.Expression is ArrayCreationExpressionSyntax arrayExpr
-                 && arrayExpr.Initializer != null)
-        {
-            elements = arrayExpr.Initializer.Expressions;
-        }
-
-        if (elements == null)
-            return null;
-
-        foreach (var elem in elements)
-        {
-            // Each element should be typeof(SomeMiddlewareType)
-            if (elem is not TypeOfExpressionSyntax typeofExpr)
+            var middlewareValue = declaration.NamedArguments.FirstOrDefault(pair => pair.Key == "Middlewares").Value;
+            if (middlewareValue.Kind != TypedConstantKind.Array || middlewareValue.IsNull) continue;
+            var declaredHere = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var value in middlewareValue.Values)
             {
-                diagnostics.Add(Diagnostic.Create(
-                    new DiagnosticDescriptor(
-                        "HPDAG0201",
-                        "Invalid Middlewares element",
-                        "ToolHarness '{0}': Middlewares array must contain only typeof() expressions.",
-                        "HPDAgent.SourceGenerator",
-                        DiagnosticSeverity.Error,
-                        isEnabledByDefault: true),
-                    location,
-                    classDecl.Identifier.ValueText));
-                continue;
-            }
-
-            var typeInfo = semanticModel.GetTypeInfo(typeofExpr.Type);
-            if (typeInfo.Type == null)
-            {
-                // Type could not be resolved — skip silently (will be a compile error anyway)
-                continue;
-            }
-
-            var fqn = typeInfo.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                if (value.Value is not INamedTypeSymbol middlewareType) continue;
+                var fqn = middlewareType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                if (!declaredHere.Add(fqn))
+                {
+                    diagnostics.Add(Diagnostic.Create(
+                        new DiagnosticDescriptor("HPDAG0205", "Duplicate ToolHarness middleware",
+                            "ToolHarness '{0}' declares middleware type '{1}' more than once.",
+                            "HPDAgent.SourceGenerator", DiagnosticSeverity.Error, true),
+                        location, classDecl.Identifier.ValueText, middlewareType.Name));
+                    continue;
+                }
+                // Repeating an inherited exact type keeps its original position and ownership.
+                if (seenTypes.Contains(fqn)) continue;
+                if (middlewareType.TypeKind == TypeKind.Error ||
+                    middlewareType.DeclaredAccessibility is not Accessibility.Public and not Accessibility.Internal)
+                {
+                    diagnostics.Add(Diagnostic.Create(
+                        new DiagnosticDescriptor("HPDAG0206", "Invalid ToolHarness middleware type",
+                            "ToolHarness '{0}' middleware '{1}' must be non-abstract, closed, and accessible.",
+                            "HPDAgent.SourceGenerator", DiagnosticSeverity.Error, true),
+                        location, classDecl.Identifier.ValueText, middlewareType.Name));
+                    continue;
+                }
 
             var markerType = semanticModel.Compilation.GetTypeByMetadataName(
                 "HPD.Agent.Middleware.IToolHarnessMiddleware");
-            bool implementsToolHarnessMarker = markerType is not null && typeInfo.Type.AllInterfaces.Any(i =>
+            bool implementsToolHarnessMarker = markerType is not null && middlewareType.AllInterfaces.Any(i =>
                 SymbolEqualityComparer.Default.Equals(i, markerType));
 
             if (!implementsToolHarnessMarker)
@@ -2128,11 +2232,11 @@ $@"    /// <summary>
                         isEnabledByDefault: true),
                     location,
                     classDecl.Identifier.ValueText,
-                    typeInfo.Type.Name));
+                    middlewareType.Name));
                 continue;
             }
 
-            if (typeInfo.Type is not INamedTypeSymbol namedType)
+            if (middlewareType is not INamedTypeSymbol namedType)
                 continue;
 
             if (!seenTypes.Add(fqn))
@@ -2306,7 +2410,9 @@ $@"    /// <summary>
                     isEnabledByDefault: true),
                 location,
                 classDecl.Identifier.ValueText,
-                typeInfo.Type.Name));
+                middlewareType.Name));
+        }
+
         }
 
         return entries.Count > 0 ? entries : null;

@@ -66,7 +66,7 @@ internal static class ReflectionToolFactory
             FunctionNames: methods.Select(GetCapabilityName).ToArray(),
             StableIdentity: $"{toolharnessType.Assembly.GetName().Name}:{toolharnessType.FullName ?? toolharnessType.Name}",
             Middleware: RejectReflectionMiddleware(collapseAttribute),
-            CreateSubAgentActions: instance => CreateSubAgentActionDescriptors(
+            CreateSubAgentActions: (instance, _, _) => CreateSubAgentActionDescriptors(
                 methods, instance, toolharnessType.Name, collapseAttribute is not null));
 
         return true;
@@ -301,16 +301,19 @@ internal static class ReflectionToolFactory
                     : string.Empty;
                 var requestedMode = AgentInvocationModes.ReadRequestedMode(jsonArgs);
 
-                var workflow = await InvokeCapabilityMethodAsync(method, instance).ConfigureAwait(false);
                 var result = await MultiAgentRuntime.InvokeAsync(
                     new MultiAgentRuntime.MultiAgentInvocationRequest
                     {
-                        Workflow = workflow as IMultiAgentWorkflow
-                            ?? throw new InvalidOperationException("Multi-agent method must return an IMultiAgentWorkflow implementation."),
+                        WorkflowFactory = async () =>
+                            (await InvokeCapabilityMethodAsync(method, instance).ConfigureAwait(false))
+                                as IMultiAgentWorkflow
+                            ?? throw new InvalidOperationException(
+                                "Multi-agent method must return an IMultiAgentWorkflow implementation."),
                         Name = name,
                         Input = input,
                         ParentContext = functionContext,
                         StreamEvents = streamEvents,
+                        Timeout = TimeSpan.FromSeconds(timeoutSeconds),
                         InvocationModePolicy = invocationModePolicy,
                         RequestedMode = requestedMode
                     },

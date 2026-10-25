@@ -123,7 +123,11 @@ public class AgentBuilder
     /// Starts with the calling assembly's registry and lazily loads additional assemblies
     /// when ToolHarnesses from other assemblies are requested via WithToolHarness&lt;T&gt;().
     /// </summary>
-    internal readonly Dictionary<string, ToolHarnessFactory> _availableToolHarnesses = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, object> _harnessInstances = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, IReadOnlyList<AIFunction>> _dependencyFunctions = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (ToolHarnessFactory Factory, IReadOnlyList<GeneratedSkillDefinition> Definitions)> _nativeSkills = new(StringComparer.Ordinal);
+
+    internal readonly ToolHarnessCatalog _availableToolHarnesses = new();
 
     /// <summary>
     /// Tracks which assemblies have already been scanned for ToolHarness registries.
@@ -374,7 +378,7 @@ public class AgentBuilder
         var (toolharnesses, middlewares, states) = AgentGeneratedRegistry.Snapshot();
 
         foreach (var factory in toolharnesses)
-            _availableToolHarnesses.TryAdd(factory.Name, factory);
+            _availableToolHarnesses.Register(factory);
 
         foreach (var factory in middlewares)
             _availableMiddlewares.TryAdd(factory.Name, factory);
@@ -501,7 +505,7 @@ public class AgentBuilder
             foreach (var factory in factories)
             {
                 // Use TryAdd to avoid overwriting if ToolHarness with same name already exists
-                _availableToolHarnesses.TryAdd(factory.Name, factory);
+                _availableToolHarnesses.Register(factory);
             }
         }
         catch (Exception ex)
@@ -625,7 +629,9 @@ public class AgentBuilder
         {
             try
             {
-                _toolharnessContexts.TryGetValue(factory.Name, out var ctx);
+                if (TryGetHarnessFilter(factory, out var initialFilter) && initialFilter.Length == 0)
+                    continue;
+                var ctx = GetRequiredHarnessMetadata(factory);
 
                 // Create ToolHarness instance using AOT-safe resolution:
                 // 1. Try DI first (if ServiceProvider available)
@@ -663,12 +669,15 @@ public class AgentBuilder
                 instance = factory.CreateInstance();
 
             HaveInstance:
+                _harnessInstances[factory.ActivationIdentity] = instance;
+                CaptureNativeSkills(factory, instance, ctx ?? _defaulTMetadata);
                 if (factory.CreateSubAgentActions is not null)
-                    subAgentActions.AddRange(factory.CreateSubAgentActions(instance));
+                    subAgentActions.AddRange(CaptureSubAgentActions(factory, instance, ctx ?? _defaulTMetadata));
 
                 if (factory.CollectMcpServers != null)
                 {
-                    factory.CollectMcpServers(instance, source =>
+                    factory.CollectMcpServers(instance, ctx ?? _defaulTMetadata,
+                        name => ShouldAdmitSource(factory, name), source =>
                     {
                         var sourceFactory = source.FactoryProvider(instance);
                         if (sourceFactory is not null)
@@ -688,7 +697,8 @@ public class AgentBuilder
                 // CollapseWithinToolHarness placeholder is false — loader reads it from config directly.
                 if (factory.CollectOpenApiSources != null)
                 {
-                    factory.CollectOpenApiSources(instance, (name, config, parentContainer) =>
+                    factory.CollectOpenApiSources(instance, ctx ?? _defaulTMetadata,
+                        name => ShouldAdmitSource(factory, name), (name, config, parentContainer) =>
                     {
                         _openApiSources.Add(new OpenApiSourceRegistration(
                             Name: name,
@@ -702,23 +712,33 @@ public class AgentBuilder
                 var functions = factory.CreateFunctions(instance, ctx ?? _defaulTMetadata, CreateToolSerializationOptions());
 
                 // Phase 4.5: Apply function filter if this ToolHarness has selective registration
-                if (_toolFunctionFilters.TryGetValue(factory.Name, out var functionFilter))
+                if (TryGetHarnessFilter(factory, out var functionFilter))
                 {
                     var selectedNames = functionFilter
                         .Select(ContainerFunctionProjection.Unqualify)
                         .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    var unfilteredFunctions = functions;
                     functions = ContainerFunctionProjection.Project(
                             functions,
                             function => selectedNames.Contains(ContainerFunctionProjection.Unqualify(function.Name)))
                         .ToList();
+                    if (_nativeSkills.TryGetValue(factory.ActivationIdentity, out var native) &&
+                        native.Definitions.Any(definition => selectedNames.Contains(definition.DeclarationMemberName) ||
+                            selectedNames.Contains(definition.Definition.Name)))
+                    {
+                        var container = unfilteredFunctions.FirstOrDefault(function =>
+                            TryGetCapabilityMetadata(function, out var metadata) && metadata.Kind == HPDCapabilityKind.ToolHarnessActivation);
+                        if (container is not null && !functions.Any(function =>
+                            TryGetCapabilityMetadata(function, out var metadata) && metadata.Id == GetCapabilityMetadata(container).Id))
+                            functions.Insert(0, container);
+                    }
                 }
 
                 allFunctions.AddRange(functions);
             }
             catch (Exception ex)
             {
-                _logger?.CreateLogger<AgentBuilder>()
-                    .LogWarning(ex, "Failed to create functions for ToolHarness {ToolHarnessName}", factory.Name);
+                throw new InvalidOperationException($"Failed to construct harness '{factory.ActivationIdentity}'.", ex);
             }
         }
 
@@ -727,6 +747,7 @@ public class AgentBuilder
         {
             try
             {
+                if (registration.FunctionFilter is { Length: 0 }) continue;
                 if (!_availableToolHarnesses.TryGetValue(registration.ToolTypeName, out var factory))
                 {
                     throw new InvalidOperationException(
@@ -734,19 +755,38 @@ public class AgentBuilder
                         $"Ensure the toolharness class has [AIFunction], [Skill], or [SubAgent] attributes and the source generator ran successfully.");
                 }
 
-                _toolharnessContexts.TryGetValue(registration.ToolTypeName, out var ctx);
+                var ctx = GetRequiredHarnessMetadata(factory);
+                _harnessInstances[factory.ActivationIdentity] = registration.Instance;
+                CaptureNativeSkills(factory, registration.Instance, ctx ?? _defaulTMetadata);
 
                 if (factory.CreateSubAgentActions is not null)
                 {
-                    var actions = factory.CreateSubAgentActions(registration.Instance);
+                    var actions = CaptureSubAgentActions(factory, registration.Instance, ctx ?? _defaulTMetadata);
                     if (registration.FunctionFilter is { Length: > 0 })
-                        actions = actions.Where(action => registration.FunctionFilter.Contains(action.Action)).ToArray();
+                        actions = actions.Where(action => registration.FunctionFilter.Contains(action.Action) ||
+                            registration.FunctionFilter.Contains(action.DeclarationMemberName)).ToArray();
                     subAgentActions.AddRange(actions);
+                }
+
+                if (factory.CollectMcpServers != null)
+                {
+                    factory.CollectMcpServers(registration.Instance, ctx ?? _defaulTMetadata,
+                        name => ShouldAdmitSource(factory, name), source =>
+                    {
+                        var sourceFactory = source.FactoryProvider(registration.Instance);
+                        if (sourceFactory is null) return;
+                        if (!_collectedToolHarnessCapabilitySources.Add(sourceFactory.Id)) return;
+                        AddCapabilitySource(new AgentCapabilitySourceRegistration(
+                            sourceFactory,
+                            CapabilitySourceInitialLoadPolicy.Required,
+                            CapabilitySourceRefreshFailurePolicy.RetainLastKnownGood));
+                    });
                 }
 
                 if (factory.CollectOpenApiSources != null)
                 {
-                    factory.CollectOpenApiSources(registration.Instance, (name, config, parentContainer) =>
+                    factory.CollectOpenApiSources(registration.Instance, ctx ?? _defaulTMetadata,
+                        name => ShouldAdmitSource(factory, name), (name, config, parentContainer) =>
                     {
                         _openApiSources.Add(new OpenApiSourceRegistration(
                             Name: name,
@@ -770,8 +810,7 @@ public class AgentBuilder
             }
             catch (Exception ex)
             {
-                _logger?.CreateLogger<AgentBuilder>()
-                    .LogWarning(ex, "Failed to create functions for instance ToolHarness {ToolHarnessName}", registration.ToolTypeName);
+                throw new InvalidOperationException($"Failed to construct harness '{registration.ToolTypeName}'.", ex);
             }
         }
 
@@ -785,6 +824,73 @@ public class AgentBuilder
 
         return allFunctions;
     }
+
+    internal bool TryGetHarnessFilter(ToolHarnessFactory factory, out string[] filter) =>
+        _toolFunctionFilters.TryGetValue(factory.ActivationIdentity, out filter!) ||
+        _toolFunctionFilters.TryGetValue(factory.Name, out filter!);
+
+    private bool ShouldAdmitSource(ToolHarnessFactory factory, string sourceName)
+    {
+        if (!TryGetHarnessFilter(factory, out var selected)) return true;
+        return selected.Any(value =>
+            string.Equals(value, sourceName, StringComparison.OrdinalIgnoreCase) ||
+            value.StartsWith(sourceName + ".", StringComparison.OrdinalIgnoreCase) ||
+            value.StartsWith(sourceName + ":", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private ToolHarnessCatalog CreateSelectedHarnessCatalog()
+    {
+        var catalog = new ToolHarnessCatalog();
+        foreach (var factory in _selectedToolHarnessFactories) catalog.Register(factory);
+        foreach (var instance in _instanceRegistrations)
+            if (_availableToolHarnesses.TryGetValue(instance.ToolTypeName, out var factory)) catalog.Register(factory);
+        foreach (var identity in _harnessInstances.Keys)
+            if (_availableToolHarnesses.TryGetValue(identity, out var factory)) catalog.Register(factory);
+        return catalog;
+    }
+
+    private IReadOnlySet<string>? GetAdmittedFactoryMembers(ToolHarnessFactory factory, IReadOnlyList<string>? members)
+    {
+        if (!TryGetHarnessFilter(factory, out var selected)) return null;
+        var known = (factory.FunctionNames ?? []).Concat(factory.SkillDeclarationNames ?? [])
+            .Concat(factory.SubAgentDeclarationNames ?? []).ToHashSet(StringComparer.Ordinal);
+        return selected.All(known.Contains)
+            ? (members ?? []).Where(name => selected.Contains(name, StringComparer.Ordinal)).ToHashSet(StringComparer.Ordinal)
+            : null; // Resolving returned names requires inspecting candidate definitions once.
+    }
+
+    private IReadOnlyList<SubAgentActionDescriptor> CaptureSubAgentActions(ToolHarnessFactory factory,
+        object instance, IToolMetadata? metadata)
+    {
+        var actions = factory.CreateSubAgentActions!(instance, metadata,
+            GetAdmittedFactoryMembers(factory, factory.SubAgentDeclarationNames));
+        return TryGetHarnessFilter(factory, out var selected)
+            ? actions.Where(action => selected.Contains(action.Action, StringComparer.Ordinal) ||
+                selected.Contains(action.DeclarationMemberName, StringComparer.Ordinal)).ToArray()
+            : actions;
+    }
+
+    private void CaptureNativeSkills(ToolHarnessFactory factory, object instance, IToolMetadata? metadata)
+    {
+        if (factory.CreateSkills is null || _nativeSkills.ContainsKey(factory.ActivationIdentity)) return;
+        if (TryGetHarnessFilter(factory, out var filter) && filter.Length == 0) return;
+        var definitions = factory.CreateSkills(instance, metadata,
+            GetAdmittedFactoryMembers(factory, factory.SkillDeclarationNames));
+        _nativeSkills.Add(factory.ActivationIdentity, (factory, definitions));
+    }
+
+    private IToolMetadata? GetRequiredHarnessMetadata(ToolHarnessFactory factory)
+    {
+        var metadata = GetToolHarnessContext(factory) ?? _defaulTMetadata;
+        if (factory.MetadataType is not null && (metadata is null || !factory.MetadataType.IsInstanceOfType(metadata)))
+            throw new InvalidOperationException($"Harness '{factory.ActivationIdentity}' requires metadata assignable to '{factory.MetadataType}'.");
+        return metadata;
+    }
+
+    private IToolMetadata? GetToolHarnessContext(ToolHarnessFactory factory) =>
+        _toolharnessContexts.TryGetValue(factory.ActivationIdentity, out var context)
+            ? context
+            : _toolharnessContexts.GetValueOrDefault(factory.Name);
 
     private HPDToolSerializationOptions? CreateToolSerializationOptions()
     {
@@ -822,7 +928,7 @@ public class AgentBuilder
             {
                 // The builder owns factory registration, but the current AgentConfig still owns
                 // its per-agent function projection and serialized construction data.
-                if (effectiveRef.Functions is { Count: > 0 })
+                if (effectiveRef.Functions is not null)
                     _toolFunctionFilters[effectiveRef.Name] = effectiveRef.Functions.ToArray();
                 if (effectiveRef.Config.HasValue)
                     _toolharnessConfigs[effectiveRef.Name] = effectiveRef.Config.Value;
@@ -834,7 +940,7 @@ public class AgentBuilder
                         {
                             var metadata = builderFactory.DeserializeMetadata(effectiveRef.Metadata.Value);
                             if (metadata != null)
-                                _toolharnessContexts[effectiveRef.Name] = metadata;
+                                _toolharnessContexts[builderFactory.ActivationIdentity] = metadata;
                         }
                         catch (JsonException ex)
                         {
@@ -865,7 +971,7 @@ public class AgentBuilder
             }
 
             // Check if already selected (avoid duplicates)
-            if (_selectedToolHarnessFactories.Any(f => f.Name.Equals(factory.Name, StringComparison.OrdinalIgnoreCase)))
+            if (_selectedToolHarnessFactories.Any(f => f.ToolHarnessType == factory.ToolHarnessType))
             {
                 logger?.LogDebug("ToolHarness '{Name}' already selected, skipping duplicate", effectiveRef.Name);
                 continue;
@@ -876,7 +982,7 @@ public class AgentBuilder
             _explicitlyRegisteredToolHarnesses.Add(factory.Name);
 
             // Handle function filtering from config
-            if (effectiveRef.Functions != null && effectiveRef.Functions.Count > 0)
+            if (effectiveRef.Functions != null)
             {
                 _toolFunctionFilters[factory.Name] = effectiveRef.Functions.ToArray();
             }
@@ -895,7 +1001,7 @@ public class AgentBuilder
                     var metadata = factory.DeserializeMetadata(effectiveRef.Metadata.Value);
                     if (metadata != null)
                     {
-                        _toolharnessContexts[factory.Name] = metadata;
+                        _toolharnessContexts[factory.ActivationIdentity] = metadata;
                     }
                 }
                 catch (JsonException ex)
@@ -2097,16 +2203,20 @@ public class AgentBuilder
 
         foreach (var factory in _selectedToolHarnessFactories)
         {
-            if (factory.EventModule is null)
-                continue;
-
-            var selectedModule = composition.Fragments.FirstOrDefault(fragment =>
-                StringComparer.Ordinal.Equals(fragment.ModuleId, factory.EventModule.ModuleId));
-            if (selectedModule is null || !EventModulesAreEquivalent(selectedModule, factory.EventModule))
+            var requiredModules = (factory.RequiredEventModules ?? [])
+                .Concat(factory.EventModule is null ? [] : [factory.EventModule])
+                .DistinctBy(module => module.ModuleId, StringComparer.Ordinal)
+                .ToArray();
+            foreach (var requiredModule in requiredModules)
             {
-                throw new InvalidOperationException(
-                    $"ToolHarness '{factory.Name}' requires event module '{factory.EventModule.ModuleId}', " +
-                    "but the selected application event composition does not contain that exact fragment.");
+                var selectedModule = composition.Fragments.FirstOrDefault(fragment =>
+                    StringComparer.Ordinal.Equals(fragment.ModuleId, requiredModule.ModuleId));
+                if (selectedModule is null || !EventModulesAreEquivalent(selectedModule, requiredModule))
+                {
+                    throw new InvalidOperationException(
+                        $"ToolHarness '{factory.Name}' requires event module '{requiredModule.ModuleId}', " +
+                        "but the selected application event composition does not contain that exact fragment.");
+                }
             }
         }
     }
@@ -2440,7 +2550,7 @@ public class AgentBuilder
             var containerMiddleware = new ContainerMiddleware(
                 buildData.MergedOptions.Tools,
                 _explicitlyRegisteredToolHarnesses.ToImmutableHashSet(StringComparer.OrdinalIgnoreCase),
-                _availableToolHarnesses,           // toolharness factory registry for scoped middleware
+                CreateSelectedHarnessCatalog(),   // only selected owners participate in scoped lookup
                 _toolHarnessMiddlewareOverrides,
                 _toolharnessMiddlewareConfigs,    // config-ctor middleware configs from ToolHarnessReference
                 _config.Collapsing,
@@ -2578,7 +2688,8 @@ public class AgentBuilder
             staticFunctions,
             staticMetadata,
             cancellationToken).ConfigureAwait(false);
-        toolFunctions.AddRange(initialRevision.Snapshot.Functions.Where(function => !staticFunctions.Contains(function)));
+        toolFunctions = initialRevision.Snapshot.Functions.Concat(staticFunctions.Where(function =>
+            !TryGetCapabilityMetadata(function, out _))).ToList();
         var refreshBaseFunctions = staticFunctions.ToList();
 
         var typedSkillFunctions = toolFunctions.Where(function =>
@@ -2829,13 +2940,45 @@ public class AgentBuilder
                 var skills = await source.GetSkillsAsync(
                     new SkillSourceContext(_config.Name, owner, null, _serviceProvider),
                     cancellationToken).ConfigureAwait(false);
-                MaterializeRuntimeSkillReferences(skills, functions, serialization);
+                MaterializeRuntimeSkillReferences(skills, functions, serialization, owner);
                 functions.AddRange(RuntimeSkillFunctionProjector.Project(
-                    owner,
-                    skills,
-                    functions,
-                    serialization));
+                    owner, skills, functions, serialization,
+                    reference => ResolveMaterializedSkillReference(reference, owner, functions)));
             }
+        }
+
+        var projectedNativeOwners = new HashSet<string>(StringComparer.Ordinal);
+        while (true)
+        {
+            var pending = _nativeSkills.Where(pair => !projectedNativeOwners.Contains(pair.Key)).ToArray();
+            if (pending.Length == 0) break;
+            foreach (var (owner, snapshot) in pending)
+            {
+                projectedNativeOwners.Add(owner);
+                var definitions = snapshot.Definitions;
+                if (TryGetHarnessFilter(snapshot.Factory, out var selected))
+                    definitions = definitions.Where(definition => selected.Contains(definition.DeclarationMemberName,
+                        StringComparer.Ordinal) || selected.Contains(definition.Definition.Name, StringComparer.Ordinal)).ToArray();
+                var skills = definitions.Select(definition => definition.Definition).ToArray();
+                MaterializeRuntimeSkillReferences(skills, functions, serialization, owner);
+                var parent = snapshot.Factory.HasDescription
+                    ? CapabilityId.Create($"generated:{snapshot.Factory.ToolHarnessType.FullName}:harness")
+                    : (CapabilityId?)null;
+                functions.AddRange(RuntimeSkillFunctionProjector.Project(owner, skills, functions, serialization,
+                    reference => ResolveMaterializedSkillReference(reference, owner, functions), definitions, parent));
+            }
+        }
+
+        // Native factory names are known only after evaluation. Build the container's actual
+        // membership and activation text from the final graph rather than method-name guesses.
+        for (var index = 0; index < functions.Count; index++)
+        {
+            if (!TryGetCapabilityMetadata(functions[index], out var container) ||
+                container.Kind != HPDCapabilityKind.ToolHarnessActivation) continue;
+            var children = functions.Where(function => TryGetCapabilityMetadata(function, out var metadata) &&
+                metadata.ParentContainerIds.Contains(container.Id)).ToArray();
+            if (children.Any(child => GetCapabilityMetadata(child).Kind == HPDCapabilityKind.SkillActivation))
+                functions[index] = ContainerFunctionProjection.WithMaterializedChildren(functions[index], children);
         }
 
         var availableRunners = _serviceProvider?.GetServices<ISkillScriptRunner>().ToArray()
@@ -2884,40 +3027,53 @@ public class AgentBuilder
             typed);
     }
 
-    private void MaterializeRuntimeSkillReferences(
-        IReadOnlyList<Skill> skills,
-        List<AIFunction> functions,
-        HPDToolSerializationOptions serialization)
+    private ToolHarnessFactory ResolveSkillReferenceFactory(ISkillFunctionReference reference, string owner)
     {
-        foreach (var reference in skills
-            .SelectMany(skill => skill.Capabilities)
-            .OfType<ISkillFunctionReference>())
-        {
-            var alreadyMaterialized = functions.Any(function =>
-                TryGetCapabilityMetadata(function, out var metadata) &&
-                metadata.DeclarationMemberName == reference.MemberName &&
-                metadata.Id.Value.StartsWith(
-                    $"generated:{reference.ToolHarnessType.Name}.",
-                    StringComparison.Ordinal));
-            if (alreadyMaterialized)
-                continue;
+        if (reference.ToolHarnessType is null)
+            return _availableToolHarnesses[owner];
+        RuntimeHelpers.RunModuleConstructor(reference.ToolHarnessType.Assembly.ManifestModule.ModuleHandle);
+        LoadGeneratedRegistries();
+        return _availableToolHarnesses.TryGetByType(reference.ToolHarnessType, out var factory)
+            ? factory : throw new InvalidOperationException($"Skill references unavailable harness type '{reference.ToolHarnessType}'.");
+    }
 
-            var factory = _availableToolHarnesses.Values.FirstOrDefault(candidate =>
-                candidate.ToolHarnessType == reference.ToolHarnessType)
-                ?? throw new InvalidOperationException(
-                    $"Runtime skill references unavailable toolharness '{reference.ToolHarnessType.FullName}'. " +
-                    "Ensure its generated registry is loaded before constructing the agent.");
-            var generated = factory.CreateFunctions(
-                factory.CreateInstance(),
-                ToolHarnessContexts.GetValueOrDefault(factory.Name),
-                serialization);
-            var function = generated.SingleOrDefault(candidate =>
-                TryGetCapabilityMetadata(candidate, out var metadata) &&
-                metadata.DeclarationMemberName == reference.MemberName)
-                ?? throw new InvalidOperationException(
-                    $"Runtime skill references unavailable generated function " +
-                    $"'{reference.ToolHarnessType.Name}.{reference.MemberName}'.");
-            functions.Add(function);
+    private AIFunction ResolveMaterializedSkillReference(ISkillFunctionReference reference, string owner,
+        List<AIFunction> functions)
+    {
+        var factory = ResolveSkillReferenceFactory(reference, owner);
+        return functions.SingleOrDefault(function => TryGetCapabilityMetadata(function, out var metadata) &&
+            metadata.OwnerHarnessIdentity == factory.ActivationIdentity && metadata.DeclarationMemberName == reference.MemberName)
+            ?? throw new InvalidOperationException($"Skill on '{owner}' references missing or filtered function '{factory.ActivationIdentity}:{reference.MemberName}'.");
+    }
+
+    private void MaterializeRuntimeSkillReferences(IReadOnlyList<Skill> skills, List<AIFunction> functions,
+        HPDToolSerializationOptions? serialization, string owner)
+    {
+        foreach (var reference in skills.SelectMany(skill => skill.Capabilities).OfType<ISkillFunctionReference>())
+        {
+            var factory = ResolveSkillReferenceFactory(reference, owner);
+            if (functions.Any(function => TryGetCapabilityMetadata(function, out var metadata) &&
+                metadata.OwnerHarnessIdentity == factory.ActivationIdentity && metadata.DeclarationMemberName == reference.MemberName))
+                continue;
+            if (!_dependencyFunctions.TryGetValue(factory.ActivationIdentity, out var generated))
+            {
+                // A host-selected owner has already been projected; never re-enable filtered tools.
+                if (_harnessInstances.ContainsKey(factory.ActivationIdentity))
+                    throw new InvalidOperationException($"Skill references filtered or missing function '{factory.ActivationIdentity}:{reference.MemberName}'.");
+                var instance = _serviceProvider?.GetService(factory.ToolHarnessType) ??
+                    (factory.CreateWithSecrets is not null && _secretResolver is not null
+                        ? factory.CreateWithSecrets(_secretResolver) : factory.CreateInstance());
+                _harnessInstances.Add(factory.ActivationIdentity, instance);
+                CaptureNativeSkills(factory, instance, GetToolHarnessContext(factory) ?? _defaulTMetadata);
+                generated = factory.CreateFunctions(instance, GetToolHarnessContext(factory) ?? _defaulTMetadata, serialization);
+                _dependencyFunctions.Add(factory.ActivationIdentity, generated);
+            }
+            foreach (var function in ContainerFunctionProjection.Project(generated, candidate =>
+                TryGetCapabilityMetadata(candidate, out var metadata) && metadata.DeclarationMemberName == reference.MemberName))
+                if (!functions.Any(existing => TryGetCapabilityMetadata(existing, out var metadata) &&
+                    metadata.Id == GetCapabilityMetadata(function).Id))
+                    functions.Add(function);
+            _ = ResolveMaterializedSkillReference(reference, owner, functions);
         }
     }
 
@@ -4297,17 +4453,18 @@ public static class AgentBuilderToolHarnessExtensions
         builder.LoadGeneratedRegistries();
         var toolharnessName = typeof(T).Name;
 
-        var factory = GetToolHarnessFactory(builder, toolharnessName);
+        var factory = GetToolHarnessFactory(builder, typeof(T), toolharnessName);
 
         // AOT-compatible path: Use catalog
         builder._selectedToolHarnessFactories.Add(factory);
         builder._builderAddedToolHarnesses.Add(toolharnessName);
+        builder._builderAddedToolHarnesses.Add(factory.ActivationIdentity);
 
         // Track as explicitly registered (for ToolVisibilityManager)
         builder._explicitlyRegisteredToolHarnesses.Add(toolharnessName);
 
         // Store context
-        builder.ToolHarnessContexts[toolharnessName] = context;
+        builder.ToolHarnessContexts[factory.ActivationIdentity] = context;
 
         // Auto-discover skill dependencies using catalog (zero reflection)
         AutoRegisterDependenciesFromFactory(builder, factory);
@@ -4329,14 +4486,14 @@ public static class AgentBuilderToolHarnessExtensions
 
     private static ToolHarnessFactory GetToolHarnessFactory(AgentBuilder builder, Type toolharnessType, string toolharnessName)
     {
-        if (builder._availableToolHarnesses.TryGetValue(toolharnessName, out var factory))
+        if (builder._availableToolHarnesses.TryGetByType(toolharnessType, out var factory))
         {
             return factory;
         }
 
         if (ReflectionToolFactory.TryCreateToolHarnessFactory(toolharnessType, out var reflectionFactory, out var reflectionError))
         {
-            builder._availableToolHarnesses[toolharnessName] = reflectionFactory;
+            builder._availableToolHarnesses.Register(reflectionFactory);
             return reflectionFactory;
         }
 
@@ -4359,15 +4516,15 @@ public static class AgentBuilderToolHarnessExtensions
                 $"Available generated functions: {availableList}.");
         }
 
-        if (!builder._selectedToolHarnessFactories.Any(f => f.Name.Equals(factory.Name, StringComparison.OrdinalIgnoreCase)))
+        if (!builder._selectedToolHarnessFactories.Any(f => f.ToolHarnessType == factory.ToolHarnessType))
         {
             builder._selectedToolHarnessFactories.Add(factory);
         }
 
         builder._explicitlyRegisteredToolHarnesses.Add(factory.Name);
-        builder.ToolHarnessContexts[factory.Name] = context;
+        builder.ToolHarnessContexts[factory.ActivationIdentity] = context;
 
-        if (builder._toolFunctionFilters.TryGetValue(factory.Name, out var existingFilter))
+        if (builder.TryGetHarnessFilter(factory, out var existingFilter))
         {
             builder._toolFunctionFilters[factory.Name] = existingFilter
                 .Concat(new[] { functionName })
@@ -4425,12 +4582,13 @@ public static class AgentBuilderToolHarnessExtensions
         builder.WithToolHarness<T>(context);
 
         // Apply per-toolharness options
+        var registeredFactory = GetToolHarnessFactory(builder, typeof(T), typeof(T).Name);
         var options = new ToolHarnessOptions();
         configure(options);
 
         if (options.MiddlewareOverrides.Count > 0)
         {
-            var toolharnessName = typeof(T).Name;
+            var toolharnessName = registeredFactory.ActivationIdentity;
             var factory = GetToolHarnessFactory(builder, typeof(T), toolharnessName);
             var declared = (factory.Middleware ?? []).Select(static descriptor => descriptor.MiddlewareType).ToHashSet();
             foreach (var middlewareType in options.MiddlewareOverrides.Keys)
@@ -4452,7 +4610,7 @@ public static class AgentBuilderToolHarnessExtensions
 
         if (options.SkillSources.Count > 0)
         {
-            var toolharnessName = typeof(T).Name;
+            var toolharnessName = registeredFactory.ActivationIdentity;
             if (!builder._skillSources.TryGetValue(toolharnessName, out var sources))
             {
                 sources = [];
@@ -4463,7 +4621,7 @@ public static class AgentBuilderToolHarnessExtensions
 
         if (options.StoredSkillSources.Count > 0)
         {
-            var toolharnessName = typeof(T).Name;
+            var toolharnessName = registeredFactory.ActivationIdentity;
             if (!builder._storedSkillSources.TryGetValue(toolharnessName, out var registrations))
                 builder._storedSkillSources[toolharnessName] = registrations = [];
             registrations.AddRange(options.StoredSkillSources);
@@ -4484,7 +4642,7 @@ public static class AgentBuilderToolHarnessExtensions
         builder.LoadGeneratedRegistries();
         var toolharnessName = typeof(T).Name;
 
-        if (!builder._availableToolHarnesses.TryGetValue(toolharnessName, out var factory))
+        if (!builder._availableToolHarnesses.TryGetByType(typeof(T), out var factory))
         {
             throw new InvalidOperationException(
                 $"ToolHarness '{toolharnessName}' not found in ToolHarnessRegistry.All. " +
@@ -4492,9 +4650,10 @@ public static class AgentBuilderToolHarnessExtensions
         }
 
         // Register as instance registration (will use the generated ToolHarnessFactory delegate for function creation)
-        builder._instanceRegistrations.Add(new ToolInstanceRegistration(instance, toolharnessName));
+        builder._instanceRegistrations.Add(new ToolInstanceRegistration(instance, factory.ActivationIdentity));
         builder._builderAddedToolHarnesses.Add(toolharnessName);
-        builder.ToolHarnessContexts[toolharnessName] = context;
+        builder._builderAddedToolHarnesses.Add(factory.ActivationIdentity);
+        builder.ToolHarnessContexts[factory.ActivationIdentity] = context;
 
         // Track this as explicitly registered
         builder._explicitlyRegisteredToolHarnesses.Add(toolharnessName);
@@ -4523,12 +4682,13 @@ public static class AgentBuilderToolHarnessExtensions
         // AOT-compatible path: Use catalog
         builder._selectedToolHarnessFactories.Add(factory);
         builder._builderAddedToolHarnesses.Add(toolharnessName);
+        builder._builderAddedToolHarnesses.Add(factory.ActivationIdentity);
 
         // Track as explicitly registered (for ToolVisibilityManager)
         builder._explicitlyRegisteredToolHarnesses.Add(toolharnessName);
 
         // Store context
-        builder.ToolHarnessContexts[toolharnessName] = context;
+        builder.ToolHarnessContexts[factory.ActivationIdentity] = context;
 
         // Auto-discover skill dependencies using catalog (zero reflection)
         AutoRegisterDependenciesFromFactory(builder, factory);

@@ -47,6 +47,15 @@ public sealed record HPDCapabilityMetadata
     /// </summary>
     public string? DeclarationMemberName { get; init; }
 
+    /// <summary>Exact identity of the harness exposing this generated declaration.</summary>
+    public string? OwnerHarnessIdentity { get; init; }
+
+    /// <summary>Harness that originally declared this capability contract.</summary>
+    public string? DeclaringHarnessIdentity { get; init; }
+
+    /// <summary>Exact selected implementation member, including override dispatch.</summary>
+    public string? ImplementationIdentity { get; init; }
+
     /// <summary>
     /// Gets the alternative parent containers that may reveal this capability.
     /// The capability is visible when any authorized parent path is active.

@@ -8,6 +8,9 @@ using HPD.Agent.SourceGenerator.Capabilities;
 /// </summary>
 internal class ToolHarnessInfo
 {
+    /// <summary>Gets the canonical owner symbol used for hierarchy-aware generation.</summary>
+    public INamedTypeSymbol? OwnerType { get; set; }
+
     /// <summary>
     /// The class name (always set from ClassDeclarationSyntax.Identifier).
     /// Used for file names, type references, registry lookup, and container names.
@@ -91,7 +94,7 @@ internal class ToolHarnessInfo
     /// Phase 4: Uses only unified Capabilities list.
     /// </summary>
     public bool RequiresInstance =>
-        Capabilities.Any(c => c.RequiresInstance);
+        IsCollapsed || Capabilities.Any(c => c.RequiresInstance);
 
     /// <summary>
     /// Whether any capabilities have conditional logic or dynamic descriptions requiring context resolution.

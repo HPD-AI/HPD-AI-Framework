@@ -7,6 +7,8 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.Harness;
 internal sealed class CodingHarnessToolCallHandler : IAgentTuiEventHandler, IAgentTuiToolCallHandler
 {
     private const string ToolName = "CodingToolHarness";
+    private static readonly string CodingHarnessIdentity =
+        $"{typeof(CodingToolHarness).Assembly.GetName().Name}::{nameof(CodingToolHarness)}";
     private const string StateKey = "hpd.coding.harness.tool-calls";
     private const string EntryKey = "coding.harness";
     private const string ActiveSummary = "Expanding coding tools";
@@ -22,7 +24,7 @@ internal sealed class CodingHarnessToolCallHandler : IAgentTuiEventHandler, IAge
         };
 
     public bool CanHandleToolCall(string? toolHarnessName, string toolName, ToolCallType? callType)
-        => string.Equals(toolName, ToolName, StringComparison.Ordinal);
+        => IsCodingHarness(toolName, toolHarnessName);
 
     public ValueTask HandleAsync(
         AgentEvent evt,
@@ -87,7 +89,10 @@ internal sealed class CodingHarnessToolCallHandler : IAgentTuiEventHandler, IAge
     }
 
     private static bool IsCodingHarness(string? name, string? toolHarnessName)
-        => string.Equals(name, ToolName, StringComparison.Ordinal);
+        => string.Equals(name, ToolName, StringComparison.Ordinal) ||
+           AgentGeneratedRegistry.ToolHarnessInherits(
+               toolHarnessName ?? name,
+               CodingHarnessIdentity);
 
     private static void Apply(
         AgentTuiEventContext context,

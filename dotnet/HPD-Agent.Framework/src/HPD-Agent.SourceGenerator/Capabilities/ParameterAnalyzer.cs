@@ -71,6 +71,63 @@ internal static class ParameterAnalyzer
         return parameters;
     }
 
+    public static List<ParameterInfo> Analyze(
+        IMethodSymbol method, Compilation compilation, out List<Diagnostic> diagnostics)
+    {
+        diagnostics = new List<Diagnostic>();
+        var result = new List<ParameterInfo>();
+        foreach (var parameter in method.Parameters)
+        {
+            var attributes = new List<AttributeData>();
+            IParameterSymbol? defaultDeclaration = null;
+            for (var current = method; current is not null; current = current.OverriddenMethod)
+            {
+                if (parameter.Ordinal < current.Parameters.Length)
+                {
+                    var declared = current.Parameters[parameter.Ordinal];
+                    attributes.AddRange(declared.GetAttributes());
+                    if (defaultDeclaration is null && declared.HasExplicitDefaultValue)
+                        defaultDeclaration = declared;
+                }
+            }
+            string? Text(string metadataName) => attributes.FirstOrDefault(attribute =>
+                SymbolEqualityComparer.Default.Equals(attribute.AttributeClass,
+                    compilation.GetTypeByMetadataName(metadataName)))
+                ?.ConstructorArguments.FirstOrDefault().Value as string;
+            var description = Text("AIDescriptionAttribute") ??
+                Text("System.ComponentModel.DescriptionAttribute") ?? string.Empty;
+            var kind = FunctionParameterClassifier.Classify(parameter.Type);
+            var location = parameter.Locations.FirstOrDefault() ?? Location.None;
+            if (kind == FunctionParameterKind.Unsupported)
+                diagnostics.Add(Diagnostic.Create(FunctionParameterClassifier.UnsupportedRuntimeParameter,
+                    location, parameter.Name, FunctionParameterClassifier.GetMetadataName(parameter.Type)));
+            AIContractNode? contract = null;
+            if (kind == FunctionParameterKind.ModelFacing)
+            {
+                var analysis = AIContractAnalyzer.Analyze(parameter.Type, parameter.Name,
+                    description.Contains("{metadata.") ? null : description, location);
+                contract = analysis.Contract;
+                diagnostics.AddRange(analysis.Diagnostics);
+            }
+            result.Add(new ParameterInfo
+            {
+                Symbol = parameter,
+                Contract = contract,
+                Name = parameter.Name,
+                JsonName = parameter.Name,
+                Type = parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                MetadataTypeName = FunctionParameterClassifier.GetMetadataName(parameter.Type),
+                Kind = kind,
+                Description = description,
+                HasDefaultValue = defaultDeclaration is not null,
+                DefaultValue = defaultDeclaration is not null
+                    ? ToCSharpLiteral(defaultDeclaration.ExplicitDefaultValue, parameter.Type) : null,
+                ConditionalExpression = Text("ConditionalParameterAttribute")
+            });
+        }
+        return result;
+    }
+
     public static string GetDefaultInitializer(ParameterInfo param)
     {
         if (param.HasDefaultValue)
@@ -143,7 +200,9 @@ internal static class ParameterAnalyzer
     {
         if (value is null)
         {
-            return "null";
+            return type is { IsValueType: true } && type.OriginalDefinition.SpecialType != SpecialType.System_Nullable_T
+                ? $"default({type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)})"
+                : "null";
         }
 
         if (type?.TypeKind == TypeKind.Enum)

@@ -80,10 +80,10 @@ public class HPDToolSourceGeneratorTests
     }
 
     [Fact]
-    public void GeneratedToolHarness_WithDynamicCollapseInstructions_ContainsCorrectCode()
+    public void CollapseInstructions_RejectNonConstantAttributeArguments()
     {
-        // Arrange - Using an expression (method call) as attribute value
-        // The source generator detects this as an expression rather than a literal string
+        // Method calls are not legal C# attribute arguments. Check compiler diagnostics,
+        // rather than treating generated text as evidence that the source is valid.
         var HARNESSource = @$"
 using HPD.Agent;
 using System;
@@ -108,13 +108,11 @@ namespace TestToolHarnesses
 ";
 
         // Act
-        var (generatedCode, diagnostics) = RunGenerator(HARNESSource);
+        var (generatedCode, diagnostics) = RunGenerator(HARNESSource, includeCompilationDiagnostics: true);
 
         // Assert
-        Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
-        Assert.NotNull(generatedCode);
-        Assert.Contains("var dynamicInstructions = DynamicInstructionsProvider.GetInstructions();", generatedCode);
-        Assert.Contains("dynamicInstructions", generatedCode);
+        Assert.Contains(diagnostics, diagnostic => diagnostic.Id == "CS0182");
+        Assert.DoesNotContain("var dynamicInstructions = DynamicInstructionsProvider.GetInstructions();", generatedCode);
     }
     
     [Fact]
@@ -202,7 +200,7 @@ namespace TestToolHarnesses
         Assert.NotNull(generatedCode);
         Assert.Contains("ArgumentBinder = BindSearchArguments", generatedCode);
         Assert.Contains("HPDGeneratedToolArgumentBinder.ValidateProperties(json, \"\", \"pattern\", \"mode\")", generatedCode);
-        Assert.Contains("GetBoundArguments<SearchArgs>()", generatedCode);
+        Assert.Contains("GetBoundArguments<EnumToolHarness_SearchArgs>()", generatedCode);
         Assert.Contains("\"Files\" => global::TestToolHarnesses.SearchMode.Files", generatedCode);
         Assert.Contains("\\\"enum\\\":[\\\"Files\\\",\\\"Content\\\"]", generatedCode);
         Assert.DoesNotContain("HPDToolArgumentBinder.BindOptional", generatedCode);
@@ -239,7 +237,7 @@ namespace TestToolHarnesses
         Assert.False(string.IsNullOrEmpty(generatedCode), string.Join("\n", diagnostics.Select(diagnostic => diagnostic.ToString())));
         Assert.Contains("unknown_union_discriminator", generatedCode);
         Assert.Contains("\"launch\" => BindContract_Execute_request_case_launch", generatedCode);
-        Assert.Contains("GetBoundArguments<ExecuteArgs>()", generatedCode);
+        Assert.Contains("GetBoundArguments<UnionToolHarness_ExecuteArgs>()", generatedCode);
         Assert.DoesNotContain("JsonSerializer.Deserialize", generatedCode);
     }
 

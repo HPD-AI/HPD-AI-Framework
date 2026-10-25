@@ -18,7 +18,7 @@ internal class FunctionCapability : BaseCapability
     public override CapabilityType Type => CapabilityType.Function;
     public override bool IsContainer => false;  // Functions are NOT containers (direct execution)
     public override bool EmitsIntoCreateTools => true;
-    public override bool RequiresInstance => true;  // Functions typically require instance (unless static)
+    public override bool RequiresInstance => StaticDeclaringType is null;  // Functions typically require instance (unless static)
 
     // ========== Function-Specific Properties ==========
 
@@ -36,7 +36,15 @@ internal class FunctionCapability : BaseCapability
     /// <summary>
     /// The return type of the function (e.g., "Task&lt;string&gt;", "void", "int").
     /// </summary>
+    public string? StaticDeclaringType { get; set; }
+
     public string ReturnType { get; set; } = string.Empty;
+
+    /// <summary>Harness that declared the effective capability contract.</summary>
+    public string? DeclaringHarnessIdentity { get; set; }
+
+    /// <summary>Exact implementation selected from the override slot.</summary>
+    public string? ImplementationIdentity { get; set; }
 
     /// <summary>
     /// Whether the function is asynchronous (returns Task or Task&lt;T&gt;).
@@ -130,7 +138,7 @@ internal class FunctionCapability : BaseCapability
 
         var relevantParams = Parameters.Where(p => p.IsModelFacing).ToList();
 
-        var dtoName = relevantParams.Any() ? $"{Name}Args" : "object";
+        var dtoName = relevantParams.Any() ? $"{ToolHarness.ClassName}_{Name}Args" : "object";
 
         var invocationArgs = string.Join(", ", Parameters.Select(p =>
         {
@@ -152,8 +160,10 @@ internal class FunctionCapability : BaseCapability
         string schemaProviderCode = GenerateSchemaProviderCode(relevantParams);
 
         // Check if the return type is void (includes non-generic Task — await Task yields void)
-        bool isVoidReturn = ReturnType == "void" || ReturnType == "System.Void"
-            || ReturnType == "Task" || ReturnType == "System.Threading.Tasks.Task";
+        var normalizedReturnType = ReturnType.Replace("global::", "");
+        bool isVoidReturn = normalizedReturnType is "void" or "System.Void" or "Task" or
+            "System.Threading.Tasks.Task" or "ValueTask" or "System.Threading.Tasks.ValueTask";
+        var invocationTarget = StaticDeclaringType ?? "instance";
 
         string invocationLogic;
         if (relevantParams.Any())
@@ -163,15 +173,15 @@ internal class FunctionCapability : BaseCapability
             {
                 // For void methods, call the method and return null
                 returnStatement = IsAsync
-                    ? $"{awaitKeyword} instance.{Name}({invocationArgs}); return null;"
-                    : $"instance.{Name}({invocationArgs}); return null;";
+                    ? $"{awaitKeyword} {invocationTarget}.{Name}({invocationArgs}); return null;"
+                    : $"{invocationTarget}.{Name}({invocationArgs}); return null;";
             }
             else
             {
                 // For non-void methods, return the result as object
                 returnStatement = IsAsync
-                    ? $"return ({awaitKeyword} instance.{Name}({invocationArgs})) as object;"
-                    : $"return {returnWrapper}(({awaitKeyword} instance.{Name}({invocationArgs})) as object);";
+                    ? $"return ({awaitKeyword} {invocationTarget}.{Name}({invocationArgs})) as object;"
+                    : $"return {returnWrapper}(({awaitKeyword} {invocationTarget}.{Name}({invocationArgs})) as object);";
             }
 
             invocationLogic =
@@ -188,15 +198,15 @@ $@"({asyncKeyword} (arguments, functionContext, cancellationToken) =>
             {
                 // For void methods, call the method and return null
                 returnStatement = IsAsync
-                    ? $"{awaitKeyword} instance.{Name}({invocationArgs}); return null;"
-                    : $"instance.{Name}({invocationArgs}); return null;";
+                    ? $"{awaitKeyword} {invocationTarget}.{Name}({invocationArgs}); return null;"
+                    : $"{invocationTarget}.{Name}({invocationArgs}); return null;";
             }
             else
             {
                 // For non-void methods, return the result as object
                 returnStatement = IsAsync
-                    ? $"return ({awaitKeyword} instance.{Name}({invocationArgs})) as object;"
-                    : $"return {returnWrapper}(({awaitKeyword} instance.{Name}({invocationArgs})) as object);";
+                    ? $"return ({awaitKeyword} {invocationTarget}.{Name}({invocationArgs})) as object;"
+                    : $"return {returnWrapper}(({awaitKeyword} {invocationTarget}.{Name}({invocationArgs})) as object);";
             }
 
             invocationLogic =
@@ -235,6 +245,9 @@ $@"({asyncKeyword} (arguments, functionContext, cancellationToken) =>
         options.AppendLine($"                        Id = CapabilityId.Create(@\"generated:{ToolHarness.ClassName}.{FunctionName}\"),");
         options.AppendLine("                        Kind = HPDCapabilityKind.Function,");
         options.AppendLine($"                        DeclarationMemberName = @\"{Name.Replace("\"", "\"\"")}\",");
+        options.AppendLine($"                        OwnerHarnessIdentity = @\"{ToolHarness.AssemblyName}:{ToolHarness.Namespace}:{ToolHarness.ClassName}\",");
+        options.AppendLine($"                        DeclaringHarnessIdentity = @\"{(DeclaringHarnessIdentity ?? string.Empty).Replace("\"", "\"\"")}\",");
+        options.AppendLine($"                        ImplementationIdentity = @\"{(ImplementationIdentity ?? string.Empty).Replace("\"", "\"\"")}\",");
         options.AppendLine($"                        ParentContainerIds = System.Collections.Immutable.ImmutableArray.Create<CapabilityId>({string.Join(", ", capabilityParents.Select(id => $"CapabilityId.Create(@\"{id.Replace("\"", "\"\"")}\")"))})");
         options.AppendLine("                    },");
         options.AppendLine($"                    [\"ToolHarnessName\"] = @\"{ToolHarness.EffectiveName.Replace("\"", "\"\"")}\",");
@@ -529,6 +542,8 @@ $@"HPDAIFunctionFactory.Create(
     private static string GetDeclaredResultType(string returnType)
     {
         var normalized = returnType.Trim();
+        if (normalized.StartsWith("global::", StringComparison.Ordinal))
+            normalized = normalized.Substring("global::".Length);
         if (TryUnwrapGeneric(normalized, "System.Threading.Tasks.Task", out var taskResult) ||
             TryUnwrapGeneric(normalized, "Task", out taskResult) ||
             TryUnwrapGeneric(normalized, "System.Threading.Tasks.ValueTask", out taskResult) ||

@@ -7,10 +7,16 @@ namespace HPD.Agent.ToolHarness.AotFixture;
     "Cross-assembly Native AOT harness",
     FunctionResult = "expanded",
     Middlewares = [typeof(ExternalExecutionMiddleware)])]
-public sealed partial class ExternalExecutionHarness
+public partial class ExternalExecutionHarness
 {
     [AIFunction]
     public string Ping() => "pong";
+}
+
+public sealed partial class DerivedExecutionHarness : ExternalExecutionHarness
+{
+    [AIFunction]
+    public string DerivedPing() => Ping() + "-derived";
 }
 
 public sealed class ExternalExecutionMiddleware

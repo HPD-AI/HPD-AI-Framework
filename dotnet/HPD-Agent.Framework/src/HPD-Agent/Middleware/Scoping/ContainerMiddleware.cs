@@ -165,7 +165,9 @@ public class ContainerMiddleware : IAgentMiddleware
             factory = _toolharnessFactories?.Values.FirstOrDefault(candidate =>
                 candidate.ActivationIdentity.Equals(harnessName, StringComparison.Ordinal));
         if (factory is null) return null;
-        if (_middlewareOverrides?.TryGetValue(factory.Name, out var overrides) != true || overrides.Count == 0)
+        if (_middlewareOverrides is null ||
+            !(_middlewareOverrides.TryGetValue(factory.ActivationIdentity, out var overrides) ||
+              _middlewareOverrides.TryGetValue(factory.Name, out overrides)) || overrides.Count == 0)
             return factory;
 
         return factory with
@@ -189,7 +191,9 @@ public class ContainerMiddleware : IAgentMiddleware
         AgentRunConfig runConfig)
     {
         var configs = new Dictionary<Type, System.Text.Json.JsonElement>();
-        if (_middlewareConfigs?.TryGetValue(harness.Name, out var configured) == true)
+        if (_middlewareConfigs is not null &&
+            (_middlewareConfigs.TryGetValue(harness.ActivationIdentity, out var configured) ||
+             _middlewareConfigs.TryGetValue(harness.Name, out configured)))
         {
             foreach (var descriptor in harness.Middleware ?? [])
             {

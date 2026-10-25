@@ -13,7 +13,10 @@ internal static class RuntimeSkillFunctionProjector
         string ownerToolHarnessName,
         IReadOnlyList<Skill> skills,
         List<AIFunction> materializedFunctions,
-        HPDToolSerializationOptions? serialization)
+        HPDToolSerializationOptions? serialization,
+        Func<ISkillFunctionReference, AIFunction>? resolveReference = null,
+        IReadOnlyList<GeneratedSkillDefinition>? nativeDefinitions = null,
+        CapabilityId? parentContainer = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(ownerToolHarnessName);
         ArgumentNullException.ThrowIfNull(skills);
@@ -21,20 +24,23 @@ internal static class RuntimeSkillFunctionProjector
 
         foreach (var skill in skills)
         {
-            var skillId = CapabilityId.Create($"runtime:{ownerToolHarnessName}:{skill.Id}");
+            var native = nativeDefinitions?.SingleOrDefault(definition => ReferenceEquals(definition.Definition, skill));
+            var skillId = native is null
+                ? CapabilityId.Create($"runtime:{ownerToolHarnessName}:{skill.Id}")
+                : CapabilityId.Create($"generated:{ownerToolHarnessName}:skill:{native.DeclarationMemberName}");
             var children = new List<CapabilityId>();
             foreach (var capability in skill.Capabilities)
             {
                 if (capability is ISkillFunctionReference functionReference)
                 {
-                    var function = materializedFunctions.FirstOrDefault(candidate =>
+                    var function = resolveReference is not null ? resolveReference(functionReference) : materializedFunctions.FirstOrDefault(candidate =>
                         GetMetadata(candidate)?.DeclarationMemberName == functionReference.MemberName &&
                         GetMetadata(candidate)?.Id.Value.StartsWith(
-                            $"generated:{functionReference.ToolHarnessType.Name}.",
+                            $"generated:{functionReference.ToolHarnessType?.Name}.",
                             StringComparison.Ordinal) == true)
                         ?? throw new InvalidOperationException(
                             $"Runtime skill '{skill.Id}' references unavailable function " +
-                            $"'{functionReference.ToolHarnessType.Name}.{functionReference.MemberName}'.");
+                            $"'{functionReference.ToolHarnessType?.Name}.{functionReference.MemberName}'.");
                     var metadata = GetMetadata(function)!;
                     if (function.AdditionalProperties is not IDictionary<string, object?> properties)
                         throw new InvalidOperationException(
@@ -52,7 +58,8 @@ internal static class RuntimeSkillFunctionProjector
                 .ToArray();
             additions.AddRange(projectedChildren);
             children.AddRange(projectedChildren.Select(child => GetMetadata(child)!.Id));
-            additions.Add(CreateActivation(skill, skillId, children, serialization));
+            additions.Add(CreateActivation(skill, skillId, children, serialization,
+                native?.RequiresPermission ?? false, native is null ? null : parentContainer));
         }
 
         return additions;
@@ -62,7 +69,9 @@ internal static class RuntimeSkillFunctionProjector
         Skill skill,
         CapabilityId id,
         IEnumerable<CapabilityId> children,
-        HPDToolSerializationOptions? serialization)
+        HPDToolSerializationOptions? serialization,
+        bool requiresPermission,
+        CapabilityId? parentContainer)
         => HPDAIFunctionFactory.Create(
             async (_, functionContext, cancellationToken) =>
             {
@@ -111,12 +120,19 @@ internal static class RuntimeSkillFunctionProjector
                 },
                 SerializerOptions = serialization?.SerializerOptions,
                 ResultType = typeof(string),
+                FunctionPermission = requiresPermission ? new AIFunctionPermissionDeclaration
+                {
+                    RequiresPermission = true,
+                    Authority = $"function/{Uri.EscapeDataString(skill.Name)}",
+                    Source = PermissionDeclarationSource.FrameworkDefault
+                } : null,
                 AdditionalProperties = new Dictionary<string, object>
                 {
                     [HPDCapabilityMetadata.AdditionalPropertiesKey] = new HPDCapabilityMetadata
                     {
                         Id = id,
                         Kind = HPDCapabilityKind.SkillActivation,
+                        ParentContainerIds = parentContainer is { } parent ? [parent] : [],
                         Reveals = children.ToImmutableArray()
                     },
                     [SkillRuntimeMetadata.SkillDefinitionKey] = skill

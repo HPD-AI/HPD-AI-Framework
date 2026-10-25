@@ -1,9 +1,11 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using HPD.Agent;
+using HPD.Agent.Providers;
 using HPD.Agent.Serialization;
 using HPD.Agent.ToolHarness.AotFixture;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Configuration;
 
 await using (var agent = await new AgentBuilder(new AgentConfig
     {
@@ -12,7 +14,8 @@ await using (var agent = await new AgentBuilder(new AgentConfig
     })
     .WithChatClient(new HarnessClient())
     .WithEventComposition(CoreAgentEventComposition.Instance)
-    .WithToolHarness<ExternalExecutionHarness>()
+    .WithAPIConfiguration(new ConfigurationBuilder().Build())
+    .WithToolHarness<DerivedExecutionHarness>()
     .BuildAsync())
 {
     await agent.RunAsync("run-cross-assembly-harness");
@@ -42,8 +45,8 @@ internal sealed class HarnessClient : IChatClient
         var stage = _stages.AddOrUpdate(key, 1, static (_, current) => current + 1);
         return Task.FromResult(stage switch
         {
-            1 => ToolCall(nameof(ExternalExecutionHarness), "expand"),
-            2 => ToolCall(nameof(ExternalExecutionHarness.Ping), "ping"),
+            1 => ToolCall(nameof(DerivedExecutionHarness), "expand"),
+            2 => ToolCall(nameof(DerivedExecutionHarness.DerivedPing), "ping"),
             _ => new ChatResponse([new ChatMessage(ChatRole.Assistant, "done")])
         });
     }
@@ -67,7 +70,18 @@ internal sealed class HarnessClient : IChatClient
         }
     }
 
-    public object? GetService(Type serviceType, object? serviceKey = null) => null;
+    public object? GetService(Type serviceType, object? serviceKey = null) =>
+        serviceType == typeof(ProviderClientExecutionIdentity)
+            ? new ProviderClientExecutionIdentity
+            {
+                ProviderKey = "test",
+                BackendKey = "harness-aot",
+                Family = ProviderClientFamily.Chat,
+                OperationAdapterKey = "aot-smoke",
+                UsageSemanticsKey = "test",
+                SafeConfigurationFingerprint = new string('0', 64)
+            }
+            : null;
     public void Dispose() { }
 
     private static ChatResponse ToolCall(string name, string callId) => new(

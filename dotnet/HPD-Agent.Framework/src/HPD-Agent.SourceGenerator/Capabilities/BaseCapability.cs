@@ -47,6 +47,8 @@ internal abstract class BaseCapability : ICapability
     /// </summary>
     public string? ContextTypeName { get; set; }
 
+    public Microsoft.CodeAnalysis.ITypeSymbol? ContextTypeSymbol { get; set; }
+
     /// <summary>
     /// Conditional expression from [ConditionalFunction], [ConditionalSkill], or [ConditionalSubAgent] attribute (null if always visible).
     /// Example: "IsPremiumUser" or "FeatureFlags.Contains(\"advanced\")"

@@ -134,47 +134,6 @@ internal static class SkillCodeGenerator
             sb.AppendLine();
         }
 
-        // Early exit if no skills to register (but after registering collapse container if needed)
-        if (!ToolHarness.SkillCapabilities.Any())
-            return sb.ToString();
-
-        sb.AppendLine("        // Register skill containers");
-
-        foreach (var skill in ToolHarness.SkillCapabilities)
-        {
-            var owner = string.IsNullOrEmpty(skill.ParentNamespace)
-                ? skill.ParentToolHarnessName
-                : $"{skill.ParentNamespace}.{skill.ParentToolHarnessName}";
-            var skillExpression = skill.MethodIsStatic
-                ? $"{ToolHarness.ClassName}.{skill.MethodName}()"
-                : $"instance.{skill.MethodName}()";
-
-            // Check if skill has conditional registration (same pattern as Functions/SubAgents)
-            var hasConditionalEvaluator = skill.IsConditional &&
-                                        skill.HasTypedMetadata;
-
-            if (hasConditionalEvaluator)
-            {
-                sb.AppendLine($"        if (Evaluate{skill.Name}Condition(context))");
-                sb.AppendLine("        {");
-                sb.AppendLine($"            functions.Add(Create{skill.MethodName}Skill(instance, context, serialization));");
-                sb.AppendLine($"            functions.AddRange(SkillCapabilityFunctionProjector.CreateChildren(");
-                sb.AppendLine($"                {skillExpression},");
-                sb.AppendLine($"                CapabilityId.Create(@\"generated:{owner}:{skill.Name}\"),");
-                sb.AppendLine("                serialization));");
-                sb.AppendLine("        }");
-            }
-            else
-            {
-                // Each skill generates exactly one container function
-                sb.AppendLine($"        functions.Add(Create{skill.MethodName}Skill(instance, context, serialization));");
-                sb.AppendLine($"        functions.AddRange(SkillCapabilityFunctionProjector.CreateChildren(");
-                sb.AppendLine($"            {skillExpression},");
-                sb.AppendLine($"            CapabilityId.Create(@\"generated:{owner}:{skill.Name}\"),");
-                sb.AppendLine("            serialization));");
-            }
-        }
-
         return sb.ToString();
     }
 
@@ -444,25 +403,6 @@ internal static class SkillCodeGenerator
         // Early exit if no skills to generate (but after generating container if needed)
         if (!ToolHarness.SkillCapabilities.Any())
             return sb.ToString();
-
-        // Generate context resolvers for skills (description and conditional)
-        foreach (var skill in ToolHarness.SkillCapabilities)
-        {
-            var resolvers = skill.GenerateContextResolvers();
-            if (!string.IsNullOrEmpty(resolvers))
-            {
-                sb.AppendLine(resolvers);
-            }
-        }
-
-        // Generate skill functions
-        // PHASE 5: Now uses SkillCapabilities
-        foreach (var skill in ToolHarness.SkillCapabilities)
-        {
-            sb.AppendLine();
-            // Skills ARE containers - only one function per skill
-            sb.AppendLine(GenerateSkillContainerFunction(skill, ToolHarness));
-        }
 
         return sb.ToString();
     }

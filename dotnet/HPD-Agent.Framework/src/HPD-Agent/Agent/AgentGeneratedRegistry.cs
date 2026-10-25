@@ -51,4 +51,23 @@ public static class AgentGeneratedRegistry
             s_states.Clear();
         }
     }
+
+    /// <summary>Returns whether a loaded generated harness inherits a declaring harness identity.</summary>
+    public static bool ToolHarnessInherits(string? harnessName, string declaringHarnessIdentity)
+    {
+        if (string.IsNullOrWhiteSpace(harnessName) ||
+            string.IsNullOrWhiteSpace(declaringHarnessIdentity))
+            return false;
+
+        lock (s_lock)
+        {
+            return s_toolharnesses.Any(factory =>
+                (string.Equals(factory.ActivationIdentity, declaringHarnessIdentity, StringComparison.Ordinal) ||
+                 factory.InheritedHarnessIdentities?.Contains(
+                     declaringHarnessIdentity, StringComparer.Ordinal) == true) &&
+                (string.Equals(factory.Name, harnessName, StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(factory.ActivationIdentity, harnessName, StringComparison.Ordinal) ||
+                 string.Equals(factory.ToolHarnessType.Name, harnessName, StringComparison.Ordinal)));
+        }
+    }
 }

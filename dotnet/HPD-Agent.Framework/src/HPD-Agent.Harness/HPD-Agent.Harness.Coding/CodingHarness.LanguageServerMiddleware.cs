@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using HPD.Agent;
 using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
 
@@ -93,7 +94,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
 
     public Task BeforeFunctionAsync(BeforeFunctionContext context, CancellationToken cancellationToken)
     {
-        if (!_options.Enabled || !IsObservedCodingFunction(context.ToolHarnessName, context.Function?.Name))
+        if (!_options.Enabled || !IsObservedCodingFunction(context.ToolHarnessName, context.Function))
             return Task.CompletedTask;
 
         var path = TryGetPathArgument(context.Arguments);
@@ -669,10 +670,20 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
         return summaries;
     }
 
-    private static bool IsObservedCodingFunction(string? toolharnessName, string? functionName)
-        => string.Equals(toolharnessName, nameof(CodingToolHarness), StringComparison.Ordinal) &&
-           functionName is not null &&
-           ObservedFunctionNames.Contains(functionName);
+    private static bool IsObservedCodingFunction(string? toolharnessName, AIFunction? function)
+    {
+        if (function?.Name is not { } functionName || !ObservedFunctionNames.Contains(functionName))
+            return false;
+        if (string.Equals(toolharnessName, nameof(CodingToolHarness), StringComparison.Ordinal))
+            return true;
+        return function.AdditionalProperties?.TryGetValue(
+                   HPDCapabilityMetadata.AdditionalPropertiesKey, out var value) == true &&
+               value is HPDCapabilityMetadata metadata &&
+               string.Equals(
+                   metadata.DeclaringHarnessIdentity,
+                   $"{typeof(CodingToolHarness).Assembly.GetName().Name}::{nameof(CodingToolHarness)}",
+                   StringComparison.Ordinal);
+    }
 
     private static string? TryGetPathArgument(IReadOnlyDictionary<string, object?> arguments)
     {

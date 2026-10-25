@@ -18,9 +18,13 @@ public static class MultiAgentRuntime
     public sealed record MultiAgentInvocationRequest
     {
         /// <summary>
-        /// Gets the workflow instance returned by the <see cref="MultiAgentAttribute"/> method.
+        /// Gets the workflow factory invoked by the <see cref="MultiAgentAttribute"/> method.
+        /// Construction runs under the operation deadline and activation ownership.
         /// </summary>
-        public required IMultiAgentWorkflow Workflow { get; init; }
+        public required Func<Task<IMultiAgentWorkflow>> WorkflowFactory { get; init; }
+
+        /// <summary>Gets the complete construction and execution deadline.</summary>
+        public TimeSpan Timeout { get; init; } = TimeSpan.FromMinutes(5);
 
         /// <summary>
         /// Gets the model-facing workflow capability name.
@@ -76,7 +80,9 @@ public static class MultiAgentRuntime
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(request.Workflow);
+        ArgumentNullException.ThrowIfNull(request.WorkflowFactory);
+        if (request.Timeout <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(request), "Workflow timeout must be positive.");
 
         AgentInvocationMode mode;
         try
@@ -152,14 +158,68 @@ public static class MultiAgentRuntime
         MultiAgentInvocationRequest request,
         CancellationToken cancellationToken)
     {
-        var input = ResolveInput(request.Input, request.ParentContext);
-        var text = request.StreamEvents
-            ? await InvokeStreamingAsync(request.Workflow, input, request.ParentContext, cancellationToken)
-                .ConfigureAwait(false)
-            : await InvokeNonStreamingAsync(request.Workflow, input, request.ParentContext, cancellationToken)
-                .ConfigureAwait(false);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(request.Timeout);
 
-        return new MultiAgentInvocationResult { Text = text };
+        var factoryTask = Task.Run(request.WorkflowFactory, CancellationToken.None);
+        IMultiAgentWorkflow workflow;
+        try
+        {
+            workflow = await factoryTask.WaitAsync(deadline.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            _ = DisposeLateFactoryResultAsync(factoryTask);
+            throw new TimeoutException(
+                $"Workflow '{request.Name}' did not finish construction within {request.Timeout}.");
+        }
+
+        try
+        {
+            var input = ResolveInput(request.Input, request.ParentContext);
+            string text;
+            try
+            {
+                text = request.StreamEvents
+                    ? await InvokeStreamingAsync(workflow, input, request.ParentContext, deadline.Token)
+                        .ConfigureAwait(false)
+                    : await InvokeNonStreamingAsync(workflow, input, request.ParentContext, deadline.Token)
+                        .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new TimeoutException(
+                    $"Workflow '{request.Name}' exceeded its {request.Timeout} deadline.");
+            }
+
+            return new MultiAgentInvocationResult { Text = text };
+        }
+        finally
+        {
+            await DisposeWorkflowAsync(workflow).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task DisposeLateFactoryResultAsync(Task<IMultiAgentWorkflow> factoryTask)
+    {
+        try
+        {
+            var workflow = await factoryTask.ConfigureAwait(false);
+            await DisposeWorkflowAsync(workflow).ConfigureAwait(false);
+        }
+        catch
+        {
+            // The original timeout is authoritative. Observation prevents an unobserved fault
+            // when a parameterless factory completes after its operation has already expired.
+        }
+    }
+
+    private static async ValueTask DisposeWorkflowAsync(IMultiAgentWorkflow workflow)
+    {
+        if (workflow is IAsyncDisposable asyncDisposable)
+            await asyncDisposable.DisposeAsync().ConfigureAwait(false);
+        else if (workflow is IDisposable disposable)
+            disposable.Dispose();
     }
 
     private static string ResolveInput(string input, FunctionExecutionContext? functionContext)

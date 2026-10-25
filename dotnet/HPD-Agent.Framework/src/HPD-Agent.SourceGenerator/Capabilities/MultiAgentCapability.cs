@@ -70,31 +70,12 @@ internal class MultiAgentCapability : BaseCapability
         sb.AppendLine("HPDAIFunctionFactory.Create(");
         sb.AppendLine("    async (arguments, functionContext, cancellationToken) =>");
         sb.AppendLine("    {");
-        sb.AppendLine("        // Get workflow instance from method");
-
-        if (IsStatic)
-        {
-            if (IsAsync)
-            {
-                sb.AppendLine($"        var workflow = await {toolharness.ClassName}.{MethodName}();");
-            }
-            else
-            {
-                sb.AppendLine($"        var workflow = {toolharness.ClassName}.{MethodName}();");
-            }
-        }
-        else
-        {
-            if (IsAsync)
-            {
-                sb.AppendLine($"        var workflow = await instance.{MethodName}();");
-            }
-            else
-            {
-                sb.AppendLine($"        var workflow = instance.{MethodName}();");
-            }
-        }
-        sb.AppendLine();
+        var workflowTarget = IsStatic
+            ? toolharness.ClassName
+            : "instance";
+        var workflowFactory = IsAsync
+            ? $"async () => await {workflowTarget}.{MethodName}()"
+            : $"() => global::System.Threading.Tasks.Task.FromResult<global::HPD.Agent.IMultiAgentWorkflow>({workflowTarget}.{MethodName}())";
 
         sb.AppendLine("        // Extract input from arguments");
         sb.AppendLine("        var jsonArgs = arguments.GetJson();");
@@ -106,7 +87,8 @@ internal class MultiAgentCapability : BaseCapability
         sb.AppendLine("        var result = await global::HPD.Agent.MultiAgentRuntime.InvokeAsync(");
         sb.AppendLine("            new global::HPD.Agent.MultiAgentRuntime.MultiAgentInvocationRequest");
         sb.AppendLine("            {");
-        sb.AppendLine("                Workflow = workflow,");
+        sb.AppendLine($"                WorkflowFactory = {workflowFactory},");
+        sb.AppendLine($"                Timeout = global::System.TimeSpan.FromSeconds({TimeoutSeconds}),");
         sb.AppendLine($"                Name = \"{Name}\",");
         sb.AppendLine("                Input = input,");
         sb.AppendLine("                ParentContext = functionContext,");

@@ -1,10 +1,37 @@
 using Microsoft.Extensions.AI;
+using System.Collections.Immutable;
 
 namespace HPD.Agent;
 
 /// <summary>Projects a function set while keeping container metadata consistent with its surviving children.</summary>
 internal static class ContainerFunctionProjection
 {
+    internal static AIFunction WithMaterializedChildren(AIFunction function, IReadOnlyList<AIFunction> children)
+    {
+        var properties = new Dictionary<string, object?>(function.AdditionalProperties);
+        var names = children.Select(child => child.Name).Distinct(StringComparer.Ordinal).ToArray();
+        properties["ChildFunctions"] = names;
+        var metadata = (HPDCapabilityMetadata)properties[HPDCapabilityMetadata.AdditionalPropertiesKey]!;
+        properties[HPDCapabilityMetadata.AdditionalPropertiesKey] = metadata with
+        {
+            Reveals = children.Select(child => (HPDCapabilityMetadata)child.AdditionalProperties[
+                HPDCapabilityMetadata.AdditionalPropertiesKey]!).Select(child => child.Id).ToImmutableArray()
+        };
+        var activation = $"{function.Name} expanded. Available functions: {string.Join(", ", names)}";
+        if (properties.TryGetValue("FunctionResult", out var instructions) && instructions is string text && !string.IsNullOrWhiteSpace(text))
+            activation += $"\n\n{text}";
+        return HPDAIFunctionFactory.Create((_, _, _) => Task.FromResult<object?>(activation),
+            new HPDAIFunctionFactoryOptions
+            {
+                Name = function.Name,
+                Description = AppendAvailableFunctions(function.Description, string.Join(", ", names)),
+                SchemaProvider = () => function.JsonSchema,
+                SerializerOptions = function.JsonSerializerOptions,
+                ResultType = typeof(string),
+                AdditionalProperties = properties
+            });
+    }
+
     public static IReadOnlyList<AIFunction> Project(
         IEnumerable<AIFunction> functions,
         Func<AIFunction, bool> include)

@@ -29,14 +29,14 @@ internal static class AIBindingSourceEmitter
     }
 
     /// <summary>Emits the binder entry point and recursive helpers for one generated function.</summary>
-    public static string Emit(FunctionCapability function)
+    public static string Emit(FunctionCapability function, string dtoName)
     {
         var parameters = function.Parameters.Where(static parameter => parameter.IsModelFacing).ToArray();
         var builder = new StringBuilder();
         var helpers = new StringBuilder();
         var emittedHelpers = new HashSet<string>(StringComparer.Ordinal);
         var entryName = "Bind" + Sanitize(function.Name) + "Arguments";
-        var dtoName = parameters.Length == 0 ? "object" : function.Name + "Args";
+        dtoName = parameters.Length == 0 ? "object" : dtoName;
 
         builder.AppendLine($"        private static global::HPD.Agent.AIFunctionBindingResult {entryName}(global::System.Text.Json.JsonElement json)");
         builder.AppendLine("        {");

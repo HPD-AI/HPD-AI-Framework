@@ -23,7 +23,7 @@ public abstract class SkillCapability
 /// <summary>Provides the non-generic contract for a generated tool-harness function reference.</summary>
 internal interface ISkillFunctionReference
 {
-    Type ToolHarnessType { get; }
+    Type? ToolHarnessType { get; }
     string MemberName { get; }
 }
 
@@ -46,6 +46,16 @@ public sealed class SkillFunctionReference<TToolHarness> : SkillCapability, ISki
 /// <summary>Creates structured child capability declarations for skills.</summary>
 public static partial class SkillCapabilities
 {
+    /// <summary>References a function on the concrete harness owning this skill.</summary>
+    public static SkillCapability OwnerFunction(string memberName) => new OwnerFunctionReference(memberName);
+
+    private sealed class OwnerFunctionReference(string memberName)
+        : SkillCapability(memberName, string.Empty), ISkillFunctionReference
+    {
+        public Type? ToolHarnessType => null;
+        public string MemberName { get; } = memberName;
+    }
+
     /// <summary>References an AI function declared by a generated tool harness.</summary>
     /// <typeparam name="TToolHarness">The owning tool harness type.</typeparam>
     /// <param name="memberName">The referenced C# member name, normally supplied with <see langword="nameof"/>.</param>

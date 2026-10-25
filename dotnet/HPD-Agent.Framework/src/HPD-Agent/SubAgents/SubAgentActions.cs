@@ -64,6 +64,9 @@ internal sealed record SubAgentDeclarationCatalogPin(
 /// <summary>Immutable generated declaration for one model-facing subagent creation action.</summary>
 public sealed record SubAgentActionDescriptor
 {
+    /// <summary>Gets the generated source member used for declaration-based selection.</summary>
+    public string? DeclarationMemberName { get; init; }
+
     /// <summary>Gets the declaring ToolHarness model identity used for creation visibility.</summary>
     public required string ParentToolHarness { get; init; }
     /// <summary>Gets whether creation requires the declaring ToolHarness to be expanded.</summary>
