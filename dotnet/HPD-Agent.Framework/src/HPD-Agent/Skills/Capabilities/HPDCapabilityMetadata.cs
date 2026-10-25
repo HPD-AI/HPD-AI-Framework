@@ -17,6 +17,8 @@ public enum HPDCapabilityKind
     SkillScript,
     /// <summary>A tool-harness activation function.</summary>
     ToolHarnessActivation,
+    /// <summary>A function-local activation that reveals one hidden AI function.</summary>
+    FunctionActivation,
     /// <summary>A subagent capability.</summary>
     SubAgent,
     /// <summary>A multi-agent capability.</summary>

@@ -42,7 +42,7 @@ internal sealed record AgentTurnCapabilityOverlay
 
         var collisions = entries
             .GroupBy(static entry => entry.SortName, StringComparer.Ordinal)
-            .Where(static group => group.Count() > 1)
+            .Where(static group => group.Count() > 1 && !IsCollapsiblePair(group))
             .OrderBy(static group => group.Key, StringComparer.Ordinal)
             .Select(group => $"'{group.Key}' from {string.Join(", ", group.Select(static item => item.Source).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))}")
             .ToArray();
@@ -103,6 +103,30 @@ internal sealed record AgentTurnCapabilityOverlay
                 }
                 ordinal++;
             }
+        }
+
+        static bool IsCollapsiblePair(IGrouping<string, (AITool Tool, string Source, string StableId, string SortName)> group)
+        {
+            var metadata = group
+                .Select(static entry => entry.Tool is AIFunction function &&
+                    function.AdditionalProperties?.TryGetValue(
+                        HPDCapabilityMetadata.AdditionalPropertiesKey,
+                        out var value) == true
+                    ? value as HPDCapabilityMetadata
+                    : null)
+                .ToArray();
+            if (metadata.Length != 2 ||
+                metadata.Any(static value => value is null))
+                return false;
+
+            var activation = metadata.SingleOrDefault(static value =>
+                value!.Kind == HPDCapabilityKind.FunctionActivation);
+            var target = metadata.SingleOrDefault(static value =>
+                value!.Kind == HPDCapabilityKind.Function);
+            return activation is not null &&
+                   target is not null &&
+                   activation.Reveals.Contains(target.Id) &&
+                   target.ParentContainerIds.Contains(activation.Id);
         }
     }
 

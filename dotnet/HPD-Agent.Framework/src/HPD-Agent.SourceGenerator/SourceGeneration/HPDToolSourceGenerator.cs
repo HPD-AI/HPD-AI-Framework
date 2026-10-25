@@ -1,6 +1,7 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
@@ -743,6 +744,14 @@ namespace HPD.Agent.Diagnostics {{
                 ? $"new string[] {{ {string.Join(", ", ToolHarness.FunctionNames.Select(n => $"\"{n}\""))} }}"
                 : "Array.Empty<string>()";
             sb.AppendLine($"                FunctionNames: {functionNamesArray},");
+            var collapsibleDeclarations = ToolHarness.FunctionCapabilities
+                .Where(static function => function.FunctionCollapse is not null)
+                .Select(static function => function.Name)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            sb.AppendLine(collapsibleDeclarations.Length == 0
+                ? "                CollapsibleFunctionDeclarations: null,"
+                : $"                CollapsibleFunctionDeclarations: @\"{EscapeForVerbatim(string.Join(";", collapsibleDeclarations))}\",");
             sb.AppendLine($"                CreateSubAgentActions: {(ToolHarness.SubAgentCapabilities.Any() ? $"{ToolHarness.ClassName}Registration.CreateSubAgentActions" : "null")},");
             if (ToolHarness.SubAgentCapabilities.Any())
                 sb.AppendLine($"                SubAgentDeclarationNames: new string[] {{ {string.Join(", ", ToolHarness.SubAgentCapabilities.Select(role => "\"" + role.MethodName + "\""))} }},");

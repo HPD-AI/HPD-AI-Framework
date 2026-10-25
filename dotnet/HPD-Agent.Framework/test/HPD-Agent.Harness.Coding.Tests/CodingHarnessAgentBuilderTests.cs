@@ -1,6 +1,8 @@
 using System.Runtime.CompilerServices;
+using System.Collections.Immutable;
 using System.Text.Json;
 using HPD.Agent;
+using HPD.Agent.Collapsing;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Middleware;
@@ -13,6 +15,56 @@ namespace HPD.Agent.ToolHarness.Coding.Tests;
 
 public class CodingToolHarnessAgentBuilderTests
 {
+    [Fact]
+    public async Task DebugActionUnionRequiresFunctionActivationAndCanBeConfiguredOpen()
+    {
+        using var chatClient = new TestChatClient();
+        await using var agent = await new AgentBuilder(new AgentConfig
+        {
+            Name = "coding-function-collapse",
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig
+            {
+                Provider = new ProviderReference { Key = "test" },
+                ModelName = "test-model"
+            } },
+            Collapsing = new CollapsingConfig()
+        }, new TestProviderRegistry(chatClient))
+            .WithEventComposition(CodingEventTestCodec.Composition)
+            .WithChatClient(chatClient)
+            .WithToolHarness<CodingToolHarness>()
+            .BuildAsync();
+        var tools = agent.DefaultOptions!.Tools!.OfType<AIFunction>().ToList();
+        var visibility = new ToolVisibilityManager(tools);
+
+        var harnessExpanded = visibility.GetToolsForAgentTurn(
+            tools,
+            ImmutableHashSet.Create(nameof(CodingToolHarness)));
+        var collapsedDebug = harnessExpanded.Should().ContainSingle(tool => tool.Name == "Debug").Subject;
+        GetKind(collapsedDebug).Should().Be(HPDCapabilityKind.FunctionActivation);
+        collapsedDebug.Description.Should().Be(
+            "Debugger session, execution-control, and inspection operations.");
+
+        var debugExpanded = visibility.GetToolsForAgentTurn(
+            tools,
+            ImmutableHashSet.Create(nameof(CodingToolHarness), "Debug"));
+        var revealedDebug = debugExpanded.Should().ContainSingle(tool => tool.Name == "Debug").Subject;
+        GetKind(revealedDebug).Should().Be(HPDCapabilityKind.Function);
+
+        var forcedOpen = visibility.GetToolsForAgentTurn(
+            tools,
+            ImmutableHashSet.Create(nameof(CodingToolHarness)),
+            neverCollapseFunctions: new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "CodingToolHarness.Debug"
+            });
+        GetKind(forcedOpen.Should().ContainSingle(tool => tool.Name == "Debug").Subject)
+            .Should().Be(HPDCapabilityKind.Function);
+    }
+
+    private static HPDCapabilityKind GetKind(AIFunction function) =>
+        ((HPDCapabilityMetadata)function.AdditionalProperties[
+            HPDCapabilityMetadata.AdditionalPropertiesKey]!).Kind;
+
     [Fact]
     public async Task AgentBuilder_CanCreateAgentWithCodingToolHarness()
     {
@@ -116,8 +168,10 @@ public class CodingToolHarnessAgentBuilderTests
         // and graph relationships can be resolved without reflection.
         toolNames.Should().BeEquivalentTo([
             nameof(CodingToolHarness), "ReadFile", "ListDirectory", "GlobSearch", "Grep",
-            "Parent", "AskUser", "SubAgents"
+            "Parent", "AskUser"
         ]);
+        toolNames.Should().NotContain("SubAgents",
+            "the read-only profile does not admit any subagent role declarations");
         agent.Middlewares.Should().ContainSingle(middleware => middleware is ContainerMiddleware);
 
         var collapse = typeof(CodingToolHarness)
@@ -168,10 +222,10 @@ public class CodingToolHarnessAgentBuilderTests
         chatClient.ToolNamesByRequest.Should().HaveCount(2);
         chatClient.ToolNamesByRequest[0].Should().BeEquivalentTo([nameof(CodingToolHarness)]);
         chatClient.ToolNamesByRequest[1].Should().BeEquivalentTo([
-            "ReadFile", "ListDirectory", "GlobSearch", "Grep", "SubAgents"
+            "ReadFile", "ListDirectory", "GlobSearch", "Grep"
         ]);
         chatClient.ToolNamesByRequest[1].Should().NotContain([
-            "EditFile", "WriteFile", "ExecuteCommand", "explore", "worker", "reviewer"
+            "EditFile", "WriteFile", "ExecuteCommand", "SubAgents", "explore", "worker", "reviewer"
         ]);
     }
 
@@ -219,7 +273,9 @@ public class CodingToolHarnessAgentBuilderTests
                 .WithToolHarness<CodingToolHarness>()
                 .BuildAsync();
 
-            var tools = agent.DefaultOptions?.Tools?.OfType<AIFunction>().ToDictionary(tool => tool.Name)
+            var tools = agent.DefaultOptions?.Tools?.OfType<AIFunction>()
+                .GroupBy(tool => tool.Name)
+                .ToDictionary(group => group.Key, group => group.First())
                 ?? throw new InvalidOperationException("No coding toolharness tools were registered.");
 
             var listResult = await InvokeToolAsync(tools["ListDirectory"], new AIFunctionArguments

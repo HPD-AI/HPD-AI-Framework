@@ -32,10 +32,11 @@ internal sealed class CapabilityGraph
     {
         ArgumentNullException.ThrowIfNull(nodes);
 
+        var nodeArray = nodes.ToArray();
         var byId = ImmutableDictionary.CreateBuilder<CapabilityId, CapabilityNode>();
-        var byName = ImmutableDictionary.CreateBuilder<string, CapabilityId>(StringComparer.Ordinal);
+        var byName = new Dictionary<string, List<CapabilityNode>>(StringComparer.Ordinal);
 
-        foreach (var node in nodes)
+        foreach (var node in nodeArray)
         {
             ArgumentNullException.ThrowIfNull(node);
             ValidateNodeShape(node);
@@ -43,9 +44,9 @@ internal sealed class CapabilityGraph
             if (!byId.TryAdd(node.Id, node))
                 throw new CapabilityGraphValidationException($"Duplicate capability ID '{node.Id}'.");
 
-            if (!byName.TryAdd(node.Function.Name, node.Id))
-                throw new CapabilityGraphValidationException(
-                    $"Duplicate model-facing capability name '{node.Function.Name}'.");
+            if (!byName.TryGetValue(node.Function.Name, out var namedNodes))
+                byName.Add(node.Function.Name, namedNodes = []);
+            namedNodes.Add(node);
         }
 
         foreach (var node in byId.Values)
@@ -65,8 +66,39 @@ internal sealed class CapabilityGraph
             }
         }
 
+        var modelNames = ImmutableDictionary.CreateBuilder<string, CapabilityId>(StringComparer.Ordinal);
+        foreach (var (name, namedNodes) in byName)
+        {
+            if (namedNodes.Count == 1)
+            {
+                modelNames.Add(name, namedNodes[0].Id);
+                continue;
+            }
+
+            var activations = namedNodes
+                .Where(node => node.Kind == HPDCapabilityKind.FunctionActivation)
+                .ToArray();
+            var activation = activations.Length == 1 ? activations[0] : null;
+            CapabilityNode[] targets = activation is null
+                ? []
+                : namedNodes.Where(node => node.Id != activation.Id).ToArray();
+            var target = targets.Length == 1 ? targets[0] : null;
+            if (activation is not null &&
+                target is not null &&
+                activation.Children.Contains(target.Id) &&
+                target.ParentContainerIds.Contains(activation.Id))
+            {
+                // Collapsed and expanded states intentionally reuse the same model name.
+                modelNames.Add(name, activation.Id);
+                continue;
+            }
+
+            throw new CapabilityGraphValidationException(
+                $"Duplicate model-facing capability name '{name}'.");
+        }
+
         RejectCycles(byId.ToImmutable());
-        return new CapabilityGraph(byId.ToImmutable(), byName.ToImmutable());
+        return new CapabilityGraph(byId.ToImmutable(), modelNames.ToImmutable());
     }
 
     /// <summary>Builds a graph from the single typed metadata entry on native functions.</summary>
@@ -177,7 +209,9 @@ internal sealed record CapabilityNode
 
     /// <summary>Gets whether invoking this node activates a visibility container.</summary>
     public bool IsActivationContainer =>
-        Kind is HPDCapabilityKind.SkillActivation or HPDCapabilityKind.ToolHarnessActivation;
+        Kind is HPDCapabilityKind.SkillActivation or
+            HPDCapabilityKind.ToolHarnessActivation or
+            HPDCapabilityKind.FunctionActivation;
 }
 
 /// <summary>

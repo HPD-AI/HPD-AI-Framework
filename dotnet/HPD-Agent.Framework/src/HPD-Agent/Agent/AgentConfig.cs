@@ -1034,6 +1034,12 @@ public sealed record CollapsingRunPolicy
     /// iterations in the same message turn.
     /// </summary>
     public bool? HideToolHarnessInteractionsWithinTurn { get; init; }
+
+    /// <summary>
+    /// Gets function declaration selectors that must remain directly visible.
+    /// A non-null value replaces the agent-level selector set.
+    /// </summary>
+    public IReadOnlyList<string>? NeverCollapseFunctions { get; init; }
 }
 
 /// <summary>
@@ -1120,6 +1126,14 @@ public class CollapsingConfig
     /// Example: new HashSet&lt;string&gt; { "MathToolHarness", "CoreTools" }
     /// </summary>
     public HashSet<string> NeverCollapse { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Function declaration selectors that must remain directly visible when their
+    /// parent containers are visible. Accepts OwnerHarnessIdentity-qualified
+    /// selectors and collision-free ToolHarnessName.MemberName shorthand.
+    /// </summary>
+    public HashSet<string> NeverCollapseFunctions { get; set; }
+        = new(StringComparer.OrdinalIgnoreCase);
 
 }
 /// <summary>

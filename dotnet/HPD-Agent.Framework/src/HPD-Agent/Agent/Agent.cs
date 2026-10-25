@@ -9228,7 +9228,9 @@ public sealed partial class Agent : IAsyncDisposable
                 {
                     callType = FunctionExecutionCore.LookupToolCallType(typedFunction);
                     isContainer = typedMetadata.Kind is
-                        HPDCapabilityKind.SkillActivation or HPDCapabilityKind.ToolHarnessActivation;
+                        HPDCapabilityKind.SkillActivation or
+                        HPDCapabilityKind.ToolHarnessActivation or
+                        HPDCapabilityKind.FunctionActivation;
                 }
 
                 if (properties.TryGetValue("ToolHarnessName", out var toolharnessValue) && toolharnessValue is string h)

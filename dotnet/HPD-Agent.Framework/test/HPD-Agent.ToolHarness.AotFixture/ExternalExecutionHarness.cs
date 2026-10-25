@@ -16,6 +16,9 @@ public partial class ExternalExecutionHarness
 public sealed partial class DerivedExecutionHarness : ExternalExecutionHarness
 {
     [AIFunction]
+    [CollapseFunction(
+        "Expand to use the derived AOT function.",
+        FunctionResult = "DerivedPing is now available.")]
     public string DerivedPing() => Ping() + "-derived";
 }
 

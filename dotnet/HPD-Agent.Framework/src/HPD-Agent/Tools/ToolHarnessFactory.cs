@@ -210,7 +210,10 @@ public record ToolHarnessFactory(
     IReadOnlyList<string>? SourceNames = null,
 
     /// <summary>Base harness identities whose behavior is inherited by this concrete owner.</summary>
-    IReadOnlyList<string>? InheritedHarnessIdentities = null
+    IReadOnlyList<string>? InheritedHarnessIdentities = null,
+
+    /// <summary>Semicolon-delimited declaration member names that support function-local collapsing.</summary>
+    string? CollapsibleFunctionDeclarations = null
 )
 {
     /// <summary>Gets the non-empty stable activation identity.</summary>

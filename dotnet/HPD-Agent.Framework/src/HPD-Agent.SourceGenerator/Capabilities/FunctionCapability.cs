@@ -110,6 +110,9 @@ internal class FunctionCapability : BaseCapability
     /// <summary>Stable IDs of skills that may reveal this function.</summary>
     public List<string> ParentSkillIds { get; set; } = new();
 
+    /// <summary>Optional function-local collapse declaration.</summary>
+    public FunctionCollapseInfo? FunctionCollapse { get; set; }
+
     // ========== Code Generation ==========
 
     /// <summary>
@@ -251,6 +254,31 @@ $@"({asyncKeyword} (arguments, functionContext, cancellationToken) =>
         options.AppendLine($"                        ParentContainerIds = System.Collections.Immutable.ImmutableArray.Create<CapabilityId>({string.Join(", ", capabilityParents.Select(id => $"CapabilityId.Create(@\"{id.Replace("\"", "\"\"")}\")"))})");
         options.AppendLine("                    },");
         options.AppendLine($"                    [\"ToolHarnessName\"] = @\"{ToolHarness.EffectiveName.Replace("\"", "\"\"")}\",");
+
+        if (FunctionCollapse is { } collapse)
+        {
+            var activationName = string.IsNullOrWhiteSpace(collapse.ContainerName)
+                ? FunctionName
+                : collapse.ContainerName;
+            var ownerIdentity =
+                $"{ToolHarness.AssemblyName}:{ToolHarness.Namespace}:{ToolHarness.ClassName}";
+            var targetId = $"generated:{ToolHarness.ClassName}.{FunctionName}";
+            var activationId = FunctionCollapseInfo.ActivationCapabilityId(
+                ToolHarness.ClassName,
+                Name);
+            options.AppendLine("                    [FunctionCollapseMetadata.AdditionalPropertiesKey] = new global::HPD.Agent.FunctionCollapseMetadata");
+            options.AppendLine("                    {");
+            options.AppendLine($"                        OwnerHarnessIdentity = @\"{Escape(ownerIdentity)}\",");
+            options.AppendLine($"                        DeclarationMemberName = @\"{Escape(Name)}\",");
+            options.AppendLine($"                        TargetCapabilityId = CapabilityId.Create(@\"{Escape(targetId)}\"),");
+            options.AppendLine($"                        TargetName = @\"{Escape(FunctionName)}\",");
+            options.AppendLine($"                        ActivationCapabilityId = CapabilityId.Create(@\"{Escape(activationId)}\"),");
+            options.AppendLine($"                        ActivationName = @\"{Escape(activationName)}\",");
+            options.AppendLine($"                        Description = @\"{Escape(collapse.Description)}\",");
+            options.AppendLine($"                        FunctionResult = {Literal(collapse.FunctionResult)},");
+            options.AppendLine($"                        SystemPrompt = {Literal(collapse.SystemPrompt)}");
+            options.AppendLine("                    },");
+        }
 
         // Add Kind if it's an output tool (structured output)
         if (Kind == "Output")
@@ -746,6 +774,16 @@ $@"HPDAIFunctionFactory.Create(
             _ => value.ToString() ?? "null"
         };
     }
+}
+
+internal sealed record FunctionCollapseInfo(
+    string? ContainerName,
+    string Description,
+    string? FunctionResult,
+    string? SystemPrompt)
+{
+    public static string ActivationCapabilityId(string harnessClassName, string declarationMemberName) =>
+        $"generated:{harnessClassName}:function-activation:{declarationMemberName}";
 }
 
 /// <summary>

@@ -199,6 +199,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 HPDCapabilityKind.Function or
                 HPDCapabilityKind.SkillResource or
                 HPDCapabilityKind.SkillScript or
+                HPDCapabilityKind.FunctionActivation or
                 HPDCapabilityKind.ToolHarnessActivation => ToolCallType.Function,
                 _ => null
             };

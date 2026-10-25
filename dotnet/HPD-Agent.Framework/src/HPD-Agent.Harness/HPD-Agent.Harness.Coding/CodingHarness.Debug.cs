@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using HPD.Agent;
 using HPD.Agent.Middleware;
 using HPD.Agent.ToolHarness.Coding.Debugging;
 using Microsoft.Extensions.AI;
@@ -10,6 +11,9 @@ public partial class CodingToolHarness
     /// Starts, controls, and inspects owned debugger session trees through one closed operation.
     /// </summary>
     [AIFunction]
+    [CollapseFunction(
+        "Debugger session, execution-control, and inspection operations.",
+        FunctionResult = "The debug function is now available. Call debug with one DebugOperation action.")]
     [RequiresPermission]
     [Description(
         "Starts, controls, and inspects debugger sessions. Select exactly one closed operation " +

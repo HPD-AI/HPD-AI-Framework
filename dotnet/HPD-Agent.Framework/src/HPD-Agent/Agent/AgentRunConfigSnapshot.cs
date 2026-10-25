@@ -291,7 +291,12 @@ internal static class AgentRunConfigSnapshot
     }
 
     internal static CollapsingRunPolicy? CloneCollapsing(CollapsingRunPolicy? source)
-        => source is null ? null : source with { };
+        => source is null
+            ? null
+            : source with
+            {
+                NeverCollapseFunctions = source.NeverCollapseFunctions?.ToArray()
+            };
 
     private static CompactionSpecification CloneSpecification(
         CompactionSpecification source,

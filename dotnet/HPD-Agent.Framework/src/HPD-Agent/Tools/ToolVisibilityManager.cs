@@ -10,6 +10,7 @@ public class ToolVisibilityManager
     private readonly Dictionary<string, AIFunction> _allFunctionsByReference;
     private readonly ImmutableHashSet<string> _explicitlyRegisteredToolHarnesses;
     private readonly ImmutableHashSet<string> _neverCollapseToolHarnesses;
+    private readonly ImmutableHashSet<string> _neverCollapseFunctions;
 
     public ToolVisibilityManager(
         IEnumerable<AIFunction> allFunctions,
@@ -31,11 +32,29 @@ public class ToolVisibilityManager
         ImmutableHashSet<string> explicitlyRegisteredToolHarnesses,
         HashSet<string>? neverCollapseToolHarnesses,
         ILogger<ToolVisibilityManager>? logger = null)
+        : this(
+            allFunctions,
+            explicitlyRegisteredToolHarnesses,
+            neverCollapseToolHarnesses,
+            null,
+            logger)
+    {
+    }
+
+    public ToolVisibilityManager(
+        IEnumerable<AIFunction> allFunctions,
+        ImmutableHashSet<string> explicitlyRegisteredToolHarnesses,
+        HashSet<string>? neverCollapseToolHarnesses,
+        HashSet<string>? neverCollapseFunctions,
+        ILogger<ToolVisibilityManager>? logger = null)
     {
         _logger = logger;
         _explicitlyRegisteredToolHarnesses = explicitlyRegisteredToolHarnesses ?? ImmutableHashSet<string>.Empty;
         _neverCollapseToolHarnesses = neverCollapseToolHarnesses != null
             ? ImmutableHashSet.CreateRange(StringComparer.OrdinalIgnoreCase, neverCollapseToolHarnesses)
+            : ImmutableHashSet<string>.Empty;
+        _neverCollapseFunctions = neverCollapseFunctions != null
+            ? ImmutableHashSet.CreateRange(StringComparer.OrdinalIgnoreCase, neverCollapseFunctions)
             : ImmutableHashSet<string>.Empty;
         _allFunctionsByReference = BuildFunctionLookup(allFunctions);
     }
@@ -62,7 +81,8 @@ public class ToolVisibilityManager
         List<AIFunction> allTools,
         ImmutableHashSet<string> expandedContainers,
         int currentAgentDepth = 0,
-        int maxSubAgentDepth = 4)
+        int maxSubAgentDepth = 4,
+        IReadOnlySet<string>? neverCollapseFunctions = null)
     {
         var typedFunctions = allTools.Where(HasTypedCapabilityMetadata).ToList();
         var legacyFunctions = allTools.Where(function => !HasTypedCapabilityMetadata(function)).ToList();
@@ -88,6 +108,20 @@ public class ToolVisibilityManager
             .Select(node => node.Id)
             .ToHashSet();
         activeIds.UnionWith(neverCollapsedIds);
+        var effectiveNeverCollapseFunctions = neverCollapseFunctions ?? _neverCollapseFunctions;
+        if (effectiveNeverCollapseFunctions.Count > 0)
+        {
+            foreach (var target in graph.Nodes.Values.Where(node =>
+                         node.Kind == HPDCapabilityKind.Function &&
+                         IsNeverCollapsedFunction(node.Function, effectiveNeverCollapseFunctions)))
+            {
+                var activation = graph.Nodes.Values.FirstOrDefault(node =>
+                    node.Kind == HPDCapabilityKind.FunctionActivation &&
+                    node.Children.Contains(target.Id));
+                if (activation is not null && CapabilityGraph.IsVisible(activation, activeIds))
+                    activeIds.Add(activation.Id);
+            }
+        }
         visible.AddRange(graph.Nodes.Values
             .Where(node => CapabilityGraph.IsVisible(node, activeIds))
             .Where(node => !neverCollapsedIds.Contains(node.Id))
@@ -95,6 +129,24 @@ public class ToolVisibilityManager
             .OrderBy(node => node.Function.Name)
             .Select(node => node.Function));
         return visible.DistinctBy(function => function.Name).ToList();
+    }
+
+    private static bool IsNeverCollapsedFunction(
+        AIFunction function,
+        IReadOnlySet<string> selectors)
+    {
+        if (function.AdditionalProperties?.TryGetValue(
+                FunctionCollapseMetadata.AdditionalPropertiesKey,
+                out var value) != true ||
+            value is not FunctionCollapseMetadata collapse)
+            return false;
+
+        var ownerName = collapse.OwnerHarnessIdentity;
+        var separator = ownerName.LastIndexOf(':');
+        if (separator >= 0)
+            ownerName = ownerName[(separator + 1)..];
+        var shorthand = $"{ownerName}.{collapse.DeclarationMemberName}";
+        return selectors.Contains(collapse.DeclarationSelector) || selectors.Contains(shorthand);
     }
 
     private static bool HasTypedCapabilityMetadata(AIFunction function)

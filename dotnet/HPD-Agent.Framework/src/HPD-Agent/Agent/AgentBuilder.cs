@@ -843,9 +843,13 @@ public class AgentBuilder
         var catalog = new ToolHarnessCatalog();
         foreach (var factory in _selectedToolHarnessFactories) catalog.Register(factory);
         foreach (var instance in _instanceRegistrations)
-            if (_availableToolHarnesses.TryGetValue(instance.ToolTypeName, out var factory)) catalog.Register(factory);
+            if (_availableToolHarnesses.TryGetValue(instance.ToolTypeName, out var factory) &&
+                !catalog.ContainsKey(factory.ActivationIdentity))
+                catalog.Register(factory);
         foreach (var identity in _harnessInstances.Keys)
-            if (_availableToolHarnesses.TryGetValue(identity, out var factory)) catalog.Register(factory);
+            if (_availableToolHarnesses.TryGetValue(identity, out var factory) &&
+                !catalog.ContainsKey(factory.ActivationIdentity))
+                catalog.Register(factory);
         return catalog;
     }
 
@@ -2669,6 +2673,15 @@ public class AgentBuilder
         // Resolve toolharnesses from config before creating functions.
         // This enables the Config = Base, Builder = Override/Extend pattern.
         ResolveConfigToolHarnesses();
+        var collapseValidationFactories = _selectedToolHarnessFactories.ToList();
+        foreach (var registration in _instanceRegistrations)
+        {
+            if (_availableToolHarnesses.TryGetValue(registration.ToolTypeName, out var factory))
+                collapseValidationFactories.Add(factory);
+        }
+        FunctionCollapseSelectorResolver.Validate(
+            _config.Collapsing.NeverCollapseFunctions,
+            collapseValidationFactories);
 
         //
         // CREATE ToolHarness FUNCTIONS (AOT-Compatible - Zero Reflection in Hot Path)
@@ -2703,6 +2716,28 @@ public class AgentBuilder
         // Container functions are only needed when Collapsing is enabled for the two-turn expansion flow.
         if (_config.Collapsing?.Enabled != true)
         {
+            var containerIds = toolFunctions
+                .Where(function => TryGetCapabilityMetadata(function, out var metadata) &&
+                    metadata.Kind is
+                        HPDCapabilityKind.SkillActivation or
+                        HPDCapabilityKind.ToolHarnessActivation or
+                        HPDCapabilityKind.FunctionActivation)
+                .Select(function => GetCapabilityMetadata(function).Id)
+                .ToHashSet();
+            if (containerIds.Count > 0)
+            {
+                foreach (var function in toolFunctions)
+                {
+                    if (!TryGetCapabilityMetadata(function, out var metadata) ||
+                        metadata.ParentContainerIds.IsDefaultOrEmpty)
+                        continue;
+                    var parents = metadata.ParentContainerIds
+                        .Where(parent => !containerIds.Contains(parent))
+                        .ToImmutableArray();
+                    if (parents.Length != metadata.ParentContainerIds.Length)
+                        SetCapabilityMetadata(function, metadata with { ParentContainerIds = parents });
+                }
+            }
             toolFunctions = toolFunctions.Where(function =>
             {
                 var legacyContainer = function.AdditionalProperties?.TryGetValue("IsContainer", out var value) == true &&
@@ -2711,7 +2746,10 @@ public class AgentBuilder
                         HPDCapabilityMetadata.AdditionalPropertiesKey,
                         out var metadataValue) == true &&
                     metadataValue is HPDCapabilityMetadata metadata &&
-                    metadata.Kind is HPDCapabilityKind.SkillActivation or HPDCapabilityKind.ToolHarnessActivation;
+                    metadata.Kind is
+                        HPDCapabilityKind.SkillActivation or
+                        HPDCapabilityKind.ToolHarnessActivation or
+                        HPDCapabilityKind.FunctionActivation;
                 return !legacyContainer && !typedContainer;
             }).ToList();
         }
@@ -2969,6 +3007,10 @@ public class AgentBuilder
             }
         }
 
+        functions = FunctionCollapseProjection.Apply(
+            functions,
+            _config?.Collapsing?.Enabled == true);
+
         // Native factory names are known only after evaluation. Build the container's actual
         // membership and activation text from the final graph rather than method-name guesses.
         for (var index = 0; index < functions.Count; index++)
@@ -2977,7 +3019,9 @@ public class AgentBuilder
                 container.Kind != HPDCapabilityKind.ToolHarnessActivation) continue;
             var children = functions.Where(function => TryGetCapabilityMetadata(function, out var metadata) &&
                 metadata.ParentContainerIds.Contains(container.Id)).ToArray();
-            if (children.Any(child => GetCapabilityMetadata(child).Kind == HPDCapabilityKind.SkillActivation))
+            if (children.Any(child => GetCapabilityMetadata(child).Kind is
+                    HPDCapabilityKind.SkillActivation or
+                    HPDCapabilityKind.FunctionActivation))
                 functions[index] = ContainerFunctionProjection.WithMaterializedChildren(functions[index], children);
         }
 

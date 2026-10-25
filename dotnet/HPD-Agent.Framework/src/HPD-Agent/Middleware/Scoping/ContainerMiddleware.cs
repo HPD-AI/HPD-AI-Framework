@@ -70,6 +70,7 @@ public class ContainerMiddleware : IAgentMiddleware
 
     // Smart Recovery: Maps to identify hidden tools and containers
     private Dictionary<string, string> _itemToContainerMap;
+    private Dictionary<string, string> _itemToToolHarnessMap;
     private HashSet<string> _knownContainerNames;
 
     // ToolHarness-scoped middleware (015): factory registry for building scoped pipelines at expansion time
@@ -122,7 +123,8 @@ public class ContainerMiddleware : IAgentMiddleware
         _visibilityManager = new ToolVisibilityManager(
             aiFunctions,
             explicitlyRegisteredToolHarnesses,
-            _config.NeverCollapse);
+            _config.NeverCollapse,
+            _config.NeverCollapseFunctions);
         _logger = logger;
         _initialTools = initialTools; // V2: Store for container detection
         _toolharnessFactories = toolharnessFactories;
@@ -139,6 +141,7 @@ public class ContainerMiddleware : IAgentMiddleware
 
         // Initialize Smart Recovery maps for hidden items and qualified names
         _itemToContainerMap = BuildItemToContainerMap(initialTools);
+        _itemToToolHarnessMap = BuildItemToToolHarnessMap(initialTools);
         _knownContainerNames = new HashSet<string>(
             _itemToContainerMap.Values,
             StringComparer.OrdinalIgnoreCase);
@@ -153,6 +156,7 @@ public class ContainerMiddleware : IAgentMiddleware
         retained.AddRange(functions);
         _initialTools = retained;
         _itemToContainerMap = BuildItemToContainerMap(retained);
+        _itemToToolHarnessMap = BuildItemToToolHarnessMap(retained);
         _knownContainerNames = new HashSet<string>(
             _itemToContainerMap.Values,
             StringComparer.OrdinalIgnoreCase);
@@ -347,11 +351,17 @@ public class ContainerMiddleware : IAgentMiddleware
                 : collapsingState.TurnCapabilityFunctions.ToList();
 
             // Apply visibility rules (unified container tracking)
+            var neverCollapseFunctions = ResolveNeverCollapseFunctions(context.RunConfig);
+            if (neverCollapseFunctions is not null && _toolharnessFactories is not null)
+                FunctionCollapseSelectorResolver.Validate(
+                    neverCollapseFunctions,
+                    _toolharnessFactories.Values);
             var visibleFunctions = _visibilityManager.GetToolsForAgentTurn(
                 aiFunctions,
                 expandedContainers,
                 context.GetParentAgentMetadata()?.Depth ?? 0,
-                context.Base.Config?.MaxSubAgentDepth ?? 4);
+                context.Base.Config?.MaxSubAgentDepth ?? 4,
+                neverCollapseFunctions);
 
             // Convert back to AITool list
             var visibleTools = new List<AITool>(visibleFunctions.Count);
@@ -429,6 +439,7 @@ public class ContainerMiddleware : IAgentMiddleware
         var containersToExpand = new HashSet<string>();
         var containerInstructions = new Dictionary<string, ContainerInstructionSet>();
         var recoveredCalls = new Dictionary<string, RecoveryInfo>();
+        var activationCalls = new Dictionary<string, string>(StringComparer.Ordinal);
 
         foreach (var toolCall in context.ToolCalls)
         {
@@ -437,7 +448,10 @@ public class ContainerMiddleware : IAgentMiddleware
             var turnTools = currentState.TurnCapabilityFunctions.IsDefaultOrEmpty
                 ? _initialTools
                 : currentState.TurnCapabilityFunctions.Cast<AITool>().ToList();
-            var (expansions, instructions) = DetectContainers(new[] { toolCall }, turnTools);
+            var (expansions, instructions) = DetectContainers(
+                new[] { toolCall },
+                turnTools,
+                currentState.ExpandedContainers);
 
             if (expansions.Count > 0)
             {
@@ -460,6 +474,8 @@ public class ContainerMiddleware : IAgentMiddleware
 
                 foreach(var e in expansions) containersToExpand.Add(e);
                 foreach(var i in instructions) containerInstructions[i.Key] = i.Value;
+                foreach (var containerName in expansions)
+                    activationCalls[toolCall.CallId] = containerName;
 
                 // Check if this container was called with arguments (error case)
                 if (hasArguments)
@@ -493,6 +509,7 @@ public class ContainerMiddleware : IAgentMiddleware
 
                 _logger?.LogInformation("Recovery: Auto-expanding '{Container}' for hidden item '{Item}'", parentContainer, toolCall.Name);
                 containersToExpand.Add(parentContainer);
+                activationCalls[toolCall.CallId] = parentContainer;
                 if (GetContainerInstructionSet(parentContainer, _initialTools) is { } instructionSet)
                 {
                     containerInstructions[parentContainer] = instructionSet;
@@ -513,6 +530,7 @@ public class ContainerMiddleware : IAgentMiddleware
                 {
                     _logger?.LogInformation("Recovery: Auto-expanding '{Container}' for qualified call '{Item}'", containerName, toolCall.Name);
                     containersToExpand.Add(containerName);
+                    activationCalls[toolCall.CallId] = containerName;
                     if (GetContainerInstructionSet(containerName, _initialTools) is { } instructionSet)
                     {
                         containerInstructions[containerName] = instructionSet;
@@ -547,6 +565,8 @@ public class ContainerMiddleware : IAgentMiddleware
                     state = state.WithExpandedContainer(container);
                 foreach (var (name, instr) in containerInstructions)
                     state = state.WithContainerInstructions(name, instr);
+                foreach (var (callId, container) in activationCalls)
+                    state = state.WithActivationCall(callId, container);
                 foreach (var (callId, recovery) in recoveredCalls)
                     state = state.WithRecoveredFunction(callId, recovery);
                 return state;
@@ -581,7 +601,7 @@ public class ContainerMiddleware : IAgentMiddleware
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var fn in context.ParallelFunctions)
         {
-            if (!_itemToContainerMap.TryGetValue(fn.FunctionName, out var toolharnessName))
+            if (!_itemToToolHarnessMap.TryGetValue(fn.FunctionName, out var toolharnessName))
                 continue;
             if (!seen.Add(toolharnessName)) continue;
             await using var lease = await AcquireAsync(context, toolharnessName, context.RunConfig, cancellationToken)
@@ -614,7 +634,7 @@ public class ContainerMiddleware : IAgentMiddleware
         {
             // ToolHarness-scoped middleware (015): dispatch to the owning toolharness's pipeline
             var fnName = context.Function.Name;
-            if (fnName != null && _itemToContainerMap.TryGetValue(fnName, out var owningToolHarness))
+            if (fnName != null && _itemToToolHarnessMap.TryGetValue(fnName, out var owningToolHarness))
             {
                 await using var lease = await AcquireAsync(context, owningToolHarness, context.RunConfig, cancellationToken)
                     .ConfigureAwait(false);
@@ -673,7 +693,7 @@ public class ContainerMiddleware : IAgentMiddleware
         if (context.Function != null)
         {
             var fnName = context.Function.Name;
-            if (fnName != null && _itemToContainerMap.TryGetValue(fnName, out var owningToolHarness))
+            if (fnName != null && _itemToToolHarnessMap.TryGetValue(fnName, out var owningToolHarness))
             {
                 await using var lease = await AcquireAsync(context, owningToolHarness, context.RunConfig, cancellationToken)
                     .ConfigureAwait(false);
@@ -909,7 +929,7 @@ public class ContainerMiddleware : IAgentMiddleware
         if (_toolharnessFactories == null)
             return await handler(request).ConfigureAwait(false);
 
-        if (!_itemToContainerMap.TryGetValue(request.FunctionName, out var toolharnessName))
+        if (!_itemToToolHarnessMap.TryGetValue(request.FunctionName, out var toolharnessName))
             return await handler(request).ConfigureAwait(false);
 
         var execution = request.ExecutionContext ??
@@ -942,6 +962,11 @@ public class ContainerMiddleware : IAgentMiddleware
     private bool ResolveHideToolHarnessInteractionsWithinTurn(AgentRunConfig runConfig)
         => runConfig.Collapsing?.HideToolHarnessInteractionsWithinTurn
             ?? _config.HideToolHarnessInteractionsWithinTurn;
+
+    private IReadOnlySet<string>? ResolveNeverCollapseFunctions(AgentRunConfig runConfig)
+        => runConfig.Collapsing?.NeverCollapseFunctions is { } selectors
+            ? new HashSet<string>(selectors, StringComparer.OrdinalIgnoreCase)
+            : null;
 
     /// <summary>
     /// Removes stale container protocol sections from ChatOptions.Instructions.
@@ -984,7 +1009,10 @@ public class ContainerMiddleware : IAgentMiddleware
     private static (
         HashSet<string> containerExpansions,
         Dictionary<string, ContainerInstructionSet> containerInstructions)
-        DetectContainers(IReadOnlyList<FunctionCallContent> toolCalls, IList<AITool>? tools)
+        DetectContainers(
+            IReadOnlyList<FunctionCallContent> toolCalls,
+            IList<AITool>? tools,
+            IReadOnlySet<string>? expandedContainers = null)
     {
         var containerExpansions = new HashSet<string>();
         var containerInstructions = new Dictionary<string, ContainerInstructionSet>();
@@ -992,13 +1020,18 @@ public class ContainerMiddleware : IAgentMiddleware
         foreach (var toolCall in toolCalls)
         {
             // Find the function in the tool list
-            var function = FindFunctionInList(toolCall.Name, tools);
+            var function = FindFunctionInListForCurrentState(
+                toolCall.Name,
+                tools,
+                expandedContainers);
             if (function == null) continue;
 
             // Typed skill/tool-harness activations and legacy collapse containers are containers.
             var typedMetadata = GetCapabilityMetadata(function);
             var isTypedContainer = typedMetadata?.Kind is
-                HPDCapabilityKind.SkillActivation or HPDCapabilityKind.ToolHarnessActivation;
+                HPDCapabilityKind.SkillActivation or
+                HPDCapabilityKind.ToolHarnessActivation or
+                HPDCapabilityKind.FunctionActivation;
             var isLegacyContainer = function.AdditionalProperties?.TryGetValue("IsContainer", out var isContainerVal) == true &&
                 isContainerVal is bool isContainer && isContainer;
             if (!isTypedContainer && !isLegacyContainer)
@@ -1010,10 +1043,12 @@ public class ContainerMiddleware : IAgentMiddleware
             var isSkill = typedMetadata?.Kind == HPDCapabilityKind.SkillActivation ||
                 (function.AdditionalProperties?.TryGetValue("IsSkill", out var isSkillVal) == true
                     && isSkillVal is bool isS && isS);
+            var usesOwnName = isSkill ||
+                typedMetadata?.Kind == HPDCapabilityKind.FunctionActivation;
 
             // Determine container name
             string containerName;
-            if (isSkill)
+            if (usesOwnName)
             {
                 // Skill container - use function name
                 containerName = function.Name ?? toolCall.Name;
@@ -1041,6 +1076,28 @@ public class ContainerMiddleware : IAgentMiddleware
         }
 
         return (containerExpansions, containerInstructions);
+    }
+
+    private static AIFunction? FindFunctionInListForCurrentState(
+        string? name,
+        IList<AITool>? tools,
+        IReadOnlySet<string>? expandedContainers)
+    {
+        if (string.IsNullOrEmpty(name) || tools is not { Count: > 0 })
+            return null;
+
+        var matches = tools.OfType<AIFunction>()
+            .Where(function => string.Equals(function.Name, name, StringComparison.Ordinal))
+            .ToArray();
+        if (matches.Length <= 1)
+            return matches.FirstOrDefault();
+
+        var expanded = expandedContainers?.Contains(name) == true;
+        return expanded
+            ? matches.FirstOrDefault(function =>
+                GetCapabilityMetadata(function)?.Kind == HPDCapabilityKind.Function)
+            : matches.FirstOrDefault(function =>
+                GetCapabilityMetadata(function)?.Kind == HPDCapabilityKind.FunctionActivation);
     }
 
     private static ContainerInstructionSet? GetContainerInstructionSet(
@@ -1184,7 +1241,11 @@ public class ContainerMiddleware : IAgentMiddleware
             {
                 foreach (var content in message.Contents)
                 {
-                    if (content is FunctionCallContent fcc && IsCallRelatedToContainers(fcc.Name, collapseContainersToFilter))
+                    if (content is FunctionCallContent fcc &&
+                        collapsingState.ActivationCallIds.TryGetValue(
+                            fcc.CallId,
+                            out var containerName) &&
+                        collapseContainersToFilter.Contains(containerName))
                     {
                         containerCallIds.Add(fcc.CallId);
                         _logger?.LogDebug("BeforeIterationAsync: Found container call '{Name}' with CallId '{CallId}'",
@@ -1194,16 +1255,13 @@ public class ContainerMiddleware : IAgentMiddleware
             }
         }
 
-        // Also add recovered hidden item calls to the filter list
-        // All HiddenItem recoveries are failed calls (empty result) because:
-        // - Successful calls don't trigger recovery (container already expanded check in BeforeToolExecutionAsync)
-        // - Only the FIRST failed call (before container expansion) gets added to RecoveredFunctionCalls
+        // Also add recovered container-related calls to the filter list.
         foreach (var (callId, recovery) in collapsingState.RecoveredFunctionCalls)
         {
-            if (recovery.Type == RecoveryType.HiddenItem)
+            if (collapseContainersToFilter.Contains(recovery.ContainerName))
             {
                 containerCallIds.Add(callId);
-                _logger?.LogDebug("BeforeIterationAsync: Added recovered hidden item call '{Function}' (CallId: '{CallId}') to filter list",
+                _logger?.LogDebug("BeforeIterationAsync: Added recovered call '{Function}' (CallId: '{CallId}') to filter list",
                     recovery.FunctionName, callId);
             }
         }
@@ -1220,19 +1278,17 @@ public class ContainerMiddleware : IAgentMiddleware
 
             if (message.Role == ChatRole.Assistant)
             {
-                // Check if this message contains ANY container calls or recovered hidden item calls
+                // Check if this message contains any collected activation or recovery call IDs.
                 var hasContainerCall = message.Contents
                     .OfType<FunctionCallContent>()
-                    .Any(fcc => IsCallRelatedToContainers(fcc.Name, collapseContainersToFilter) ||
-                                containerCallIds.Contains(fcc.CallId));
+                    .Any(fcc => containerCallIds.Contains(fcc.CallId));
 
                 if (hasContainerCall)
                 {
                     // A parallel response can contain unrelated successful calls. Removing
                     // its whole message would orphan their results in the next model request.
                     var remaining = message.Contents.Where(content => content is not FunctionCallContent call ||
-                        (!IsCallRelatedToContainers(call.Name, collapseContainersToFilter) &&
-                         !containerCallIds.Contains(call.CallId))).ToList();
+                        !containerCallIds.Contains(call.CallId)).ToList();
                     if (remaining.OfType<FunctionCallContent>().Any())
                         context.Messages[i] = ReplaceMessageContents(message, remaining);
                     else
@@ -1283,7 +1339,9 @@ public class ContainerMiddleware : IAgentMiddleware
 
             // Check if it's a container
             var isContainer = GetCapabilityMetadata(af)?.Kind is
-                    HPDCapabilityKind.SkillActivation or HPDCapabilityKind.ToolHarnessActivation ||
+                    HPDCapabilityKind.SkillActivation or
+                    HPDCapabilityKind.ToolHarnessActivation or
+                    HPDCapabilityKind.FunctionActivation ||
                 (af.AdditionalProperties?.TryGetValue("IsContainer", out var val) == true
                     && val is bool b && b);
 
@@ -1379,7 +1437,10 @@ public class ContainerMiddleware : IAgentMiddleware
         foreach (var tool in tools.OfType<AIFunction>())
         {
             var metadata = GetCapabilityMetadata(tool);
-            if (metadata?.Kind is HPDCapabilityKind.SkillActivation or HPDCapabilityKind.ToolHarnessActivation)
+            if (metadata?.Kind is
+                HPDCapabilityKind.SkillActivation or
+                HPDCapabilityKind.ToolHarnessActivation or
+                HPDCapabilityKind.FunctionActivation)
             {
                 foreach (var childId in metadata.Reveals)
                 {
@@ -1413,6 +1474,27 @@ public class ContainerMiddleware : IAgentMiddleware
             }
         }
         
+        return map;
+    }
+
+    /// <summary>
+    /// Builds the ownership lookup used only for ToolHarness-scoped middleware.
+    /// Function-local activation parents must never participate in this map.
+    /// </summary>
+    private static Dictionary<string, string> BuildItemToToolHarnessMap(IList<AITool> tools)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var function in tools.OfType<AIFunction>())
+        {
+            string? owner = null;
+            if (function.AdditionalProperties?.TryGetValue("ToolHarnessName", out var harness) == true)
+                owner = harness as string;
+            if (string.IsNullOrWhiteSpace(owner) &&
+                function.AdditionalProperties?.TryGetValue("ParentToolHarness", out var parent) == true)
+                owner = parent as string;
+            if (!string.IsNullOrWhiteSpace(owner))
+                map[function.Name] = owner;
+        }
         return map;
     }
 
@@ -1692,6 +1774,13 @@ public sealed record ContainerMiddlewareState
         = ImmutableHashSet<string>.Empty;
 
     /// <summary>
+    /// Maps activation or recovered call IDs to the container name they activated.
+    /// This distinguishes a same-named activation call from a later target call.
+    /// </summary>
+    public ImmutableDictionary<string, string> ActivationCallIds { get; init; }
+        = ImmutableDictionary<string, string>.Empty;
+
+    /// <summary>
     /// Active container instructions for prompt injection.
     /// Maps container name to its instruction contexts (FunctionResult + SystemPrompt).
     /// Cleared at end of message turn.
@@ -1720,6 +1809,15 @@ public sealed record ContainerMiddlewareState
         {
             ExpandedContainers = ExpandedContainers.Add(containerName),
             ContainersExpandedThisTurn = ContainersExpandedThisTurn.Add(containerName)
+        };
+    }
+
+    /// <summary>Records the call ID and container name for an activation or recovery.</summary>
+    public ContainerMiddlewareState WithActivationCall(string callId, string containerName)
+    {
+        return this with
+        {
+            ActivationCallIds = ActivationCallIds.SetItem(callId, containerName)
         };
     }
 
@@ -1776,6 +1874,7 @@ public sealed record ContainerMiddlewareState
         {
             ExpandedContainers = ImmutableHashSet<string>.Empty,
             ContainersExpandedThisTurn = ImmutableHashSet<string>.Empty,
+            ActivationCallIds = ImmutableDictionary<string, string>.Empty,
             RecoveredFunctionCalls = ImmutableDictionary<string, RecoveryInfo>.Empty,
             TurnCapabilityFunctions = []
         };

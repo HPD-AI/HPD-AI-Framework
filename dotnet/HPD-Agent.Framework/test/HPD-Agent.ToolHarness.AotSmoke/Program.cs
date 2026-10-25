@@ -46,7 +46,8 @@ internal sealed class HarnessClient : IChatClient
         return Task.FromResult(stage switch
         {
             1 => ToolCall(nameof(DerivedExecutionHarness), "expand"),
-            2 => ToolCall(nameof(DerivedExecutionHarness.DerivedPing), "ping"),
+            2 => ToolCall(nameof(DerivedExecutionHarness.DerivedPing), "expand-function"),
+            3 => ToolCall(nameof(DerivedExecutionHarness.DerivedPing), "ping"),
             _ => new ChatResponse([new ChatMessage(ChatRole.Assistant, "done")])
         });
     }

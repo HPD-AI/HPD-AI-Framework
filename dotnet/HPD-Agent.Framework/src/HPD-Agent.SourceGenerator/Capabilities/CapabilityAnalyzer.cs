@@ -999,6 +999,12 @@ internal static class CapabilityAnalyzer
         var kind = GetToolKind(attrs);
         var invocationModePolicy = GetInvocationModePolicy(attrs);
         var invocationModeHandling = GetInvocationModeHandling(attrs);
+        var functionCollapse = AnalyzeFunctionCollapse(
+            symbol,
+            semanticModel.Compilation,
+            kind,
+            diagnostics,
+            method.GetLocation());
 
         if (!ValidateActionContract(parameters, kind, diagnostics, method.GetLocation(), semanticModel.Compilation))
             return null;
@@ -1031,6 +1037,7 @@ internal static class CapabilityAnalyzer
             Kind = kind,
             InvocationModePolicy = invocationModePolicy,
             InvocationModeHandling = invocationModeHandling,
+            FunctionCollapse = functionCollapse,
 
             // TODO Phase 2: Add validation data
         };
@@ -1075,6 +1082,12 @@ internal static class CapabilityAnalyzer
         var location = method.Locations.FirstOrDefault() ?? Location.None;
         if (!ValidatePermissionAttribute(permission, compilation, diagnostics, location)) return null;
         var kind = EnumSetting("Kind", "Function");
+        var functionCollapse = AnalyzeFunctionCollapse(
+            method,
+            compilation,
+            kind,
+            diagnostics,
+            location);
         if (!ValidateActionContract(parameters, kind, diagnostics, location, compilation)) return null;
         return new FunctionCapability
         {
@@ -1111,8 +1124,78 @@ internal static class CapabilityAnalyzer
                 .FirstOrDefault(pair => pair.Key == "PermissionInteraction").Value.Value as ITypeSymbol,
             Kind = kind,
             InvocationModePolicy = EnumSetting("InvocationModePolicy", "SynchronousOnly"),
-            InvocationModeHandling = EnumSetting("InvocationModeHandling", "Runtime")
+            InvocationModeHandling = EnumSetting("InvocationModeHandling", "Runtime"),
+            FunctionCollapse = functionCollapse
         };
+    }
+
+    private static FunctionCollapseInfo? AnalyzeFunctionCollapse(
+        IMethodSymbol method,
+        Compilation compilation,
+        string kind,
+        List<Diagnostic> diagnostics,
+        Location location)
+    {
+        var attributeType = compilation.GetTypeByMetadataName("HPD.Agent.CollapseFunctionAttribute");
+        AttributeData? declaration = null;
+        for (var current = method; current is not null && declaration is null; current = current.OverriddenMethod)
+        {
+            declaration = current.GetAttributes().FirstOrDefault(attribute =>
+                SymbolEqualityComparer.Default.Equals(attribute.AttributeClass, attributeType));
+        }
+
+        if (declaration is null)
+            return null;
+
+        if (!string.Equals(kind, "Function", StringComparison.Ordinal))
+        {
+            diagnostics.Add(Diagnostic.Create(
+                new DiagnosticDescriptor(
+                    "HPD072",
+                    "CollapseFunction is limited to ordinary functions",
+                    "Method '{0}' uses CollapseFunction with unsupported tool kind '{1}'",
+                    "HPD.Collapsing",
+                    DiagnosticSeverity.Error,
+                    true),
+                location,
+                method.Name,
+                kind));
+            return null;
+        }
+
+        string? containerName = null;
+        string? description = null;
+        if (declaration.ConstructorArguments.Length == 1)
+        {
+            description = declaration.ConstructorArguments[0].Value as string;
+        }
+        else if (declaration.ConstructorArguments.Length >= 2)
+        {
+            containerName = declaration.ConstructorArguments[0].Value as string;
+            description = declaration.ConstructorArguments[1].Value as string;
+        }
+        if (string.IsNullOrWhiteSpace(description))
+        {
+            diagnostics.Add(Diagnostic.Create(
+                new DiagnosticDescriptor(
+                    "HPD072",
+                    "Invalid CollapseFunction declaration",
+                    "Method '{0}' must declare CollapseFunction with a non-empty Description",
+                    "HPD.Collapsing",
+                    DiagnosticSeverity.Error,
+                    true),
+                location,
+                method.Name));
+            return null;
+        }
+
+        string? Named(string name) => declaration.NamedArguments
+            .FirstOrDefault(pair => pair.Key == name).Value.Value as string;
+        return new FunctionCollapseInfo(
+            containerName,
+            description,
+            Named("FunctionResult"),
+            Named("SystemPrompt"));
     }
 
     internal static BaseCapability? AnalyzeFactorySymbol(
