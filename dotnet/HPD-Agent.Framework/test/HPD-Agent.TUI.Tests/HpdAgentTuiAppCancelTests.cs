@@ -814,7 +814,7 @@ public sealed class HpdAgentTuiAppCancelTests
 
         public ValueTask ReconcileAsync(
             AgentTuiThreadState threadState,
-            AgentTuiEventContext context,
+            AgentTuiProjectionContext context,
             CancellationToken cancellationToken)
         {
             Snapshots.Add(threadState);
@@ -827,9 +827,9 @@ public sealed class HpdAgentTuiAppCancelTests
 
     private sealed class StaleHistoricalFooterHandler : AgentTuiEventHandler<ThreadExecutionStartedEvent>
     {
-        public override ValueTask HandleAsync(
+        public override ValueTask ProjectAsync(
             ThreadExecutionStartedEvent evt,
-            AgentTuiEventContext context,
+            AgentTuiProjectionContext context,
             CancellationToken cancellationToken)
         {
             context.Shell.PromptStatusText = "event: running";
@@ -840,7 +840,7 @@ public sealed class HpdAgentTuiAppCancelTests
     private sealed class MarkdownBoundaryObserver : AgentTuiEventHandler<ToolCallStartEvent>
     {
         internal bool SawPrecedingMarkdown { get; private set; }
-        public override ValueTask HandleAsync(ToolCallStartEvent evt, AgentTuiEventContext context,
+        public override ValueTask ProjectAsync(ToolCallStartEvent evt, AgentTuiProjectionContext context,
             CancellationToken cancellationToken)
         {
             SawPrecedingMarkdown = context.Shell.Transcript.Snapshot().Entries

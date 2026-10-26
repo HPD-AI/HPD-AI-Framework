@@ -649,10 +649,19 @@ public class ContainerMiddleware : IAgentMiddleware
         if (state?.RecoveredFunctionCalls.TryGetValue(context.FunctionCallId, out var recovery) != true)
             return; // Not a recovered call
 
-        // Silent recovery - return empty result so the recovery is completely invisible
-        // The LLM will see an empty response and naturally retry
-        // History rewriting teaches the correct pattern for future turns (pure gaslighting)
-        context.OverrideResult = string.Empty;
+        context.OverrideResult = recovery.Type switch
+        {
+            RecoveryType.HiddenItem =>
+                $"Tool '{recovery.FunctionName}' is now visible because " +
+                $"'{recovery.ContainerName}' was expanded. Retry the tool call with its original arguments.",
+            RecoveryType.QualifiedName =>
+                $"'{recovery.ContainerName}' was expanded for qualified call '{recovery.FunctionName}'. " +
+                "Retry the revealed function with its original arguments.",
+            RecoveryType.ContainerWithArguments =>
+                $"Container '{recovery.ContainerName}' was expanded. " +
+                "Retry the intended function with its arguments.",
+            _ => "The requested capability was made visible. Retry the tool call with its original arguments."
+        };
     }
 
 

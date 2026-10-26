@@ -6,7 +6,7 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.Debugging;
 
 internal sealed class DebugStoppedTuiHandler : AgentTuiEventHandler<DebugSessionStoppedEvent>
 {
-    public override ValueTask HandleAsync(DebugSessionStoppedEvent evt, AgentTuiEventContext context, CancellationToken cancellationToken)
+    public override ValueTask ProjectAsync(DebugSessionStoppedEvent evt, AgentTuiProjectionContext context, CancellationToken cancellationToken)
     {
         var state = State(context).Session(evt.DebugTreeId, evt.DebugSessionId);
         state.Status = "Stopped";
@@ -18,14 +18,14 @@ internal sealed class DebugStoppedTuiHandler : AgentTuiEventHandler<DebugSession
         return ValueTask.CompletedTask;
     }
 
-    internal static DebugTuiState State(AgentTuiEventContext context)
+    internal static DebugTuiState State(AgentTuiProjectionContext context)
         => context.State.GetOrCreate(DebugTuiState.StateKey, static () => new DebugTuiState());
 
     internal static string EntryKey(DebugSessionTuiState state)
         => $"hpd.coding.debug:stop:{state.DebugTreeId}:{state.DebugSessionId}:{state.SuspensionEpoch}";
 
     internal static void Apply(
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         DebugSessionTuiState state,
         HPD.Agent.AgentEvent evt,
         bool final)
@@ -49,7 +49,7 @@ internal sealed class DebugStoppedTuiHandler : AgentTuiEventHandler<DebugSession
 
 internal sealed class DebugPrimaryStopTuiHandler : AgentTuiEventHandler<DebugPrimaryStopAvailableEvent>
 {
-    public override ValueTask HandleAsync(DebugPrimaryStopAvailableEvent evt, AgentTuiEventContext context, CancellationToken cancellationToken)
+    public override ValueTask ProjectAsync(DebugPrimaryStopAvailableEvent evt, AgentTuiProjectionContext context, CancellationToken cancellationToken)
     {
         var state = DebugStoppedTuiHandler.State(context).Session(evt.DebugTreeId, evt.DebugSessionId);
         if (state.Status != "Stopped" ||
@@ -69,7 +69,7 @@ internal sealed class DebugPrimaryStopTuiHandler : AgentTuiEventHandler<DebugPri
 
 internal sealed class DebugContinuedTuiHandler : AgentTuiEventHandler<DebugSessionContinuedEvent>
 {
-    public override ValueTask HandleAsync(DebugSessionContinuedEvent evt, AgentTuiEventContext context, CancellationToken cancellationToken)
+    public override ValueTask ProjectAsync(DebugSessionContinuedEvent evt, AgentTuiProjectionContext context, CancellationToken cancellationToken)
     {
         var state = DebugStoppedTuiHandler.State(context).Session(evt.DebugTreeId, evt.DebugSessionId);
         if (state.Status == "Stopped")

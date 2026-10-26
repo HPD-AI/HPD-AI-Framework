@@ -319,13 +319,7 @@ public class HPDAIFunctionFactory
                 // 3. Return structured error on failure.
                 var errorResponse = new ValidationErrorResponse();
                 foreach (var error in validationErrors)
-                {
-                    if (validationJsonArgs.TryGetProperty(error.Property, out var propertyNode))
-                    {
-                        error.AttemptedValue = propertyNode.Clone();
-                    }
                     errorResponse.Errors.Add(error);
-                }
                 return JsonSerializer.SerializeToElement(errorResponse, HPDJsonContext.Default.ValidationErrorResponse);
             }
 
@@ -635,7 +629,8 @@ public static class HPDToolArgumentBinder
             throw new HPDToolArgumentException(
                 name,
                 $"Property '{name}' is required and cannot be null.",
-                "null_required_property");
+                "null_required_property",
+                attemptedValue: property);
         }
 
         return BindValue<T>(property, name, serializerOptions);
@@ -658,7 +653,8 @@ public static class HPDToolArgumentBinder
                 throw new HPDToolArgumentException(
                     name,
                     $"Property '{name}' is required and cannot be null.",
-                    "null_required_property");
+                    "null_required_property",
+                    attemptedValue: property);
             }
 
             return default!;
@@ -678,11 +674,11 @@ public static class HPDToolArgumentBinder
         }
         catch (JsonException ex)
         {
-            throw new HPDToolArgumentException(name, ex.Message, "type_conversion_error", ex);
+            throw new HPDToolArgumentException(name, ex.Message, "type_conversion_error", ex, property);
         }
         catch (NotSupportedException ex)
         {
-            throw new HPDToolArgumentException(name, ex.Message, "unsupported_parameter_type", ex);
+            throw new HPDToolArgumentException(name, ex.Message, "unsupported_parameter_type", ex, property);
         }
     }
 
@@ -704,7 +700,8 @@ public static class HPDToolArgumentBinder
                 throw new HPDToolArgumentException(
                     property.Name,
                     $"Property '{property.Name}' does not correspond to any tool parameter.",
-                    "unmapped_property");
+                    "unmapped_property",
+                    attemptedValue: property.Value);
             }
         }
     }
@@ -724,7 +721,7 @@ public static class HPDToolArgumentBinder
         }
         catch (Exception ex) when (ex is ArgumentException or FormatException or OverflowException or JsonException)
         {
-            throw new HPDToolArgumentException(name, ex.Message, "type_conversion_error", ex);
+            throw new HPDToolArgumentException(name, ex.Message, "type_conversion_error", ex, property);
         }
     }
 
@@ -761,16 +758,40 @@ public static class HPDToolArgumentBinder
 
 public sealed class HPDToolArgumentException : JsonException
 {
-    public HPDToolArgumentException(string propertyName, string message, string errorCode, Exception? innerException = null)
+    public HPDToolArgumentException(
+        string propertyName,
+        string message,
+        string errorCode,
+        Exception? innerException = null,
+        JsonElement? attemptedValue = null,
+        IReadOnlyList<string>? allowedValues = null)
         : base(message, innerException)
     {
         PropertyName = propertyName;
         ErrorCode = errorCode;
+        AttemptedValue = attemptedValue?.Clone();
+        AllowedValues = allowedValues?.ToArray();
     }
 
     public string PropertyName { get; }
 
     public string ErrorCode { get; }
+
+    /// <summary>Gets the supplied JSON value that caused this validation failure.</summary>
+    public JsonElement? AttemptedValue { get; }
+
+    /// <summary>Gets the closed set of values accepted at the failed discriminator path.</summary>
+    public IReadOnlyList<string>? AllowedValues { get; }
+
+    public ValidationError ToValidationError() =>
+        new()
+        {
+            Property = PropertyName,
+            ErrorMessage = Message,
+            ErrorCode = ErrorCode,
+            AttemptedValue = AttemptedValue,
+            AllowedValues = AllowedValues?.ToArray()
+        };
 }
 
 public class HPDAIFunctionFactoryOptions
@@ -905,11 +926,15 @@ public class ValidationError
     public string Property { get; set; } = "";
 
     [JsonPropertyName("attempted_value")]
-    public object? AttemptedValue { get; set; }
+    public JsonElement? AttemptedValue { get; set; }
 
     [JsonPropertyName("error_message")]
     public string ErrorMessage { get; set; } = "";
 
     [JsonPropertyName("error_code")]
     public string ErrorCode { get; set; } = "";
+
+    /// <summary>Gets or sets the closed set of values accepted by a rejected discriminator.</summary>
+    [JsonPropertyName("allowed_values")]
+    public string[]? AllowedValues { get; set; }
 }

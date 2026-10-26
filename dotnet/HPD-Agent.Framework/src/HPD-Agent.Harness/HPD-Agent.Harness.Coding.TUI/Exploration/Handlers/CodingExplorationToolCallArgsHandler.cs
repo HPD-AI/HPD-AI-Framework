@@ -5,9 +5,9 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.Exploration.Handlers;
 
 internal sealed class CodingExplorationToolCallArgsHandler : AgentTuiEventHandler<ToolCallArgsEvent>
 {
-    public override ValueTask HandleAsync(
+    public override ValueTask ProjectAsync(
         ToolCallArgsEvent evt,
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         CancellationToken cancellationToken)
     {
         var store = context.State.GetOrCreate(

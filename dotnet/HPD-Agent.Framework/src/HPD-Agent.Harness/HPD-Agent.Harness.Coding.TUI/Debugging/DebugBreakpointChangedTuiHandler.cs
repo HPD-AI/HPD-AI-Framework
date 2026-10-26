@@ -7,9 +7,9 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.Debugging;
 internal sealed class DebugBreakpointChangedTuiHandler
     : AgentTuiEventHandler<DebugBreakpointChangedEvent>
 {
-    public override ValueTask HandleAsync(
+    public override ValueTask ProjectAsync(
         DebugBreakpointChangedEvent evt,
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         CancellationToken cancellationToken)
     {
         var state = context.State.GetOrCreate(

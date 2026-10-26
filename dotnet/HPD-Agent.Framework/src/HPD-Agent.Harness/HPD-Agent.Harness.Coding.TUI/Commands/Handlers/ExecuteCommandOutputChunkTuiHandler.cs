@@ -4,9 +4,9 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.Commands.Handlers;
 
 internal sealed class ExecuteCommandOutputChunkTuiHandler : ExecuteCommandTuiHandlerBase<ExecuteCommandOutputChunkEvent>
 {
-    public override ValueTask HandleAsync(
+    public override ValueTask ProjectAsync(
         ExecuteCommandOutputChunkEvent evt,
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         CancellationToken cancellationToken)
     {
         if (!TryGetExistingState(context, evt, out var state) || !state.IsActive)

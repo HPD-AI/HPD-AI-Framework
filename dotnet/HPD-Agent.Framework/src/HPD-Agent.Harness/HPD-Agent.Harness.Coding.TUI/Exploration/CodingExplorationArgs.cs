@@ -1,4 +1,4 @@
-using System.Text.Json;
+using HPD.Agent.TUI.Composition;
 
 namespace HPD.Agent.ToolHarness.Coding.TUI.Exploration;
 
@@ -18,42 +18,24 @@ internal static class CodingExplorationArgsParser
             return new CodingExplorationArgs(null, null, null, null, null);
         }
 
-        try
-        {
-            using var doc = JsonDocument.Parse(argsJson);
-            var root = doc.RootElement;
-            return new CodingExplorationArgs(
-                ReadString(root, "path"),
-                ReadString(root, "pattern"),
-                ReadInt(root, "offset"),
-                ReadInt(root, "limit"),
-                ReadBool(root, "recursive"));
-        }
-        catch (JsonException)
-        {
+        var arguments = ToolCallArguments.Parse(argsJson);
+        if (!arguments.IsObject)
             return new CodingExplorationArgs(null, null, null, null, null);
-        }
+
+        return new CodingExplorationArgs(
+            ReadString(arguments.Root, "path"),
+            ReadString(arguments.Root, "pattern"),
+            ReadInt(arguments.Root, "offset"),
+            ReadInt(arguments.Root, "limit"),
+            ReadBool(arguments.Root, "recursive"));
     }
 
-    private static string? ReadString(JsonElement root, string name)
-        => root.ValueKind == JsonValueKind.Object &&
-           root.TryGetProperty(name, out var value) &&
-           value.ValueKind == JsonValueKind.String
-            ? value.GetString()
-            : null;
+    private static string? ReadString(ToolArgumentValue root, string name)
+        => root.TryGetString(name, out var value) ? value : null;
 
-    private static int? ReadInt(JsonElement root, string name)
-        => root.ValueKind == JsonValueKind.Object &&
-           root.TryGetProperty(name, out var value) &&
-           value.ValueKind == JsonValueKind.Number &&
-           value.TryGetInt32(out var number)
-            ? number
-            : null;
+    private static int? ReadInt(ToolArgumentValue root, string name)
+        => root.TryGetInt32(name, out var value) ? value : null;
 
-    private static bool? ReadBool(JsonElement root, string name)
-        => root.ValueKind == JsonValueKind.Object &&
-           root.TryGetProperty(name, out var value) &&
-           value.ValueKind is JsonValueKind.True or JsonValueKind.False
-            ? value.GetBoolean()
-            : null;
+    private static bool? ReadBool(ToolArgumentValue root, string name)
+        => root.TryGetBoolean(name, out var value) ? value : null;
 }

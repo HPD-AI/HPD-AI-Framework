@@ -180,6 +180,42 @@ public sealed class MarkdownMessageProjection
         LineageId = lineageId;
     }
 
+    internal MarkdownMessageProjection Fork()
+    {
+        var fork = new MarkdownMessageProjection(Identity, LineageId)
+        {
+            Revision = Revision,
+            Epoch = Epoch,
+            _cacheBytes = _cacheBytes,
+            _cachedEpoch = _cachedEpoch,
+            _layoutCount = _layoutCount,
+            _layoutTicks = _layoutTicks,
+            _stableBlocksReused = _stableBlocksReused,
+            _cacheHits = _cacheHits,
+            _cacheMisses = _cacheMisses,
+            _cacheEvictions = _cacheEvictions,
+            _mutableBlocksRerendered = _mutableBlocksRerendered,
+            _layoutFallbacks = _layoutFallbacks,
+            _degradations = _degradations
+        };
+
+        foreach (var key in _lru)
+        {
+            var source = _blocks[key];
+            var node = fork._lru.AddLast(key);
+            fork._blocks.Add(key, new CacheEntry(source.Layout, node, source.Weight));
+        }
+        foreach (var pair in _prepared)
+            fork._prepared[pair.Key] = pair.Value;
+        foreach (var pair in _preparedStamps)
+            fork._preparedStamps[pair.Key] = pair.Value;
+        foreach (var key in _preparedOrder)
+            fork._preparedOrder.Enqueue(key);
+        foreach (var pair in _rawPages)
+            fork._rawPages[pair.Key] = new RawPageState(pair.Value);
+        return fork;
+    }
+
     /// <summary>Gets the owning stream identity.</summary>
     public MarkdownStreamIdentity Identity { get; }
     /// <summary>Gets the owning lineage identity.</summary>
@@ -489,6 +525,12 @@ public sealed class MarkdownMessageProjection
     {
         internal MarkdownLayout Current { get; set; } = current;
         internal Stack<MarkdownLayout> Previous { get; } = [];
+
+        internal RawPageState(RawPageState source) : this(source.Current)
+        {
+            foreach (var layout in source.Previous.Reverse())
+                Previous.Push(layout);
+        }
     }
 
     private readonly record struct BlockCacheKey(

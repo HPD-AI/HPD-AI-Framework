@@ -62,12 +62,7 @@ internal static class AIBindingSourceEmitter
         builder.AppendLine("            }");
         builder.AppendLine("            catch (global::HPD.Agent.HPDToolArgumentException exception)");
         builder.AppendLine("            {");
-        builder.AppendLine("                return global::HPD.Agent.AIFunctionBindingResult.Failure(new global::HPD.Agent.ValidationError");
-        builder.AppendLine("                {");
-        builder.AppendLine("                    Property = exception.PropertyName,");
-        builder.AppendLine("                    ErrorMessage = exception.Message,");
-        builder.AppendLine("                    ErrorCode = exception.ErrorCode");
-        builder.AppendLine("                });");
+        builder.AppendLine("                return global::HPD.Agent.AIFunctionBindingResult.Failure(exception.ToValidationError());");
         builder.AppendLine("            }");
         builder.AppendLine("            catch (global::System.Text.Json.JsonException exception)");
         builder.AppendLine("            {");
@@ -277,7 +272,11 @@ internal static class AIBindingSourceEmitter
     private static void EmitUnionBody(string identity, StringBuilder builder, HashSet<string> emittedHelpers, UnionContractNode union)
     {
         builder.AppendLine("            global::HPD.Agent.HPDGeneratedToolArgumentBinder.RequireObject(value, path);");
-        builder.AppendLine($"            var discriminator = global::HPD.Agent.HPDGeneratedToolArgumentBinder.BindString(global::HPD.Agent.HPDGeneratedToolArgumentBinder.GetRequiredProperty(value, \"{Escape(union.DiscriminatorPropertyName)}\", path), global::HPD.Agent.HPDGeneratedToolArgumentBinder.Append(path, \"{Escape(union.DiscriminatorPropertyName)}\"));");
+        builder.AppendLine($"            var discriminatorPath = global::HPD.Agent.HPDGeneratedToolArgumentBinder.Append(path, \"{Escape(union.DiscriminatorPropertyName)}\");");
+        builder.AppendLine($"            var discriminatorValue = global::HPD.Agent.HPDGeneratedToolArgumentBinder.GetRequiredProperty(value, \"{Escape(union.DiscriminatorPropertyName)}\", path);");
+        builder.AppendLine("            if (discriminatorValue.ValueKind == global::System.Text.Json.JsonValueKind.Null)");
+        builder.AppendLine("                throw global::HPD.Agent.HPDGeneratedToolArgumentBinder.Error(discriminatorPath, \"null_not_allowed\", \"Null is not allowed.\", discriminatorValue);");
+        builder.AppendLine("            var discriminator = global::HPD.Agent.HPDGeneratedToolArgumentBinder.BindString(discriminatorValue, discriminatorPath);");
         builder.AppendLine("            return discriminator switch");
         builder.AppendLine("            {");
         foreach (var @case in union.Cases)
@@ -286,7 +285,10 @@ internal static class AIBindingSourceEmitter
             var helper = EmitNodeHelper(identity + "_case_" + @case.Discriminator, caseContract, builder, emittedHelpers);
             builder.AppendLine($"                \"{Escape(@case.Discriminator)}\" => {helper}(value, path),");
         }
-        builder.AppendLine("                _ => throw global::HPD.Agent.HPDGeneratedToolArgumentBinder.Error(global::HPD.Agent.HPDGeneratedToolArgumentBinder.Append(path, \"" + Escape(union.DiscriminatorPropertyName) + "\"), \"unknown_union_discriminator\", \"Unsupported discriminator value.\")");
+        var allowedValues = string.Join(
+            ", ",
+            union.Cases.Select(static @case => "\"" + Escape(@case.Discriminator) + "\""));
+        builder.AppendLine($"                _ => throw global::HPD.Agent.HPDGeneratedToolArgumentBinder.Error(discriminatorPath, \"unknown_union_discriminator\", \"Unsupported discriminator value.\", discriminatorValue, new string[] {{ {allowedValues} }})");
         builder.AppendLine("            };");
     }
 

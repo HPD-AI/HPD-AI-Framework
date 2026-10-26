@@ -5,7 +5,7 @@ using HPDOS.ToolHarnesses.Middleware;
 
 namespace HPD.Agent.ToolHarness.Coding.TUI.Debugging;
 
-internal sealed class DebugLifecyclePresentationStore
+internal sealed class DebugLifecyclePresentationStore : IAgentTuiProjectionState
 {
     public const string StateKey = "hpd.coding.debug.lifecycle-presentation";
     private readonly Dictionary<string, DebugLifecyclePresentationState> _trees =
@@ -34,13 +34,21 @@ internal sealed class DebugLifecyclePresentationStore
             string.Equals(item.ToolCallId, toolCallId, StringComparison.Ordinal))!;
         return state is not null;
     }
+
+    public object Fork()
+    {
+        var fork = new DebugLifecyclePresentationStore();
+        foreach (var pair in _trees)
+            fork._trees.Add(pair.Key, (DebugLifecyclePresentationState)pair.Value.Fork());
+        return fork;
+    }
 }
 
 internal sealed class DebugLifecyclePresentationState(
     string debugTreeId,
     string debugSessionId,
     string adapterId,
-    string? toolCallId)
+    string? toolCallId) : IAgentTuiProjectionState
 {
     public string DebugTreeId { get; } = debugTreeId;
     public string DebugSessionId { get; set; } = debugSessionId;
@@ -50,14 +58,27 @@ internal sealed class DebugLifecyclePresentationState(
     public string? Detail { get; set; }
     public bool Terminal { get; set; }
     public bool Failed { get; set; }
+
+    public object Fork()
+        => new DebugLifecyclePresentationState(
+            DebugTreeId,
+            DebugSessionId,
+            AdapterId,
+            ToolCallId)
+        {
+            Status = Status,
+            Detail = Detail,
+            Terminal = Terminal,
+            Failed = Failed
+        };
 }
 
 internal sealed class DebugLifecycleTuiHandler
     : AgentTuiEventHandler<DebugLifecycleEvent>
 {
-    public override ValueTask HandleAsync(
+    public override ValueTask ProjectAsync(
         DebugLifecycleEvent evt,
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         CancellationToken cancellationToken)
     {
         if (!IsMaterial(evt)) return ValueTask.CompletedTask;
@@ -163,7 +184,7 @@ internal sealed class DebugLifecycleTuiHandler
     }
 
     private static void Apply(
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         DebugLifecyclePresentationState state,
         AgentEvent evt)
     {
@@ -198,7 +219,7 @@ internal sealed class DebugLifecycleTuiHandler
     }
 
     internal static void ObserveToolResult(
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         string toolCallId,
         string resultText,
         AgentEvent evt)

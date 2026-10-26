@@ -258,6 +258,27 @@ public sealed class MarkdownStreamSessionTests
     }
 
     [Fact]
+    public void CoordinatorFork_IsolatesStagedSourceFromCommittedCoordinator()
+    {
+        var committedUpdates = new List<MarkdownStreamUpdate>();
+        var stagedUpdates = new List<MarkdownStreamUpdate>();
+        var coordinator = new MarkdownStreamCoordinator(
+            (update, _) => committedUpdates.Add(update));
+        var identity = new MarkdownStreamIdentity(MarkdownStreamKind.Assistant, "transaction");
+        coordinator.Start(identity);
+        coordinator.Append(identity, "committed");
+
+        var staged = coordinator.Fork((update, _) => stagedUpdates.Add(update));
+        staged.Append(identity, " staged");
+        staged.RefreshPending();
+        coordinator.Append(identity, " source");
+        coordinator.RefreshPending();
+
+        Assert.Equal("committed staged", Assert.Single(stagedUpdates).Document.GetCanonicalSource());
+        Assert.Equal("committed source", Assert.Single(committedUpdates).Document.GetCanonicalSource());
+    }
+
+    [Fact]
     public void Coordinator_DuplicateStartInterruptsOldLineageAndIsolatesReplacement()
     {
         var updates = new List<MarkdownStreamUpdate>();

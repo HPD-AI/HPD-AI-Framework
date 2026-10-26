@@ -1,11 +1,15 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using HPD.Agent;
 using HPD.Agent.Providers;
 using HPD.Agent.Serialization;
 using HPD.Agent.ToolHarness.AotFixture;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
+
+if (!ValidationMetadataRoundTrips())
+    return 2;
 
 await using (var agent = await new AgentBuilder(new AgentConfig
     {
@@ -26,6 +30,30 @@ return ExternalExecutionMiddleware.CreatedCount == 1 &&
        ExternalExecutionMiddleware.DisposedCount == 1
     ? 0
     : 1;
+
+static bool ValidationMetadataRoundTrips()
+{
+    using var attempted = JsonDocument.Parse("\"status\"");
+    var response = new ValidationErrorResponse
+    {
+        Errors =
+        [
+            new ValidationError
+            {
+                Property = "request.action",
+                ErrorCode = "unknown_union_discriminator",
+                ErrorMessage = "Unsupported discriminator value.",
+                AttemptedValue = attempted.RootElement.Clone(),
+                AllowedValues = ["launch", "listSessions"]
+            }
+        ]
+    };
+    var json = JsonSerializer.SerializeToElement(response, HPDJsonContext.Default.ValidationErrorResponse);
+    var error = json.GetProperty("errors")[0];
+    return error.GetProperty("attempted_value").GetString() == "status" &&
+        error.GetProperty("allowed_values")[0].GetString() == "launch" &&
+        error.GetProperty("allowed_values")[1].GetString() == "listSessions";
+}
 
 internal sealed class HarnessClient : IChatClient
 {

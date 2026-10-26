@@ -1,3 +1,5 @@
+using HPD.Agent.TUI.Composition;
+
 namespace HPD.Agent.ToolHarness.Coding.TUI.Commands;
 
 internal enum CodingCommandDisplayState
@@ -11,7 +13,7 @@ internal enum CodingCommandDisplayState
     Exited
 }
 
-internal sealed class CodingCommandExecutionState
+internal sealed class CodingCommandExecutionState : IAgentTuiProjectionState
 {
     public CodingCommandExecutionState(ExecuteCommandEvent evt)
     {
@@ -116,5 +118,45 @@ internal sealed class CodingCommandExecutionState
         BaseCommand = evt.BaseCommand;
         Category = evt.Category;
         WorkingDirectory = evt.WorkingDirectory;
+    }
+
+    public object Fork()
+    {
+        var fork = new CodingCommandExecutionState(
+            CommandId,
+            ToolCallId,
+            FunctionName,
+            Command,
+            BaseCommand,
+            Category,
+            WorkingDirectory)
+        {
+            Shell = Shell,
+            StartedAt = StartedAt,
+            CompletedAt = CompletedAt,
+            BackgroundedAt = BackgroundedAt,
+            ProcessId = ProcessId,
+            TimeoutMilliseconds = TimeoutMilliseconds,
+            ExitCode = ExitCode,
+            CompletionKind = CompletionKind,
+            DurationMilliseconds = DurationMilliseconds,
+            IsBackground = IsBackground,
+            AutoBackgroundEligible = AutoBackgroundEligible,
+            OperationId = OperationId,
+            OutputObserved = OutputObserved,
+            OutputTruncated = OutputTruncated,
+            OutputEventsSuppressed = OutputEventsSuppressed,
+            DrainTimedOut = DrainTimedOut,
+            BinaryOutputObserved = BinaryOutputObserved,
+            StdoutBytes = StdoutBytes,
+            StderrBytes = StderrBytes,
+            CombinedOutputBytes = CombinedOutputBytes,
+            CombinedBytesDiscarded = CombinedBytesDiscarded,
+            DisplayState = DisplayState,
+            LastTranscriptSnapshotKey = LastTranscriptSnapshotKey
+        };
+        fork.Output.Restore(Output.Fork());
+        fork.Artifacts.Restore(Artifacts.Fork());
+        return fork;
     }
 }

@@ -18,7 +18,7 @@ public static class AgentTuiPerformanceDiagnostics
         ArgumentNullException.ThrowIfNull(state);
         ArgumentNullException.ThrowIfNull(sink);
 
-        state.Set(SinkStateKey, sink);
+        state.SetSharedService(SinkStateKey, sink);
     }
 
     public static void SetSink(AgentTuiStateBag state, IEventPublisher publisher)
@@ -30,13 +30,19 @@ public static class AgentTuiPerformanceDiagnostics
     public static bool RemoveSink(AgentTuiStateBag state)
     {
         ArgumentNullException.ThrowIfNull(state);
-        return state.Remove(SinkStateKey);
+        return state.RemoveSharedService(SinkStateKey);
     }
 
     public static bool TryGetSink(AgentTuiStateBag state, out IHpdTuiPerformanceEventSink sink)
     {
         ArgumentNullException.ThrowIfNull(state);
-        return state.TryGet(SinkStateKey, out sink);
+        return state.TryGetShared(SinkStateKey, out sink);
+    }
+
+    public static bool TryGetSink(AgentTuiSharedServices services, out IHpdTuiPerformanceEventSink sink)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        return services.TryGet(SinkStateKey, out sink);
     }
 
     public static bool ConfigureFromEnvironment(AgentTuiStateBag state)

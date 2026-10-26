@@ -6,9 +6,9 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.LanguageServers;
 
 internal sealed class LanguageServerStatusTuiHandler : AgentTuiEventHandler<LanguageServerStatusSnapshotEvent>
 {
-    public override ValueTask HandleAsync(
+    public override ValueTask ProjectAsync(
         LanguageServerStatusSnapshotEvent evt,
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         CancellationToken cancellationToken)
     {
         // A persisted snapshot is historical evidence, not proof that its process survived a restart.

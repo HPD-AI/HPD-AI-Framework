@@ -122,6 +122,9 @@ public sealed class CodingHarnessGeneratedContractTests
     [InlineData("EditFile", "{\"path\":\"file.txt\",\"edits\":[{\"oldString\":\"a\",\"newString\":\"b\",\"unexpected\":true}]}", "edits[0].unexpected")]
     [InlineData("ExecuteCommand", "{\"request\":{\"action\":\"stop\",\"backgroundHandleId\":\"cmd_1\",\"command\":\"echo no\"}}", "request.backgroundHandleId")]
     [InlineData("Debug", "{\"request\":{\"action\":\"continue\",\"debugTreeId\":\"tree_1\",\"threadId\":1,\"host\":\"localhost\"}}", "request.host")]
+    [InlineData("Debug", "{\"request\":{\"action\":\"launch\"}}", "request.target")]
+    [InlineData("Debug", "{\"request\":{\"action\":\"launch\",\"target\":{}}}", "request.target.targetKind")]
+    [InlineData("Debug", "{\"request\":{\"action\":\"status\"}}", "request.action")]
     [InlineData("Grep", "{\"pattern\":\"TODO\",\"outputMode\":\"content\"}", "outputMode")]
     public async Task GeneratedBinding_RejectsAliasesWrongBranchesAndEnumCasing(
         string functionName,
@@ -138,6 +141,24 @@ public sealed class CodingHarnessGeneratedContractTests
 
         var error = ((JsonElement)result!).GetProperty("errors")[0];
         error.GetProperty("property").GetString().Should().Be(expectedProperty);
+    }
+
+    [Fact]
+    public async Task GeneratedBinding_UnknownDebugActionReportsAttemptedAndAllowedValues()
+    {
+        var function = Functions["Debug"];
+        using var document = JsonDocument.Parse("""{"request":{"action":"status"}}""");
+        var arguments = new AIFunctionArguments();
+        arguments.SetJson(document.RootElement.Clone());
+
+        var result = await ((HPDAIFunctionFactory.HPDAIFunction)function)
+            .InvokeAsync(arguments, CreateContext(function), CancellationToken.None);
+
+        var error = ((JsonElement)result!).GetProperty("errors")[0];
+        error.GetProperty("error_code").GetString().Should().Be("unknown_union_discriminator");
+        error.GetProperty("attempted_value").GetString().Should().Be("status");
+        error.GetProperty("allowed_values").EnumerateArray().Select(value => value.GetString())
+            .Should().Contain(["launch", "listSessions", "getStatus"]);
     }
 
     private static JsonElement Properties(string functionName) =>

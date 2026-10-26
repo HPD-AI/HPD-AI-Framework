@@ -1,6 +1,8 @@
+using HPD.Agent.TUI.Composition;
+
 namespace HPD.Agent.ToolHarness.Coding.TUI.Commands;
 
-internal sealed class CodingCommandExecutionStore
+internal sealed class CodingCommandExecutionStore : IAgentTuiProjectionState
 {
     public const string StateKey = "hpd.coding.commands";
 
@@ -105,4 +107,16 @@ internal sealed class CodingCommandExecutionStore
             .OrderByDescending(command => command.CompletedAt)
             .Take(10)
             .ToArray();
+
+    public object Fork()
+    {
+        var fork = new CodingCommandExecutionStore();
+        foreach (var pair in _byCommandId)
+            fork._byCommandId.Add(pair.Key, (CodingCommandExecutionState)pair.Value.Fork());
+        foreach (var pair in _commandIdByToolCallId)
+            fork._commandIdByToolCallId.Add(pair.Key, pair.Value);
+        foreach (var pair in _commandIdByOperationId)
+            fork._commandIdByOperationId.Add(pair.Key, pair.Value);
+        return fork;
+    }
 }

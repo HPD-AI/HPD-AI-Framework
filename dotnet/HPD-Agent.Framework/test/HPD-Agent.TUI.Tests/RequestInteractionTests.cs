@@ -1,4 +1,5 @@
 using FluentAssertions;
+using HPD.Agent.TUI.Application;
 using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Interactions;
 using HPD.Agent.TUI.Models;
@@ -45,20 +46,18 @@ public sealed class RequestInteractionTests
     public async Task QuestionHistoryUsesOriginalLabelsAndPreservesNonAnswerOutcome()
     {
         var scope = new AgentTuiRuntimeScope("agent", "session", "main");
-        var shell = new ChatShellModel(scope);
         var registry = new HpdAgentTuiBuilder().AddQuestionInteraction(AgentTuiEventScope.CurrentThreadAndDescendants).Build();
-        var context = new AgentTuiEventContext(scope, shell, shell.Navigation, registry, new AgentTuiStateBag());
-        var handler = new QuestionTranscriptHandler();
-        await handler.HandleAsync(new UserQuestionRequestEvent("q", "AskUser",
+        var state = new AgentTuiSessionState(scope, registry);
+        await state.ApplyEventAsync(new UserQuestionRequestEvent("q", "AskUser",
             [new("environment", "Which environment?", Options: [new("stage", "Staging")])])
-            { SessionId = "session", ThreadId = "child", ThreadExecutionId = "run" }, context, default);
-        await handler.HandleAsync(new QuestionResponseEvent("q", "AskUser", QuestionOutcome.Answered,
+            { SessionId = "session", ThreadId = "child", ThreadExecutionId = "run" });
+        await state.ApplyEventAsync(new QuestionResponseEvent("q", "AskUser", QuestionOutcome.Answered,
             [new("environment", ["stage"], Notes: "Use a fresh database")])
-            { SessionId = "session", ThreadId = "child", ThreadExecutionId = "run" }, context, default);
-        await handler.HandleAsync(new QuestionResponseEvent("dismiss", "AskUser", QuestionOutcome.Dismissed, [])
-            { SessionId = "session", ThreadId = "child", ThreadExecutionId = "run" }, context, default);
-        shell.Transcript.Snapshot().Entries.Count.Should().Be(3);
-        shell.Transcript.Snapshot().Entries.Select(e => ((NoticeCell)e.Cell).Title).Should()
+            { SessionId = "session", ThreadId = "child", ThreadExecutionId = "run" });
+        await state.ApplyEventAsync(new QuestionResponseEvent("dismiss", "AskUser", QuestionOutcome.Dismissed, [])
+            { SessionId = "session", ThreadId = "child", ThreadExecutionId = "run" });
+        state.Shell.Transcript.Snapshot().Entries.Count.Should().Be(3);
+        state.Shell.Transcript.Snapshot().Entries.Select(e => ((NoticeCell)e.Cell).Title).Should()
             .Contain(["Question for you · child", "Questions answered · child", "Questions dismissed · child"]);
     }
 

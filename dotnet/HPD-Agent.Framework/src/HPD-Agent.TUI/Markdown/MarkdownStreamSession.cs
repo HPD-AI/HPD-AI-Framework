@@ -93,14 +93,52 @@ public sealed class MarkdownStreamSession
         _snapshot = _parseState.Document;
     }
 
+    private MarkdownStreamSession(MarkdownStreamSession source)
+    {
+        Identity = source.Identity;
+        MessageId = source.MessageId;
+        LineageId = source.LineageId;
+        Projection = source.Projection.Fork();
+        State = source.State;
+        Revision = source.Revision;
+        Epoch = source.Epoch;
+        _source = source._source.Fork();
+        _parser = source._parser;
+        _incrementalParser = source._incrementalParser;
+        _parseOptions = source._parseOptions;
+        _presentation = source._presentation;
+        _additionalProperties = source._additionalProperties;
+        _snapshot = source._snapshot;
+        _parseState = source._parseState;
+        _parseableSourceLength = source._parseableSourceLength;
+        _stableSourceLength = source._stableSourceLength;
+        _failureDetail = source._failureDetail;
+        _documentGlobal = source._documentGlobal;
+        _utf16CodeUnitsAppended = source._utf16CodeUnitsAppended;
+        _deltasAccepted = source._deltasAccepted;
+        _deltasCoalesced = source._deltasCoalesced;
+        _pendingDeltas = source._pendingDeltas;
+        _parseCount = source._parseCount;
+        _parseTicks = source._parseTicks;
+        _parseFallbacks = source._parseFallbacks;
+        _publicationCount = source._publicationCount;
+        _fullMessageInvalidations = source._fullMessageInvalidations;
+        _tableHoldbackActivations = source._tableHoldbackActivations;
+        _finalizationTicks = source._finalizationTicks;
+        _maximumCanonicalSourceLength = source._maximumCanonicalSourceLength;
+    }
+
+    /// <summary>Creates an isolated working copy for one event transaction.</summary>
+    internal MarkdownStreamSession Fork() => new(this);
+
     /// <summary>Gets the stream kind and external message identity.</summary>
     public MarkdownStreamIdentity Identity { get; }
     /// <summary>Gets the external message identity.</summary>
     public string MessageId { get; }
     /// <summary>Gets the unique identity of this accepted Start lineage.</summary>
-    public Guid LineageId { get; }
+    public Guid LineageId { get; private set; }
     /// <summary>Gets the projection retained across document publications.</summary>
-    public MarkdownMessageProjection Projection { get; }
+    public MarkdownMessageProjection Projection { get; private set; }
     /// <summary>Gets the lifecycle state.</summary>
     public MarkdownMessageState State { get; private set; } = MarkdownMessageState.Streaming;
     /// <summary>Gets the exact-source revision.</summary>

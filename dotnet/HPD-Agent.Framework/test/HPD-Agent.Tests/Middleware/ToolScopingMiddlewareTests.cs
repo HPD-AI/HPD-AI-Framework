@@ -276,6 +276,34 @@ public class ContainerMiddlewareTests
     }
 
     [Fact]
+    public async Task BeforeFunction_HiddenMemberRecovery_ReturnsRetryGuidance()
+    {
+        var (container, members) = CreateCollapsedToolHarness(
+            "CodingToolHarness",
+            "Coding tools",
+            "ListDirectory");
+        var middleware = new ContainerMiddleware(
+            new List<AITool> { container, members[0] },
+            ImmutableHashSet<string>.Empty);
+        var call = CreateToolCall("ListDirectory");
+        var context = CreateBeforeToolExecutionContext(toolCalls: [call]);
+
+        await middleware.BeforeToolExecutionAsync(context, CancellationToken.None);
+
+        var functionContext = CreateAgentContext(context.State).AsBeforeFunction(
+            function: null,
+            callId: call.CallId!,
+            arguments: new Dictionary<string, object?>(),
+            runConfig: new AgentRunConfig());
+        await middleware.BeforeFunctionAsync(functionContext, CancellationToken.None);
+
+        var result = Assert.IsType<string>(functionContext.OverrideResult);
+        Assert.Contains("ListDirectory", result);
+        Assert.Contains("CodingToolHarness", result);
+        Assert.Contains("Retry", result);
+    }
+
+    [Fact]
     public async Task BeforeToolExecution_ErrorRecoveryDisabled_DoesNotExpandHiddenMember()
     {
         var (container, members) = CreateCollapsedToolHarness("MathToolHarness", "Math tools", "Add");

@@ -7,9 +7,9 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.Debugging;
 internal sealed class DebugExecutionCommandTuiHandler
     : AgentTuiEventHandler<DebugExecutionCommandAppliedEvent>
 {
-    public override ValueTask HandleAsync(
+    public override ValueTask ProjectAsync(
         DebugExecutionCommandAppliedEvent evt,
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         CancellationToken cancellationToken)
     {
         if (evt.ToolCallId is not { Length: > 0 } toolCallId)
@@ -34,7 +34,7 @@ internal sealed class DebugExecutionCommandTuiHandler
     }
 
     internal static void Finalize(
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         HPD.Agent.AgentEvent evt,
         string toolCallId,
         string action,
@@ -80,9 +80,9 @@ internal sealed class DebugExecutionCommandTuiHandler
 internal sealed class DebugStateMutationTuiHandler
     : AgentTuiEventHandler<DebugStateMutationAppliedEvent>
 {
-    public override ValueTask HandleAsync(
+    public override ValueTask ProjectAsync(
         DebugStateMutationAppliedEvent evt,
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         CancellationToken cancellationToken)
     {
         if (evt.ToolCallId is not { Length: > 0 } toolCallId)

@@ -1,9 +1,10 @@
 using HPD.Agent.ToolHarness.Coding.Debugging;
+using HPD.Agent.TUI.Composition;
 using HPDOS.ToolHarnesses.Middleware;
 
 namespace HPD.Agent.ToolHarness.Coding.TUI.Debugging;
 
-internal sealed class DebugTuiState
+internal sealed class DebugTuiState : IAgentTuiProjectionState
 {
     public const string StateKey = "hpd.coding.debug";
     private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
@@ -159,18 +160,46 @@ internal sealed class DebugTuiState
             "Terminated" or "Faulted" => 1,
             _ => 0
         };
+
+    public object Fork()
+    {
+        var fork = new DebugTuiState
+        {
+            ActiveTreeId = ActiveTreeId,
+            Version = Version
+        };
+        fork._seen.UnionWith(_seen);
+        fork._reducedEvents.UnionWith(_reducedEvents);
+        fork._breakpointProjectionEvents.UnionWith(_breakpointProjectionEvents);
+        foreach (var pair in BreakpointSelections)
+            fork.BreakpointSelections.Add(pair.Key, (DebugBreakpointPresentationState)pair.Value.Fork());
+        foreach (var pair in Sessions)
+            fork.Sessions.Add(pair.Key, (DebugSessionTuiState)pair.Value.Fork());
+        foreach (var pair in Trees)
+            fork.Trees.Add(pair.Key, (DebugTreeTuiState)pair.Value.Fork());
+        return fork;
+    }
 }
 
-internal sealed record DebugSessionTuiState(string DebugTreeId, string DebugSessionId)
+internal sealed record DebugSessionTuiState(string DebugTreeId, string DebugSessionId) : IAgentTuiProjectionState
 {
     public string Status { get; set; } = "Starting";
     public int? StoppedThreadId { get; set; }
     public string? StopReason { get; set; }
     public long? SuspensionEpoch { get; set; }
     public DebugPrimaryStopAvailableEvent? CurrentStop { get; set; }
+
+    public object Fork()
+        => this with
+        {
+            StoppedThreadId = StoppedThreadId,
+            StopReason = StopReason,
+            SuspensionEpoch = SuspensionEpoch,
+            CurrentStop = CurrentStop
+        };
 }
 
-internal sealed class DebugBreakpointPresentationState
+internal sealed class DebugBreakpointPresentationState : IAgentTuiProjectionState
 {
     public required string DebugTreeId { get; init; }
     public required string DebugSessionId { get; init; }
@@ -218,9 +247,30 @@ internal sealed class DebugBreakpointPresentationState
             state.Items[item.ClientBreakpointId] = DebugBreakpointPresentationItem.Create(item);
         return state;
     }
+
+    public object Fork()
+    {
+        var fork = new DebugBreakpointPresentationState
+        {
+            DebugTreeId = DebugTreeId,
+            DebugSessionId = DebugSessionId,
+            ToolCallId = ToolCallId,
+            EntryKey = EntryKey,
+            Kind = Kind,
+            Before = Before,
+            Changes = Changes,
+            SourcePreviews = SourcePreviews,
+            DetailsTruncated = DetailsTruncated,
+            UnknownHitCount = UnknownHitCount,
+            HasEvolved = HasEvolved
+        };
+        foreach (var pair in Items)
+            fork.Items.Add(pair.Key, (DebugBreakpointPresentationItem)pair.Value.Fork());
+        return fork;
+    }
 }
 
-internal sealed class DebugBreakpointPresentationItem
+internal sealed class DebugBreakpointPresentationItem : IAgentTuiProjectionState
 {
     public required string ClientBreakpointId { get; init; }
     public required DebugBreakpointKind Kind { get; init; }
@@ -275,9 +325,29 @@ internal sealed class DebugBreakpointPresentationItem
             Verified = Verified,
             SafeMessage = SafeMessage
         };
+
+    public object Fork()
+        => new DebugBreakpointPresentationItem
+        {
+            ClientBreakpointId = ClientBreakpointId,
+            Kind = Kind,
+            DisplayPath = DisplayPath,
+            RequestedLine = RequestedLine,
+            RequestedColumn = RequestedColumn,
+            ResolvedLine = ResolvedLine,
+            ResolvedColumn = ResolvedColumn,
+            SafeDisplayName = SafeDisplayName,
+            Condition = Condition,
+            HitCondition = HitCondition,
+            LogMessage = LogMessage,
+            Acknowledged = Acknowledged,
+            Verified = Verified,
+            SafeMessage = SafeMessage,
+            HitCount = HitCount
+        };
 }
 
-internal sealed record DebugTreeTuiState(string DebugTreeId)
+internal sealed record DebugTreeTuiState(string DebugTreeId) : IAgentTuiProjectionState
 {
     public string? AdapterId { get; set; }
     public string Status { get; set; } = "Starting";
@@ -288,4 +358,22 @@ internal sealed record DebugTreeTuiState(string DebugTreeId)
     public int SourceCount { get; set; }
     public long DroppedOutputRecords { get; set; }
     public Queue<string> Output { get; } = new();
+
+    public object Fork()
+    {
+        var fork = this with
+        {
+            AdapterId = AdapterId,
+            Status = Status,
+            LastChanged = LastChanged,
+            Breakpoints = Breakpoints,
+            ThreadCount = ThreadCount,
+            ModuleCount = ModuleCount,
+            SourceCount = SourceCount,
+            DroppedOutputRecords = DroppedOutputRecords
+        };
+        foreach (var line in Output)
+            fork.Output.Enqueue(line);
+        return fork;
+    }
 }

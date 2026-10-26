@@ -12,14 +12,14 @@ public static class HPDGeneratedToolArgumentBinder
     public static void RequireObject(JsonElement value, string path)
     {
         if (value.ValueKind is not JsonValueKind.Object)
-            Throw(path, "invalid_json_kind", "Expected an object.");
+            Throw(path, "invalid_json_kind", "Expected an object.", value);
     }
 
     /// <summary>Requires an array at the supplied contract path.</summary>
     public static void RequireArray(JsonElement value, string path)
     {
         if (value.ValueKind is not JsonValueKind.Array)
-            Throw(path, "invalid_json_kind", "Expected an array.");
+            Throw(path, "invalid_json_kind", "Expected an array.", value);
     }
 
     /// <summary>Gets one required property using exact ordinal name matching.</summary>
@@ -33,7 +33,7 @@ public static class HPDGeneratedToolArgumentBinder
             if (!string.Equals(property.Name, name, StringComparison.Ordinal))
                 continue;
             if (found)
-                Throw(Append(path, name), "duplicate_property", $"Property '{name}' occurs more than once.");
+                Throw(Append(path, name), "duplicate_property", $"Property '{name}' occurs more than once.", property.Value);
             found = true;
             result = property.Value;
         }
@@ -54,7 +54,7 @@ public static class HPDGeneratedToolArgumentBinder
             if (!string.Equals(property.Name, name, StringComparison.Ordinal))
                 continue;
             if (found)
-                Throw(Append(path, name), "duplicate_property", $"Property '{name}' occurs more than once.");
+                Throw(Append(path, name), "duplicate_property", $"Property '{name}' occurs more than once.", property.Value);
             found = true;
             result = property.Value;
         }
@@ -69,9 +69,9 @@ public static class HPDGeneratedToolArgumentBinder
         foreach (var property in value.EnumerateObject())
         {
             if (!seen.Add(property.Name))
-                Throw(Append(path, property.Name), "duplicate_property", $"Property '{property.Name}' occurs more than once.");
+                Throw(Append(path, property.Name), "duplicate_property", $"Property '{property.Name}' occurs more than once.", property.Value);
             if (!expectedNames.Contains(property.Name, StringComparer.Ordinal))
-                Throw(Append(path, property.Name), "unknown_property", $"Property '{property.Name}' is not allowed.");
+                Throw(Append(path, property.Name), "unknown_property", $"Property '{property.Name}' is not allowed.", property.Value);
         }
     }
 
@@ -79,7 +79,7 @@ public static class HPDGeneratedToolArgumentBinder
     public static string BindString(JsonElement value, string path) =>
         value.ValueKind is JsonValueKind.String
             ? value.GetString()!
-            : throw Error(path, "invalid_json_kind", "Expected a string.");
+            : throw Error(path, "invalid_json_kind", "Expected a string.", value);
 
     /// <summary>Binds a single-character JSON string.</summary>
     public static char BindChar(JsonElement value, string path)
@@ -165,22 +165,38 @@ public static class HPDGeneratedToolArgumentBinder
     public static string AppendIndex(string path, int index) => $"{path}[{index}]";
 
     /// <summary>Creates a generated binding exception.</summary>
-    public static HPDToolArgumentException Error(string path, string errorCode, string message) =>
-        new(path, message, errorCode);
+    public static HPDToolArgumentException Error(
+        string path,
+        string errorCode,
+        string message,
+        JsonElement? attemptedValue = null,
+        IReadOnlyList<string>? allowedValues = null) =>
+        new(path, message, errorCode, attemptedValue: attemptedValue, allowedValues: allowedValues);
 
     private static T ReadNumber<T>(JsonElement value, string path, Func<JsonElement, T> reader)
     {
         if (value.ValueKind is not JsonValueKind.Number)
-            throw Error(path, "invalid_json_kind", "Expected a number.");
+            throw Error(path, "invalid_json_kind", "Expected a number.", value);
         try
         {
             return reader(value);
         }
         catch (FormatException exception)
         {
-            throw new HPDToolArgumentException(path, "The number is outside the supported range.", "invalid_number", exception);
+            throw new HPDToolArgumentException(
+                path,
+                "The number is outside the supported range.",
+                "invalid_number",
+                exception,
+                value);
         }
     }
 
-    private static void Throw(string path, string errorCode, string message) => throw Error(path, errorCode, message);
+    private static void Throw(
+        string path,
+        string errorCode,
+        string message,
+        JsonElement? attemptedValue = null,
+        IReadOnlyList<string>? allowedValues = null) =>
+        throw Error(path, errorCode, message, attemptedValue, allowedValues);
 }

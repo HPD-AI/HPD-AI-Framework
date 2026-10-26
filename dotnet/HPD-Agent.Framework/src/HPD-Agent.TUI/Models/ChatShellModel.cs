@@ -62,4 +62,5 @@ public sealed class ChatShellModel
 
     /// <summary>Moves keyboard focus back to the conversation prompt.</summary>
     public void FocusPrompt() => FocusPromptAction?.Invoke();
+
 }

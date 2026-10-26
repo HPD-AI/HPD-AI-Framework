@@ -379,8 +379,11 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             {
                 if (hpdFunction.HPDOptions.OperationContract is not null)
                     return CreatePreparationRejection(functionCall, invocation, function, toolharnessName, callType,
-                        "raw_json_required",
-                        "Action-contracted functions require authoritative raw JSON arguments.");
+                        new ValidationError
+                        {
+                            ErrorCode = "raw_json_required",
+                            ErrorMessage = "Action-contracted functions require authoritative raw JSON arguments."
+                        });
                 source = CreateInvocationArguments(arguments);
                 ingressProvenance = FunctionArgumentIngressProvenance.Canonicalized;
             }
@@ -389,9 +392,8 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 var validation = canonicalContract.Bind(source.GetJson());
                 if (validation.Errors.Count != 0)
                 {
-                    var error = validation.Errors[0];
                     return CreatePreparationRejection(functionCall, invocation, function, toolharnessName, callType,
-                        error.ErrorCode, error.ErrorMessage, error.Property);
+                        validation.Errors[0]);
                 }
                 var canonical = new AIFunctionArguments(source);
                 canonical.SetJsonSerializerOptions(source.GetJsonSerializerOptions());
@@ -409,7 +411,11 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 catch (InvalidOperationException exception)
                 {
                     return CreatePreparationRejection(functionCall, invocation, function, toolharnessName, callType,
-                        "invalid_function_action", exception.Message);
+                        new ValidationError
+                        {
+                            ErrorCode = "invalid_function_action",
+                            ErrorMessage = exception.Message
+                        });
                 }
                 arguments = sanitized
                     .Where(pair => pair.Key != AIFunctionArgumentsExtensions.JsonKey &&
@@ -436,7 +442,11 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 catch (InvalidOperationException exception)
                 {
                     return CreatePreparationRejection(functionCall, invocation, function, toolharnessName, callType,
-                        "invalid_invocation_mode", exception.Message);
+                        new ValidationError
+                        {
+                            ErrorCode = "invalid_invocation_mode",
+                            ErrorMessage = exception.Message
+                        });
                 }
                 resolvedInvocation = new ResolvedFunctionInvocation
                 {
@@ -529,17 +539,10 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
         AIFunction function,
         string? toolharnessName,
         ToolCallType? callType,
-        string errorCode,
-        string message,
-        string property = "")
+        ValidationError error)
     {
         var response = new ValidationErrorResponse();
-        response.Errors.Add(new ValidationError
-        {
-            Property = property,
-            ErrorCode = errorCode,
-            ErrorMessage = message
-        });
+        response.Errors.Add(error);
         var result = JsonSerializer.SerializeToElement(response, HPDJsonContext.Default.ValidationErrorResponse);
         var outcome = new FunctionExecutionOutcome(
             functionCall.CallId, functionCall.Name, function, result, ToolResultPayload.FromResult(result),

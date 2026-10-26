@@ -253,6 +253,63 @@ public sealed class DebugTuiTests
     }
 
     [Fact]
+    public async Task Non_object_debug_request_args_do_not_break_event_projection()
+    {
+        var registry = new HpdAgentTuiBuilder()
+            .AddAgentTuiDefaults()
+            .AddCodingHarnessTui()
+            .Build();
+        var state = new AgentTuiSessionState(
+            new AgentTuiRuntimeScope("agent", "session", "main"),
+            registry);
+        await state.ApplyEventAsync(new ToolCallStartEvent("debug-1", "Debug", "message"));
+
+        var exception = await Record.ExceptionAsync(() => state.ApplyEventAsync(
+            new ToolCallArgsEvent("debug-1", """{"request":"launch"}""")).AsTask());
+
+        exception.Should().BeNull();
+        await state.ApplyEventAsync(new ToolCallResultEvent(
+            "debug-1",
+            new ToolResultPayload(Text: ""),
+            Name: "Debug"));
+        Render(state, registry).Should()
+            .Contain("Debug failed · invalid request")
+            .And.Contain("empty result");
+    }
+
+    [Fact]
+    public async Task Malformed_validation_error_envelope_does_not_break_projection()
+    {
+        var registry = new HpdAgentTuiBuilder()
+            .AddAgentTuiDefaults()
+            .AddCodingHarnessTui()
+            .Build();
+        var state = new AgentTuiSessionState(
+            new AgentTuiRuntimeScope("agent", "session", "main"),
+            registry);
+        await state.ApplyEventAsync(new ToolCallStartEvent("debug-1", "Debug", "message"));
+        await state.ApplyEventAsync(new ToolCallArgsEvent(
+            "debug-1",
+            """{"request":{"action":"launch"}}"""));
+
+        var exception = await Record.ExceptionAsync(() => state.ApplyEventAsync(
+            new ToolCallResultEvent(
+                "debug-1",
+                new ToolResultPayload(Json: System.Text.Json.JsonSerializer.SerializeToElement(
+                    new
+                    {
+                        error_type = "validation_error",
+                        errors = new[] { "malformed error entry" }
+                    })),
+                Name: "Debug")).AsTask());
+
+        exception.Should().BeNull();
+        Render(state, registry).Should()
+            .Contain("The debugger request is invalid.")
+            .And.NotContain("\"error_type\"");
+    }
+
+    [Fact]
     public async Task Tool_call_end_waits_for_the_following_result()
     {
         var registry = new HpdAgentTuiBuilder()
@@ -662,7 +719,9 @@ public sealed class DebugTuiTests
             AdapterId = "netcoredbg",
             SafeReasonCode = "capacity"
         });
-        debug.Trees.Should().NotContainKey("tree");
+        state.ProjectionFailures.Should().BeEmpty();
+        state.State.TryGet<DebugTuiState>(DebugTuiState.StateKey, out var evicted).Should().BeTrue();
+        evicted!.Trees.Should().NotContainKey("tree");
     }
 
     private static DebugPrimaryStopAvailableEvent Summary(long epoch, string frame)

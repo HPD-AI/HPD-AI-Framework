@@ -53,4 +53,27 @@ public sealed class ActivityGroupModel
 
         return visible;
     }
+
+    internal ActivityGroupCheckpoint CaptureCheckpoint()
+        => new(
+            Title,
+            HideCompleted,
+            AutoClearCompleted,
+            _activities.Select(static activity => activity.Clone()).ToArray());
+
+    internal void RestoreCheckpoint(ActivityGroupCheckpoint checkpoint)
+    {
+        Title = checkpoint.Title;
+        HideCompleted = checkpoint.HideCompleted;
+        AutoClearCompleted = checkpoint.AutoClearCompleted;
+        _activities.Clear();
+        foreach (var activity in checkpoint.Activities)
+            _activities.Add(activity.Clone());
+    }
 }
+
+internal sealed record ActivityGroupCheckpoint(
+    string? Title,
+    bool HideCompleted,
+    bool AutoClearCompleted,
+    IReadOnlyList<ActivityModel> Activities);

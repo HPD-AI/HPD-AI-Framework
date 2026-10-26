@@ -1,8 +1,9 @@
+using HPD.Agent.TUI.Composition;
 using HPDOS.ToolHarnesses.Middleware;
 
 namespace HPD.Agent.ToolHarness.Coding.TUI.FileMutations;
 
-internal sealed class FileMutationTuiState
+internal sealed class FileMutationTuiState : IAgentTuiProjectionState
 {
     public const string StateKey = "hpd.coding.file-mutations";
     private const int MaxRecent = 50;
@@ -57,9 +58,43 @@ internal sealed class FileMutationTuiState
         => string.IsNullOrWhiteSpace(path)
             ? ""
             : path.Replace('\\', '/').Trim();
+
+    public object Fork()
+    {
+        var fork = new FileMutationTuiState
+        {
+            MutationCount = MutationCount,
+            AddedLines = AddedLines,
+            RemovedLines = RemovedLines,
+            LatestPath = LatestPath
+        };
+        var copies = new Dictionary<FileMutationTranscriptModel, FileMutationTranscriptModel>();
+        foreach (var model in _recent)
+        {
+            var copy = (FileMutationTranscriptModel)model.Fork();
+            copies[model] = copy;
+            fork._recent.Add(copy);
+        }
+        foreach (var pair in _byEntryKey)
+            fork._byEntryKey.Add(pair.Key, Copy(pair.Value));
+        foreach (var pair in _latestByPath)
+            fork._latestByPath.Add(pair.Key, Copy(pair.Value));
+        fork._changedPaths.UnionWith(_changedPaths);
+        return fork;
+
+        FileMutationTranscriptModel Copy(FileMutationTranscriptModel model)
+        {
+            if (!copies.TryGetValue(model, out var copy))
+            {
+                copy = (FileMutationTranscriptModel)model.Fork();
+                copies[model] = copy;
+            }
+            return copy;
+        }
+    }
 }
 
-internal sealed class FileMutationTranscriptModel
+internal sealed class FileMutationTranscriptModel : IAgentTuiProjectionState
 {
     public FileMutationTranscriptModel(FileMutationAppliedEvent mutation)
     {
@@ -77,4 +112,10 @@ internal sealed class FileMutationTranscriptModel
     {
         Diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
     }
+
+    public object Fork()
+        => new FileMutationTranscriptModel(Mutation)
+        {
+            Diagnostics = Diagnostics
+        };
 }

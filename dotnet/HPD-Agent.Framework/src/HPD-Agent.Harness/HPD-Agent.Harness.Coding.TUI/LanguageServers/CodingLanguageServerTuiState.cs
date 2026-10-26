@@ -1,8 +1,9 @@
+using HPD.Agent.TUI.Composition;
 using HPDOS.ToolHarnesses.Middleware;
 
 namespace HPD.Agent.ToolHarness.Coding.TUI.LanguageServers;
 
-internal sealed class CodingLanguageServerTuiState
+internal sealed class CodingLanguageServerTuiState : IAgentTuiProjectionState
 {
     public const string StateKey = "hpd.coding.language-servers";
 
@@ -13,4 +14,10 @@ internal sealed class CodingLanguageServerTuiState
             .OrderBy(static server => server.ServerId, StringComparer.Ordinal)
             .ThenBy(static server => server.Root, StringComparer.Ordinal)
             .ToArray();
+
+    public object Fork()
+        => new CodingLanguageServerTuiState
+        {
+            Servers = Servers
+        };
 }

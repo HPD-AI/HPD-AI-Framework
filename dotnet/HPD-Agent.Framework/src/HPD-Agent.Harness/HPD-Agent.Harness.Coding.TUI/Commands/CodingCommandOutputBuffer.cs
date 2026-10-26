@@ -66,6 +66,35 @@ internal sealed class CodingCommandOutputBuffer
         }
     }
 
+    internal CodingCommandOutputBuffer Fork()
+    {
+        var fork = new CodingCommandOutputBuffer
+        {
+            Suppressed = Suppressed,
+            Binary = Binary,
+            Truncated = Truncated,
+            _pending = _pending,
+            _discardedLineCount = _discardedLineCount,
+            _discardedCharacterCount = _discardedCharacterCount,
+            _bufferedCharacterCount = _bufferedCharacterCount
+        };
+        fork._lines.AddRange(_lines);
+        return fork;
+    }
+
+    internal void Restore(CodingCommandOutputBuffer source)
+    {
+        Suppressed = source.Suppressed;
+        Binary = source.Binary;
+        Truncated = source.Truncated;
+        _pending = source._pending;
+        _discardedLineCount = source._discardedLineCount;
+        _discardedCharacterCount = source._discardedCharacterCount;
+        _bufferedCharacterCount = source._bufferedCharacterCount;
+        _lines.Clear();
+        _lines.AddRange(source._lines);
+    }
+
     public CodingCommandOutputSnapshot CreateSnapshot(
         int headRows = 2,
         int tailRows = 2,

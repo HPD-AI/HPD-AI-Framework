@@ -4,9 +4,9 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.Commands.Handlers;
 
 internal sealed class ExecuteCommandExitedTuiHandler : ExecuteCommandTuiHandlerBase<ExecuteCommandProcessExitedEvent>
 {
-    public override ValueTask HandleAsync(
+    public override ValueTask ProjectAsync(
         ExecuteCommandProcessExitedEvent evt,
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         CancellationToken cancellationToken)
     {
         var store = GetStore(context);

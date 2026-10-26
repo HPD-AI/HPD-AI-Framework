@@ -38,10 +38,8 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     private readonly AgentTuiExecutionTarget? _requestedTarget;
     private readonly HpdAgentTuiRegistry _registry;
     private readonly ManagedTerminalTuiApplication _application;
-    private readonly MarkdownStreamCoordinator _markdownStreams;
-    private readonly List<PreparedMarkdownPublication> _preparedMarkdownPublications = [];
+    private MarkdownStreamCoordinator _markdownStreams;
     private readonly SemaphoreSlim _markdownWorker = new(1, 1);
-    private readonly HashSet<MarkdownStreamIdentity> _activeMarkdownStreams = [];
     private readonly object _commandGate = new();
     private readonly Queue<QueuedCommand> _queuedCommands = [];
     private bool _commandsReady;
@@ -89,12 +87,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             !ManagedTerminalCapabilityProfile.Detect(terminal).SupportsSplitFooter)
             throw new NotSupportedException("Native chat requires a supported interactive terminal (for example xterm, iTerm, Windows Terminal, or WezTerm).");
         _application = new ManagedTerminalTuiApplication(terminal);
-        _markdownStreams = markdownParser is null
-            ? new MarkdownStreamCoordinator(PrepareMarkdownPublication)
-            : new MarkdownStreamCoordinator(
-                PrepareMarkdownPublication,
-                (identity, presentation, properties) => new MarkdownStreamSession(
-                    identity, presentation, markdownParser, additionalProperties: properties));
+        _markdownStreams = CreateMarkdownCoordinator(markdownParser, static (_, _) => { });
         _application.ShortcutHandler = TryExecuteShortcut;
         _application.FramePreparing = PrepareMarkdownFrame;
         _application.Stopping = DiscardMarkdownState;
@@ -352,7 +345,6 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         if (_observeCancellation is null)
         {
             _markdownStreams.DiscardAllAfterProducerStopped();
-            _activeMarkdownStreams.Clear();
             return;
         }
 
@@ -378,7 +370,6 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         else
         {
             _markdownStreams.DiscardAllAfterProducerStopped();
-            _activeMarkdownStreams.Clear();
         }
     }
 
@@ -1155,41 +1146,46 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             return;
         }
 
-        var prepared = new List<PreparedBatchPublication>();
+        var prepared = new PreparedEventProjection?[events.Count];
         await _markdownWorker.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            var preparedCoordinator = _markdownStreams;
             for (var index = 0; index < events.Count; index++)
             {
                 var evt = events[index];
-                if (_scope is not null && AgentTuiEventScope.CurrentThread.Includes(evt, _scope))
-                {
-                    if (evt is ToolCallStartEvent) _markdownStreams.RefreshPending();
-                    ProjectMarkdownEvent(evt);
-                    var publications = TakePreparedMarkdownPublications();
-                    if (publications.Length > 0) prepared.Add(new(index, publications));
-                }
+                if (_scope is null ||
+                    !AgentTuiEventScope.CurrentThread.Includes(evt, _scope) ||
+                    !AffectsMarkdown(evt))
+                    continue;
+
+                prepared[index] = PrepareMarkdownEvent(preparedCoordinator, evt);
+                preparedCoordinator = prepared[index]!.Coordinator;
             }
-            _markdownStreams.RefreshPending();
-            var tail = TakePreparedMarkdownPublications();
-            if (tail.Length > 0) prepared.Add(new(events.Count, tail));
         }
         finally { _markdownWorker.Release(); }
 
         await InvokeApplicationAsync(async () =>
         {
             using var update = _state!.Shell.Transcript.BeginUpdate();
-            var publicationIndex = 0;
-            for (var index = 0; index <= events.Count; index++)
+            for (var index = 0; index < events.Count; index++)
             {
-                while (publicationIndex < prepared.Count && prepared[publicationIndex].BeforeEventIndex == index)
-                    CommitMarkdownPublications(prepared[publicationIndex++].Publications);
-                if (index < events.Count)
-                    await OnAgentEventAsync(events[index], batch.DeliveryMode, cancellationToken).ConfigureAwait(false);
+                var projection = prepared[index];
+                if (projection is not null)
+                    CommitMarkdownPublications(projection.Publications);
+                await OnAgentEventAsync(events[index], batch.DeliveryMode, cancellationToken).ConfigureAwait(false);
+                if (projection is not null)
+                    _markdownStreams = projection.Coordinator;
+                _appliedCursor = AdvanceCursorAfterEvent(batch, events[index], _appliedCursor);
+            }
+            if (batch.LastCursor.Generation > _appliedCursor.Generation ||
+                batch.LastCursor.Generation == _appliedCursor.Generation &&
+                batch.LastCursor.SequenceNumber > _appliedCursor.SequenceNumber)
+            {
+                _appliedCursor = batch.LastCursor;
             }
             var hasPerformanceSink = AgentTuiPerformanceDiagnostics.TryGetSink(_state!.State, out var performanceSink);
             var startedAt = hasPerformanceSink ? Stopwatch.GetTimestamp() : 0;
-            _appliedCursor = batch.LastCursor;
             if (batch.DeliveryMode == AgentTuiEventDeliveryMode.Historical &&
                 _hydratedThreadState is { } hydratedThreadState)
             {
@@ -1208,6 +1204,23 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             });
             RequestRender();
         }, cancellationToken).ConfigureAwait(false);
+    }
+
+    private ThreadJournalCursor AdvanceCursorAfterEvent(
+        AgentTuiEventBatch batch,
+        AgentEvent evt,
+        ThreadJournalCursor current)
+    {
+        if (_scope is null ||
+            evt.ThreadSequenceNumber <= 0 ||
+            !AgentTuiEventScope.CurrentThread.Includes(evt, _scope))
+        {
+            return current;
+        }
+
+        return new ThreadJournalCursor(
+            batch.LastCursor.Generation,
+            Math.Max(current.SequenceNumber, evt.ThreadSequenceNumber));
     }
 
     private async Task OnAgentEventAsync(
@@ -1237,13 +1250,43 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             CancelActiveInteraction(terminal.RequestId);
     }
 
-    private void ProjectMarkdownEvent(AgentEvent evt)
+    private static MarkdownStreamCoordinator CreateMarkdownCoordinator(
+        IMarkdownDocumentParser? markdownParser,
+        Action<MarkdownStreamUpdate, MarkdownMessageProjection> publish)
+        => markdownParser is null
+            ? new MarkdownStreamCoordinator(publish)
+            : new MarkdownStreamCoordinator(
+                publish,
+                (identity, presentation, properties) => new MarkdownStreamSession(
+                    identity,
+                    presentation,
+                    markdownParser,
+                    additionalProperties: properties));
+
+    private static bool AffectsMarkdown(AgentEvent evt)
+        => evt is TextMessageStartEvent or TextDeltaEvent or TextMessageEndEvent or
+            ReasoningMessageStartEvent or ReasoningDeltaEvent or ReasoningMessageEndEvent or
+            ThreadExecutionFinishedEvent or ToolCallStartEvent;
+
+    private PreparedEventProjection PrepareMarkdownEvent(
+        MarkdownStreamCoordinator source,
+        AgentEvent evt)
+    {
+        var publications = new List<PreparedMarkdownPublication>();
+        var coordinator = source.Fork(
+            (update, projection) => PrepareMarkdownPublication(update, projection, publications));
+        if (evt is not ToolCallStartEvent)
+            ProjectMarkdownEvent(coordinator, evt);
+        coordinator.RefreshPending();
+        return new(coordinator, publications.ToArray());
+    }
+
+    private void ProjectMarkdownEvent(MarkdownStreamCoordinator coordinator, AgentEvent evt)
     {
         switch (evt)
         {
             case TextMessageStartEvent start when !string.Equals(start.Role, "user", StringComparison.OrdinalIgnoreCase):
-                _activeMarkdownStreams.Add(new(MarkdownStreamKind.Assistant, start.MessageId));
-                _markdownStreams.Start(
+                coordinator.Start(
                     new(MarkdownStreamKind.Assistant, start.MessageId),
                     new(
                         start.Role,
@@ -1266,15 +1309,13 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                         : new Dictionary<string, object?>(start.AdditionalProperties, StringComparer.Ordinal));
                 break;
             case TextDeltaEvent delta:
-                _markdownStreams.Append(new(MarkdownStreamKind.Assistant, delta.MessageId), delta.Text);
+                coordinator.Append(new(MarkdownStreamKind.Assistant, delta.MessageId), delta.Text);
                 break;
             case TextMessageEndEvent end:
-                _activeMarkdownStreams.Remove(new(MarkdownStreamKind.Assistant, end.MessageId));
-                _markdownStreams.Complete(new(MarkdownStreamKind.Assistant, end.MessageId));
+                coordinator.Complete(new(MarkdownStreamKind.Assistant, end.MessageId));
                 break;
             case ReasoningMessageStartEvent start when _registry.ShowReasoning:
-                _activeMarkdownStreams.Add(new(MarkdownStreamKind.Reasoning, start.MessageId));
-                _markdownStreams.Start(
+                coordinator.Start(
                     new(MarkdownStreamKind.Reasoning, start.MessageId),
                     new(
                         Role: start.Role,
@@ -1290,15 +1331,13 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                         IncompleteLinePolicy: _registry.MarkdownIncompleteLinePolicy));
                 break;
             case ReasoningDeltaEvent delta when _registry.ShowReasoning:
-                _markdownStreams.Append(new(MarkdownStreamKind.Reasoning, delta.MessageId), delta.Text);
+                coordinator.Append(new(MarkdownStreamKind.Reasoning, delta.MessageId), delta.Text);
                 break;
             case ReasoningMessageEndEvent end when _registry.ShowReasoning:
-                _activeMarkdownStreams.Remove(new(MarkdownStreamKind.Reasoning, end.MessageId));
-                _markdownStreams.Complete(new(MarkdownStreamKind.Reasoning, end.MessageId));
+                coordinator.Complete(new(MarkdownStreamKind.Reasoning, end.MessageId));
                 break;
-            case ThreadExecutionFinishedEvent finished when _activeMarkdownStreams.Count > 0:
-                _activeMarkdownStreams.Clear();
-                _markdownStreams.FinalizeAll(finished.Outcome switch
+            case ThreadExecutionFinishedEvent finished:
+                coordinator.FinalizeAll(finished.Outcome switch
                 {
                     ThreadExecutionOutcome.Cancelled => MarkdownMessageState.Cancelled,
                     ThreadExecutionOutcome.Failed => MarkdownMessageState.Failed,
@@ -1313,25 +1352,20 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         MarkdownMessageProjection Projection,
         MarkdownLayout Layout);
 
-    private sealed record PreparedBatchPublication(
-        int BeforeEventIndex,
+    private sealed record PreparedEventProjection(
+        MarkdownStreamCoordinator Coordinator,
         PreparedMarkdownPublication[] Publications);
 
-    private void PrepareMarkdownPublication(MarkdownStreamUpdate update, MarkdownMessageProjection projection)
+    private void PrepareMarkdownPublication(
+        MarkdownStreamUpdate update,
+        MarkdownMessageProjection projection,
+        ICollection<PreparedMarkdownPublication> publications)
     {
         if (_state is null || update.Document.Presentation.Visibility == AgentMessageVisibility.Hidden) return;
         var document = update.Document;
         var reasoning = document.Identity.Kind == MarkdownStreamKind.Reasoning;
         var layout = PrepareMarkdown(document, projection, _application.Size.Width, _application.Theme, reasoning);
-        _preparedMarkdownPublications.Add(new(update, projection, layout));
-    }
-
-    private PreparedMarkdownPublication[] TakePreparedMarkdownPublications()
-    {
-        if (_preparedMarkdownPublications.Count == 0) return [];
-        var publications = _preparedMarkdownPublications.ToArray();
-        _preparedMarkdownPublications.Clear();
-        return publications;
+        publications.Add(new(update, projection, layout));
     }
 
     private void CommitMarkdownPublications(IEnumerable<PreparedMarkdownPublication> publications)
@@ -1705,23 +1739,25 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             ? "state: running | follow-up queued | Alt+↑ edit | Esc steer now"
             : $"state: running | {count} follow-ups queued | Alt+↑ edit latest | Esc steer next";
 
-    private ValueTask ReconcileThreadPresentationAsync(
+    private async ValueTask ReconcileThreadPresentationAsync(
         AgentTuiThreadState threadState,
         CancellationToken cancellationToken)
     {
         if (_scope is null || _state is null || _registry.ThreadStateReconciler is null)
-            return ValueTask.CompletedTask;
+            return;
 
-        return _registry.ThreadStateReconciler.ReconcileAsync(
+        var context = new AgentTuiProjectionContext(
+            _scope,
+            _state.Shell,
+            _registry,
+            _state.State,
+            AgentTuiEventDeliveryMode.Historical);
+        await _registry.ThreadStateReconciler.ReconcileAsync(
             threadState,
-            new AgentTuiEventContext(
-                _scope,
-                _state.Shell,
-                _state.Shell.Navigation,
-                _registry,
-                _state.State,
-                AgentTuiEventDeliveryMode.Historical),
-            cancellationToken);
+            context,
+            cancellationToken).ConfigureAwait(false);
+        context.Commit();
+        context.FlushDeferredRenderRequest();
     }
 
     private void RequestRender()
@@ -1732,7 +1768,6 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     private void DiscardMarkdownState()
     {
         _markdownStreams.DiscardAllAfterProducerStopped();
-        _activeMarkdownStreams.Clear();
     }
 
     public async ValueTask DisposeAsync()

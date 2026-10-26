@@ -16,6 +16,14 @@ public sealed class ActivityModel
     public double? Progress { get; set; }
 
     public bool IsIndeterminate => Progress is null && State == ActivityState.Running;
+
+    internal ActivityModel Clone()
+        => new(Label)
+        {
+            State = State,
+            Severity = Severity,
+            Progress = Progress
+        };
 }
 
 public enum ActivityState

@@ -30,4 +30,31 @@ internal sealed class CodingCommandArtifacts
         StdoutLocalPath is not null ||
         StderrLocalPath is not null ||
         CombinedOutputLocalPath is not null;
+
+    internal CodingCommandArtifacts Fork()
+        => new()
+        {
+            StdoutArtifactPath = StdoutArtifactPath,
+            StderrArtifactPath = StderrArtifactPath,
+            CombinedOutputArtifactPath = CombinedOutputArtifactPath,
+            StdoutContentId = StdoutContentId,
+            StderrContentId = StderrContentId,
+            CombinedOutputContentId = CombinedOutputContentId,
+            StdoutLocalPath = StdoutLocalPath,
+            StderrLocalPath = StderrLocalPath,
+            CombinedOutputLocalPath = CombinedOutputLocalPath
+        };
+
+    internal void Restore(CodingCommandArtifacts source)
+    {
+        StdoutArtifactPath = source.StdoutArtifactPath;
+        StderrArtifactPath = source.StderrArtifactPath;
+        CombinedOutputArtifactPath = source.CombinedOutputArtifactPath;
+        StdoutContentId = source.StdoutContentId;
+        StderrContentId = source.StderrContentId;
+        CombinedOutputContentId = source.CombinedOutputContentId;
+        StdoutLocalPath = source.StdoutLocalPath;
+        StderrLocalPath = source.StderrLocalPath;
+        CombinedOutputLocalPath = source.CombinedOutputLocalPath;
+    }
 }

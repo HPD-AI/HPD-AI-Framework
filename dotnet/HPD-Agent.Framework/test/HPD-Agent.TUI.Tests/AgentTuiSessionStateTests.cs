@@ -1,3 +1,4 @@
+using System.Reflection;
 using FluentAssertions;
 using HPD.Agent.TUI.Application;
 using HPD.Agent.TUI.Commands;
@@ -12,6 +13,34 @@ namespace HPD.Agent.TUI.Tests;
 
 public sealed class AgentTuiSessionStateTests
 {
+    [Fact]
+    public void PublicStateApis_DoNotExposeSharedMutableProjectionState()
+    {
+        typeof(IAgentTuiStateStore).GetMethod("TryGetShared").Should().BeNull();
+        typeof(AgentTuiProjectionContext)
+            .GetMethod("Commit", BindingFlags.Public | BindingFlags.Instance)
+            .Should()
+            .BeNull();
+        typeof(AgentTuiStateBag)
+            .GetMethod("TryGetShared", BindingFlags.Public | BindingFlags.Instance)
+            .Should()
+            .BeNull();
+
+        var scope = new AgentTuiRuntimeScope("agent", "session", "main");
+        var bag = new AgentTuiStateBag();
+        bag.Set(MutatingFailingEventHandler.StateKey, new MutableProjectionState { Value = 1 });
+        var registry = new HpdAgentTuiBuilder().Build();
+        var context = new AgentTuiProjectionContext(
+            scope,
+            new ChatShellModel(scope),
+            registry,
+            bag);
+
+        context.SharedServices.TryGet<MutableProjectionState>(
+            MutatingFailingEventHandler.StateKey,
+            out _).Should().BeFalse();
+    }
+
     [Fact]
     public async Task ApplyEventAsync_StreamsAssistantIntoSingleKeyedRow()
     {
@@ -80,6 +109,131 @@ public sealed class AgentTuiSessionStateTests
     }
 
     [Fact]
+    public async Task RequestRender_IsDeferredUntilAfterCommit()
+    {
+        AgentTuiSessionState? state = null;
+        var renderedStatus = "";
+        state = new AgentTuiSessionState(
+            new AgentTuiRuntimeScope("agent", "session", "main"),
+            new HpdAgentTuiBuilder()
+                .AddEventHandler("test.deferred-render", new DeferredRenderEventHandler())
+                .Build(),
+            () => renderedStatus = state!.Shell.PromptStatusText);
+
+        await state.ApplyEventAsync(new InterruptionHandledEvent(
+            "flow",
+            "stopped",
+            InterruptionSource.User));
+
+        renderedStatus.Should().Be("state: committed");
+    }
+
+    [Fact]
+    public async Task RequestRender_IsDiscardedWhenProjectionFails()
+    {
+        var renders = 0;
+        var state = new AgentTuiSessionState(
+            new AgentTuiRuntimeScope("agent", "session", "main"),
+            new HpdAgentTuiBuilder()
+                .AddEventHandler("test.render-failure", new RenderThenFailEventHandler())
+                .Build(),
+            () => Interlocked.Increment(ref renders));
+
+        await state.ApplyEventAsync(new InterruptionHandledEvent(
+            "flow",
+            "stopped",
+            InterruptionSource.User));
+
+        renders.Should().Be(0);
+        state.ProjectionFailures.Should().ContainSingle()
+            .Which.ContributionKey.Should().Be("test.render-failure");
+    }
+
+    [Fact]
+    public async Task EnqueueProjection_RunsAfterCommitWithoutWaitingOnTheProjectionGate()
+    {
+        var handler = new DeferredProjectionEventHandler();
+        var state = new AgentTuiSessionState(
+            new AgentTuiRuntimeScope("agent", "session", "main"),
+            new HpdAgentTuiBuilder()
+                .AddEventHandler("test.deferred", handler)
+                .Build());
+
+        await state.ApplyEventAsync(new InterruptionHandledEvent(
+            "flow",
+            "stopped",
+            InterruptionSource.User)).AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+
+        (await handler.Completed.Task.WaitAsync(TimeSpan.FromSeconds(2)))
+            .Should()
+            .Be("state: committed");
+        state.Shell.PromptStatusText.Should().Be("state: deferred");
+        state.ProjectionFailures.Should().BeEmpty();
+        state.ProjectionInfrastructureFailures.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task EnqueueProjection_AfterEventCompletionStillRuns()
+    {
+        var handler = new CapturingProjectionContextHandler();
+        var renders = 0;
+        var state = new AgentTuiSessionState(
+            new AgentTuiRuntimeScope("agent", "session", "main"),
+            new HpdAgentTuiBuilder()
+                .AddEventHandler("test.capture-context", handler)
+                .Build(),
+            () => Interlocked.Increment(ref renders));
+        await state.ApplyEventAsync(new InterruptionHandledEvent(
+            "flow",
+            "stopped",
+            InterruptionSource.User));
+
+        handler.Context!.RequestRender();
+        renders.Should().Be(1);
+        handler.Context!.EnqueueProjection(next =>
+        {
+            handler.Completed.TrySetResult(next.Shell.Transcript.Count);
+            next.Shell.Transcript.AddFinal(new TranscriptEntry(
+                "deferred",
+                null,
+                new NoticeCell("Deferred", new Text("committed")),
+                new TranscriptEntryMetadata()));
+            return ValueTask.CompletedTask;
+        });
+
+        (await handler.Completed.Task.WaitAsync(TimeSpan.FromSeconds(2))).Should().Be(0);
+        state.Shell.Transcript.Snapshot().Entries.Should()
+            .ContainSingle(entry => entry.Id == "deferred");
+    }
+
+    [Fact]
+    public async Task CommitFailure_IsInfrastructureAndDoesNotDisableContribution()
+    {
+        var handler = new FirstCommitFailingEventHandler();
+        var state = new AgentTuiSessionState(
+            new AgentTuiRuntimeScope("agent", "session", "main"),
+            new HpdAgentTuiBuilder()
+                .AddEventHandler("test.commit-failure", handler)
+                .Build());
+
+        var failure = await Record.ExceptionAsync(() => state.ApplyEventAsync(
+            new InterruptionHandledEvent("flow", "stopped", InterruptionSource.User)).AsTask());
+
+        failure.Should().BeOfType<ArgumentNullException>();
+        state.ProjectionFailures.Should().BeEmpty();
+        state.ProjectionInfrastructureFailures.Should().ContainSingle()
+            .Which.Should().Match<HPD.Agent.TUI.Application.AgentTuiProjectionInfrastructureFailure>(
+                item => item.ContributionKey == "test.commit-failure" && item.Stage == "commit");
+
+        await state.ApplyEventAsync(new InterruptionHandledEvent(
+            "flow",
+            "stopped",
+            InterruptionSource.User));
+        handler.Count.Should().Be(2);
+        state.Shell.PromptStatusText.Should().Be("state: recovered");
+    }
+
+    [Fact]
     public async Task AddAgentTuiDefaults_DoesNotHandleHpdCoreEvents()
     {
         var state = new AgentTuiSessionState(
@@ -93,7 +247,7 @@ public sealed class AgentTuiSessionStateTests
     }
 
     [Fact]
-    public async Task ApplyEventAsync_StopsAtHandlerFailure()
+    public async Task ApplyEventAsync_ContainsHandlerFailureAndContinues()
     {
         var afterFailure = new CountingEventHandler();
         var state = new AgentTuiSessionState(
@@ -103,11 +257,81 @@ public sealed class AgentTuiSessionStateTests
                 .AddEventHandler("sample.after", afterFailure)
                 .Build());
 
-        var action = async () => await state.ApplyEventAsync(new TextDeltaEvent("hello", "m1"));
+        var exception = await Record.ExceptionAsync(
+            () => state.ApplyEventAsync(new TextDeltaEvent("hello", "m1")).AsTask());
+        await state.ApplyEventAsync(new TextDeltaEvent("after", "m1"));
 
-        await action.Should().ThrowAsync<InvalidOperationException>();
-        afterFailure.Count.Should().Be(0);
-        state.Shell.Transcript.Count.Should().Be(0);
+        exception.Should().BeNull();
+        afterFailure.Count.Should().Be(2);
+        state.ProjectionFailures.Should().ContainSingle()
+            .Which.ContributionKey.Should().Be("sample.failing");
+        state.Shell.PromptStatusText.Should()
+            .Contain("projection faults: 1")
+            .And.Contain("sample.failing");
+        state.Shell.Transcript.Snapshot().Entries.Any(entry =>
+            entry.Cell is NoticeCell notice &&
+            notice.Title.Contains("contribution failed", StringComparison.Ordinal)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ApplyEventAsync_DoesNotRetryFaultedContribution()
+    {
+        var failing = new FailingEventHandler();
+        var state = new AgentTuiSessionState(
+            new AgentTuiRuntimeScope("agent", "session", "main"),
+            new HpdAgentTuiBuilder()
+                .AddEventHandler("sample.failing", failing)
+                .Build());
+
+        await state.ApplyEventAsync(new TextDeltaEvent("one", "m1"));
+        await state.ApplyEventAsync(new TextDeltaEvent("two", "m1"));
+
+        failing.Count.Should().Be(1);
+        state.ProjectionFailures.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task ApplyEventAsync_PropagatesCancellationInsteadOfFaultingContribution()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var state = new AgentTuiSessionState(
+            new AgentTuiRuntimeScope("agent", "session", "main"),
+            new HpdAgentTuiBuilder()
+                .AddEventHandler("sample.cancelling", new CancellingEventHandler(cancellation))
+                .Build());
+
+        var action = async () => await state.ApplyEventAsync(
+            new TextDeltaEvent("hello", "m1"),
+            cancellation.Token);
+
+        await action.Should().ThrowAsync<OperationCanceledException>();
+        state.ProjectionFailures.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ApplyEventAsync_RollsBackTranscriptAndStateFromFailingContribution()
+    {
+        var initial = new MutableProjectionState { Value = 1 };
+        var registry = new HpdAgentTuiBuilder()
+            .AddEventHandler("sample.mutating-failure", new MutatingFailingEventHandler())
+            .Build();
+        var state = new AgentTuiSessionState(
+            new AgentTuiRuntimeScope("agent", "session", "main"),
+            registry);
+        state.State.Set(MutatingFailingEventHandler.StateKey, initial);
+
+        await state.ApplyEventAsync(new TextDeltaEvent("hello", "m1"));
+
+        state.State.TryGet<MutableProjectionState>(
+            MutatingFailingEventHandler.StateKey,
+            out var persisted).Should().BeTrue();
+        persisted.Value.Should().Be(1);
+        state.Shell.PromptStatusText.Should()
+            .Contain("projection faults: 1")
+            .And.NotContain("mutated");
+        state.Shell.Transcript.Snapshot().Entries.Should()
+            .NotContain(entry => entry.EntryKey == "assistant:m1");
+        state.ProjectionFailures.Should().ContainSingle();
     }
 
     [Fact]
@@ -230,9 +454,9 @@ public sealed class AgentTuiSessionStateTests
         public bool CanHandle(AgentEvent evt)
             => evt is TextMessageStartEvent or TextDeltaEvent or TextMessageEndEvent;
 
-        public ValueTask HandleAsync(
+        public ValueTask ProjectAsync(
             AgentEvent evt,
-            AgentTuiEventContext context,
+            AgentTuiProjectionContext context,
             CancellationToken cancellationToken)
         {
             switch (evt)
@@ -258,7 +482,7 @@ public sealed class AgentTuiSessionStateTests
         }
 
         private static TranscriptEntry AssistantEntry(
-            AgentTuiEventContext context,
+            AgentTuiProjectionContext context,
             string messageId,
             string markdown)
             => new(
@@ -278,13 +502,13 @@ public sealed class AgentTuiSessionStateTests
                     AgentDepth: 0));
 
         private static void UpsertAssistantRow(
-            AgentTuiEventContext context,
+            AgentTuiProjectionContext context,
             string messageId,
             string markdown)
             => context.Shell.Transcript.UpsertLive(AssistantEntry(context, messageId, markdown), CommittedHistoryMutationPolicy.Reject);
 
         private static void FinalizeAssistantRow(
-            AgentTuiEventContext context,
+            AgentTuiProjectionContext context,
             string messageId,
             string markdown)
             => context.Shell.Transcript.FinalizeLive($"assistant:{messageId}", AssistantEntry(context, messageId, markdown), CommittedHistoryMutationPolicy.Reject);
@@ -294,12 +518,108 @@ public sealed class AgentTuiSessionStateTests
     {
         public bool CanHandle(AgentEvent evt) => true;
 
-        public ValueTask HandleAsync(
+        public ValueTask ProjectAsync(
             AgentEvent evt,
-            AgentTuiEventContext context,
+            AgentTuiProjectionContext context,
             CancellationToken cancellationToken)
         {
             context.RequestRender();
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class DeferredRenderEventHandler : IAgentTuiEventHandler
+    {
+        public bool CanHandle(AgentEvent evt) => true;
+
+        public ValueTask ProjectAsync(
+            AgentEvent evt,
+            AgentTuiProjectionContext context,
+            CancellationToken cancellationToken)
+        {
+            context.Shell.PromptStatusText = "state: committed";
+            context.RequestRender();
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class RenderThenFailEventHandler : IAgentTuiEventHandler
+    {
+        public bool CanHandle(AgentEvent evt) => true;
+
+        public ValueTask ProjectAsync(
+            AgentEvent evt,
+            AgentTuiProjectionContext context,
+            CancellationToken cancellationToken)
+        {
+            context.RequestRender();
+            throw new InvalidOperationException("render request must be discarded");
+        }
+    }
+
+    private sealed class DeferredProjectionEventHandler : IAgentTuiEventHandler
+    {
+        internal TaskCompletionSource<string> Completed { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public bool CanHandle(AgentEvent evt) => true;
+
+        public ValueTask ProjectAsync(
+            AgentEvent evt,
+            AgentTuiProjectionContext context,
+            CancellationToken cancellationToken)
+        {
+            context.Shell.PromptStatusText = "state: committed";
+            context.EnqueueProjection(next =>
+            {
+                Completed.TrySetResult(next.Shell.PromptStatusText);
+                next.Shell.PromptStatusText = "state: deferred";
+                return ValueTask.CompletedTask;
+            });
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class CapturingProjectionContextHandler : IAgentTuiEventHandler
+    {
+        internal AgentTuiProjectionContext? Context { get; private set; }
+        internal TaskCompletionSource<int> Completed { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public bool CanHandle(AgentEvent evt) => true;
+
+        public ValueTask ProjectAsync(
+            AgentEvent evt,
+            AgentTuiProjectionContext context,
+            CancellationToken cancellationToken)
+        {
+            Context = context;
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class FirstCommitFailingEventHandler : IAgentTuiEventHandler
+    {
+        internal int Count { get; private set; }
+
+        public bool CanHandle(AgentEvent evt) => true;
+
+        public ValueTask ProjectAsync(
+            AgentEvent evt,
+            AgentTuiProjectionContext context,
+            CancellationToken cancellationToken)
+        {
+            Count++;
+            if (Count == 1)
+            {
+                var activity = new ActivityModel("invalid during commit");
+                context.Shell.Activities.Add(activity);
+                activity.Label = null!;
+            }
+            else
+            {
+                context.Shell.PromptStatusText = "state: recovered";
+            }
             return ValueTask.CompletedTask;
         }
     }
@@ -309,9 +629,9 @@ public sealed class AgentTuiSessionStateTests
         public bool CanHandle(AgentEvent evt)
             => evt is ToolCallStartEvent or ToolCallArgsEvent or ToolCallEndEvent;
 
-        public ValueTask HandleAsync(
+        public ValueTask ProjectAsync(
             AgentEvent evt,
-            AgentTuiEventContext context,
+            AgentTuiProjectionContext context,
             CancellationToken cancellationToken)
         {
             var callId = evt switch
@@ -345,9 +665,9 @@ public sealed class AgentTuiSessionStateTests
         public bool CanHandle(AgentEvent evt)
             => evt is ThreadExecutionStartedEvent or ThreadExecutionFinishedEvent;
 
-        public ValueTask HandleAsync(
+        public ValueTask ProjectAsync(
             AgentEvent evt,
-            AgentTuiEventContext context,
+            AgentTuiProjectionContext context,
             CancellationToken cancellationToken)
         {
             switch (evt)
@@ -378,24 +698,70 @@ public sealed class AgentTuiSessionStateTests
 
     private sealed class FailingEventHandler : AgentTuiEventHandler<TextDeltaEvent>
     {
-        public override ValueTask HandleAsync(
+        public int Count { get; private set; }
+
+        public override ValueTask ProjectAsync(
             TextDeltaEvent evt,
-            AgentTuiEventContext context,
+            AgentTuiProjectionContext context,
             CancellationToken cancellationToken)
-            => throw new InvalidOperationException("failure");
+        {
+            Count++;
+            throw new InvalidOperationException("failure");
+        }
     }
 
     private sealed class CountingEventHandler : AgentTuiEventHandler<TextDeltaEvent>
     {
         public int Count { get; private set; }
 
-        public override ValueTask HandleAsync(
+        public override ValueTask ProjectAsync(
             TextDeltaEvent evt,
-            AgentTuiEventContext context,
+            AgentTuiProjectionContext context,
             CancellationToken cancellationToken)
         {
             Count++;
             return ValueTask.CompletedTask;
         }
+    }
+
+    private sealed class CancellingEventHandler(CancellationTokenSource cancellation) :
+        AgentTuiEventHandler<TextDeltaEvent>
+    {
+        public override ValueTask ProjectAsync(
+            TextDeltaEvent evt,
+            AgentTuiProjectionContext context,
+            CancellationToken cancellationToken)
+        {
+            cancellation.Cancel();
+            throw new OperationCanceledException(cancellation.Token);
+        }
+    }
+
+    private sealed class MutatingFailingEventHandler : AgentTuiEventHandler<TextDeltaEvent>
+    {
+        public const string StateKey = "test.mutating-state";
+
+        public override ValueTask ProjectAsync(
+            TextDeltaEvent evt,
+            AgentTuiProjectionContext context,
+            CancellationToken cancellationToken)
+        {
+            context.State.TryGet<MutableProjectionState>(StateKey, out var projection).Should().BeTrue();
+            projection.Value = 2;
+            context.Shell.PromptStatusText = "mutated";
+            context.Shell.Transcript.AddFinal(new TranscriptEntry(
+                "assistant-failed",
+                "assistant:m1",
+                new NoticeCell("should rollback", new Text(evt.Text), TranscriptSeverity.Info),
+                new TranscriptEntryMetadata(MessageId: evt.MessageId)));
+            throw new InvalidOperationException("projection failed after mutation");
+        }
+    }
+
+    private sealed class MutableProjectionState : IAgentTuiProjectionState
+    {
+        public int Value { get; set; }
+
+        public object Fork() => new MutableProjectionState { Value = Value };
     }
 }

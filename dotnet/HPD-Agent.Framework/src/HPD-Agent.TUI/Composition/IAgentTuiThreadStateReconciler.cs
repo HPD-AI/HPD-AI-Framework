@@ -16,6 +16,6 @@ public interface IAgentTuiThreadStateReconciler
     /// <summary>Applies authoritative thread state to the current TUI session.</summary>
     ValueTask ReconcileAsync(
         AgentTuiThreadState threadState,
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         CancellationToken cancellationToken);
 }

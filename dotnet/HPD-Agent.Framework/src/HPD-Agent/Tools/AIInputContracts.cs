@@ -129,12 +129,7 @@ public static class AIInputContract
             }
             catch (HPDToolArgumentException exception)
             {
-                return AIFunctionBindingResult.Failure(new ValidationError
-                {
-                    Property = exception.PropertyName,
-                    ErrorMessage = exception.Message,
-                    ErrorCode = exception.ErrorCode
-                });
+                return AIFunctionBindingResult.Failure(exception.ToValidationError());
             }
         }
     }
@@ -222,12 +217,7 @@ internal sealed class CanonicalJsonInputContract : IAIInputContract
         }
         catch (HPDToolArgumentException exception)
         {
-            return AIFunctionBindingResult.Failure(new ValidationError
-            {
-                Property = exception.PropertyName,
-                ErrorMessage = exception.Message,
-                ErrorCode = exception.ErrorCode
-            });
+            return AIFunctionBindingResult.Failure(exception.ToValidationError());
         }
     }
 
@@ -260,7 +250,11 @@ internal sealed class CanonicalJsonInputContract : IAIInputContract
                 var branchIndex = 0;
                 foreach (var branch in oneOf.EnumerateArray())
                     branches.Add(Compile(branch, $"{path}.oneOf[{branchIndex++}]", isRoot, depth + 1, ref nodeCount));
-                return ValidateDefault(new UnionNode(branches.ToArray(), defaultValue), path);
+                var branchContracts = branches.ToArray();
+                return ValidateDefault(
+                    (ContractNode?)TryCreateDiscriminatedUnion(branchContracts, path, defaultValue)
+                        ?? new UnionNode(branchContracts, defaultValue),
+                    path);
             }
 
             var types = ReadTypes(schema, path);
@@ -465,8 +459,67 @@ internal sealed class CanonicalJsonInputContract : IAIInputContract
         protected static void NullOrThrow(JsonElement value, string path, bool allowsNull, Utf8JsonWriter writer)
         {
             if (value.ValueKind != JsonValueKind.Null) return;
-            if (!allowsNull) throw HPDGeneratedToolArgumentBinder.Error(path, "null_not_allowed", "Null is not allowed.");
+            if (!allowsNull)
+                throw HPDGeneratedToolArgumentBinder.Error(path, "null_not_allowed", "Null is not allowed.", value);
             writer.WriteNullValue();
+        }
+
+        private static DiscriminatedUnionNode? TryCreateDiscriminatedUnion(
+            ContractNode[] branches,
+            string path,
+            JsonElement? defaultValue)
+        {
+            var objects = new ObjectNode[branches.Length];
+            for (var index = 0; index < branches.Length; index++)
+            {
+                if (branches[index] is not ObjectNode objectNode)
+                    return null;
+                objects[index] = objectNode;
+            }
+
+            var candidateNames = objects[0].Properties
+                .Where(static property =>
+                    property.Required &&
+                    property.Contract is ScalarNode scalar &&
+                    scalar.Kind == JsonValueKind.String &&
+                    scalar.Constant is { ValueKind: JsonValueKind.String })
+                .Select(static property => property.Name)
+                .ToHashSet(StringComparer.Ordinal);
+            foreach (var objectNode in objects.Skip(1))
+            {
+                candidateNames.IntersectWith(objectNode.Properties
+                    .Where(static property =>
+                        property.Required &&
+                        property.Contract is ScalarNode scalar &&
+                        scalar.Kind == JsonValueKind.String &&
+                        scalar.Constant is { ValueKind: JsonValueKind.String })
+                    .Select(static property => property.Name));
+            }
+
+            if (candidateNames.Count != 1)
+                return null;
+
+            var discriminatorName = candidateNames.Single();
+            var cases = new Dictionary<string, ContractNode>(StringComparer.Ordinal);
+            var allowedValues = new string[branches.Length];
+            for (var index = 0; index < objects.Length; index++)
+            {
+                var property = objects[index].Properties.Single(candidate => candidate.Name == discriminatorName);
+                var constant = ((ScalarNode)property.Contract).Constant!.Value.GetString()!;
+                if (string.IsNullOrWhiteSpace(constant))
+                    throw new InvalidDataException(
+                        $"Schema '{path}' has an empty discriminator value for '{discriminatorName}'.");
+                if (!cases.TryAdd(constant, branches[index]))
+                    throw new InvalidDataException(
+                        $"Schema '{path}' has duplicate discriminator value '{constant}' for '{discriminatorName}'.");
+                allowedValues[index] = constant;
+            }
+
+            return new DiscriminatedUnionNode(
+                discriminatorName,
+                cases,
+                allowedValues,
+                defaultValue);
         }
     }
 
@@ -476,6 +529,8 @@ internal sealed class CanonicalJsonInputContract : IAIInputContract
         JsonElement? defaultValue,
         bool allowsNull) : ContractNode(defaultValue)
     {
+        public IReadOnlyList<PropertyNode> Properties { get; } = properties;
+
         public override void WriteEffective(JsonElement value, Utf8JsonWriter writer, string path)
         {
             if (value.ValueKind == JsonValueKind.Null) { NullOrThrow(value, path, allowsNull, writer); return; }
@@ -530,9 +585,9 @@ internal sealed class CanonicalJsonInputContract : IAIInputContract
             HPDGeneratedToolArgumentBinder.RequireArray(value, path);
             var length = value.GetArrayLength();
             if (minimumItems is { } minimum && length < minimum)
-                throw HPDGeneratedToolArgumentBinder.Error(path, "array_too_short", $"Expected at least {minimum} items.");
+                throw HPDGeneratedToolArgumentBinder.Error(path, "array_too_short", $"Expected at least {minimum} items.", value);
             if (maximumItems is { } maximum && length > maximum)
-                throw HPDGeneratedToolArgumentBinder.Error(path, "array_too_long", $"Expected at most {maximum} items.");
+                throw HPDGeneratedToolArgumentBinder.Error(path, "array_too_long", $"Expected at most {maximum} items.", value);
             writer.WriteStartArray();
             var index = 0;
             foreach (var element in value.EnumerateArray())
@@ -542,7 +597,7 @@ internal sealed class CanonicalJsonInputContract : IAIInputContract
     }
 
     private sealed class ScalarNode(
-        JsonValueKind kind,
+        JsonValueKind scalarKind,
         HashSet<string>? allowed,
         JsonElement? constant,
         JsonElement? defaultValue,
@@ -550,25 +605,33 @@ internal sealed class CanonicalJsonInputContract : IAIInputContract
         int? minimumLength,
         int? maximumLength) : ContractNode(defaultValue)
     {
+        public JsonValueKind Kind { get; } = scalarKind;
+        public JsonElement? Constant { get; } = constant?.Clone();
+
         public override void WriteEffective(JsonElement value, Utf8JsonWriter writer, string path)
         {
             if (value.ValueKind == JsonValueKind.Null) { NullOrThrow(value, path, allowsNull, writer); return; }
-            var validKind = kind == JsonValueKind.True
+            var validKind = Kind == JsonValueKind.True
                 ? value.ValueKind is JsonValueKind.True or JsonValueKind.False
-                : value.ValueKind == kind;
-            if (!validKind) throw HPDGeneratedToolArgumentBinder.Error(path, "invalid_json_kind", $"Expected {kind.ToString().ToLowerInvariant()}.");
-            if (kind == JsonValueKind.String)
+                : value.ValueKind == Kind;
+            if (!validKind)
+                throw HPDGeneratedToolArgumentBinder.Error(
+                    path,
+                    "invalid_json_kind",
+                    $"Expected {Kind.ToString().ToLowerInvariant()}.",
+                    value);
+            if (Kind == JsonValueKind.String)
             {
                 var length = value.GetString()!.Length;
                 if (minimumLength is { } minimum && length < minimum)
-                    throw HPDGeneratedToolArgumentBinder.Error(path, "string_too_short", $"Expected at least {minimum} characters.");
+                    throw HPDGeneratedToolArgumentBinder.Error(path, "string_too_short", $"Expected at least {minimum} characters.", value);
                 if (maximumLength is { } maximum && length > maximum)
-                    throw HPDGeneratedToolArgumentBinder.Error(path, "string_too_long", $"Expected at most {maximum} characters.");
+                    throw HPDGeneratedToolArgumentBinder.Error(path, "string_too_long", $"Expected at most {maximum} characters.", value);
             }
             if (allowed is not null && !allowed.Contains(value.GetString()!))
-                throw HPDGeneratedToolArgumentBinder.Error(path, "invalid_enum_value", "Unsupported enum value.");
+                throw HPDGeneratedToolArgumentBinder.Error(path, "invalid_enum_value", "Unsupported enum value.", value);
             if (constant is { } expected && value.GetRawText() != expected.GetRawText())
-                throw HPDGeneratedToolArgumentBinder.Error(path, "invalid_const_value", "Value does not match the required constant.");
+                throw HPDGeneratedToolArgumentBinder.Error(path, "invalid_const_value", "Value does not match the required constant.", value);
             WriteRaw(value, writer);
         }
     }
@@ -586,14 +649,65 @@ internal sealed class CanonicalJsonInputContract : IAIInputContract
         {
             if (value.ValueKind == JsonValueKind.Null) { NullOrThrow(value, path, allowsNull, writer); return; }
             if (value.ValueKind != JsonValueKind.Number || integer && !value.TryGetInt64(out _))
-                throw HPDGeneratedToolArgumentBinder.Error(path, "invalid_json_kind", integer ? "Expected an integer." : "Expected a number.");
+                throw HPDGeneratedToolArgumentBinder.Error(path, "invalid_json_kind", integer ? "Expected an integer." : "Expected a number.", value);
             if (!value.TryGetDecimal(out var number))
-                throw HPDGeneratedToolArgumentBinder.Error(path, "number_out_of_range", "Number is outside the supported decimal range.");
+                throw HPDGeneratedToolArgumentBinder.Error(path, "number_out_of_range", "Number is outside the supported decimal range.", value);
             if (minimum is { } min && number < min || maximum is { } max && number > max ||
                 exclusiveMinimum is { } exclusiveMin && number <= exclusiveMin ||
                 exclusiveMaximum is { } exclusiveMax && number >= exclusiveMax)
-                throw HPDGeneratedToolArgumentBinder.Error(path, "number_out_of_range", "Number is outside the declared range.");
+                throw HPDGeneratedToolArgumentBinder.Error(path, "number_out_of_range", "Number is outside the declared range.", value);
             WriteRaw(value, writer);
+        }
+    }
+
+    private sealed class DiscriminatedUnionNode(
+        string discriminatorName,
+        IReadOnlyDictionary<string, ContractNode> cases,
+        string[] allowedValues,
+        JsonElement? defaultValue) : ContractNode(defaultValue)
+    {
+        public override void WriteEffective(JsonElement value, Utf8JsonWriter writer, string path)
+        {
+            if (value.ValueKind == JsonValueKind.Null)
+                throw HPDGeneratedToolArgumentBinder.Error(path, "null_not_allowed", "Null is not allowed.", value);
+            HPDGeneratedToolArgumentBinder.RequireObject(value, path);
+
+            var discriminatorPath = HPDGeneratedToolArgumentBinder.Append(path, discriminatorName);
+            var discriminatorValue = HPDGeneratedToolArgumentBinder.GetRequiredProperty(
+                value,
+                discriminatorName,
+                path);
+            if (discriminatorValue.ValueKind == JsonValueKind.Null)
+                throw HPDGeneratedToolArgumentBinder.Error(
+                    discriminatorPath,
+                    "null_not_allowed",
+                    "Null is not allowed.",
+                    discriminatorValue);
+            if (discriminatorValue.ValueKind != JsonValueKind.String)
+                throw HPDGeneratedToolArgumentBinder.Error(
+                    discriminatorPath,
+                    "invalid_json_kind",
+                    "Expected a string.",
+                    discriminatorValue);
+
+            var discriminator = discriminatorValue.GetString()!;
+            if (string.IsNullOrWhiteSpace(discriminator))
+                throw HPDGeneratedToolArgumentBinder.Error(
+                    discriminatorPath,
+                    "invalid_string_value",
+                    "Expected a non-empty string.",
+                    discriminatorValue);
+            if (!cases.TryGetValue(discriminator, out var selected))
+            {
+                throw HPDGeneratedToolArgumentBinder.Error(
+                    discriminatorPath,
+                    "unknown_union_discriminator",
+                    $"Unsupported discriminator value '{discriminator}'.",
+                    discriminatorValue,
+                    allowedValues);
+            }
+
+            selected.WriteEffective(value, writer, path);
         }
     }
 
@@ -616,9 +730,9 @@ internal sealed class CanonicalJsonInputContract : IAIInputContract
                 catch (HPDToolArgumentException) { }
             }
             if (selected is null)
-                throw HPDGeneratedToolArgumentBinder.Error(path, "unknown_union_discriminator", "Input does not match any union branch.");
+                throw HPDGeneratedToolArgumentBinder.Error(path, "no_union_branch_matches", "Input does not match any union branch.", value);
             if (matches != 1)
-                throw HPDGeneratedToolArgumentBinder.Error(path, "ambiguous_union_branch", "Input matches more than one union branch.");
+                throw HPDGeneratedToolArgumentBinder.Error(path, "ambiguous_union_branch", "Input matches more than one union branch.", value);
             writer.WriteRawValue(selected);
         }
     }

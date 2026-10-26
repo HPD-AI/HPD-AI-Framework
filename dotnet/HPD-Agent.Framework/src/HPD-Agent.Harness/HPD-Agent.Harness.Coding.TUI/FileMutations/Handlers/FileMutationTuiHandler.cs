@@ -8,9 +8,9 @@ internal sealed class FileMutationTuiHandler : AgentTuiEventHandler<FileMutation
     public bool CanHandleToolCall(string? toolHarnessName, string toolName, ToolCallType? callType)
         => toolName is "EditFile" or "WriteFile";
 
-    public override ValueTask HandleAsync(
+    public override ValueTask ProjectAsync(
         FileMutationAppliedEvent evt,
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         CancellationToken cancellationToken)
     {
         var state = context.State.GetOrCreate(

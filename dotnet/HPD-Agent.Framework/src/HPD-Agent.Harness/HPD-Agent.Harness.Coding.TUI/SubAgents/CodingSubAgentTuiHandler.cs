@@ -1,4 +1,3 @@
-using System.Text.Json;
 using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Models;
 
@@ -23,9 +22,10 @@ internal sealed class CodingSubAgentTuiHandler : IAgentTuiEventHandler, IAgentTu
     };
 
     public bool CanHandleToolCall(string? toolHarnessName, string toolName, ToolCallType? callType)
-        => IsSubAgents(toolName);
+        => IsSubAgents(toolName) ||
+           toolName is "explore" or "worker" or "reviewer";
 
-    public ValueTask HandleAsync(AgentEvent evt, AgentTuiEventContext context, CancellationToken cancellationToken)
+    public ValueTask ProjectAsync(AgentEvent evt, AgentTuiProjectionContext context, CancellationToken cancellationToken)
     {
         var store = context.State.GetOrCreate(StoreKey, static () => new Store());
         Entry? entry = null;
@@ -36,7 +36,7 @@ internal sealed class CodingSubAgentTuiHandler : IAgentTuiEventHandler, IAgentTu
                 entry = store.GetOrCreate(start.CallId, start.Name);
                 break;
             case ToolCallArgsEvent args when store.ByCall.TryGetValue(args.CallId, out entry):
-                ApplyArgs(entry, args.ArgsJson);
+                ApplyArgs(entry, context.ToolArguments);
                 break;
             case SubAgentInvocationStartedEvent started:
                 entry = store.GetOrCreate(started.ParentToolCallId, started.RoleName);
@@ -79,29 +79,23 @@ internal sealed class CodingSubAgentTuiHandler : IAgentTuiEventHandler, IAgentTu
         return ValueTask.CompletedTask;
     }
 
-    private static void ApplyArgs(Entry entry, string? json)
+    private static void ApplyArgs(Entry entry, ToolCallArguments? arguments)
     {
-        if (string.IsNullOrWhiteSpace(json)) return;
-        try
-        {
-            using var document = JsonDocument.Parse(json);
-            var root = document.RootElement;
-            if (root.TryGetProperty("request", out var request) && request.ValueKind == JsonValueKind.Object)
-                root = request;
-            if (root.TryGetProperty("action", out var action) && action.ValueKind == JsonValueKind.String)
-                entry.RoleName = action.GetString() ?? entry.RoleName;
-            if (root.TryGetProperty("child", out var child) && child.ValueKind == JsonValueKind.String)
-                entry.TaskName = child.GetString();
-            if (root.TryGetProperty("input", out var input) && input.ValueKind == JsonValueKind.String)
-                entry.Detail = Limit(input.GetString(), PromptLimit);
-        }
-        catch (JsonException)
-        {
-            // Streaming tool arguments may be incomplete until a later event.
-        }
+        if (arguments is not { IsObject: true })
+            return;
+
+        var request = arguments.Root;
+        if (arguments.Root.TryGetObject("request", out var nested))
+            request = nested;
+        if (request.TryGetString("action", out var action) && !string.IsNullOrWhiteSpace(action))
+            entry.RoleName = action;
+        if (request.TryGetString("child", out var child))
+            entry.TaskName = child;
+        if (request.TryGetString("input", out var input))
+            entry.Detail = Limit(input, PromptLimit);
     }
 
-    private static void Apply(AgentTuiEventContext context, Entry state, AgentEvent evt)
+    private static void Apply(AgentTuiProjectionContext context, Entry state, AgentEvent evt)
     {
         var key = $"coding.subagent:{state.CallId}";
         var transcriptEntry = new TranscriptEntry(
@@ -126,7 +120,7 @@ internal sealed class CodingSubAgentTuiHandler : IAgentTuiEventHandler, IAgentTu
         return normalized.Length <= limit ? normalized : $"{normalized[..(limit - 1)]}…";
     }
 
-    private sealed class Store
+    private sealed class Store : IAgentTuiProjectionState
     {
         public Dictionary<string, Entry> ByCall { get; } = new(StringComparer.Ordinal);
         public Dictionary<string, Entry> ByInvocation { get; } = new(StringComparer.Ordinal);
@@ -146,9 +140,31 @@ internal sealed class CodingSubAgentTuiHandler : IAgentTuiEventHandler, IAgentTu
             ByInvocation[invocationId] = entry;
             return entry;
         }
+
+        public object Fork()
+        {
+            var fork = new Store();
+            var entries = new Dictionary<Entry, Entry>();
+            foreach (var pair in ByCall)
+            {
+                var copy = (Entry)pair.Value.Fork();
+                entries[pair.Value] = copy;
+                fork.ByCall.Add(pair.Key, copy);
+            }
+            foreach (var pair in ByInvocation)
+            {
+                if (!entries.TryGetValue(pair.Value, out var copy))
+                {
+                    copy = (Entry)pair.Value.Fork();
+                    entries[pair.Value] = copy;
+                }
+                fork.ByInvocation.Add(pair.Key, copy);
+            }
+            return fork;
+        }
     }
 
-    private sealed class Entry(string callId, string roleName)
+    private sealed class Entry(string callId, string roleName) : IAgentTuiProjectionState
     {
         public string CallId { get; } = callId;
         public string RoleName { get; set; } = roleName;
@@ -158,5 +174,16 @@ internal sealed class CodingSubAgentTuiHandler : IAgentTuiEventHandler, IAgentTu
         public SubAgentContextPolicy? ContextPolicy { get; set; }
         public AgentInvocationMode? Mode { get; set; }
         public string? Detail { get; set; }
+
+        public object Fork()
+            => new Entry(CallId, RoleName)
+            {
+                InvocationId = InvocationId,
+                TaskName = TaskName,
+                State = State,
+                ContextPolicy = ContextPolicy,
+                Mode = Mode,
+                Detail = Detail
+            };
     }
 }

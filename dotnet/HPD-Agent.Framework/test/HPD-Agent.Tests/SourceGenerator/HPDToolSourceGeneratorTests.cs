@@ -236,6 +236,8 @@ namespace TestToolHarnesses
         Assert.Empty(diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
         Assert.False(string.IsNullOrEmpty(generatedCode), string.Join("\n", diagnostics.Select(diagnostic => diagnostic.ToString())));
         Assert.Contains("unknown_union_discriminator", generatedCode);
+        Assert.Contains("var discriminatorValue", generatedCode);
+        Assert.Contains("new string[] { \"launch\", \"continue\" }", generatedCode);
         Assert.Contains("\"launch\" => BindContract_Execute_request_case_launch", generatedCode);
         Assert.Contains("GetBoundArguments<UnionToolHarness_ExecuteArgs>()", generatedCode);
         Assert.DoesNotContain("JsonSerializer.Deserialize", generatedCode);

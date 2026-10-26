@@ -1,6 +1,8 @@
+using HPD.Agent.TUI.Composition;
+
 namespace HPD.Agent.ToolHarness.Coding.TUI.Exploration;
 
-internal sealed class CodingExplorationStore
+internal sealed class CodingExplorationStore : IAgentTuiProjectionState
 {
     public const string StateKey = "hpd.coding.exploration";
 
@@ -85,4 +87,14 @@ internal sealed class CodingExplorationStore
         => string.IsNullOrWhiteSpace(messageId)
             ? $"call:{callId}"
             : $"message:{messageId}";
+
+    public object Fork()
+    {
+        var fork = new CodingExplorationStore();
+        foreach (var pair in _groups)
+            fork._groups.Add(pair.Key, (CodingExplorationGroup)pair.Value.Fork());
+        foreach (var pair in _groupIdByCallId)
+            fork._groupIdByCallId.Add(pair.Key, pair.Value);
+        return fork;
+    }
 }

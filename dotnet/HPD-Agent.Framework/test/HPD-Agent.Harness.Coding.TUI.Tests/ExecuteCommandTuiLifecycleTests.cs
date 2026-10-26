@@ -1053,8 +1053,9 @@ public sealed class ExecuteCommandTuiLifecycleTests
 
     private static List<TranscriptEntry> ReadRows(TranscriptModel model)
     {
-        var rows = model.Snapshot().Entries.ToList();
-        return rows;
+        return model.Snapshot().Entries
+            .Where(static entry => entry.Cell is CodingCommandCell)
+            .ToList();
     }
 
     private static string RenderTranscript(

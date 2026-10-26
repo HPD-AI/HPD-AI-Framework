@@ -8,9 +8,9 @@ internal sealed class CodingExplorationToolCallStartHandler : AgentTuiEventHandl
     public bool CanHandleToolCall(string? toolHarnessName, string toolName, ToolCallType? callType)
         => CodingExplorationToolNames.IsExplorationTool(toolName);
 
-    public override ValueTask HandleAsync(
+    public override ValueTask ProjectAsync(
         ToolCallStartEvent evt,
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         CancellationToken cancellationToken)
     {
         if (!CodingExplorationToolNames.IsExplorationTool(evt.Name))
@@ -24,7 +24,7 @@ internal sealed class CodingExplorationToolCallStartHandler : AgentTuiEventHandl
         return ValueTask.CompletedTask;
     }
 
-    private static CodingExplorationStore Store(AgentTuiEventContext context)
+    private static CodingExplorationStore Store(AgentTuiProjectionContext context)
         => context.State.GetOrCreate(
             CodingExplorationStore.StateKey,
             static () => new CodingExplorationStore());
@@ -32,6 +32,6 @@ internal sealed class CodingExplorationToolCallStartHandler : AgentTuiEventHandl
     private static void UpdateTranscript(
         CodingExplorationGroup group,
         AgentEvent evt,
-        AgentTuiEventContext context)
+        AgentTuiProjectionContext context)
         => CodingExplorationTranscriptEntryFactory.Apply(context, group, evt);
 }

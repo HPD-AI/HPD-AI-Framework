@@ -10,13 +10,13 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.Commands.Handlers;
 internal abstract class ExecuteCommandTuiHandlerBase<TEvent> : AgentTuiEventHandler<TEvent>
     where TEvent : ExecuteCommandEvent
 {
-    protected static CodingCommandExecutionStore GetStore(AgentTuiEventContext context)
+    protected static CodingCommandExecutionStore GetStore(AgentTuiProjectionContext context)
         => context.State.GetOrCreate(
             CodingCommandExecutionStore.StateKey,
             static () => new CodingCommandExecutionStore());
 
     protected static bool TryGetExistingState(
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         ExecuteCommandEvent evt,
         out CodingCommandExecutionState state)
     {
@@ -25,9 +25,9 @@ internal abstract class ExecuteCommandTuiHandlerBase<TEvent> : AgentTuiEventHand
                store.TryGetByToolCallId(evt.ToolCallId, out state);
     }
 
-    internal static void UpdateTranscript(AgentTuiEventContext context, CodingCommandExecutionState state, AgentEvent evt)
+    internal static void UpdateTranscript(AgentTuiProjectionContext context, CodingCommandExecutionState state, AgentEvent evt)
     {
-        var hasSink = AgentTuiPerformanceDiagnostics.TryGetSink(context.State, out var sink);
+        var hasSink = AgentTuiPerformanceDiagnostics.TryGetSink(context.SharedServices, out var sink);
         var startTimestamp = hasSink ? Stopwatch.GetTimestamp() : 0;
         var cell = CodingCommandTranscriptEntryFactory.CreateCell(state);
         var snapshotKey = CodingCommandTranscriptEntryFactory.SnapshotKey(cell);
@@ -62,7 +62,7 @@ internal abstract class ExecuteCommandTuiHandlerBase<TEvent> : AgentTuiEventHand
             CodingCommandTranscriptState.Exited;
 
     private static void PublishCommandUpdate(
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         IHpdTuiPerformanceEventSink? sink,
         string commandId,
         bool applied,

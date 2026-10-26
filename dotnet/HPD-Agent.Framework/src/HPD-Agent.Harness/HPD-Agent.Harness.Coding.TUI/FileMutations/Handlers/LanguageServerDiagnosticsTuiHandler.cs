@@ -5,9 +5,9 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.FileMutations.Handlers;
 
 internal sealed class LanguageServerDiagnosticsTuiHandler : AgentTuiEventHandler<LanguageServerDiagnosticsReceivedEvent>
 {
-    public override ValueTask HandleAsync(
+    public override ValueTask ProjectAsync(
         LanguageServerDiagnosticsReceivedEvent evt,
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         CancellationToken cancellationToken)
     {
         var diagnosticsState = context.State.GetOrCreate(

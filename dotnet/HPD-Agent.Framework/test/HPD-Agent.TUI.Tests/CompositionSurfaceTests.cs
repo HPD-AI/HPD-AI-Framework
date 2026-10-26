@@ -777,9 +777,9 @@ public sealed class CompositionSurfaceTests
     {
         public int Count { get; private set; }
 
-        public override ValueTask HandleAsync(
+        public override ValueTask ProjectAsync(
             TextDeltaEvent evt,
-            AgentTuiEventContext context,
+            AgentTuiProjectionContext context,
             CancellationToken cancellationToken)
         {
             Count++;
@@ -793,9 +793,9 @@ public sealed class CompositionSurfaceTests
         public bool CanHandleToolCall(string? toolHarnessName, string toolName, ToolCallType? callType)
             => toolHarnessName == "OwnedHarness" && toolName == "owned_tool";
 
-        public override ValueTask HandleAsync(
+        public override ValueTask ProjectAsync(
             TextDeltaEvent evt,
-            AgentTuiEventContext context,
+            AgentTuiProjectionContext context,
             CancellationToken cancellationToken)
             => ValueTask.CompletedTask;
     }

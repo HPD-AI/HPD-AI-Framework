@@ -7,6 +7,20 @@ internal sealed class ChunkedMarkdownSource
     private readonly List<Chunk> _chunks = [];
     public int Length { get; private set; }
 
+    /// <summary>Creates a copy-on-write snapshot whose mutable tail has independent storage.</summary>
+    public ChunkedMarkdownSource Fork()
+    {
+        var fork = new ChunkedMarkdownSource { Length = Length };
+        for (var index = 0; index < _chunks.Count; index++)
+        {
+            var source = _chunks[index];
+            var isMutableTail = index == _chunks.Count - 1 && source.Count < source.Buffer.Length;
+            var buffer = isMutableTail ? source.Buffer[..source.Count] : source.Buffer;
+            fork._chunks.Add(new Chunk(source.Start, buffer) { Count = source.Count });
+        }
+        return fork;
+    }
+
     public char this[int index]
     {
         get

@@ -102,6 +102,20 @@ public sealed class SubAgentTuiTests
             .State.Should().Be(CodingSubAgentState.Completed);
     }
 
+    [Fact]
+    public async Task NonObjectArgs_DoNotBreakSubAgentProjection()
+    {
+        var state = CreateState();
+        await state.ApplyEventAsync(new ToolCallStartEvent("call-1", "SubAgents", "message-1"));
+
+        var exception = await Record.ExceptionAsync(() => state.ApplyEventAsync(
+            new ToolCallArgsEvent("call-1", "\"worker\"")).AsTask());
+
+        exception.Should().BeNull();
+        Assert.IsType<CodingSubAgentCell>(Assert.Single(Rows(state)).Cell)
+            .State.Should().Be(CodingSubAgentState.Preparing);
+    }
+
     private static AgentTuiSessionState CreateState()
         => new(
             new AgentTuiRuntimeScope("agent", "session", "main"),

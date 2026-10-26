@@ -12,7 +12,6 @@ public enum CommittedHistoryMutationPolicy
     /// <summary>Apply the model mutation and require transition to the alternate screen.</summary>
     SwitchToAlternateScreen
 }
-
 /// <summary>Identifies whether a transcript mutation was applied and requires terminal recovery.</summary>
 public enum TranscriptMutationStatus
 {
@@ -460,6 +459,58 @@ public sealed class TranscriptModel
                 CommittedCount: 0);
         }
     }
+
+    internal TranscriptModel CreateProjectionCopy()
+    {
+        lock (_gate)
+        {
+            var copy = new TranscriptModel
+            {
+                _entries = _entries,
+                _historyEpoch = _historyEpoch,
+                _historyResetPolicy = _historyResetPolicy,
+                _committedCount = _committedCount,
+                _publishedPartialSource = _publishedPartialSource,
+                _publishedPartialFinal = _publishedPartialFinal,
+                _version = _version,
+                _historyPresentation = _historyPresentation
+            };
+            foreach (var pair in _entryKeys)
+                copy._entryKeys.Add(pair.Key, pair.Value);
+            return copy;
+        }
+    }
+
+    internal void CommitProjectionCopy(TranscriptModel projection)
+    {
+        lock (_gate)
+        {
+            lock (projection._gate)
+            {
+                if (ReferenceEquals(projection._entries, _entries) &&
+                    projection._historyEpoch == _historyEpoch &&
+                    projection._historyResetPolicy == _historyResetPolicy &&
+                    projection._committedCount == _committedCount &&
+                    projection._publishedPartialSource == _publishedPartialSource &&
+                    projection._publishedPartialFinal == _publishedPartialFinal &&
+                    projection._historyPresentation == _historyPresentation)
+                    return;
+
+                _entries = projection._entries;
+                _entryKeys.Clear();
+                foreach (var pair in projection._entryKeys)
+                    _entryKeys.Add(pair.Key, pair.Value);
+                _historyEpoch = projection._historyEpoch;
+                _historyResetPolicy = projection._historyResetPolicy;
+                _committedCount = projection._committedCount;
+                _publishedPartialSource = projection._publishedPartialSource;
+                _publishedPartialFinal = projection._publishedPartialFinal;
+                _historyPresentation = projection._historyPresentation;
+                MarkChanged();
+            }
+        }
+    }
+
 
     /// <summary>Advances the committed prefix after a complete scrollback publication.</summary>
     /// <param name="expectedStart">The expected current committed-entry count.</param>

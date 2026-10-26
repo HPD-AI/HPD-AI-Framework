@@ -9,9 +9,9 @@ internal sealed class ExecuteCommandResultTuiHandler : AgentTuiEventHandler<Tool
     public bool CanHandleToolCall(string? toolHarnessName, string toolName, ToolCallType? callType)
         => string.Equals(toolName, "ExecuteCommand", StringComparison.Ordinal);
 
-    public override ValueTask HandleAsync(
+    public override ValueTask ProjectAsync(
         ToolCallResultEvent evt,
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         CancellationToken cancellationToken)
     {
         if (!string.Equals(evt.Name, "ExecuteCommand", StringComparison.Ordinal) ||
@@ -51,7 +51,7 @@ internal sealed class ExecuteCommandResultTuiHandler : AgentTuiEventHandler<Tool
 
     private static void HandleError(
         ToolCallResultEvent evt,
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         CodingCommandExecutionStore store,
         XElement root)
     {
@@ -94,7 +94,7 @@ internal sealed class ExecuteCommandResultTuiHandler : AgentTuiEventHandler<Tool
 
     private static void HandleStop(
         ToolCallResultEvent evt,
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         CodingCommandExecutionStore store,
         XElement root)
     {
@@ -127,7 +127,7 @@ internal sealed class ExecuteCommandResultTuiHandler : AgentTuiEventHandler<Tool
 
     private static void HandleOutput(
         ToolCallResultEvent evt,
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         CodingCommandExecutionStore store,
         XElement root)
     {
@@ -170,7 +170,7 @@ internal sealed class ExecuteCommandResultTuiHandler : AgentTuiEventHandler<Tool
 
     private static void HandleBackgroundList(
         ToolCallResultEvent evt,
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         CodingCommandExecutionStore store,
         XElement root)
     {

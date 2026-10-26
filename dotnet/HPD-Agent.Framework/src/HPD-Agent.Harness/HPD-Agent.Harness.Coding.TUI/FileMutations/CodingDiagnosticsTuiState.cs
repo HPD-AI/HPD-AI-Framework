@@ -1,8 +1,9 @@
+using HPD.Agent.TUI.Composition;
 using HPDOS.ToolHarnesses.Middleware;
 
 namespace HPD.Agent.ToolHarness.Coding.TUI.FileMutations;
 
-internal sealed class CodingDiagnosticsTuiState
+internal sealed class CodingDiagnosticsTuiState : IAgentTuiProjectionState
 {
     public const string StateKey = "hpd.coding.diagnostics";
 
@@ -30,5 +31,20 @@ internal sealed class CodingDiagnosticsTuiState
         HintCount = evt.HintCount;
         LatestPath = evt.Path;
         _latestByPath[FileMutationTuiState.NormalizePath(evt.Path)] = evt;
+    }
+
+    public object Fork()
+    {
+        var fork = new CodingDiagnosticsTuiState
+        {
+            ErrorCount = ErrorCount,
+            WarningCount = WarningCount,
+            InformationCount = InformationCount,
+            HintCount = HintCount,
+            LatestPath = LatestPath
+        };
+        foreach (var pair in _latestByPath)
+            fork._latestByPath.Add(pair.Key, pair.Value);
+        return fork;
     }
 }

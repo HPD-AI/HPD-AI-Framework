@@ -417,7 +417,8 @@ internal static class ReflectionToolFactory
             throw new HPDToolArgumentException(
                 parameterName,
                 $"Property '{parameterName}' is required and cannot be null.",
-                "null_required_property");
+                "null_required_property",
+                attemptedValue: property);
         }
 
         try
@@ -426,11 +427,11 @@ internal static class ReflectionToolFactory
         }
         catch (JsonException ex)
         {
-            throw new HPDToolArgumentException(parameterName, ex.Message, "type_conversion_error", ex);
+            throw new HPDToolArgumentException(parameterName, ex.Message, "type_conversion_error", ex, property);
         }
         catch (NotSupportedException ex)
         {
-            throw new HPDToolArgumentException(parameterName, ex.Message, "unsupported_parameter_type", ex);
+            throw new HPDToolArgumentException(parameterName, ex.Message, "unsupported_parameter_type", ex, property);
         }
     }
 
@@ -475,7 +476,8 @@ internal static class ReflectionToolFactory
                 {
                     Property = name,
                     ErrorMessage = $"Property '{name}' is required and cannot be null.",
-                    ErrorCode = "null_required_property"
+                    ErrorCode = "null_required_property",
+                    AttemptedValue = property.Clone()
                 });
             }
         }
@@ -1026,14 +1028,7 @@ internal static class ReflectionToolFactory
     }
 
     private static ValidationError ToValidationError(HPDToolArgumentException exception)
-    {
-        return new ValidationError
-        {
-            Property = exception.PropertyName,
-            ErrorMessage = exception.Message,
-            ErrorCode = exception.ErrorCode
-        };
-    }
+        => exception.ToValidationError();
 
     private static T InvokeCapabilityMethod<T>(MethodInfo method, object? instance)
     {

@@ -13,9 +13,9 @@ public sealed class ToolLifecycleHandler : IAgentTuiEventHandler
     public bool CanHandle(AgentEvent evt)
         => evt is ToolCallStartEvent or ToolCallArgsEvent or ToolCallResultEvent or ToolCallEndEvent;
 
-    public ValueTask HandleAsync(
+    public ValueTask ProjectAsync(
         AgentEvent evt,
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         CancellationToken cancellationToken)
     {
         var rows = context.State.GetOrCreate(
@@ -49,7 +49,7 @@ public sealed class ToolLifecycleHandler : IAgentTuiEventHandler
     }
 
     private static void UpdateToolRow(
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         string callId,
         AgentEvent evt,
         ToolRowState row)
@@ -118,9 +118,9 @@ public sealed class ThreadExecutionStatusHandler : IAgentTuiEventHandler
     public bool CanHandle(AgentEvent evt)
         => evt is ThreadExecutionStartedEvent or ThreadExecutionFinishedEvent;
 
-    public ValueTask HandleAsync(
+    public ValueTask ProjectAsync(
         AgentEvent evt,
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         CancellationToken cancellationToken)
     {
         switch (evt)
@@ -138,7 +138,7 @@ public sealed class ThreadExecutionStatusHandler : IAgentTuiEventHandler
     }
 
     private static void ApplyThreadExecutionStarted(
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         ThreadExecutionStartedEvent started)
     {
         context.Shell.Activities.Add(new ActivityModel($"run {ShortId(started.ThreadExecutionId)}")
@@ -151,7 +151,7 @@ public sealed class ThreadExecutionStatusHandler : IAgentTuiEventHandler
     }
 
     private static void ApplyThreadExecutionFinished(
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         ThreadExecutionFinishedEvent completed)
     {
         foreach (var activity in context.Shell.Activities.Activities.Where(activity => activity.State == ActivityState.Running))

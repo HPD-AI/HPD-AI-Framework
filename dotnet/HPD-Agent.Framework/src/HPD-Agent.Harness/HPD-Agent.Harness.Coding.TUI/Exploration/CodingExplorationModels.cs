@@ -1,3 +1,5 @@
+using HPD.Agent.TUI.Composition;
+
 namespace HPD.Agent.ToolHarness.Coding.TUI.Exploration;
 
 internal enum CodingExplorationOperationStatus
@@ -8,7 +10,7 @@ internal enum CodingExplorationOperationStatus
     Failed
 }
 
-internal sealed class CodingExplorationGroup
+internal sealed class CodingExplorationGroup : IAgentTuiProjectionState
 {
     private readonly object _gate = new();
     private readonly List<CodingExplorationOperation> _operations = [];
@@ -65,9 +67,20 @@ internal sealed class CodingExplorationGroup
     }
 
     public void Touch() => LastUpdatedAt = DateTimeOffset.UtcNow;
+
+    public object Fork()
+    {
+        var fork = new CodingExplorationGroup(GroupId, MessageId)
+        {
+            LastUpdatedAt = LastUpdatedAt
+        };
+        fork._operations.AddRange(_operations.Select(
+            static operation => (CodingExplorationOperation)operation.Fork()));
+        return fork;
+    }
 }
 
-internal sealed class CodingExplorationOperation
+internal sealed class CodingExplorationOperation : IAgentTuiProjectionState
 {
     public CodingExplorationOperation(string callId, string toolName)
     {
@@ -91,6 +104,16 @@ internal sealed class CodingExplorationOperation
     public DateTimeOffset? CompletedAt { get; set; }
 
     public bool IsComplete => Status is CodingExplorationOperationStatus.Completed or CodingExplorationOperationStatus.Failed;
+
+    public object Fork()
+        => new CodingExplorationOperation(CallId, ToolName)
+        {
+            ArgsJson = ArgsJson,
+            Status = Status,
+            Summary = Summary,
+            CompletedAt = CompletedAt
+        };
+
 }
 
 internal abstract record CodingExplorationSummary

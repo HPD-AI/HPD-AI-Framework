@@ -26,9 +26,9 @@ internal sealed class CodingHarnessToolCallHandler : IAgentTuiEventHandler, IAge
     public bool CanHandleToolCall(string? toolHarnessName, string toolName, ToolCallType? callType)
         => IsCodingHarness(toolName, toolHarnessName);
 
-    public ValueTask HandleAsync(
+    public ValueTask ProjectAsync(
         AgentEvent evt,
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         CancellationToken cancellationToken)
     {
         var state = context.State.GetOrCreate(
@@ -95,7 +95,7 @@ internal sealed class CodingHarnessToolCallHandler : IAgentTuiEventHandler, IAge
                CodingHarnessIdentity);
 
     private static void Apply(
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         AgentEvent evt,
         CodingHarnessToolState state)
     {
@@ -140,7 +140,7 @@ internal sealed class CodingHarnessToolCallHandler : IAgentTuiEventHandler, IAge
         return CompletedSummary;
     }
 
-    private sealed class CodingHarnessToolState
+    private sealed class CodingHarnessToolState : IAgentTuiProjectionState
     {
         public string? PrimaryCallId { get; set; }
 
@@ -149,5 +149,14 @@ internal sealed class CodingHarnessToolCallHandler : IAgentTuiEventHandler, IAge
         public bool IsActive { get; set; }
 
         public string Summary { get; set; } = ActiveSummary;
+
+        public object Fork()
+            => new CodingHarnessToolState
+            {
+                PrimaryCallId = PrimaryCallId,
+                HasRendered = HasRendered,
+                IsActive = IsActive,
+                Summary = Summary
+            };
     }
 }

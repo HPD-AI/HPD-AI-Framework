@@ -20,7 +20,7 @@ internal static class CodingExplorationTranscriptEntryFactory
             Cell: CreateCell(group),
             Metadata: TranscriptEntryMetadata.FromEvent(evt));
 
-    public static void Apply(AgentTuiEventContext context, CodingExplorationGroup group, AgentEvent evt)
+    public static void Apply(AgentTuiProjectionContext context, CodingExplorationGroup group, AgentEvent evt)
     {
         var entry = Create(group, evt);
         if (group.CaptureIsActive())

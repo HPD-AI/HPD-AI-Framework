@@ -27,9 +27,9 @@ internal sealed class DebugToolCallTuiCoordinator : IAgentTuiEventHandler, IAgen
     public bool CanHandleToolCall(string? toolHarnessName, string toolName, ToolCallType? callType)
         => IsDebug(toolName);
 
-    public ValueTask HandleAsync(
+    public ValueTask ProjectAsync(
         AgentEvent evt,
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         CancellationToken cancellationToken)
     {
         var store = Store(context);
@@ -42,7 +42,7 @@ internal sealed class DebugToolCallTuiCoordinator : IAgentTuiEventHandler, IAgen
                 break;
             }
             case ToolCallArgsEvent args when store.TryGet(args.CallId, out var state):
-                BindAction(state, args.ArgsJson);
+                BindAction(state, context.ToolArguments);
                 Apply(context, state, args, active: true);
                 break;
             case ToolCallResultEvent result
@@ -86,13 +86,13 @@ internal sealed class DebugToolCallTuiCoordinator : IAgentTuiEventHandler, IAgen
         return ValueTask.CompletedTask;
     }
 
-    internal static DebugToolCallPresentationStore Store(AgentTuiEventContext context)
+    internal static DebugToolCallPresentationStore Store(AgentTuiProjectionContext context)
         => context.State.GetOrCreate(
             DebugToolCallPresentationStore.StateKey,
             static () => new DebugToolCallPresentationStore());
 
     internal static void Claim(
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         string toolCallId,
         DebugPresentationClaim claim)
     {
@@ -105,28 +105,34 @@ internal sealed class DebugToolCallTuiCoordinator : IAgentTuiEventHandler, IAgen
             CommittedHistoryMutationPolicy.Reject);
     }
 
-    private static void BindAction(DebugToolCallPresentationState state, string argsJson)
+    private static void BindAction(
+        DebugToolCallPresentationState state,
+        ToolCallArguments? arguments)
     {
-        try
-        {
-            using var document = JsonDocument.Parse(argsJson);
-            var root = document.RootElement;
-            var request = root.TryGetProperty("request", out var nested) ? nested : root;
-            if (!request.TryGetProperty("action", out var actionProperty) ||
-                actionProperty.ValueKind != JsonValueKind.String)
-                return;
-            state.Action = actionProperty.GetString() ?? "unknown";
-            if (DebugActionPresentationPolicy.TryGet(state.Action, out var policy))
-                state.Policy = policy;
-        }
-        catch (JsonException)
+        if (arguments is not { IsObject: true })
         {
             state.Action = "invalid request";
+            return;
         }
+
+        var request = arguments.Root;
+        if (arguments.Root.TryGetProperty("request", out var nested))
+            request = nested;
+        if (!request.IsObject ||
+            !request.TryGetString("action", out var action) ||
+            string.IsNullOrWhiteSpace(action))
+        {
+            state.Action = "invalid request";
+            return;
+        }
+
+        state.Action = action;
+        if (DebugActionPresentationPolicy.TryGet(state.Action, out var policy))
+            state.Policy = policy;
     }
 
     private static void Apply(
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         DebugToolCallPresentationState state,
         AgentEvent evt,
         bool active)
@@ -197,7 +203,9 @@ internal sealed class DebugToolCallTuiCoordinator : IAgentTuiEventHandler, IAgen
         {
             using var document = JsonDocument.Parse(text);
             var root = document.RootElement;
-            if (!root.TryGetProperty("error_type", out var type) ||
+            if (root.ValueKind != JsonValueKind.Object ||
+                !root.TryGetProperty("error_type", out var type) ||
+                type.ValueKind != JsonValueKind.String ||
                 type.GetString() != "validation_error")
                 return false;
             if (!root.TryGetProperty("errors", out var errors) ||
@@ -210,11 +218,17 @@ internal sealed class DebugToolCallTuiCoordinator : IAgentTuiEventHandler, IAgen
                 .Take(4)
                 .Select(error =>
                 {
+                    if (error.ValueKind != JsonValueKind.Object)
+                        return Bound("The debugger request is invalid.");
                     var property = error.TryGetProperty("property", out var propertyNode)
-                        ? propertyNode.GetString()
+                        ? propertyNode.ValueKind == JsonValueKind.String
+                            ? propertyNode.GetString()
+                            : null
                         : null;
                     var message = error.TryGetProperty("error_message", out var messageNode)
-                        ? messageNode.GetString()
+                        ? messageNode.ValueKind == JsonValueKind.String
+                            ? messageNode.GetString()
+                            : null
                         : "Invalid value.";
                     return Bound(string.IsNullOrWhiteSpace(property)
                         ? message ?? "Invalid value."

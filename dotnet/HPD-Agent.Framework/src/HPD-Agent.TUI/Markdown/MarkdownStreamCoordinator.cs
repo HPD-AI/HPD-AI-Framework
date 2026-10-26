@@ -32,6 +32,20 @@ public sealed class MarkdownStreamCoordinator
         _diagnostic = diagnostic;
     }
 
+    /// <summary>Creates an isolated coordinator snapshot for one event transaction.</summary>
+    internal MarkdownStreamCoordinator Fork(
+        Action<MarkdownStreamUpdate, MarkdownMessageProjection> publish)
+    {
+        var fork = new MarkdownStreamCoordinator(publish, _createSession, _diagnostic);
+        foreach (var pair in _sessions)
+            fork._sessions.Add(pair.Key, pair.Value.Fork());
+        fork._dirty.UnionWith(_dirty);
+        fork._lifecycleOnly.UnionWith(_lifecycleOnly);
+        foreach (var pair in _terminal)
+            fork._terminal.Add(pair.Key, pair.Value);
+        return fork;
+    }
+
     /// <summary>Starts a lineage, interrupting a matching active lineage first.</summary>
     public void Start(MarkdownStreamIdentity identity, MarkdownMessagePresentation? presentation = null,
         IReadOnlyDictionary<string, object?>? additionalProperties = null)

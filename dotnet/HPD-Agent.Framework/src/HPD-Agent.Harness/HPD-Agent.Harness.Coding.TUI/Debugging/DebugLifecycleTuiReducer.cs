@@ -7,9 +7,9 @@ internal sealed class DebugLifecycleTuiReducer : IAgentTuiEventHandler
 {
     public bool CanHandle(HPD.Agent.AgentEvent evt) => evt is DebugLifecycleEvent;
 
-    public ValueTask HandleAsync(
+    public ValueTask ProjectAsync(
         HPD.Agent.AgentEvent evt,
-        AgentTuiEventContext context,
+        AgentTuiProjectionContext context,
         CancellationToken cancellationToken)
     {
         if (evt is not DebugLifecycleEvent debug) return ValueTask.CompletedTask;
