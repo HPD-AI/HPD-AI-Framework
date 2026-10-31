@@ -65,7 +65,13 @@ public sealed class AgentInputCodec
         var root = JsonNode.Parse(envelope) as JsonObject
             ?? throw new JsonException("Agent input did not serialize to an object.");
         if (input.RunConfig is not null)
-            root["runConfig"] = JsonNode.Parse(HpdAgentConfigSerializer.Serialize(input.RunConfig, ProviderComposition));
+        {
+            var runConfig = JsonNode.Parse(
+                HpdAgentConfigSerializer.Serialize(input.RunConfig, ProviderComposition)) as JsonObject
+                ?? throw new JsonException("Agent run configuration did not serialize to an object.");
+            WriteHarnessOverrideLayers(runConfig, input.RunConfig.HarnessOverrideLayers);
+            root["runConfig"] = runConfig;
+        }
         if (input.SubAgentRunConfig is not null)
         {
             var child = JsonNode.Parse(HpdAgentConfigSerializer.Serialize(input.SubAgentRunConfig, ProviderComposition))
@@ -77,6 +83,7 @@ public sealed class AgentInputCodec
                 input.SubAgentRunConfig.DescendantDefaults, AgentEventJsonContext.Default.SubAgentRunDefaults);
             child["handoffCompaction"] = JsonSerializer.SerializeToNode(
                 input.SubAgentRunConfig.HandoffCompaction, AgentEventJsonContext.Default.CompactionSpecification);
+            WriteHarnessOverrideLayers(child, input.SubAgentRunConfig.HarnessOverrideLayers);
             root["subAgentRunConfig"] = child;
         }
         return root.ToJsonString(AgentEventJsonContext.Default.Options);
@@ -98,8 +105,16 @@ public sealed class AgentInputCodec
         AgentRunConfig? decodedRunConfig = null;
         if (document.RootElement.TryGetProperty("runConfig", out var runConfig) &&
             runConfig.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined))
+        {
+            var runConfigNode = JsonNode.Parse(runConfig.GetRawText()) as JsonObject
+                ?? throw new JsonException("Agent run configuration must be an object.");
+            var layers = ReadHarnessOverrideLayers(runConfigNode);
+            runConfigNode.Remove("harnessOverrideLayers");
             decodedRunConfig = HpdAgentConfigSerializer.DeserializeRunConfig(
-                runConfig.GetRawText(), ProviderComposition);
+                runConfigNode.ToJsonString(), ProviderComposition);
+            if (decodedRunConfig is not null)
+                decodedRunConfig.HarnessOverrideLayers = layers;
+        }
         SubAgentRunConfig? decodedSubAgentRunConfig = null;
         if (document.RootElement.TryGetProperty("subAgentRunConfig", out var subAgentRunConfig) &&
             subAgentRunConfig.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined))
@@ -108,6 +123,8 @@ public sealed class AgentInputCodec
             childCore.Remove("clientPropagation");
             childCore.Remove("descendantDefaults");
             childCore.Remove("handoffCompaction");
+            var layers = ReadHarnessOverrideLayers(childCore);
+            childCore.Remove("harnessOverrideLayers");
             var decoded = HpdAgentConfigSerializer.DeserializeRunConfig(
                 childCore.ToJsonString(), ProviderComposition) ?? new AgentRunConfig();
             var propagation = subAgentRunConfig.TryGetProperty("clientPropagation", out var propagationElement)
@@ -118,6 +135,7 @@ public sealed class AgentInputCodec
                 decodedSubAgentRunConfig.HandoffCompaction = handoff.Deserialize(AgentEventJsonContext.Default.CompactionSpecification);
             if (subAgentRunConfig.TryGetProperty("descendantDefaults", out var defaults))
                 decodedSubAgentRunConfig.DescendantDefaults = defaults.Deserialize(AgentEventJsonContext.Default.SubAgentRunDefaults);
+            decodedSubAgentRunConfig.HarnessOverrideLayers = layers;
         }
         return input with
         {
@@ -125,6 +143,23 @@ public sealed class AgentInputCodec
             SubAgentRunConfig = decodedSubAgentRunConfig
         };
     }
+
+    private static void WriteHarnessOverrideLayers(
+        JsonObject destination,
+        IReadOnlyList<List<HarnessRunOverride>>? layers)
+    {
+        if (layers is not { Count: > 0 })
+            return;
+        destination["harnessOverrideLayers"] = JsonSerializer.SerializeToNode(
+            layers,
+            AgentEventJsonContext.Default.ListListHarnessRunOverride);
+    }
+
+    private static List<List<HarnessRunOverride>>? ReadHarnessOverrideLayers(JsonObject source)
+        => source.TryGetPropertyValue("harnessOverrideLayers", out var layers) &&
+           layers is not null
+            ? layers.Deserialize(AgentEventJsonContext.Default.ListListHarnessRunOverride)
+            : null;
 
     private static JsonTypeInfo RequireTypeInfo(Type type) =>
         (type == typeof(Goals.GoalContinuationInputEvent)

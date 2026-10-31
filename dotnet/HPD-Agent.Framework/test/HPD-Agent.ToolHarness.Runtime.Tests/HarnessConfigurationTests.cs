@@ -1,5 +1,6 @@
 using System.Text.Json;
 using HPD.Agent.Middleware;
+using HPD.Agent.Providers;
 using HPD.Agent.Serialization;
 using HPD.Agent.Tests.Infrastructure;
 using HPD.Agent.Tests.Middleware.V2;
@@ -40,6 +41,31 @@ public sealed class HarnessConfigurationTests
         var document = HpdAgentConfigSerializer.Serialize(original, format);
         var loaded = HpdAgentConfigSerializer.DeserializeRunConfig(document, format)!;
         Assert.Equal("10:library", await Invoke(agent, agent.CaptureRunConfig(loaded)));
+    }
+
+    [Theory]
+    [InlineData(HpdConfigFormat.Json)]
+    [InlineData(HpdConfigFormat.Yaml)]
+    public void SubAgentRunConfig_RoundTripsDirectAndDescendantHarnesses(HpdConfigFormat format)
+    {
+        var child = new SubAgentRunConfig();
+        child.Harnesses.For<ConfiguredHarness>().Override(
+            new HarnessTestSettingsOverrides { MaxItems = 5 });
+        var defaults = new SubAgentRunDefaults();
+        defaults.Harnesses.For<ConfiguredHarness>().Override(
+            new HarnessTestSettingsOverrides { MaxItems = 3 });
+        child.DescendantDefaults = defaults;
+
+        var document = HpdAgentConfigSerializer.Serialize(child, format);
+        var loaded = HpdAgentConfigSerializer.DeserializeSubAgentRunConfig(document, format)!;
+
+        Assert.Equal(child.Harnesses.Single().Name, loaded.Harnesses.Single().Name);
+        Assert.Equal(defaults.Harnesses.Single().Name, loaded.DescendantDefaults!.Harnesses.Single().Name);
+        using var direct = JsonDocument.Parse(loaded.Harnesses[0].Config!.Value.GetRawText());
+        using var descendant = JsonDocument.Parse(
+            loaded.DescendantDefaults.Harnesses[0].Config!.Value.GetRawText());
+        Assert.Equal(5, direct.RootElement.GetProperty("maxItems").GetInt32());
+        Assert.Equal(3, descendant.RootElement.GetProperty("maxItems").GetInt32());
     }
 
     [Theory]
@@ -89,6 +115,172 @@ public sealed class HarnessConfigurationTests
         var context = Context(second, second.CaptureRunConfig(null));
         var error = Assert.Throws<AgentRunConfigurationException>(() => captured.Handle!.For(context));
         Assert.Equal("HarnessConfigurationOwnerMismatch", error.Code);
+    }
+
+    [Fact]
+    public async Task DirectChildOverride_SurvivesPolicyTransport_AndBindsAgainstChildCatalog()
+    {
+        await using var child = await Builder()
+            .WithToolHarness<ConfiguredHarness>(options => options.Configure(
+                new HarnessTestSettings { MaxItems = 20 }))
+            .BuildAsync();
+        var original = new SubAgentRunConfig();
+        original.Harnesses.For<ConfiguredHarness>().Override(
+            new HarnessTestSettingsOverrides { MaxItems = 5 });
+
+        var captured = AgentRunConfigSnapshot.Capture(original, ProviderComposition.Create([]))!;
+        var policy = SubAgentExecutionPolicy.Create(
+            captured,
+            new AgentClientsConfig { Chat = new ChatClientConfig { ModelName = "child" } },
+            new Dictionary<ProviderClientFamily, SubAgentClientSelectionSource>
+            {
+                [ProviderClientFamily.Chat] = SubAgentClientSelectionSource.InputSubAgentRun
+            },
+            new AgentSecurityRunConfig(),
+            new NoSubAgentClientPropagation());
+        original.Harnesses.Clear();
+
+        var restored = JsonSerializer.Deserialize(
+            JsonSerializer.Serialize(policy, AgentEventJsonContext.Default.SubAgentExecutionPolicy),
+            AgentEventJsonContext.Default.SubAgentExecutionPolicy)!;
+        restored.Validate();
+        var childRun = AgentRunConfigSnapshot.Capture(
+            restored.InitialRunConfig, child.ProviderComposition)!;
+        childRun.HarnessOverrideLayers =
+            AgentRunConfigSnapshot.CloneHarnessOverrideLayers(restored.HarnessOverrideLayers);
+
+        Assert.Equal("5:library", await Invoke(child, child.CaptureRunConfig(childRun)));
+    }
+
+    [Fact]
+    public async Task DescendantDefaults_ComposeBeforeMoreSpecificOverride_AndKeepIsolatedSnapshots()
+    {
+        await using var child = await Builder()
+            .WithToolHarness<ConfiguredHarness>(options => options.Configure(
+                new HarnessTestSettings { MaxItems = 20 }))
+            .BuildAsync();
+        var defaults = new SubAgentRunDefaults();
+        defaults.Harnesses.For<ConfiguredHarness>().Override(
+            new HarnessTestSettingsOverrides { MaxItems = 3 });
+        var policy = SubAgentExecutionPolicy.Create(
+            null,
+            new AgentClientsConfig { Chat = new ChatClientConfig { ModelName = "child" } },
+            new Dictionary<ProviderClientFamily, SubAgentClientSelectionSource>
+            {
+                [ProviderClientFamily.Chat] = SubAgentClientSelectionSource.InputSubAgentRun
+            },
+            new AgentSecurityRunConfig(),
+            new NoSubAgentClientPropagation(),
+            defaults);
+        var specific = new SubAgentRunConfig();
+        specific.Harnesses.For<ConfiguredHarness>().Override(
+            new HarnessTestSettingsOverrides { MaxItems = 4 });
+        var merged = SubAgentRuntime.ResolveContinuationDescendantRunConfig(specific, policy)!;
+
+        var codec = new AgentInputCodec(ProviderComposition.Create([]));
+        var input = new UserMessagesInputEvent
+        {
+            SessionId = "child",
+            ThreadId = "main",
+            Messages = [new ChatMessage(ChatRole.User, "work")],
+            SubAgentRunConfig = merged
+        };
+        var serialized = codec.Serialize(input);
+        defaults.Harnesses.Clear();
+        specific.Harnesses.Clear();
+        var transported = codec.Deserialize(serialized).SubAgentRunConfig!;
+        var childRun = AgentRunConfigSnapshot.Capture(
+            transported, child.ProviderComposition)!;
+
+        Assert.Single(transported.HarnessOverrideLayers!);
+        Assert.Equal("4:library", await Invoke(child, child.CaptureRunConfig(childRun)));
+    }
+
+    [Fact]
+    public async Task DurablePolicy_FingerprintsAndRoundTripsInheritedHarnessLayers()
+    {
+        await using var child = await Builder()
+            .WithToolHarness<ConfiguredHarness>(options => options.Configure(
+                new HarnessTestSettings { MaxItems = 20 }))
+            .BuildAsync();
+        var defaults = new AgentRunConfig();
+        defaults.Harnesses.For<ConfiguredHarness>().Override(
+            new HarnessTestSettingsOverrides { MaxItems = 3 });
+        var current = new AgentRunConfig();
+        current.Harnesses.For<ConfiguredHarness>().Override(
+            new HarnessTestSettingsOverrides { MaxItems = 4 });
+        var clients = new AgentClientsConfig { Chat = new ChatClientConfig { ModelName = "child" } };
+        var sources = new Dictionary<ProviderClientFamily, SubAgentClientSelectionSource>
+        {
+            [ProviderClientFamily.Chat] = SubAgentClientSelectionSource.InputSubAgentRun
+        };
+        var withoutLayer = SubAgentExecutionPolicy.Create(
+            current, clients, sources, new AgentSecurityRunConfig(), new NoSubAgentClientPropagation());
+        var policy = SubAgentExecutionPolicy.Create(
+            current,
+            clients,
+            sources,
+            new AgentSecurityRunConfig(),
+            new NoSubAgentClientPropagation(),
+            harnessOverrideLayers: [defaults.Harnesses]);
+        var restored = JsonSerializer.Deserialize(
+            JsonSerializer.Serialize(policy, AgentEventJsonContext.Default.SubAgentExecutionPolicy),
+            AgentEventJsonContext.Default.SubAgentExecutionPolicy)!;
+        restored.Validate();
+        var childRun = AgentRunConfigSnapshot.Capture(
+            restored.InitialRunConfig, child.ProviderComposition)!;
+        childRun.HarnessOverrideLayers =
+            AgentRunConfigSnapshot.CloneHarnessOverrideLayers(restored.HarnessOverrideLayers);
+
+        Assert.NotEqual(withoutLayer.Fingerprint, policy.Fingerprint);
+        Assert.Single(restored.HarnessOverrideLayers!);
+        Assert.Equal("4:library", await Invoke(child, child.CaptureRunConfig(childRun)));
+    }
+
+    [Fact]
+    public void ParentHarnessOverrides_DoNotPopulateChildOrDefaultSnapshots()
+    {
+        var parentRun = new AgentRunConfig();
+        parentRun.Harnesses.For<ConfiguredHarness>().Override(
+            new HarnessTestSettingsOverrides { MaxItems = 2 });
+        var childRun = new SubAgentRunConfig();
+        var defaults = new SubAgentRunDefaults();
+
+        var childSnapshot = AgentRunConfigSnapshot.Capture(
+            childRun, ProviderComposition.Create([]))!;
+        var policy = SubAgentExecutionPolicy.Create(
+            null,
+            new AgentClientsConfig { Chat = new ChatClientConfig { ModelName = "child" } },
+            new Dictionary<ProviderClientFamily, SubAgentClientSelectionSource>
+            {
+                [ProviderClientFamily.Chat] = SubAgentClientSelectionSource.InputSubAgentRun
+            },
+            new AgentSecurityRunConfig(),
+            new NoSubAgentClientPropagation(),
+            defaults);
+
+        Assert.NotEmpty(parentRun.Harnesses);
+        Assert.Empty(childSnapshot.Harnesses);
+        Assert.Empty(SubAgentRuntime.CreateDescendantRunConfig(policy)!.Harnesses);
+    }
+
+    [Fact]
+    public async Task ChildSpecificOverride_UsesChildDiagnosticPathForMissingOwner()
+    {
+        await using var child = await Builder()
+            .WithToolHarness<ConfiguredHarness>()
+            .BuildAsync();
+        var run = new AgentRunConfig
+        {
+            Harnesses = [new() { Name = "MissingChildHarness" }],
+            HarnessOverridePath = "subAgentRunConfig.harnesses"
+        };
+
+        var error = Assert.Throws<AgentRunConfigurationException>(() =>
+            child.CaptureRunConfig(run));
+
+        Assert.Equal("HarnessNotRegistered", error.Code);
+        Assert.Equal("subAgentRunConfig.harnesses[0].name", error.Path);
     }
 
     [Theory]

@@ -296,28 +296,81 @@ internal sealed class HarnessConfigurationCatalog(object token)
         _entries.Add(factory.ActivationIdentity, entry);
         return entry;
     }
-    internal HarnessExecutionConfiguration Capture(List<HarnessRunOverride> overrides)
+    internal HarnessExecutionConfiguration Capture(
+        List<HarnessRunOverride> overrides,
+        IReadOnlyList<List<HarnessRunOverride>>? inheritedLayers = null,
+        string currentPath = "harnesses")
     {
-        var values = _entries.ToImmutableDictionary(pair => pair.Key, pair => pair.Value.AgentDefaults, StringComparer.Ordinal).ToBuilder();
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        for (var index = 0; index < overrides.Count; index++)
+        var values = _entries.ToImmutableDictionary(
+            static pair => pair.Key,
+            static pair => pair.Value.AgentDefaults,
+            StringComparer.Ordinal).ToBuilder();
+        var effectiveJson = _entries.ToDictionary(
+            static pair => pair.Key,
+            static pair => pair.Value.AgentJson,
+            StringComparer.Ordinal);
+        var layers = inheritedLayers?
+            .Select(static layer => layer.ToList())
+            .ToList() ?? [];
+        if (overrides.Count > 0)
+            layers.Add(overrides);
+
+        for (var layerIndex = 0; layerIndex < layers.Count; layerIndex++)
         {
-            var input = overrides[index]; var path = $"harnesses[{index}]";
-            var matches = _entries.Values.Where(entry => entry.Factory.ActivationIdentity == input.Name || entry.Factory.Name == input.Name).ToArray();
-            if (matches.Length != 1) throw HarnessConfigurationContract.Error("HarnessNotRegistered", path + ".name", "Harness name is unknown or ambiguous in this agent.");
-            var entry = matches[0]; var owner = entry.Factory.ActivationIdentity;
-            if (!seen.Add(owner)) throw HarnessConfigurationContract.Error("DuplicateHarness", path + ".name", "Duplicate harness override.");
-            try
+            var layer = layers[layerIndex];
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            for (var index = 0; index < layer.Count; index++)
             {
-                var json = entry.Factory.Configuration!.ApplyRun(entry.AgentJson, entry.LibraryJson, input, path);
-                object value;
-                try { value = entry.Factory.Configuration.Decode(json); }
-                catch (Exception ex) when (ex is JsonException or FormatException or OverflowException or InvalidOperationException && ex is not AgentRunConfigurationException)
-                { throw HarnessConfigurationContract.Error("HarnessConfigInvalidValue", path + ".config", "Value does not match the generated configuration contract."); }
-                entry.Factory.Configuration.Validate(value);
-                values[owner] = value;
+                var input = layer[index];
+                var pathRoot = currentPath;
+                if (inheritedLayers is not null && layerIndex < inheritedLayers.Count)
+                {
+                    var prefix = currentPath.EndsWith(".harnesses", StringComparison.Ordinal)
+                        ? currentPath[..^".harnesses".Length]
+                        : null;
+                    pathRoot = string.IsNullOrEmpty(prefix)
+                        ? $"harnessOverrideLayers[{layerIndex}].harnesses"
+                        : $"{prefix}.harnessOverrideLayers[{layerIndex}].harnesses";
+                }
+                var path = $"{pathRoot}[{index}]";
+                var matches = _entries.Values.Where(entry =>
+                    entry.Factory.ActivationIdentity == input.Name || entry.Factory.Name == input.Name).ToArray();
+                if (matches.Length != 1)
+                    throw HarnessConfigurationContract.Error("HarnessNotRegistered", path + ".name",
+                        "Harness name is unknown or ambiguous in this agent.");
+
+                var entry = matches[0];
+                var owner = entry.Factory.ActivationIdentity;
+                if (!seen.Add(owner))
+                    throw HarnessConfigurationContract.Error("DuplicateHarness", path + ".name",
+                        "Duplicate harness override.");
+
+                try
+                {
+                    var json = entry.Factory.Configuration!.ApplyRun(
+                        effectiveJson[owner], entry.LibraryJson, input, path);
+                    object value;
+                    try
+                    {
+                        value = entry.Factory.Configuration.Decode(json);
+                    }
+                    catch (Exception ex) when (ex is JsonException or FormatException or OverflowException or
+                        InvalidOperationException && ex is not AgentRunConfigurationException)
+                    {
+                        throw HarnessConfigurationContract.Error(
+                            "HarnessConfigInvalidValue",
+                            path + ".config",
+                            "Value does not match the generated configuration contract.");
+                    }
+                    entry.Factory.Configuration.Validate(value);
+                    effectiveJson[owner] = json;
+                    values[owner] = value;
+                }
+                catch (AgentRunConfigurationException ex)
+                {
+                    throw HarnessConfigurationDiagnostics.At(ex, path, input.SourceLocations);
+                }
             }
-            catch (AgentRunConfigurationException ex) { throw HarnessConfigurationDiagnostics.At(ex, path, input.SourceLocations); }
         }
         return new(token, values.ToImmutable());
     }

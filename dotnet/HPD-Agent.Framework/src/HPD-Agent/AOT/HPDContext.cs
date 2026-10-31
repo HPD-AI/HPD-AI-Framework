@@ -121,6 +121,7 @@ using Microsoft.Extensions.AI;
 // --- Per-invocation run options (AgentRunConfig) ---
 [JsonSerializable(typeof(HarnessRunOverride))]
 [JsonSerializable(typeof(List<HarnessRunOverride>))]
+[JsonSerializable(typeof(List<List<HarnessRunOverride>>))]
 [JsonSerializable(typeof(AgentRunConfig))]
 [JsonSerializable(typeof(SubAgentRunConfig))]
 [JsonSerializable(typeof(SubAgentClientPropagation))]

@@ -2875,7 +2875,10 @@ public sealed partial class Agent : IAsyncDisposable
                 "Non-default propagation requires an explicit Chat selection in the subagent run configuration.");
         }
         var runConfig = AgentRunConfigSnapshot.Capture(input.RunConfig, _chatClientResolver.Composition) ?? new AgentRunConfig();
-        runConfig.HarnessConfiguration = _harnessConfigurations.Capture(runConfig.Harnesses);
+        runConfig.HarnessConfiguration = _harnessConfigurations.Capture(
+            runConfig.Harnesses,
+            runConfig.HarnessOverrideLayers,
+            runConfig.HarnessOverridePath);
         var subAgentRunConfig = AgentRunConfigSnapshot.Capture(
             input.SubAgentRunConfig,
             _chatClientResolver.Composition);
@@ -2912,7 +2915,10 @@ public sealed partial class Agent : IAsyncDisposable
     internal AgentRunConfig CaptureRunConfig(AgentRunConfig? runConfig)
     {
         var captured = AgentRunConfigSnapshot.Capture(runConfig, _chatClientResolver.Composition) ?? new AgentRunConfig();
-        captured.HarnessConfiguration = _harnessConfigurations.Capture(captured.Harnesses);
+        captured.HarnessConfiguration = _harnessConfigurations.Capture(
+            captured.Harnesses,
+            captured.HarnessOverrideLayers,
+            captured.HarnessOverridePath);
         return captured;
     }
 

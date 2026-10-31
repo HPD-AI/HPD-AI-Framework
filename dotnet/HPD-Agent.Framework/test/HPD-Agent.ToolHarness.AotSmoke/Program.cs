@@ -10,6 +10,8 @@ using Microsoft.Extensions.Configuration;
 
 if (!ValidationMetadataRoundTrips())
     return 2;
+if (!SubAgentHarnessOverridesRoundTrip())
+    return 3;
 
 var runConfig = new AgentRunConfig();
 runConfig.Harnesses.For<DerivedExecutionHarness>().Override(
@@ -59,6 +61,33 @@ static bool ValidationMetadataRoundTrips()
     return error.GetProperty("attempted_value").GetString() == "status" &&
         error.GetProperty("allowed_values")[0].GetString() == "launch" &&
         error.GetProperty("allowed_values")[1].GetString() == "listSessions";
+}
+
+static bool SubAgentHarnessOverridesRoundTrip()
+{
+    var child = new SubAgentRunConfig();
+    child.Harnesses.For<DerivedExecutionHarness>().Override(
+        new ExternalExecutionSettingsOverrides { Value = 43 });
+    var descendantDefaults = new SubAgentRunDefaults();
+    descendantDefaults.Harnesses.For<DerivedExecutionHarness>().Override(
+        new ExternalExecutionSettingsOverrides { Value = 44 });
+    var policy = SubAgentExecutionPolicy.Create(
+        child,
+        new AgentClientsConfig { Chat = new ChatClientConfig { ModelName = "child" } },
+        new Dictionary<ProviderClientFamily, SubAgentClientSelectionSource>
+        {
+            [ProviderClientFamily.Chat] = SubAgentClientSelectionSource.InputSubAgentRun
+        },
+        new AgentSecurityRunConfig(),
+        new NoSubAgentClientPropagation(),
+        descendantDefaults,
+        harnessOverrideLayers: [child.Harnesses]);
+    var restored = JsonSerializer.Deserialize(
+        JsonSerializer.Serialize(policy, AgentEventJsonContext.Default.SubAgentExecutionPolicy),
+        AgentEventJsonContext.Default.SubAgentExecutionPolicy)!;
+    return restored.InitialRunConfig!.Harnesses.Count == 1 &&
+        restored.HarnessOverrideLayers is { Count: 1 } &&
+        restored.DescendantDefaults?.Harnesses.Count == 1;
 }
 
 internal sealed class HarnessClient : IChatClient

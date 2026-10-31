@@ -7,6 +7,7 @@ namespace HPD.Agent;
 public sealed record SubAgentRunDefaults
 {
     public bool AllowUserQuestions { get; init; }
+    public List<HarnessRunOverride> Harnesses { get; init; } = [];
     public AgentContextRunConfig? Context { get; init; }
     public CollapsingRunPolicy? Collapsing { get; init; }
     public CompactionRunPolicy? Compaction { get; init; }
@@ -29,6 +30,7 @@ public sealed record SubAgentRunDefaults
         return new SubAgentRunConfig
         {
             AllowUserQuestions = copy.AllowUserQuestions,
+            Harnesses = copy.Harnesses.Select(static value => value.Capture()).ToList(),
             Context = copy.Context, Collapsing = copy.Collapsing,
             Compaction = copy.Compaction, HandoffCompaction = copy.HandoffCompaction, Security = copy.Security,
             DescendantDefaults = copy

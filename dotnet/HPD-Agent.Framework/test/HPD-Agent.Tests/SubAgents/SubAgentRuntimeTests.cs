@@ -117,6 +117,86 @@ public class SubAgentRuntimeTests
     }
 
     [Fact]
+    public async Task ExplicitSubAgentRunOverride_IsVisibleToChildHarness()
+    {
+        var childClient = new FakeChatClient();
+        childClient.EnqueueToolCall("ReadSubAgentSetting", "settings-1");
+        childClient.EnqueueToolCall("Parent", "report-1", new Dictionary<string, object?>
+        {
+            ["request"] = new Dictionary<string, object?>
+            {
+                ["action"] = "complete",
+                ["report"] = "Review complete."
+            }
+        });
+        var store = new InMemorySessionStore(TestEventApplication.Codec);
+        var childConfig = MinimalConfig();
+        childConfig.Clients.Chat!.Override = ClientOverride<IChatClient>.Borrow(
+            childClient, "test", "local", "test.adapter");
+        await using var child = await new AgentBuilder(childConfig, new TestProviderRegistry(childClient))
+            .WithEventComposition(TestEventApplication.Composition)
+            .WithSessionStore(store)
+            .WithToolHarness<SubAgentConfiguredHarness>(options => options.Configure(
+                new SubAgentHarnessSettings { MaxItems = 20 }))
+            .BuildAsync();
+        await child.StartAsync();
+
+        using var services = new ServiceCollection()
+            .AddSingleton<IAgentRuntimeResolver>(new FixedAgentRuntimeResolver(child))
+            .BuildServiceProvider();
+        AgentInvocationResult? result = null;
+        var definition = SubAgent.FromConfig(
+            "test/configured", "ConfiguredReviewer", "Reviews configured work.", MinimalConfig());
+        var invoke = HPDAIFunctionFactory.Create(async (_, context, ct) =>
+        {
+            result = await SubAgentRuntime.InvokeAsync(new SubAgentRuntime.SubAgentInvocationRequest
+            {
+                Definition = definition,
+                Input = "Review this input.",
+                CapabilityId = CapabilityId.Create("test:configured"),
+                ParentContext = context
+            }, ct);
+            return result.Text;
+        }, new HPDAIFunctionFactoryOptions { Name = "invoke_configured_reviewer" });
+        var parentClient = new FakeChatClient();
+        parentClient.EnqueueToolCall("invoke_configured_reviewer", "invoke-1",
+            new Dictionary<string, object?>());
+        parentClient.EnqueueTextResponse("Parent finished.");
+        var parentConfig = MinimalConfig();
+        parentConfig.Name = "ParentAgent";
+        parentConfig.Clients.Chat!.Override = ClientOverride<IChatClient>.Borrow(
+            parentClient, "test", "local", "test.adapter");
+        parentConfig.ServerConfiguredTools = [invoke];
+        await using var parent = await new AgentBuilder(parentConfig, new TestProviderRegistry(parentClient))
+            .WithEventComposition(TestEventApplication.Composition)
+            .WithSessionStore(store)
+            .WithServiceProvider(services)
+            .BuildAsync();
+        await parent.CreateSessionAsync("parent-session");
+        await parent.StartAsync();
+        var childRun = new SubAgentRunConfig();
+        childRun.Harnesses.For<SubAgentConfiguredHarness>().Override(
+            new SubAgentHarnessSettingsOverrides { MaxItems = 5 });
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await parent.RunAsync(new UserMessagesInputEvent
+        {
+            Messages = [new ChatMessage(ChatRole.User, "Review work.")],
+            SessionId = "parent-session",
+            ThreadId = "main",
+            SubAgentRunConfig = childRun
+        }, timeout.Token);
+
+        result.Should().NotBeNull();
+        childClient.CapturedRequests[1]
+            .SelectMany(static message => message.Contents)
+            .OfType<FunctionResultContent>()
+            .Single(content => content.CallId == "settings-1")
+            .Result
+            .Should().Be("5");
+    }
+
+    [Fact]
     public async Task InvokeAsync_WithoutExplicitReport_StopsWithoutResult()
     {
         var childClient = new FakeChatClient();
@@ -378,4 +458,17 @@ public class SubAgentRuntimeTests
         }
     }
 
+}
+
+public sealed record SubAgentHarnessSettings
+{
+    [HarnessRunSetting]
+    public int MaxItems { get; init; } = 10;
+}
+
+public sealed class SubAgentConfiguredHarness(IHarnessConfig<SubAgentHarnessSettings> settings)
+{
+    [AIFunction]
+    public string ReadSubAgentSetting(FunctionExecutionContext context)
+        => settings.For(context).MaxItems.ToString();
 }

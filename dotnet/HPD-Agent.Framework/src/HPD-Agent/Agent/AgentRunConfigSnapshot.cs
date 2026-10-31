@@ -63,6 +63,9 @@ internal static class AgentRunConfigSnapshot
         ArgumentNullException.ThrowIfNull(core);
         return new SubAgentRunConfig
         {
+            Harnesses = core.Harnesses.Select(static value => value.Capture()).ToList(),
+            HarnessOverrideLayers = CloneHarnessOverrideLayers(core.HarnessOverrideLayers),
+            HarnessOverridePath = core.HarnessOverridePath,
             Security = core.Security,
             Clients = core.Clients,
             SystemInstructions = core.SystemInstructions,
@@ -86,6 +89,8 @@ internal static class AgentRunConfigSnapshot
     private static AgentRunConfig CloneCore(AgentRunConfig source, ProviderComposition? composition) => new()
     {
         Harnesses = source.Harnesses.Select(value => value.Capture()).ToList(),
+        HarnessOverrideLayers = CloneHarnessOverrideLayers(source.HarnessOverrideLayers),
+        HarnessOverridePath = source.HarnessOverridePath,
         HarnessConfiguration = source.HarnessConfiguration,
         Security = source.Security with
         {
@@ -136,6 +141,10 @@ internal static class AgentRunConfigSnapshot
         RuntimeTools = source.RuntimeTools is null ? null : new(source.RuntimeTools),
         RuntimeToolMode = source.RuntimeToolMode
     };
+
+    internal static List<List<HarnessRunOverride>>? CloneHarnessOverrideLayers(
+        IReadOnlyList<List<HarnessRunOverride>>? layers)
+        => layers?.Select(static layer => layer.Select(static value => value.Capture()).ToList()).ToList();
 
     private static AgentClientsConfig CloneClients(AgentClientsConfig source) => new()
     {

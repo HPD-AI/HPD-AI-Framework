@@ -139,6 +139,15 @@ public class AgentRunConfig
 {
     /// <summary>Portable overrides for already registered harnesses.</summary>
     public List<HarnessRunOverride> Harnesses { get; set; } = [];
+
+    /// <summary>Runtime-only portable layers applied before <see cref="Harnesses"/>.</summary>
+    [JsonIgnore]
+    internal List<List<HarnessRunOverride>>? HarnessOverrideLayers { get; set; }
+
+    /// <summary>Runtime-only diagnostic root for portable harness overrides.</summary>
+    [JsonIgnore]
+    internal string HarnessOverridePath { get; set; } = "harnesses";
+
     [JsonIgnore]
     internal HarnessExecutionConfiguration? HarnessConfiguration { get; set; }
 

@@ -42,6 +42,30 @@ public static class HpdAgentConfigSerializer
         EnsureProviderCompositionNotRequired("clients", config.Clients.GetFamilyConfig);
         return HpdConfigSerializer.Serialize(config, HPDJsonContext.Default.AgentRunConfig, format);
     }
+
+    /// <summary>Deserializes a portable subagent run configuration from JSON or YAML.</summary>
+    public static SubAgentRunConfig? DeserializeSubAgentRunConfig(
+        string text,
+        HpdConfigFormat format = HpdConfigFormat.Json)
+    {
+        var root = ParseObject(text, format);
+        if (root is null) return null;
+        if (ExtractPayloads(root).FirstOrDefault() is { } payload)
+            ThrowProviderCompositionNotInstalled(payload.Path);
+        return AttachSubAgent(JsonSerializer.Deserialize(
+            root.ToJsonString(), HPDJsonContext.Default.SubAgentRunConfig), root);
+    }
+
+    /// <summary>Serializes a portable subagent run configuration to JSON or YAML.</summary>
+    public static string Serialize(
+        SubAgentRunConfig config,
+        HpdConfigFormat format = HpdConfigFormat.Json)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        ValidatePortableClients("clients", config.Clients);
+        EnsureProviderCompositionNotRequired("clients", config.Clients.GetFamilyConfig);
+        return HpdConfigSerializer.Serialize(config, HPDJsonContext.Default.SubAgentRunConfig, format);
+    }
     public static AgentConfig? ReadFile(string path)
         => Deserialize(File.ReadAllText(path), GetFileFormat(path));
 
@@ -242,6 +266,30 @@ public static class HpdAgentConfigSerializer
         return Attach(config, root);
     }
 
+    /// <summary>Deserializes one subagent run configuration and binds provider payloads.</summary>
+    public static SubAgentRunConfig? DeserializeSubAgentRunConfig(
+        string text,
+        ProviderComposition providerComposition,
+        HpdConfigFormat format = HpdConfigFormat.Json)
+    {
+        ArgumentNullException.ThrowIfNull(providerComposition);
+        var root = ParseObject(text, format);
+        if (root is null)
+            return null;
+
+        var payloads = new List<ExtractedPayload>();
+        if (GetObject(root, "clients") is { } clients)
+            ExtractFamilies(clients, null, null, "clients", payloads);
+
+        var config = JsonSerializer.Deserialize(
+            root.ToJsonString(), HPDJsonContext.Default.SubAgentRunConfig);
+        if (config is null)
+            return null;
+
+        BindFamilies(config.Clients, payloads, providerComposition);
+        return AttachSubAgent(config, root);
+    }
+
     /// <summary>Serializes typed provider-family payloads through the generated composition.</summary>
     public static string Serialize(
         AgentConfig config,
@@ -304,6 +352,38 @@ public static class HpdAgentConfigSerializer
         if (GetObject(root, "clients") is { } clients)
             InjectFamilies(clients, config.Clients, providerComposition, "clients");
         return WriteObject(root, format);
+    }
+
+    /// <summary>Serializes one subagent run configuration and its typed provider payloads.</summary>
+    public static string Serialize(
+        SubAgentRunConfig config,
+        ProviderComposition providerComposition,
+        HpdConfigFormat format = HpdConfigFormat.Json)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(providerComposition);
+        ValidatePortableClients("clients", config.Clients);
+        var root = JsonSerializer.SerializeToNode(
+            config, HPDJsonContext.Default.SubAgentRunConfig) as JsonObject
+            ?? throw new JsonException("Subagent run configuration did not serialize to a JSON object.");
+
+        if (GetObject(root, "clients") is { } clients)
+            InjectFamilies(clients, config.Clients, providerComposition, "clients");
+        return WriteObject(root, format);
+    }
+
+    private static SubAgentRunConfig? AttachSubAgent(
+        SubAgentRunConfig? config,
+        JsonObject root)
+    {
+        if (config is null || !Sources.TryGetValue(root, out var source))
+            return config;
+        foreach (var entry in config.Harnesses)
+            entry.SourceLocations = source.Locations;
+        if (config.DescendantDefaults is not null)
+            foreach (var entry in config.DescendantDefaults.Harnesses)
+                entry.SourceLocations = source.Locations;
+        return config;
     }
 
     private static JsonObject? ParseObject(string text, HpdConfigFormat format)

@@ -89,13 +89,16 @@ public enum SubAgentClientSelectionSource
 public sealed record SubAgentExecutionPolicy
 {
     /// <summary>The only policy contract understood by this greenfield runtime.</summary>
-    public const int CurrentContractVersion = 4;
+    public const int CurrentContractVersion = 5;
 
     /// <summary>Gets the contract version.</summary>
     public required int ContractVersion { get; init; }
 
     /// <summary>Gets the portable initial child run configuration.</summary>
     public AgentRunConfig? InitialRunConfig { get; init; }
+
+    /// <summary>Gets portable inherited harness layers applied before the initial run's harness overrides.</summary>
+    public List<List<HarnessRunOverride>>? HarnessOverrideLayers { get; init; }
 
     /// <summary>Explicit handoff preparation captured before child route creation.</summary>
     public CompactionSpecification? HandoffCompaction { get; init; }
@@ -126,7 +129,8 @@ public sealed record SubAgentExecutionPolicy
         AgentSecurityRunConfig authority,
         SubAgentClientPropagationState propagation,
         SubAgentRunDefaults? descendantDefaults = null,
-        CompactionSpecification? handoffCompaction = null)
+        CompactionSpecification? handoffCompaction = null,
+        IReadOnlyList<List<HarnessRunOverride>>? harnessOverrideLayers = null)
     {
         ArgumentNullException.ThrowIfNull(lockedClients);
         ArgumentNullException.ThrowIfNull(clientSources);
@@ -160,16 +164,19 @@ public sealed record SubAgentExecutionPolicy
             }
         };
         var defaults = descendantDefaults?.Snapshot();
+        var layers = AgentRunConfigSnapshot.CloneHarnessOverrideLayers(harnessOverrideLayers);
         SubAgentCompactionConfiguration.Validate(handoffCompaction);
         SubAgentCompactionConfiguration.Validate(initialSnapshot?.Compaction?.Automatic?.Compaction);
         var handoff = handoffCompaction is null ? null : JsonSerializer.Deserialize(
             JsonSerializer.Serialize(handoffCompaction, AgentEventJsonContext.Default.CompactionSpecification),
             AgentEventJsonContext.Default.CompactionSpecification);
-        var fingerprint = ComputeFingerprint(initialSnapshot, lockedSnapshot, sourceSnapshot, authoritySnapshot, propagation, defaults, handoff);
+        var fingerprint = ComputeFingerprint(initialSnapshot, lockedSnapshot, sourceSnapshot, authoritySnapshot,
+            propagation, defaults, handoff, layers);
         return new SubAgentExecutionPolicy
         {
             ContractVersion = CurrentContractVersion,
             InitialRunConfig = initialSnapshot,
+            HarnessOverrideLayers = layers,
             DescendantDefaults = defaults,
             HandoffCompaction = handoff,
             LockedClients = lockedSnapshot,
@@ -201,7 +208,10 @@ public sealed record SubAgentExecutionPolicy
         SubAgentCompactionConfiguration.Validate(HandoffCompaction);
         SubAgentCompactionConfiguration.Validate(InitialRunConfig?.Compaction?.Automatic?.Compaction);
         _ = DescendantDefaults?.Snapshot();
-        if (!string.Equals(Fingerprint, ComputeFingerprint(InitialRunConfig, LockedClients, ClientSources, Authority, Propagation, DescendantDefaults, HandoffCompaction), StringComparison.Ordinal))
+        _ = AgentRunConfigSnapshot.CloneHarnessOverrideLayers(HarnessOverrideLayers);
+        if (!string.Equals(Fingerprint, ComputeFingerprint(InitialRunConfig, LockedClients, ClientSources,
+                Authority, Propagation, DescendantDefaults, HandoffCompaction, HarnessOverrideLayers),
+                StringComparison.Ordinal))
             throw new InvalidOperationException("subagent_execution_policy_mismatch");
     }
 
@@ -221,7 +231,8 @@ public sealed record SubAgentExecutionPolicy
         AgentSecurityRunConfig authority,
         SubAgentClientPropagationState propagation,
         SubAgentRunDefaults? descendantDefaults,
-        CompactionSpecification? handoffCompaction)
+        CompactionSpecification? handoffCompaction,
+        IReadOnlyList<List<HarnessRunOverride>>? harnessOverrideLayers)
     {
         var propagationValue = propagation switch
         {
@@ -237,15 +248,18 @@ public sealed record SubAgentExecutionPolicy
         var sources = string.Join(',', clientSources.OrderBy(static pair => pair.Key)
             .Select(static pair => $"{pair.Key}:{pair.Value}"));
         var lockedAuthority = JsonSerializer.Serialize(authority, AgentEventJsonContext.Default.AgentSecurityRunConfig);
+        var harnessLayers = JsonSerializer.Serialize(harnessOverrideLayers,
+            AgentEventJsonContext.Default.ListListHarnessRunOverride);
         var canonical = string.Join('|',
-            "hpd.subagent.execution-policy.v4",
+            "hpd.subagent.execution-policy.v5",
             initialRun,
             clients,
             sources,
             lockedAuthority,
             propagationValue,
             JsonSerializer.Serialize(descendantDefaults, AgentEventJsonContext.Default.SubAgentRunDefaults),
-            JsonSerializer.Serialize(handoffCompaction, AgentEventJsonContext.Default.CompactionSpecification));
+            JsonSerializer.Serialize(handoffCompaction, AgentEventJsonContext.Default.CompactionSpecification),
+            harnessLayers);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
     }
 

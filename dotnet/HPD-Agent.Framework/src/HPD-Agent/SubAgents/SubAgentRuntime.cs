@@ -1239,6 +1239,9 @@ public static class SubAgentRuntime
         policy.Validate();
         var runConfig = AgentRunConfigSnapshot.Capture(policy.InitialRunConfig, childAgent.ProviderComposition)
             ?? new AgentRunConfig();
+        runConfig.HarnessOverrideLayers =
+            AgentRunConfigSnapshot.CloneHarnessOverrideLayers(policy.HarnessOverrideLayers);
+        runConfig.HarnessOverridePath = "subAgentRunConfig.harnesses";
         runConfig.Compaction ??= new CompactionRunPolicy();
         SubAgentCompactionConfiguration.Validate(runConfig.Compaction.Automatic?.Compaction);
         runConfig.Clients = policy.ApplyLockedSelections(runConfig.Clients);
@@ -1272,9 +1275,25 @@ public static class SubAgentRuntime
         ISessionStore store,
         CancellationToken cancellationToken)
     {
+        var admittedRun = AgentRunConfigSnapshot.Capture(policy.InitialRunConfig, childAgent.ProviderComposition);
         var runConfig = AgentRunConfigSnapshot.Capture(input.RunConfig, childAgent.ProviderComposition)
             ?? new AgentRunConfig();
-        runConfig.Compaction ??= AgentRunConfigSnapshot.Capture(policy.InitialRunConfig, childAgent.ProviderComposition)?.Compaction
+        var inheritedLayers = AgentRunConfigSnapshot.CloneHarnessOverrideLayers(policy.HarnessOverrideLayers) ?? [];
+        if (admittedRun?.Harnesses is { Count: > 0 } admittedHarnesses &&
+            (runConfig.Harnesses.Count > 0 || runConfig.HarnessOverrideLayers is { Count: > 0 }))
+        {
+            inheritedLayers.Add(admittedHarnesses.Select(static value => value.Capture()).ToList());
+        }
+        else if (runConfig.Harnesses.Count == 0 && admittedRun?.Harnesses is { Count: > 0 } initialHarnesses)
+        {
+            runConfig.Harnesses = initialHarnesses.Select(static value => value.Capture()).ToList();
+        }
+        if (runConfig.HarnessOverrideLayers is { Count: > 0 })
+            inheritedLayers.AddRange(AgentRunConfigSnapshot.CloneHarnessOverrideLayers(
+                runConfig.HarnessOverrideLayers)!);
+        runConfig.HarnessOverrideLayers = inheritedLayers.Count == 0 ? null : inheritedLayers;
+        runConfig.HarnessOverridePath = "subAgentRunConfig.harnesses";
+        runConfig.Compaction ??= admittedRun?.Compaction
             ?? new CompactionRunPolicy();
         SubAgentCompactionConfiguration.Validate(runConfig.Compaction.Automatic?.Compaction);
         runConfig.Clients = policy.ApplyLockedSelections(runConfig.Clients);
@@ -1958,7 +1977,9 @@ public static class SubAgentRuntime
             sources,
             authority,
             ResolvePropagation(childRun, childRun?.Clients.Chat is not null),
-            childRun?.DescendantDefaults, childRun?.HandoffCompaction);
+            childRun?.DescendantDefaults,
+            childRun?.HandoffCompaction,
+            childRun?.HarnessOverrideLayers);
         policy.Validate();
         return policy;
     }
@@ -2082,6 +2103,22 @@ public static class SubAgentRuntime
             supplied.Compaction ??= admitted.Compaction;
             supplied.HandoffCompaction ??= admitted.HandoffCompaction;
             supplied.DescendantDefaults = admitted.DescendantDefaults;
+        }
+        if (admitted?.Harnesses is { Count: > 0 } admittedHarnesses)
+        {
+            if (supplied.Harnesses.Count == 0)
+            {
+                supplied.Harnesses = admittedHarnesses
+                    .Select(static value => value.Capture())
+                    .ToList();
+            }
+            else
+            {
+                var layers = AgentRunConfigSnapshot.CloneHarnessOverrideLayers(
+                    supplied.HarnessOverrideLayers) ?? [];
+                layers.Insert(0, admittedHarnesses.Select(static value => value.Capture()).ToList());
+                supplied.HarnessOverrideLayers = layers;
+            }
         }
         return supplied;
     }
