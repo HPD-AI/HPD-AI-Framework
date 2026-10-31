@@ -43,7 +43,7 @@ public sealed class ReadFileTests : IDisposable
     {
         await File.WriteAllTextAsync("example.cs", "using System;\n\npublic class Example\n");
 
-        var result = await ReadFileTextAsync(new CodingToolHarness(), "example.cs");
+        var result = await ReadFileTextAsync(CodingHarnessTestFactory.Create(), "example.cs");
 
         result.Should().Contain("""<file path=""");
         result.Should().Contain("start_line=\"1\"");
@@ -58,7 +58,7 @@ public sealed class ReadFileTests : IDisposable
     {
         await File.WriteAllTextAsync("range.txt", "one\ntwo\nthree\nfour\n");
 
-        var result = await ReadFileTextAsync(new CodingToolHarness(), "range.txt", offset: 2, limit: 2);
+        var result = await ReadFileTextAsync(CodingHarnessTestFactory.Create(), "range.txt", offset: 2, limit: 2);
 
         result.Should().Contain("start_line=\"2\"");
         result.Should().Contain("lines_read=\"2\"");
@@ -74,7 +74,7 @@ public sealed class ReadFileTests : IDisposable
         var lines = Enumerable.Range(1, 20).Select(i => $"line{i}");
         await File.WriteAllTextAsync("many-lines.txt", string.Join('\n', lines));
 
-        var result = await ReadFileTextAsync(new CodingToolHarness(), "many-lines.txt", limit: 10);
+        var result = await ReadFileTextAsync(CodingHarnessTestFactory.Create(), "many-lines.txt", limit: 10);
 
         result.Should().Contain("lines_read=\"10\"");
         result.Should().Contain("truncated=\"true\"");
@@ -88,7 +88,7 @@ public sealed class ReadFileTests : IDisposable
     {
         await File.WriteAllTextAsync("whitespace.txt", "  indented\tvalue  \n\tleading-tab\n");
 
-        var result = await ReadFileTextAsync(new CodingToolHarness(), "whitespace.txt");
+        var result = await ReadFileTextAsync(CodingHarnessTestFactory.Create(), "whitespace.txt");
 
         result.Should().Contain("1\t  indented\tvalue  ");
         result.Should().Contain("2\t\tleading-tab");
@@ -97,7 +97,7 @@ public sealed class ReadFileTests : IDisposable
     [Fact]
     public async Task ReadFile_RejectsInvalidArguments()
     {
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
 
         (await ReadFileTextAsync(toolharness, null!)).Should().Contain("Path is required.");
         (await ReadFileTextAsync(toolharness, "file.txt", offset: 0)).Should().Contain("Offset must be greater than or equal to 1.");
@@ -110,7 +110,7 @@ public sealed class ReadFileTests : IDisposable
     {
         await File.WriteAllTextAsync("Agent.ts", "export {}\n");
 
-        var result = await ReadFileTextAsync(new CodingToolHarness(), "Agent.cs");
+        var result = await ReadFileTextAsync(CodingHarnessTestFactory.Create(), "Agent.cs");
 
         result.Should().Contain("<error tool=\"ReadFile\"");
         result.Should().Contain("File does not exist. Did you mean Agent.ts?");
@@ -121,7 +121,7 @@ public sealed class ReadFileTests : IDisposable
     {
         Directory.CreateDirectory("src");
 
-        var result = await ReadFileTextAsync(new CodingToolHarness(), "src");
+        var result = await ReadFileTextAsync(CodingHarnessTestFactory.Create(), "src");
 
         result.Should().Contain("Path is a directory. Use ListDirectory instead.");
     }
@@ -131,7 +131,7 @@ public sealed class ReadFileTests : IDisposable
     {
         await File.WriteAllTextAsync("xml.txt", "if (x < y && y > z) return \"&\";\n");
 
-        var result = await ReadFileTextAsync(new CodingToolHarness(), "xml.txt");
+        var result = await ReadFileTextAsync(CodingHarnessTestFactory.Create(), "xml.txt");
 
         result.Should().Contain("x &lt; y &amp;&amp; y &gt; z");
         result.Should().Contain("\"&amp;\"");
@@ -142,7 +142,7 @@ public sealed class ReadFileTests : IDisposable
     {
         await File.WriteAllTextAsync("image.svg", "<svg><circle cx=\"50\" cy=\"50\" r=\"40\" /></svg>\n");
 
-        var result = await ReadFileTextAsync(new CodingToolHarness(), "image.svg");
+        var result = await ReadFileTextAsync(CodingHarnessTestFactory.Create(), "image.svg");
 
         result.Should().Contain("1\t&lt;svg&gt;&lt;circle");
         result.Should().Contain("cx=\"50\"");
@@ -155,8 +155,8 @@ public sealed class ReadFileTests : IDisposable
         await File.WriteAllTextAsync("empty.txt", string.Empty);
         await File.WriteAllTextAsync("small.txt", "one\n");
 
-        var empty = await ReadFileTextAsync(new CodingToolHarness(), "empty.txt");
-        var beyondEnd = await ReadFileTextAsync(new CodingToolHarness(), "small.txt", offset: 50);
+        var empty = await ReadFileTextAsync(CodingHarnessTestFactory.Create(), "empty.txt");
+        var beyondEnd = await ReadFileTextAsync(CodingHarnessTestFactory.Create(), "small.txt", offset: 50);
 
         empty.Should().Contain("<empty_file");
         beyondEnd.Should().Contain("<no_content reason=\"offset_beyond_end\"");
@@ -167,7 +167,7 @@ public sealed class ReadFileTests : IDisposable
     {
         await File.WriteAllBytesAsync("binary.bin", [0x01, 0x02, 0x00, 0x03]);
 
-        var result = await ReadFileTextAsync(new CodingToolHarness(), "binary.bin");
+        var result = await ReadFileTextAsync(CodingHarnessTestFactory.Create(), "binary.bin");
 
         result.Should().Contain("Cannot read binary file.");
     }
@@ -177,7 +177,7 @@ public sealed class ReadFileTests : IDisposable
     {
         await File.WriteAllTextAsync("utf16.txt", "hello\nworld\n", Encoding.Unicode);
 
-        var result = await ReadFileTextAsync(new CodingToolHarness(), "utf16.txt");
+        var result = await ReadFileTextAsync(CodingHarnessTestFactory.Create(), "utf16.txt");
 
         result.Should().Contain("1\thello");
         result.Should().Contain("2\tworld");
@@ -189,7 +189,7 @@ public sealed class ReadFileTests : IDisposable
     {
         await File.WriteAllTextAsync("utf16be.txt", "hello\nworld\n", Encoding.BigEndianUnicode);
 
-        var result = await ReadFileTextAsync(new CodingToolHarness(), "utf16be.txt");
+        var result = await ReadFileTextAsync(CodingHarnessTestFactory.Create(), "utf16be.txt");
 
         result.Should().Contain("1\thello");
         result.Should().Contain("2\tworld");
@@ -204,7 +204,7 @@ public sealed class ReadFileTests : IDisposable
         var encoding = new UTF32Encoding(bigEndian, byteOrderMark: true, throwOnInvalidCharacters: true);
         await File.WriteAllTextAsync(bigEndian ? "utf32be.txt" : "utf32le.txt", "hello\nworld\n", encoding);
 
-        var result = await ReadFileTextAsync(new CodingToolHarness(), bigEndian ? "utf32be.txt" : "utf32le.txt");
+        var result = await ReadFileTextAsync(CodingHarnessTestFactory.Create(), bigEndian ? "utf32be.txt" : "utf32le.txt");
 
         result.Should().Contain("1\thello");
         result.Should().Contain("2\tworld");
@@ -217,7 +217,7 @@ public sealed class ReadFileTests : IDisposable
         var latin1Bytes = Encoding.Latin1.GetBytes("café déjà vu\nfaçade naïve\n");
         await File.WriteAllBytesAsync("latin1.txt", latin1Bytes);
 
-        var result = await ReadFileTextAsync(new CodingToolHarness(), "latin1.txt");
+        var result = await ReadFileTextAsync(CodingHarnessTestFactory.Create(), "latin1.txt");
 
         result.Should().Contain("1\tcafé déjà vu");
         result.Should().Contain("2\tfaçade naïve");
@@ -234,7 +234,7 @@ public sealed class ReadFileTests : IDisposable
             """);
         await File.WriteAllBytesAsync("windows-1252.txt", bytes);
 
-        var result = await ReadFileTextAsync(new CodingToolHarness(), "windows-1252.txt");
+        var result = await ReadFileTextAsync(CodingHarnessTestFactory.Create(), "windows-1252.txt");
 
         result.Should().Contain("1\t“Smart quotes” and an em dash — encoded as Windows-1252.");
         result.Should().Contain("2\tThis should not collapse into Latin1 control characters.");
@@ -255,7 +255,7 @@ public sealed class ReadFileTests : IDisposable
         ];
         await File.WriteAllBytesAsync("shift-jis.txt", shiftJisBytes);
 
-        var result = await ReadFileTextAsync(new CodingToolHarness(), "shift-jis.txt");
+        var result = await ReadFileTextAsync(CodingHarnessTestFactory.Create(), "shift-jis.txt");
 
         result.Should().Contain("1\tこんにちは、世界！日本語のテストです。");
         result.Should().NotContain("Unable to decode file as text.");
@@ -280,7 +280,7 @@ public sealed class ReadFileTests : IDisposable
             """;
         await File.WriteAllTextAsync("index.html", html, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
-        var result = await ReadFileTextAsync(new CodingToolHarness(), "index.html");
+        var result = await ReadFileTextAsync(CodingHarnessTestFactory.Create(), "index.html");
 
         result.Should().Contain("Cluck &amp; Gather — café coop");
         result.Should().Contain("Backyard chickens 🐔");
@@ -294,7 +294,7 @@ public sealed class ReadFileTests : IDisposable
     {
         await File.WriteAllTextAsync("bom.txt", "hello\nworld\n", new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
 
-        var result = await ReadFileTextAsync(new CodingToolHarness(), "bom.txt");
+        var result = await ReadFileTextAsync(CodingHarnessTestFactory.Create(), "bom.txt");
 
         result.Should().Contain("1\thello");
         result.Should().NotContain("\uFEFF");
@@ -305,7 +305,7 @@ public sealed class ReadFileTests : IDisposable
     {
         await File.WriteAllBytesAsync("invalid-utf8.txt", [0xEF, 0xBB, 0xBF, 0xC3, 0x28, 0x0A]);
 
-        var result = await ReadFileTextAsync(new CodingToolHarness(), "invalid-utf8.txt");
+        var result = await ReadFileTextAsync(CodingHarnessTestFactory.Create(), "invalid-utf8.txt");
 
         result.Should().Contain("Unable to decode file as text.");
         result.Should().NotContain("\uFFFD");
@@ -318,7 +318,7 @@ public sealed class ReadFileTests : IDisposable
             .Select(i => $"{i:D3} {new string('x', 1900)}");
         await File.WriteAllTextAsync("byte-cap.txt", string.Join('\n', lines));
 
-        var result = await ReadFileTextAsync(new CodingToolHarness(), "byte-cap.txt");
+        var result = await ReadFileTextAsync(CodingHarnessTestFactory.Create(), "byte-cap.txt");
 
         result.Should().Contain("truncated=\"true\"");
         result.Should().Contain("<next_read offset=");
@@ -331,7 +331,7 @@ public sealed class ReadFileTests : IDisposable
         var longLine = new string('a', 2200);
         await File.WriteAllTextAsync("large.txt", $"{longLine}\nsecond\nthird\n");
 
-        var result = await ReadFileTextAsync(new CodingToolHarness(), "large.txt", limit: 2);
+        var result = await ReadFileTextAsync(CodingHarnessTestFactory.Create(), "large.txt", limit: 2);
 
         result.Should().Contain("[line truncated]");
         result.Should().Contain("truncated=\"true\"");
@@ -344,7 +344,7 @@ public sealed class ReadFileTests : IDisposable
         if (OperatingSystem.IsWindows())
             return;
 
-        var result = await ReadFileTextAsync(new CodingToolHarness(), "/dev/zero");
+        var result = await ReadFileTextAsync(CodingHarnessTestFactory.Create(), "/dev/zero");
 
         result.Should().Contain("Cannot read blocked device path.");
     }
@@ -355,7 +355,7 @@ public sealed class ReadFileTests : IDisposable
         await File.WriteAllTextAsync("source.txt", "disk\n");
         var source = new FakeTextSource("source.txt", "editor\ntext\n");
 
-        var result = await ReadFileTextAsync(new CodingToolHarness([source]), "source.txt");
+        var result = await ReadFileTextAsync(CodingHarnessTestFactory.Create([source]), "source.txt");
 
         result.Should().Contain("1\teditor");
         result.Should().Contain("2\ttext");
@@ -368,7 +368,7 @@ public sealed class ReadFileTests : IDisposable
         await File.WriteAllTextAsync("disk.txt", "disk\ncontent\n");
         var source = new FakeTextSource("other.txt", "editor\ntext\n");
 
-        var result = await ReadFileTextAsync(new CodingToolHarness([source]), "disk.txt");
+        var result = await ReadFileTextAsync(CodingHarnessTestFactory.Create([source]), "disk.txt");
 
         result.Should().Contain("1\tdisk");
         result.Should().Contain("2\tcontent");
@@ -381,7 +381,7 @@ public sealed class ReadFileTests : IDisposable
         await File.WriteAllTextAsync("state.txt", "one\ntwo\n");
         var agentContext = CreateAgentContext();
 
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
 
         var first = await ReadFileThroughMiddlewareAsync(agentContext, toolharness, "state.txt");
         var second = await ReadFileThroughMiddlewareAsync(agentContext, toolharness, "state.txt");
@@ -411,7 +411,7 @@ public sealed class ReadFileTests : IDisposable
         await File.WriteAllTextAsync("truncated-state.txt", $"{longLine}\nsecond\n");
         var agentContext = CreateAgentContext();
 
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
 
         await ReadFileThroughMiddlewareAsync(agentContext, toolharness, "empty-state.txt");
         await ReadFileThroughMiddlewareAsync(agentContext, toolharness, "partial-state.txt", offset: 2, limit: 1);
@@ -442,7 +442,7 @@ public sealed class ReadFileTests : IDisposable
         var lastWriteTime = DateTimeOffset.UtcNow;
         var source = new MutableTextSource("virtual.txt", "one\ntwo\n", lastWriteTime);
 
-        var toolharness = new CodingToolHarness([source]);
+        var toolharness = CodingHarnessTestFactory.Create([source]);
 
         var first = await ReadFileThroughMiddlewareAsync(agentContext, toolharness, "virtual.txt");
         source.Content = "ONE\ntwo\n";
@@ -462,7 +462,7 @@ public sealed class ReadFileTests : IDisposable
             Version = "v1"
         };
 
-        var toolharness = new CodingToolHarness([source]);
+        var toolharness = CodingHarnessTestFactory.Create([source]);
 
         var first = await ReadFileThroughMiddlewareAsync(agentContext, toolharness, "versioned.txt");
         var second = await ReadFileThroughMiddlewareAsync(agentContext, toolharness, "versioned.txt");
@@ -493,19 +493,19 @@ public sealed class ReadFileTests : IDisposable
     }
 
     [Fact]
-    public async Task ReadFile_RootQualifiedPath_IsTreatedAsLiteralPath()
+    public async Task ReadFile_RootQualifiedPath_ResolvesConfiguredRoot()
     {
         var docsRoot = Path.Combine(_tempRoot, "docs");
         Directory.CreateDirectory(docsRoot);
         await File.WriteAllTextAsync(Path.Combine(docsRoot, "notes.md"), "# docs\n");
 
         var result = await ReadFileTextAsync(
-            new CodingToolHarness(),
+            CodingHarnessTestFactory.Create(),
             "@docs/notes.md",
             runConfig: CreateWorkspaceRunConfig(_tempRoot, docsRoot));
 
-        result.Should().Contain("File does not exist");
-        result.Should().Contain("@docs/notes.md");
+        result.Should().Contain("# docs");
+        result.Should().Contain(Path.Combine(docsRoot, "notes.md"));
     }
 
     [Fact]
@@ -526,7 +526,7 @@ public sealed class ReadFileTests : IDisposable
                 }
             };
             var result = await ReadFileTextAsync(
-                new CodingToolHarness(),
+                CodingHarnessTestFactory.Create(),
                 outside,
                 runConfig: runConfig);
 
@@ -558,7 +558,7 @@ public sealed class ReadFileTests : IDisposable
                 }
             };
 
-            var result = await ReadFileTextAsync(new CodingToolHarness(), outside, runConfig: runConfig);
+            var result = await ReadFileTextAsync(CodingHarnessTestFactory.Create(), outside, runConfig: runConfig);
 
             result.Should().Contain("capability was not granted");
             result.Should().NotContain("1\tsecret");
@@ -578,7 +578,7 @@ public sealed class ReadFileTests : IDisposable
         using var subscription = coordinator.Subscribe<AgentCapabilityRequestEvent>(request =>
         {
             request.Capability.Should().Be(AgentCapabilityKind.FilesystemRead);
-            request.Resource!.Value.Should().Be(Path.GetFullPath(outside));
+            request.Resource!.Value.Should().Be(AgentFilesystemPath.Canonicalize(outside));
             coordinator.Respond(new AgentCapabilityResponseEvent(
                 request.RequestId,
                 request.SourceName,
@@ -588,7 +588,7 @@ public sealed class ReadFileTests : IDisposable
         try
         {
             var result = await ReadFileTextAsync(
-                new CodingToolHarness(),
+                CodingHarnessTestFactory.Create(),
                 outside,
                 runConfig: CreateWorkspaceRunConfig(_tempRoot),
                 coordinator: coordinator);

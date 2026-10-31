@@ -43,7 +43,7 @@ public sealed class EditFileTests : IDisposable
     [Fact]
     public async Task EditFile_RejectsInvalidArguments()
     {
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
 
         var missingPath = await EditFileTextAsync(CreateAgentContext(), toolharness, " ", "old", "new");
         var same = await EditFileTextAsync(CreateAgentContext(), toolharness, "A.cs", "same", "same");
@@ -63,7 +63,7 @@ public sealed class EditFileTests : IDisposable
         await using (var stream = new FileStream("large.txt", FileMode.Create, FileAccess.Write))
             stream.SetLength(50L * 1024 * 1024 + 1);
 
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
 
         (await EditFileTextAsync(CreateAgentContext(), toolharness, "dir", "x", "y")).Should().Contain("kind=\"path_is_directory\"");
         (await EditFileTextAsync(CreateAgentContext(), toolharness, "/dev/zero", "x", "y")).Should().Contain("kind=\"blocked_device_path\"");
@@ -77,7 +77,7 @@ public sealed class EditFileTests : IDisposable
     public async Task EditFile_MissingNonCreatePathReturnsSuggestionWhenPossible()
     {
         await File.WriteAllTextAsync("Program.txt", "class Program {}\n");
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
 
         var result = await EditFileTextAsync(CreateAgentContext(), toolharness, "program.cs", "Program", "App");
 
@@ -88,7 +88,7 @@ public sealed class EditFileTests : IDisposable
     [Fact]
     public async Task EditFile_CreatesAndFillsOnlyWithSingleEmptyOldString()
     {
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
         var agentContext = CreateAgentContext();
 
         var created = await EditFileTextAsync(agentContext, toolharness, "src/New.cs", string.Empty, "class New {}\n");
@@ -108,7 +108,7 @@ public sealed class EditFileTests : IDisposable
     public async Task EditFile_ExistingFileRequiresPriorReadAndRejectsStaleRead()
     {
         await File.WriteAllTextAsync("A.cs", "before\n");
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
 
         var notRead = await EditFileTextAsync(CreateAgentContext(), toolharness, "A.cs", "before", "after");
 
@@ -125,7 +125,7 @@ public sealed class EditFileTests : IDisposable
     public async Task EditFile_AllowsPartialReadInsideRangeAndRejectsOutsideRange()
     {
         await File.WriteAllTextAsync("A.cs", "one\ntwo\nthree\n");
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
 
         var insideContext = CreateAgentContext();
         await ReadFileTextAsync(insideContext, toolharness, "A.cs", offset: 2, limit: 1);
@@ -144,7 +144,7 @@ public sealed class EditFileTests : IDisposable
     public async Task EditFile_PartialReadStillRejectsDuplicateOrReplaceAllMatchesOutsideRange()
     {
         await File.WriteAllTextAsync("A.cs", "target\nmiddle\ntarget\n");
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
 
         var ambiguousContext = CreateAgentContext();
         await ReadFileTextAsync(ambiguousContext, toolharness, "A.cs", offset: 1, limit: 1);
@@ -163,7 +163,7 @@ public sealed class EditFileTests : IDisposable
     public async Task EditFile_ExactAmbiguousReplaceAllAndMultiEditBehaviors()
     {
         await File.WriteAllTextAsync("A.cs", "cat cat dog\n");
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
         var agentContext = CreateAgentContext();
         await ReadFileTextAsync(agentContext, toolharness, "A.cs");
 
@@ -191,7 +191,7 @@ public sealed class EditFileTests : IDisposable
     public async Task EditFile_DeletesFollowingNewlineAndRejectsNoChange()
     {
         await File.WriteAllTextAsync("A.cs", "one\ntwo\nthree\n");
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
         var agentContext = CreateAgentContext();
         await ReadFileTextAsync(agentContext, toolharness, "A.cs");
 
@@ -207,7 +207,7 @@ public sealed class EditFileTests : IDisposable
     public async Task EditFile_HandlesNoOpNewlineAndTrailingNewlineSemantics()
     {
         await File.WriteAllTextAsync("A.cs", "one\ntwo\nthree\n");
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
         var agentContext = CreateAgentContext();
         await ReadFileTextAsync(agentContext, toolharness, "A.cs");
 
@@ -231,7 +231,7 @@ public sealed class EditFileTests : IDisposable
     public async Task EditFile_RecoversMechanicalOldStringMismatches()
     {
         await File.WriteAllTextAsync("A.cs", "var s = “hello”;\r\nvar xml = <name>ewoof</name>;\r\nvar escaped = \"a\\nb\";\r\n");
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
         var agentContext = CreateAgentContext();
         await ReadFileTextAsync(agentContext, toolharness, "A.cs");
 
@@ -252,7 +252,7 @@ public sealed class EditFileTests : IDisposable
     public async Task EditFile_BomHiddenFirstLineAndEscapedDollarRecoveryWorkLiterally()
     {
         await File.WriteAllTextAsync("bom.cs", "first\nsecond\n", new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
         var bomContext = CreateAgentContext();
         await ReadFileTextAsync(bomContext, toolharness, "bom.cs");
 
@@ -273,7 +273,7 @@ public sealed class EditFileTests : IDisposable
     public async Task EditFile_RecoversTrimmedIndentationAndWhitespaceAnchoredBlocks()
     {
         await File.WriteAllTextAsync("A.cs", "class A\n{\n    void M()\n    {\n        Console.WriteLine(1);\n    }\n}\n");
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
         var agentContext = CreateAgentContext();
         await ReadFileTextAsync(agentContext, toolharness, "A.cs");
 
@@ -294,7 +294,7 @@ public sealed class EditFileTests : IDisposable
     public async Task EditFile_ReplaceAllRecoveryRejectsMixedRecoveredCandidateShapes()
     {
         await File.WriteAllTextAsync("A.cs", "alpha\r\nbeta\nmiddle\nalpha\nbeta\n");
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
         var agentContext = CreateAgentContext();
         await ReadFileTextAsync(agentContext, toolharness, "A.cs");
 
@@ -315,7 +315,7 @@ public sealed class EditFileTests : IDisposable
     {
         await File.WriteAllTextAsync("A.cs", "before\n");
         await File.WriteAllTextAsync("A.md", "before\n");
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
         var codeContext = CreateAgentContext();
         var markdownContext = CreateAgentContext();
         await ReadFileTextAsync(codeContext, toolharness, "A.cs");
@@ -340,7 +340,7 @@ public sealed class EditFileTests : IDisposable
     {
         await File.WriteAllTextAsync("A.cs", "// rest of methods ...\n");
         await File.WriteAllTextAsync("B.cs", "var text = \"rest of methods ...\";\n");
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
         var existingContext = CreateAgentContext();
         var literalContext = CreateAgentContext();
         await ReadFileTextAsync(existingContext, toolharness, "A.cs");
@@ -357,7 +357,7 @@ public sealed class EditFileTests : IDisposable
     public async Task EditFile_EscapesXmlSensitivePathsAndOmitsContentAndDiff()
     {
         await File.WriteAllTextAsync("A&B.cs", "before\n");
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
         var agentContext = CreateAgentContext();
         await ReadFileTextAsync(agentContext, toolharness, "A&B.cs");
 
@@ -381,7 +381,7 @@ public sealed class EditFileTests : IDisposable
             return ValueTask.CompletedTask;
         });
         var agentContext = CreateAgentContext(coordinator);
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
         await ReadFileTextAsync(agentContext, toolharness, "A.cs");
 
         var result = await EditFileWithContextAsync(agentContext, toolharness, "A.cs", "before", "after");
@@ -407,7 +407,7 @@ public sealed class EditFileTests : IDisposable
     {
         await File.WriteAllTextAsync("A.cs", "before\n");
         var agentContext = CreateAgentContext(new ThrowingEventCoordinator());
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
         await ReadFileTextAsync(agentContext, toolharness, "A.cs");
 
         var result = await EditFileWithContextAsync(agentContext, toolharness, "A.cs", "before", "after");
@@ -437,7 +437,7 @@ public sealed class EditFileTests : IDisposable
     {
         await File.WriteAllTextAsync("A.cs", "one two\n");
         var agentContext = CreateAgentContext();
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
         await ReadFileTextAsync(agentContext, toolharness, "A.cs");
 
         var first = await EditFileTextAsync(agentContext, toolharness, "A.cs", "one", "ONE");

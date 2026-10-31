@@ -438,9 +438,7 @@ public sealed class AgentOperationTests
     {
         using var events = new HPD.Events.Core.EventCoordinator();
         var input = System.Threading.Channels.Channel.CreateUnbounded<AgentInputEvent>();
-        AgentOperationNotificationQueuedEvent? queued = null;
-        using var queuedSubscription = events.Subscribe<AgentOperationNotificationQueuedEvent>(
-            evt => { queued = evt; return ValueTask.CompletedTask; });
+        await using var queuedInbox = events.CreateInbox<AgentOperationNotificationQueuedEvent>();
         using var dispatcher = new AgentOperationNotificationDispatcher(
             events,
             null,
@@ -464,8 +462,8 @@ public sealed class AgentOperationTests
         var admitted = Assert.IsType<AgentOperationNotificationInputEvent>(await input.Reader.ReadAsync());
         Assert.Equal("notification-execution", admitted.ThreadExecutionId);
         Assert.Equal("source-execution", Assert.Single(admitted.Notifications).SourceThreadExecutionId);
-        Assert.NotNull(queued);
-        Assert.Equal("notification-execution", queued!.ThreadExecutionId);
+        var queued = await queuedInbox.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal("notification-execution", queued.ThreadExecutionId);
         Assert.Equal("source-execution", queued.Notification.SourceThreadExecutionId);
     }
 

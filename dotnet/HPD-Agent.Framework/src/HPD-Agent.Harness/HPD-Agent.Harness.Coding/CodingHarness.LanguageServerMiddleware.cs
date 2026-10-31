@@ -31,7 +31,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
     public CodingLanguageServerMiddleware(
         ILanguageServerWorkspaceRegistry workspaceRegistry,
         string canonicalWorkspaceIdentity,
-        LanguageServerOptions options)
+        [HarnessConfigurationSection(nameof(CodingHarnessConfig.LanguageServer), nameof(LanguageServerSettings.ToRuntime))] LanguageServerOptions options)
     {
         _options = options;
         _workspaceLease = workspaceRegistry.Acquire(canonicalWorkspaceIdentity, options);

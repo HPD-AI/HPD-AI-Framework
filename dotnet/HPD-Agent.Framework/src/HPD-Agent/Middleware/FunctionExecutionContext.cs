@@ -97,8 +97,10 @@ public sealed class FunctionExecutionPermission
 /// Function bodies may use runtime services, but live state mutation belongs to
 /// scheduler-owned middleware phases.
 /// </remarks>
-public sealed class FunctionExecutionContext
+public sealed class FunctionExecutionContext : IHarnessConfigurationContext
 {
+    public HarnessConfigurationBinding? HarnessConfiguration { get; private init; }
+
     private readonly AgentLoopState _stateSnapshot;
     private readonly AgentChatClientHandle? _effectiveChatClient;
     private readonly AgentMetadata? _parentAgentMetadata;
@@ -131,6 +133,8 @@ public sealed class FunctionExecutionContext
         };
         _stateSnapshot = request.State;
         RunConfig = request.RunConfig;
+        if (request.Function.AdditionalProperties?.TryGetValue(HPDCapabilityMetadata.AdditionalPropertiesKey, out var descriptor) == true && descriptor is HPDCapabilityMetadata metadata)
+            HarnessConfiguration = request.RunConfig.HarnessConfiguration?.ForOwner(metadata.OwnerHarnessIdentity);
         SubAgentRunConfig = request.SubAgentRunConfig;
         InvocationMode = request.InvocationMode;
         Permission = new FunctionExecutionPermission(request.PermissionRequired, request.PermissionGrant);
@@ -158,6 +162,7 @@ public sealed class FunctionExecutionContext
         Permission = source.Permission;
         _stateSnapshot = source._stateSnapshot;
         RunConfig = source.RunConfig;
+        HarnessConfiguration = source.HarnessConfiguration;
         SubAgentRunConfig = source.SubAgentRunConfig;
         ResultMetadata = new ToolResultMetadata();
         EventCoordinator = source.EventCoordinator;

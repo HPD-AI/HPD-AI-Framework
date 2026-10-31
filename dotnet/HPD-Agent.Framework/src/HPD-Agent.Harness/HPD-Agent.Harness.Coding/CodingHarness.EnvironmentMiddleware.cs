@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
 using HPD.Agent;
@@ -12,13 +13,13 @@ namespace HPDOS.ToolHarnesses.Middleware;
 /// Config for <see cref="EnvironmentContextMiddleware"/>.
 /// </summary>
 [ToolHarnessJsonContext(typeof(global::CodingToolHarnessJsonContext))]
-public sealed class EnvironmentContextConfig
+public sealed record EnvironmentContextConfig
 {
     public string? ShellExecutableOverride { get; init; }
 
     public string? ShellKindOverride { get; init; }
 
-    public IReadOnlyList<string>? ShellCommandArgumentsPrefixOverride { get; init; }
+    public ImmutableArray<string>? ShellCommandArgumentsPrefixOverride { get; init; }
 }
 
 /// <summary>
@@ -28,9 +29,9 @@ public sealed class EnvironmentContextMiddleware : IToolHarnessMiddleware
 {
     private readonly EnvironmentContextConfig _config;
 
-    public EnvironmentContextMiddleware(EnvironmentContextConfig? config = null)
+    public EnvironmentContextMiddleware([HarnessConfigurationSection(nameof(CodingHarnessConfig.Environment))] EnvironmentContextConfig config)
     {
-        _config = config ?? new EnvironmentContextConfig();
+        _config = config;
     }
 
     public Task BeforeIterationAsync(BeforeIterationContext context, CancellationToken cancellationToken)

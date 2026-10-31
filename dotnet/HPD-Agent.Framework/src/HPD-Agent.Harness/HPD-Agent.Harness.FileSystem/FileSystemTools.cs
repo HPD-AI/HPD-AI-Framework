@@ -20,20 +20,10 @@ public partial class FileSystemTools
     private readonly FileSystemContext _context;
     private readonly GitIgnoreChecker? _gitIgnoreChecker;
 
-    /// <summary>
-    /// Creates a new FileSystemTools with default context (current directory, search enabled)
-    /// </summary>
-    public FileSystemTools()
-        : this(new FileSystemContext(Directory.GetCurrentDirectory()))
+    /// <summary>Creates file-system tools with an optional explicit workspace context.</summary>
+    public FileSystemTools(FileSystemContext? context = null)
     {
-    }
-
-    /// <summary>
-    /// Creates a new FileSystemTools with a specific context
-    /// </summary>
-    public FileSystemTools(FileSystemContext context)
-    {
-        _context = context ?? throw new ArgumentNullException(nameof(context));
+        _context = context ?? new FileSystemContext(Directory.GetCurrentDirectory());
 
         // Initialize GitIgnoreChecker if gitignore support is enabled
         if (_context.RespectGitIgnore || _context.RespectGeminiIgnore)

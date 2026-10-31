@@ -11,6 +11,10 @@ using Microsoft.Extensions.Configuration;
 if (!ValidationMetadataRoundTrips())
     return 2;
 
+var runConfig = new AgentRunConfig();
+runConfig.Harnesses.For<DerivedExecutionHarness>().Override(
+    new ExternalExecutionSettingsOverrides { Value = 42 });
+
 await using (var agent = await new AgentBuilder(new AgentConfig
     {
         Name = "cross-assembly-toolharness-aot",
@@ -19,15 +23,17 @@ await using (var agent = await new AgentBuilder(new AgentConfig
     .WithChatClient(new HarnessClient())
     .WithEventComposition(CoreAgentEventComposition.Instance)
     .WithAPIConfiguration(new ConfigurationBuilder().Build())
-    .WithToolHarness<DerivedExecutionHarness>()
+    .WithToolHarness<DerivedExecutionHarness>(
+        options => options.Configure(new ExternalExecutionSettings { Value = 41 }))
     .BuildAsync())
 {
-    await agent.RunAsync("run-cross-assembly-harness");
+    await agent.RunAsync("run-cross-assembly-harness", runConfig: runConfig);
 }
 
 return ExternalExecutionMiddleware.CreatedCount == 1 &&
        ExternalExecutionMiddleware.ActivatedCount == 1 &&
-       ExternalExecutionMiddleware.DisposedCount == 1
+       ExternalExecutionMiddleware.DisposedCount == 1 &&
+       ExternalExecutionHarness.LastConfiguredValue == 42
     ? 0
     : 1;
 
@@ -75,7 +81,8 @@ internal sealed class HarnessClient : IChatClient
         {
             1 => ToolCall(nameof(DerivedExecutionHarness), "expand"),
             2 => ToolCall(nameof(DerivedExecutionHarness.DerivedPing), "expand-function"),
-            3 => ToolCall(nameof(DerivedExecutionHarness.DerivedPing), "ping"),
+            3 => ToolCall(nameof(DerivedExecutionHarness.ConfiguredValue), "configured"),
+            4 => ToolCall(nameof(DerivedExecutionHarness.DerivedPing), "ping"),
             _ => new ChatResponse([new ChatMessage(ChatRole.Assistant, "done")])
         });
     }

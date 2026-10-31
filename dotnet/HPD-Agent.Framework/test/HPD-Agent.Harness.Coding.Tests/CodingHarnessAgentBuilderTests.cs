@@ -104,7 +104,7 @@ public class CodingToolHarnessAgentBuilderTests
     [Fact]
     public void CodingSubAgents_UseFocusedToolProfilesWithoutRecursiveDelegation()
     {
-        var harness = new CodingToolHarness();
+        var harness = CodingHarnessTestFactory.Create();
 
         var explorer = harness.Explore();
         var worker = harness.Worker();
@@ -142,7 +142,7 @@ public class CodingToolHarnessAgentBuilderTests
     public async Task CodingSubAgentToolProfiles_PreserveCodingHarnessScopedMiddleware()
     {
         using var chatClient = new TestChatClient();
-        var subAgent = new CodingToolHarness().Explore();
+        var subAgent = CodingHarnessTestFactory.Create().Explore();
         var config = GetConfig(subAgent);
         config.Clients = new AgentClientsConfig
         {
@@ -209,7 +209,7 @@ public class CodingToolHarnessAgentBuilderTests
     public async Task AutomaticCollapsing_DepthOneReviewer_ExpandsOnlyItsReadOnlyAllowlist()
     {
         using var chatClient = new RecordingTestChatClient(expandContainerOnFirstRequest: true);
-        var reviewerConfig = GetConfig(new CodingToolHarness().Reviewer());
+        var reviewerConfig = GetConfig(CodingHarnessTestFactory.Create().Reviewer());
         reviewerConfig.Clients = CreateTestConfig().Clients;
 
         var reviewer = await new AgentBuilder(reviewerConfig, new TestProviderRegistry(chatClient))
@@ -278,17 +278,17 @@ public class CodingToolHarnessAgentBuilderTests
                 .ToDictionary(group => group.Key, group => group.First())
                 ?? throw new InvalidOperationException("No coding toolharness tools were registered.");
 
-            var listResult = await InvokeToolAsync(tools["ListDirectory"], new AIFunctionArguments
+            var listResult = await InvokeToolAsync(agent, tools["ListDirectory"], new AIFunctionArguments
             {
                 ["path"] = tempRoot
             });
 
-            var globResult = await InvokeToolAsync(tools["GlobSearch"], new AIFunctionArguments
+            var globResult = await InvokeToolAsync(agent, tools["GlobSearch"], new AIFunctionArguments
             {
                 ["pattern"] = "*.txt"
             });
 
-            var grepResult = await InvokeToolAsync(tools["Grep"], new AIFunctionArguments
+            var grepResult = await InvokeToolAsync(agent, tools["Grep"], new AIFunctionArguments
             {
                 ["pattern"] = "hello",
                 ["path"] = tempRoot,
@@ -324,14 +324,17 @@ public class CodingToolHarnessAgentBuilderTests
         }
     }
 
-    private static async ValueTask<object?> InvokeToolAsync(AIFunction tool, AIFunctionArguments arguments)
+    private static async ValueTask<object?> InvokeToolAsync(
+        Agent agent,
+        AIFunction tool,
+        AIFunctionArguments arguments)
     {
         if (tool is not HPDAIFunctionFactory.HPDAIFunction hpdFunction)
             return await tool.InvokeAsync(arguments);
 
         arguments.SetJson(JsonSerializer.SerializeToElement(
             arguments.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal)));
-        return await hpdFunction.InvokeAsync(arguments, CreateFunctionContext(tool));
+        return await hpdFunction.InvokeAsync(arguments, CreateFunctionContext(agent, tool));
     }
 
     private static string GetStringResult(object? result)
@@ -366,7 +369,7 @@ public class CodingToolHarnessAgentBuilderTests
         }
     };
 
-    private static FunctionExecutionContext CreateFunctionContext(AIFunction function)
+    private static FunctionExecutionContext CreateFunctionContext(Agent agent, AIFunction function)
     {
         var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
         var session = new Session("session-1");
@@ -381,7 +384,7 @@ public class CodingToolHarnessAgentBuilderTests
             thread,
             CancellationToken.None);
         var cwd = Directory.GetCurrentDirectory();
-        var runConfig = new AgentRunConfig
+        var runConfig = agent.CaptureRunConfig(new AgentRunConfig
         {
             Context = new AgentContextRunConfig { Properties = new Dictionary<string, object>()
             {
@@ -390,7 +393,7 @@ public class CodingToolHarnessAgentBuilderTests
                     cwd,
                     [new AgentWorkspaceRoot("default", cwd, AgentWorkspaceAccess.ReadWrite)])
             } }
-        };
+        });
         var beforeContext = agentContext.AsBeforeFunction(
             function,
             "call-1",

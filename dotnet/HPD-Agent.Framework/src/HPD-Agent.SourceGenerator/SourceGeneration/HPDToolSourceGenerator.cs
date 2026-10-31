@@ -145,8 +145,8 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
         // Diagnostics will be stored in ToolHarnessInfo and reported in GenerateToolRegistrations
 
         // Check if the class has a parameterless constructor (either explicit or implicit)
-        var hasParameterlessConstructor = !owner.IsAbstract && owner.InstanceConstructors.Any(ctor =>
-            ctor.DeclaredAccessibility == Accessibility.Public && ctor.Parameters.Length == 0);
+        var hasParameterlessConstructor = !owner.IsAbstract && SelectOwnerConstructor(owner) is { } defaultConstructor &&
+            defaultConstructor.Parameters.All(parameter => parameter.IsOptional);
 
         // Check if the class is publicly accessible (for ToolHarnessRegistry.All inclusion)
         // A class is publicly accessible if it's public and not nested inside a non-public class
@@ -166,10 +166,10 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
             .ToList();
 
         // NEW: Extract config constructor type (single-parameter constructor with *Config type)
-        var configConstructorTypeName = owner.InstanceConstructors.FirstOrDefault(ctor =>
-            ctor.DeclaredAccessibility == Accessibility.Public && ctor.Parameters.Length == 1 &&
-            ctor.Parameters[0].Type.Name.EndsWith("Config", StringComparison.Ordinal))
-            ?.Parameters[0].Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        var construction = SelectOwnerConstructor(owner);
+        var configConstructorTypeName = construction is { Parameters.Length: 1 } &&
+            construction.Parameters[0].Type.Name.EndsWith("Config", StringComparison.Ordinal)
+            ? construction.Parameters[0].Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) : null;
 
         // NEW: Detect ISecretResolver-only constructor
         var hasSecretsConstructor = owner.InstanceConstructors.Any(ctor =>
@@ -457,9 +457,33 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
             })
             .ToList();
 
+        var settingsRoots = new List<INamedTypeSymbol>();
+        foreach (var harness in ToolHarnessGroups)
+        {
+            var configType = HarnessConfigurationEmitter.ConfigType(harness.OwnerType);
+            if (configType is null) continue;
+            var invalid = HarnessConfigurationEmitter.Validate(configType, compilation.Assembly);
+            if (invalid is not null)
+                harness.Diagnostics.Add(Diagnostic.Create(new DiagnosticDescriptor("HPDCFG001", "Invalid immutable harness settings",
+                    "Harness '{0}' configuration is invalid: {1}", "HPD.Configuration", DiagnosticSeverity.Error, true),
+                    harness.OwnerType?.Locations.FirstOrDefault(), harness.ClassName, invalid));
+            else if (!settingsRoots.Any(type => SymbolEqualityComparer.Default.Equals(type, configType))) settingsRoots.Add(configType);
+        }
+        if (settingsRoots.Count > 0)
+            context.AddSource("HPD.Agent.Generated.HarnessSettings.g.cs", HarnessConfigurationEmitter.Generate(settingsRoots, compilation.Assembly));
+
         // Report diagnostics for all ToolHarnesses
         foreach (var ToolHarness in ToolHarnessGroups)
         {
+            if (ToolHarness.IsPubliclyAccessible && ToolHarness.OwnerType is { IsAbstract: false } owner &&
+                owner.InstanceConstructors.Any(ctor => ctor.DeclaredAccessibility == Accessibility.Public) &&
+                SelectOwnerConstructor(owner) is null)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    new DiagnosticDescriptor("HPDACT001", "Ambiguous harness constructor",
+                        "Harness '{0}' has no unambiguous construction plan. Use exactly one public constructor, or register an explicit instance.",
+                        "HPD.Activation", DiagnosticSeverity.Warning, true), owner.Locations.FirstOrDefault(), owner.ToDisplayString()));
+            }
             foreach (var diagnostic in ToolHarness.Diagnostics)
             {
                 context.ReportDiagnostic(diagnostic);
@@ -609,19 +633,65 @@ namespace HPD.Agent.Diagnostics {{
     }
 
     /// <summary>
-    /// Generates the ToolHarnessRegistry.All array that serves as a catalog of all ToolHarnesses in the assembly.
-    /// This eliminates reflection in hot paths by providing direct delegate references.
-    /// Only ToolHarnesses with parameterless constructors and public accessibility are included.
+    /// Selects one public construction contract from canonical compiled symbols.
     /// </summary>
+    private static IMethodSymbol? SelectOwnerConstructor(INamedTypeSymbol owner)
+    {
+        var constructors = owner.InstanceConstructors.Where(ctor =>
+            ctor.DeclaredAccessibility == Accessibility.Public).ToArray();
+        return constructors.Length == 1 ? constructors[0] : null;
+    }
+
+    private static string GenerateOwnerActivation(ToolHarnessInfo harness) => GenerateConstructorActivation(harness.OwnerType!, acceptsConfiguration: true);
+
+    private static string GenerateConstructorActivation(INamedTypeSymbol owner, bool acceptsConfiguration = false)
+    {
+        var selected = SelectOwnerConstructor(owner);
+        var ownerName = owner.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        if (selected is null)
+            return $"context => throw new InvalidOperationException(\"Harness '{ownerName}' requires exactly one public constructor.\")";
+        var arguments = new List<string>();
+        foreach (var parameter in selected.Parameters)
+        {
+            var type = parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            if (parameter.Type is INamedTypeSymbol handle && handle.OriginalDefinition.ToDisplayString() == "HPD.Agent.IHarnessConfig<T>")
+            {
+                arguments.Add($"context.GetHarnessConfig<{handle.TypeArguments[0].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}>()");
+                continue;
+            }
+            if (parameter.RefKind != RefKind.None)
+                return $"context => throw new InvalidOperationException(\"Harness '{ownerName}' constructor cannot use ref/out parameters.\")";
+            if (acceptsConfiguration && selected.Parameters.Length == 1 && parameter.Type.Name.EndsWith("Config", StringComparison.Ordinal))
+            {
+                var canDefault = parameter.Type is INamedTypeSymbol named && named.InstanceConstructors.Any(ctor =>
+                    ctor.DeclaredAccessibility == Accessibility.Public && ctor.Parameters.Length == 0) &&
+                    !named.GetMembers().OfType<IPropertySymbol>().Any(property => property.IsRequired);
+                arguments.Add($"context.GetConfiguration(GetJsonTypeInfo<{type}>(){(canDefault ? $", () => new {type}()" : "")})");
+            }
+            else if (parameter.IsOptional)
+            {
+                var literal = parameter.ExplicitDefaultValue is null ? "default" :
+                    Microsoft.CodeAnalysis.CSharp.SymbolDisplay.FormatPrimitive(parameter.ExplicitDefaultValue, true, false);
+                if (parameter.Type.TypeKind == TypeKind.Enum) literal = $"({type}){literal}";
+                arguments.Add(parameter.Type.IsReferenceType
+                    ? $"context.GetOptionalService<{type}>() ?? {literal}" : literal);
+            }
+            else if (parameter.Type.IsReferenceType)
+                arguments.Add($"context.GetRequiredService<{type}>()");
+            else
+                return $"context => throw new InvalidOperationException(\"Harness '{ownerName}' requires a reference-type dependency for '{parameter.Name}'.\")";
+        }
+        return $"context => new {ownerName}({string.Join(", ", arguments)})";
+    }
+
     private static string GenerateToolHarnessRegistry(
         List<ToolHarnessInfo> ToolHarnesses,
         Compilation compilation)
     {
-        // Filter to only include ToolHarnesses that can be instantiated via the registry:
-        // 1. Must have parameterless constructor, config constructor, or ISecretResolver-only constructor
-        // 2. Must be publicly accessible (private/internal test classes are excluded)
+        // Public concrete owners participate even when they require constructor DI
+        // or an explicitly supplied instance. No constructor-shape registry gate.
         var instantiableToolHarnesses = ToolHarnesses
-            .Where(p => (p.HasParameterlessConstructor || p.HasSecretsConstructor || !string.IsNullOrEmpty(p.ConfigConstructorTypeName)) && p.IsPubliclyAccessible)
+            .Where(p => p.OwnerType is { IsAbstract: false } && p.IsPubliclyAccessible)
             .OrderBy(p => p.EffectiveName)
             .ToList();
         var sb = new StringBuilder();
@@ -644,7 +714,7 @@ namespace HPD.Agent.Diagnostics {{
         sb.AppendLine("    /// AOT-compatible catalog of all ToolHarnesses in this assembly.");
         sb.AppendLine("    /// Generated by HPDToolSourceGenerator.");
         sb.AppendLine("    /// Provides direct delegate references eliminating reflection in hot paths.");
-        sb.AppendLine($"    /// Contains {instantiableToolHarnesses.Count} ToolHarnesses (pure DI-only toolharnesses excluded).");
+        sb.AppendLine($"    /// Contains {instantiableToolHarnesses.Count} concrete ToolHarness owners.");
         sb.AppendLine("    /// </summary>");
         sb.AppendLine("    [System.CodeDom.Compiler.GeneratedCodeAttribute(\"HPDToolSourceGenerator\", \"1.0.0.0\")]");
         sb.AppendLine("    public static class ToolHarnessRegistry");
@@ -668,6 +738,23 @@ namespace HPD.Agent.Diagnostics {{
             // Use EffectiveName for registry lookup (always ClassName now)
             sb.AppendLine($"                Name: \"{ToolHarness.EffectiveName}\",");
             sb.AppendLine($"                ToolHarnessType: typeof({fullTypeName}),");
+            sb.AppendLine($"                Activate: {GenerateOwnerActivation(ToolHarness)},");
+            var configContractType = HarnessConfigurationEmitter.ConfigType(ToolHarness.OwnerType);
+            if (configContractType is not null)
+                sb.AppendLine($"                Configuration: {HarnessConfigurationEmitter.Name(configContractType)}.Contract,");
+            var defaults = new List<string>();
+            for (var declaration = ToolHarness.OwnerType; declaration is not null; declaration = declaration.BaseType)
+            {
+                foreach (var attribute in declaration.GetAttributes().Where(attribute =>
+                    attribute.AttributeClass?.ToDisplayString() == "HPD.Agent.ToolHarnessDependencyAttribute"))
+                {
+                    if (attribute.ConstructorArguments.Length != 2 ||
+                        attribute.ConstructorArguments[0].Value is not INamedTypeSymbol service ||
+                        attribute.ConstructorArguments[1].Value is not INamedTypeSymbol implementation) continue;
+                    defaults.Add($"new ToolHarnessDependency(typeof({service.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}), {GenerateConstructorActivation(implementation)})");
+                }
+            }
+            sb.AppendLine($"                DependencyDefaults: new ToolHarnessDependency[] {{ {string.Join(", ", defaults)} }},");
             if (ToolHarness.HasParameterlessConstructor)
                 sb.AppendLine($"                CreateInstance: () => new {fullTypeName}(),  // Direct instantiation (AOT-safe)");
             else if (!string.IsNullOrEmpty(ToolHarness.ConfigConstructorTypeName))
@@ -809,7 +896,13 @@ namespace HPD.Agent.Diagnostics {{
                     sb.AppendLine("                    new global::HPD.Agent.ToolHarnessMiddlewareDescriptor");
                     sb.AppendLine("                    {");
                     sb.AppendLine($"                        MiddlewareType = typeof({entry.FullyQualifiedTypeName}),");
-                    if (entry.ServicesOwned)
+                    if (entry.HarnessConfigurationExpression is not null)
+                    {
+                        var resourceArguments = entry.AgentResourceTypeFqn is null ? "" : $"context.GetRequiredAgentResource<{entry.AgentResourceTypeFqn}>(), context.GetCanonicalWorkspaceIdentity(), ";
+                        sb.AppendLine("                        UsesHarnessConfiguration = true,");
+                        sb.AppendLine($"                        Factory = static context => global::HPD.Agent.ToolHarnessMiddlewareActivation.ExecutionOwned(new {entry.FullyQualifiedTypeName}({resourceArguments}{entry.HarnessConfigurationExpression}))");
+                    }
+                    else if (entry.ServicesOwned)
                     {
                         sb.AppendLine($"                        Factory = static context => global::HPD.Agent.ToolHarnessMiddlewareActivation.ServicesOwned(context.GetRequiredService<{entry.FullyQualifiedTypeName}>())");
                     }
@@ -2297,11 +2390,13 @@ $@"    /// <summary>
                     agentResourceAttributeType is not null &&
                     SymbolEqualityComparer.Default.Equals(attribute.AttributeClass, agentResourceAttributeType)) &&
                 constructor.Parameters[1].Type.SpecialType == SpecialType.System_String &&
-                (constructor.Parameters[2].Type.Name.EndsWith("Config") || constructor.Parameters[2].Type.Name.EndsWith("Options")))
+                (constructor.Parameters[2].Type.Name.EndsWith("Config") || constructor.Parameters[2].Type.Name.EndsWith("Options") ||
+                    constructor.Parameters[2].GetAttributes().Any(attribute => attribute.AttributeClass?.ToDisplayString() == "HPD.Agent.HarnessConfigurationSectionAttribute")))
                 .ToArray();
             var configConstructors = publicConstructors.Where(static constructor =>
                 constructor.Parameters.Length == 1 &&
-                (constructor.Parameters[0].Type.Name.EndsWith("Config") || constructor.Parameters[0].Type.Name.EndsWith("Options")))
+                (constructor.Parameters[0].Type.Name.EndsWith("Config") || constructor.Parameters[0].Type.Name.EndsWith("Options") ||
+                    constructor.Parameters[0].GetAttributes().Any(attribute => attribute.AttributeClass?.ToDisplayString() == "HPD.Agent.HarnessConfigurationSectionAttribute")))
                 .ToArray();
             var hasParameterlessCtor = publicConstructors.Any(static constructor => constructor.Parameters.IsEmpty) || namedType.IsValueType;
             var generatedShapeCount = (resourceConstructors.Length > 0 ? 1 : 0) +
@@ -2323,6 +2418,44 @@ $@"    /// <summary>
                         "ToolHarness '{0}' execution-owned middleware '{1}' must expose exactly one supported generated activation shape.",
                         "HPDAgent.SourceGenerator", DiagnosticSeverity.Error, true),
                     location, classDecl.Identifier.ValueText, namedType.Name));
+                continue;
+            }
+
+            var projectionConstructor = resourceConstructors.SingleOrDefault() ?? configConstructors.SingleOrDefault();
+            var sectionParameter = projectionConstructor?.Parameters.LastOrDefault();
+            var sectionAttribute = sectionParameter?.GetAttributes().SingleOrDefault(attribute =>
+                attribute.AttributeClass?.ToDisplayString() == "HPD.Agent.HarnessConfigurationSectionAttribute");
+            if (sectionAttribute is not null)
+            {
+                var root = HarnessConfigurationEmitter.ConfigType(semanticModel.GetDeclaredSymbol(classDecl) as INamedTypeSymbol);
+                var section = sectionAttribute.ConstructorArguments[0].Value as string;
+                var member = root?.GetMembers(section ?? "").OfType<IPropertySymbol>().SingleOrDefault();
+                // Include inherited settings properties from compiled base contracts.
+                for (var parent = root?.BaseType; member is null && parent is not null; parent = parent.BaseType)
+                    member = parent.GetMembers(section ?? "").OfType<IPropertySymbol>().SingleOrDefault();
+                var projectionMethod = sectionAttribute.ConstructorArguments.Length > 1 ? sectionAttribute.ConstructorArguments[1].Value as string : null;
+                var projectedType = projectionMethod is null ? member?.Type : (member?.Type as INamedTypeSymbol)?.GetMembers(projectionMethod)
+                    .OfType<IMethodSymbol>().SingleOrDefault(method => !method.IsStatic && method.Parameters.Length == 0 && method.DeclaredAccessibility == Accessibility.Public)?.ReturnType;
+                if (root is null || member is null || !SymbolEqualityComparer.Default.Equals(projectedType, sectionParameter!.Type))
+                {
+                    diagnostics.Add(Diagnostic.Create(new DiagnosticDescriptor("HPDCFG002", "Invalid middleware settings projection",
+                        "Middleware '{0}' section '{1}' must project from the owning immutable settings contract to its constructor parameter.",
+                        "HPD.Configuration", DiagnosticSeverity.Error, true), location, namedType.Name, section));
+                    continue;
+                }
+                var expression = $"context.GetHarnessConfiguration<{root.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}>().@{member.Name}" +
+                    (projectionMethod is null ? "" : $".@{projectionMethod}()");
+                string? resourceInterface = null; string? resourceImplementation = null;
+                if (resourceConstructors.Length == 1)
+                {
+                    var resourceDeclaration = projectionConstructor!.Parameters[0].Type.GetAttributes().Single(attribute =>
+                        attribute.AttributeClass?.ToDisplayString() == "HPD.Agent.ToolHarnessAgentResourceAttribute");
+                    resourceInterface = projectionConstructor.Parameters[0].Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                    resourceImplementation = ((INamedTypeSymbol)resourceDeclaration.ConstructorArguments[0].Value!).ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                }
+                entries.Add(new CollapseMiddlewareEntry(namedType.Name, fqn,
+                    sectionParameter!.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), null, false,
+                    resourceInterface, resourceImplementation, resourceInterface is not null, false, expression));
                 continue;
             }
 

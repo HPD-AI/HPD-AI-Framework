@@ -2,11 +2,13 @@ using System.Reflection;
 using System.Runtime.Loader;
 using System.Text.Json;
 using HPD.Agent.Middleware;
+using HPD.Agent.Serialization;
 using HPD.Agent.Tests.Middleware.V2;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Agent.Tests;
 
@@ -47,6 +49,157 @@ public sealed class CompiledHarnessInheritanceTests
         driver.RunGeneratorsAndUpdateCompilation(compilation, out var generated, out var reported);
         diagnostics = reported;
         return generated;
+    }
+
+    [Fact]
+    public async Task MultiplePublicConstructors_AreDiagnosed_WithoutASelectionAttribute()
+    {
+        var generated = Generate(Compilation("AmbiguousOwner" + Guid.NewGuid().ToString("N"), """
+            public class AmbiguousHarness
+            {
+                public AmbiguousHarness(int value = 1) { }
+                public AmbiguousHarness(string value = "one") { }
+                [AIFunction] public string Probe() => "ok";
+            }
+            """), out var diagnostics);
+        Assert.Contains(diagnostics, diagnostic => diagnostic.Id == "HPDACT001");
+        var assembly = AssemblyLoadContext.Default.LoadFromStream(new MemoryStream(Emit(generated)));
+        var owner = assembly.GetType("AmbiguousHarness")!;
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => new AgentBuilder(new AgentConfig())
+            .WithChatClient(new MiddlewareTestHelpers.TestChatClient())
+            .WithEventComposition(Infrastructure.TestEventComposition.Current)
+            .WithToolHarness(owner).BuildAsync());
+        Assert.Contains("exactly one public constructor", error.ToString());
+    }
+
+    [Fact]
+    public async Task CompiledBase_ConstructorDependency_IsResolvedForConcreteOwner()
+    {
+        var suffix = Guid.NewGuid().ToString("N");
+        var producerBytes = Emit(Compilation("ConstructorProducer" + suffix, """
+            namespace ConstructorPackage;
+            public class BaseHarness
+            {
+                protected readonly System.IFormatProvider Format;
+                public BaseHarness(System.IFormatProvider format) => Format = format;
+                [AIFunction] public string Culture() => Format.ToString();
+            }
+            """));
+        var producer = AssemblyLoadContext.Default.LoadFromStream(new MemoryStream(producerBytes));
+        var consumer = Compilation("ConstructorConsumer" + suffix, """
+            namespace ConstructorConsumer;
+            public sealed class DerivedHarness(System.IFormatProvider format)
+                : ConstructorPackage.BaseHarness(format);
+            """, MetadataReference.CreateFromImage(producerBytes));
+        var generated = Generate(consumer, out var diagnostics);
+        Assert.DoesNotContain(diagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        var assembly = AssemblyLoadContext.Default.LoadFromStream(new MemoryStream(Emit(generated)));
+        var owner = assembly.GetType("ConstructorConsumer.DerivedHarness")!;
+        using var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection()
+            .AddSingleton<System.IFormatProvider>(new System.Globalization.CultureInfo("fr-FR"))
+            .BuildServiceProvider();
+        await using var agent = await new AgentBuilder(new AgentConfig())
+            .WithChatClient(new MiddlewareTestHelpers.TestChatClient())
+            .WithEventComposition(Infrastructure.TestEventComposition.Current)
+            .WithServiceProvider(services)
+            .WithToolHarness(owner).BuildAsync();
+        var function = Assert.IsType<HPDAIFunctionFactory.HPDAIFunction>(
+            Assert.Single(agent.DefaultOptions!.Tools!.OfType<AIFunction>(), function => function.Name == "Culture"));
+        var request = MiddlewareTestHelpers.CreateFunctionRequest(function);
+        var context = new FunctionExecutionContext(MiddlewareTestHelpers.CreateBeforeIterationContext(), request);
+        Assert.Equal("fr-FR", await function.InvokeAsync(Arguments("{}"), context));
+        GC.KeepAlive(producer);
+    }
+
+    [Fact]
+    public async Task CompiledBase_SettingsView_UsesConcreteOwnerSnapshotAndRunOverride()
+    {
+        var suffix = Guid.NewGuid().ToString("N");
+        var producerCompilation = Compilation("SettingsProducer" + suffix, """
+            using HPD.Agent;
+            using HPD.Agent.Middleware;
+            namespace SettingsPackage;
+            public record BaseSettings
+            {
+                [HarnessRunSetting] public int Limit { get; init; } = 1;
+            }
+            public class BaseSettingsHarness(IHarnessConfig<BaseSettings> configuration)
+            {
+                [AIFunction] public string BaseValue(FunctionExecutionContext context)
+                    => $"base:{configuration.For(context).Limit}";
+            }
+            """);
+        var producerBytes = Emit(Generate(producerCompilation, out var producerDiagnostics));
+        Assert.DoesNotContain(producerDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        var producer = AssemblyLoadContext.Default.LoadFromStream(new MemoryStream(producerBytes));
+        var consumer = Compilation("SettingsConsumer" + suffix, """
+            using HPD.Agent;
+            using HPD.Agent.Middleware;
+            namespace SettingsConsumer;
+            public sealed record DerivedSettings : SettingsPackage.BaseSettings
+            {
+                public string Label { get; init; } = "derived";
+            }
+            public sealed class DerivedSettingsHarness(
+                IHarnessConfig<DerivedSettings> configuration)
+                : SettingsPackage.BaseSettingsHarness(configuration)
+            {
+                [AIFunction] public string DerivedValue(FunctionExecutionContext context)
+                    => $"{configuration.For(context).Limit}:{configuration.For(context).Label}";
+            }
+            """, MetadataReference.CreateFromImage(producerBytes));
+        var generated = Generate(consumer, out var diagnostics);
+        Assert.DoesNotContain(diagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        var assembly = AssemblyLoadContext.Default.LoadFromStream(new MemoryStream(Emit(generated)));
+        var owner = assembly.GetType("SettingsConsumer.DerivedSettingsHarness")!;
+        var identity = $"{assembly.GetName().Name}:SettingsConsumer:DerivedSettingsHarness";
+        var agentConfig = new AgentConfig
+        {
+            ToolHarnesses =
+            [
+                new ToolHarnessReference
+                {
+                    Name = identity,
+                    Config = JsonDocument.Parse("""{"limit":5,"label":"agent"}""").RootElement.Clone()
+                }
+            ]
+        };
+        await using var agent = await new AgentBuilder(agentConfig)
+            .WithChatClient(new MiddlewareTestHelpers.TestChatClient())
+            .WithEventComposition(Infrastructure.TestEventComposition.Current)
+            .WithToolHarness(owner)
+            .BuildAsync();
+
+        var functions = agent.DefaultOptions!.Tools!.OfType<AIFunction>().ToArray();
+        var baseValue = Assert.IsType<HPDAIFunctionFactory.HPDAIFunction>(
+            Assert.Single(functions, function => function.Name == "BaseValue"));
+        var derivedValue = Assert.IsType<HPDAIFunctionFactory.HPDAIFunction>(
+            Assert.Single(functions, function => function.Name == "DerivedValue"));
+        var agentRun = agent.CaptureRunConfig(null);
+        Assert.Equal("base:5", await InvokeWithRunConfig(baseValue, agentRun));
+        Assert.Equal("5:agent", await InvokeWithRunConfig(derivedValue, agentRun));
+
+        var overrides = HpdAgentConfigSerializer.DeserializeRunConfig(
+            "{\"harnesses\":[{\"name\":\"" + identity + "\",\"config\":{\"limit\":4}}]}")!;
+        var overridden = agent.CaptureRunConfig(overrides);
+        Assert.Equal("base:4", await InvokeWithRunConfig(baseValue, overridden));
+        Assert.Equal("4:agent", await InvokeWithRunConfig(derivedValue, overridden));
+
+        GC.KeepAlive(producer);
+    }
+
+    private static async Task<object?> InvokeWithRunConfig(
+        HPDAIFunctionFactory.HPDAIFunction function,
+        AgentRunConfig runConfig)
+    {
+        var request = MiddlewareTestHelpers.CreateFunctionRequest(function) with
+        {
+            RunConfig = runConfig
+        };
+        var context = new FunctionExecutionContext(
+            MiddlewareTestHelpers.CreateBeforeIterationContext(),
+            request);
+        return await function.InvokeAsync(Arguments("{}"), context);
     }
 
     [Theory]

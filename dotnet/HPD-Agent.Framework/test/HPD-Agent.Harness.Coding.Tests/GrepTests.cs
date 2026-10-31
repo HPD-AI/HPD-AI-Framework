@@ -719,7 +719,7 @@ public sealed class GrepTests : IDisposable
 
         await File.WriteAllTextAsync("notes.txt", "hello\nTODO here\n");
 
-        var result = await new CodingToolHarness().Grep("TODO", outputMode: GrepOutputMode.Content);
+        var result = await CodingHarnessTestFactory.Create().Grep("TODO", outputMode: GrepOutputMode.Content);
 
         result.Should().Contain("line=\"2\"");
         result.Should().Contain("2\tTODO here");
@@ -733,7 +733,7 @@ public sealed class GrepTests : IDisposable
 
         await File.WriteAllTextAsync("notes.txt", "TODO here\n");
 
-        var result = await new CodingToolHarness().Grep("TODO", outputMode: GrepOutputMode.Content);
+        var result = await CodingHarnessTestFactory.Create().Grep("TODO", outputMode: GrepOutputMode.Content);
 
         result.Should().Contain("path=\"notes.txt\"");
         result.Should().NotContain("path=\"./notes.txt\"");
@@ -747,7 +747,7 @@ public sealed class GrepTests : IDisposable
 
         await File.WriteAllTextAsync("notes.txt", "TODO here\n");
 
-        var result = await new CodingToolHarness().Grep("[", outputMode: GrepOutputMode.Content);
+        var result = await CodingHarnessTestFactory.Create().Grep("[", outputMode: GrepOutputMode.Content);
 
         result.Should().StartWith("<error");
         result.Should().Contain("Ripgrep search failed.");
@@ -763,8 +763,8 @@ public sealed class GrepTests : IDisposable
         await File.WriteAllTextAsync(".gitignore", "ignored.txt\n");
         await File.WriteAllTextAsync("ignored.txt", "TODO ignored\n");
 
-        var respected = await new CodingToolHarness().Grep("TODO");
-        var bypassed = await new CodingToolHarness().Grep("TODO", respectIgnoreFiles: false);
+        var respected = await CodingHarnessTestFactory.Create().Grep("TODO");
+        var bypassed = await CodingHarnessTestFactory.Create().Grep("TODO", respectIgnoreFiles: false);
 
         respected.Should().NotContain("ignored.txt");
         bypassed.Should().Contain("ignored.txt");
@@ -780,7 +780,7 @@ public sealed class GrepTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(".git", "config"), "TODO in git metadata\n");
         await File.WriteAllTextAsync(".hidden.txt", "TODO in hidden file\n");
 
-        var result = await new CodingToolHarness().Grep(
+        var result = await CodingHarnessTestFactory.Create().Grep(
             "TODO",
             includeHidden: true,
             respectIgnoreFiles: false);
@@ -797,7 +797,7 @@ public sealed class GrepTests : IDisposable
 
         await File.WriteAllTextAsync("notes.txt", "alpha\nbeta\n");
 
-        var result = await new CodingToolHarness().Grep(
+        var result = await CodingHarnessTestFactory.Create().Grep(
             "alpha\\nbeta",
             outputMode: GrepOutputMode.Content,
             multiline: true);
@@ -807,7 +807,7 @@ public sealed class GrepTests : IDisposable
     }
 
     private static CodingToolHarness CreateToolHarness(IRipgrepRunner runner)
-        => new(null, null, null, null, runner);
+        => CodingHarnessTestFactory.Create(ripgrepRunner: runner);
 
     private static FunctionExecutionContext CreateFunctionContext(
         AgentRunConfig runConfig)

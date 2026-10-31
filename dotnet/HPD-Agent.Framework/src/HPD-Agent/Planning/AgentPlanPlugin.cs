@@ -34,11 +34,7 @@ public class AgentPlanToolHarness
 {
     private readonly ILogger<AgentPlanToolHarness>? _logger;
 
-    public AgentPlanToolHarness()
-    {
-    }
-
-    public AgentPlanToolHarness(ILogger<AgentPlanToolHarness>? logger)
+    public AgentPlanToolHarness(ILogger<AgentPlanToolHarness>? logger = null)
     {
         _logger = logger;
     }

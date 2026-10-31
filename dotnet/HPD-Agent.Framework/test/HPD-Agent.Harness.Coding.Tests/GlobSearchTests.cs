@@ -43,7 +43,7 @@ public sealed class GlobSearchTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine("src", "Program.cs"), "class Program {}\n");
         await File.WriteAllTextAsync(Path.Combine("src", "Program.ts"), "export {}\n");
 
-        var result = await new CodingToolHarness().GlobSearch("**/*.cs");
+        var result = await CodingHarnessTestFactory.Create().GlobSearch("**/*.cs");
 
         result.Should().Contain("<glob ");
         result.Should().Contain("pattern=\"**/*.cs\"");
@@ -60,7 +60,7 @@ public sealed class GlobSearchTests : IDisposable
         await File.WriteAllTextAsync("file.ts", "export {}\n");
         await File.WriteAllTextAsync("file.py", "print('no')\n");
 
-        var result = await new CodingToolHarness().GlobSearch("*.{js,ts}");
+        var result = await CodingHarnessTestFactory.Create().GlobSearch("*.{js,ts}");
 
         result.Should().Contain("pattern=\"*.{js,ts}\"");
         result.Should().Contain("path=\"file.js\"");
@@ -76,7 +76,7 @@ public sealed class GlobSearchTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine("src", "components", "Card.jsx"), "export {}\n");
         await File.WriteAllTextAsync(Path.Combine("src", "components", "style.css"), ".card {}\n");
 
-        var result = await new CodingToolHarness().GlobSearch("**/*.{tsx,jsx}");
+        var result = await CodingHarnessTestFactory.Create().GlobSearch("**/*.{tsx,jsx}");
 
         result.Should().Contain("pattern=\"**/*.{tsx,jsx}\"");
         result.Should().Contain("path=\"src/components/Button.tsx\"");
@@ -92,7 +92,7 @@ public sealed class GlobSearchTests : IDisposable
         Directory.CreateDirectory("sub");
         await File.WriteAllTextAsync(Path.Combine("sub", "nested.txt"), "content\n");
 
-        var result = await new CodingToolHarness().GlobSearch("*.txt");
+        var result = await CodingHarnessTestFactory.Create().GlobSearch("*.txt");
 
         result.Should().Contain("matches_read=\"2\"");
         result.Should().Contain("path=\"fileA.txt\"");
@@ -107,7 +107,7 @@ public sealed class GlobSearchTests : IDisposable
         Directory.CreateDirectory("src");
         await File.WriteAllTextAsync(Path.Combine("src", "Nested.cs"), "class Nested {}\n");
 
-        var result = await new CodingToolHarness().GlobSearch("**/*.cs");
+        var result = await CodingHarnessTestFactory.Create().GlobSearch("**/*.cs");
 
         result.Should().Contain($"path=\"{Directory.GetCurrentDirectory()}");
         result.Should().Contain("path=\"Root.cs\"");
@@ -123,7 +123,7 @@ public sealed class GlobSearchTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(workspaceRoot, "src", "Workspace.cs"), "class Workspace {}\n");
         await File.WriteAllTextAsync(Path.Combine(_tempRoot, "Cwd.cs"), "class Cwd {}\n");
 
-        var result = await new CodingToolHarness().GlobSearch(
+        var result = await CodingHarnessTestFactory.Create().GlobSearch(
             "**/*.cs",
             context: CreateFunctionContext(CreateFullAccessWorkspaceRunConfig(workspaceRoot)));
 
@@ -141,7 +141,7 @@ public sealed class GlobSearchTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(workspaceRoot, "src", "App.cs"), "class App {}\n");
         await File.WriteAllTextAsync(Path.Combine(workspaceRoot, "Root.cs"), "class Root {}\n");
 
-        var result = await new CodingToolHarness().GlobSearch(
+        var result = await CodingHarnessTestFactory.Create().GlobSearch(
             "**/*.cs",
             path: "src",
             context: CreateFunctionContext(CreateFullAccessWorkspaceRunConfig(workspaceRoot)));
@@ -161,7 +161,7 @@ public sealed class GlobSearchTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(outsideRoot, "Outside.cs"), "class Outside {}\n");
         var outsidePattern = Path.Combine(outsideRoot, "*.cs");
 
-        var result = await new CodingToolHarness().GlobSearch(
+        var result = await CodingHarnessTestFactory.Create().GlobSearch(
             outsidePattern,
             context: CreateFunctionContext(CreateFullAccessWorkspaceRunConfig(workspaceRoot)));
 
@@ -175,7 +175,7 @@ public sealed class GlobSearchTests : IDisposable
         Directory.CreateDirectory(Path.Combine("src", "app"));
         await File.WriteAllTextAsync(Path.Combine("src", "app", "Program.cs"), "class Program {}\n");
 
-        var result = await new CodingToolHarness().GlobSearch("Program.cs");
+        var result = await CodingHarnessTestFactory.Create().GlobSearch("Program.cs");
 
         result.Should().Contain("pattern=\"**/Program.cs\"");
         result.Should().Contain("original_pattern=\"Program.cs\"");
@@ -188,7 +188,7 @@ public sealed class GlobSearchTests : IDisposable
         Directory.CreateDirectory(Path.Combine("src", "app"));
         await File.WriteAllTextAsync(Path.Combine("src", "app", "Program.cs"), "class Program {}\n");
 
-        var result = await new CodingToolHarness().GlobSearch("src/", kind: GlobEntryKindFilter.All);
+        var result = await CodingHarnessTestFactory.Create().GlobSearch("src/", kind: GlobEntryKindFilter.All);
 
         result.Should().Contain("pattern=\"src/**\"");
         result.Should().Contain("<match kind=\"directory\" path=\"src/\" />");
@@ -202,7 +202,7 @@ public sealed class GlobSearchTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine("src", "tools", "GlobTool.cs"), "class GlobTool {}\n");
         await File.WriteAllTextAsync(Path.Combine("src", "Other.cs"), "class Other {}\n");
 
-        var result = await new CodingToolHarness().GlobSearch("src/tools/**/*.cs");
+        var result = await CodingHarnessTestFactory.Create().GlobSearch("src/tools/**/*.cs");
 
         result.Should().Contain("effective_path=\"");
         result.Should().Contain("src/tools");
@@ -219,7 +219,7 @@ public sealed class GlobSearchTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine("src", "Program.cs"), "class Program {}\n");
         await File.WriteAllTextAsync("Program.cs", "class RootProgram {}\n");
 
-        var result = await new CodingToolHarness().GlobSearch("src/Program.cs");
+        var result = await CodingHarnessTestFactory.Create().GlobSearch("src/Program.cs");
 
         result.Should().Contain("effective_path=\"");
         result.Should().Contain("src");
@@ -241,7 +241,7 @@ public sealed class GlobSearchTests : IDisposable
             await File.WriteAllTextAsync(Path.Combine(externalRoot, "two.md"), "# two\n");
             await File.WriteAllTextAsync(Path.Combine(externalRoot, "three.txt"), "three\n");
 
-            var result = await new CodingToolHarness().GlobSearch(Path.Combine(externalRoot, "*.md"));
+            var result = await CodingHarnessTestFactory.Create().GlobSearch(Path.Combine(externalRoot, "*.md"));
 
             result.Should().Contain($"effective_path=\"{externalRoot}");
             result.Should().Contain("pattern=\"*.md\"");
@@ -263,7 +263,7 @@ public sealed class GlobSearchTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine("src", "App.cs"), "class App {}\n");
         await File.WriteAllTextAsync("Root.cs", "class Root {}\n");
 
-        var result = await new CodingToolHarness().GlobSearch("**/*.cs", path: "src");
+        var result = await CodingHarnessTestFactory.Create().GlobSearch("**/*.cs", path: "src");
 
         result.Should().Contain("path=\"");
         result.Should().Contain("hpd-glob-search-tests-");
@@ -280,7 +280,7 @@ public sealed class GlobSearchTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine("src", "App.cs"), "class App {}\n");
 
         var absolutePath = Path.Combine(_tempRoot, "src");
-        var result = await new CodingToolHarness().GlobSearch("**/*.cs", path: absolutePath);
+        var result = await CodingHarnessTestFactory.Create().GlobSearch("**/*.cs", path: absolutePath);
 
         result.Should().Contain($"path=\"{absolutePath}");
         result.Should().Contain("<match kind=\"file\" path=\"App.cs\" />");
@@ -292,7 +292,7 @@ public sealed class GlobSearchTests : IDisposable
         var root = Path.GetPathRoot(_tempRoot)!;
         var missingRootLiteral = Path.Combine(root, $"hpd-definitely-missing-{Guid.NewGuid():N}.cs");
 
-        var result = await new CodingToolHarness().GlobSearch(missingRootLiteral);
+        var result = await CodingHarnessTestFactory.Create().GlobSearch(missingRootLiteral);
 
         result.Should().Contain("<glob ");
         result.Should().Contain("<no_matches");
@@ -302,7 +302,7 @@ public sealed class GlobSearchTests : IDisposable
     [Fact]
     public async Task GlobSearch_RejectsInvalidArguments()
     {
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
 
         (await toolharness.GlobSearch(null!)).Should().Contain("Pattern is required.");
         (await toolharness.GlobSearch("   ")).Should().Contain("Pattern is required.");
@@ -321,7 +321,7 @@ public sealed class GlobSearchTests : IDisposable
     {
         Directory.CreateDirectory("src");
 
-        var result = await new CodingToolHarness().GlobSearch("**/*.cs", path: "srcc");
+        var result = await CodingHarnessTestFactory.Create().GlobSearch("**/*.cs", path: "srcc");
 
         result.Should().Contain("<error tool=\"GlobSearch\"");
         result.Should().Contain("Directory does not exist. Did you mean");
@@ -333,7 +333,7 @@ public sealed class GlobSearchTests : IDisposable
     {
         await File.WriteAllTextAsync("Program.cs", "class Program {}\n");
 
-        var result = await new CodingToolHarness().GlobSearch("**/*.cs", path: "Program.cs");
+        var result = await CodingHarnessTestFactory.Create().GlobSearch("**/*.cs", path: "Program.cs");
 
         result.Should().Contain("Path is a file. Use ReadFile instead.");
     }
@@ -341,7 +341,7 @@ public sealed class GlobSearchTests : IDisposable
     [Fact]
     public async Task GlobSearch_RejectsBroadFilesystemRootSearches()
     {
-        var result = await new CodingToolHarness().GlobSearch("**/*", path: Path.GetPathRoot(_tempRoot)!);
+        var result = await CodingHarnessTestFactory.Create().GlobSearch("**/*", path: Path.GetPathRoot(_tempRoot)!);
 
         result.Should().Contain("Pattern is too broad. Use a more specific path or pattern.");
     }
@@ -352,7 +352,7 @@ public sealed class GlobSearchTests : IDisposable
         if (OperatingSystem.IsWindows())
             return;
 
-        var result = await new CodingToolHarness().GlobSearch("**/*", path: "/dev");
+        var result = await CodingHarnessTestFactory.Create().GlobSearch("**/*", path: "/dev");
 
         result.Should().Contain("Cannot search blocked system path.");
     }
@@ -360,8 +360,8 @@ public sealed class GlobSearchTests : IDisposable
     [Fact]
     public async Task GlobSearch_BlocksUncOrNetworkStylePaths()
     {
-        var result = await new CodingToolHarness().GlobSearch("**/*.cs", path: "//server/share");
-        var patternResult = await new CodingToolHarness().GlobSearch("//server/share/**/*.cs");
+        var result = await CodingHarnessTestFactory.Create().GlobSearch("**/*.cs", path: "//server/share");
+        var patternResult = await CodingHarnessTestFactory.Create().GlobSearch("//server/share/**/*.cs");
 
         result.Should().Contain("Cannot search blocked system path.");
         patternResult.Should().Contain("Cannot search blocked system path.");
@@ -372,8 +372,8 @@ public sealed class GlobSearchTests : IDisposable
     {
         await File.WriteAllTextAsync("a<&>.cs", "class A {}\n");
 
-        var noMatches = await new CodingToolHarness().GlobSearch("**/*.go");
-        var escaped = await new CodingToolHarness().GlobSearch("**/*.cs");
+        var noMatches = await CodingHarnessTestFactory.Create().GlobSearch("**/*.go");
+        var escaped = await CodingHarnessTestFactory.Create().GlobSearch("**/*.cs");
 
         noMatches.Should().Contain("<no_matches");
         escaped.Should().Contain("a&lt;&amp;&gt;.cs");
@@ -386,7 +386,7 @@ public sealed class GlobSearchTests : IDisposable
         await File.WriteAllTextAsync("b.cs", "b\n");
         await File.WriteAllTextAsync("c.cs", "c\n");
 
-        var result = await new CodingToolHarness().GlobSearch("**/*.cs", offset: 2, limit: 1);
+        var result = await CodingHarnessTestFactory.Create().GlobSearch("**/*.cs", offset: 2, limit: 1);
 
         result.Should().Contain("matches_read=\"1\"");
         result.Should().Contain("truncated=\"true\"");
@@ -403,8 +403,8 @@ public sealed class GlobSearchTests : IDisposable
         await File.WriteAllTextAsync(".env", "secret\n");
         await File.WriteAllTextAsync("visible.env", "visible\n");
 
-        var hiddenByDefault = await new CodingToolHarness().GlobSearch("**/*.env");
-        var included = await new CodingToolHarness().GlobSearch("**/*.env", includeHidden: true);
+        var hiddenByDefault = await CodingHarnessTestFactory.Create().GlobSearch("**/*.env");
+        var included = await CodingHarnessTestFactory.Create().GlobSearch("**/*.env", includeHidden: true);
 
         hiddenByDefault.Should().NotContain("path=\".env\"");
         hiddenByDefault.Should().Contain("visible.env");
@@ -421,8 +421,8 @@ public sealed class GlobSearchTests : IDisposable
         await File.WriteAllTextAsync("visible.cs", "class Visible {}\n");
         File.SetAttributes("secret.cs", File.GetAttributes("secret.cs") | FileAttributes.Hidden);
 
-        var hiddenByDefault = await new CodingToolHarness().GlobSearch("**/*.cs");
-        var included = await new CodingToolHarness().GlobSearch("**/*.cs", includeHidden: true);
+        var hiddenByDefault = await CodingHarnessTestFactory.Create().GlobSearch("**/*.cs");
+        var included = await CodingHarnessTestFactory.Create().GlobSearch("**/*.cs", includeHidden: true);
 
         hiddenByDefault.Should().NotContain("secret.cs");
         hiddenByDefault.Should().Contain("visible.cs");
@@ -438,8 +438,8 @@ public sealed class GlobSearchTests : IDisposable
         Directory.CreateDirectory("ignored-dir");
         await File.WriteAllTextAsync(Path.Combine("ignored-dir", "Nested.cs"), "class Nested {}\n");
 
-        var respected = await new CodingToolHarness().GlobSearch("**/*.cs", includeHidden: true);
-        var ignoredDisabled = await new CodingToolHarness().GlobSearch("**/*.cs", includeHidden: true, respectIgnoreFiles: false);
+        var respected = await CodingHarnessTestFactory.Create().GlobSearch("**/*.cs", includeHidden: true);
+        var ignoredDisabled = await CodingHarnessTestFactory.Create().GlobSearch("**/*.cs", includeHidden: true, respectIgnoreFiles: false);
 
         respected.Should().NotContain("ignored.cs");
         respected.Should().NotContain("Nested.cs");
@@ -458,7 +458,7 @@ public sealed class GlobSearchTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(parent, ".gitignore"), "*\n!.gitignore\n");
         await File.WriteAllTextAsync(Path.Combine(repo, "package.json"), "{ \"name\": \"demo\" }\n");
 
-        var result = await new CodingToolHarness().GlobSearch("**/*.json", path: repo);
+        var result = await CodingHarnessTestFactory.Create().GlobSearch("**/*.json", path: repo);
 
         result.Should().Contain("path=\"package.json\"");
         result.Should().NotContain("<no_matches");
@@ -475,7 +475,7 @@ public sealed class GlobSearchTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine("config", "settings.json"), "{ \"editor\": true }\n");
         await File.WriteAllTextAsync(Path.Combine("config", "extensions.json"), "{ \"extensions\": [] }\n");
 
-        var result = await new CodingToolHarness().GlobSearch("**/*.json", includeHidden: true);
+        var result = await CodingHarnessTestFactory.Create().GlobSearch("**/*.json", includeHidden: true);
 
         result.Should().Contain("path=\"package.json\"");
         result.Should().Contain("path=\"config/settings.json\"");
@@ -489,7 +489,7 @@ public sealed class GlobSearchTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine("node_modules", "package.cs"), "class Package {}\n");
         await File.WriteAllTextAsync("App.cs", "class App {}\n");
 
-        var result = await new CodingToolHarness().GlobSearch("**/*.cs", respectIgnoreFiles: false);
+        var result = await CodingHarnessTestFactory.Create().GlobSearch("**/*.cs", respectIgnoreFiles: false);
 
         result.Should().Contain("App.cs");
         result.Should().NotContain("node_modules");
@@ -502,8 +502,8 @@ public sealed class GlobSearchTests : IDisposable
         Directory.CreateDirectory(Path.Combine("src", "features"));
         await File.WriteAllTextAsync(Path.Combine("src", "features", "Feature.cs"), "class Feature {}\n");
 
-        var directories = await new CodingToolHarness().GlobSearch("src/**", kind: GlobEntryKindFilter.Directories);
-        var all = await new CodingToolHarness().GlobSearch("src/**", kind: GlobEntryKindFilter.All);
+        var directories = await CodingHarnessTestFactory.Create().GlobSearch("src/**", kind: GlobEntryKindFilter.Directories);
+        var all = await CodingHarnessTestFactory.Create().GlobSearch("src/**", kind: GlobEntryKindFilter.All);
 
         directories.Should().Contain("<match kind=\"directory\" path=\"features/\" />");
         directories.Should().NotContain("Feature.cs");
@@ -516,7 +516,7 @@ public sealed class GlobSearchTests : IDisposable
         Directory.CreateDirectory("src");
         await File.WriteAllTextAsync(Path.Combine("src", "App.cs"), "class App {}\n");
 
-        var result = await new CodingToolHarness().GlobSearch("src/**", kind: GlobEntryKindFilter.Files);
+        var result = await CodingHarnessTestFactory.Create().GlobSearch("src/**", kind: GlobEntryKindFilter.Files);
 
         result.Should().Contain("<match kind=\"file\" path=\"App.cs\" />");
         result.Should().NotContain("kind=\"directory\"");
@@ -527,8 +527,8 @@ public sealed class GlobSearchTests : IDisposable
     {
         await File.WriteAllTextAsync("Program.CS", "class Program {}\n");
 
-        var insensitive = await new CodingToolHarness().GlobSearch("**/*.cs");
-        var sensitive = await new CodingToolHarness().GlobSearch("**/*.cs", caseSensitive: true);
+        var insensitive = await CodingHarnessTestFactory.Create().GlobSearch("**/*.cs");
+        var sensitive = await CodingHarnessTestFactory.Create().GlobSearch("**/*.cs", caseSensitive: true);
 
         insensitive.Should().Contain("Program.CS");
         insensitive.Should().Contain("case_sensitive=\"false\"");
@@ -547,7 +547,7 @@ public sealed class GlobSearchTests : IDisposable
         File.SetLastWriteTimeUtc("middle.cs", DateTime.UtcNow.AddDays(-2));
         File.SetLastWriteTimeUtc("newer.cs", DateTime.UtcNow);
 
-        var result = await new CodingToolHarness().GlobSearch(
+        var result = await CodingHarnessTestFactory.Create().GlobSearch(
             "**/*.cs",
             limit: 1,
             sortBy: GlobSortBy.ModifiedTime,
@@ -564,7 +564,7 @@ public sealed class GlobSearchTests : IDisposable
         await File.WriteAllTextAsync("b.cs", "b\n");
         await File.WriteAllTextAsync("a.cs", "a\n");
 
-        var result = await new CodingToolHarness().GlobSearch("**/*.cs");
+        var result = await CodingHarnessTestFactory.Create().GlobSearch("**/*.cs");
 
         result.IndexOf("path=\"a.cs\"", StringComparison.Ordinal)
             .Should().BeLessThan(result.IndexOf("path=\"b.cs\"", StringComparison.Ordinal));
@@ -577,7 +577,7 @@ public sealed class GlobSearchTests : IDisposable
         await File.WriteAllTextAsync("small.cs", "x\n");
         await File.WriteAllTextAsync("large.cs", new string('x', 100));
 
-        var result = await new CodingToolHarness().GlobSearch(
+        var result = await CodingHarnessTestFactory.Create().GlobSearch(
             "**/*.cs",
             sortBy: GlobSortBy.Size,
             sortDirection: SortDirection.Descending);
@@ -593,7 +593,7 @@ public sealed class GlobSearchTests : IDisposable
         Directory.CreateDirectory("src");
         await File.WriteAllTextAsync("App.cs", "class App {}\n");
 
-        var result = await new CodingToolHarness().GlobSearch("**", kind: GlobEntryKindFilter.All, sortBy: GlobSortBy.Kind);
+        var result = await CodingHarnessTestFactory.Create().GlobSearch("**", kind: GlobEntryKindFilter.All, sortBy: GlobSortBy.Kind);
 
         result.IndexOf("kind=\"directory\" path=\"src/\"", StringComparison.Ordinal)
             .Should().BeLessThan(result.IndexOf("kind=\"file\" path=\"App.cs\"", StringComparison.Ordinal));
@@ -606,7 +606,7 @@ public sealed class GlobSearchTests : IDisposable
         await File.WriteAllTextAsync("a.cs", "a\n");
         await File.WriteAllTextAsync("z.cs", "z\n");
 
-        var result = await new CodingToolHarness().GlobSearch(
+        var result = await CodingHarnessTestFactory.Create().GlobSearch(
             "**/*.cs",
             sortDirection: SortDirection.Descending);
 
@@ -626,7 +626,7 @@ public sealed class GlobSearchTests : IDisposable
         File.SetLastWriteTimeUtc("middle.cs", DateTime.UtcNow.AddDays(-2));
         File.SetLastWriteTimeUtc("zeta.cs", DateTime.UtcNow);
 
-        var result = await new CodingToolHarness().GlobSearch("**/*.cs", sortBy: GlobSortBy.Recency);
+        var result = await CodingHarnessTestFactory.Create().GlobSearch("**/*.cs", sortBy: GlobSortBy.Recency);
 
         result.IndexOf("path=\"zeta.cs\"", StringComparison.Ordinal)
             .Should().BeLessThan(result.IndexOf("path=\"alpha.cs\"", StringComparison.Ordinal));
@@ -645,7 +645,7 @@ public sealed class GlobSearchTests : IDisposable
         File.SetLastWriteTimeUtc("c-old.cs", DateTime.UtcNow.AddDays(-2));
         File.SetLastWriteTimeUtc("b-new.cs", DateTime.UtcNow);
 
-        var result = await new CodingToolHarness().GlobSearch("**/*.cs", limit: 1, sortBy: GlobSortBy.Recency);
+        var result = await CodingHarnessTestFactory.Create().GlobSearch("**/*.cs", limit: 1, sortBy: GlobSortBy.Recency);
 
         result.Should().Contain("path=\"b-new.cs\"");
         result.Should().NotContain("a-old.cs");
@@ -658,7 +658,7 @@ public sealed class GlobSearchTests : IDisposable
         await File.WriteAllTextAsync("a.cs", "a\n");
         await File.WriteAllTextAsync("b.cs", "b\n");
         await File.WriteAllTextAsync("c.cs", "c\n");
-        var toolharness = new CodingToolHarness(
+        var toolharness = CodingHarnessTestFactory.Create(
             null,
             null,
             null,
@@ -676,7 +676,7 @@ public sealed class GlobSearchTests : IDisposable
     public async Task GlobSearch_StopsAtTimeoutAndReturnsStructuredPartialOutput()
     {
         await File.WriteAllTextAsync("a.cs", "a\n");
-        var toolharness = new CodingToolHarness(
+        var toolharness = CodingHarnessTestFactory.Create(
             null,
             null,
             null,
@@ -708,8 +708,8 @@ public sealed class GlobSearchTests : IDisposable
             return;
         }
 
-        var result = await new CodingToolHarness().GlobSearch("**/*.cs", respectIgnoreFiles: false);
-        var directories = await new CodingToolHarness().GlobSearch("**", kind: GlobEntryKindFilter.Directories, respectIgnoreFiles: false);
+        var result = await CodingHarnessTestFactory.Create().GlobSearch("**/*.cs", respectIgnoreFiles: false);
+        var directories = await CodingHarnessTestFactory.Create().GlobSearch("**", kind: GlobEntryKindFilter.Directories, respectIgnoreFiles: false);
 
         result.Should().Contain("real-dir/inside.cs");
         result.Should().NotContain("linked-dir/inside.cs");
@@ -721,7 +721,7 @@ public sealed class GlobSearchTests : IDisposable
     {
         await File.WriteAllTextAsync("file[1].cs", "class File1 {}\n");
 
-        var result = await new CodingToolHarness().GlobSearch("file[1].cs");
+        var result = await CodingHarnessTestFactory.Create().GlobSearch("file[1].cs");
 
         result.Should().Contain("original_pattern=\"file[1].cs\"");
         result.Should().Contain("path=\"file[1].cs\"");
@@ -734,7 +734,7 @@ public sealed class GlobSearchTests : IDisposable
         Directory.CreateDirectory(directory);
         await File.WriteAllTextAsync(Path.Combine(directory, "code.tsx"), "export {}\n");
 
-        var result = await new CodingToolHarness().GlobSearch("src/app/[test]/(dashboard)/components/code.tsx");
+        var result = await CodingHarnessTestFactory.Create().GlobSearch("src/app/[test]/(dashboard)/components/code.tsx");
 
         result.Should().Contain("original_pattern=\"src/app/[test]/(dashboard)/components/code.tsx\"");
         result.Should().Contain("path=\"code.tsx\"");
@@ -754,7 +754,7 @@ public sealed class GlobSearchTests : IDisposable
                 Path.Combine(_tempRoot, "workspace-a"),
                 "**/*.ts"));
 
-        var result = await new CodingToolHarness(null, null, [resolver]).GlobSearch("workspace-a/**/*.ts");
+        var result = await CodingHarnessTestFactory.Create(null, null, [resolver]).GlobSearch("workspace-a/**/*.ts");
 
         result.Should().Contain($"effective_path=\"{Path.Combine(_tempRoot, "workspace-a")}");
         result.Should().Contain("path=\"App.ts\"");

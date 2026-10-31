@@ -12,14 +12,16 @@ namespace HPD.Serialization;
 
 internal static class HpdYamlJsonBridge
 {
-    public static JsonNode? ParseYaml(string yaml)
+    public static JsonNode? ParseYaml(string yaml) => ParseDocument(yaml).Root;
+
+    public static HpdConfigDocument ParseDocument(string yaml)
     {
         var stream = new YamlStream();
         stream.Load(new StringReader(yaml));
-
-        return stream.Documents.Count == 0
-            ? null
-            : ConvertNode(stream.Documents[0].RootNode);
+        if (stream.Documents.Count > 1) throw new JsonException("Expected one YAML document.");
+        var locations = new Dictionary<string, HpdConfigSourceLocation>(StringComparer.Ordinal);
+        var root = stream.Documents.Count == 0 ? null : ConvertNode(stream.Documents[0].RootNode, "", locations);
+        return new(root, new System.Collections.ObjectModel.ReadOnlyDictionary<string, HpdConfigSourceLocation>(locations));
     }
 
     public static string WriteYaml(JsonNode? node)
@@ -36,40 +38,38 @@ internal static class HpdYamlJsonBridge
         return writer.ToString();
     }
 
-    private static JsonNode? ConvertNode(YamlNode node) => node switch
+    private static JsonNode? ConvertNode(YamlNode node, string path, Dictionary<string, HpdConfigSourceLocation> locations)
     {
-        YamlMappingNode mapping => ConvertMapping(mapping),
-        YamlSequenceNode sequence => ConvertSequence(sequence),
-        YamlScalarNode scalar => ConvertScalar(scalar),
-        _ => null,
-    };
-
-    private static JsonObject ConvertMapping(YamlMappingNode mapping)
-    {
-        var json = new JsonObject();
-        foreach (var (keyNode, valueNode) in mapping.Children)
+        locations.TryAdd(path, new(node.Start.Line + 1, node.Start.Column + 1));
+        if (node is YamlScalarNode scalar) return ConvertScalar(scalar);
+        if (node is YamlSequenceNode sequence)
         {
-            if (keyNode is not YamlScalarNode key || string.IsNullOrWhiteSpace(key.Value))
-                continue;
-
-            json[key.Value] = ConvertNode(valueNode);
+            var array = new JsonArray(); var index = 0;
+            foreach (var child in sequence.Children) array.Add(ConvertNode(child, path + "[" + index++ + "]", locations));
+            return array;
         }
-
-        return json;
-    }
-
-    private static JsonArray ConvertSequence(YamlSequenceNode sequence)
-    {
-        var json = new JsonArray();
-        foreach (var child in sequence.Children)
-            json.Add(ConvertNode(child));
-
-        return json;
+        if (node is YamlMappingNode mapping)
+        {
+            var json = new JsonObject();
+            foreach (var (keyNode, valueNode) in mapping.Children)
+            {
+                if (keyNode is not YamlScalarNode key || string.IsNullOrEmpty(key.Value))
+                    throw new JsonException("Configuration mapping keys must be nonempty strings.");
+                var child = path.Length == 0 ? key.Value : path + "." + key.Value;
+                if (json.ContainsKey(key.Value)) throw new JsonException($"Duplicate configuration key '{child}'.");
+                locations[child] = new(key.Start.Line + 1, key.Start.Column + 1);
+                json[key.Value] = ConvertNode(valueNode, child, locations);
+            }
+            return json;
+        }
+        throw new JsonException("Unsupported YAML configuration node.");
     }
 
     private static JsonNode? ConvertScalar(YamlScalarNode scalar)
     {
         var value = scalar.Value;
+        if (scalar.Style is ScalarStyle.SingleQuoted or ScalarStyle.DoubleQuoted or ScalarStyle.Literal or ScalarStyle.Folded)
+            return JsonValue.Create(value ?? "");
         if (value is null || value == "~" || value.Equals("null", StringComparison.OrdinalIgnoreCase))
             return null;
 
@@ -108,7 +108,17 @@ internal static class HpdYamlJsonBridge
                 emitter.Emit(new SequenceEnd());
                 break;
             case JsonValue value:
-                emitter.Emit(new Scalar(null, null, ConvertJsonValue(value), ScalarStyle.Any, true, false));
+                var isString = value.TryGetValue<string>(out _) ||
+                    value.TryGetValue<JsonElement>(out var element) && element.ValueKind == JsonValueKind.String;
+                var scalar = ConvertJsonValue(value);
+                var requiresQuoting = isString && RequiresQuoting(scalar);
+                emitter.Emit(new Scalar(
+                    null,
+                    null,
+                    scalar,
+                    requiresQuoting ? ScalarStyle.DoubleQuoted : ScalarStyle.Any,
+                    true,
+                    !isString));
                 break;
         }
     }
@@ -151,4 +161,12 @@ internal static class HpdYamlJsonBridge
 
         return value.ToString();
     }
+
+    private static bool RequiresQuoting(string value)
+        => bool.TryParse(value, out _) ||
+            long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out _) ||
+            double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out _) ||
+            value.Equals("null", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("~", StringComparison.Ordinal) ||
+            value.Length == 0;
 }

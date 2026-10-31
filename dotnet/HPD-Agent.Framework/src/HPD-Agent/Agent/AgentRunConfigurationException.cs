@@ -10,8 +10,13 @@ public sealed class AgentRunConfigurationException : InvalidOperationException
         string message,
         string? providerKey = null,
         Type? expectedType = null,
-        Type? actualType = null) : base(message)
+        Type? actualType = null,
+        long? lineNumber = null,
+        long? columnNumber = null,
+        Exception? innerException = null) : base(message, innerException)
     {
+        LineNumber = lineNumber;
+        ColumnNumber = columnNumber;
         Code = code;
         Path = path;
         ProviderKey = providerKey;
@@ -21,6 +26,8 @@ public sealed class AgentRunConfigurationException : InvalidOperationException
 
     /// <summary>Gets the stable failure code.</summary>
     public string Code { get; }
+    public long? LineNumber { get; }
+    public long? ColumnNumber { get; }
 
     /// <summary>Gets the exact public configuration path.</summary>
     public string Path { get; }

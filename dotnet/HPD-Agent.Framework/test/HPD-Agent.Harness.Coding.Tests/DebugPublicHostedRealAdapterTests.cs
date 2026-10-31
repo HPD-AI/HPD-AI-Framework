@@ -40,7 +40,7 @@ public sealed class DebugPublicHostedRealAdapterTests
             "launch",
             workspaceRoot);
 
-        var xml = await new CodingToolHarness().Debug(
+        var xml = await CodingHarnessTestFactory.Create().Debug(
             new LaunchDebugOperation(
                 new ApplicationProjectDebugTarget(
                     Path.GetDirectoryName(project)!,
@@ -87,7 +87,7 @@ public sealed class DebugPublicHostedRealAdapterTests
             "net10.0",
             "HPD-Agent.Harness.Coding.RealAdapterFixture.dll");
 
-        var xml = await new CodingToolHarness().Debug(
+        var xml = await CodingHarnessTestFactory.Create().Debug(
             new LaunchDebugOperation(
                 new ExecutableDebugTarget(output),
                 AdapterId: "netcoredbg",
@@ -133,7 +133,7 @@ public sealed class DebugPublicHostedRealAdapterTests
             "application-project-public",
             "launch",
             workspaceRoot);
-        var launchXml = await new CodingToolHarness().Debug(
+        var launchXml = await CodingHarnessTestFactory.Create().Debug(
             launch,
             launchContext,
             CancellationToken.None);
@@ -163,7 +163,7 @@ public sealed class DebugPublicHostedRealAdapterTests
             "application-project-event-backed-modules",
             "getModules",
             workspaceRoot);
-        var modulesXml = await new CodingToolHarness().Debug(
+        var modulesXml = await CodingHarnessTestFactory.Create().Debug(
             new GetModulesOperation(treeId, Count: 20),
             modulesContext,
             CancellationToken.None);
@@ -186,7 +186,7 @@ public sealed class DebugPublicHostedRealAdapterTests
         modulePage.Completeness.Should().Be(DebugModuleInventoryCompleteness.ObservedOnly);
         if (modulePage.ContinuationToken is { } moduleContinuation)
         {
-            var nextModulesXml = await new CodingToolHarness().Debug(
+            var nextModulesXml = await CodingHarnessTestFactory.Create().Debug(
                 new GetModulesOperation(
                     treeId,
                     Count: 20,
@@ -199,7 +199,7 @@ public sealed class DebugPublicHostedRealAdapterTests
             XDocument.Parse(nextModulesXml).Root!
                 .Attribute("success")!.Value.Should().Be("true", nextModulesXml);
         }
-        var installSourceXml = await new CodingToolHarness().Debug(
+        var installSourceXml = await CodingHarnessTestFactory.Create().Debug(
             new SetSourceBreakpointsOperation(
                 treeId,
                 [new DebugSourceBreakpointInput(source, 14)]),
@@ -216,7 +216,7 @@ public sealed class DebugPublicHostedRealAdapterTests
             .Should().Be("0");
         installSourceRoot.Attribute("unknown_hit_count")!.Value
             .Should().Be("1");
-        var entryContinue = await new CodingToolHarness().Debug(
+        var entryContinue = await CodingHarnessTestFactory.Create().Debug(
             new ContinueDebugOperation(
                 treeId,
                 int.Parse(
@@ -249,7 +249,7 @@ public sealed class DebugPublicHostedRealAdapterTests
 
         var frameToken = ExtractToken(stop, "frameToken");
         var variablesToken = ExtractToken(stop, "variablesToken");
-        var unsupportedDataBreakpointXml = await new CodingToolHarness().Debug(
+        var unsupportedDataBreakpointXml = await CodingHarnessTestFactory.Create().Debug(
             new DiscoverDataBreakpointOperation(
                 treeId,
                 "first",
@@ -264,7 +264,7 @@ public sealed class DebugPublicHostedRealAdapterTests
                 "capability_unavailable",
                 unsupportedDataBreakpointXml);
 
-        var setExpressionXml = await new CodingToolHarness().Debug(
+        var setExpressionXml = await CodingHarnessTestFactory.Create().Debug(
             new SetDebugExpressionOperation(
                 treeId,
                 "first",
@@ -277,7 +277,7 @@ public sealed class DebugPublicHostedRealAdapterTests
             CancellationToken.None);
         AssertMutationInvalidation(setExpressionXml);
 
-        var preservedFrameXml = await new CodingToolHarness().Debug(
+        var preservedFrameXml = await CodingHarnessTestFactory.Create().Debug(
             new GetScopesOperation(treeId, frameToken),
             fixture.Context(
                 "application-project-preserved-frame",
@@ -287,7 +287,7 @@ public sealed class DebugPublicHostedRealAdapterTests
         XDocument.Parse(preservedFrameXml).Root!.Attribute("success")!.Value
             .Should().Be("true", preservedFrameXml);
 
-        var expiredVariablesXml = await new CodingToolHarness().Debug(
+        var expiredVariablesXml = await CodingHarnessTestFactory.Create().Debug(
             new GetVariablesOperation(treeId, variablesToken),
             fixture.Context(
                 "application-project-expired-variables",
@@ -304,7 +304,7 @@ public sealed class DebugPublicHostedRealAdapterTests
             "application-project-mutated-stop");
         mutatedStop.Value.Should().Contain("first=41");
         var refreshedVariablesToken = ExtractToken(mutatedStop, "variablesToken");
-        var setVariableXml = await new CodingToolHarness().Debug(
+        var setVariableXml = await CodingHarnessTestFactory.Create().Debug(
             new SetDebugVariableOperation(
                 treeId,
                 refreshedVariablesToken,
@@ -324,7 +324,7 @@ public sealed class DebugPublicHostedRealAdapterTests
             "application-project-restored-stop");
         restoredStop.Value.Should().Contain("first=40");
 
-        var clearBreakpointsXml = await new CodingToolHarness().Debug(
+        var clearBreakpointsXml = await CodingHarnessTestFactory.Create().Debug(
             new SetSourceBreakpointsOperation(treeId, []),
             fixture.Context(
                 "application-project-clear-breakpoints",
@@ -334,7 +334,7 @@ public sealed class DebugPublicHostedRealAdapterTests
         XDocument.Parse(clearBreakpointsXml).Root!.Attribute("success")!.Value
             .Should().Be("true", clearBreakpointsXml);
 
-        var continueXml = await new CodingToolHarness().Debug(
+        var continueXml = await CodingHarnessTestFactory.Create().Debug(
             new ContinueDebugOperation(
                 treeId,
                 int.Parse(
@@ -368,7 +368,7 @@ public sealed class DebugPublicHostedRealAdapterTests
         string workspaceRoot,
         string callId)
     {
-        var xml = await new CodingToolHarness().Debug(
+        var xml = await CodingHarnessTestFactory.Create().Debug(
             new InspectDebugStopOperation(
                 treeId,
                 IncludeVariables: true,
@@ -453,7 +453,7 @@ public sealed class DebugPublicHostedRealAdapterTests
                     new DebugSourceBreakpointInput(source, 8)
                 ]));
         var launchContext = fixture.Context("restart-launch", "launch", workspaceRoot);
-        var launchXml = await new CodingToolHarness().Debug(
+        var launchXml = await CodingHarnessTestFactory.Create().Debug(
             operation,
             launchContext,
             CancellationToken.None);
@@ -466,7 +466,7 @@ public sealed class DebugPublicHostedRealAdapterTests
             .OwnedResources.OfType<DebugOwnedProcessResource>().Single();
 
         var restartContext = fixture.Context("restart-public", "restart", workspaceRoot);
-        var restartXml = await new CodingToolHarness().Debug(
+        var restartXml = await CodingHarnessTestFactory.Create().Debug(
             new RestartDebugOperation(oldTreeId),
             restartContext,
             CancellationToken.None);
@@ -483,7 +483,7 @@ public sealed class DebugPublicHostedRealAdapterTests
             .Should().NotContain(tree =>
                 tree.Ownership.DebugTreeId == oldTreeId);
 
-        var terminateXml = await new CodingToolHarness().Debug(
+        var terminateXml = await CodingHarnessTestFactory.Create().Debug(
             new TerminateDebugOperation(newTreeId),
             fixture.Context("restart-terminate", "terminate", workspaceRoot),
             CancellationToken.None);
@@ -504,7 +504,7 @@ public sealed class DebugPublicHostedRealAdapterTests
         await BuildFixtureAsync(project);
         var workspaceRoot = FixtureWorkspace(project);
 
-        var xml = await new CodingToolHarness().Debug(
+        var xml = await CodingHarnessTestFactory.Create().Debug(
             TestLaunch(
                 project,
                 "FullyQualifiedName~HostedDebuggeeTests.Hosted_debuggee_executes",
@@ -536,7 +536,7 @@ public sealed class DebugPublicHostedRealAdapterTests
             "testhost-crash-public",
             "launch",
             workspaceRoot);
-        var launchXml = await new CodingToolHarness().Debug(
+        var launchXml = await CodingHarnessTestFactory.Create().Debug(
             TestLaunch(
                 project,
                 "FullyQualifiedName~HostedCrashTests." +
@@ -563,7 +563,7 @@ public sealed class DebugPublicHostedRealAdapterTests
             treeId,
             workspaceRoot,
             "testhost-crash-stop");
-        var resumeXml = await new CodingToolHarness().Debug(
+        var resumeXml = await CodingHarnessTestFactory.Create().Debug(
             new ContinueDebugOperation(
                 treeId,
                 int.Parse(
@@ -584,7 +584,7 @@ public sealed class DebugPublicHostedRealAdapterTests
         crashStop.Attribute("reason")!.Value.Should().BeOneOf(
             "exception",
             "breakpoint");
-        var crashContinueXml = await new CodingToolHarness().Debug(
+        var crashContinueXml = await CodingHarnessTestFactory.Create().Debug(
             new ContinueDebugOperation(
                 treeId,
                 int.Parse(
@@ -618,7 +618,7 @@ public sealed class DebugPublicHostedRealAdapterTests
             "runner-crash-public",
             "launch",
             workspaceRoot);
-        var launchXml = await new CodingToolHarness().Debug(
+        var launchXml = await CodingHarnessTestFactory.Create().Debug(
             TestLaunch(
                 project,
                 "FullyQualifiedName~HostedDebuggeeTests.Hosted_debuggee_executes",
@@ -681,7 +681,7 @@ public sealed class DebugPublicHostedRealAdapterTests
                 ]));
 
         var launchContext = fixture.Context("launch-public", "launch", workspaceRoot);
-        var xml = await new CodingToolHarness().Debug(
+        var xml = await CodingHarnessTestFactory.Create().Debug(
             launch,
             launchContext,
             CancellationToken.None);
@@ -700,14 +700,14 @@ public sealed class DebugPublicHostedRealAdapterTests
                     System.Globalization.CultureInfo.InvariantCulture)
                 .Should().BeGreaterThan(0, xml);
         var treeId = root.Attribute("debug_tree_id")!.Value;
-        var breakpointsXml = await new CodingToolHarness().Debug(
+        var breakpointsXml = await CodingHarnessTestFactory.Create().Debug(
             new GetDebugBreakpointsOperation(treeId),
             fixture.Context(
                 "breakpoints-public",
                 "getBreakpoints",
                 workspaceRoot),
             CancellationToken.None);
-        var threadsXml = await new CodingToolHarness().Debug(
+        var threadsXml = await CodingHarnessTestFactory.Create().Debug(
             new GetThreadsOperation(treeId),
             fixture.Context(
                 "threads-public",
@@ -718,7 +718,7 @@ public sealed class DebugPublicHostedRealAdapterTests
             XDocument.Parse(threadsXml).Root!.Elements("item").First().Value
                 .Split(' ', StringSplitOptions.RemoveEmptyEntries)[0],
             System.Globalization.CultureInfo.InvariantCulture);
-        var pauseXml = await new CodingToolHarness().Debug(
+        var pauseXml = await CodingHarnessTestFactory.Create().Debug(
             new PauseDebugOperation(treeId, initialThreadId),
             fixture.Context("pause-host-public", "pause", workspaceRoot),
             CancellationToken.None);
@@ -726,7 +726,7 @@ public sealed class DebugPublicHostedRealAdapterTests
             .Should().Be("true", pauseXml);
         initialThreadId = fixture.Manager.ResolveTree(fixture.Scope, treeId)
             .SelectSession(null).State.PrimaryStoppedThreadId ?? initialThreadId;
-        var continueXml = await new CodingToolHarness().Debug(
+        var continueXml = await CodingHarnessTestFactory.Create().Debug(
             new ContinueDebugOperation(treeId, initialThreadId),
             fixture.Context("continue-public", "continue", workspaceRoot),
             CancellationToken.None);
@@ -755,7 +755,7 @@ public sealed class DebugPublicHostedRealAdapterTests
                 System.Globalization.CultureInfo.InvariantCulture)
             .Should().BeGreaterThan(0);
 
-        var resumeXml = await new CodingToolHarness().Debug(
+        var resumeXml = await CodingHarnessTestFactory.Create().Debug(
             new ContinueDebugOperation(
                 treeId,
                 int.Parse(
@@ -774,19 +774,19 @@ public sealed class DebugPublicHostedRealAdapterTests
         string.Concat(terminal.Output.Records.Select(record => record.Text))
             .Should().Contain("Passed!");
 
-        var statusXml = await new CodingToolHarness().Debug(
+        var statusXml = await CodingHarnessTestFactory.Create().Debug(
             new GetDebugStatusOperation(treeId),
             fixture.Context("terminal-status-public", "getStatus", workspaceRoot),
             CancellationToken.None);
-        var snapshotXml = await new CodingToolHarness().Debug(
+        var snapshotXml = await CodingHarnessTestFactory.Create().Debug(
             new SnapshotDebugOperation(treeId),
             fixture.Context("terminal-snapshot-public", "snapshot", workspaceRoot),
             CancellationToken.None);
-        var outputXml = await new CodingToolHarness().Debug(
+        var outputXml = await CodingHarnessTestFactory.Create().Debug(
             new GetDebugOutputOperation(treeId),
             fixture.Context("terminal-output-public", "getOutput", workspaceRoot),
             CancellationToken.None);
-        var terminalBreakpointsXml = await new CodingToolHarness().Debug(
+        var terminalBreakpointsXml = await CodingHarnessTestFactory.Create().Debug(
             new GetDebugBreakpointsOperation(treeId),
             fixture.Context("terminal-breakpoints-public", "getBreakpoints", workspaceRoot),
             CancellationToken.None);
@@ -847,7 +847,7 @@ public sealed class DebugPublicHostedRealAdapterTests
         string? last = null;
         for (var attempt = 0; attempt < 150; attempt++)
         {
-            var xml = await new CodingToolHarness().Debug(
+            var xml = await CodingHarnessTestFactory.Create().Debug(
                 new InspectDebugStopOperation(treeId),
                 fixture.Context(
                     $"{callPrefix}-{attempt}",
@@ -871,14 +871,14 @@ public sealed class DebugPublicHostedRealAdapterTests
             await Task.Delay(100);
         }
 
-        var threads = await new CodingToolHarness().Debug(
+        var threads = await CodingHarnessTestFactory.Create().Debug(
             new GetThreadsOperation(treeId),
             fixture.Context(
                 $"{callPrefix}-failure-threads",
                 "getThreads",
                 workspaceRoot),
             CancellationToken.None);
-        var breakpoints = await new CodingToolHarness().Debug(
+        var breakpoints = await CodingHarnessTestFactory.Create().Debug(
             new GetDebugBreakpointsOperation(treeId),
             fixture.Context(
                 $"{callPrefix}-failure-breakpoints",
@@ -916,7 +916,7 @@ public sealed class DebugPublicHostedRealAdapterTests
         string workspaceRoot,
         string callPrefix)
     {
-        var threadsXml = await new CodingToolHarness().Debug(
+        var threadsXml = await CodingHarnessTestFactory.Create().Debug(
             new GetThreadsOperation(treeId),
             fixture.Context(
                 $"{callPrefix}-threads",
@@ -927,7 +927,7 @@ public sealed class DebugPublicHostedRealAdapterTests
             XDocument.Parse(threadsXml).Root!.Elements("item").First().Value
                 .Split(' ', StringSplitOptions.RemoveEmptyEntries)[0],
             System.Globalization.CultureInfo.InvariantCulture);
-        var pauseXml = await new CodingToolHarness().Debug(
+        var pauseXml = await CodingHarnessTestFactory.Create().Debug(
             new PauseDebugOperation(treeId, threadId),
             fixture.Context($"{callPrefix}-pause", "pause", workspaceRoot),
             CancellationToken.None);
@@ -935,7 +935,7 @@ public sealed class DebugPublicHostedRealAdapterTests
             .Should().Be("true", pauseXml);
         threadId = fixture.Manager.ResolveTree(fixture.Scope, treeId)
             .SelectSession(null).State.PrimaryStoppedThreadId ?? threadId;
-        var continueXml = await new CodingToolHarness().Debug(
+        var continueXml = await CodingHarnessTestFactory.Create().Debug(
             new ContinueDebugOperation(treeId, threadId),
             fixture.Context($"{callPrefix}-continue", "continue", workspaceRoot),
             CancellationToken.None);

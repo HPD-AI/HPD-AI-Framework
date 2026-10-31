@@ -118,6 +118,7 @@ public partial class CodingToolHarness
         FunctionExecutionContext context = null!,
         CancellationToken cancellationToken = default)
     {
+        var commandOptions = _config.For(context).Commands;
         ArgumentNullException.ThrowIfNull(context);
 
         var normalized = NormalizeExecuteCommandRequest(
@@ -131,7 +132,7 @@ public partial class CodingToolHarness
             delayMilliseconds,
             environment,
             context,
-            _executeCommandOptions);
+            commandOptions);
 
         if (normalized.Error is { } error)
             return FormatExecuteCommandError(error);
@@ -169,6 +170,7 @@ public partial class CodingToolHarness
         CancellationToken cancellationToken,
         bool allowSandboxCapabilityRetry = true)
     {
+        var commandOptions = _config.For(context).Commands;
         if (string.IsNullOrWhiteSpace(context.SessionId))
         {
             return FormatExecuteCommandError(new ExecuteCommandError(
@@ -188,16 +190,16 @@ public partial class CodingToolHarness
         }
 
         var activeCount = CountRunningBackgroundCommands(context);
-        if (activeCount >= _executeCommandOptions.MaxActiveBackgroundCommands)
+        if (activeCount >= commandOptions.MaxActiveBackgroundCommands)
         {
             return FormatExecuteCommandError(new ExecuteCommandError(
                 ExecuteCommandErrorKind.BackgroundLimitExceeded,
                 request.Command,
                 request.WorkingDirectory,
-                $"Active background command limit exceeded for this session ({_executeCommandOptions.MaxActiveBackgroundCommands})."));
+                $"Active background command limit exceeded for this session ({commandOptions.MaxActiveBackgroundCommands})."));
         }
 
-        var environmentContext = EnvironmentContext.CreateCurrent();
+        var environmentContext = EnvironmentContext.CreateCurrent(_config.For(context).Environment);
         var baseCommand = GetBaseCommand(request.Command);
         var category = DetectCommandCategory(baseCommand, request.Command);
         var processSpec = CreateProcessInvocationSpec(
@@ -215,12 +217,12 @@ public partial class CodingToolHarness
 
         try
         {
-            var eventState = new ExecuteCommandEventState(_executeCommandOptions);
+            var eventState = new ExecuteCommandEventState(commandOptions);
             outputStore = await ExecuteCommandOutputStoreSession.CreateAsync(
                 request.CommandId,
                 request,
                 context,
-                _executeCommandOptions,
+                commandOptions,
                 cancellationToken).ConfigureAwait(false);
 
             var outputSink = new ExecuteCommandOutputSink(
@@ -269,7 +271,7 @@ public partial class CodingToolHarness
             var completionTask = handle.WaitAsync(CancellationToken.None).AsTask();
             var completed = await Task.WhenAny(
                     completionTask,
-                    Task.Delay(_executeCommandOptions.BackgroundStartSettleDelay, cancellationToken))
+                    Task.Delay(commandOptions.BackgroundStartSettleDelay, cancellationToken))
                 .ConfigureAwait(false);
 
             if (completed == completionTask)
@@ -367,7 +369,8 @@ public partial class CodingToolHarness
         CancellationToken cancellationToken,
         bool allowSandboxCapabilityRetry = true)
     {
-        var environmentContext = EnvironmentContext.CreateCurrent();
+        var commandOptions = _config.For(context).Commands;
+        var environmentContext = EnvironmentContext.CreateCurrent(_config.For(context).Environment);
         var baseCommand = GetBaseCommand(request.Command);
         var category = DetectCommandCategory(baseCommand, request.Command);
         var processSpec = CreateProcessInvocationSpec(
@@ -387,12 +390,12 @@ public partial class CodingToolHarness
 
         try
         {
-            var eventState = new ExecuteCommandEventState(_executeCommandOptions);
+            var eventState = new ExecuteCommandEventState(commandOptions);
             outputStore = await ExecuteCommandOutputStoreSession.CreateAsync(
                 request.CommandId,
                 request,
                 context,
-                _executeCommandOptions,
+                commandOptions,
                 cancellationToken).ConfigureAwait(false);
 
             var outputSink = new ExecuteCommandOutputSink(
@@ -435,7 +438,7 @@ public partial class CodingToolHarness
                 stopwatch.Elapsed,
                 cancellationToken).ConfigureAwait(false);
 
-            if (_executeCommandOptions.AutoBackgroundAfter is { } autoBackgroundAfter &&
+            if (commandOptions.AutoBackgroundAfter is { } autoBackgroundAfter &&
                 autoBackgroundAfter >= TimeSpan.Zero)
             {
                 var completionTask = handle.WaitAsync(CancellationToken.None).AsTask();
@@ -1100,6 +1103,7 @@ public partial class CodingToolHarness
         FunctionInvocationSnapshot invocation,
         CancellationToken cancellationToken)
     {
+        var commandOptions = _config.For(context).Commands;
         if (string.IsNullOrWhiteSpace(context.SessionId) ||
             !context.CanStartOperations)
         {
@@ -1107,7 +1111,7 @@ public partial class CodingToolHarness
         }
 
         var activeCount = CountRunningBackgroundCommands(context);
-        if (activeCount >= _executeCommandOptions.MaxActiveBackgroundCommands)
+        if (activeCount >= commandOptions.MaxActiveBackgroundCommands)
             return null;
 
         var background = new ExecuteCommandProcessOperation(

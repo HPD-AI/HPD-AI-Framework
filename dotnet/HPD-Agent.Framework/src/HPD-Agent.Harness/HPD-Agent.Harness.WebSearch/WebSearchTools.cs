@@ -14,24 +14,12 @@ public class WebSearchTools
 {
     private readonly WebSearchContext _context;
 
-    /// <summary>
-    /// Initializes an empty web search tool harness for generated registry discovery.
-    /// Runtime provider setup should use AgentBuilder web search extensions.
-    /// </summary>
-    public WebSearchTools()
-        : this(new WebSearchContext(Array.Empty<IWebSearchConnector>()))
+    /// <summary>Creates a web search harness using its configured provider context.</summary>
+    public WebSearchTools(WebSearchContext? context = null)
     {
+        _context = context ?? new WebSearchContext(Array.Empty<IWebSearchConnector>());
     }
 
-    /// <summary>
-    /// Initializes a new instance of the WebSearchTools.
-    /// </summary>
-    /// <param name="context">WebSearch context containing configured providers.</param>
-    public WebSearchTools(WebSearchContext context)
-    {
-        _context = context ?? throw new ArgumentNullException(nameof(context));
-    }
-    
     // === Multi-Provider Functions (include provider parameter) ===
     
     [AIFunction<WebSearchContext>]

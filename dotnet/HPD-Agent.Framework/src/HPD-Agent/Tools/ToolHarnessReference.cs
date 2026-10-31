@@ -15,14 +15,14 @@ namespace HPD.Agent;
 /// <para>
 /// <b>Simple syntax (just name):</b>
 /// <code>
-/// { "toolharnesses": ["MathToolHarness", "SearchToolHarness"] }
+/// { "toolHarnesses": ["MathToolHarness", "SearchToolHarness"] }
 /// </code>
 /// </para>
 /// <para>
 /// <b>Rich syntax (with configuration):</b>
 /// <code>
 /// {
-///   "toolharnesses": [
+///   "toolHarnesses": [
 ///     "MathToolHarness",
 ///     { "name": "FileToolHarness", "functions": ["ReadFile", "WriteFile"] },
 ///     { "name": "ApiToolHarness", "config": { "apiKey": "${API_KEY}" } },
@@ -35,6 +35,9 @@ namespace HPD.Agent;
 [JsonConverter(typeof(ToolHarnessReferenceConverter))]
 public class ToolHarnessReference
 {
+    internal string? SourcePath { get; set; }
+    internal IReadOnlyDictionary<string, HPD.Serialization.HpdConfigSourceLocation>? SourceLocations { get; set; }
+
     /// <summary>
     /// Name of the toolharness (always the class name).
     /// This is the lookup key in the source-generated toolharness registry.
@@ -163,6 +166,7 @@ public class ToolHarnessReferenceConverter : JsonConverter<ToolHarnessReference>
         {
             // Rich syntax: { "name": "...", ... }
             var reference = new ToolHarnessReference();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
 
             while (reader.Read())
             {
@@ -172,7 +176,8 @@ public class ToolHarnessReferenceConverter : JsonConverter<ToolHarnessReference>
                 if (reader.TokenType != JsonTokenType.PropertyName)
                     continue;
 
-                var propertyName = reader.GetString()?.ToLowerInvariant();
+                var propertyName = reader.GetString();
+                if (!seen.Add(propertyName!)) throw new JsonException("Duplicate harness reference property.");
                 reader.Read();
 
                 switch (propertyName)
@@ -189,13 +194,11 @@ public class ToolHarnessReferenceConverter : JsonConverter<ToolHarnessReference>
                     case "metadata":
                         reference.Metadata = JsonElement.ParseValue(ref reader);
                         break;
-                    case "middlewareconfigs":
+                    case "middlewareConfigs":
                         reference.MiddlewareConfigs = ReadJsonElementDictionary(ref reader);
                         break;
                     default:
-                        // Skip unknown properties
-                        reader.Skip();
-                        break;
+                        throw new JsonException($"Unknown harness reference property '{propertyName}'.");
                 }
             }
 

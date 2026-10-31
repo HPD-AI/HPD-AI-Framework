@@ -113,6 +113,10 @@ public sealed partial class Agent : IAsyncDisposable
     private readonly ConcurrentDictionary<long, CancellationTokenSource> _activeTurnCancellations = new();
     private readonly ConcurrentDictionary<long, Task> _toolHarnessExecutionCompletions = new();
     private readonly AgentResourceRegistry _agentResources;
+    private IAsyncDisposable? _harnessOwnerLifetime;
+    private HarnessConfigurationCatalog _harnessConfigurations = new(new object());
+    internal void SetHarnessConfigurationCatalog(HarnessConfigurationCatalog catalog) => _harnessConfigurations = catalog;
+    internal void SetHarnessOwnerLifetime(IAsyncDisposable lifetime) => _harnessOwnerLifetime = lifetime;
     private long _nextActiveTurnId;
     private long _nextToolHarnessExecutionId;
     private readonly ContainerMiddleware? _containerMiddleware;
@@ -2870,7 +2874,8 @@ public sealed partial class Agent : IAsyncDisposable
                 nameof(SubAgentRunConfig.ClientPropagation),
                 "Non-default propagation requires an explicit Chat selection in the subagent run configuration.");
         }
-        var runConfig = AgentRunConfigSnapshot.Capture(input.RunConfig, _chatClientResolver.Composition);
+        var runConfig = AgentRunConfigSnapshot.Capture(input.RunConfig, _chatClientResolver.Composition) ?? new AgentRunConfig();
+        runConfig.HarnessConfiguration = _harnessConfigurations.Capture(runConfig.Harnesses);
         var subAgentRunConfig = AgentRunConfigSnapshot.Capture(
             input.SubAgentRunConfig,
             _chatClientResolver.Composition);
@@ -2904,8 +2909,12 @@ public sealed partial class Agent : IAsyncDisposable
             chat,
             inheritance);
 
-    internal AgentRunConfig CaptureRunConfig(AgentRunConfig? runConfig) =>
-        AgentRunConfigSnapshot.Capture(runConfig, _chatClientResolver.Composition) ?? new AgentRunConfig();
+    internal AgentRunConfig CaptureRunConfig(AgentRunConfig? runConfig)
+    {
+        var captured = AgentRunConfigSnapshot.Capture(runConfig, _chatClientResolver.Composition) ?? new AgentRunConfig();
+        captured.HarnessConfiguration = _harnessConfigurations.Capture(captured.Harnesses);
+        return captured;
+    }
 
     /// <summary>
     /// - Accepts PreparedTurn (functional preparation from MessageProcessor.PrepareTurnAsync)
@@ -5066,6 +5075,8 @@ public sealed partial class Agent : IAsyncDisposable
         await AttemptAsync(() => _operationRegistry.ShutdownAsync(Config.Shutdown)).ConfigureAwait(false);
         try { await DrainToolHarnessExecutionCompletionsAsync().ConfigureAwait(false); }
         catch (Exception ex) { failures.Add(ex); }
+        if (_harnessOwnerLifetime is not null)
+            await AttemptAsync(_harnessOwnerLifetime.DisposeAsync).ConfigureAwait(false);
         await AttemptAsync(() => _agentResources.DisposeAsync()).ConfigureAwait(false);
 
         if (_capabilityCatalog is not null)

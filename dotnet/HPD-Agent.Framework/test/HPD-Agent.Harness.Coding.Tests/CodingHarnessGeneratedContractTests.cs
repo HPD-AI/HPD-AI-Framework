@@ -8,7 +8,7 @@ namespace HPD.Agent.ToolHarness.Coding.Tests;
 public sealed class CodingHarnessGeneratedContractTests
 {
     private static readonly IReadOnlyDictionary<string, AIFunction> Functions =
-        CodingToolHarnessRegistration.CreateToolHarness(new CodingToolHarness())
+        CodingToolHarnessRegistration.CreateToolHarness(CodingHarnessTestFactory.Create())
             .ToDictionary(function => function.Name, StringComparer.Ordinal);
 
     [Fact]

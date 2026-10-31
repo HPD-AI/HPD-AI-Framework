@@ -235,7 +235,10 @@ public class AgentBuilderWithToolTests
     public void GeneratedFactory_CreatesSubAgentCapability()
     {
         var factory = GetAdvancedFactory();
-        var subAgent = Assert.Single(factory.CreateSubAgentActions!(new ReflectionAdvancedToolHarness()));
+        var subAgent = Assert.Single(factory.CreateSubAgentActions!(
+            new ReflectionAdvancedToolHarness(),
+            null,
+            null));
 
         Assert.Equal("support_escalation", subAgent.Action);
         Assert.Equal("Escalates support questions to a specialist.", subAgent.Description);

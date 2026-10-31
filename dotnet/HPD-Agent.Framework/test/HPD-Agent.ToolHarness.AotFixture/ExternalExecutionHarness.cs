@@ -3,17 +3,36 @@ using HPD.Agent.Middleware;
 
 namespace HPD.Agent.ToolHarness.AotFixture;
 
-[Collapse(
-    "Cross-assembly Native AOT harness",
-    FunctionResult = "expanded",
-    Middlewares = [typeof(ExternalExecutionMiddleware)])]
-public partial class ExternalExecutionHarness
+public sealed record ExternalExecutionSettings
 {
-    [AIFunction]
-    public string Ping() => "pong";
+    [HarnessRunSetting]
+    public int Value { get; init; } = 1;
 }
 
-public sealed partial class DerivedExecutionHarness : ExternalExecutionHarness
+[Collapse(
+    "Cross-assembly Native AOT harness",
+    SystemPrompt = "Use the configured AOT harness value.",
+    FunctionResult = "expanded",
+    Middlewares = [typeof(ExternalExecutionMiddleware)])]
+public partial class ExternalExecutionHarness(IHarnessConfig<ExternalExecutionSettings> configuration)
+{
+    public static int LastConfiguredValue { get; private set; }
+
+    [AIFunction]
+    public string Ping() => "pong";
+
+    [AIFunction]
+    public string ConfiguredValue(FunctionExecutionContext context)
+    {
+        var value = configuration.For(context).Value;
+        LastConfiguredValue = value;
+        return value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
+}
+
+public sealed partial class DerivedExecutionHarness(
+    IHarnessConfig<ExternalExecutionSettings> configuration)
+    : ExternalExecutionHarness(configuration)
 {
     [AIFunction]
     [CollapseFunction(

@@ -430,7 +430,7 @@ public class ConfigSerializationTests
             {
               "name": "ResearchAgent",
               "systemInstructions": "You are a research assistant.",
-              "toolharnesses": [
+              "toolHarnesses": [
                 "MathToolHarness",
                 { "name": "SearchToolHarness" },
                 { "name": "FileToolHarness", "functions": ["ReadFile"] }

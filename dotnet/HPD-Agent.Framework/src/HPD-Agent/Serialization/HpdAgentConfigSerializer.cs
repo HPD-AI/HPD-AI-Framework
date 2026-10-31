@@ -8,13 +8,32 @@ namespace HPD.Agent.Serialization;
 /// <summary>AOT-safe JSON/YAML serialization helpers for HPD agent configuration documents.</summary>
 public static class HpdAgentConfigSerializer
 {
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<JsonObject, SourceMap> Sources = new();
+    private sealed record SourceMap(IReadOnlyDictionary<string, HpdConfigSourceLocation> Locations);
+    private static AgentRunConfig? Attach(AgentRunConfig? config, JsonObject root)
+    {
+        if (config is not null && Sources.TryGetValue(root, out var source))
+            foreach (var entry in config.Harnesses) entry.SourceLocations = source.Locations;
+        return config;
+    }
+    private static AgentConfig? Attach(AgentConfig? config, JsonObject root)
+    {
+        if (config is not null && Sources.TryGetValue(root, out var source))
+            for (var index = 0; index < config.ToolHarnesses.Count; index++)
+            {
+                config.ToolHarnesses[index].SourcePath = $"toolHarnesses[{index}]";
+                config.ToolHarnesses[index].SourceLocations = source.Locations;
+            }
+        return config;
+    }
+
     public static AgentRunConfig? DeserializeRunConfig(string text, HpdConfigFormat format = HpdConfigFormat.Json)
     {
         var root = ParseObject(text, format);
         if (root is null) return null;
         if (ExtractPayloads(root).FirstOrDefault() is { } payload)
             ThrowProviderCompositionNotInstalled(payload.Path);
-        return JsonSerializer.Deserialize(root.ToJsonString(), HPDJsonContext.Default.AgentRunConfig);
+        return Attach(JsonSerializer.Deserialize(root.ToJsonString(), HPDJsonContext.Default.AgentRunConfig), root);
     }
 
     public static string Serialize(AgentRunConfig config, HpdConfigFormat format = HpdConfigFormat.Json)
@@ -85,7 +104,7 @@ public static class HpdAgentConfigSerializer
             ThrowProviderCompositionNotInstalled(payload.Path);
         return root is null
             ? null
-            : JsonSerializer.Deserialize(root.ToJsonString(), HPDJsonContext.Default.AgentConfig);
+            : Attach(JsonSerializer.Deserialize(root.ToJsonString(), HPDJsonContext.Default.AgentConfig), root);
     }
 
     private static async ValueTask<AgentConfig?> ReadPortableFileAsync(
@@ -144,12 +163,7 @@ public static class HpdAgentConfigSerializer
         HpdConfigFormat format = HpdConfigFormat.Json)
     {
         ArgumentNullException.ThrowIfNull(providerComposition);
-        var root = format switch
-        {
-            HpdConfigFormat.Json => JsonNode.Parse(text),
-            HpdConfigFormat.Yaml => HpdConfigSerializer.ParseYamlToJsonNode(text),
-            _ => throw new ArgumentOutOfRangeException(nameof(format), format, null)
-        } as JsonObject;
+        var root = ParseObject(text, format);
         if (root is null)
             return null;
 
@@ -192,7 +206,7 @@ public static class HpdAgentConfigSerializer
                     payload.Path + ".providerOptions"));
         }
 
-        return config;
+        return Attach(config, root);
     }
 
     /// <summary>
@@ -225,7 +239,7 @@ public static class HpdAgentConfigSerializer
             return null;
 
         BindFamilies(config.Clients, payloads, providerComposition);
-        return config;
+        return Attach(config, root);
     }
 
     /// <summary>Serializes typed provider-family payloads through the generated composition.</summary>
@@ -292,12 +306,14 @@ public static class HpdAgentConfigSerializer
         return WriteObject(root, format);
     }
 
-    private static JsonObject? ParseObject(string text, HpdConfigFormat format) => format switch
+    private static JsonObject? ParseObject(string text, HpdConfigFormat format)
     {
-        HpdConfigFormat.Json => JsonNode.Parse(text) as JsonObject,
-        HpdConfigFormat.Yaml => HpdConfigSerializer.ParseYamlToJsonNode(text) as JsonObject,
-        _ => throw new ArgumentOutOfRangeException(nameof(format), format, null)
-    };
+        var document = HpdConfigSerializer.ParseDocument(text, format);
+        if (document.Root is null) return null;
+        if (document.Root is not JsonObject root) throw new JsonException("Expected a configuration object.");
+        Sources.Add(root, new(document.Locations));
+        return root;
+    }
 
     private static void ValidatePortableClients(string path, AgentClientsConfig clients)
     {

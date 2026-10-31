@@ -176,14 +176,14 @@ public class AgentConfig
     /// <para>
     /// <b>Simple syntax:</b>
     /// <code>
-    /// { "toolharnesses": ["MathToolHarness", "SearchToolHarness"] }
+    /// { "toolHarnesses": ["MathToolHarness", "SearchToolHarness"] }
     /// </code>
     /// </para>
     /// <para>
     /// <b>Rich syntax:</b>
     /// <code>
     /// {
-    ///   "toolharnesses": [
+    ///   "toolHarnesses": [
     ///     "MathToolHarness",
     ///     { "name": "FileToolHarness", "functions": ["ReadFile", "WriteFile"] },
     ///     { "name": "ApiToolHarness", "config": { "apiKey": "${API_KEY}" } }
@@ -192,7 +192,7 @@ public class AgentConfig
     /// </code>
     /// </para>
     /// </remarks>
-    [JsonPropertyName("toolharnesses")]
+    [JsonPropertyName("toolHarnesses")]
     public List<ToolHarnessReference> ToolHarnesses { get; set; } = new();
 
     /// <summary>
@@ -1122,7 +1122,7 @@ public class CollapsingConfig
     /// <summary>
     /// List of toolharness names that should never be collapsed, even if they have containers.
     /// This is a runtime override that works even if the toolharness was compiled with collapse support.
-    /// Use this to force specific toolharnesses to always show their functions directly.
+    /// Use this to force specific toolHarnesses to always show their functions directly.
     /// Example: new HashSet&lt;string&gt; { "MathToolHarness", "CoreTools" }
     /// </summary>
     public HashSet<string> NeverCollapse { get; set; } = new(StringComparer.OrdinalIgnoreCase);

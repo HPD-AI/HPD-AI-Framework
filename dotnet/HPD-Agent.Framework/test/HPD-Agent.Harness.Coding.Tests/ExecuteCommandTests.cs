@@ -204,7 +204,7 @@ public sealed class ExecuteCommandTests : IDisposable
     [Fact]
     public async Task ExecuteCommand_EmptyRunCommand_ReturnsValidationError()
     {
-        var result = await new CodingToolHarness().ExecuteCommandCore(
+        var result = await CodingHarnessTestFactory.Create().ExecuteCommandCore(
             context: CreateContext(new FakeProcessProvider()),
             command: "   ");
 
@@ -216,7 +216,7 @@ public sealed class ExecuteCommandTests : IDisposable
     [Fact]
     public async Task ExecuteCommand_MissingWorkingDirectory_ReturnsValidationError()
     {
-        var result = await new CodingToolHarness().ExecuteCommandCore(
+        var result = await CodingHarnessTestFactory.Create().ExecuteCommandCore(
             context: CreateContext(new FakeProcessProvider()),
             command: "dotnet test",
             workingDirectory: "missing");
@@ -246,7 +246,7 @@ public sealed class ExecuteCommandTests : IDisposable
             } }
         };
 
-        var result = await new CodingToolHarness().ExecuteCommandCore(
+        var result = await CodingHarnessTestFactory.Create().ExecuteCommandCore(
             context: CreateContext(new FakeProcessProvider(), runConfig: runConfig),
             command: "ls");
 
@@ -260,7 +260,7 @@ public sealed class ExecuteCommandTests : IDisposable
         var filePath = Path.Combine(_tempRoot, "not-a-directory.txt");
         await File.WriteAllTextAsync(filePath, "hello");
 
-        var result = await new CodingToolHarness().ExecuteCommandCore(
+        var result = await CodingHarnessTestFactory.Create().ExecuteCommandCore(
             context: CreateContext(new FakeProcessProvider()),
             command: "dotnet test",
             workingDirectory: filePath);
@@ -276,7 +276,7 @@ public sealed class ExecuteCommandTests : IDisposable
         Directory.CreateDirectory(docsRoot);
         var runner = new FakeProcessProvider();
 
-        await new CodingToolHarness().ExecuteCommandCore(
+        await CodingHarnessTestFactory.Create().ExecuteCommandCore(
             context: CreateContext(runner, runConfig: CreateWorkspaceRunConfig(_tempRoot, docsRoot)),
             command: "pwd");
 
@@ -289,7 +289,7 @@ public sealed class ExecuteCommandTests : IDisposable
     {
         var runner = new FakeProcessProvider();
 
-        await new CodingToolHarness().ExecuteCommandCore(
+        await CodingHarnessTestFactory.Create().ExecuteCommandCore(
             context: CreateContext(runner),
             command: "dotnet test");
 
@@ -312,7 +312,7 @@ public sealed class ExecuteCommandTests : IDisposable
             }
         };
 
-        await new CodingToolHarness().ExecuteCommandCore(
+        await CodingHarnessTestFactory.Create().ExecuteCommandCore(
             context: CreateContext(runner, runConfig: runConfig),
             command: "dotnet test");
 
@@ -352,7 +352,7 @@ public sealed class ExecuteCommandTests : IDisposable
             }
         };
 
-        await new CodingToolHarness().ExecuteCommandCore(
+        await CodingHarnessTestFactory.Create().ExecuteCommandCore(
             context: CreateContext(runner, runConfig: runConfig),
             command: "npm install");
 
@@ -474,7 +474,7 @@ public sealed class ExecuteCommandTests : IDisposable
         };
         var executionContext = new FunctionExecutionContext(beforeContext, request);
 
-        var result = await new CodingToolHarness()
+        var result = await CodingHarnessTestFactory.Create()
             .ExecuteCommandCore(context: executionContext, command: "node server.js")
             .ConfigureAwait(false);
 
@@ -522,7 +522,7 @@ public sealed class ExecuteCommandTests : IDisposable
             eventCoordinator: coordinator,
             runConfig: CreateWorkspaceRunConfig());
 
-        var result = await new CodingToolHarness().ExecuteCommandCore(
+        var result = await CodingHarnessTestFactory.Create().ExecuteCommandCore(
             context: context,
             command: "write-result");
 
@@ -564,7 +564,7 @@ public sealed class ExecuteCommandTests : IDisposable
         Directory.CreateDirectory(docsRoot);
         var runner = new FakeProcessProvider();
 
-        await new CodingToolHarness().ExecuteCommandCore(
+        await CodingHarnessTestFactory.Create().ExecuteCommandCore(
             context: CreateContext(runner, runConfig: CreateWorkspaceRunConfig(_tempRoot, docsRoot)),
             command: "pwd",
             workingDirectory: "@docs");
@@ -592,7 +592,7 @@ public sealed class ExecuteCommandTests : IDisposable
                 }
             };
 
-            _ = await new CodingToolHarness().ExecuteCommandCore(
+            _ = await CodingHarnessTestFactory.Create().ExecuteCommandCore(
                 context: CreateContext(runner, runConfig: runConfig),
                 command: "pwd",
                 workingDirectory: outside);
@@ -628,7 +628,7 @@ public sealed class ExecuteCommandTests : IDisposable
     {
         var runner = new FakeProcessProvider();
 
-        var result = await new CodingToolHarness().ExecuteCommandCore(
+        var result = await CodingHarnessTestFactory.Create().ExecuteCommandCore(
             action: action,
             command: command,
             operationId: operationId,
@@ -658,7 +658,7 @@ public sealed class ExecuteCommandTests : IDisposable
     {
         var runner = new FakeProcessProvider();
 
-        var result = await new CodingToolHarness().ExecuteCommandCore(
+        var result = await CodingHarnessTestFactory.Create().ExecuteCommandCore(
             action: ExecuteCommandAction.ReadOutput,
             operationId: "cmd_1",
             timeoutMilliseconds: timeoutMilliseconds,
@@ -678,7 +678,7 @@ public sealed class ExecuteCommandTests : IDisposable
         {
             Result = CreateResult(stdout: "hello\n", stderr: "warn\n", exitCode: 0)
         };
-        var toolharness = new CodingToolHarness(null, null, executeCommandOptions: new ExecuteCommandOptions
+        var toolharness = CodingHarnessTestFactory.Create(null, null, executeCommandOptions: new ExecuteCommandOptions
         {
             MaxInlineCommandOutputChars = 1024
         });
@@ -720,7 +720,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Result = CreateResult(stdout: "\u001B[31mwarning\u001B[0m\u0007\n", exitCode: 0)
         };
 
-        var result = await new CodingToolHarness().ExecuteCommandCore(
+        var result = await CodingHarnessTestFactory.Create().ExecuteCommandCore(
             context: CreateContext(runner),
             command: "printf warning");
 
@@ -742,7 +742,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Result = CreateResult(stdout: "metadata stdout\n", stderr: "metadata stderr\n", exitCode: 0)
         };
 
-        await new CodingToolHarness().ExecuteCommandCore(
+        await CodingHarnessTestFactory.Create().ExecuteCommandCore(
             context: CreateContext(runner, store, contentStore: contentStore),
             command: "dotnet test");
 
@@ -776,7 +776,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Completion = completion.Task
         };
 
-        var result = await new CodingToolHarness().ExecuteCommandCore(
+        var result = await CodingHarnessTestFactory.Create().ExecuteCommandCore(
             context: CreateContext(runner),
             command: "dotnet test");
 
@@ -795,7 +795,7 @@ public sealed class ExecuteCommandTests : IDisposable
             StartException = new InvalidOperationException("process start failure")
         };
 
-        var result = await new CodingToolHarness().ExecuteCommandCore(
+        var result = await CodingHarnessTestFactory.Create().ExecuteCommandCore(
             context: CreateContext(runner),
             command: "dotnet test");
 
@@ -815,7 +815,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Result = CreateResult(stdout: "artifact stdout\n", stderr: "artifact stderr\n", exitCode: 0)
         };
 
-        var result = await new CodingToolHarness().ExecuteCommandCore(
+        var result = await CodingHarnessTestFactory.Create().ExecuteCommandCore(
             context: CreateContext(runner, store, contentStore: contentStore),
             command: "dotnet test");
 
@@ -849,7 +849,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Result = CreateResult(stdout: "preview survives\n", exitCode: 0)
         };
 
-        var result = await new CodingToolHarness().ExecuteCommandCore(
+        var result = await CodingHarnessTestFactory.Create().ExecuteCommandCore(
             context: CreateContext(runner, contentStore: new ThrowingContentStore()),
             command: "dotnet test");
 
@@ -888,7 +888,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Result = CreateResult(stderr: "failed\n", exitCode: 2)
         };
 
-        var result = await new CodingToolHarness().ExecuteCommandCore(
+        var result = await CodingHarnessTestFactory.Create().ExecuteCommandCore(
             context: CreateContext(runner),
             command: "dotnet test");
 
@@ -905,7 +905,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Result = CreateResult(stdout: "", exitCode: 1)
         };
 
-        var result = await new CodingToolHarness().ExecuteCommandCore(
+        var result = await CodingHarnessTestFactory.Create().ExecuteCommandCore(
             context: CreateContext(runner),
             command: "rg MissingSymbol src");
 
@@ -924,7 +924,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Result = CreateResult(stdout: stdout, exitCode: 0)
         };
 
-        var result = await new CodingToolHarness().ExecuteCommandCore(
+        var result = await CodingHarnessTestFactory.Create().ExecuteCommandCore(
             context: CreateContext(runner),
             command: "dotnet test");
 
@@ -943,7 +943,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Result = CreateResult(stdout: CreateStream([0, 1, 2, 3, 4], "\0\u0001\u0002\u0003\u0004"), exitCode: 0)
         };
 
-        var result = await new CodingToolHarness().ExecuteCommandCore(
+        var result = await CodingHarnessTestFactory.Create().ExecuteCommandCore(
             context: CreateContext(runner),
             command: "cat image.png");
 
@@ -961,7 +961,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Result = CreateResult(stdout: CreateStream([0xFF, 0xFE, (byte)'o', (byte)'k'], text), exitCode: 0)
         };
 
-        var result = await new CodingToolHarness().ExecuteCommandCore(
+        var result = await CodingHarnessTestFactory.Create().ExecuteCommandCore(
             context: CreateContext(runner),
             command: "printf bytes");
 
@@ -972,7 +972,7 @@ public sealed class ExecuteCommandTests : IDisposable
     [Fact]
     public async Task ExecuteCommand_MissingRunner_FailsClosed()
     {
-        var result = await new CodingToolHarness().ExecuteCommandCore(
+        var result = await CodingHarnessTestFactory.Create().ExecuteCommandCore(
             context: CreateContext(runner: null),
             command: "dotnet test");
 
@@ -987,7 +987,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Result = CreateResult(stdout: "", stderr: "", exitCode: 0)
         };
 
-        var result = await new CodingToolHarness().ExecuteCommandCore(
+        var result = await CodingHarnessTestFactory.Create().ExecuteCommandCore(
             context: CreateContext(runner),
             command: "mkdir -p src/generated");
 
@@ -1004,7 +1004,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Completion = completion.Task
         };
         var registry = new TestOperationRegistry();
-        var toolharness = new CodingToolHarness(null, null, executeCommandOptions: new ExecuteCommandOptions
+        var toolharness = CodingHarnessTestFactory.Create(null, null, executeCommandOptions: new ExecuteCommandOptions
         {
             BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(100)
         });
@@ -1053,7 +1053,7 @@ public sealed class ExecuteCommandTests : IDisposable
         var completion = new TaskCompletionSource<ProcessInvocationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         var runner = new FakeProcessProvider { Completion = completion.Task };
         var registry = new TestOperationRegistry();
-        var toolharness = new CodingToolHarness(null, null, executeCommandOptions: new ExecuteCommandOptions
+        var toolharness = CodingHarnessTestFactory.Create(null, null, executeCommandOptions: new ExecuteCommandOptions
         {
             BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(1)
         });
@@ -1092,7 +1092,7 @@ public sealed class ExecuteCommandTests : IDisposable
         };
         var registry = new TestOperationRegistry();
         var context = CreateContext(runner, operations: registry, sessionId: sessionId);
-        var toolharness = new CodingToolHarness(null, null, executeCommandOptions: new ExecuteCommandOptions
+        var toolharness = CodingHarnessTestFactory.Create(null, null, executeCommandOptions: new ExecuteCommandOptions
         {
             BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(100)
         });
@@ -1136,7 +1136,7 @@ public sealed class ExecuteCommandTests : IDisposable
             result.Accepted.Should().BeTrue(result.Message);
             return ValueTask.CompletedTask;
         });
-        var toolharness = new CodingToolHarness(null, null, executeCommandOptions: new ExecuteCommandOptions
+        var toolharness = CodingHarnessTestFactory.Create(null, null, executeCommandOptions: new ExecuteCommandOptions
         {
             BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(1)
         });
@@ -1168,7 +1168,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Completion = completion.Task
         };
         var registry = new TestOperationRegistry();
-        var toolharness = new CodingToolHarness(null, null, executeCommandOptions: new ExecuteCommandOptions
+        var toolharness = CodingHarnessTestFactory.Create(null, null, executeCommandOptions: new ExecuteCommandOptions
         {
             BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(1)
         });
@@ -1208,7 +1208,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Completion = completion.Task
         };
         var registry = new TestOperationRegistry(startTasks: false);
-        var toolharness = new CodingToolHarness(null, null, executeCommandOptions: new ExecuteCommandOptions
+        var toolharness = CodingHarnessTestFactory.Create(null, null, executeCommandOptions: new ExecuteCommandOptions
         {
             BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(1)
         });
@@ -1312,7 +1312,7 @@ public sealed class ExecuteCommandTests : IDisposable
                 EventCoordinator = coordinator
             });
 
-        var result = await new CodingToolHarness()
+        var result = await CodingHarnessTestFactory.Create()
             .ExecuteCommandCore(
                 action: action,
                 operationId: operationId,
@@ -1333,7 +1333,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Completion = completion.Task
         };
         var registry = new TestOperationRegistry(startTasks: false);
-        var toolharness = new CodingToolHarness(null, null, executeCommandOptions: new ExecuteCommandOptions
+        var toolharness = CodingHarnessTestFactory.Create(null, null, executeCommandOptions: new ExecuteCommandOptions
         {
             MaxActiveBackgroundCommands = 1,
             BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(1)
@@ -1365,7 +1365,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Completion = completion.Task
         };
         var registry = new TestOperationRegistry(startTasks: false);
-        var toolharness = new CodingToolHarness(null, null, executeCommandOptions: new ExecuteCommandOptions
+        var toolharness = CodingHarnessTestFactory.Create(null, null, executeCommandOptions: new ExecuteCommandOptions
         {
             BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(1)
         });
@@ -1414,7 +1414,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Completion = completion.Task
         };
         var registry = new TestOperationRegistry();
-        var toolharness = new CodingToolHarness(null, null, executeCommandOptions: new ExecuteCommandOptions
+        var toolharness = CodingHarnessTestFactory.Create(null, null, executeCommandOptions: new ExecuteCommandOptions
         {
             AutoBackgroundAfter = TimeSpan.FromMilliseconds(1)
         });
@@ -1447,7 +1447,7 @@ public sealed class ExecuteCommandTests : IDisposable
         {
             Result = CreateResult(stdout: "one\ntwo\nthree\n", exitCode: 0)
         };
-        var toolharness = new CodingToolHarness(null, null, executeCommandOptions: new ExecuteCommandOptions
+        var toolharness = CodingHarnessTestFactory.Create(null, null, executeCommandOptions: new ExecuteCommandOptions
         {
             MaxOutputChunkEventsPerCommand = 1,
             MaxOutputChunkEventsPerSecond = 100,
@@ -1499,7 +1499,7 @@ public sealed class ExecuteCommandTests : IDisposable
             return ValueTask.CompletedTask;
         });
 
-        var commandTask = new CodingToolHarness().ExecuteCommandCore(
+        var commandTask = CodingHarnessTestFactory.Create().ExecuteCommandCore(
             context: context,
             command: "dotnet test");
 
@@ -1541,7 +1541,7 @@ public sealed class ExecuteCommandTests : IDisposable
             progress.Add(evt);
             return ValueTask.CompletedTask;
         });
-        var toolharness = new CodingToolHarness(null, null, executeCommandOptions: new ExecuteCommandOptions
+        var toolharness = CodingHarnessTestFactory.Create(null, null, executeCommandOptions: new ExecuteCommandOptions
         {
             AutoBackgroundAfter = TimeSpan.FromMilliseconds(5),
             ProgressAfter = TimeSpan.Zero
@@ -1712,13 +1712,13 @@ public sealed class ExecuteCommandTests : IDisposable
         };
         var executionContext = new FunctionExecutionContext(beforeContext, request);
 
-        return await new CodingToolHarness()
+        return await CodingHarnessTestFactory.Create()
             .ExecuteCommandCore(context: executionContext, command: command)
             .ConfigureAwait(false);
     }
 
     private static AIFunction CreateExecuteCommandFunction() =>
-        CodingToolHarnessRegistration.CreateToolHarness(new CodingToolHarness())
+        CodingToolHarnessRegistration.CreateToolHarness(CodingHarnessTestFactory.Create())
             .Single(function => function.Name == nameof(CodingToolHarness.ExecuteCommand));
 
     private static ResolvedFunctionInvocation CreateResolvedInvocation(

@@ -137,6 +137,11 @@ public sealed record AgentSandboxRunConfig
 /// </remarks>
 public class AgentRunConfig
 {
+    /// <summary>Portable overrides for already registered harnesses.</summary>
+    public List<HarnessRunOverride> Harnesses { get; set; } = [];
+    [JsonIgnore]
+    internal HarnessExecutionConfiguration? HarnessConfiguration { get; set; }
+
     /// <summary>Explicit client capability and policy to expose waiting human questions.</summary>
     public bool AllowUserQuestions { get; set; }
 

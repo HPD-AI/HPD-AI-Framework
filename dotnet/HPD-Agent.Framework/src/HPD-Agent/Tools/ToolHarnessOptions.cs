@@ -26,6 +26,25 @@ using HPD.Agent.Middleware;
 public sealed class ToolHarnessOptions
 {
     internal readonly Dictionary<Type, ToolHarnessMiddlewareFactory> MiddlewareOverrides = [];
+    internal readonly Dictionary<Type, object> Dependencies = [];
+    internal object? Configuration;
+    public ToolHarnessOptions Configure<T>(T settings) where T : class
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        if (Configuration is not null) throw new InvalidOperationException("Harness settings have already been supplied.");
+        Configuration = settings;
+        return this;
+    }
+
+    /// <summary>Supplies a borrowed dependency for this owner only.</summary>
+    public ToolHarnessOptions UseDependency<T>(T instance) where T : class
+    {
+        ArgumentNullException.ThrowIfNull(instance);
+        if (!Dependencies.TryAdd(typeof(T), instance))
+            throw new InvalidOperationException($"Dependency '{typeof(T)}' is already supplied.");
+        return this;
+    }
+
     internal readonly List<ISkillSource> SkillSources = [];
     internal readonly List<StoredSkillSourceRegistration> StoredSkillSources = [];
 

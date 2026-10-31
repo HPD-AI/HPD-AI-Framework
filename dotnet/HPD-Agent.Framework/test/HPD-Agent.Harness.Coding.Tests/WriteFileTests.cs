@@ -41,7 +41,7 @@ public sealed class WriteFileTests : IDisposable
     [Fact]
     public async Task WriteFile_RejectsMissingPathAndNullContent()
     {
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
 
         var missingPath = await WriteFileTextAsync(CreateAgentContext(), toolharness, " ", "content");
         var nullContent = await WriteFileTextAsync(CreateAgentContext(), toolharness, "A.cs", null!);
@@ -55,7 +55,7 @@ public sealed class WriteFileTests : IDisposable
     [Fact]
     public async Task WriteFile_AllowsEmptyContent()
     {
-        var result = await WriteFileTextAsync(CreateAgentContext(), new CodingToolHarness(), "empty.txt", string.Empty);
+        var result = await WriteFileTextAsync(CreateAgentContext(), CodingHarnessTestFactory.Create(), "empty.txt", string.Empty);
 
         result.Should().Contain("mode=\"create\"");
         File.ReadAllText("empty.txt").Should().BeEmpty();
@@ -70,7 +70,7 @@ public sealed class WriteFileTests : IDisposable
         await using (var stream = new FileStream("large.txt", FileMode.Create, FileAccess.Write))
             stream.SetLength(50L * 1024 * 1024 + 1);
 
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
 
         (await WriteFileTextAsync(CreateAgentContext(), toolharness, "dir", "x")).Should().Contain("kind=\"path_is_directory\"");
         (await WriteFileTextAsync(CreateAgentContext(), toolharness, "/dev/zero", "x")).Should().Contain("kind=\"blocked_device_path\"");
@@ -85,7 +85,7 @@ public sealed class WriteFileTests : IDisposable
     {
         var agentContext = CreateAgentContext();
 
-        var result = await WriteFileTextAsync(agentContext, new CodingToolHarness(), "src/NewFile.cs", "class NewFile {}\n");
+        var result = await WriteFileTextAsync(agentContext, CodingHarnessTestFactory.Create(), "src/NewFile.cs", "class NewFile {}\n");
 
         result.Should().Contain("mode=\"create\"");
         result.Should().Contain("changed=\"true\"");
@@ -100,7 +100,7 @@ public sealed class WriteFileTests : IDisposable
     {
         await File.WriteAllTextAsync("empty.txt", string.Empty);
 
-        var result = await WriteFileTextAsync(CreateAgentContext(), new CodingToolHarness(), "empty.txt", "filled\n");
+        var result = await WriteFileTextAsync(CreateAgentContext(), CodingHarnessTestFactory.Create(), "empty.txt", "filled\n");
 
         result.Should().Contain("mode=\"fill_empty\"");
         result.Should().Contain("changed=\"true\"");
@@ -112,7 +112,7 @@ public sealed class WriteFileTests : IDisposable
     {
         await File.WriteAllTextAsync("A.cs", "class A {}\n");
 
-        var result = await WriteFileTextAsync(CreateAgentContext(), new CodingToolHarness(), "A.cs", "class B {}\n");
+        var result = await WriteFileTextAsync(CreateAgentContext(), CodingHarnessTestFactory.Create(), "A.cs", "class B {}\n");
 
         result.Should().Contain("kind=\"not_read\"");
         File.ReadAllText("A.cs").Should().Be("class A {}\n");
@@ -124,7 +124,7 @@ public sealed class WriteFileTests : IDisposable
         await File.WriteAllTextAsync("partial.cs", "one\ntwo\nthree\n");
         var longLine = new string('x', 2200);
         await File.WriteAllTextAsync("truncated.cs", $"{longLine}\nsecond\n");
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
 
         var partialContext = CreateAgentContext();
         await ReadFileTextAsync(partialContext, toolharness, "partial.cs", offset: 2, limit: 1);
@@ -143,7 +143,7 @@ public sealed class WriteFileTests : IDisposable
     {
         await File.WriteAllTextAsync("A.cs", "before\n");
         var agentContext = CreateAgentContext();
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
         await ReadFileTextAsync(agentContext, toolharness, "A.cs");
         await File.WriteAllTextAsync("A.cs", "changed externally\n");
 
@@ -157,7 +157,7 @@ public sealed class WriteFileTests : IDisposable
     {
         await File.WriteAllTextAsync("A.cs", "before\n");
         var agentContext = CreateAgentContext();
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
         await ReadFileTextAsync(agentContext, toolharness, "A.cs");
         File.SetLastWriteTimeUtc("A.cs", DateTime.UtcNow.AddMinutes(2));
 
@@ -173,7 +173,7 @@ public sealed class WriteFileTests : IDisposable
     {
         await File.WriteAllTextAsync("A.cs", "before\n");
         var agentContext = CreateAgentContext();
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
         await ReadFileTextAsync(agentContext, toolharness, "A.cs");
 
         var rewrite = await WriteFileTextAsync(agentContext, toolharness, "A.cs", "after\n");
@@ -189,7 +189,7 @@ public sealed class WriteFileTests : IDisposable
     [Fact]
     public async Task WriteFile_PreservesCallerProvidedLineEndings()
     {
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
         await WriteFileTextAsync(CreateAgentContext(), toolharness, "lf.txt", "one\ntwo\n");
         await WriteFileTextAsync(CreateAgentContext(), toolharness, "crlf.txt", "one\r\ntwo\r\n");
 
@@ -202,7 +202,7 @@ public sealed class WriteFileTests : IDisposable
     {
         await File.WriteAllTextAsync("old-crlf.txt", "one\r\ntwo\r\n");
         var agentContext = CreateAgentContext();
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
         await ReadFileTextAsync(agentContext, toolharness, "old-crlf.txt");
 
         await WriteFileTextAsync(agentContext, toolharness, "old-crlf.txt", "three\nfour\n");
@@ -215,7 +215,7 @@ public sealed class WriteFileTests : IDisposable
     {
         await File.WriteAllTextAsync("bom.txt", "before\n", new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
         var agentContext = CreateAgentContext();
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
         await ReadFileTextAsync(agentContext, toolharness, "bom.txt");
 
         await WriteFileTextAsync(agentContext, toolharness, "bom.txt", "after\n");
@@ -228,7 +228,7 @@ public sealed class WriteFileTests : IDisposable
     [Fact]
     public async Task WriteFile_RejectsOmissionPlaceholdersButAllowsStringLiteralText()
     {
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
 
         var rejected = await WriteFileTextAsync(CreateAgentContext(), toolharness, "bad.cs", "class A\n{\n    // rest of methods ...\n}\n");
         var allowed = await WriteFileTextAsync(CreateAgentContext(), toolharness, "ok.cs", "const string s = \"rest of methods ...\";\n");
@@ -240,7 +240,7 @@ public sealed class WriteFileTests : IDisposable
     [Fact]
     public async Task WriteFile_XmlOmitsContentAndDiffButIncludesHashLengthAndLines()
     {
-        var result = await WriteFileTextAsync(CreateAgentContext(), new CodingToolHarness(), "A.cs", "secret content\nline2\n");
+        var result = await WriteFileTextAsync(CreateAgentContext(), CodingHarnessTestFactory.Create(), "A.cs", "secret content\nline2\n");
 
         result.Should().StartWith("<write_file ");
         result.Should().Contain("content_hash=\"sha256:");
@@ -256,7 +256,7 @@ public sealed class WriteFileTests : IDisposable
     public async Task WriteFile_SetsMutationMetadataWithKindAndByteLength()
     {
         var agentContext = CreateAgentContext();
-        var result = await WriteFileWithContextAsync(agentContext, new CodingToolHarness(), "A.cs", "class A {}\n");
+        var result = await WriteFileWithContextAsync(agentContext, CodingHarnessTestFactory.Create(), "A.cs", "class A {}\n");
 
         result.Metadata.TryGet<CodingFileMutationSnapshot>(
             CodingToolMetadataKeys.FileMutationSnapshot,
@@ -275,7 +275,7 @@ public sealed class WriteFileTests : IDisposable
         var agentContext = CreateAgentContext(coordinator);
         var content = "class A {}\n";
 
-        var result = await WriteFileTextAsync(agentContext, new CodingToolHarness(), "A.cs", content);
+        var result = await WriteFileTextAsync(agentContext, CodingHarnessTestFactory.Create(), "A.cs", content);
 
         result.Should().Contain("event_emitted=\"true\"");
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -308,7 +308,7 @@ public sealed class WriteFileTests : IDisposable
             return ValueTask.CompletedTask;
         });
         var agentContext = CreateAgentContext(coordinator);
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
         await ReadFileTextAsync(agentContext, toolharness, "A.cs");
 
         var result = await WriteFileWithContextAsync(agentContext, toolharness, "A.cs", "same\n");
@@ -326,7 +326,7 @@ public sealed class WriteFileTests : IDisposable
     {
         await File.WriteAllTextAsync("utf16.txt", "before\n", Encoding.Unicode);
         var agentContext = CreateAgentContext();
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
         await ReadFileTextAsync(agentContext, toolharness, "utf16.txt");
 
         var result = await WriteFileWithContextAsync(agentContext, toolharness, "utf16.txt", "after\n");

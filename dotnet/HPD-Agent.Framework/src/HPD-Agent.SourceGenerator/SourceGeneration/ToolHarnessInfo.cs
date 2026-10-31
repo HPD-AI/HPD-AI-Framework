@@ -223,5 +223,6 @@ internal sealed record CollapseMiddlewareEntry(
     string? AgentResourceTypeFqn = null,
     string? AgentResourceImplementationTypeFqn = null,
     bool RequiresCanonicalWorkspaceIdentity = false,
-    bool ConfigHasGeneratedDefault = false);
+    bool ConfigHasGeneratedDefault = false,
+    string? HarnessConfigurationExpression = null);
 

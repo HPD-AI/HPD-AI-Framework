@@ -80,6 +80,7 @@ public delegate ToolHarnessMiddlewareActivation ToolHarnessMiddlewareFactory(Too
 /// <summary>Generated immutable declaration for one ordered ToolHarness middleware position.</summary>
 public sealed record ToolHarnessMiddlewareDescriptor
 {
+    public bool UsesHarnessConfiguration { get; init; }
     /// <summary>Gets the exact declared middleware type.</summary>
     public required Type MiddlewareType { get; init; }
 
@@ -91,8 +92,13 @@ public sealed record ToolHarnessMiddlewareDescriptor
 }
 
 /// <summary>Runtime-only facts available while activating one ToolHarness pipeline.</summary>
-public sealed class ToolHarnessActivationContext
+public sealed class ToolHarnessActivationContext : IHarnessConfigurationContext
 {
+    public HarnessConfigurationBinding? HarnessConfiguration => RunConfig.HarnessConfiguration?.ForOwner(HarnessIdentity);
+    public T GetHarnessConfiguration<T>() where T : class
+        => HarnessConfiguration?.Execution.Values.TryGetValue(HarnessIdentity, out var value) == true && value is T typed
+            ? typed : throw new InvalidOperationException($"Harness '{HarnessIdentity}' has no effective configuration '{typeof(T)}'.");
+
     private readonly IReadOnlyDictionary<Type, object> _agentResources;
     private readonly IReadOnlyDictionary<Type, JsonElement> _configuration;
     private readonly Type? _middlewareType;

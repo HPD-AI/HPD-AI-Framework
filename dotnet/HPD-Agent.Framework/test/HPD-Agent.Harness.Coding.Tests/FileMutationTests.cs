@@ -25,7 +25,7 @@ public sealed class FileMutationTests : IDisposable
     [Fact]
     public async Task ApplyTextMutationAsync_ResolvesRelativePathAndCreatesParents()
     {
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
 
         var result = await toolharness.ApplyTextMutationAsync(CreateRequest("src/A.cs", "class A {}\n"));
 
@@ -38,7 +38,7 @@ public sealed class FileMutationTests : IDisposable
     [Fact]
     public async Task ApplyTextMutationAsync_RejectsMissingPath()
     {
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
 
         var act = () => toolharness.ApplyTextMutationAsync(CreateRequest(" ", "x"));
 
@@ -50,7 +50,7 @@ public sealed class FileMutationTests : IDisposable
     public async Task ApplyTextMutationAsync_RejectsDirectoryPath()
     {
         Directory.CreateDirectory("src");
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
 
         var act = () => toolharness.ApplyTextMutationAsync(CreateRequest("src", "x", allowCreate: false));
 
@@ -61,7 +61,7 @@ public sealed class FileMutationTests : IDisposable
     [Fact]
     public async Task ApplyTextMutationAsync_RejectsBlockedPathBeforeMutation()
     {
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
 
         var act = () => toolharness.ApplyTextMutationAsync(CreateRequest("/dev/zero", "x"));
 
@@ -72,7 +72,7 @@ public sealed class FileMutationTests : IDisposable
     [Fact]
     public async Task ApplyTextMutationAsync_RejectsNotebookPath()
     {
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
 
         var act = () => toolharness.ApplyTextMutationAsync(CreateRequest("notebook.ipynb", "{}"));
 
@@ -84,7 +84,7 @@ public sealed class FileMutationTests : IDisposable
     public async Task ApplyTextMutationAsync_RejectsBinaryFiles()
     {
         await File.WriteAllBytesAsync("binary.bin", [0x01, 0x02, 0x00, 0x03]);
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
 
         var act = () => toolharness.ApplyTextMutationAsync(CreateRequest("binary.bin", "x", allowCreate: false));
 
@@ -96,7 +96,7 @@ public sealed class FileMutationTests : IDisposable
     public async Task ApplyTextMutationAsync_MissingNonCreatePathSuggestsSameBasename()
     {
         await File.WriteAllTextAsync("Program.cs", "class Program {}\n");
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
 
         var act = () => toolharness.ApplyTextMutationAsync(CreateRequest("Program.ts", "x", allowCreate: false));
 
@@ -108,7 +108,7 @@ public sealed class FileMutationTests : IDisposable
     [Fact]
     public async Task ApplyTextMutationAsync_RequiresExistingParentWhenCreateParentsDisabled()
     {
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
 
         var act = () => toolharness.ApplyTextMutationAsync(CreateRequest("missing/A.cs", "x", createParents: false));
 
@@ -120,7 +120,7 @@ public sealed class FileMutationTests : IDisposable
     public async Task ApplyTextMutationAsync_PreservesUtf16BomAndReportsPreciseByteLength()
     {
         await File.WriteAllTextAsync("utf16.txt", "before\n", Encoding.Unicode);
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
 
         var result = await toolharness.ApplyTextMutationAsync(CreateRequest("utf16.txt", "after\n", allowCreate: false));
 
@@ -133,7 +133,7 @@ public sealed class FileMutationTests : IDisposable
     public async Task ApplyTextMutationAsync_NormalizesToExistingCrlfWhenRequested()
     {
         await File.WriteAllTextAsync("crlf.txt", "one\r\ntwo\r\n", new UTF8Encoding(false));
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
 
         await toolharness.ApplyTextMutationAsync(CreateRequest(
             "crlf.txt",
@@ -148,7 +148,7 @@ public sealed class FileMutationTests : IDisposable
     public async Task ApplyTextMutationAsync_AcquiresAndReleasesConfiguredLock()
     {
         var lockProvider = new RecordingLockProvider();
-        var toolharness = new CodingToolHarness(null, null, fileMutationLockProvider: lockProvider);
+        var toolharness = CodingHarnessTestFactory.Create(null, null, fileMutationLockProvider: lockProvider);
 
         await toolharness.ApplyTextMutationAsync(CreateRequest("A.cs", "class A {}\n"));
 
@@ -162,7 +162,7 @@ public sealed class FileMutationTests : IDisposable
         await File.WriteAllTextAsync("A.cs", "before\n");
         var failingHistory = new FailingHistorySink();
         FileMutationEventBuildRequest? eventRequest = null;
-        var toolharness = new CodingToolHarness(null, null, fileMutationHistorySinks: [failingHistory]);
+        var toolharness = CodingHarnessTestFactory.Create(null, null, fileMutationHistorySinks: [failingHistory]);
 
         await toolharness.ApplyTextMutationAsync(CreateRequest(
             "A.cs",
@@ -182,7 +182,7 @@ public sealed class FileMutationTests : IDisposable
     public async Task ApplyTextMutationAsync_UsesHostSinkWhenClaimed()
     {
         var sink = new RecordingTextSink(claims: true);
-        var toolharness = new CodingToolHarness(null, null, fileMutationTextSinks: [sink]);
+        var toolharness = CodingHarnessTestFactory.Create(null, null, fileMutationTextSinks: [sink]);
 
         var result = await toolharness.ApplyTextMutationAsync(CreateRequest("virtual.cs", "class V {}\n"));
 
@@ -196,7 +196,7 @@ public sealed class FileMutationTests : IDisposable
     public async Task ApplyTextMutationAsync_FallsBackToFilesystemWhenHostSinkDoesNotClaim()
     {
         var sink = new RecordingTextSink(claims: false);
-        var toolharness = new CodingToolHarness(null, null, fileMutationTextSinks: [sink]);
+        var toolharness = CodingHarnessTestFactory.Create(null, null, fileMutationTextSinks: [sink]);
 
         await toolharness.ApplyTextMutationAsync(CreateRequest("A.cs", "class A {}\n"));
 
@@ -208,7 +208,7 @@ public sealed class FileMutationTests : IDisposable
     public async Task ApplyTextMutationAsync_ConvertsHostSinkFailureToMutationError()
     {
         var sink = new ThrowingTextSink();
-        var toolharness = new CodingToolHarness(null, null, fileMutationTextSinks: [sink]);
+        var toolharness = CodingHarnessTestFactory.Create(null, null, fileMutationTextSinks: [sink]);
 
         var act = () => toolharness.ApplyTextMutationAsync(CreateRequest("A.cs", "class A {}\n"));
 
@@ -220,7 +220,7 @@ public sealed class FileMutationTests : IDisposable
     public async Task ApplyTextMutationAsync_AllowsToolStaleValidatorToReject()
     {
         await File.WriteAllTextAsync("A.cs", "before\n");
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
 
         var act = () => toolharness.ApplyTextMutationAsync(CreateRequest(
             "A.cs",
@@ -237,7 +237,7 @@ public sealed class FileMutationTests : IDisposable
     {
         var bigText = new string('x', 100_001);
         FileMutationEventBuildRequest? eventRequest = null;
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
 
         await toolharness.ApplyTextMutationAsync(CreateRequest(
             "A.cs",
@@ -270,7 +270,7 @@ public sealed class FileMutationTests : IDisposable
     {
         var bigText = new string('x', 500_001);
         FileMutationEventBuildRequest? eventRequest = null;
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
 
         await toolharness.ApplyTextMutationAsync(CreateRequest(
             "A.cs",
@@ -291,7 +291,7 @@ public sealed class FileMutationTests : IDisposable
     {
         await File.WriteAllTextAsync("A.cs", "same\n");
         var eventFactoryCalled = false;
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
 
         var result = await toolharness.ApplyTextMutationAsync(CreateRequest(
             "A.cs",
@@ -315,7 +315,7 @@ public sealed class FileMutationTests : IDisposable
         var after = before.Replace("line 50", "line 50 changed", StringComparison.Ordinal);
         FileMutationEventBuildRequest? eventRequest = null;
         await File.WriteAllTextAsync("A.cs", before);
-        var toolharness = new CodingToolHarness();
+        var toolharness = CodingHarnessTestFactory.Create();
 
         await toolharness.ApplyTextMutationAsync(CreateRequest(
             "A.cs",

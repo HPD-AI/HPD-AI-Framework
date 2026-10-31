@@ -78,6 +78,7 @@ public partial class CodingToolHarness
 
             var request = new GlobSearchRequest
             {
+                Options = _config.For(context).Glob,
                 FullPath = resolved.FullPath,
                 EffectiveFullPath = resolved.EffectiveFullPath,
                 OriginalPattern = resolved.OriginalPattern,
@@ -330,7 +331,7 @@ public partial class CodingToolHarness
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (stopwatch.ElapsedMilliseconds > _globSearchOptions.TraversalTimeoutMilliseconds)
+            if (stopwatch.ElapsedMilliseconds > request.Options.TraversalTimeoutMilliseconds)
             {
                 state.Stop("timeout");
                 break;
@@ -339,7 +340,7 @@ public partial class CodingToolHarness
             var directory = queue.Dequeue();
             foreach (var fullPath in EnumerateFileSystemEntries(directory, throwOnFailure: directory == request.EffectiveFullPath))
             {
-                if (matches.Count >= _globSearchOptions.MaxTraversalEntries)
+                if (matches.Count >= request.Options.MaxTraversalEntries)
                 {
                     state.Stop("traversal_cap");
                     return matches;
@@ -771,6 +772,7 @@ public sealed record ResolvedGlobSearch(
 
 internal sealed record GlobSearchRequest
 {
+    public required GlobSearchOptions Options { get; init; }
     public required string FullPath { get; init; }
 
     public required string EffectiveFullPath { get; init; }

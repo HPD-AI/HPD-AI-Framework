@@ -11,7 +11,7 @@ public class MultiAgentRuntimeTests
         var result = await MultiAgentRuntime.InvokeAsync(
             new MultiAgentRuntime.MultiAgentInvocationRequest
             {
-                Workflow = new NoopWorkflow(),
+                WorkflowFactory = () => Task.FromResult<IMultiAgentWorkflow>(new NoopWorkflow()),
                 Name = "draft_and_review",
                 Input = "draft this",
                 ParentContext = null,

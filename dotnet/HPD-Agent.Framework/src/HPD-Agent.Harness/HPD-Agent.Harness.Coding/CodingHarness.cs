@@ -37,57 +37,36 @@ public partial class CodingToolHarness
     private readonly IReadOnlyList<IReadFileTextSource> _readFileTextSources;
     private readonly IReadOnlyList<IDirectoryListingSource> _directoryListingSources;
     private readonly IReadOnlyList<IGlobSearchPathResolver> _globSearchPathResolvers;
-    private readonly GlobSearchOptions _globSearchOptions;
+    private readonly IHarnessConfig<CodingHarnessConfig> _config;
     private readonly IRipgrepRunner _ripgrepRunner;
     private readonly IFileMutationLockProvider _fileMutationLockProvider;
     private readonly IReadOnlyList<IFileMutationTextSink> _fileMutationTextSinks;
     private readonly IReadOnlyList<IFileMutationHistorySink> _fileMutationHistorySinks;
-    private readonly ExecuteCommandOptions _executeCommandOptions;
 
     static CodingToolHarness()
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
     }
 
-    /// <summary>
-    /// Creates a coding toolharness with filesystem-backed sources.
-    /// </summary>
-    public CodingToolHarness()
-        : this([])
-    {
-    }
-
-    /// <summary>
-    /// Creates a coding toolharness with optional host-provided text sources.
-    /// </summary>
-    public CodingToolHarness(IEnumerable<IReadFileTextSource>? readFileTextSources)
-        : this(readFileTextSources, null)
-    {
-    }
-
-    /// <summary>
-    /// Creates a coding toolharness with optional host-provided sources.
-    /// </summary>
+    /// <summary>Creates a coding harness with optional host-provided dependencies.</summary>
     public CodingToolHarness(
-        IEnumerable<IReadFileTextSource>? readFileTextSources,
-        IEnumerable<IDirectoryListingSource>? directoryListingSources,
+        IHarnessConfig<CodingHarnessConfig> config,
+        IEnumerable<IReadFileTextSource>? readFileTextSources = null,
+        IEnumerable<IDirectoryListingSource>? directoryListingSources = null,
         IEnumerable<IGlobSearchPathResolver>? globSearchPathResolvers = null,
-        GlobSearchOptions? globSearchOptions = null,
         IRipgrepRunner? ripgrepRunner = null,
         IFileMutationLockProvider? fileMutationLockProvider = null,
         IEnumerable<IFileMutationTextSink>? fileMutationTextSinks = null,
-        IEnumerable<IFileMutationHistorySink>? fileMutationHistorySinks = null,
-        ExecuteCommandOptions? executeCommandOptions = null)
+        IEnumerable<IFileMutationHistorySink>? fileMutationHistorySinks = null)
     {
         _readFileTextSources = readFileTextSources?.ToArray() ?? [];
         _directoryListingSources = directoryListingSources?.ToArray() ?? [];
         _globSearchPathResolvers = globSearchPathResolvers?.ToArray() ?? [];
-        _globSearchOptions = globSearchOptions ?? GlobSearchOptions.Default;
+        _config = config ?? throw new ArgumentNullException(nameof(config));
         _ripgrepRunner = ripgrepRunner ?? new RipgrepRunner();
         _fileMutationLockProvider = fileMutationLockProvider ?? NoOpFileMutationLockProvider.Instance;
         _fileMutationTextSinks = fileMutationTextSinks?.ToArray() ?? [];
         _fileMutationHistorySinks = fileMutationHistorySinks?.ToArray() ?? [];
-        _executeCommandOptions = executeCommandOptions ?? new ExecuteCommandOptions();
     }
 
     private static IEnumerable<string> EnumerateFileSystemEntries(string fullPath, bool throwOnFailure)

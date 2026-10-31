@@ -213,7 +213,14 @@ public record ToolHarnessFactory(
     IReadOnlyList<string>? InheritedHarnessIdentities = null,
 
     /// <summary>Semicolon-delimited declaration member names that support function-local collapsing.</summary>
-    string? CollapsibleFunctionDeclarations = null
+    string? CollapsibleFunctionDeclarations = null,
+
+    /// <summary>Direct generated construction through the common owner activation context.</summary>
+    Func<ToolHarnessConstructionContext, object>? Activate = null,
+
+    /// <summary>Generated owner-local defaults; external DI graphs remain opaque.</summary>
+    IReadOnlyList<ToolHarnessDependency>? DependencyDefaults = null,
+    HarnessConfigurationContract? Configuration = null
 )
 {
     /// <summary>Gets the non-empty stable activation identity.</summary>

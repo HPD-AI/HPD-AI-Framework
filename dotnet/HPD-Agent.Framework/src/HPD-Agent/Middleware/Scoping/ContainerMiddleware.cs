@@ -205,7 +205,13 @@ public class ContainerMiddleware : IAgentMiddleware
                 var match = configured.FirstOrDefault(pair =>
                     descriptor.MiddlewareType.Name.Equals(pair.Key, StringComparison.OrdinalIgnoreCase) ||
                     descriptor.MiddlewareType.FullName?.EndsWith(pair.Key, StringComparison.OrdinalIgnoreCase) == true);
-                if (!string.IsNullOrEmpty(match.Key)) configs[descriptor.ConfigurationType] = match.Value;
+                if (!string.IsNullOrEmpty(match.Key))
+                {
+                    if (descriptor.UsesHarnessConfiguration)
+                        throw new AgentRunConfigurationException("HarnessConfigurationConflict", "middlewareConfigs." + match.Key,
+                            "Configure this middleware through its owning harness settings section.");
+                    configs[descriptor.ConfigurationType] = match.Value;
+                }
             }
         }
 
@@ -1460,14 +1466,14 @@ public class ContainerMiddleware : IAgentMiddleware
             }
 
             // Only map items inside Containers
-            var isContainer = tool.AdditionalProperties?.TryGetValue("IsContainer", out var v) == true 
+            var isContainer = tool.AdditionalProperties?.TryGetValue("IsContainer", out var v) == true
                 && v is bool b && b;
-            if (!isContainer) 
+            if (!isContainer)
                 continue;
 
             var containerName = tool.Name;
-            var children = tool.AdditionalProperties?.TryGetValue("ReferencedFunctions", out var c) == true 
-                ? c as string[] 
+            var children = tool.AdditionalProperties?.TryGetValue("ReferencedFunctions", out var c) == true
+                ? c as string[]
                 : null;
 
             if (children != null)

@@ -11,6 +11,8 @@ internal static class AgentRunConfigSnapshot
 {
     internal static IReadOnlySet<string> CapturedPropertyNames { get; } = new HashSet<string>(StringComparer.Ordinal)
     {
+        nameof(AgentRunConfig.Harnesses),
+        nameof(AgentRunConfig.HarnessConfiguration),
         nameof(AgentRunConfig.Security),
         nameof(AgentRunConfig.Clients),
         nameof(AgentRunConfig.SystemInstructions),
@@ -83,6 +85,8 @@ internal static class AgentRunConfigSnapshot
 
     private static AgentRunConfig CloneCore(AgentRunConfig source, ProviderComposition? composition) => new()
     {
+        Harnesses = source.Harnesses.Select(value => value.Capture()).ToList(),
+        HarnessConfiguration = source.HarnessConfiguration,
         Security = source.Security with
         {
             CapabilityCeiling = source.Security.CapabilityCeiling is null ? null : Security.AgentSandboxAuthorization.Snapshot(source.Security.CapabilityCeiling),

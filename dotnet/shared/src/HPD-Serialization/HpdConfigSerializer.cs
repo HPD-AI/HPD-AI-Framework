@@ -71,6 +71,14 @@ public static class HpdConfigSerializer
             _ => throw new ArgumentOutOfRangeException(nameof(format), format, null),
         };
 
+    /// <summary>Parses one document strictly, preserving source locations before normalization.</summary>
+    public static HpdConfigDocument ParseDocument(string text, HpdConfigFormat format) => format switch
+    {
+        HpdConfigFormat.Json => HpdJsonDocumentParser.Parse(text),
+        HpdConfigFormat.Yaml => HpdYamlJsonBridge.ParseDocument(text),
+        _ => throw new ArgumentOutOfRangeException(nameof(format))
+    };
+
     /// <summary>Parse YAML into a JSON DOM.</summary>
     public static JsonNode? ParseYamlToJsonNode(string yaml)
         => HpdYamlJsonBridge.ParseYaml(yaml);
