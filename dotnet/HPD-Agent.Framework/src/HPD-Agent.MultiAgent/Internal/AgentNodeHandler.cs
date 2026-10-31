@@ -231,7 +231,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         await using var runBinding = await BuildRunConfigAsync(agent, options, context, ct);
         var runConfig = runBinding.Config;
 
-        using (agent.SubscribeAny(evt =>
+        await RunAgentAsync(agent, context, _nodeId, input, options, messages, runConfig, ct, evt =>
         {
             // Bubble agent events up to graph event stream
             if (evt is TextDeltaEvent textEvt)
@@ -239,10 +239,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
                 response.Append(textEvt.Text);
             }
             return context.EventCoordinator?.EmitAsync(evt) ?? ValueTask.CompletedTask;
-        }))
-        {
-            await RunAgentAsync(agent, context, _nodeId, input, options, messages, runConfig, ct);
-        }
+        });
 
         var outputKey = options.OutputKey ?? "answer";
         return new Dictionary<string, object>
@@ -269,7 +266,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
 
         object? result = null;
 
-        using (agent.SubscribeAny(evt =>
+        await RunAgentAsync(agent, context, _nodeId, input, options, messages, runConfig, ct, evt =>
         {
             // Capture the final structured result using reflection
             // StructuredResultEvent<T> is generic, so we check by name and use reflection
@@ -290,10 +287,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
                 }
             }
             return context.EventCoordinator?.EmitAsync(evt) ?? ValueTask.CompletedTask;
-        }))
-        {
-            await RunAgentAsync(agent, context, _nodeId, input, options, messages, runConfig, ct);
-        }
+        });
 
         if (result is null)
             throw new InvalidOperationException($"Agent node '{_nodeId}' did not return a valid structured result.");
@@ -320,7 +314,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         object? result = null;
         Type? matchedType = null;
 
-        using (agent.SubscribeAny(evt =>
+        await RunAgentAsync(agent, context, _nodeId, input, options, messages, runConfig, ct, evt =>
         {
             // Capture the final structured result using reflection
             var evtType = evt.GetType();
@@ -341,10 +335,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
                 }
             }
             return context.EventCoordinator?.EmitAsync(evt) ?? ValueTask.CompletedTask;
-        }))
-        {
-            await RunAgentAsync(agent, context, _nodeId, input, options, messages, runConfig, ct);
-        }
+        });
 
         if (result is null || matchedType is null || !options.UnionTypes.Contains(matchedType))
             throw new InvalidOperationException($"Agent node '{_nodeId}' did not return a valid union result.");
@@ -401,7 +392,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
                 : runConfig.SystemInstructions.Append + handoffInstructions;
         }
 
-        using (agent.SubscribeAny(evt =>
+        await RunAgentAsync(agent, context, _nodeId, input, options, messages, runConfig, ct, evt =>
         {
             // Look for handoff tool calls
             if (evt is ToolCallStartEvent toolCall && toolCall.Name.StartsWith("handoff_to_"))
@@ -415,10 +406,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
                 responseText.Append(textEvt.Text);
             }
             return context.EventCoordinator?.EmitAsync(evt) ?? ValueTask.CompletedTask;
-        }))
-        {
-            await RunAgentAsync(agent, context, _nodeId, input, options, messages, runConfig, ct);
-        }
+        });
 
         if (selectedHandoff == null)
         {
@@ -449,7 +437,8 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         AgentNodeOptions options,
         IReadOnlyList<ChatMessage> messages,
         AgentRunConfig runConfig,
-        CancellationToken ct)
+        CancellationToken ct,
+        Func<AgentEvent, ValueTask> onEvent)
     {
         var route = await context.Conversation.ResolveRouteAsync(
             new MultiAgentConversationContext(
@@ -472,30 +461,54 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
             RunConfig = runConfig
         };
 
-        if (options.OutputMode is AgentOutputMode.Structured or AgentOutputMode.Union)
+        // Scope capture to this node's route and drain all published events before
+        // inspecting structured results, handoffs, or accumulated text.
+        await using var inbox = route.SessionId is { Length: > 0 } sessionId
+            && route.ThreadId is { Length: > 0 } threadId
+            ? agent.CreateEventInbox<AgentEvent>(
+                new ThreadKey(sessionId, threadId),
+                HPD.Events.EventInboxOptions.Deterministic())
+            : agent.EventCoordinator.CreateInbox<AgentEvent>(
+                HPD.Events.EventInboxOptions.Deterministic());
+        var deliveryTask = DrainEventsAsync();
+        async Task DrainEventsAsync()
         {
-            // The typed entry point creates the schema/output tool, parses the
-            // response, and publishes StructuredResultEvent<T>. RunAsync alone
-            // does not perform that typed finalization.
-            var method = typeof(Agent.Agent).GetMethods()
-                .Single(m => m.Name == nameof(Agent.Agent.RunStructuredAsync)
-                    && m.IsGenericMethodDefinition
-                    && m.GetParameters().Length == 2
-                    && m.GetParameters()[0].ParameterType == typeof(AgentInputEvent));
-            try
+            await foreach (var evt in inbox.Reader.ReadAllAsync().ConfigureAwait(false))
+                await onEvent(evt).ConfigureAwait(false);
+        }
+
+        try
+        {
+            if (options.OutputMode is AgentOutputMode.Structured or AgentOutputMode.Union)
             {
-                await ((Task)method.MakeGenericMethod(options.OutputMode == AgentOutputMode.Union ? typeof(object) : options.StructuredType!)
-                    .Invoke(agent, [request, ct])!).ConfigureAwait(false);
+                // The typed entry point creates the schema/output tool, parses the
+                // response, and publishes StructuredResultEvent<T>. RunAsync alone
+                // does not perform that typed finalization.
+                var method = typeof(Agent.Agent).GetMethods()
+                    .Single(m => m.Name == nameof(Agent.Agent.RunStructuredAsync)
+                        && m.IsGenericMethodDefinition
+                        && m.GetParameters().Length == 2
+                        && m.GetParameters()[0].ParameterType == typeof(AgentInputEvent));
+                try
+                {
+                    await ((Task)method.MakeGenericMethod(options.OutputMode == AgentOutputMode.Union ? typeof(object) : options.StructuredType!)
+                        .Invoke(agent, [request, ct])!).ConfigureAwait(false);
+                }
+                catch (System.Reflection.TargetInvocationException ex) when (ex.InnerException is not null)
+                {
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
+                    throw;
+                }
             }
-            catch (System.Reflection.TargetInvocationException ex) when (ex.InnerException is not null)
+            else
             {
-                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
-                throw;
+                await agent.RunAsync(request, ct).ConfigureAwait(false);
             }
         }
-        else
+        finally
         {
-            await agent.RunAsync(request, ct).ConfigureAwait(false);
+            await inbox.DisposeAsync().ConfigureAwait(false);
+            await deliveryTask.ConfigureAwait(false);
         }
     }
 

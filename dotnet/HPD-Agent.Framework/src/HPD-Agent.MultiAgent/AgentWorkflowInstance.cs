@@ -1,5 +1,4 @@
 using System.Runtime.CompilerServices;
-using System.Threading.Channels;
 using System.Text.Json;
 using HPD.Agent;
 using HPD.Events;
@@ -597,12 +596,10 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
         // Hosted durable execution is owned by HPD.Base activations.
         var orchestrator = new GraphOrchestrator<AgentGraphContext>(_serviceProvider, maxLayerConcurrency: _settings.MaxConcurrency);
 
-        var eventChannel = Channel.CreateUnbounded<Event>();
-        using var eventSubscription = eventCoordinator.SubscribeAny(evt =>
-        {
-            eventChannel.Writer.TryWrite(evt);
-            return ValueTask.CompletedTask;
-        });
+        // Publication enqueues directly into this inbox. An observation callback pump
+        // cannot serve as an execution-completion barrier.
+        await using var eventInbox = eventCoordinator.CreateInbox<Event>(
+            HPD.Events.EventInboxOptions.Deterministic());
 
         // Start execution in background task
         var executionTask = Task.Run(async () =>
@@ -622,14 +619,14 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
             }
             finally
             {
-                eventChannel.Writer.TryComplete();
+                await eventInbox.DisposeAsync().ConfigureAwait(false);
             }
         }, CancellationToken.None);
 
         // Drain terminal events too; a completed graph may still have queued public events.
         try
         {
-            await foreach (var evt in eventChannel.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+            await foreach (var evt in eventInbox.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
             {
                 var wrappedEvent = WrapGraphEvent(evt, workflowContext);
                 if (wrappedEvent is null) continue;
@@ -641,7 +638,9 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
         }
         finally
         {
-            // Stopping a stream must also stop and drain its owned graph execution.
+            // Release inbox backpressure when the consumer stops early, then stop
+            // and drain the graph work owned by this stream.
+            await eventInbox.DisposeAsync().ConfigureAwait(false);
             if (!executionTask.IsCompleted) await executionLifetime.CancelAsync().ConfigureAwait(false);
             await executionTask.ConfigureAwait(false);
         }

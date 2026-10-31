@@ -877,7 +877,12 @@ public class ObservabilityTests
         // Arrange
         var observer = new MetricsObserver();
         var coordinator = new WorkflowEventCoordinator();
-        using var subscription = coordinator.SubscribeAny(observer.HandleAsync);
+        var delivered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var subscription = coordinator.SubscribeAny(async evt =>
+        {
+            await observer.HandleAsync(evt);
+            delivered.TrySetResult();
+        });
 
         var startEvt = new GraphExecutionStartedEvent
         {
@@ -887,7 +892,7 @@ public class ObservabilityTests
 
         // Act - publish directly through the coordinator
         await coordinator.PublishAsync(startEvt);
-        await Task.Delay(50);
+        await delivered.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         // Assert — MetricsObserver registered the workflow
         observer.ActiveWorkflows.Should().HaveCount(1);
