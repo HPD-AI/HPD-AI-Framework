@@ -562,3 +562,26 @@ public sealed record BackfillCompletedEvent : GraphEvent
     /// </summary>
     public override EventKind Kind { get; init; } = EventKind.Lifecycle;
 }
+
+/// <summary>Authoritative recovery lifecycle, independent of optional diagnostic telemetry.</summary>
+public sealed record NodeRecoveryEvent : GraphEvent
+{
+    public required string ExecutionId { get; init; }
+    public required string PrimaryNodeId { get; init; }
+    public required string RecoveryNodeId { get; init; }
+    public required string State { get; init; }
+    public int Attempt { get; init; }
+    public override EventKind Kind { get; init; } = EventKind.Lifecycle;
+}
+
+public sealed record NodeAttemptCompletedEvent : GraphEvent
+{
+    public required string ExecutionId { get; init; }
+    public required string LogicalNodeId { get; init; }
+    public required string NodeId { get; init; }
+    public required int Attempt { get; init; }
+    public bool IsRecovery { get; init; }
+    public required string Outcome { get; init; }
+    public bool IsTransient { get; init; }
+    public override EventKind Kind { get; init; } = EventKind.Lifecycle;
+}

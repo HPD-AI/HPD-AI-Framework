@@ -85,17 +85,14 @@ internal static class AgentRunConfigSnapshot
     {
         Security = source.Security with
         {
+            CapabilityCeiling = source.Security.CapabilityCeiling is null ? null : Security.AgentSandboxAuthorization.Snapshot(source.Security.CapabilityCeiling),
             PermissionOverrides = source.Security.PermissionOverrides?.Select(static value => value with
             {
                 Selector = value.Selector with { }
             }).ToArray(),
             Sandbox = source.Security.Sandbox with
             {
-                Capabilities = source.Security.Sandbox.Capabilities with
-                {
-                    Filesystem = source.Security.Sandbox.Capabilities.Filesystem
-                        .Select(static grant => grant with { }).ToArray()
-                }
+                Capabilities = Security.AgentSandboxAuthorization.Snapshot(source.Security.Sandbox.Capabilities)
             }
         },
         SystemInstructions = source.SystemInstructions is null ? null : new SystemInstructionsRunConfig
@@ -110,11 +107,7 @@ internal static class AgentRunConfigSnapshot
             Additional = source.Tools.Additional?.ToArray(),
             Mode = source.Tools.Mode
         },
-        Context = source.Context is null ? null : new AgentContextRunConfig
-        {
-            Properties = source.Context.Properties is null ? null : new Dictionary<string, object>(source.Context.Properties),
-            ToolInstances = source.Context.ToolInstances is null ? null : new Dictionary<string, IToolMetadata>(source.Context.ToolInstances)
-        },
+        Context = AgentContextSnapshot.Capture(source.Context),
         BackgroundResponses = source.BackgroundResponses is null ? null : new BackgroundResponsesRunConfig
         {
             Allow = source.BackgroundResponses.Allow,

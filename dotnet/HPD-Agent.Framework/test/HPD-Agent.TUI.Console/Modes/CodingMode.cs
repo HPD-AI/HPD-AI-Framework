@@ -26,7 +26,7 @@ internal static class CodingMode
         var workspace = new AgentWorkspace(
             "default",
             workspacePath,
-            [new AgentWorkspaceRoot("default", workspacePath, Path.GetFileName(workspacePath))]);
+            [new AgentWorkspaceRoot("default", workspacePath, AgentWorkspaceAccess.ReadWrite, Path.GetFileName(workspacePath))]);
         var providers = ConsoleProviderContext.Create();
 
         var agent = await providers.CreateAgentBuilder()

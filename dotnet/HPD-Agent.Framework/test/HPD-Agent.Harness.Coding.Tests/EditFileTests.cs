@@ -617,7 +617,7 @@ public sealed class EditFileTests : IDisposable
                 [AgentWorkspace.ContextKey] = new AgentWorkspace(
                     "default",
                     cwd,
-                    [new AgentWorkspaceRoot("default", cwd)])
+                    [new AgentWorkspaceRoot("default", cwd, AgentWorkspaceAccess.ReadWrite)])
             } }
         };
     }

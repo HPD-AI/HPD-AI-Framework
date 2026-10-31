@@ -131,6 +131,18 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
 
     public async Task<TContext> ExecuteAsync(TContext context, CancellationToken cancellationToken = default)
     {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        if (context.Graph.ExecutionTimeout is { } timeout)
+        {
+            var remaining = timeout - (DateTimeOffset.UtcNow - context.StartedAt);
+            if (remaining <= TimeSpan.Zero) deadline.Cancel(); else deadline.CancelAfter(remaining);
+        }
+        return await ExecuteCoreAsync(context, deadline.Token);
+    }
+
+    private async Task<TContext> ExecuteCoreAsync(TContext context, CancellationToken cancellationToken)
+    {
+        HPD.Graph.Core.Validation.RecoveryValidation.Validate(context.Graph);
         context.Log("Orchestrator", $"Starting graph execution: {context.Graph.Name}", LogLevel.Information);
 
         var executionStartTime = DateTimeOffset.UtcNow;
@@ -1100,6 +1112,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
     private static HashSet<string> GetExecutableNodeIds(Abstractions.Graph.Graph graph)
     {
         return graph.Nodes
+            .Where(n => !n.RecoveryOnly)
             .Where(n => n.Type is NodeType.Handler
                                or NodeType.Router
                                or NodeType.SubGraph
@@ -1188,7 +1201,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
     {
         context.EventCoordinator?.Emit(new GraphExecutionStartedEvent
         {
-            NodeCount = context.Graph.Nodes.Count,
+            NodeCount = context.Graph.Nodes.Count(n => !n.RecoveryOnly),
             LayerCount = layerCount,
             GraphContext = CreateGraphExecutionContext(context),
             Kind = EventKind.Lifecycle,
@@ -1238,8 +1251,8 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
         context.EventCoordinator?.Emit(new GraphExecutionCompletedEvent
         {
             Duration = DateTimeOffset.UtcNow - startTime,
-            SuccessfulNodes = context.CompletedNodes.Count,
-            FailedNodes = 0,
+            SuccessfulNodes = context.CompletedNodes.Count(id => !context.InternalFailedNodes.ContainsKey(id)),
+            FailedNodes = context.InternalFailedNodes.Count,
             SkippedNodes = 0,
             GraphContext = CreateGraphExecutionContext(context),
             Kind = EventKind.Lifecycle,
@@ -1258,8 +1271,8 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
         context.EventCoordinator?.Emit(new GraphExecutionCompletedEvent
         {
             Duration = DateTimeOffset.UtcNow - executionStartTime,
-            SuccessfulNodes = context.CompletedNodes.Count,
-            FailedNodes = 0,
+            SuccessfulNodes = context.CompletedNodes.Count(id => !context.InternalFailedNodes.ContainsKey(id)),
+            FailedNodes = context.InternalFailedNodes.Count,
             SkippedNodes = 0,
             GraphContext = CreateGraphExecutionContext(context),
             Kind = EventKind.Lifecycle,
@@ -1288,7 +1301,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
         return new GraphExecutionContext
         {
             GraphId = context.Graph.Id,
-            TotalNodes = context.Graph.Nodes.Count,
+            TotalNodes = context.Graph.Nodes.Count(n => !n.RecoveryOnly),
             CompletedNodes = context.CompletedNodes.Count,
             CurrentLayer = context.CurrentLayerIndex
         };
@@ -1522,7 +1535,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
         var nodesToExecute = layer.NodeIds
             .Where(nodeId => !context.IsNodeComplete(nodeId))
             .Select(nodeId => context.Graph.GetNode(nodeId))
-            .Where(node => node != null && (node.Type == NodeType.Handler || node.Type == NodeType.Router || node.Type == NodeType.SubGraph || node.Type == NodeType.Map))
+            .Where(node => node != null && !node.RecoveryOnly && (node.Type == NodeType.Handler || node.Type == NodeType.Router || node.Type == NodeType.SubGraph || node.Type == NodeType.Map))
             .Where(node => !ShouldSkipDueToFailedDependency(context, node!))
             .ToList();
 
@@ -1541,7 +1554,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             GraphContext = new Abstractions.Events.GraphExecutionContext
             {
                 GraphId = context.Graph.Id,
-                TotalNodes = context.Graph.Nodes.Count,
+                TotalNodes = context.Graph.Nodes.Count(n => !n.RecoveryOnly),
                 CompletedNodes = context.CompletedNodes.Count,
                 CurrentLayer = layer.Level
             },
@@ -1566,11 +1579,11 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
         {
             LayerIndex = layer.Level,
             Duration = DateTimeOffset.UtcNow - layerStartTime,
-            SuccessfulNodes = nodesToExecute.Count(n => context.IsNodeComplete(n!.Id)),
+            SuccessfulNodes = nodesToExecute.Count(n => context.IsNodeComplete(n!.Id) && !context.InternalFailedNodes.ContainsKey(n.Id)),
             GraphContext = new Abstractions.Events.GraphExecutionContext
             {
                 GraphId = context.Graph.Id,
-                TotalNodes = context.Graph.Nodes.Count,
+                TotalNodes = context.Graph.Nodes.Count(n => !n.RecoveryOnly),
                 CompletedNodes = context.CompletedNodes.Count,
                 CurrentLayer = layer.Level
             },
@@ -1645,8 +1658,10 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
         }
     }
 
-    private async Task ExecuteNodeAsync(TContext context, Node node, CancellationToken cancellationToken)
+    private async Task ExecuteNodeAsync(TContext context, Node node, CancellationToken cancellationToken, int attempt = 1)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (node.RecoveryOnly) return;
         // Check if already completed (idempotency)
         if (context.IsNodeComplete(node.Id))
         {
@@ -1720,7 +1735,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             GraphContext = new Abstractions.Events.GraphExecutionContext
             {
                 GraphId = context.Graph.Id,
-                TotalNodes = context.Graph.Nodes.Count,
+                TotalNodes = context.Graph.Nodes.Count(n => !n.RecoveryOnly),
                 CompletedNodes = context.CompletedNodes.Count,
                 CurrentLayer = context.CurrentLayerIndex
             },
@@ -1798,18 +1813,8 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                 }
             }
 
-            // Execute with timeout if specified
-            NodeExecutionResult result;
-            if (node.Timeout.HasValue)
-            {
-                using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                cts.CancelAfter(node.Timeout.Value);
-                result = await InvokeHandlerAsync(context, node, inputs, cts.Token);
-            }
-            else
-            {
-                result = await InvokeHandlerAsync(context, node, inputs, cancellationToken);
-            }
+            var result = await InvokeAttemptAsync(context, node, inputs, cancellationToken, attempt);
+            RecordAttempt(context, node.Id, node.Id, attempt, false, result);
 
             // Handle result using pattern matching
             switch (result)
@@ -1819,7 +1824,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                     break;
 
                 case NodeExecutionResult.Failure failure:
-                    await HandleFailureAsync(context, node, failure, cancellationToken);
+                    await HandleFailureAsync(context, node, failure, cancellationToken, attempt);
                     break;
 
                 case NodeExecutionResult.Skipped skipped:
@@ -1859,6 +1864,146 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
         {
             context.SetCurrentNode(null);
         }
+    }
+
+    private async Task<NodeExecutionResult> InvokeAttemptAsync(TContext context, Node node, HandlerInputs inputs, CancellationToken cancellationToken, int attempt = 1, string? logicalNode = null, bool recovery = false)
+    {
+        context.Invocation = new NodeInvocation(Guid.NewGuid().ToString("N"), logicalNode ?? node.Id, node.Id, attempt, recovery);
+        var started = DateTimeOffset.UtcNow;
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        if (node.Timeout is { } duration) timeout.CancelAfter(duration);
+        try
+        {
+            var result = await InvokeHandlerAsync(context, node, inputs, timeout.Token);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (timeout.IsCancellationRequested)
+                return new NodeExecutionResult.Failure(new TimeoutException($"Node '{node.Id}' exceeded its attempt deadline."),
+                    ErrorSeverity.Transient, true, DateTimeOffset.UtcNow - started);
+            if (result is NodeExecutionResult.Success success && node.OutputContract is { } contract)
+            {
+                try
+                {
+                    result = HPD.Graph.Core.Validation.RecoveryValidation.ValidateAndProject(contract, success);
+                    foreach (var port in ((NodeExecutionResult.Success)result).PortOutputs.Values)
+                        OutputCloner.ValidateSerializable(port);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    result = new NodeExecutionResult.Failure(
+                        ex,
+                        ErrorSeverity.Fatal,
+                        IsTransient: false,
+                        Duration: DateTimeOffset.UtcNow - started);
+                }
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            return result;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (OperationCanceledException ex) when (timeout.IsCancellationRequested)
+        {
+            return new NodeExecutionResult.Failure(new TimeoutException($"Node '{node.Id}' exceeded its attempt deadline.", ex),
+                ErrorSeverity.Transient, true, DateTimeOffset.UtcNow - started);
+        }
+        catch (OperationCanceledException) { throw; }
+    }
+
+    private void RecordAttempt(TContext context, string logicalNode, string actualNode, int attempt, bool recovery, NodeExecutionResult result)
+    {
+        var executionId = context.Invocation?.ExecutionId ?? Guid.NewGuid().ToString("N");
+        context.ExecutionLedger.Attempts.TryAdd(executionId, new NodeAttemptRecord(executionId, logicalNode, actualNode, attempt, recovery, result));
+        context.EventCoordinator?.Emit(new NodeAttemptCompletedEvent
+        {
+            ExecutionId = executionId, LogicalNodeId = logicalNode, NodeId = actualNode, Attempt = attempt, IsRecovery = recovery,
+            Outcome = result.GetType().Name, IsTransient = result is NodeExecutionResult.Failure { IsTransient: true },
+            Kind = EventKind.Lifecycle, Channel = EventChannel.Synchronous
+        });
+    }
+
+    private void EmitRecovery(TContext context, RecoveryExecution recovery, string state)
+    {
+        recovery.State = state;
+        context.EventCoordinator?.Emit(new NodeRecoveryEvent
+        {
+            ExecutionId = recovery.ExecutionId, PrimaryNodeId = recovery.PrimaryNodeId, RecoveryNodeId = recovery.RecoveryNodeId,
+            State = state, Attempt = recovery.Attempts, Kind = EventKind.Lifecycle, Channel = EventChannel.Synchronous
+        });
+    }
+
+    private async Task ExecuteRecoveryAsync(TContext context, Node primary, NodeExecutionResult.Failure primaryFailure, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var target = context.Graph.GetNode(primary.ErrorPolicy!.FallbackNodeId!)!;
+        var relationKey = $"{context.ExecutionId}:{primary.Id}:{context.CurrentIteration}";
+        var recovery = new RecoveryExecution
+        {
+            ExecutionId = Guid.NewGuid().ToString("N"), PrimaryNodeId = primary.Id, RecoveryNodeId = target.Id, PrimaryFailure = primaryFailure
+        };
+        if (!context.ExecutionLedger.Recoveries.TryAdd(relationKey, recovery))
+            throw new InvalidOperationException("This logical execution already owns a recovery relation.");
+        context.AddTag($"node_state:{primary.Id}", NodeState.Recovering.ToString());
+        EmitRecovery(context, recovery, "started");
+        var gate = context.ExecutionLedger.RecoveryConcurrency.GetOrAdd(target.Id,
+            _ => new SemaphoreSlim(target.MaxParallelExecutions ?? _maxLayerConcurrency));
+        var acquired = false;
+        try
+        {
+            await gate.WaitAsync(cancellationToken); acquired = true;
+            var inputs = PrepareInputs(context, primary);
+            inputs.SetSourceResult(primary.Id, primaryFailure);
+            for (var attempt = 1; ; attempt++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                recovery.Attempts = attempt;
+                // The logical primary retains its scheduler slot. Recovery never recursively enters ExecuteNodeAsync.
+                context.SetCurrentNode(target.Id);
+                var result = await InvokeAttemptAsync(context, target, inputs, cancellationToken, attempt, primary.Id, true);
+                if (result is NodeExecutionResult.Success success)
+                {
+                    try
+                    {
+                        success = HPD.Graph.Core.Validation.RecoveryValidation.ValidateAndProject(target.OutputContract!, success);
+                        success = HPD.Graph.Core.Validation.RecoveryValidation.ValidateAndProject(primary.OutputContract!, success);
+                        foreach (var port in success.PortOutputs.Values) OutputCloner.ValidateSerializable(port);
+                        cancellationToken.ThrowIfCancellationRequested();
+                        result = success;
+                    }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception ex)
+                    { result = new NodeExecutionResult.Failure(ex, ErrorSeverity.Fatal, false, success.Duration); }
+                }
+                RecordAttempt(context, primary.Id, target.Id, attempt, true, result);
+                if (result is NodeExecutionResult.Cancelled)
+                    throw new OperationCanceledException("Recovery invocation was cancelled.", cancellationToken);
+                if (result is NodeExecutionResult.Success accepted)
+                {
+                    var recovered = accepted with { Recovery = new RecoveryProvenance(recovery.ExecutionId, target.Id, attempt) };
+                    HandleSuccess(context, primary, recovered);
+                    context.AddTag($"node_state:{primary.Id}", NodeState.Recovered.ToString());
+                    EmitRecovery(context, recovery, "recovered");
+                    return;
+                }
+                var failure = result as NodeExecutionResult.Failure
+                    ?? new NodeExecutionResult.Failure(new InvalidOperationException("Recovery must return a success, failure, or cancellation."), ErrorSeverity.Fatal, false, TimeSpan.Zero);
+                if (target.RetryPolicy?.ShouldRetry(failure, attempt) == true)
+                {
+                    await Task.Delay(target.RetryPolicy.GetDelay(attempt), cancellationToken);
+                    continue;
+                }
+                EmitRecovery(context, recovery, "exhausted");
+                var exhaustedPolicy = primary.ErrorPolicy with { Mode = primary.ErrorPolicy.ExhaustionMode!.Value, FallbackNodeId = null, ExhaustionMode = null };
+                context.ExecutionLedger.TerminalPolicies[primary.Id] = exhaustedPolicy;
+                await HandleFailureAsync(context, primary with { ErrorPolicy = exhaustedPolicy, RetryPolicy = null }, failure, cancellationToken);
+                return;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            context.AddTag($"node_state:{primary.Id}", NodeState.Cancelled.ToString());
+            EmitRecovery(context, recovery, "cancelled");
+            throw;
+        }
+        finally { if (acquired) gate.Release(); context.SetCurrentNode(primary.Id); }
     }
 
     private IGraphNodeHandler<TContext>? ResolveHandler(Node node)
@@ -2009,6 +2154,8 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
 
             if (sourceNode != null && context.IsNodeComplete(sourceNodeId))
             {
+                if (context.Channels.Contains($"node_result:{sourceNodeId}") && context.Channels[$"node_result:{sourceNodeId}"].Get<NodeExecutionResult>() is { } upstreamResult)
+                    inputs.SetSourceResult(sourceNodeId, upstreamResult);
                 // Get outputs from the appropriate port channel
                 // Group edges by FromPort to handle multi-port routing
                 var edgesByPort = sourceGroup.GroupBy(e => e.FromPort ?? 0);
@@ -2376,14 +2523,14 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             NodeId = node.Id,
             HandlerName = node.HandlerName ?? node.Type.ToString(),
             LayerIndex = context.CurrentLayerIndex,
-            Progress = (float)context.CompletedNodes.Count / context.Graph.Nodes.Count,
+            Progress = (float)context.CompletedNodes.Count / context.Graph.Nodes.Count(n => !n.RecoveryOnly),
             Outputs = port0Outputs, // Include port 0 outputs for downstream consumers
             Duration = success.Duration,
             Result = success,
             GraphContext = new Abstractions.Events.GraphExecutionContext
             {
                 GraphId = context.Graph.Id,
-                TotalNodes = context.Graph.Nodes.Count,
+                TotalNodes = context.Graph.Nodes.Count(n => !n.RecoveryOnly),
                 CompletedNodes = context.CompletedNodes.Count,
                 CurrentLayer = context.CurrentLayerIndex
             },
@@ -2392,16 +2539,16 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
         });
     }
 
-    private async Task HandleFailureAsync(TContext context, Node node, NodeExecutionResult.Failure failure, CancellationToken cancellationToken)
+    private async Task HandleFailureAsync(TContext context, Node node, NodeExecutionResult.Failure failure, CancellationToken cancellationToken, int attempt = 1)
     {
         context.Log("Orchestrator",
             $"Node {node.Id} failed: {failure.Exception.Message} (Severity: {failure.Severity})",
             LogLevel.Error, nodeId: node.Id, exception: failure.Exception);
 
         // Check if we should retry
-        if (node.RetryPolicy != null && failure.IsTransient && node.RetryPolicy.ShouldRetry(failure.Exception))
+        if (node.RetryPolicy != null && node.RetryPolicy.ShouldRetry(failure, attempt))
         {
-            var executionCount = context.GetNodeExecutionCount(node.Id);
+            var executionCount = attempt;
             if (executionCount < node.RetryPolicy.MaxAttempts)
             {
                 var delay = node.RetryPolicy.GetDelay(executionCount);
@@ -2410,7 +2557,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                     LogLevel.Warning, nodeId: node.Id);
 
                 await Task.Delay(delay, cancellationToken);
-                await ExecuteNodeAsync(context, node, cancellationToken);
+                await ExecuteNodeAsync(context, node, cancellationToken, attempt + 1);
                 return;
             }
         }
@@ -2425,6 +2572,19 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                 $"Error in node {node.Id} filtered by ShouldPropagate predicate - not propagating",
                 LogLevel.Warning, nodeId: node.Id);
             return; // Don't propagate this error
+        }
+
+        if (policy.Mode != PropagationMode.ExecuteFallback)
+        {
+            context.InternalFailedNodes.TryAdd(node.Id, failure.Exception);
+            context.Channels[$"node_result:{node.Id}"].Set(failure);
+            context.AddTag($"node_state:{node.Id}", NodeState.Failed.ToString());
+            context.EventCoordinator?.Emit(new NodeExecutionCompletedEvent
+            {
+                NodeId = node.Id, HandlerName = node.HandlerName ?? node.Type.ToString(),
+                Duration = failure.Duration, Result = failure, LayerIndex = context.CurrentLayerIndex,
+                Kind = EventKind.Lifecycle, Channel = EventChannel.Synchronous
+            });
         }
 
         switch (policy.Mode)
@@ -2446,31 +2606,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                 break;
 
             case PropagationMode.ExecuteFallback:
-                // Execute fallback node
-                if (string.IsNullOrEmpty(policy.FallbackNodeId))
-                {
-                    throw new InvalidOperationException($"Node {node.Id} has ExecuteFallback mode but no FallbackNodeId specified");
-                }
-
-                var fallbackNode = context.Graph.GetNode(policy.FallbackNodeId);
-                if (fallbackNode == null)
-                {
-                    throw new InvalidOperationException($"Fallback node {policy.FallbackNodeId} not found for node {node.Id}");
-                }
-
-                context.Log("Orchestrator",
-                    $"Node {node.Id} failed - executing fallback node {fallbackNode.Id} (Mode: ExecuteFallback)",
-                    LogLevel.Warning, nodeId: node.Id);
-
-                // Store error context for fallback node
-                context.Channels[$"error_context:{node.Id}"].Set(new Dictionary<string, object>
-                {
-                    ["original_node_id"] = node.Id,
-                    ["exception"] = failure.Exception,
-                    ["severity"] = failure.Severity.ToString()
-                });
-
-                await ExecuteNodeAsync(context, fallbackNode, cancellationToken);
+                await ExecuteRecoveryAsync(context, node, failure, cancellationToken);
                 break;
 
             case PropagationMode.Isolate:
@@ -2513,13 +2649,13 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             NodeId = node.Id,
             HandlerName = node.HandlerName ?? node.Type.ToString(),
             LayerIndex = context.CurrentLayerIndex,
-            Progress = (float)context.CompletedNodes.Count / context.Graph.Nodes.Count,
+            Progress = (float)context.CompletedNodes.Count / context.Graph.Nodes.Count(n => !n.RecoveryOnly),
             Duration = TimeSpan.Zero,
             Result = skipped,
             GraphContext = new Abstractions.Events.GraphExecutionContext
             {
                 GraphId = context.Graph.Id,
-                TotalNodes = context.Graph.Nodes.Count,
+                TotalNodes = context.Graph.Nodes.Count(n => !n.RecoveryOnly),
                 CompletedNodes = context.CompletedNodes.Count,
                 CurrentLayer = context.CurrentLayerIndex
             },
@@ -3203,40 +3339,19 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
     /// </summary>
     private bool ShouldSkipDueToFailedDependency(TContext context, Node node)
     {
-        // Get all incoming edges for this node
-        var incomingEdges = context.Graph.GetIncomingEdges(node.Id);
-
-        foreach (var edge in incomingEdges)
+        var ancestors = new HashSet<string>();
+        var pending = new Stack<string>(context.Graph.GetIncomingEdges(node.Id).Select(e => e.From));
+        while (pending.TryPop(out var upstream))
+            if (ancestors.Add(upstream))
+                foreach (var edge in context.Graph.GetIncomingEdges(upstream)) pending.Push(edge.From);
+        foreach (var failedId in context.InternalFailedNodes.Keys)
         {
-            // Check if the source node failed
-            if (context.InternalFailedNodes.ContainsKey(edge.From))
-            {
-                var failedNode = context.Graph.GetNode(edge.From);
-                if (failedNode == null) continue;
-
-                // Check the error policy of the failed node
-                var policy = failedNode.ErrorPolicy;
-                if (policy == null || policy.Mode != PropagationMode.SkipDependents)
-                    continue;
-
-                // Check if this node is in the affected list (or if no list specified, all dependents affected)
-                if (policy.AffectedNodes != null && policy.AffectedNodes.Count > 0)
-                {
-                    if (!policy.AffectedNodes.Contains(node.Id))
-                        continue; // This node is not in the affected list
-                }
-
-                // This node should be skipped
-                context.Log("Orchestrator",
-                    $"Skipping node {node.Id} due to failed dependency {edge.From}",
-                    LogLevel.Warning, nodeId: node.Id);
-
-                // Mark as skipped in context
-                context.Channels[$"skip_reason:{node.Id}"].Set(SkipReason.DependencyFailed.ToString());
-                context.MarkNodeComplete(node.Id); // Mark as "complete" so it doesn't block further processing
-
-                return true;
-            }
+            if (!ancestors.Contains(failedId)) continue;
+            var policy = context.ExecutionLedger.TerminalPolicies.TryGetValue(failedId, out var terminal)
+                ? terminal : context.Graph.GetNode(failedId)?.ErrorPolicy;
+            if (policy?.Mode != PropagationMode.SkipDependents || policy.AffectedNodes is not null && !policy.AffectedNodes.Contains(node.Id)) continue;
+            HandleSkipped(context, node, new NodeExecutionResult.Skipped(SkipReason.DependencyFailed, "Upstream dependency failed.", failedId));
+            return true;
         }
 
         return false;
@@ -3344,6 +3459,11 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             var channelName = NodeOutputChannelName(edge.From, edge.FromPort ?? 0);
             if (!context.Channels.Contains(channelName))
             {
+                var sourcePolicy = context.ExecutionLedger.TerminalPolicies.TryGetValue(edge.From, out var terminalPolicy)
+                    ? terminalPolicy : context.Graph.GetNode(edge.From)?.ErrorPolicy;
+                if (sourcePolicy?.Mode == PropagationMode.Isolate && context.InternalFailedNodes.ContainsKey(edge.From)
+                    && (edge.Condition is null || edge.Condition.Type == ConditionType.Always))
+                    return (false, "Unconditional dependency on an isolated terminal failure.");
                 evaluatedEdges.Add($"{edge.From}→{edge.To}: no outputs");
                 failedEdgeSources.Add(edge.From);
                 context.EmitDebug("EvaluateSkipConditions", $"Edge {edge.From}→{edge.To}: channel {channelName} NOT found", nodeId: node.Id);
@@ -4330,7 +4450,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             var nodesToExecute = layer.NodeIds
                 .Where(nodeId => !context.IsNodeComplete(nodeId))
                 .Select(nodeId => context.Graph.GetNode(nodeId))
-                .Where(node => node != null && (node.Type == NodeType.Handler || node.Type == NodeType.Router || node.Type == NodeType.SubGraph))
+                .Where(node => node != null && !node.RecoveryOnly && (node.Type == NodeType.Handler || node.Type == NodeType.Router || node.Type == NodeType.SubGraph))
                 .ToList();
 
             if (nodesToExecute.Count == 0)

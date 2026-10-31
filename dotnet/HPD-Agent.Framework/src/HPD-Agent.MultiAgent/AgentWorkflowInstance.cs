@@ -107,10 +107,13 @@ internal sealed class PrebuiltAgentFactory : AgentFactory
 internal sealed class ConfigAgentFactory : AgentFactory
 {
     private readonly AgentConfig _config;
+    private readonly WorkflowHostBinding? _host;
+    private readonly WorkflowNodeIdentity? _identity;
 
-    public ConfigAgentFactory(AgentConfig config)
+    public ConfigAgentFactory(AgentConfig config, WorkflowHostBinding? host = null, WorkflowNodeIdentity? identity = null)
     {
         _config = config;
+        _host = host; _identity = identity;
     }
 
     public override async Task<Agent.Agent> BuildAsync(
@@ -118,7 +121,28 @@ internal sealed class ConfigAgentFactory : AgentFactory
         bool requireWorkflowSessionStore,
         CancellationToken cancellationToken)
     {
-        var builder = new AgentBuilder(_config);
+        var definition = AgentConfigSnapshot.Create(_config);
+        definition.Clients = AgentRunConfigSnapshot.Capture(new AgentRunConfig { Clients = _config.Clients }, _host?.Providers)!.Clients;
+        for (var index = 0; index < _config.ProviderProfiles.Count; index++)
+        {
+            var profile = _config.ProviderProfiles[index];
+            var clients = SubAgentExecutionPolicy.CloneClients(profile.Clients);
+            foreach (var family in Enum.GetValues<HPD.Agent.Providers.ProviderClientFamily>())
+                if (clients.GetFamilyConfig(family) is { } familyConfig && familyConfig.Provider is null)
+                    familyConfig.Provider = new HPD.Agent.Providers.ProviderReference { Key = profile.ProviderKey };
+            definition.ProviderProfiles[index] = profile with { Clients = AgentRunConfigSnapshot.Capture(new AgentRunConfig { Clients = clients }, _host?.Providers)!.Clients };
+        }
+        definition.EventComposition = _config.EventComposition;
+        definition.SessionStore = _config.SessionStore;
+        definition.AgentStore = _config.AgentStore;
+        definition.AgentStoreOptions = _config.AgentStoreOptions;
+        definition.SessionStoreOptions = _config.SessionStoreOptions;
+        definition.ServerConfiguredTools = _config.ServerConfiguredTools?.ToList();
+        definition.ConfigureOptions = _config.ConfigureOptions;
+        definition.ClientMiddleware = _config.ClientMiddleware;
+        definition.explicitlyRegisteredToolHarnesses = _config.explicitlyRegisteredToolHarnesses;
+        var builder = _host?.Providers is { } providers ? new AgentBuilder(definition, providers) : new AgentBuilder(definition);
+        _host?.Apply(_identity!, builder);
 
         if (workflowSessionStore != null)
         {
@@ -142,10 +166,13 @@ internal sealed class ConfigAgentFactory : AgentFactory
 internal sealed class InlineAgentFactory : AgentFactory
 {
     private readonly Action<AgentBuilder> _builderAction;
+    private readonly WorkflowHostBinding? _host;
+    private readonly WorkflowNodeIdentity? _identity;
 
-    public InlineAgentFactory(Action<AgentBuilder> builderAction)
+    public InlineAgentFactory(Action<AgentBuilder> builderAction, WorkflowHostBinding? host = null, WorkflowNodeIdentity? identity = null)
     {
         _builderAction = builderAction ?? throw new ArgumentNullException(nameof(builderAction));
+        _host = host; _identity = identity;
     }
 
     public override async Task<Agent.Agent> BuildAsync(
@@ -154,7 +181,7 @@ internal sealed class InlineAgentFactory : AgentFactory
         CancellationToken cancellationToken)
     {
         var config = new AgentConfig();
-        var builder = new AgentBuilder(config);
+        var builder = _host?.Providers is { } providers ? new AgentBuilder(config, providers) : new AgentBuilder(config);
 
         if (workflowSessionStore != null)
         {
@@ -167,6 +194,7 @@ internal sealed class InlineAgentFactory : AgentFactory
         }
 
         _builderAction(builder);
+        _host?.Apply(_identity!, builder);
 
         return await builder.BuildAsync(cancellationToken);
     }
@@ -179,6 +207,7 @@ internal sealed class InlineAgentFactory : AgentFactory
 /// </summary>
 public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
 {
+    private readonly WorkflowHostBinding? _host;
     private readonly GraphDefinition _graph;
     private readonly Dictionary<string, AgentFactory> _agentFactories;
     private readonly Dictionary<string, AgentNodeOptions> _options;
@@ -198,8 +227,9 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
         IServiceProvider serviceProvider,
         string? workflowName = null,
         WorkflowSettingsConfig? settings = null,
-        ISessionStore? workflowSessionStore = null)
+        ISessionStore? workflowSessionStore = null, WorkflowHostBinding? host = null)
     {
+        _host = host;
         _graph = graph;
         _agentFactories = agentFactories;
         _options = options;
@@ -347,6 +377,8 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
                     // For a proper implementation, we'd track the final node
                 }
 
+                if (evt is WorkflowCompletedEvent { FailedNodes: > 0 }) { success = false; error = "Workflow completed with failed nodes."; }
+                if (evt is MessageTurnErrorEvent failure) { success = false; error = failure.ErrorMessage; exception = failure.Exception; }
                 // Capture workflow agent outputs.
                 if (evt is WorkflowAgentCompletedEvent agentComplete)
                 {
@@ -553,6 +585,7 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
             workflowName: _workflowName,
             conversation: conversationRuntime)
         {
+            HostBinding = _host,
             EventCoordinator = eventCoordinator,
             ParentExecutionContext = parentContext
         };
@@ -735,6 +768,17 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
                 Metadata = workflowContext
             },
 
+            NodeRecoveryEvent r => new WorkflowRecoveryEvent
+            {
+                WorkflowName = _workflowName, ExecutionId = r.ExecutionId, PrimaryAgentId = r.PrimaryNodeId,
+                RecoveryAgentId = r.RecoveryNodeId, State = r.State, Attempt = r.Attempt, Metadata = workflowContext
+            },
+            NodeAttemptCompletedEvent a => new WorkflowAttemptCompletedEvent
+            {
+                WorkflowName = _workflowName, ExecutionId = a.ExecutionId, LogicalAgentId = a.LogicalNodeId,
+                AgentId = a.NodeId, Attempt = a.Attempt, IsRecovery = a.IsRecovery, Outcome = a.Outcome,
+                IsTransient = a.IsTransient, Metadata = workflowContext
+            },
             // Pass through AgentEvents unchanged (they're already in the right format)
             AgentEvent ae => ae,
 
@@ -807,7 +851,8 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
                     InitialDelay = rp.InitialDelay,
                     Strategy = rp.Strategy,
                     MaxDelay = rp.MaxDelay,
-                    OnlyTransient = rp.RetryableExceptions?.Count > 0
+                    OnlyTransient = rp.OnlyTransient,
+                    RetryableExceptionTypeNames = rp.RetryableExceptions?.Select(t => t.AssemblyQualifiedName ?? throw new InvalidOperationException("Unrepresentable retry filter type.")).ToArray()
                 };
             }
 
@@ -817,15 +862,22 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
                 errorConfig = new ErrorConfig
                 {
                     Mode = nodeOptions.ErrorMode,
-                    FallbackAgent = nodeOptions.FallbackAgentId
+                    FallbackAgent = nodeOptions.FallbackAgentId,
+                    ExhaustionMode = nodeOptions.ExhaustionMode,
+                    AffectedNodes = nodeOptions.AffectedNodes
                 };
             }
 
             agents[nodeId] = new AgentNodeConfig
             {
+                RecoveryOnly = nodeOptions.RecoveryOnly,
+                HandoffTargets = nodeOptions.HandoffTargets,
+                ClientInheritance = nodeOptions.ClientInheritance,
+                Metadata = nodeOptions.Metadata,
                 Agent = agentConfig,
                 OutputMode = nodeOptions.OutputMode,
                 StructuredOutputType = nodeOptions.StructuredType?.AssemblyQualifiedName,
+                StructuredOutputMode = nodeOptions.StructuredOutputMode,
                 UnionTypeNames = nodeOptions.UnionTypes?.Select(t => t.AssemblyQualifiedName!).ToList(),
                 Timeout = nodeOptions.Timeout,
                 MaxConcurrent = nodeOptions.MaxConcurrentExecutions,
@@ -834,7 +886,7 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
                 InputKey = nodeOptions.InputKey,
                 OutputKey = nodeOptions.OutputKey,
                 InputTemplate = nodeOptions.InputTemplate,
-                AdditionalInstructions = nodeOptions.RunConfig.SystemInstructions?.Append
+                RunConfig = nodeOptions.RunConfig
             };
         }
 
@@ -869,13 +921,12 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
             Version = _graph.Version,
             Agents = agents,
             Edges = edges,
-            Settings = settings
+            Settings = _settings with { MaxIterations = _graph.MaxIterations }
         };
 
-        return HpdConfigSerializer.Serialize(
-            config,
-            MultiAgentGraphConfigJsonContext.Default.MultiAgentWorkflowConfig,
-            format);
+        return _host?.Providers is { } providers
+            ? Serialization.MultiAgentConfigSerializer.Serialize(config, providers, format)
+            : Serialization.MultiAgentConfigSerializer.Serialize(config, format);
     }
 
     /// <summary>

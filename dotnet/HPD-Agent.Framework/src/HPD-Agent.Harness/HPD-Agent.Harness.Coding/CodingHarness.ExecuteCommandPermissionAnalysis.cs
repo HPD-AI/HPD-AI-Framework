@@ -510,7 +510,7 @@ internal static class ExecuteCommandPermissionRuleValidator
                     [AgentWorkspace.ContextKey] = new AgentWorkspace(
                         rule.Workspace.RootId,
                         rule.Workspace.RootPath,
-                        [new AgentWorkspaceRoot(rule.Workspace.RootId, rule.Workspace.RootPath)]),
+                        [new AgentWorkspaceRoot(rule.Workspace.RootId, rule.Workspace.RootPath, AgentWorkspaceAccess.ReadWrite)]),
                 }
             }
         };

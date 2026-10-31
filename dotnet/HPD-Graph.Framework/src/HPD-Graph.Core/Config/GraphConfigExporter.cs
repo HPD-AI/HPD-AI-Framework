@@ -43,6 +43,8 @@ public sealed class GraphConfigExporter
     {
         return new NodeConfig
         {
+            RecoveryOnly = node.RecoveryOnly,
+            OutputContract = node.OutputContract,
             Id = node.Id,
             Name = node.Name,
             Type = ExportNodeType(node.Type),
@@ -126,6 +128,7 @@ public sealed class GraphConfigExporter
 
         return new RetryPolicyConfig
         {
+            OnlyTransient = policy.OnlyTransient,
             MaxAttempts = policy.MaxAttempts,
             InitialDelay = policy.InitialDelay,
             Strategy = policy.Strategy switch
@@ -347,6 +350,7 @@ public sealed class GraphConfigExporter
                 _ => PropagationModeConfig.StopGraph
             },
             AffectedNodes = policy.AffectedNodes,
+            ExhaustionMode = policy.ExhaustionMode is null ? null : Enum.Parse<PropagationModeConfig>(policy.ExhaustionMode.Value.ToString()),
             FallbackNodeId = policy.FallbackNodeId
         };
     }

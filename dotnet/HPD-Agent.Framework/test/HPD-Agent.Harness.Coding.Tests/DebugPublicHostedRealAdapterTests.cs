@@ -1033,7 +1033,7 @@ public sealed class DebugPublicHostedRealAdapterTests
             var workspace = new AgentWorkspace(
                 "root",
                 workspaceRoot,
-                [new("root", workspaceRoot)]);
+                [new("root", workspaceRoot, AgentWorkspaceAccess.ReadWrite)]);
             var runConfig = new AgentRunConfig
             {
                 Context = new AgentContextRunConfig { Properties = new Dictionary<string, object>

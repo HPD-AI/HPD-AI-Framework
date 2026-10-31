@@ -273,7 +273,7 @@ public sealed class DebugExecutionPlanningV3Tests
             var workspace = new AgentWorkspace(
                 "root",
                 root,
-                [new("root", root)]);
+                [new("root", root, AgentWorkspaceAccess.ReadWrite)]);
             var context = Context() with
             {
                 Target = new ApplicationProjectDebugTarget(root),
@@ -320,8 +320,8 @@ public sealed class DebugExecutionPlanningV3Tests
                 "solution",
                 solutionRoot,
                 [
-                    new("solution", solutionRoot),
-                    new("project", projectRoot)
+                    new("solution", solutionRoot, AgentWorkspaceAccess.ReadWrite),
+                    new("project", projectRoot, AgentWorkspaceAccess.ReadWrite)
                 ]);
             var context = Context() with
             {
@@ -363,7 +363,7 @@ public sealed class DebugExecutionPlanningV3Tests
             var workspace = new AgentWorkspace(
                 "root",
                 root,
-                [new("root", root)]);
+                [new("root", root, AgentWorkspaceAccess.ReadWrite)]);
             var context = Context() with
             {
                 Target = new ApplicationProjectDebugTarget(root),
@@ -408,7 +408,7 @@ public sealed class DebugExecutionPlanningV3Tests
             var workspace = new AgentWorkspace(
                 "root",
                 root,
-                [new("root", root)]);
+                [new("root", root, AgentWorkspaceAccess.ReadWrite)]);
             var context = Context() with
             {
                 Target = new TestDebugTarget(exact),
@@ -458,7 +458,7 @@ public sealed class DebugExecutionPlanningV3Tests
             var workspace = new AgentWorkspace(
                 "root",
                 root,
-                [new("root", root)]);
+                [new("root", root, AgentWorkspaceAccess.ReadWrite)]);
             var context = Context() with
             {
                 Target = new ApplicationProjectDebugTarget(root),
@@ -993,7 +993,7 @@ public sealed class DebugExecutionPlanningV3Tests
             var workspace = new AgentWorkspace(
                 "root",
                 Root,
-                [new("root", Root)]);
+                [new("root", Root, AgentWorkspaceAccess.ReadWrite)]);
             Context = new()
             {
                 Operation = new LaunchDebugOperation(target),

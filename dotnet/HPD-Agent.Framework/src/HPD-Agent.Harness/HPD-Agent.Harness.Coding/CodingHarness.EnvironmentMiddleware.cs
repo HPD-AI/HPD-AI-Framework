@@ -276,7 +276,7 @@ public sealed record EnvironmentContext
             foreach (var root in workspace.Roots)
             {
                 builder.AppendLine(
-                    $"        <root id=\"{EscapeXml(root.Id)}\" label=\"{EscapeXml(root.Label ?? root.Id)}\" path=\"{EscapeXml(root.Path)}\" />");
+                    $"        <root id=\"{EscapeXml(root.Id)}\" label=\"{EscapeXml(root.Label ?? root.Id)}\" path=\"{EscapeXml(root.Path)}\" access=\"{root.Access}\" />");
             }
             builder.AppendLine("      </roots>");
             builder.AppendLine("    </selected_workspace>");

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using HPD.Graph.Abstractions.Config;
+using HPD.Graph.Abstractions.Graph;
 
 namespace HPD.Graph.Tests.V21;
 
@@ -58,7 +59,9 @@ internal static class GraphConfigSerializationTests
                 {
                     Mode = PropagationModeConfig.ExecuteFallback,
                     FallbackNodeId = "fallback",
+                    ExhaustionMode = PropagationModeConfig.Isolate,
                 },
+                OutputContract = AnswerContract(),
                 SuspensionOptions = new SuspensionOptionsConfig
                 {
                     ActiveWaitTimeout = TimeSpan.Zero,
@@ -101,6 +104,15 @@ internal static class GraphConfigSerializationTests
                 },
                 Metadata = new Dictionary<string, string> { ["kind"] = "io" },
             },
+            ["fallback"] = new()
+            {
+                Id = "fallback",
+                Name = "Fallback",
+                Type = NodeKindConfig.Handler,
+                HandlerName = "fallback",
+                RecoveryOnly = true,
+                OutputContract = AnswerContract(),
+            },
         },
         Edges =
         [
@@ -130,5 +142,17 @@ internal static class GraphConfigSerializationTests
             },
         ],
         Metadata = new Dictionary<string, string> { ["owner"] = "platform" },
+    };
+
+    private static NodeOutputContract AnswerContract() => new()
+    {
+        Values =
+        [
+            new OutputValueContract
+            {
+                Key = "answer",
+                TypeName = typeof(string).AssemblyQualifiedName!,
+            },
+        ],
     };
 }

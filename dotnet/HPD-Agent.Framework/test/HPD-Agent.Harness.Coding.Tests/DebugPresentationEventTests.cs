@@ -1,4 +1,5 @@
 using HPD.Agent.Serialization;
+using HPD.Agent.Security;
 using HPD.Agent.ToolHarness.Coding.Debugging;
 using HPDOS.ToolHarnesses.Middleware;
 
@@ -79,8 +80,8 @@ public sealed class DebugPresentationEventTests : IDisposable
                 "first",
                 _root,
                 [
-                    new AgentWorkspaceRoot("first", _root),
-                    new AgentWorkspaceRoot("second", secondRoot)
+                    new AgentWorkspaceRoot("first", _root, AgentWorkspaceAccess.ReadWrite),
+                    new AgentWorkspaceRoot("second", secondRoot, AgentWorkspaceAccess.ReadWrite)
                 ]);
             var provider = new DebugSourcePreviewProvider([], new DebugSourcePreviewOptions());
 
@@ -221,26 +222,35 @@ public sealed class DebugPresentationEventTests : IDisposable
     }
 
     private AgentWorkspace Workspace()
-        => new("root", _root, [new AgentWorkspaceRoot("root", _root)]);
+        => new("root", _root, [new AgentWorkspaceRoot("root", _root, AgentWorkspaceAccess.ReadWrite)]);
 
     public void Dispose()
     {
         if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
     }
 
-    private sealed class StubTextSource(string path, string text) : IReadFileTextSource
+    private sealed class StubTextSource : IReadFileTextSource
     {
+        private readonly string _path;
+        private readonly string _text;
+
+        public StubTextSource(string path, string text)
+        {
+            _path = AgentFilesystemPath.Canonicalize(path);
+            _text = text;
+        }
+
         public ValueTask<ReadFileTextSourceResult?> TryReadTextAsync(
             string fullPath,
             CancellationToken cancellationToken)
             => ValueTask.FromResult<ReadFileTextSourceResult?>(
-                string.Equals(path, fullPath, StringComparison.Ordinal)
+                string.Equals(_path, AgentFilesystemPath.Canonicalize(fullPath), StringComparison.Ordinal)
                     ? new ReadFileTextSourceResult
                     {
-                        FullPath = path,
-                        Reader = new StringReader(text),
+                        FullPath = _path,
+                        Reader = new StringReader(_text),
                         LastWriteTimeUtc = DateTimeOffset.UtcNow,
-                        Length = text.Length,
+                        Length = _text.Length,
                         Version = "live-2",
                         IsUnsavedEditorContent = true
                     }

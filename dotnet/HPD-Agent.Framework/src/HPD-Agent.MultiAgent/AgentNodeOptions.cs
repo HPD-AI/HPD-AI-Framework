@@ -56,6 +56,24 @@ public enum StructuredOutputMode
 /// </summary>
 public sealed class AgentNodeOptions
 {
+    public bool RecoveryOnly { get; set; }
+    public ErrorMode? ExhaustionMode { get; set; }
+    public IReadOnlyList<string>? AffectedNodes { get; set; }
+    public Dictionary<string, string>? Metadata { get; set; }
+
+    internal AgentNodeOptions Snapshot(HPD.Agent.Providers.ProviderComposition? providers)
+    {
+        var copy = (AgentNodeOptions)MemberwiseClone();
+        copy.RunConfig = AgentRunConfigSnapshot.Capture(RunConfig, providers)!;
+        copy.UnionTypes = UnionTypes?.ToArray();
+        copy.HandoffTargets = HandoffTargets is null ? null : new(HandoffTargets);
+        copy.Metadata = Metadata is null ? null : new(Metadata);
+        copy.AffectedNodes = AffectedNodes?.ToArray();
+        copy.ClientInheritance = ClientInheritance with { };
+        copy.RetryPolicy = RetryPolicy is null ? null : RetryPolicy with { RetryableExceptions = RetryPolicy.RetryableExceptions?.ToArray() };
+        return copy;
+    }
+
     /// <summary>
     /// Output mode for this agent (default: String).
     /// </summary>
@@ -310,9 +328,9 @@ public sealed class AgentNodeOptions
     /// <summary>
     /// Configure error handling to skip this agent and continue.
     /// </summary>
-    public AgentNodeOptions OnErrorSkip()
+    public AgentNodeOptions OnErrorSkipDependents()
     {
-        ErrorMode = ErrorMode.Skip;
+        ErrorMode = ErrorMode.SkipDependents;
         return this;
     }
 
@@ -329,11 +347,13 @@ public sealed class AgentNodeOptions
     /// Configure error handling to use a fallback agent.
     /// </summary>
     /// <param name="fallbackAgentId">The ID of the fallback agent to use.</param>
-    public AgentNodeOptions OnErrorFallback(string fallbackAgentId)
+    public AgentNodeOptions OnErrorFallback(string fallbackAgentId, ErrorMode exhaustionMode)
     {
         if (string.IsNullOrWhiteSpace(fallbackAgentId))
             throw new ArgumentException("Fallback agent ID cannot be empty", nameof(fallbackAgentId));
 
+        if (exhaustionMode == ErrorMode.Fallback) throw new ArgumentException("Chained recovery is unsupported.", nameof(exhaustionMode));
+        ExhaustionMode = exhaustionMode;
         ErrorMode = ErrorMode.Fallback;
         FallbackAgentId = fallbackAgentId;
         return this;

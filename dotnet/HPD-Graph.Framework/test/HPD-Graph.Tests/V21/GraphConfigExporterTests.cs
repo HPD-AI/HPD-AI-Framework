@@ -366,7 +366,7 @@ public sealed class GraphConfigExporterTests
                 EnableAutoConvergence = false
             },
             Metadata = new Dictionary<string, string> { ["owner"] = "runtime" },
-            Nodes = [StartNode(), WorkNode(), EndNode()],
+            Nodes = [StartNode(), WorkNode(), FallbackNode(), EndNode()],
             Edges =
             [
                 new Edge
@@ -444,8 +444,10 @@ public sealed class GraphConfigExporterTests
         ErrorPolicy = new ErrorPropagationPolicy
         {
             Mode = PropagationMode.ExecuteFallback,
-            FallbackNodeId = "fallback"
+            FallbackNodeId = "fallback",
+            ExhaustionMode = PropagationMode.Isolate
         },
+        OutputContract = AnswerContract(),
         SuspensionOptions = new SuspensionOptions
         {
             ActiveWaitTimeout = TimeSpan.Zero,
@@ -477,6 +479,29 @@ public sealed class GraphConfigExporterTests
             }
         },
         Metadata = new Dictionary<string, string> { ["kind"] = "test" }
+    };
+
+    private static Node FallbackNode() => new()
+    {
+        Id = "fallback",
+        Name = "Fallback",
+        Type = NodeType.Handler,
+        HandlerName = "fallback_handler",
+        RecoveryOnly = true,
+        OutputContract = AnswerContract()
+    };
+
+    private static NodeOutputContract AnswerContract() => new()
+    {
+        Values =
+        [
+            new OutputValueContract
+            {
+                Key = "answer",
+                TypeName = typeof(string).AssemblyQualifiedName!,
+                RuntimeType = typeof(string)
+            }
+        ]
     };
 
     private sealed class PrefixValidator(string prefix) : IInputValidator

@@ -12,6 +12,8 @@ public sealed record ErrorPropagationPolicy
     /// </summary>
     public required PropagationMode Mode { get; init; }
 
+    public PropagationMode? ExhaustionMode { get; init; }
+
     /// <summary>
     /// Which downstream nodes are affected by this node's failure?
     /// Null = all downstream (default).
@@ -51,9 +53,10 @@ public sealed record ErrorPropagationPolicy
     /// <summary>
     /// Creates a policy that executes a fallback node on error.
     /// </summary>
-    public static ErrorPropagationPolicy ExecuteFallback(string fallbackNodeId) => new()
+    public static ErrorPropagationPolicy ExecuteFallback(string fallbackNodeId, PropagationMode exhaustionMode) => new()
     {
         Mode = PropagationMode.ExecuteFallback,
+        ExhaustionMode = exhaustionMode,
         FallbackNodeId = fallbackNodeId
             ?? throw new ArgumentNullException(nameof(fallbackNodeId), "Fallback node ID cannot be null")
     };

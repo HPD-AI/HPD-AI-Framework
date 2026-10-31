@@ -28,9 +28,9 @@ public class ResilienceAndHandoffTests
     public void OnErrorSkip_Sets_ErrorMode()
     {
         var options = new AgentNodeOptions()
-            .OnErrorSkip();
+            .OnErrorSkipDependents();
 
-        options.ErrorMode.Should().Be(ErrorMode.Skip);
+        options.ErrorMode.Should().Be(ErrorMode.SkipDependents);
     }
 
     [Fact]
@@ -46,7 +46,7 @@ public class ResilienceAndHandoffTests
     public void OnErrorFallback_Sets_ErrorMode_And_FallbackId()
     {
         var options = new AgentNodeOptions()
-            .OnErrorFallback("fallbackAgent");
+            .OnErrorFallback("fallbackAgent", HPD.MultiAgent.Config.ErrorMode.Stop);
 
         options.ErrorMode.Should().Be(ErrorMode.Fallback);
         options.FallbackAgentId.Should().Be("fallbackAgent");
@@ -57,7 +57,7 @@ public class ResilienceAndHandoffTests
     {
         var options = new AgentNodeOptions();
 
-        Action act = () => options.OnErrorFallback("");
+        Action act = () => options.OnErrorFallback("", HPD.MultiAgent.Config.ErrorMode.Stop);
 
         act.Should().Throw<ArgumentException>();
     }
@@ -68,11 +68,11 @@ public class ResilienceAndHandoffTests
         var options = new AgentNodeOptions()
             .WithTimeout(TimeSpan.FromSeconds(30))
             .WithRetry(3)
-            .OnErrorSkip();
+            .OnErrorSkipDependents();
 
         options.Timeout.Should().Be(TimeSpan.FromSeconds(30));
         options.RetryPolicy.Should().NotBeNull();
-        options.ErrorMode.Should().Be(ErrorMode.Skip);
+        options.ErrorMode.Should().Be(ErrorMode.SkipDependents);
     }
 
     [Fact]
@@ -83,7 +83,7 @@ public class ResilienceAndHandoffTests
         var builder = AgentWorkflow.Create()
             .AddAgent("risky", config, o => o
                 .WithRetry(3)
-                .OnErrorFallback("safe"))
+                .OnErrorFallback("safe", HPD.MultiAgent.Config.ErrorMode.Stop))
             .AddAgent("safe", config);
 
         builder.Should().NotBeNull();
@@ -391,7 +391,7 @@ public class ResilienceAndHandoffTests
         var builder = AgentWorkflow.Create()
             .AddAgent("flaky", config, o => o
                 .WithRetry(3, BackoffStrategy.Exponential)
-                .OnErrorFallback("reliable"))
+                .OnErrorFallback("reliable", HPD.MultiAgent.Config.ErrorMode.Stop))
             .AddAgent("reliable", config)
             .From("START").To("flaky")
             .From("flaky", "reliable").To("END");

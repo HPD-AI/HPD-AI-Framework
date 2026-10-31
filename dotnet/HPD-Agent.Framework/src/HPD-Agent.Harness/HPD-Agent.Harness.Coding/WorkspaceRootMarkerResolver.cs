@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using HPD.Agent.Security;
 
 namespace HPD.Agent.ToolHarness.Coding;
 
@@ -42,6 +43,7 @@ public sealed class WorkspaceRootMarkerResolver : IWorkspaceRootMarkerResolver
             : workspace.ResolveDirectory(startingPath);
         var owningRoot = workspace.GetOwningRoot(canonicalStart)
             ?? throw new InvalidOperationException("The marker start path is outside the workspace.");
+        var canonicalOwningRoot = AgentFilesystemPath.Canonicalize(owningRoot.Path);
         var directory = File.Exists(canonicalStart)
             ? Path.GetDirectoryName(canonicalStart)!
             : canonicalStart;
@@ -54,7 +56,7 @@ public sealed class WorkspaceRootMarkerResolver : IWorkspaceRootMarkerResolver
         var matchedPaths = new List<string>();
         string? projectRoot = null;
 
-        for (var depth = 0; depth < MaximumDepth && IsInside(directory, owningRoot.Path); depth++)
+        for (var depth = 0; depth < MaximumDepth && IsInside(directory, canonicalOwningRoot); depth++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var directoryMatched = false;
@@ -79,11 +81,11 @@ public sealed class WorkspaceRootMarkerResolver : IWorkspaceRootMarkerResolver
 
         matchedPaths.Sort(StringComparer.Ordinal);
         var fingerprintText = string.Join('\n', matchedPaths.Select(path =>
-            Path.GetRelativePath(owningRoot.Path, path).Replace(Path.DirectorySeparatorChar, '/')));
+            Path.GetRelativePath(canonicalOwningRoot, path).Replace(Path.DirectorySeparatorChar, '/')));
         var fingerprint = Convert.ToHexString(
             SHA256.HashData(Encoding.UTF8.GetBytes(fingerprintText))).ToLowerInvariant();
         return ValueTask.FromResult(new WorkspaceRootMarkerResolution(
-            owningRoot.Path,
+            canonicalOwningRoot,
             projectRoot,
             matchedMarkers,
             matchedPaths,

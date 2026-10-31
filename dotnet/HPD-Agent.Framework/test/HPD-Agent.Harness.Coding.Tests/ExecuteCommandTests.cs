@@ -232,7 +232,7 @@ public sealed class ExecuteCommandTests : IDisposable
         {
           "defaultRootId": "default",
           "roots": [
-            { "id": "default", "path": "{{JsonEscape(_tempRoot)}}" }
+            { "id": "default", "access": "readWrite", "path": "{{JsonEscape(_tempRoot)}}" }
           ]
         }
         """;
@@ -281,7 +281,7 @@ public sealed class ExecuteCommandTests : IDisposable
             command: "pwd");
 
         runner.LastSpec.Should().NotBeNull();
-        runner.LastSpec!.Command.WorkingDirectory.Should().Be(Path.GetFullPath(_tempRoot));
+        runner.LastSpec!.Command.WorkingDirectory.Should().Be(AgentFilesystemPath.Canonicalize(_tempRoot));
     }
 
     [Fact]
@@ -570,7 +570,7 @@ public sealed class ExecuteCommandTests : IDisposable
             workingDirectory: "@docs");
 
         runner.LastSpec.Should().NotBeNull();
-        runner.LastSpec!.Command.WorkingDirectory.Should().Be(Path.GetFullPath(docsRoot));
+        runner.LastSpec!.Command.WorkingDirectory.Should().Be(AgentFilesystemPath.Canonicalize(docsRoot));
     }
 
     [Fact]
@@ -1771,11 +1771,11 @@ public sealed class ExecuteCommandTests : IDisposable
         var cwd = Path.GetFullPath(defaultRoot ?? Directory.GetCurrentDirectory());
         var roots = new List<AgentWorkspaceRoot>
         {
-            new("default", cwd)
+            new("default", cwd, AgentWorkspaceAccess.ReadWrite)
         };
 
         if (docsRoot is not null)
-            roots.Add(new AgentWorkspaceRoot("docs", Path.GetFullPath(docsRoot), "Docs"));
+            roots.Add(new AgentWorkspaceRoot("docs", Path.GetFullPath(docsRoot), AgentWorkspaceAccess.ReadWrite, "Docs"));
 
         return new AgentRunConfig
         {

@@ -31,13 +31,14 @@ public partial class CodingToolHarness
             if (argumentError != null)
                 return FormatEditError(EditFileErrorKind.InvalidArguments, path, argumentError);
 
-            resolvedPath = ResolveMutationPath(path);
+            resolvedPath = ResolveMutationPath(path, context);
             ValidateMutationPath(resolvedPath);
-            _ = await AgentFilesystemAccess.AuthorizeWriteAsync(
+            var authorizedPath = await AgentFilesystemAccess.AuthorizeWriteAsync(
                 resolvedPath.FullPath,
                 nameof(EditFile),
                 context,
                 CancellationToken.None).ConfigureAwait(false);
+            resolvedPath = resolvedPath with { FullPath = authorizedPath };
 
             var allowMissing = IsCreateEdit(edits);
             var current = await ReadMutationContentAsync(resolvedPath.FullPath, allowMissing).ConfigureAwait(false);

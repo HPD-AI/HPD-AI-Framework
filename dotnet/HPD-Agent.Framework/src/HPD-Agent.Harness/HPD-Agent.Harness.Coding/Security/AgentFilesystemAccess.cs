@@ -62,11 +62,17 @@ internal static class AgentFilesystemAccess
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        var canonical = Path.GetFullPath(path);
+        var canonical = AgentFilesystemPath.Canonicalize(path);
         // Direct library calls have no agent run and therefore no host sandbox
         // boundary to enforce. Agent tool invocation always supplies this context.
         if (context is null)
             return new AgentFilesystemAuthorization(canonical, Escalated: false);
+
+        var workspace = context.RunConfig.Context?.Properties?.ContainsKey(AgentWorkspace.ContextKey) == true
+            ? AgentWorkspace.From(context.RunConfig) : null;
+        if (capability == AgentCapabilityKind.FilesystemWrite && workspace is not null
+            && workspace.Roots.Any(root => root.Access == AgentWorkspaceAccess.ReadOnly && (AgentWorkspace.IsPathUnderDirectory(root.Path, Path.GetFullPath(path)) || AgentFilesystemPath.Contains(root.Path, canonical))))
+            throw new AgentCapabilityDeniedException(capability, canonical);
 
         var security = context.RunConfig.Security;
         if (security.Sandbox.Mode == AgentSandboxPolicy.Disabled)
@@ -76,7 +82,7 @@ internal static class AgentFilesystemAccess
         if (HasGrant(sandbox.Filesystem, canonical, capability))
             return new AgentFilesystemAuthorization(canonical, Escalated: false);
 
-        if (security.Sandbox.Escape == AgentSandboxEscapePolicy.Deny)
+        if (security.CapabilityCeiling is not null || security.Sandbox.Escape == AgentSandboxEscapePolicy.Deny)
             throw new AgentCapabilityDeniedException(capability, canonical);
 
         var requestId = Guid.NewGuid().ToString("N");

@@ -160,7 +160,7 @@ public class ExportConfigJsonTests
         var root = ParseJson(workflow.ExportConfigJson());
         var researcher = root.GetProperty("agents").GetProperty("researcher");
 
-        researcher.GetProperty("additionalInstructions").GetString().Should().Be("Focus on facts only.");
+        researcher.GetProperty("runConfig").GetProperty("systemInstructions").GetProperty("append").GetString().Should().Be("Focus on facts only.");
     }
 
     [Fact]
@@ -218,13 +218,13 @@ public class ExportConfigJsonTests
     // ── 6. error mode ─────────────────────────────────────────────────────────
 
     [Theory]
-    [InlineData("Skip")]
+    [InlineData("SkipDependents")]
     [InlineData("Isolate")]
     public async Task ExportConfigJson_Preserves_ErrorMode(string mode)
     {
         Action<AgentNodeOptions> configure = mode switch
         {
-            "Skip" => o => o.OnErrorSkip(),
+            "SkipDependents" => o => o.OnErrorSkipDependents(),
             "Isolate" => o => o.OnErrorIsolate(),
             _ => throw new InvalidOperationException()
         };
@@ -242,8 +242,8 @@ public class ExportConfigJsonTests
     {
         var workflow = await AgentWorkflow.Create()
             .WithName("W")
-            .AddAgent("primary", Cfg(), o => o.OnErrorFallback("backup"))
-            .AddAgent("backup", Cfg())
+            .AddAgent("primary", Cfg(), o => o.OnErrorFallback("backup", HPD.MultiAgent.Config.ErrorMode.Stop))
+            .AddAgent("backup", Cfg(), o => o.RecoveryOnly = true)
             .BuildAsync();
 
         var root = ParseJson(workflow.ExportConfigJson());

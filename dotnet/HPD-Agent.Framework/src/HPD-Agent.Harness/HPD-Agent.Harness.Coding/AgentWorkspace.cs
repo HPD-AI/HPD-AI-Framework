@@ -3,6 +3,7 @@
 
 using System.Text.Json;
 using HPD.Agent;
+using HPD.Agent.Security;
 
 namespace HPD.Agent.ToolHarness.Coding;
 
@@ -12,17 +13,25 @@ namespace HPD.Agent.ToolHarness.Coding;
 public sealed record AgentWorkspace(
     string DefaultRootId,
     string DefaultRootPath,
-    IReadOnlyList<AgentWorkspaceRoot> Roots)
+    IReadOnlyList<AgentWorkspaceRoot> Roots) : IAgentContextSnapshotValue
 {
+    /// <summary>Captures owned roots so a host-owned list cannot alter another invocation.</summary>
+    public object CaptureContextSnapshot() => new AgentWorkspace(
+        DefaultRootId, DefaultRootPath, Roots.Select(root => root with { }).ToArray());
+
     public const string ContextKey = "workspace";
 
     public int Version => 1;
 
     private readonly IReadOnlyDictionary<string, AgentWorkspaceRoot> _rootsById =
-        Roots.ToDictionary(root => root.Id, StringComparer.Ordinal);
+        Roots.ToDictionary(
+            root => root.Id,
+            root => root with { Path = AgentFilesystemPath.Canonicalize(root.Path) },
+            StringComparer.Ordinal);
 
     private readonly IReadOnlyList<AgentWorkspaceRoot> _rootsByPathDescending =
-        Roots.OrderByDescending(root => root.Path.Length).ToArray();
+        Roots.Select(root => root with { Path = AgentFilesystemPath.Canonicalize(root.Path) })
+            .OrderByDescending(root => root.Path.Length).ToArray();
 
     /// <summary>Resolves a path and requires it to belong to a configured workspace root.</summary>
     public string ResolveWorkspacePath(string path)
@@ -31,7 +40,7 @@ public sealed record AgentWorkspace(
             throw new AgentWorkspaceException(AgentWorkspaceErrorKind.InvalidWorkspaceShape, "Path is required.");
 
         var trimmed = path.Trim();
-        var fullPath = ResolvePathUnchecked(trimmed);
+        var fullPath = AgentFilesystemPath.Canonicalize(ResolvePathUnchecked(trimmed));
 
         if (!IsAllowedPath(fullPath))
             throw new AgentWorkspaceException(
@@ -42,7 +51,7 @@ public sealed record AgentWorkspace(
     }
 
     public string ResolveDirectory(string? path)
-        => string.IsNullOrWhiteSpace(path) ? DefaultRootPath : ResolveWorkspacePath(path);
+        => string.IsNullOrWhiteSpace(path) ? AgentFilesystemPath.Canonicalize(DefaultRootPath) : ResolveWorkspacePath(path);
 
     /// <summary>
     /// Canonicalizes an explicitly selected path without treating workspace membership as
@@ -60,7 +69,7 @@ public sealed record AgentWorkspace(
 
     public AgentWorkspaceRoot GetOwningRoot(string fullPath)
     {
-        var normalizedPath = Path.GetFullPath(fullPath);
+        var normalizedPath = AgentFilesystemPath.Canonicalize(fullPath);
         foreach (var root in _rootsByPathDescending)
         {
             if (IsPathUnderDirectory(root.Path, normalizedPath))
@@ -74,7 +83,7 @@ public sealed record AgentWorkspace(
 
     public bool IsAllowedPath(string fullPath)
     {
-        var normalizedPath = Path.GetFullPath(fullPath);
+        var normalizedPath = AgentFilesystemPath.Canonicalize(fullPath);
         return _rootsByPathDescending.Any(root => IsPathUnderDirectory(root.Path, normalizedPath));
     }
 
@@ -106,7 +115,7 @@ public sealed record AgentWorkspace(
                     "The explicit path has no containing directory.");
         var root = new AgentWorkspaceRoot(
             $"explicit-{Roots.Count}",
-            rootPath,
+            rootPath, AgentWorkspaceAccess.ReadOnly,
             Path.GetFileName(rootPath));
         return new AgentWorkspace(DefaultRootId, DefaultRootPath, [.. Roots, root]);
     }
@@ -278,7 +287,7 @@ public sealed record AgentWorkspace(
 
             roots.Add(new AgentWorkspaceRoot(
                 RequireString(rootElement, "id"),
-                RequireString(rootElement, "path"),
+                RequireString(rootElement, "path"), ParseAccess(RequireString(rootElement, "access")),
                 TryGetString(rootElement, "label")));
         }
 
@@ -312,7 +321,7 @@ public sealed record AgentWorkspace(
             {
                 roots.Add(new AgentWorkspaceRoot(
                     RequireString(rootElement, "id"),
-                    RequireString(rootElement, "path"),
+                    RequireString(rootElement, "path"), ParseAccess(RequireString(rootElement, "access")),
                     TryGetString(rootElement, "label")));
                 continue;
             }
@@ -328,7 +337,7 @@ public sealed record AgentWorkspace(
                 RequireDictionaryValue(rootDictionary, "id") as string
                     ?? throw new AgentWorkspaceException(AgentWorkspaceErrorKind.InvalidWorkspaceShape, "Workspace root id is required."),
                 RequireDictionaryValue(rootDictionary, "path") as string
-                    ?? throw new AgentWorkspaceException(AgentWorkspaceErrorKind.InvalidWorkspaceShape, "Workspace root path is required."),
+                    ?? throw new AgentWorkspaceException(AgentWorkspaceErrorKind.InvalidWorkspaceShape, "Workspace root path is required."), ParseAccess(RequireDictionaryValue(rootDictionary, "access") as string),
                 rootDictionary.TryGetValue("label", out var label) ? label as string : null));
         }
 
@@ -381,7 +390,9 @@ public sealed record AgentWorkspace(
                     "Workspace root path is required.");
             }
 
-            var fullPath = Path.GetFullPath(root.Path);
+            if (!Enum.IsDefined(root.Access))
+                throw new AgentWorkspaceException(AgentWorkspaceErrorKind.InvalidWorkspaceShape, "Workspace root access must be explicit.");
+            var fullPath = AgentFilesystemPath.Canonicalize(root.Path);
             if (!Directory.Exists(fullPath))
             {
                 throw new AgentWorkspaceException(
@@ -406,6 +417,13 @@ public sealed record AgentWorkspace(
                 AgentWorkspaceErrorKind.MissingDefaultRoot,
                 $"Workspace defaultRootId '{defaultRootId}' does not match a configured root.");
         }
+
+        foreach (var readOnly in normalizedRoots.Where(root => root.Access == AgentWorkspaceAccess.ReadOnly))
+            if (normalizedRoots.Any(root => root.Access == AgentWorkspaceAccess.ReadWrite &&
+                    (IsPathUnderDirectory(root.Path, readOnly.Path) || IsPathUnderDirectory(readOnly.Path, root.Path))))
+                throw new AgentWorkspaceException(
+                    AgentWorkspaceErrorKind.InvalidWorkspaceShape,
+                    "Read-only and writable workspace roots cannot overlap.");
 
         return new AgentWorkspace(defaultRootId, defaultRoot.Path, normalizedRoots);
     }
@@ -453,6 +471,13 @@ public sealed record AgentWorkspace(
         return property.GetString()!;
     }
 
+    private static AgentWorkspaceAccess ParseAccess(string? access) => access switch
+    {
+        "readOnly" => AgentWorkspaceAccess.ReadOnly,
+        "readWrite" => AgentWorkspaceAccess.ReadWrite,
+        _ => throw new AgentWorkspaceException(AgentWorkspaceErrorKind.InvalidWorkspaceShape, "Root access must be readOnly or readWrite.")
+    };
+
     private static string? TryGetString(JsonElement element, string name)
         => element.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.String
             ? property.GetString()
@@ -462,7 +487,10 @@ public sealed record AgentWorkspace(
 public sealed record AgentWorkspaceRoot(
     string Id,
     string Path,
+    AgentWorkspaceAccess Access,
     string? Label = null);
+
+public enum AgentWorkspaceAccess { ReadOnly = 1, ReadWrite = 2 }
 
 public sealed class AgentWorkspaceException : Exception
 {

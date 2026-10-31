@@ -724,11 +724,11 @@ public sealed class ReadFileTests : IDisposable
         var cwd = Path.GetFullPath(defaultRoot ?? Directory.GetCurrentDirectory());
         var roots = new List<AgentWorkspaceRoot>
         {
-            new("default", cwd)
+            new("default", cwd, AgentWorkspaceAccess.ReadWrite)
         };
 
         if (docsRoot is not null)
-            roots.Add(new AgentWorkspaceRoot("docs", Path.GetFullPath(docsRoot), "Docs"));
+            roots.Add(new AgentWorkspaceRoot("docs", Path.GetFullPath(docsRoot), AgentWorkspaceAccess.ReadWrite, "Docs"));
 
         return new AgentRunConfig
         {

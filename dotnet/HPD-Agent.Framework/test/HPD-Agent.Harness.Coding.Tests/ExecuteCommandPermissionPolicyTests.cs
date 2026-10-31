@@ -105,7 +105,7 @@ public sealed class ExecuteCommandPermissionPolicyTests
                     [AgentWorkspace.ContextKey] = new AgentWorkspace(
                         "default",
                         root,
-                        [new AgentWorkspaceRoot("default", root)])
+                        [new AgentWorkspaceRoot("default", root, AgentWorkspaceAccess.ReadWrite)])
                 }
             }
         };

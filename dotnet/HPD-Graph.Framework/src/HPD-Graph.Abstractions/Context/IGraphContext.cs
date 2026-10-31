@@ -372,6 +372,9 @@ public interface IGraphContext
     /// Used for error propagation and diagnostics.
     /// ORCHESTRATOR USE ONLY - Not intended for handler access.
     /// </summary>
+    HPD.Graph.Abstractions.Execution.NodeInvocation? Invocation { get; set; }
+    HPD.Graph.Abstractions.Execution.GraphExecutionLedger ExecutionLedger { get; }
+
     System.Collections.Concurrent.ConcurrentDictionary<string, Exception> InternalFailedNodes { get; }
 
     /// <summary>

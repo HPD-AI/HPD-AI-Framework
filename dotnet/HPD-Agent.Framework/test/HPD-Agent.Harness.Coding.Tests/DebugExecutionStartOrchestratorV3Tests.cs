@@ -226,7 +226,7 @@ public sealed class DebugExecutionStartOrchestratorV3Tests
             Workspace = new(
                 "root",
                 Path.GetTempPath(),
-                [new AgentWorkspaceRoot("root", Path.GetTempPath())]),
+                [new AgentWorkspaceRoot("root", Path.GetTempPath(), AgentWorkspaceAccess.ReadWrite)]),
             ExecutionPlan = Plan,
             Permission = new("call", "launch", DebugPermissionClass.Launch),
             ExecutionContext = CreateExecutionContext(),

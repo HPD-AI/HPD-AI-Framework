@@ -1,4 +1,5 @@
 using HPD.Agent.ToolHarness.Coding;
+using HPD.Agent.Security;
 
 namespace HPD.Agent.ToolHarness.Coding.Tests;
 
@@ -17,7 +18,7 @@ public sealed class WorkspaceRootMarkerResolverTests
             await File.WriteAllTextAsync(project, "<Project />");
             await File.WriteAllBytesAsync(artifact, []);
             var workspace = new AgentWorkspace(
-                "root", root, [new AgentWorkspaceRoot("root", root)]);
+                "root", root, [new AgentWorkspaceRoot("root", root, AgentWorkspaceAccess.ReadWrite)]);
             var resolver = new WorkspaceRootMarkerResolver();
 
             var first = await resolver.ResolveAsync(
@@ -25,9 +26,9 @@ public sealed class WorkspaceRootMarkerResolverTests
             var second = await resolver.ResolveAsync(
                 workspace, artifact, ["global.json", "*.csproj"]);
 
-            first.ProjectRoot.Should().Be(root);
+            first.ProjectRoot.Should().Be(AgentFilesystemPath.Canonicalize(root));
             first.MatchedMarkers.Should().Contain("*.csproj");
-            first.MatchedPaths.Should().Equal(project);
+            first.MatchedPaths.Should().Equal(AgentFilesystemPath.Canonicalize(project));
             first.Fingerprint.Should().Be(second.Fingerprint);
         }
         finally
@@ -47,7 +48,7 @@ public sealed class WorkspaceRootMarkerResolverTests
             Directory.CreateDirectory(Path.Combine(root, "nested"));
             await File.WriteAllTextAsync(Path.Combine(parent, "outside.csproj"), "<Project />");
             var workspace = new AgentWorkspace(
-                "root", root, [new AgentWorkspaceRoot("root", root)]);
+                "root", root, [new AgentWorkspaceRoot("root", root, AgentWorkspaceAccess.ReadWrite)]);
 
             var result = await new WorkspaceRootMarkerResolver().ResolveAsync(
                 workspace, Path.Combine(root, "nested"), ["*.csproj"]);

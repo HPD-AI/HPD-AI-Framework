@@ -40,7 +40,8 @@ public sealed class AgentRunConfigSnapshotTests
             },
             Context = new AgentContextRunConfig
             {
-                Properties = new Dictionary<string, object> { ["opaque"] = opaque }
+                Properties = new Dictionary<string, object> { ["opaque"] = opaque },
+                SharedProperties = new HashSet<string> { "opaque" }
             },
             StructuredOutput = new StructuredOutputOptions { UnionTypes = [typeof(string)] },
             Collapsing = new CollapsingRunPolicy

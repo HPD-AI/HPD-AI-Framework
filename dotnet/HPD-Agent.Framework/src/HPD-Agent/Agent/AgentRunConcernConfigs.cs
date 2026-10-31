@@ -37,13 +37,39 @@ public sealed class AgentToolsRunConfig
 /// <summary>Per-run middleware properties and context-backed tool instances.</summary>
 public sealed class AgentContextRunConfig
 {
-    /// <summary>Gets or sets properties exposed to middleware.</summary>
+    /// <summary>Gets or sets properties exposed to middleware. Data is recursively captured;
+    /// custom values must implement <see cref="IAgentContextSnapshotValue"/> or be explicitly shared.</summary>
     public IDictionary<string, object>? Properties { get; set; }
 
     /// <summary>Gets or sets runtime-only context-backed tool metadata.</summary>
     [JsonIgnore]
     public IDictionary<string, IToolMetadata>? ToolInstances { get; set; }
+
+    /// <summary>Host-owned property keys deliberately shared across captures. Values must be
+    /// concurrency-safe and must not contain mutable per-node authority. The host owns disposal.</summary>
+    [JsonIgnore]
+    public IReadOnlySet<string>? SharedProperties { get; set; }
+
+    /// <summary>Host-owned tool keys deliberately shared across captures. Instances must be
+    /// concurrency-safe and must not contain mutable per-node authority. The host owns disposal.</summary>
+    [JsonIgnore]
+    public IReadOnlySet<string>? SharedToolInstances { get; set; }
 }
+
+/// <summary>A custom context data value with explicit capture ownership.</summary>
+/// <remarks>Return a fresh value of the same type with independently owned mutable data.
+/// The returned value must support capture again. Capture is synchronous and must not acquire
+/// disposable resources; resource-bearing instances must instead have a host-owned lifetime.</remarks>
+public interface IAgentContextSnapshotValue
+{
+    /// <summary>Creates an independent context value for an invocation.</summary>
+    object CaptureContextSnapshot();
+}
+
+/// <summary>A context value whose entire reachable data is immutable and may be shared safely.</summary>
+/// <remarks>Implementing this interface asserts immutability, including nested collections.
+/// Read-only collection interfaces and records alone do not establish this guarantee.</remarks>
+public interface IAgentImmutableContextValue { }
 
 /// <summary>Per-run background-response behavior.</summary>
 public sealed class BackgroundResponsesRunConfig

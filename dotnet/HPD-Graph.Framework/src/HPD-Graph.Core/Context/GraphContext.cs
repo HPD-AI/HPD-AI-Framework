@@ -16,6 +16,9 @@ namespace HPD.Graph.Core.Context;
 /// </summary>
 public class GraphContext : IGraphContext
 {
+    public HPD.Graph.Abstractions.Execution.NodeInvocation? Invocation { get; set; }
+    public HPD.Graph.Abstractions.Execution.GraphExecutionLedger ExecutionLedger { get; init; } = new();
+
     // Thread-safe collections for parallel execution
     private readonly ConcurrentDictionary<string, byte> _completedNodes = new();
     private readonly ConcurrentDictionary<string, int> _nodeExecutionCounts = new();
@@ -220,6 +223,7 @@ public class GraphContext : IGraphContext
             ExecutionId, Graph, Services, CloneChannels(), Managed,
             enableSharedData: _sharedData != null)
         {
+            ExecutionLedger = ExecutionLedger,
             StartedAt = StartedAt,
             LastUpdatedAt = DateTimeOffset.UtcNow,
             CurrentLayerIndex = CurrentLayerIndex,
@@ -416,6 +420,8 @@ public class GraphContext : IGraphContext
         // and pass outputs from completed upstream nodes to downstream nodes
         foreach (var channelName in Channels.ChannelNames)
         {
+            if (channelName.StartsWith("node_result:") && Channels[channelName].Get<HPD.Graph.Abstractions.Execution.NodeExecutionResult>() is { } result)
+                clonedChannels[channelName].Set(result);
             if (channelName.StartsWith("node_output:"))
             {
                 // Deep clone the node output dictionary to the isolated context

@@ -15,6 +15,8 @@ namespace HPD.MultiAgent;
 /// </summary>
 public class AgentGraphContext : GraphContext
 {
+    public WorkflowHostBinding? HostBinding { get; init; }
+
     private readonly Dictionary<string, Agent.Agent> _agents;
     private readonly Dictionary<string, AgentNodeOptions> _agentOptions;
 
@@ -119,6 +121,8 @@ public class AgentGraphContext : GraphContext
             WorkflowName,
             Conversation)
         {
+            HostBinding = HostBinding,
+            ExecutionLedger = ExecutionLedger,
             CurrentLayerIndex = CurrentLayerIndex,
             // CRITICAL: Share the event coordinator so events from parallel nodes are streamed
             EventCoordinator = EventCoordinator,
@@ -149,6 +153,8 @@ public class AgentGraphContext : GraphContext
 
         foreach (var channelName in Channels.ChannelNames)
         {
+            if (channelName.StartsWith("node_result:") && Channels[channelName].Get<HPD.Graph.Abstractions.Execution.NodeExecutionResult>() is { } result)
+                clonedChannels[channelName].Set(result);
             if (channelName.StartsWith("node_output:"))
             {
                 var outputs = Channels[channelName].Get<Dictionary<string, object>>();

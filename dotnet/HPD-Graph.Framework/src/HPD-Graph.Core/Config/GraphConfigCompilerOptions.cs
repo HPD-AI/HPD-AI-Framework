@@ -9,6 +9,19 @@ namespace HPD.Graph.Core.Config;
 /// </summary>
 public sealed class GraphConfigCompilerOptions
 {
+    private readonly Dictionary<(string, string), IInputValidator> _outputSchemas = new();
+
+    public GraphConfigCompilerOptions RegisterOutputSchema(string identity, string version, IInputValidator validator)
+    {
+        if (_outputSchemas.TryGetValue((identity, version), out var existing) && !ReferenceEquals(existing, validator))
+            throw new InvalidOperationException("Output schema identity already has a different validator.");
+        _outputSchemas[(identity, version)] = validator;
+        return this;
+    }
+
+    internal IInputValidator ResolveOutputSchema(string identity, string version) => _outputSchemas.TryGetValue((identity, version), out var validator)
+        ? validator : throw new InvalidOperationException($"Output schema {identity}/{version} is not registered by the host.");
+
     private readonly Dictionary<string, Func<JsonElement?, PartitionDependencyMapping>> _partitionDependencyMappings =
         new(StringComparer.Ordinal);
 

@@ -83,6 +83,8 @@ public enum AgentSandboxPathAccess
 /// <summary>Immutable sandbox state captured for one run.</summary>
 public sealed record AgentSandboxRuntime
 {
+    /// <summary>Workspace restrictions retained across narrow capability escalation.</summary>
+    public IReadOnlyList<string> ReadOnlyPaths { get; init; } = [];
     /// <summary>Gets the secure default runtime.</summary>
     public static AgentSandboxRuntime Default { get; } = Capture(new AgentRunConfig());
 
@@ -108,6 +110,12 @@ public sealed record AgentSandboxRuntime
     public static AgentSandboxRuntime Capture(AgentRunConfig runConfig)
     {
         ArgumentNullException.ThrowIfNull(runConfig);
+        if (runConfig.Security.CapabilityCeiling is { } ceiling)
+        {
+            if (runConfig.Security.Sandbox.Mode != AgentSandboxPolicy.Enforced)
+                throw new AgentRunConfigurationException("CapabilityCeilingExceeded", "Security.Sandbox.Mode", "Host-bound capabilities require enforced isolation.");
+            AgentSandboxAuthorization.Validate(runConfig.Security.Sandbox.Capabilities, ceiling);
+        }
         return new AgentSandboxRuntime
         {
             Security = runConfig.Security with { },
@@ -130,7 +138,12 @@ public sealed record AgentSandboxRuntime
         string path)
     {
         var canonical = Path.GetFullPath(path);
+        if (access == AgentSandboxPathAccess.Write && ReadOnlyPaths.Any(root =>
+                AgentFilesystemPath.Contains(root, canonical) || AgentFilesystemPath.Contains(canonical, root)))
+            throw new AgentRunConfigurationException("ReadOnlyWorkspace", "Security.Sandbox.Capabilities.Filesystem", "Write escalation overlaps a read-only workspace.");
         var grant = new AgentSandboxPathGrant { Access = access, Path = canonical };
+        if (Security.CapabilityCeiling is { } ceiling)
+            AgentSandboxAuthorization.Validate(Configuration with { Filesystem = [grant] }, ceiling);
         return this with
         {
             Configuration = Configuration with

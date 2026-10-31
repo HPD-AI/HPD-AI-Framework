@@ -36,6 +36,8 @@ public enum NodeState
     /// Terminal state - execution complete.
     /// </summary>
     Succeeded,
+    Recovering,
+    Recovered,
 
     /// <summary>
     /// Node failed.
@@ -67,6 +69,7 @@ public static class NodeStateExtensions
     public static bool IsTerminal(this NodeState state) => state switch
     {
         NodeState.Succeeded => true,
+        NodeState.Recovered => true,
         NodeState.Failed => true,
         NodeState.Skipped => true,
         NodeState.Cancelled => true,
@@ -79,6 +82,7 @@ public static class NodeStateExtensions
     public static bool IsActive(this NodeState state) => state switch
     {
         NodeState.Running => true,
+        NodeState.Recovering => true,
         NodeState.Polling => true,
         NodeState.Suspended => true,
         _ => false

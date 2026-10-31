@@ -874,7 +874,7 @@ public sealed class DotNetDebugProjectEvaluatorV3Tests
     {
         var entries = roots.Select((path, index) => new AgentWorkspaceRoot(
             index == 0 ? "default" : $"root-{index + 1}",
-            path,
+            path, AgentWorkspaceAccess.ReadWrite,
             Path.GetFileName(path))).ToArray();
         return new AgentWorkspace(entries[0].Id, entries[0].Path, entries);
     }

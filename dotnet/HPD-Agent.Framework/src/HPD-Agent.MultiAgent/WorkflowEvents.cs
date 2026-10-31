@@ -333,3 +333,27 @@ public enum LogLevel
     Error = 4,
     Critical = 5
 }
+
+[EventType("WORKFLOW_RECOVERY")]
+public sealed record WorkflowRecoveryEvent : AgentEvent
+{
+    public required string WorkflowName { get; init; }
+    public required string ExecutionId { get; init; }
+    public required string PrimaryAgentId { get; init; }
+    public required string RecoveryAgentId { get; init; }
+    public required string State { get; init; }
+    public int Attempt { get; init; }
+}
+
+[EventType("WORKFLOW_ATTEMPT_COMPLETED")]
+public sealed record WorkflowAttemptCompletedEvent : AgentEvent
+{
+    public required string WorkflowName { get; init; }
+    public required string ExecutionId { get; init; }
+    public required string LogicalAgentId { get; init; }
+    public required string AgentId { get; init; }
+    public int Attempt { get; init; }
+    public bool IsRecovery { get; init; }
+    public required string Outcome { get; init; }
+    public bool IsTransient { get; init; }
+}

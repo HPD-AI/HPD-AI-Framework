@@ -148,7 +148,7 @@ public partial class CodingToolHarness
     private static ResolvedDirectoryPath ResolveDirectoryPath(string path, FunctionExecutionContext? context)
     {
         var trimmedPath = path.Trim();
-        var fullPath = Path.GetFullPath(trimmedPath, Directory.GetCurrentDirectory());
+        var fullPath = CodingHarnessPathResolution.ResolvePath(trimmedPath, context);
         return new ResolvedDirectoryPath(trimmedPath, fullPath);
     }
 

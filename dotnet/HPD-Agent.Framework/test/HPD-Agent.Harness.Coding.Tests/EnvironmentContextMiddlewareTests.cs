@@ -1,5 +1,6 @@
 using HPD.Agent;
 using HPD.Agent.Middleware;
+using HPD.Agent.Security;
 using HPD.Events.Core;
 using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
@@ -137,7 +138,7 @@ public sealed class EnvironmentContextMiddlewareTests
         var workspace = new AgentWorkspace(
             "default",
             "/tmp/selected-workspace",
-            [new AgentWorkspaceRoot("default", "/tmp/selected-workspace")]);
+            [new AgentWorkspaceRoot("default", "/tmp/selected-workspace", AgentWorkspaceAccess.ReadWrite)]);
 
         var xml = context.SerializeToXml(workspace);
 
@@ -243,16 +244,18 @@ public sealed class EnvironmentContextMiddlewareTests
                         [AgentWorkspace.ContextKey] = new AgentWorkspace(
                             "default",
                             selectedWorkspace,
-                            [new AgentWorkspaceRoot("default", selectedWorkspace)])
+                            [new AgentWorkspaceRoot("default", selectedWorkspace, AgentWorkspaceAccess.ReadWrite)])
                     } }
                 });
 
             await middleware.BeforeIterationAsync(context, CancellationToken.None);
 
             context.Options.Instructions.Should().NotContain("<cwd>");
-            context.Options.Instructions.Should().Contain($"<workspace_root>{selectedWorkspace}</workspace_root>");
+            context.Options.Instructions.Should().Contain(
+                $"<workspace_root>{AgentFilesystemPath.Canonicalize(selectedWorkspace)}</workspace_root>");
             context.Options.Instructions.Should().NotContain("<host_process_cwd>");
-            context.Options.Instructions.Should().Contain($"<default_root_path>{selectedWorkspace}</default_root_path>");
+            context.Options.Instructions.Should().Contain(
+                $"<default_root_path>{AgentFilesystemPath.Canonicalize(selectedWorkspace)}</default_root_path>");
         }
         finally
         {

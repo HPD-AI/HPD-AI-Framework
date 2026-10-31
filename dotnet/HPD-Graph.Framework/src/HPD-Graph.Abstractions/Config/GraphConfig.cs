@@ -26,6 +26,8 @@ public sealed record GraphConfig
 
 public sealed record NodeConfig
 {
+    public bool RecoveryOnly { get; init; }
+    public HPD.Graph.Abstractions.Graph.NodeOutputContract? OutputContract { get; init; }
     public required string Id { get; init; }
     public required string Name { get; init; }
     public required NodeKindConfig Type { get; init; }

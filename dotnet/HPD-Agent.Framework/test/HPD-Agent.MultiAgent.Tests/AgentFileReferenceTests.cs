@@ -58,7 +58,7 @@ public sealed class AgentFileReferenceTests
         try
         {
             File.WriteAllText(path, "{\"name\":\"Missing\",\"agents\":{\"metrics\":{\"agentFile\":\"absent/reviewer.yaml\"}}}");
-            var error = Assert.Throws<InvalidOperationException>(() => MultiAgentConfigSerializer.ReadFile(path));
+            var error = Assert.Throws<System.Text.Json.JsonException>(() => MultiAgentConfigSerializer.ReadFile(path));
             Assert.Contains("metrics", error.Message);
             Assert.Contains(Path.Combine(Path.GetDirectoryName(path)!, "absent", "reviewer.yaml"), error.Message);
         }

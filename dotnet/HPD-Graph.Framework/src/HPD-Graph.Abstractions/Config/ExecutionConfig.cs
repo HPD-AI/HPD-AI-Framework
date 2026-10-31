@@ -4,6 +4,7 @@ namespace HPD.Graph.Abstractions.Config;
 
 public sealed record RetryPolicyConfig
 {
+    public bool OnlyTransient { get; init; } = true;
     public required int MaxAttempts { get; init; }
     public required TimeSpan InitialDelay { get; init; }
     public BackoffStrategyConfig Strategy { get; init; } = BackoffStrategyConfig.Exponential;
@@ -44,6 +45,7 @@ public sealed record SuspensionOptionsConfig
 public sealed record ErrorPropagationPolicyConfig
 {
     public required PropagationModeConfig Mode { get; init; }
+    public PropagationModeConfig? ExhaustionMode { get; init; }
     public IReadOnlyList<string>? AffectedNodes { get; init; }
     public string? FallbackNodeId { get; init; }
 }

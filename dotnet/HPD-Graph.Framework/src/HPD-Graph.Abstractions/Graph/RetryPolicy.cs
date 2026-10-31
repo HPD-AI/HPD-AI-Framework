@@ -33,6 +33,8 @@ public enum BackoffStrategy
 /// </summary>
 public sealed record RetryPolicy
 {
+    /// <summary>Requires transient failure classification independently of the exception filter.</summary>
+    public bool OnlyTransient { get; init; } = true;
     /// <summary>
     /// Maximum number of attempts (including initial attempt).
     /// Example: MaxAttempts = 3 means 1 initial + 2 retries.
@@ -96,7 +98,7 @@ public sealed record RetryPolicy
     /// <summary>
     /// Check if an exception should trigger a retry.
     /// </summary>
-    public bool ShouldRetry(Exception exception)
+    private bool MatchesExceptionFilter(Exception exception)
     {
         if (RetryableExceptions == null || RetryableExceptions.Count == 0)
         {
@@ -105,5 +107,21 @@ public sealed record RetryPolicy
 
         var exceptionType = exception.GetType();
         return RetryableExceptions.Any(t => t.IsAssignableFrom(exceptionType));
+    }
+
+    /// <summary>Decides eligibility and budget in one place. Cancellation never starts another attempt.</summary>
+    public bool ShouldRetry(Execution.NodeExecutionResult.Failure failure, int attempts)
+    {
+        Validate();
+        return failure.Exception is not OperationCanceledException && attempts < MaxAttempts
+            && (!OnlyTransient || failure.IsTransient) && MatchesExceptionFilter(failure.Exception);
+    }
+
+    public void Validate()
+    {
+        if (MaxAttempts < 1 || InitialDelay < TimeSpan.Zero || MaxDelay < TimeSpan.Zero)
+            throw new ArgumentException("Retry attempts must be positive and delays must be nonnegative.");
+        if (RetryableExceptions?.Any(type => type.ContainsGenericParameters || !typeof(Exception).IsAssignableFrom(type)) == true)
+            throw new ArgumentException("Retry filters require closed Exception-derived types.");
     }
 }

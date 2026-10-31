@@ -85,6 +85,10 @@ public enum AgentSandboxEscapePolicy
 /// </summary>
 public sealed record AgentSecurityRunConfig
 {
+    /// <summary>Trusted host ceiling. Configuration documents cannot provide this authority.</summary>
+    [JsonIgnore]
+    public Security.AgentSandboxConfiguration? CapabilityCeiling { get; init; }
+
     /// <summary>Gets the protected-operation approval policy.</summary>
     public AgentApprovalPolicy Approval { get; init; } = AgentApprovalPolicy.ReviewProtectedActions;
 

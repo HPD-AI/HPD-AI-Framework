@@ -115,7 +115,7 @@ public sealed class GlobSearchTests : IDisposable
     }
 
     [Fact]
-    public async Task GlobSearch_UsesCurrentDirectoryWhenContextIsProvided()
+    public async Task GlobSearch_UsesWorkspaceDirectoryWhenContextIsProvided()
     {
         var workspaceRoot = Path.Combine(_tempRoot, "workspace-root");
         Directory.CreateDirectory(workspaceRoot);
@@ -127,13 +127,14 @@ public sealed class GlobSearchTests : IDisposable
             "**/*.cs",
             context: CreateFunctionContext(CreateFullAccessWorkspaceRunConfig(workspaceRoot)));
 
-        result.Should().Contain($"path=\"{Directory.GetCurrentDirectory()}");
-        result.Should().Contain("path=\"Cwd.cs\"");
-        result.Should().Contain("path=\"workspace-root/src/Workspace.cs\"");
+        result.Should().Contain("path=\"/private/");
+        result.Should().Contain("workspace-root\"");
+        result.Should().Contain("path=\"src/Workspace.cs\"");
+        result.Should().NotContain("path=\"Cwd.cs\"");
     }
 
     [Fact]
-    public async Task GlobSearch_DoesNotResolveRelativePathFromRunConfigWorkspace()
+    public async Task GlobSearch_ResolvesRelativePathFromRunConfigWorkspace()
     {
         var workspaceRoot = Path.Combine(_tempRoot, "workspace-root");
         Directory.CreateDirectory(Path.Combine(workspaceRoot, "src"));
@@ -145,8 +146,9 @@ public sealed class GlobSearchTests : IDisposable
             path: "src",
             context: CreateFunctionContext(CreateFullAccessWorkspaceRunConfig(workspaceRoot)));
 
-        result.Should().Contain("Directory does not exist");
-        result.Should().Contain(Path.Combine(_tempRoot, "src"));
+        result.Should().Contain("path=\"App.cs\"");
+        result.Should().Contain(Path.Combine(workspaceRoot, "src"));
+        result.Should().NotContain("Directory does not exist");
     }
 
     [Fact]
@@ -821,7 +823,7 @@ public sealed class GlobSearchTests : IDisposable
                 [AgentWorkspace.ContextKey] = new AgentWorkspace(
                     "default",
                     fullRoot,
-                    [new AgentWorkspaceRoot("default", fullRoot)])
+                    [new AgentWorkspaceRoot("default", fullRoot, AgentWorkspaceAccess.ReadWrite)])
             } }
         };
     }

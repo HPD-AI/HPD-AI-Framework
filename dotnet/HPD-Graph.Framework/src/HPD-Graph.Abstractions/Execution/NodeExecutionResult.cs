@@ -17,6 +17,7 @@ public abstract record NodeExecutionResult
         NodeExecutionMetadata Metadata
     ) : NodeExecutionResult
     {
+        public RecoveryProvenance? Recovery { get; init; }
         /// <summary>
         /// Convenience factory for single-output nodes (port 0).
         /// Most common case: single output.
@@ -196,3 +197,5 @@ public abstract record NodeExecutionResult
     // Prevent external inheritance - only the nested records above
     private NodeExecutionResult() { }
 }
+
+public sealed record RecoveryProvenance(string ExecutionId, string RecoveryNodeId, int Attempts);

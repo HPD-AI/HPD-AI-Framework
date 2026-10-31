@@ -388,7 +388,7 @@ public class CodingToolHarnessAgentBuilderTests
                 [AgentWorkspace.ContextKey] = new AgentWorkspace(
                     "default",
                     cwd,
-                    [new AgentWorkspaceRoot("default", cwd)])
+                    [new AgentWorkspaceRoot("default", cwd, AgentWorkspaceAccess.ReadWrite)])
             } }
         };
         var beforeContext = agentContext.AsBeforeFunction(

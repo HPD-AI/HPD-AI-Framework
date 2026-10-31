@@ -8,6 +8,21 @@ namespace HPD.Agent.Serialization;
 /// <summary>AOT-safe JSON/YAML serialization helpers for HPD agent configuration documents.</summary>
 public static class HpdAgentConfigSerializer
 {
+    public static AgentRunConfig? DeserializeRunConfig(string text, HpdConfigFormat format = HpdConfigFormat.Json)
+    {
+        var root = ParseObject(text, format);
+        if (root is null) return null;
+        if (ExtractPayloads(root).FirstOrDefault() is { } payload)
+            ThrowProviderCompositionNotInstalled(payload.Path);
+        return JsonSerializer.Deserialize(root.ToJsonString(), HPDJsonContext.Default.AgentRunConfig);
+    }
+
+    public static string Serialize(AgentRunConfig config, HpdConfigFormat format = HpdConfigFormat.Json)
+    {
+        ValidatePortableClients("clients", config.Clients);
+        EnsureProviderCompositionNotRequired("clients", config.Clients.GetFamilyConfig);
+        return HpdConfigSerializer.Serialize(config, HPDJsonContext.Default.AgentRunConfig, format);
+    }
     public static AgentConfig? ReadFile(string path)
         => Deserialize(File.ReadAllText(path), GetFileFormat(path));
 

@@ -37,7 +37,7 @@ public sealed class GraphConfigCompiler
         EnsureEndpointNode(nodes, config.EntryNodeId, NodeType.Start, "Start");
         EnsureEndpointNode(nodes, config.ExitNodeId, NodeType.End, "End");
 
-        return new RuntimeGraph
+        var graph = new RuntimeGraph
         {
             Id = config.GraphId,
             Name = config.Name,
@@ -52,6 +52,8 @@ public sealed class GraphConfigCompiler
             CloningPolicy = CompileCloningPolicy(config.CloningPolicy),
             IterationOptions = CompileIterationOptions(config.IterationOptions)
         };
+        RecoveryValidation.Validate(graph);
+        return graph;
     }
 
     private static void ValidateGraphConfig(GraphConfig config)
@@ -108,6 +110,8 @@ public sealed class GraphConfigCompiler
     {
         return new Node
         {
+            RecoveryOnly = config.RecoveryOnly,
+            OutputContract = CompileOutputContract(config.OutputContract),
             Id = config.Id,
             Name = config.Name,
             Type = CompileNodeType(config.Type),
@@ -147,6 +151,15 @@ public sealed class GraphConfigCompiler
             Metadata = config.Metadata
         };
     }
+
+    private NodeOutputContract? CompileOutputContract(NodeOutputContract? contract) => contract is null ? null : contract with
+    {
+        Values = contract.Values.Select(value => value with
+        {
+            RuntimeType = ResolveType(value.TypeName) ?? throw new InvalidOperationException($"Unresolved output contract type '{value.TypeName}'."),
+            SchemaValidator = value.SchemaIdentity is null ? null : _options.ResolveOutputSchema(value.SchemaIdentity, value.SchemaVersion!)
+        }).ToArray()
+    };
 
     private static JsonElement? CompileNodeConfig(JsonElement? config)
     {
@@ -190,6 +203,7 @@ public sealed class GraphConfigCompiler
 
         return new RetryPolicy
         {
+            OnlyTransient = config.OnlyTransient,
             MaxAttempts = config.MaxAttempts,
             InitialDelay = config.InitialDelay,
             Strategy = config.Strategy switch
@@ -205,7 +219,7 @@ public sealed class GraphConfigCompiler
         };
     }
 
-    private IReadOnlyList<Type>? ResolveExceptionTypes(IReadOnlyList<string>? typeNames)
+    public IReadOnlyList<Type>? ResolveExceptionTypes(IReadOnlyList<string>? typeNames)
     {
         if (typeNames is null || typeNames.Count == 0)
         {
@@ -221,7 +235,7 @@ public sealed class GraphConfigCompiler
                 throw new InvalidOperationException($"Retryable exception type '{typeName}' could not be resolved.");
             }
 
-            if (!typeof(Exception).IsAssignableFrom(type))
+            if (type.ContainsGenericParameters || !typeof(Exception).IsAssignableFrom(type))
             {
                 throw new InvalidOperationException($"Retryable exception type '{typeName}' is not an exception type.");
             }
@@ -250,6 +264,7 @@ public sealed class GraphConfigCompiler
                 _ => PropagationMode.StopGraph
             },
             AffectedNodes = config.AffectedNodes,
+            ExhaustionMode = config.ExhaustionMode is null ? null : Enum.Parse<PropagationMode>(config.ExhaustionMode.Value.ToString()),
             FallbackNodeId = config.FallbackNodeId
         };
     }
@@ -678,6 +693,11 @@ public sealed class GraphConfigCompiler
             "ArgumentException" or "System.ArgumentException" => typeof(ArgumentException),
             "ArgumentNullException" or "System.ArgumentNullException" => typeof(ArgumentNullException),
             "NotSupportedException" or "System.NotSupportedException" => typeof(NotSupportedException),
+            "System.Net.Http.HttpRequestException" => typeof(System.Net.Http.HttpRequestException),
+            "System.IO.IOException" => typeof(IOException),
+            "System.IO.InvalidDataException" => typeof(InvalidDataException),
+            "System.FormatException" => typeof(FormatException),
+            "System.Text.Json.JsonException" => typeof(JsonException),
             _ => _options.ResolveType(simpleTypeName)
         };
     }

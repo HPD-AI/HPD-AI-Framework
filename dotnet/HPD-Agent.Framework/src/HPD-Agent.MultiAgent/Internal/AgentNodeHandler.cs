@@ -201,6 +201,11 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         // For full Handlebars support, would need a library
         var result = template;
         var allInputs = inputs.GetAll();
+        foreach (var (source, outcome) in inputs.SourceResults)
+        {
+            result = result.Replace("{{sourceResults." + source + ".outcome}}", outcome.GetType().Name);
+            result = result.Replace("{{sourceResults." + source + ".errorCode}}", (outcome as NodeExecutionResult.Failure)?.ErrorCode ?? "");
+        }
 
         foreach (var kvp in allInputs)
         {
@@ -223,7 +228,8 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         var messages = new[] { new ChatMessage(ChatRole.User, input) };
 
         // Build per-invocation options (with fallback chat client from parent)
-        var runConfig = BuildRunConfig(agent, options, context);
+        await using var runBinding = await BuildRunConfigAsync(agent, options, context, ct);
+        var runConfig = runBinding.Config;
 
         using (agent.SubscribeAny(evt =>
         {
@@ -258,14 +264,8 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         }
 
         var messages = new[] { new ChatMessage(ChatRole.User, input) };
-        var runConfig = BuildRunConfig(agent, options, context);
-
-        // Configure structured output
-        runConfig.StructuredOutput = new StructuredOutputOptions
-        {
-            Mode = options.StructuredOutputMode == StructuredOutputMode.Native ? "native" : "tool",
-            SchemaName = options.StructuredType.Name
-        };
+        await using var runBinding = await BuildRunConfigAsync(agent, options, context, ct);
+        var runConfig = runBinding.Config;
 
         object? result = null;
 
@@ -295,6 +295,9 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
             await RunAgentAsync(agent, context, _nodeId, input, options, messages, runConfig, ct);
         }
 
+        if (result is null)
+            throw new InvalidOperationException($"Agent node '{_nodeId}' did not return a valid structured result.");
+
         return FlattenToOutputs(result, options.StructuredType);
     }
 
@@ -311,14 +314,8 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         }
 
         var messages = new[] { new ChatMessage(ChatRole.User, input) };
-        var runConfig = BuildRunConfig(agent, options, context);
-
-        // Configure union output
-        runConfig.StructuredOutput = new StructuredOutputOptions
-        {
-            Mode = options.StructuredOutputMode == StructuredOutputMode.Native ? "union" : "tool",
-            UnionTypes = options.UnionTypes
-        };
+        await using var runBinding = await BuildRunConfigAsync(agent, options, context, ct);
+        var runConfig = runBinding.Config;
 
         object? result = null;
         Type? matchedType = null;
@@ -349,6 +346,9 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
             await RunAgentAsync(agent, context, _nodeId, input, options, messages, runConfig, ct);
         }
 
+        if (result is null || matchedType is null || !options.UnionTypes.Contains(matchedType))
+            throw new InvalidOperationException($"Agent node '{_nodeId}' did not return a valid union result.");
+
         var outputs = FlattenToOutputs(result, matchedType);
 
         // Add matched_type for RouteByType() routing
@@ -377,7 +377,8 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         string? selectedHandoff = null;
         var responseText = new StringBuilder();
 
-        var runConfig = BuildRunConfig(agent, options, context);
+        await using var runBinding = await BuildRunConfigAsync(agent, options, context, ct);
+        var runConfig = runBinding.Config;
 
         // Generate and inject handoff tools through the consolidated tool configuration.
         var handoffTools = HandoffToolGenerator.CreateHandoffTools(options.HandoffTargets);
@@ -463,28 +464,75 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
 
         await using var routeLease = await context.Conversation.EnterRouteAsync(route, ct).ConfigureAwait(false);
 
-        await agent.RunAsync(new UserMessagesInputEvent { Messages = messages,
+        var request = new UserMessagesInputEvent
+        {
+            Messages = messages,
             SessionId = route.SessionId,
             ThreadId = route.ThreadId,
             RunConfig = runConfig
-        }, ct).ConfigureAwait(false);
+        };
+
+        if (options.OutputMode is AgentOutputMode.Structured or AgentOutputMode.Union)
+        {
+            // The typed entry point creates the schema/output tool, parses the
+            // response, and publishes StructuredResultEvent<T>. RunAsync alone
+            // does not perform that typed finalization.
+            var method = typeof(Agent.Agent).GetMethods()
+                .Single(m => m.Name == nameof(Agent.Agent.RunStructuredAsync)
+                    && m.IsGenericMethodDefinition
+                    && m.GetParameters().Length == 2
+                    && m.GetParameters()[0].ParameterType == typeof(AgentInputEvent));
+            try
+            {
+                await ((Task)method.MakeGenericMethod(options.OutputMode == AgentOutputMode.Union ? typeof(object) : options.StructuredType!)
+                    .Invoke(agent, [request, ct])!).ConfigureAwait(false);
+            }
+            catch (System.Reflection.TargetInvocationException ex) when (ex.InnerException is not null)
+            {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
+                throw;
+            }
+        }
+        else
+        {
+            await agent.RunAsync(request, ct).ConfigureAwait(false);
+        }
     }
 
-    private static AgentRunConfig BuildRunConfig(
-        Agent.Agent agent,
-        AgentNodeOptions options,
-        AgentGraphContext? graphContext = null)
+    private static async ValueTask<WorkflowRunBinding> BuildRunConfigAsync(
+        Agent.Agent agent, AgentNodeOptions options, AgentGraphContext graphContext, CancellationToken cancellationToken)
     {
-        var runConfig = agent.CaptureRunConfig(options.RunConfig);
-        var parentContext = graphContext?.ParentExecutionContext;
-        ApplyComponentClientInheritance(
-            runConfig,
-            parentContext?.ClientSet,
-            agent.Config,
-            options.ClientInheritance);
-        ApplyChatInheritance(runConfig, agent, options.ClientInheritance.Chat, parentContext);
+        var requested = agent.CaptureRunConfig(options.RunConfig);
+        var host = graphContext.HostBinding;
+        var identity = new WorkflowNodeIdentity(graphContext.WorkflowName, graphContext.CurrentNodeId!,
+            graphContext.Invocation?.ExecutionId ?? graphContext.ExecutionId, graphContext.Invocation?.Attempt ?? 1);
+        var lease = host is null ? new WorkflowRunBinding(requested)
+            : await host.BindAttemptAsync(identity, requested, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var runConfig = agent.CaptureRunConfig(host is null ? lease.Config : host.Authorize(lease.Config));
+            ResolveOutput(options, runConfig);
+            var parentContext = graphContext.ParentExecutionContext;
+            ApplyComponentClientInheritance(runConfig, parentContext?.ClientSet, agent.Config, options.ClientInheritance);
+            ApplyChatInheritance(runConfig, agent, options.ClientInheritance.Chat, parentContext);
+            return new WorkflowRunBinding(runConfig, lease);
+        }
+        catch { await lease.DisposeAsync().ConfigureAwait(false); throw; }
+    }
 
-        return runConfig;
+    internal static void ResolveOutput(AgentNodeOptions options, AgentRunConfig runConfig)
+    {
+        if (options.OutputMode is AgentOutputMode.Structured or AgentOutputMode.Union)
+        {
+            var type = options.OutputMode == AgentOutputMode.Union ? typeof(object) : options.StructuredType;
+            if (type is null || (options.OutputMode == AgentOutputMode.Union && options.UnionTypes is not { Length: > 0 }))
+                throw new InvalidOperationException("Structured and Union nodes require a resolved output type contract.");
+            runConfig.StructuredOutput = StructuredOutputResolution.Resolve(runConfig.StructuredOutput, type,
+                options.StructuredOutputMode == StructuredOutputMode.Native ? "native" : "tool",
+                options.OutputMode == AgentOutputMode.Union ? options.UnionTypes : null);
+        }
+        else if (runConfig.StructuredOutput is not null)
+            throw new InvalidOperationException("String/Handoff nodes cannot declare structured output run settings.");
     }
 
 #pragma warning disable MEAI001
@@ -614,7 +662,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         var targetType = type ?? result.GetType();
 
         // Flatten each property to a separate output key
-        foreach (var prop in targetType.GetProperties())
+        foreach (var prop in targetType.GetProperties().Where(p => p.CanRead && p.GetIndexParameters().Length == 0 && p.GetMethod?.IsStatic == false))
         {
             var value = prop.GetValue(result);
             if (value != null)

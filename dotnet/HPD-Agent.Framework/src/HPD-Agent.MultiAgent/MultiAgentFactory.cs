@@ -24,10 +24,13 @@ public interface IMultiAgentFactory
 
 public sealed class MultiAgentFactory : IMultiAgentFactory
 {
+    private readonly WorkflowHostBinding? _host;
+    public MultiAgentFactory(WorkflowHostBinding? host = null) => _host = host;
+
     public MultiAgent CreateBuilder(MultiAgentWorkflowConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
-        return new MultiAgent(config);
+        return new MultiAgent(config, _host);
     }
 
     public MultiAgent CreateBuilderFromFile(string path)
@@ -43,7 +46,7 @@ public sealed class MultiAgentFactory : IMultiAgentFactory
         CancellationToken cancellationToken = default)
         => CreateBuilderFromFile(path).BuildAsync(cancellationToken);
 
-    private static MultiAgentWorkflowConfig LoadConfigFile(string path)
+    private MultiAgentWorkflowConfig LoadConfigFile(string path)
     {
         if (string.IsNullOrWhiteSpace(path))
             throw new ArgumentException("Multi-agent workflow configuration file path cannot be null or empty.", nameof(path));
@@ -51,7 +54,7 @@ public sealed class MultiAgentFactory : IMultiAgentFactory
         if (!File.Exists(path))
             throw new FileNotFoundException($"Multi-agent workflow configuration file not found: {path}");
 
-        return MultiAgentConfigSerializer.ReadFile(path)
+        return (_host?.Providers is { } providers ? MultiAgentConfigSerializer.ReadFile(path, providers) : MultiAgentConfigSerializer.ReadFile(path))
             ?? throw new JsonException($"Failed to deserialize MultiAgentWorkflowConfig from '{path}' - result was null.");
     }
 }

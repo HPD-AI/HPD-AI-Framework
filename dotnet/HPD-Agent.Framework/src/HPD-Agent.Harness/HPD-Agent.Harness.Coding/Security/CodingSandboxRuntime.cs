@@ -14,8 +14,10 @@ internal static class CodingSandboxRuntime
         ArgumentNullException.ThrowIfNull(runConfig);
 
         var runtime = AgentSandboxRuntime.Capture(runConfig);
-        if (!AgentWorkspace.TryFrom(runConfig, out var workspace, out _))
-            return runtime;
+        if (runConfig.Context?.Properties?.ContainsKey(AgentWorkspace.ContextKey) != true) return runtime;
+        var workspace = AgentWorkspace.From(runConfig);
+        if (!runtime.IsEnforced && workspace.Roots.Any(root => root.Access == AgentWorkspaceAccess.ReadOnly))
+            throw new InvalidOperationException("Read-only workspaces require enforced process isolation.");
 
         var workingDirectory = workspace.DefaultRootPath;
         var grants = runtime.Filesystem
@@ -30,11 +32,18 @@ internal static class CodingSandboxRuntime
         foreach (var root in workspace.Roots)
         {
             AddGrant(grants, AgentSandboxPathAccess.Read, root.Path);
-            AddGrant(grants, AgentSandboxPathAccess.Write, root.Path);
+            if (root.Access == AgentWorkspaceAccess.ReadWrite)
+                AddGrant(grants, AgentSandboxPathAccess.Write, root.Path);
+            else if (grants.Any(grant => grant.Access == AgentSandboxPathAccess.Write &&
+                (AgentFilesystemPath.Contains(grant.Path, root.Path) || AgentFilesystemPath.Contains(root.Path, grant.Path))))
+                throw new InvalidOperationException("Write grants overlap a declared read-only workspace root.");
         }
 
+        if (runConfig.Security.CapabilityCeiling is { } ceiling)
+            AgentSandboxAuthorization.Validate(runtime.Configuration with { Filesystem = grants.ToArray() }, ceiling);
         return runtime with
         {
+            ReadOnlyPaths = workspace.Roots.Where(root => root.Access == AgentWorkspaceAccess.ReadOnly).Select(root => root.Path).ToArray(),
             Configuration = runtime.Configuration with
             {
                 Filesystem = grants.ToArray()

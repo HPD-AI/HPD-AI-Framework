@@ -26,13 +26,14 @@ public partial class CodingToolHarness
             if (argumentError != null)
                 return FormatWriteError(WriteFileErrorKind.InvalidArguments, path, argumentError);
 
-            resolvedPath = ResolveMutationPath(path);
+            resolvedPath = ResolveMutationPath(path, context);
             ValidateMutationPath(resolvedPath);
-            _ = await AgentFilesystemAccess.AuthorizeWriteAsync(
+            var authorizedPath = await AgentFilesystemAccess.AuthorizeWriteAsync(
                 resolvedPath.FullPath,
                 nameof(WriteFile),
                 context,
                 CancellationToken.None).ConfigureAwait(false);
+            resolvedPath = resolvedPath with { FullPath = authorizedPath };
 
             if (ContainsStandaloneOmissionPlaceholder(content))
                 return FormatWriteError(

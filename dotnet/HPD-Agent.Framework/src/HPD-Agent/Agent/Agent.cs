@@ -5756,7 +5756,7 @@ public sealed partial class Agent : IAsyncDisposable
     {
         // Ensure StructuredOutput options exist
         options ??= new AgentRunConfig();
-        options.StructuredOutput ??= new StructuredOutputOptions();
+        options.StructuredOutput = StructuredOutputResolution.Resolve(options.StructuredOutput, typeof(T));
 
         var structuredOpts = options.StructuredOutput;
         var schemaName = structuredOpts.SchemaName ?? typeof(T).Name;
@@ -5775,7 +5775,7 @@ public sealed partial class Agent : IAsyncDisposable
         Type? matchedUnionType = null;   // Track which union type was matched (union mode only)
 
         // Determine the mode we're operating in
-        var isToolMode = structuredOpts.Mode.Equals("tool", StringComparison.OrdinalIgnoreCase);
+        var isToolMode = string.Equals(structuredOpts.Mode, "tool", StringComparison.OrdinalIgnoreCase);
         var isNativeUnionMode = !isToolMode && structuredOpts.UnionTypes is { Length: > 0 };
 
         // Check if tool mode is using union types (merged union behavior)
@@ -6111,7 +6111,7 @@ public sealed partial class Agent : IAsyncDisposable
         var schemaName = structuredOpts.SchemaName ?? typeof(T).Name;
         var schemaDesc = structuredOpts.SchemaDescription ?? $"Response of type {schemaName}";
 
-        if (structuredOpts.Mode.Equals("tool", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(structuredOpts.Mode, "tool", StringComparison.OrdinalIgnoreCase))
         {
             // Tool mode: Create output tool(s) and add to RuntimeTools
             // RuntimeTools are merged with agent's configured tools in RunAsync
@@ -6138,7 +6138,7 @@ public sealed partial class Agent : IAsyncDisposable
             // This ensures the LLM cannot output free text - it MUST call a return tool
             options.RuntimeToolMode = ChatToolMode.RequireAny;
         }
-        else if (structuredOpts.Mode.Equals("native", StringComparison.OrdinalIgnoreCase))
+        else if (string.Equals(structuredOpts.Mode, "native", StringComparison.OrdinalIgnoreCase))
         {
             // Native mode: Set response format with JSON schema
             if (structuredOpts.UnionTypes is { Length: > 0 })

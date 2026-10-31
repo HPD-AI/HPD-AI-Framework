@@ -38,11 +38,12 @@ public partial class CodingToolHarness
                 return FormatError(path, "Cannot read blocked device path.");
 
             var resolvedPath = ResolveReadPath(path, context);
-            _ = await AgentFilesystemAccess.AuthorizeReadAsync(
+            var authorizedPath = await AgentFilesystemAccess.AuthorizeReadAsync(
                 resolvedPath.FullPath,
                 nameof(ReadFile),
                 context,
                 CancellationToken.None).ConfigureAwait(false);
+            resolvedPath = resolvedPath with { FullPath = authorizedPath };
             if (IsBlockedDevicePath(resolvedPath.FullPath))
                 return FormatError(resolvedPath.FullPath, "Cannot read blocked device path.");
 
@@ -174,7 +175,9 @@ public partial class CodingToolHarness
     private static ResolvedReadPath ResolveReadPath(string path, FunctionExecutionContext context)
     {
         var trimmedPath = path.Trim();
-        var fullPath = Path.GetFullPath(trimmedPath, Directory.GetCurrentDirectory());
+        var fullPath = context?.RunConfig.Context?.Properties?.ContainsKey(AgentWorkspace.ContextKey) == true
+            ? AgentWorkspace.From(context.RunConfig).CanonicalizeExplicitPath(trimmedPath)
+            : Path.GetFullPath(trimmedPath, Directory.GetCurrentDirectory());
         return new ResolvedReadPath(trimmedPath, fullPath);
     }
 

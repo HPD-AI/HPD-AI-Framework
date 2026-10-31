@@ -43,8 +43,14 @@ public partial class CodingToolHarness
             if (argumentError != null)
                 return FormatGlobSearchError(path ?? string.Empty, argumentError);
 
-            var baseDirectory = Directory.GetCurrentDirectory();
-            var hostResolved = await TryResolveGlobSearchWithHostAsync(path, pattern, baseDirectory, CancellationToken.None).ConfigureAwait(false);
+            var baseDirectory = CodingHarnessPathResolution.BaseDirectory(context);
+            var hostResolved = CodingHarnessPathResolution.UsesWorkspace(context)
+                ? null
+                : await TryResolveGlobSearchWithHostAsync(
+                    path,
+                    pattern,
+                    baseDirectory,
+                    CancellationToken.None).ConfigureAwait(false);
             var resolved = hostResolved is null
                 ? ResolveGlobSearch(path, pattern, baseDirectory)
                 : hostResolved;

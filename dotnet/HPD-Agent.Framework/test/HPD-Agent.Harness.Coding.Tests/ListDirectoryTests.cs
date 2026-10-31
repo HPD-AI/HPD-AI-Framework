@@ -70,6 +70,25 @@ public sealed class ListDirectoryTests : IDisposable
     }
 
     [Fact]
+    public async Task ListDirectory_ResolvesRelativePathFromRunConfigWorkspace()
+    {
+        var workspaceRoot = Path.Combine(_tempRoot, "workspace-root");
+        Directory.CreateDirectory(Path.Combine(workspaceRoot, "src"));
+        await File.WriteAllTextAsync(
+            Path.Combine(workspaceRoot, "src", "Workspace.cs"),
+            "class Workspace {}\n");
+
+        var result = await new CodingToolHarness().ListDirectory(
+            "src",
+            context: CreateFunctionContext(
+                CreateWorkspaceRunConfig(workspaceRoot)));
+
+        result.Should().Contain("path=\"Workspace.cs\"");
+        result.Should().Contain(Path.Combine(workspaceRoot, "src"));
+        result.Should().NotContain("Directory does not exist");
+    }
+
+    [Fact]
     public async Task ListDirectory_RootQualifiedPath_IsTreatedAsLiteralPath()
     {
         var docsRoot = Path.Combine(_tempRoot, "docs");
@@ -494,11 +513,11 @@ public sealed class ListDirectoryTests : IDisposable
     {
         var roots = new List<AgentWorkspaceRoot>
         {
-            new("default", Path.GetFullPath(defaultRoot))
+            new("default", Path.GetFullPath(defaultRoot), AgentWorkspaceAccess.ReadWrite)
         };
 
         if (docsRoot is not null)
-            roots.Add(new AgentWorkspaceRoot("docs", Path.GetFullPath(docsRoot), "Docs"));
+            roots.Add(new AgentWorkspaceRoot("docs", Path.GetFullPath(docsRoot), AgentWorkspaceAccess.ReadWrite, "Docs"));
 
         return new AgentRunConfig
         {

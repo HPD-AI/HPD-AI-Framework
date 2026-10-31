@@ -50,6 +50,10 @@ public sealed record MultiAgentWorkflowConfig
 /// </summary>
 public sealed record AgentNodeConfig
 {
+    public bool RecoveryOnly { get; init; }
+    public Dictionary<string, string>? HandoffTargets { get; init; }
+    public AgentClientInheritance? ClientInheritance { get; init; }
+
     /// <summary>
     /// Full agent configuration (embeds entire AgentConfig - serializable).
     /// </summary>
@@ -69,6 +73,10 @@ public sealed record AgentNodeConfig
     /// Must be resolvable at runtime.
     /// </summary>
     public string? StructuredOutputType { get; init; }
+
+    /// <summary>Provider-native schema output or an auto-generated output tool.</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public StructuredOutputMode StructuredOutputMode { get; init; } = StructuredOutputMode.Native;
 
     /// <summary>
     /// Union type names (for Union mode).
@@ -111,9 +119,9 @@ public sealed record AgentNodeConfig
     public string? InputTemplate { get; init; }
 
     /// <summary>
-    /// Additional system instructions.
+    /// Per-node serializable run intent.
     /// </summary>
-    public string? AdditionalInstructions { get; init; }
+    public AgentRunConfig? RunConfig { get; init; }
 
     /// <summary>
     /// Metadata for metrics, tagging, cost tracking.
@@ -151,6 +159,8 @@ public sealed record RetryConfig
     /// Only retry transient errors.
     /// </summary>
     public bool OnlyTransient { get; init; } = true;
+
+    public IReadOnlyList<string>? RetryableExceptionTypeNames { get; init; }
 }
 
 /// <summary>
@@ -158,6 +168,9 @@ public sealed record RetryConfig
 /// </summary>
 public sealed record ErrorConfig
 {
+    public ErrorMode? ExhaustionMode { get; init; }
+    public IReadOnlyList<string>? AffectedNodes { get; init; }
+
     /// <summary>
     /// Error handling mode.
     /// </summary>
@@ -183,7 +196,7 @@ public enum ErrorMode
     /// <summary>
     /// Skip this agent, continue others.
     /// </summary>
-    Skip,
+    SkipDependents,
 
     /// <summary>
     /// Ignore error, continue with partial data.

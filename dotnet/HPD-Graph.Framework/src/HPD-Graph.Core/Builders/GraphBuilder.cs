@@ -410,12 +410,21 @@ public class GraphBuilder
     public Abstractions.Graph.Graph Build()
     {
         var graph = BuildRuntimeGraph();
+        HPD.Graph.Core.Validation.RecoveryValidation.Validate(graph);
         if (HasRuntimeOnlyState(graph))
         {
             return graph;
         }
 
         var compilerOptions = new GraphConfigCompilerOptions();
+        foreach (var output in graph.Nodes.SelectMany(n => n.OutputContract?.Values ?? []))
+        {
+            if (output.RuntimeType is not null) compilerOptions.RegisterType(output.TypeName, output.RuntimeType);
+            if (output.SchemaIdentity is not null && output.SchemaValidator is not null)
+                compilerOptions.RegisterOutputSchema(output.SchemaIdentity, output.SchemaVersion!, output.SchemaValidator);
+        }
+        foreach (var type in graph.Nodes.SelectMany(n => n.RetryPolicy?.RetryableExceptions ?? []))
+            compilerOptions.RegisterType(type.AssemblyQualifiedName!, type);
         RegisterInputSchemaTypes(graph, compilerOptions);
 
         var config = new GraphConfigExporter().Export(graph);
@@ -616,6 +625,12 @@ public class GraphBuilder
 /// </summary>
 public class NodeBuilder
 {
+    private bool _recoveryOnly;
+    private NodeOutputContract? _outputContract;
+    public NodeBuilder AsRecoveryOnly() { _recoveryOnly = true; return this; }
+    public NodeBuilder WithOutputContract(NodeOutputContract contract)
+    { _outputContract = contract with { Values = contract.Values.Select(v => v with { }).ToArray() }; return this; }
+
     private readonly string _id;
     private readonly string _name;
     private readonly NodeType _type;
@@ -681,6 +696,7 @@ public class NodeBuilder
     /// </summary>
     public NodeBuilder WithRetryPolicy(RetryPolicy policy)
     {
+        policy.Validate();
         _retryPolicy = policy;
         return this;
     }
@@ -863,6 +879,8 @@ public class NodeBuilder
     {
         return new Node
         {
+            RecoveryOnly = _recoveryOnly,
+            OutputContract = _outputContract,
             Id = _id,
             Name = _name,
             Type = _type,

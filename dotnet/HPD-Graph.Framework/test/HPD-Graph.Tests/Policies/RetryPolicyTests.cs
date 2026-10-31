@@ -9,6 +9,9 @@ namespace HPD.Graph.Tests.Policies;
 /// </summary>
 public class RetryPolicyTests
 {
+    private static bool CanRetry(RetryPolicy policy, Exception exception) => policy.ShouldRetry(
+        new HPD.Graph.Abstractions.Execution.NodeExecutionResult.Failure(exception, HPD.Graph.Abstractions.Execution.ErrorSeverity.Transient, true, TimeSpan.Zero), 1);
+
     #region Backoff Strategy Tests
 
     [Fact]
@@ -166,10 +169,10 @@ public class RetryPolicyTests
         };
 
         // Act & Assert
-        policy.ShouldRetry(new InvalidOperationException()).Should().BeTrue();
-        policy.ShouldRetry(new ArgumentException()).Should().BeTrue();
-        policy.ShouldRetry(new TimeoutException()).Should().BeTrue();
-        policy.ShouldRetry(new Exception()).Should().BeTrue();
+        CanRetry(policy, new InvalidOperationException()).Should().BeTrue();
+        CanRetry(policy, new ArgumentException()).Should().BeTrue();
+        CanRetry(policy, new TimeoutException()).Should().BeTrue();
+        CanRetry(policy, new Exception()).Should().BeTrue();
     }
 
     [Fact]
@@ -184,8 +187,8 @@ public class RetryPolicyTests
         };
 
         // Act & Assert
-        policy.ShouldRetry(new InvalidOperationException()).Should().BeTrue();
-        policy.ShouldRetry(new ArgumentException()).Should().BeTrue();
+        CanRetry(policy, new InvalidOperationException()).Should().BeTrue();
+        CanRetry(policy, new ArgumentException()).Should().BeTrue();
     }
 
     [Fact]
@@ -200,7 +203,7 @@ public class RetryPolicyTests
         };
 
         // Act & Assert
-        policy.ShouldRetry(new TimeoutException()).Should().BeTrue();
+        CanRetry(policy, new TimeoutException()).Should().BeTrue();
     }
 
     [Fact]
@@ -215,8 +218,8 @@ public class RetryPolicyTests
         };
 
         // Act & Assert
-        policy.ShouldRetry(new InvalidOperationException()).Should().BeFalse();
-        policy.ShouldRetry(new ArgumentException()).Should().BeFalse();
+        CanRetry(policy, new InvalidOperationException()).Should().BeFalse();
+        CanRetry(policy, new ArgumentException()).Should().BeFalse();
     }
 
     [Fact]
@@ -231,7 +234,7 @@ public class RetryPolicyTests
         };
 
         // Act - ArgumentNullException derives from ArgumentException
-        var shouldRetry = policy.ShouldRetry(new ArgumentNullException());
+        var shouldRetry = CanRetry(policy, new ArgumentNullException());
 
         // Assert
         shouldRetry.Should().BeTrue();
@@ -254,10 +257,10 @@ public class RetryPolicyTests
         };
 
         // Act & Assert
-        policy.ShouldRetry(new TimeoutException()).Should().BeTrue();
-        policy.ShouldRetry(new InvalidOperationException()).Should().BeTrue();
-        policy.ShouldRetry(new HttpRequestException()).Should().BeTrue();
-        policy.ShouldRetry(new ArgumentException()).Should().BeFalse();
+        CanRetry(policy, new TimeoutException()).Should().BeTrue();
+        CanRetry(policy, new InvalidOperationException()).Should().BeTrue();
+        CanRetry(policy, new HttpRequestException()).Should().BeTrue();
+        CanRetry(policy, new ArgumentException()).Should().BeFalse();
     }
 
     [Fact]
@@ -272,9 +275,9 @@ public class RetryPolicyTests
         };
 
         // Act & Assert - All exceptions derive from Exception
-        policy.ShouldRetry(new InvalidOperationException()).Should().BeTrue();
-        policy.ShouldRetry(new ArgumentException()).Should().BeTrue();
-        policy.ShouldRetry(new TimeoutException()).Should().BeTrue();
+        CanRetry(policy, new InvalidOperationException()).Should().BeTrue();
+        CanRetry(policy, new ArgumentException()).Should().BeTrue();
+        CanRetry(policy, new TimeoutException()).Should().BeTrue();
     }
 
     #endregion

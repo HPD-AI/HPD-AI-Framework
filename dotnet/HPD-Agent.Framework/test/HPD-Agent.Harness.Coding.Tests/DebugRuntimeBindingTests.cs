@@ -83,8 +83,8 @@ public sealed class DebugRuntimeBindingTests
                     "a",
                     first,
                     [
-                        new AgentWorkspaceRoot("a", first),
-                        new AgentWorkspaceRoot("b", second)
+                        new AgentWorkspaceRoot("a", first, AgentWorkspaceAccess.ReadWrite),
+                        new AgentWorkspaceRoot("b", second, AgentWorkspaceAccess.ReadWrite)
                     ])
             } }
         };
@@ -98,10 +98,11 @@ public sealed class DebugRuntimeBindingTests
 
         foreach (var root in new[] { first, second })
         {
+            var canonical = AgentFilesystemPath.Canonicalize(root);
             binding.ProcessSandbox.Filesystem.Should().Contain(grant =>
-                grant.Path == root && grant.Access == AgentSandboxPathAccess.Read);
+                grant.Path == canonical && grant.Access == AgentSandboxPathAccess.Read);
             binding.ProcessSandbox.Filesystem.Should().Contain(grant =>
-                grant.Path == root && grant.Access == AgentSandboxPathAccess.Write);
+                grant.Path == canonical && grant.Access == AgentSandboxPathAccess.Write);
         }
     }
 

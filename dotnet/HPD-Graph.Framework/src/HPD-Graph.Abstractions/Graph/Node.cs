@@ -13,6 +13,8 @@ namespace HPD.Graph.Abstractions.Graph;
 /// </summary>
 public sealed record Node
 {
+    public bool RecoveryOnly { get; init; }
+    public NodeOutputContract? OutputContract { get; init; }
     /// <summary>
     /// Unique node identifier within the graph.
     /// </summary>

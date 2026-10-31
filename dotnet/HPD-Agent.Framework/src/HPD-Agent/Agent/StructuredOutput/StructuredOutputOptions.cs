@@ -51,7 +51,7 @@ public class StructuredOutputOptions
     /// </para>
     /// </remarks>
     [JsonPropertyName("mode")]
-    public string Mode { get; set; } = "native";
+    public string? Mode { get; set; }
 
     /// <summary>
     /// JSON schema for the output type.

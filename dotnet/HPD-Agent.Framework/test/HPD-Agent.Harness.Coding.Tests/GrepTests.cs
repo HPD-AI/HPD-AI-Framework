@@ -1,7 +1,10 @@
 using System.Runtime.CompilerServices;
 using System.Reflection;
+using HPD.Agent;
 using HPD.Agent.ToolHarness.Coding.Ripgrep;
 using HPD.Agent.Middleware;
+using HPD.Events.Core;
+using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.ToolHarness.Coding.Tests;
 
@@ -379,6 +382,28 @@ public sealed class GrepTests : IDisposable
         fileRunner.FilesWithMatchesOptions.Should().NotBeNull();
         fileRunner.FilesWithMatchesOptions!.WorkingDirectory.Should().Be(Path.GetFullPath("src"));
         fileRunner.FilesWithMatchesOptions.SearchPaths.Should().Equal("notes.txt");
+    }
+
+    [Fact]
+    public async Task Grep_ResolvesRelativePathFromRunConfigWorkspace()
+    {
+        var workspaceRoot = Path.Combine(_tempRoot, "workspace-root");
+        Directory.CreateDirectory(Path.Combine(workspaceRoot, "src"));
+        await File.WriteAllTextAsync(
+            Path.Combine(workspaceRoot, "src", "notes.txt"),
+            "TODO\n");
+        var runner = new FakeRipgrepRunner();
+
+        await CreateToolHarness(runner).Grep(
+            "TODO",
+            path: "src",
+            context: CreateFunctionContext(
+                CreateWorkspaceRunConfig(workspaceRoot)));
+
+        runner.FilesWithMatchesOptions.Should().NotBeNull();
+        runner.FilesWithMatchesOptions!.WorkingDirectory.Should()
+            .EndWith(Path.Combine("workspace-root", "src"));
+        runner.FilesWithMatchesOptions.SearchPaths.Should().Equal(".");
     }
 
     [Fact]
@@ -783,6 +808,67 @@ public sealed class GrepTests : IDisposable
 
     private static CodingToolHarness CreateToolHarness(IRipgrepRunner runner)
         => new(null, null, null, null, runner);
+
+    private static FunctionExecutionContext CreateFunctionContext(
+        AgentRunConfig runConfig)
+    {
+        var function = AIFunctionFactory.Create(
+            () => "ok",
+            new AIFunctionFactoryOptions
+            {
+                Name = "Grep",
+                Description = "Test function"
+            });
+        var state = AgentLoopState.InitialSafe(
+            [],
+            "run-1",
+            "conversation-1",
+            "AgentA");
+        var agentContext = new AgentContext(
+            "AgentA",
+            "conversation-1",
+            state,
+            new EventCoordinator(),
+            new Session("session-1"),
+            new Thread("session-1", "test-agent"),
+            CancellationToken.None);
+        var beforeContext = agentContext.AsBeforeFunction(
+            function,
+            "call-1",
+            new Dictionary<string, object?>(),
+            runConfig,
+            toolharnessName: "CodingToolHarness");
+        var request = new FunctionRequest
+        {
+            Function = function,
+            CallId = "call-1",
+            Arguments = new Dictionary<string, object?>(),
+            State = state,
+            RunConfig = runConfig
+        };
+        return new FunctionExecutionContext(beforeContext, request);
+    }
+
+    private static AgentRunConfig CreateWorkspaceRunConfig(string defaultRoot)
+        => new()
+        {
+            Context = new AgentContextRunConfig
+            {
+                Properties = new Dictionary<string, object>
+                {
+                    [AgentWorkspace.ContextKey] = new AgentWorkspace(
+                        "review",
+                        Path.GetFullPath(defaultRoot),
+                        [
+                            new AgentWorkspaceRoot(
+                                "review",
+                                Path.GetFullPath(defaultRoot),
+                                AgentWorkspaceAccess.ReadOnly,
+                                "Review evidence")
+                        ])
+                }
+            }
+        };
 
     private static RipgrepMatchEvent Match(string path, int lineNumber, string text)
         => new()

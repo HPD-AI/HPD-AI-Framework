@@ -78,7 +78,7 @@ public partial class CodingToolHarness
             if (argumentError != null)
                 return FormatGrepError(path ?? string.Empty, argumentError);
 
-            var resolved = ResolveGrepPath(path);
+            var resolved = ResolveGrepPath(path, context);
             _ = await AgentFilesystemAccess.AuthorizeReadAsync(
                 resolved.FullPath,
                 nameof(Grep),
@@ -606,15 +606,18 @@ public partial class CodingToolHarness
         return null;
     }
 
-    private static ResolvedGrepPath ResolveGrepPath(string path)
+    private static ResolvedGrepPath ResolveGrepPath(
+        string path,
+        FunctionExecutionContext? context)
     {
         var trimmed = path.Trim();
-        var fullPath = Path.GetFullPath(trimmed, Directory.GetCurrentDirectory());
+        var fullPath = CodingHarnessPathResolution.ResolvePath(trimmed, context);
         if (File.Exists(fullPath))
         {
             return new ResolvedGrepPath(
                 fullPath,
-                Path.GetDirectoryName(fullPath) ?? Directory.GetCurrentDirectory(),
+                Path.GetDirectoryName(fullPath)
+                    ?? CodingHarnessPathResolution.BaseDirectory(context),
                 Path.GetFileName(fullPath));
         }
 

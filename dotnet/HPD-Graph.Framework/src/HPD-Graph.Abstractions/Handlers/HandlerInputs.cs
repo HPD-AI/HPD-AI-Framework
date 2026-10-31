@@ -10,6 +10,11 @@ namespace HPD.Graph.Abstractions.Handlers;
 /// </summary>
 public sealed class HandlerInputs
 {
+    private readonly Dictionary<string, HPD.Graph.Abstractions.Execution.NodeExecutionResult> _sourceResults = new();
+    /// <summary>Upstream outcomes, including isolated failures, separate from application output keys.</summary>
+    public IReadOnlyDictionary<string, HPD.Graph.Abstractions.Execution.NodeExecutionResult> SourceResults => _sourceResults;
+    public void SetSourceResult(string nodeId, HPD.Graph.Abstractions.Execution.NodeExecutionResult result) => _sourceResults[nodeId] = result;
+
     private readonly Dictionary<string, object> _inputs = new();
 
     /// <summary>

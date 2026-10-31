@@ -1,5 +1,6 @@
 using System.Text.Json;
 using FluentAssertions;
+using HPD.Agent.Security;
 using HPD.Agent.ToolHarness.Coding;
 
 namespace HPD.Agent.ToolHarness.Coding.Tests.Workspace;
@@ -23,6 +24,21 @@ public sealed class AgentWorkspaceTests : IDisposable
     }
 
     [Fact]
+    public void CaptureContextSnapshot_OwnsRootCollectionAcrossInvocations()
+    {
+        var roots = new List<AgentWorkspaceRoot> { new("os", _root, AgentWorkspaceAccess.ReadWrite) };
+        var source = new AgentWorkspace("os", _root, roots);
+        var first = (AgentWorkspace)source.CaptureContextSnapshot();
+        var second = (AgentWorkspace)source.CaptureContextSnapshot();
+
+        roots[0] = new AgentWorkspaceRoot("other", _docs, AgentWorkspaceAccess.ReadWrite);
+        ((AgentWorkspaceRoot[])first.Roots)[0] = new AgentWorkspaceRoot("changed", _docs, AgentWorkspaceAccess.ReadWrite);
+
+        second.Roots[0].Id.Should().Be("os");
+        second.ResolveWorkspacePath("file.txt").Should().Be(AgentFilesystemPath.Canonicalize(Path.Combine(_root, "file.txt")));
+    }
+
+    [Fact]
     public void From_ParsesJsonElementWorkspace()
     {
         var json = $$"""
@@ -30,8 +46,8 @@ public sealed class AgentWorkspaceTests : IDisposable
           "version": 1,
           "defaultRootId": "os",
           "roots": [
-            { "id": "os", "path": "{{JsonEscape(_root)}}" },
-            { "id": "docs", "label": "Docs", "path": "{{JsonEscape(_docs)}}" }
+            { "id": "os", "access": "readWrite", "path": "{{JsonEscape(_root)}}" },
+            { "id": "docs", "access": "readWrite", "label": "Docs", "path": "{{JsonEscape(_docs)}}" }
           ]
         }
         """;
@@ -48,7 +64,7 @@ public sealed class AgentWorkspaceTests : IDisposable
         var workspace = AgentWorkspace.From(runConfig);
 
         workspace.DefaultRootId.Should().Be("os");
-        workspace.DefaultRootPath.Should().Be(Path.GetFullPath(_root));
+        workspace.DefaultRootPath.Should().Be(AgentFilesystemPath.Canonicalize(_root));
         workspace.Roots.Should().HaveCount(2);
     }
 
@@ -58,7 +74,7 @@ public sealed class AgentWorkspaceTests : IDisposable
         var workspace = CreateWorkspace();
 
         workspace.ResolveWorkspacePath("src/app.cs")
-            .Should().Be(Path.GetFullPath(Path.Combine(_root, "src", "app.cs")));
+            .Should().Be(AgentFilesystemPath.Canonicalize(Path.Combine(_root, "src", "app.cs")));
     }
 
     [Fact]
@@ -67,7 +83,7 @@ public sealed class AgentWorkspaceTests : IDisposable
         var workspace = CreateWorkspace();
 
         workspace.ResolveWorkspacePath("@docs/readme.md")
-            .Should().Be(Path.GetFullPath(Path.Combine(_docs, "readme.md")));
+            .Should().Be(AgentFilesystemPath.Canonicalize(Path.Combine(_docs, "readme.md")));
     }
 
     [Fact]
@@ -111,8 +127,8 @@ public sealed class AgentWorkspaceTests : IDisposable
                     "os",
                     _root,
                     [
-                        new AgentWorkspaceRoot("os", _root),
-                        new AgentWorkspaceRoot("docs", _docs, "Docs")
+                        new AgentWorkspaceRoot("os", _root, AgentWorkspaceAccess.ReadWrite),
+                        new AgentWorkspaceRoot("docs", _docs, AgentWorkspaceAccess.ReadWrite, "Docs")
                     ])
             } }
         });

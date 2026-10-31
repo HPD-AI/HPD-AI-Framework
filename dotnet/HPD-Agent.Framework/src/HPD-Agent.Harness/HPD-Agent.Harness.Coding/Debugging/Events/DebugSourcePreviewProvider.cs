@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using HPD.Agent.Security;
 using HPD.Agent.ToolHarness.Coding;
 using HPDOS.ToolHarnesses.Middleware;
 
@@ -214,9 +215,11 @@ internal sealed class DebugSourcePreviewProvider(
     private static string DisplayPath(AgentWorkspace workspace, string fullPath)
     {
         var owner = workspace.GetOwningRoot(fullPath);
-        var relative = Path.GetRelativePath(owner.Path, fullPath);
+        var canonicalOwner = AgentFilesystemPath.Canonicalize(owner.Path);
+        var canonicalPath = AgentFilesystemPath.Canonicalize(fullPath);
+        var relative = Path.GetRelativePath(canonicalOwner, canonicalPath);
         var ambiguous = workspace.Roots.Count(root =>
-            File.Exists(Path.Combine(root.Path, relative))) > 1;
+            File.Exists(Path.Combine(AgentFilesystemPath.Canonicalize(root.Path), relative))) > 1;
         return ambiguous ? $"@{owner.Id}/{relative}" : relative;
     }
 

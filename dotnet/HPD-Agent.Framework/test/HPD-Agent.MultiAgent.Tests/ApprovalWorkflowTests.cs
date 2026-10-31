@@ -315,7 +315,7 @@ public class ApprovalWorkflowTests
             .AddAgent("dangerous", config, o => o
                 .RequiresApproval("Approve dangerous action?")
                 .WithRetry(3)
-                .OnErrorFallback("safe"))
+                .OnErrorFallback("safe", HPD.MultiAgent.Config.ErrorMode.Stop))
             .AddAgent("safe", config)
             .From("START").To("dangerous")
             .From("dangerous", "safe").To("END");

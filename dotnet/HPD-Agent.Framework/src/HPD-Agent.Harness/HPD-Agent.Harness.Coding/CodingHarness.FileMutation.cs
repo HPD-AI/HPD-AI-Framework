@@ -7,6 +7,7 @@ using DiffPlex;
 using DiffPlex.DiffBuilder;
 using DiffPlex.DiffBuilder.Model;
 using HPD.Agent;
+using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.Middleware;
 using HPDOS.ToolHarnesses.Middleware;
 
@@ -19,13 +20,15 @@ public partial class CodingToolHarness
     private const int FileMutationDiffContextLines = 3;
     private const int MaxMutationEventNotes = 50;
 
-    private static ResolvedMutationPath ResolveMutationPath(string path)
+    private static ResolvedMutationPath ResolveMutationPath(string path, FunctionExecutionContext? context = null)
     {
         if (string.IsNullOrWhiteSpace(path))
             throw new FileMutationException(FileMutationErrorKind.InvalidArguments, "Path is required.");
 
         var trimmedPath = path.Trim();
-        var fullPath = Path.GetFullPath(trimmedPath, Directory.GetCurrentDirectory());
+        var fullPath = context?.RunConfig.Context?.Properties?.ContainsKey(AgentWorkspace.ContextKey) == true
+            ? AgentWorkspace.From(context.RunConfig).CanonicalizeExplicitPath(trimmedPath)
+            : Path.GetFullPath(trimmedPath, Directory.GetCurrentDirectory());
         return new ResolvedMutationPath(trimmedPath, fullPath);
     }
 

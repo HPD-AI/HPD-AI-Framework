@@ -25,6 +25,10 @@ public class MultiAgent
 
     private WorkflowSettingsConfig _settings;
     private ISessionStore? _sessionStore;
+    private WorkflowHostBinding? _host;
+
+    public MultiAgent WithHost(WorkflowHostBinding host)
+    { _host = host ?? throw new ArgumentNullException(nameof(host)); _sessionStore = host.SessionStore; return this; }
     private readonly List<Action<IServiceCollection>> _serviceConfigurators = new();
     private string? _workflowName;
 
@@ -48,9 +52,16 @@ public class MultiAgent
         return new MultiAgent(config);
     }
 
-    internal MultiAgent(MultiAgentWorkflowConfig config)
+    public static MultiAgent FromFile(string path, WorkflowHostBinding host)
+    {
+        var config = host.Providers is null ? MultiAgentConfigSerializer.ReadFile(path) : MultiAgentConfigSerializer.ReadFile(path, host.Providers);
+        return new MultiAgent(config ?? throw new InvalidOperationException("Workflow configuration is null."), host);
+    }
+
+    internal MultiAgent(MultiAgentWorkflowConfig config, WorkflowHostBinding? host = null)
     {
         _graphBuilder = new GraphBuilder();
+        if (host is not null) WithHost(host);
         _settings = config.Settings;
         _workflowName = config.Name;
 
@@ -61,7 +72,7 @@ public class MultiAgent
                 throw new InvalidOperationException($"Agent node '{nodeId}' has an unresolved agentFile. Load references using MultiAgent.FromFile().");
             _agentConfigs[nodeId] = nodeConfig.Agent
                 ?? throw new InvalidOperationException($"Agent node '{nodeId}' has no resolved configuration. Load agentFile references using MultiAgent.FromFile().");
-            _options[nodeId] = ConvertToOptions(nodeConfig);
+            _options[nodeId] = ConvertToOptions(nodeConfig, host);
         }
 
         // Add edges from config
@@ -267,6 +278,22 @@ public class MultiAgent
         if (_settings.MaxConcurrency is <= 0)
             throw new ArgumentOutOfRangeException(nameof(_settings.MaxConcurrency), "Workflow concurrency must be positive.");
 
+        var effectiveOptions = _options.ToDictionary(pair => pair.Key, pair => pair.Value.Snapshot(_host?.Providers));
+        foreach (var (id, opts) in effectiveOptions)
+        {
+            var identity = new WorkflowNodeIdentity(_workflowName ?? "MultiAgentWorkflow", id);
+            _host?.ValidateNode(identity, _agentConfigs.GetValueOrDefault(id) ?? _agents.GetValueOrDefault(id)?.Config, opts);
+            if (_host is not null) opts.RunConfig = _host.Authorize(opts.RunConfig);
+            AgentNodeHandler.ResolveOutput(opts, opts.RunConfig);
+            if (opts.HandoffTargets?.Keys.Any(target => !GetAllAgentIds().Contains(target)) == true)
+                throw new InvalidOperationException($"Node '{id}' references an unknown handoff target.");
+            if (opts.OutputMode == AgentOutputMode.Handoff && opts.HandoffTargets is not { Count: > 0 })
+                throw new InvalidOperationException($"Node '{id}' requires handoff targets.");
+            if (_host is not null && _agents.TryGetValue(id, out var prebuilt) &&
+                (!ReferenceEquals(prebuilt.Config?.EventComposition, _host.Events) || !ReferenceEquals(prebuilt.Config?.SessionStore, _host.SessionStore)))
+                throw new InvalidOperationException($"Prebuilt node '{id}' does not share the host event composition/session store.");
+        }
+
         // Create agent factories for deferred building (agents are built at execution time
         // so they can inherit the parent's chat client when no provider is configured)
         var factories = new Dictionary<string, AgentFactory>();
@@ -285,12 +312,12 @@ public class MultiAgent
 
             if (_builderActions.TryGetValue(id, out var builderAction))
             {
-                factories[id] = new InlineAgentFactory(builderAction);
+                factories[id] = new InlineAgentFactory(builderAction, _host, new WorkflowNodeIdentity(_workflowName ?? "MultiAgentWorkflow", id));
             }
             else
             {
                 // Agent from config only
-                factories[id] = new ConfigAgentFactory(config);
+                factories[id] = new ConfigAgentFactory(config, _host, new WorkflowNodeIdentity(_workflowName ?? "MultiAgentWorkflow", id));
             }
         }
 
@@ -323,7 +350,14 @@ public class MultiAgent
             var handlerName = $"{id}Handler";
             _graphBuilder.AddHandlerNode(id, id, handlerName, node =>
             {
-                var opts = _options.TryGetValue(id, out var o) ? o : new AgentNodeOptions();
+                var opts = effectiveOptions.TryGetValue(id, out var o) ? o : new AgentNodeOptions();
+
+                if (opts.RecoveryOnly) node.AsRecoveryOnly();
+                node.WithOutputContract(WorkflowOutputContract.Create(opts));
+                if (opts.Metadata is not null) foreach (var (key, value) in opts.Metadata) node.WithMetadata(key, value);
+                if (opts.RecoveryOnly && (opts.ErrorMode != ErrorMode.Stop || opts.ExhaustionMode is not null || opts.FallbackAgentId is not null))
+                    throw new InvalidOperationException("Recovery-only definitions cannot declare error policies.");
+                if (!opts.RecoveryOnly) node.WithErrorPolicy(WorkflowOutputContract.ErrorPolicy(opts));
 
                 if (opts.Timeout.HasValue)
                     node.WithTimeout(opts.Timeout.Value);
@@ -358,11 +392,11 @@ public class MultiAgent
         return Task.FromResult(new AgentWorkflowInstance(
             graph,
             factories,
-            _options,
+            effectiveOptions,
             services.BuildServiceProvider(),
             _workflowName,
             _settings,
-            _sessionStore));
+            _sessionStore, _host));
     }
 
     // Internal methods for EdgeBuilder
@@ -409,7 +443,7 @@ public class MultiAgent
 
     private void AddInfrastructureEdges()
     {
-        var agentIds = GetAllAgentIds().ToArray();
+        var agentIds = GetAllAgentIds().Where(id => !_options[id].RecoveryOnly).ToArray();
         if (agentIds.Length == 0)
         {
             return;
@@ -442,28 +476,53 @@ public class MultiAgent
         Conditions = c.Conditions?.Select(MapCondition).ToList()
     };
 
-    private static AgentNodeOptions ConvertToOptions(AgentNodeConfig config)
+    private static Type? ResolveStructuredType(AgentNodeConfig config, WorkflowHostBinding? host)
+    {
+        if (config.OutputMode != AgentOutputMode.Structured)
+            return null;
+
+        if (string.IsNullOrWhiteSpace(config.StructuredOutputType))
+            throw new ArgumentException("Structured output requires structuredOutputType.");
+
+        // ExportConfigJson writes assembly-qualified names. Only resolve types
+        // supplied by the trusted host configuration, never model output.
+        var type = host?.ResolveType(config.StructuredOutputType) ?? Type.GetType(config.StructuredOutputType, throwOnError: false);
+        if (type is null || !type.IsClass || type.IsAbstract || type.ContainsGenericParameters)
+            throw new ArgumentException(
+                $"Cannot resolve structuredOutputType '{config.StructuredOutputType}' to a concrete closed class. Use an assembly-qualified type name available to the host.");
+        return type;
+    }
+
+    private static AgentNodeOptions ConvertToOptions(AgentNodeConfig config, WorkflowHostBinding? host)
     {
         var options = new AgentNodeOptions
         {
             OutputMode = config.OutputMode,
+            StructuredOutputMode = config.StructuredOutputMode,
+            StructuredType = ResolveStructuredType(config, host),
+            UnionTypes = config.UnionTypeNames?.Select(name => host?.ResolveType(name) ?? Type.GetType(name, false) ?? throw new InvalidOperationException($"Unresolved union type: {name}")).ToArray(),
+            RecoveryOnly = config.RecoveryOnly,
+            ExhaustionMode = config.OnError?.ExhaustionMode,
             Timeout = config.Timeout,
             MaxConcurrentExecutions = config.MaxConcurrent,
             InputKey = config.InputKey,
             OutputKey = config.OutputKey,
             InputTemplate = config.InputTemplate,
-            RunConfig = new AgentRunConfig
-            {
-                SystemInstructions = string.IsNullOrWhiteSpace(config.AdditionalInstructions)
-                    ? null
-                    : new SystemInstructionsRunConfig { Append = config.AdditionalInstructions }
-            }
+            RunConfig = config.RunConfig ?? new AgentRunConfig(),
+            ErrorMode = config.OnError?.Mode ?? ErrorMode.Stop,
+            AffectedNodes = config.OnError?.AffectedNodes,
+            Metadata = config.Metadata,
+            HandoffTargets = config.HandoffTargets,
+            ClientInheritance = config.ClientInheritance ?? new AgentNodeOptions().ClientInheritance,
+            FallbackAgentId = config.OnError?.FallbackAgent
         };
 
         if (config.Retry != null)
         {
             options.RetryPolicy = new RetryPolicy
             {
+                OnlyTransient = config.Retry.OnlyTransient,
+                RetryableExceptions = new HPD.Graph.Core.Config.GraphConfigCompiler().ResolveExceptionTypes(config.Retry.RetryableExceptionTypeNames),
                 MaxAttempts = config.Retry.MaxAttempts,
                 InitialDelay = config.Retry.InitialDelay,
                 Strategy = config.Retry.Strategy,
@@ -489,5 +548,6 @@ public static class AgentWorkflow
     /// Create a workflow builder from a JSON or YAML workflow configuration file.
     /// </summary>
     public static MultiAgent FromFile(string path) => MultiAgent.FromFile(path);
+    public static MultiAgent FromFile(string path, WorkflowHostBinding host) => MultiAgent.FromFile(path, host);
 
 }
