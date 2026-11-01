@@ -65,6 +65,18 @@ internal sealed class McpConfigurationActivator : IMcpConfigurationActivator
                     ?? throw new JsonException("The MCP manifest is empty.");
                 manifest.Validate();
             }
+            catch (McpPermissionConfigurationException exception)
+            {
+                var manifestPath = $"{reference.SourcePath ?? "mcp.manifests"}.{exception.Path}";
+                throw McpConfigurationDiagnostics.At(
+                    new AgentRunConfigurationException(
+                        exception.Code,
+                        manifestPath,
+                        exception.Message,
+                        innerException: exception),
+                    manifestPath,
+                    reference.SourceLocations);
+            }
             catch (Exception exception) when (
                 exception is IOException or UnauthorizedAccessException)
             {

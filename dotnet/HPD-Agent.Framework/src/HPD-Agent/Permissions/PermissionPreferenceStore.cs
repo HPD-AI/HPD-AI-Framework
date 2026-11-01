@@ -51,10 +51,25 @@ public sealed record PermissionPreferenceRecord
     public required DateTimeOffset CreatedAt { get; init; }
 }
 
+/// <summary>Identifies the portable permission-preference schema.</summary>
+public static class PermissionPreferenceSchema
+{
+    /// <summary>The only schema accepted by this release.</summary>
+    public const int CurrentVersion = 2;
+}
+
 /// <summary>Contains a versioned immutable preference snapshot.</summary>
-public sealed record PermissionPreferenceSnapshot(
-    long Version,
-    IReadOnlyList<PermissionPreferenceRecord> Records);
+public sealed record PermissionPreferenceSnapshot
+{
+    /// <summary>Gets the optimistic concurrency version.</summary>
+    public required long Version { get; init; }
+
+    /// <summary>Gets the permission-preference schema version.</summary>
+    public required int SchemaVersion { get; init; }
+
+    /// <summary>Gets the persisted preference records.</summary>
+    public IReadOnlyList<PermissionPreferenceRecord> Records { get; init; } = [];
+}
 
 /// <summary>Requests one optimistic preference and audit commit.</summary>
 public sealed record PermissionPreferenceCommit

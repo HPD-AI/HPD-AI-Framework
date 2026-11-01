@@ -16,9 +16,17 @@ public sealed class McpManifest
     public void Validate()
     {
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var server in Servers)
+        for (var index = 0; index < Servers.Count; index++)
         {
-            server.Validate();
+            var server = Servers[index];
+            try
+            {
+                server.Validate();
+            }
+            catch (McpPermissionConfigurationException exception)
+            {
+                throw exception.AtServer(index);
+            }
             if (!names.Add(server.Name))
                 throw new ArgumentException($"MCP server name '{server.Name}' is registered more than once.");
         }
@@ -84,9 +92,6 @@ public sealed class McpServerConfig
     /// <summary>Gets or sets whether functions appear behind an MCP container.</summary>
     [JsonPropertyName("enableCollapsing")]
     public bool EnableCollapsing { get; set; }
-    /// <summary>Gets or sets the default permission requirement.</summary>
-    [JsonPropertyName("requiresPermission")]
-    public bool RequiresPermission { get; set; }
     /// <summary>Gets or sets whether explicit resource functions are projected.</summary>
     [JsonPropertyName("enableResources")]
     public bool EnableResources { get; set; }
@@ -113,6 +118,12 @@ public sealed class McpServerConfig
     /// <summary>Gets or sets the maximum text length returned by one projected prompt retrieval.</summary>
     [JsonPropertyName("maxPromptContentLength")]
     public int MaxPromptContentLength { get; set; } = 200_000;
+    /// <summary>Gets or sets exact original MCP tool names admitted as capabilities.</summary>
+    [JsonPropertyName("allowedTools")]
+    public IReadOnlyList<string>? AllowedTools { get; set; }
+    /// <summary>Gets or sets the server default and per-tool permission bindings.</summary>
+    [JsonPropertyName("permission")]
+    public McpPermissionConfig? Permission { get; set; }
     /// <summary>Gets or sets OAuth registration policy for this HTTP resource.</summary>
     [JsonPropertyName("oauth")]
     public McpOAuthOptions? OAuth { get; set; }
@@ -143,6 +154,8 @@ public sealed class McpServerConfig
         ValidateHeaders(HeaderSecretKeys?.Keys);
         ProcessIsolation?.Validate();
         ValidateOAuth();
+        ValidateAllowedTools();
+        Permission?.Validate();
         if (MaxResourceListResults <= 0 || MaxPromptListResults <= 0)
             throw new ArgumentOutOfRangeException(nameof(MaxResourceListResults), "MCP list limits must be positive.");
         if (MaxResourceContentLength <= 0 || MaxPromptContentLength <= 0)
@@ -168,6 +181,32 @@ public sealed class McpServerConfig
         if (OAuth.ClientIdMetadataDocument is { } document &&
             (!document.IsAbsoluteUri || document.Scheme != Uri.UriSchemeHttps))
             throw new ArgumentException("Client ID Metadata Documents require an absolute HTTPS URI.");
+    }
+
+    private void ValidateAllowedTools()
+    {
+        if (AllowedTools is null)
+            return;
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var tool in AllowedTools)
+        {
+            if (string.IsNullOrWhiteSpace(tool))
+                throw new McpPermissionConfigurationException(
+                    "McpAllowedToolsInvalid",
+                    "allowedTools",
+                    "MCP allowed tool names cannot be blank.");
+            if (!string.Equals(tool, tool.Trim(), StringComparison.Ordinal) ||
+                tool.Any(char.IsControl))
+                throw new McpPermissionConfigurationException(
+                    "McpAllowedToolsInvalid",
+                    "allowedTools",
+                    "MCP allowed tool names must be canonical and control-free.");
+            if (!seen.Add(tool))
+                throw new McpPermissionConfigurationException(
+                    "McpAllowedToolDuplicate",
+                    "allowedTools",
+                    $"MCP tool '{tool}' is allowed more than once.");
+        }
     }
 
     private static void ValidateHeaders(IEnumerable<string>? headers)

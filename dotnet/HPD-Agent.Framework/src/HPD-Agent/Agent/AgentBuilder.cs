@@ -19,6 +19,7 @@ using HPD.Agent;
 using HPD.Agent.Secrets;
 using HPD.Agent.Serialization;
 using HPD.Agent.MCP;
+using HPD.Agent.Permissions;
 
 namespace HPD.Agent;
 
@@ -307,7 +308,10 @@ public class AgentBuilder
     internal readonly List<AgentCapabilitySourceRegistration> _capabilitySourceRegistrations = [];
     private readonly HashSet<CapabilitySourceId> _collectedToolHarnessCapabilitySources = [];
     private readonly List<IAgentCapabilitySource> _ownedCapabilitySources = [];
+    private readonly IPermissionDescriptorCatalog _permissionDescriptorCatalog =
+        PermissionDescriptorComposition.CreateCatalog();
     private bool _configuredMcpSourcesResolved;
+    internal IPermissionDescriptorCatalog PermissionDescriptorCatalog => _permissionDescriptorCatalog;
 
     /// <summary>
     /// Registers the OpenAPI loader hook. Called by OpenApiAutoDiscovery via [ModuleInitializer].
@@ -933,6 +937,18 @@ public class AgentBuilder
             try
             {
                 server.Validate();
+            }
+            catch (McpPermissionConfigurationException exception)
+            {
+                var permissionPath = $"{path}.{exception.Path}";
+                throw McpConfigurationDiagnostics.At(
+                    new AgentRunConfigurationException(
+                        exception.Code,
+                        permissionPath,
+                        exception.Message,
+                        innerException: exception),
+                    permissionPath,
+                    server.SourceLocations);
             }
             catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
             {
@@ -2281,21 +2297,116 @@ public class AgentBuilder
     {
         var codec = _config.EventComposition?.Codec
             ?? throw new InvalidOperationException("Permission descriptor validation requires an event composition.");
+        var validated = new HashSet<string>(StringComparer.Ordinal);
+        var authorities = new Dictionary<string, PermissionAuthorityOwner>(StringComparer.Ordinal);
         foreach (var function in functions.OfType<HPDAIFunctionFactory.HPDAIFunction>())
-        foreach (var descriptor in function.HPDOptions.PermissionDescriptors.Values.Where(
-                     static descriptor => descriptor.InteractionFactory is not null))
         {
-            if (descriptor.RequestEventType is null || descriptor.ResponseEventType is null)
-                throw new InvalidOperationException(
-                    $"Permission interaction descriptor '{descriptor.DescriptorId}' does not declare its durable event pair.");
-            if (!codec.TryGetByType(descriptor.RequestEventType, out var request) ||
-                request.Durability != AgentEventDurability.Durable ||
-                !codec.TryGetByType(descriptor.ResponseEventType, out var response) ||
-                response.Durability != AgentEventDurability.Durable)
-                throw new InvalidOperationException(
-                    $"Permission interaction descriptor '{descriptor.DescriptorId}' requires durable events " +
-                    $"'{descriptor.RequestEventType.FullName}' and '{descriptor.ResponseEventType.FullName}' in the selected application composition.");
+            var declarations = new List<(string Label, AIFunctionPermissionDeclaration Declaration)>();
+            if (function.HPDOptions.FunctionPermission is { } functionPermission)
+                declarations.Add((function.Name, functionPermission));
+            if (function.HPDOptions.OperationContract is { } contract)
+                declarations.AddRange(contract.Actions.Select(action =>
+                    ($"{function.Name}/{action.Key}", action.Value.Permission)));
+
+            foreach (var (label, declaration) in declarations)
+            {
+                ValidatePermissionAuthorityText(declaration.Authority, declaration.Source);
+                if (!declaration.RequiresPermission)
+                {
+                    if (declaration.PolicyDescriptorId is not null ||
+                        declaration.InteractionDescriptorId is not null)
+                        throw new AgentRunConfigurationException(
+                            "PermissionDescriptorInvalid",
+                            declaration.Authority,
+                            $"Permission authority '{declaration.Authority}' disables permission but declares a policy or interaction.");
+                    continue;
+                }
+                PermissionAuthorityOwner owner = new(label, IsMcpSource(declaration.Source));
+                if (authorities.TryGetValue(declaration.Authority, out var existing))
+                    throw new AgentRunConfigurationException(
+                        owner.IsMcp || existing.IsMcp
+                            ? "McpPermissionAuthorityInvalid"
+                            : "PermissionDescriptorInvalid",
+                        declaration.Authority,
+                        $"Permission authority '{declaration.Authority}' is shared by '{existing.Label}' and '{owner.Label}'.");
+                authorities.Add(declaration.Authority, owner);
+
+                if (declaration.PolicyDescriptorId is { } policyId)
+                {
+                    if (!_permissionDescriptorCatalog.TryGet(policyId, out var policy) ||
+                        policy.PolicyFactory is null)
+                        throw new AgentRunConfigurationException(
+                            IsMcpSource(declaration.Source)
+                                ? "McpPermissionPolicyUnknown"
+                                : "PermissionCatalogUnavailable",
+                            declaration.Authority,
+                            $"Permission policy descriptor '{policyId}' is not installed.");
+                }
+
+                if (declaration.InteractionDescriptorId is not { } interactionId ||
+                    !validated.Add(interactionId))
+                    continue;
+                if (!_permissionDescriptorCatalog.TryGet(interactionId, out var descriptor) ||
+                    descriptor.InteractionFactory is null)
+                    throw new AgentRunConfigurationException(
+                        IsMcpSource(declaration.Source)
+                            ? "McpPermissionInteractionUnknown"
+                            : "PermissionCatalogUnavailable",
+                        declaration.Authority,
+                        $"Permission interaction descriptor '{interactionId}' is not installed.");
+                if (descriptor.RequestEventType is null || descriptor.ResponseEventType is null)
+                    throw new AgentRunConfigurationException(
+                        "PermissionInteractionEventsMissing",
+                        declaration.Authority,
+                        $"Permission interaction descriptor '{descriptor.DescriptorId}' does not declare its durable event pair.");
+                if (!codec.TryGetByType(descriptor.RequestEventType, out var request) ||
+                    request.Durability != AgentEventDurability.Durable ||
+                    !codec.TryGetByType(descriptor.ResponseEventType, out var response) ||
+                    response.Durability != AgentEventDurability.Durable)
+                    throw new AgentRunConfigurationException(
+                        "PermissionInteractionEventsMissing",
+                        declaration.Authority,
+                        $"Permission interaction descriptor '{descriptor.DescriptorId}' requires durable events " +
+                        $"'{descriptor.RequestEventType.FullName}' and '{descriptor.ResponseEventType.FullName}' " +
+                        "in the selected application composition.");
+            }
         }
+    }
+
+    private static bool IsMcpSource(PermissionDeclarationSource source) =>
+        source is PermissionDeclarationSource.AgentConfig or PermissionDeclarationSource.ToolOverride;
+
+    private static void ValidatePermissionAuthorityText(
+        string authority,
+        PermissionDeclarationSource source)
+    {
+        if (string.IsNullOrWhiteSpace(authority) ||
+            !string.Equals(authority, authority.Trim(), StringComparison.Ordinal) ||
+            authority.Any(char.IsControl) ||
+            System.Text.Encoding.UTF8.GetByteCount(authority) > 512)
+            throw new AgentRunConfigurationException(
+                IsMcpSource(source)
+                    ? "McpPermissionAuthorityInvalid"
+                    : "PermissionDescriptorInvalid",
+                authority,
+                "Permission authority must be canonical, non-empty, control-free, and at most 512 UTF-8 bytes.");
+    }
+
+    private sealed record PermissionAuthorityOwner(string Label, bool IsMcp);
+
+    private void ValidatePermissionMiddlewareAvailability(IEnumerable<AITool> tools)
+    {
+        var governed = tools
+            .OfType<HPDAIFunctionFactory.HPDAIFunction>()
+            .Any(static function =>
+                function.HPDOptions.FunctionPermission?.RequiresPermission == true ||
+                function.HPDOptions.OperationContract?.Actions.Values.Any(
+                    static action => action.Permission.RequiresPermission) == true);
+        if (governed && !_middlewares.OfType<IAgentPermissionMiddleware>().Any())
+            throw new AgentRunConfigurationException(
+                "PermissionMiddlewareMissing",
+                "permissions",
+                "The agent contains permission-governed capabilities but no IAgentPermissionMiddleware.");
     }
 
     private IProviderExternalIdentityRegistry ResolveExternalIdentityRegistry(IServiceProvider? services)
@@ -2645,6 +2756,7 @@ public class AgentBuilder
     /// </summary>
     private Agent CreateAgent(AgentBuildDependencies buildData)
     {
+        ValidatePermissionMiddlewareAvailability(buildData.MergedOptions?.Tools ?? []);
         var identityCollision = _selectedToolHarnessFactories
             .GroupBy(static factory => factory.ActivationIdentity, StringComparer.Ordinal)
             .FirstOrDefault(static group => group.Select(factory => factory.ToolHarnessType).Distinct().Skip(1).Any());
@@ -2886,6 +2998,7 @@ public class AgentBuilder
 
         try
         {
+            ValidatePermissionEventAuthority(toolFunctions);
             NormalizeCapabilityMetadata(toolFunctions);
             _ = CapabilityGraph.CreateFromFunctions(toolFunctions);
         }
@@ -2968,6 +3081,8 @@ public class AgentBuilder
                         {
                         }
                     }
+                    ValidatePermissionEventAuthority(
+                        candidateOwners.SelectMany(static owner => owner.Snapshot.Functions));
                     return candidateOwners;
                 }
                 catch

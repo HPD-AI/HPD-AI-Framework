@@ -45,11 +45,9 @@ internal class MCPServerCapability : BaseCapability
     public bool CollapseWithinToolHarness { get; set; }
 
     /// <summary>
-    /// Whether [RequiresPermission] attribute is present on the method.
-    /// When true, emits RequiresPermissionOverride = true in registration code.
-    /// When false, no override is emitted (config default applies).
+    /// The optional generated server permission binding from [RequiresPermission].
     /// </summary>
-    public bool RequiresPermission { get; set; }
+    public McpPermissionInfo? Permission { get; set; }
 
     // ========== Code Generation ==========
 
@@ -65,7 +63,7 @@ internal class MCPServerCapability : BaseCapability
             : $"(({toolharness.ClassName})instance!).{MethodName}()";
         var ownerIdentity = $"{toolharness.AssemblyName}:{toolharness.Namespace}:{toolharness.EffectiveName}";
         var sourceId = $"mcp.toolharness:{ownerIdentity}:{Name}";
-        var permission = RequiresPermission ? "true" : "null";
+        var permission = Permission?.ToCode() ?? "null";
         var factory = FromManifest is null
             ? $"static {(IsStatic ? "_" : "instance")} => HPD.Agent.MCP.McpCapabilitySourceFactory.FromServer(\"{EscapeString(sourceId)}\", {provider}!, \"{EscapeString(ownerIdentity)}\", {CollapseWithinToolHarness.ToString().ToLower()}, {permission})"
             : $"static _ => HPD.Agent.MCP.McpCapabilitySourceFactory.FromManifestServer(\"{EscapeString(sourceId)}\", \"{EscapeString(FromManifest)}\", \"{EscapeString(ManifestServerName ?? Name)}\", \"{EscapeString(ownerIdentity)}\", {CollapseWithinToolHarness.ToString().ToLower()}, {permission})";
@@ -83,7 +81,7 @@ internal class MCPServerCapability : BaseCapability
             : $"(({toolharness.ClassName})instance!).{MethodName}()";
         var ownerIdentity = $"{toolharness.AssemblyName}:{toolharness.Namespace}:{toolharness.EffectiveName}";
         var sourceId = $"mcp.toolharness:{ownerIdentity}:{Name}";
-        var permission = RequiresPermission ? "true" : "null";
+        var permission = Permission?.ToCode() ?? "null";
         var factoryProvider = FromManifest is null
             ? $"static {(IsStatic ? "_" : "instance")} => HPD.Agent.MCP.McpCapabilitySourceFactory.FromServer(\"{EscapeString(sourceId)}\", {provider}!, \"{EscapeString(ownerIdentity)}\", {CollapseWithinToolHarness.ToString().ToLower()}, {permission})"
             : $"static _ => HPD.Agent.MCP.McpCapabilitySourceFactory.FromManifestServer(\"{EscapeString(sourceId)}\", \"{EscapeString(FromManifest)}\", \"{EscapeString(ManifestServerName ?? Name)}\", \"{EscapeString(ownerIdentity)}\", {CollapseWithinToolHarness.ToString().ToLower()}, {permission})";
@@ -96,7 +94,7 @@ internal class MCPServerCapability : BaseCapability
             $"                CollapseWithinToolHarness: {CollapseWithinToolHarness.ToString().ToLower()},\n" +
             $"                FromManifest: {(FromManifest is null ? "null" : $"\"{EscapeString(FromManifest)}\"")},\n" +
             $"                ManifestServerName: {(FromManifest is null ? "null" : $"\"{EscapeString(ManifestServerName ?? Name)}\"")},\n" +
-            $"                RequiresPermissionOverride: {(RequiresPermission ? "true" : "null")},\n" +
+            $"                PermissionOverride: {permission},\n" +
             $"                FactoryProvider: {factoryProvider}));";
     }
 
@@ -134,4 +132,22 @@ internal class MCPServerCapability : BaseCapability
 
         return input.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "");
     }
+}
+
+internal sealed record McpPermissionInfo(
+    string? Authority,
+    string? Policy,
+    string? Interaction)
+{
+    internal string ToCode() =>
+        "new global::HPD.Agent.MCP.McpPermissionConfig { " +
+        "RequiresPermission = true" +
+        $", Authority = {Literal(Authority)}" +
+        $", Policy = {Literal(Policy)}" +
+        $", Interaction = {Literal(Interaction)} }}";
+
+    private static string Literal(string? value) =>
+        value is null
+            ? "null"
+            : "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
 }

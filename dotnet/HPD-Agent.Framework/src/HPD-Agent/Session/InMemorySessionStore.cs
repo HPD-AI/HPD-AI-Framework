@@ -505,7 +505,12 @@ public sealed class InMemorySessionStore : ISessionStore, IThreadDeltaStore, HPD
     private sealed class PreferenceState
     {
         internal SemaphoreSlim Gate { get; } = new(1, 1);
-        internal PermissionPreferenceSnapshot Snapshot { get; set; } = new(0, []);
+        internal PermissionPreferenceSnapshot Snapshot { get; set; } = new()
+        {
+            Version = 0,
+            SchemaVersion = PermissionPreferenceSchema.CurrentVersion,
+            Records = []
+        };
         internal Dictionary<string, PermissionPreferenceOutboxRecord> Outbox { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, PermissionPreferenceOutboxRecord> Idempotency { get; } = new(StringComparer.Ordinal);
     }

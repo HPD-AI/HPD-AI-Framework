@@ -205,7 +205,12 @@ public sealed class GeneratedPermissionArchitectureTests
             SessionId = "session-1",
             AuditThread = new ThreadKey("session-1", "main"),
             ExpectedVersion = 0,
-            Replacement = new PermissionPreferenceSnapshot(1, [record]),
+            Replacement = new PermissionPreferenceSnapshot
+            {
+                Version = 1,
+                SchemaVersion = PermissionPreferenceSchema.CurrentVersion,
+                Records = [record]
+            },
             Event = new PermissionPreferenceChangedEvent(
                 record.PreferenceId, key, record.Decision, record.Kind),
             IdempotencyKey = "permission-1:always_allow:preference-1",

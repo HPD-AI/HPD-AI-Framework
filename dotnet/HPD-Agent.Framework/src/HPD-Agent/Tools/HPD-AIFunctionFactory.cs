@@ -32,23 +32,20 @@ public class HPDAIFunctionFactory
             options ?? _defaultOptions);
     }
 
-    /// <summary>Creates a reflection-backed function with an explicit closed permission descriptor registry.</summary>
-    /// <remarks>Generated registration remains the Native-AOT path. Reflection never activates permission types implicitly.</remarks>
+    /// <summary>Creates a reflection-backed function whose permission definitions are generated into the application catalog.</summary>
+    /// <remarks>Generated registration remains the Native-AOT path.</remarks>
     /// <param name="method">The attributed function method.</param>
     /// <param name="instance">The target instance for an instance method.</param>
-    /// <param name="permissionDescriptors">Explicit policy, interaction, presentation, and event activation authority.</param>
     /// <param name="serializerOptions">Runtime reflection serializer options.</param>
     [RequiresUnreferencedCode("Reflection function registration inspects method attributes and runtime JSON metadata.")]
     [RequiresDynamicCode("Reflection function registration invokes runtime methods and JSON metadata.")]
     public static AIFunction CreateReflection(
         MethodInfo method,
         object? instance,
-        IReadOnlyDictionary<string, HPD.Agent.Permissions.AIFunctionPermissionDescriptor> permissionDescriptors,
         JsonSerializerOptions? serializerOptions = null) =>
         ReflectionToolFactory.CreateExplicitFunction(
             method,
             instance,
-            permissionDescriptors ?? throw new ArgumentNullException(nameof(permissionDescriptors)),
             serializerOptions ?? HPDToolArgumentBinder.DefaultSerializerOptions);
 
     /// <summary>Creates an action function from one fully verified runtime composition.</summary>
@@ -112,7 +109,7 @@ public class HPDAIFunctionFactory
             ContractDescriptor = JsonSchema.ValueKind == JsonValueKind.Undefined
                 ? null
                 : AIFunctionContractDescriptor.Create(
-                    Name, JsonSchema, options.OperationContract, options.FunctionPermission, options.PermissionDescriptors);
+                    Name, JsonSchema, options.OperationContract, options.FunctionPermission);
             CanonicalInputContract = options.VerifiedActionComposition?.InputContract ??
                 (JsonSchema.ValueKind == JsonValueKind.Undefined
                     ? null
@@ -159,9 +156,6 @@ public class HPDAIFunctionFactory
                 ? null
                 : new Dictionary<string, string>(source.ParameterDescriptions, StringComparer.Ordinal),
             FunctionPermission = source.FunctionPermission,
-            PermissionDescriptors = new ReadOnlyDictionary<string, HPD.Agent.Permissions.AIFunctionPermissionDescriptor>(
-                new Dictionary<string, HPD.Agent.Permissions.AIFunctionPermissionDescriptor>(
-                    source.PermissionDescriptors, StringComparer.Ordinal)),
             SerializerOptions = source.SerializerOptions,
             ResultType = source.ResultType,
             MarshalResult = source.MarshalResult,
@@ -205,10 +199,6 @@ public class HPDAIFunctionFactory
 
         /// <summary>Gets the immutable normalized closed-action contract snapshot.</summary>
         public AIFunctionOperationContract? OperationContract => HPDOptions.OperationContract;
-
-        /// <summary>Gets the immutable generated permission descriptor registry.</summary>
-        public IReadOnlyDictionary<string, HPD.Agent.Permissions.AIFunctionPermissionDescriptor> PermissionDescriptors =>
-            HPDOptions.PermissionDescriptors;
 
         /// <summary>Gets the deferred generated final argument binder, when one is installed.</summary>
         public Func<JsonElement, AIFunctionBindingResult>? ArgumentBinder => HPDOptions.ArgumentBinder;
@@ -458,8 +448,7 @@ public sealed record AIFunctionContractDescriptor
         string functionName,
         JsonElement schema,
         AIFunctionOperationContract? operationContract = null,
-        AIFunctionPermissionDeclaration? functionPermission = null,
-        IReadOnlyDictionary<string, HPD.Agent.Permissions.AIFunctionPermissionDescriptor>? permissionDescriptors = null)
+        AIFunctionPermissionDeclaration? functionPermission = null)
     {
         var canonical = new StringBuilder(schema.GetRawText());
         if (operationContract is not null)
@@ -475,14 +464,6 @@ public sealed record AIFunctionContractDescriptor
             }
         }
         AppendPermission(canonical, functionPermission);
-        if (permissionDescriptors is not null)
-            foreach (var descriptor in permissionDescriptors.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
-                canonical.Append("|descriptor:").Append(descriptor.Key)
-                    .Append(':').Append(descriptor.Value.DescriptorId)
-                    .Append(':').Append(descriptor.Value.PolicyFactory?.Method.DeclaringType?.AssemblyQualifiedName)
-                    .Append(':').Append(descriptor.Value.InteractionFactory?.Method.DeclaringType?.AssemblyQualifiedName)
-                    .Append(':').Append(descriptor.Value.Presentation?.PresentationId)
-                    .Append(':').Append(descriptor.Value.Presentation?.PresentationType.AssemblyQualifiedName);
         var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString())))
             .ToLowerInvariant();
         return new AIFunctionContractDescriptor
@@ -802,9 +783,6 @@ public class HPDAIFunctionFactoryOptions
     /// <summary>Gets or sets the complete normalized function permission declaration.</summary>
     public AIFunctionPermissionDeclaration? FunctionPermission { get; set; }
 
-    /// <summary>Gets or sets generated permission activation descriptors keyed by stable ID.</summary>
-    public IReadOnlyDictionary<string, HPD.Agent.Permissions.AIFunctionPermissionDescriptor> PermissionDescriptors { get; set; }
-        = new Dictionary<string, HPD.Agent.Permissions.AIFunctionPermissionDescriptor>(StringComparer.Ordinal);
     public JsonSerializerOptions? SerializerOptions { get; set; }
     public Type? ResultType { get; set; }
     public Func<object?, Type?, CancellationToken, ValueTask<object?>>? MarshalResult { get; set; }

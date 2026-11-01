@@ -29,7 +29,7 @@ namespace HPD.Agent.Permissions;
 ///     .Build();
 /// </code>
 /// </example>
-public class AutoApprovePermissionMiddleware : IAgentMiddleware
+public class AutoApprovePermissionMiddleware : IAgentPermissionMiddleware
 {
     /// <summary>
     /// Called before each function executes. Always allows execution (no permission check).

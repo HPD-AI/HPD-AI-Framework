@@ -27,7 +27,8 @@ public static class AgentBuilderPermissionExtensions
     {
         var middleware = new HPD.Agent.Permissions.PermissionMiddleware(
             config: builder.Config,
-            overrideRegistry: builder._permissionOverrides);
+            overrideRegistry: builder._permissionOverrides,
+            descriptorCatalog: builder.PermissionDescriptorCatalog);
         builder._middlewares.Add(middleware);
         return builder;
     }

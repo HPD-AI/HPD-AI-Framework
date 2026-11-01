@@ -7,6 +7,7 @@ using HPD.Events.Core;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Xunit;
 
 namespace HPD.Agent.Tests.Middleware;
@@ -105,14 +106,6 @@ public class PermissionMiddlewareRunConfigTests
                 FunctionPermission = AIFunctionPermissionDeclaration.Required("SensitiveTool") with
                 {
                     PolicyDescriptorId = "test.return-to-model"
-                },
-                PermissionDescriptors = new Dictionary<string, AIFunctionPermissionDescriptor>
-                {
-                    ["test.return-to-model"] = new()
-                    {
-                        DescriptorId = "test.return-to-model",
-                        PolicyFactory = _ => new ReturnToModelPolicy()
-                    }
                 }
             });
         using var services = new ServiceCollection().BuildServiceProvider();
@@ -204,7 +197,156 @@ public class PermissionMiddlewareRunConfigTests
             .Contain("Client tool request rejected: Unknown compound tool action 'unknown'.");
     }
 
-    private sealed class ReturnToModelPolicy : IPermissionPolicy
+    [Fact]
+    public async Task BeforeFunction_ImmediatePolicyAllow_CompletesWithoutInteraction()
+    {
+        var middleware = new PermissionMiddleware();
+        var function = CreateImmediatePolicyFunction();
+        using var services = new ServiceCollection().BuildServiceProvider();
+        var coordinator = new EventCoordinator();
+        var requests = 0;
+        using var subscription = coordinator.Subscribe<PermissionRequestEvent>(_ =>
+        {
+            requests++;
+            return ValueTask.CompletedTask;
+        });
+        var context = CreateAgentContext(coordinator, services).AsBeforeFunction(
+            function,
+            "call-immediate",
+            new Dictionary<string, object?>(),
+            new AgentRunConfig());
+
+        await middleware.BeforeFunctionAsync(context, CancellationToken.None);
+
+        context.BlockExecution.Should().BeFalse();
+        context.OverrideResult.Should().BeNull();
+        context.PermissionGrant.Should().NotBeNull();
+        context.PermissionGrant!.Source.Should().Be(PermissionGrantSource.PolicyDecision);
+        requests.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task BeforeFunction_StoredDeny_OutranksImmediatePolicyAllow()
+    {
+        var store = new InMemorySessionStore(
+            HPD.Agent.Tests.Infrastructure.TestEventComposition.Current.Codec);
+        var key = new PermissionKey(
+            "SensitiveTool",
+            null,
+            "function/SensitiveTool",
+            ImmediatePermissionPolicy.Id,
+            "1");
+        var record = new PermissionPreferenceRecord
+        {
+            PreferenceId = "stored-deny",
+            Key = key,
+            Decision = PermissionDecisionKind.Deny,
+            Kind = PermissionPersistenceKind.SessionKey,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        (await store.CommitAsync(new PermissionPreferenceCommit
+        {
+            SessionId = "stored-session",
+            AuditThread = new ThreadKey("stored-session", "stored-thread"),
+            ExpectedVersion = 0,
+            Replacement = new PermissionPreferenceSnapshot
+            {
+                Version = 1,
+                SchemaVersion = PermissionPreferenceSchema.CurrentVersion,
+                Records = [record]
+            },
+            Event = new PermissionPreferenceChangedEvent(
+                record.PreferenceId,
+                key,
+                record.Decision,
+                record.Kind),
+            IdempotencyKey = "stored-deny-commit",
+            PublisherClaimantId = "test"
+        }, CancellationToken.None)).Status.Should().Be(PermissionPreferenceCommitStatus.Committed);
+
+        using var services = new ServiceCollection().BuildServiceProvider();
+        var coordinator = new EventCoordinator();
+        var context = CreateAgentContext(
+                coordinator,
+                services,
+                store,
+                "stored-session",
+                "stored-thread")
+            .AsBeforeFunction(
+                CreateImmediatePolicyFunction(),
+                "call-stored-deny",
+                new Dictionary<string, object?>(),
+                new AgentRunConfig());
+
+        await new PermissionMiddleware().BeforeFunctionAsync(context, CancellationToken.None);
+
+        context.BlockExecution.Should().BeTrue();
+        context.PermissionGrant.Should().BeNull();
+        context.OverrideResult.Should().BeOfType<string>().Which.Should()
+            .Contain("stored user preference");
+    }
+
+    [Fact]
+    public async Task BeforeFunction_LegacyPreferenceSchema_IsUnavailable()
+    {
+        var store = new InMemorySessionStore(
+            HPD.Agent.Tests.Infrastructure.TestEventComposition.Current.Codec);
+        var key = new PermissionKey(
+            "SensitiveTool",
+            null,
+            "function/SensitiveTool",
+            ImmediatePermissionPolicy.Id,
+            "1");
+        var record = new PermissionPreferenceRecord
+        {
+            PreferenceId = "legacy-stored-deny",
+            Key = key,
+            Decision = PermissionDecisionKind.Deny,
+            Kind = PermissionPersistenceKind.SessionKey,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        (await store.CommitAsync(new PermissionPreferenceCommit
+        {
+            SessionId = "legacy-session",
+            AuditThread = new ThreadKey("legacy-session", "legacy-thread"),
+            ExpectedVersion = 0,
+            Replacement = new PermissionPreferenceSnapshot
+            {
+                Version = 1,
+                SchemaVersion = PermissionPreferenceSchema.CurrentVersion - 1,
+                Records = [record]
+            },
+            Event = new PermissionPreferenceChangedEvent(
+                record.PreferenceId,
+                key,
+                record.Decision,
+                record.Kind),
+            IdempotencyKey = "legacy-stored-deny-commit",
+            PublisherClaimantId = "test"
+        }, CancellationToken.None)).Status.Should().Be(PermissionPreferenceCommitStatus.Committed);
+
+        using var services = new ServiceCollection().BuildServiceProvider();
+        var context = CreateAgentContext(
+                new EventCoordinator(),
+                services,
+                store,
+                "legacy-session",
+                "legacy-thread")
+            .AsBeforeFunction(
+                CreateImmediatePolicyFunction(),
+                "call-legacy-preference",
+                new Dictionary<string, object?>(),
+                new AgentRunConfig());
+
+        await new PermissionMiddleware().BeforeFunctionAsync(context, CancellationToken.None);
+
+        context.BlockExecution.Should().BeFalse();
+        context.PermissionGrant.Should().NotBeNull();
+        context.PermissionGrant!.Source.Should().Be(PermissionGrantSource.PolicyDecision);
+    }
+
+    [PermissionPolicyDefinition("test.return-to-model")]
+    internal sealed class ReturnToModelPolicy : IPermissionPolicy
     {
         public ValueTask<PermissionEvaluation> EvaluateAsync(
             PermissionEvaluationContext context, CancellationToken cancellationToken) =>
@@ -227,6 +369,65 @@ public class PermissionMiddlewareRunConfigTests
                 }
             });
     }
+
+    [PermissionPresentation("test.immediate-presentation", typeof(ImmediatePermissionJsonContext))]
+    public sealed record ImmediatePermissionPresentation(string Message);
+
+    [PermissionPolicyDefinition(ImmediatePermissionPolicy.Id)]
+    internal sealed class ImmediatePermissionPolicy :
+        PermissionPolicy<ImmediatePermissionPresentation>
+    {
+        internal const string Id = "test.immediate-policy";
+
+        public override ValueTask<PermissionEvaluation> EvaluateAsync(
+            ValidatedPermissionInput input,
+            PermissionEvaluationContext context,
+            CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new PermissionEvaluation
+            {
+                PolicyId = Id,
+                PolicyRevision = "1",
+                Authority = context.Authority,
+                Title = "Read-only operation",
+                Risk = PermissionRisk.Low,
+                Choices = new PermissionChoiceSet
+                {
+                    Items =
+                    [
+                        new PermissionChoiceDescriptor
+                        {
+                            Id = "allow",
+                            Label = "Allow",
+                            Decision = PermissionDecisionKind.Allow
+                        },
+                        new PermissionChoiceDescriptor
+                        {
+                            Id = "deny",
+                            Label = "Deny",
+                            Decision = PermissionDecisionKind.Deny
+                        }
+                    ]
+                },
+                ImmediateDecision = new PermissionDecision
+                {
+                    Kind = PermissionDecisionKind.Allow,
+                    ChoiceId = "allow"
+                }
+            });
+    }
+
+    private static AIFunction CreateImmediatePolicyFunction() =>
+        HPDAIFunctionFactory.Create(
+            async (_, _, _) => "ok",
+            new HPDAIFunctionFactoryOptions
+            {
+                Name = "SensitiveTool",
+                Description = "Immediate policy test function",
+                FunctionPermission = AIFunctionPermissionDeclaration.Required("SensitiveTool") with
+                {
+                    PolicyDescriptorId = ImmediatePermissionPolicy.Id
+                }
+            });
 
     private static AIFunction CreateFunction(string name, bool requiresPermission)
         => HPDAIFunctionFactory.Create(
@@ -252,7 +453,12 @@ public class PermissionMiddlewareRunConfigTests
             runConfig);
     }
 
-    private static AgentContext CreateAgentContext(EventCoordinator coordinator, IServiceProvider? services = null)
+    private static AgentContext CreateAgentContext(
+        EventCoordinator coordinator,
+        IServiceProvider? services = null,
+        ISessionStore? store = null,
+        string sessionId = "test-session",
+        string threadId = "test-thread")
     {
         var state = AgentLoopState.InitialSafe(
             new List<ChatMessage>(),
@@ -260,15 +466,19 @@ public class PermissionMiddlewareRunConfigTests
             "test-conv",
             "TestAgent");
 
+        var session = new HPD.Agent.Session(sessionId) { Store = store };
         return new AgentContext(
             "TestAgent",
             "test-conv",
             state,
             coordinator,
-            new HPD.Agent.Session("test-session"),
-            new HPD.Agent.Thread("test-session", "test-agent") { Id = "test-thread" },
+            session,
+            new HPD.Agent.Thread(sessionId, "test-agent") { Id = threadId },
             CancellationToken.None,
             config: new AgentConfig { EventComposition = HPD.Agent.Tests.Infrastructure.TestEventComposition.Current },
             services: services);
     }
 }
+
+[JsonSerializable(typeof(PermissionMiddlewareRunConfigTests.ImmediatePermissionPresentation))]
+internal partial class ImmediatePermissionJsonContext : JsonSerializerContext;

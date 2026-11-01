@@ -21,7 +21,7 @@ public sealed class McpCapabilitySourceFactory : IAgentCapabilitySourceFactory
     private readonly string? _selectedServerName;
     private readonly string? _parentToolHarness;
     private readonly bool _collapseWithinToolHarness;
-    private readonly bool? _requiresPermissionOverride;
+    private readonly McpPermissionConfig? _permissionOverride;
     private readonly McpCatalogPageCache _catalogPages;
 
     internal McpCapabilitySourceFactory(
@@ -35,7 +35,7 @@ public sealed class McpCapabilitySourceFactory : IAgentCapabilitySourceFactory
         string? selectedServerName = null,
         string? parentToolHarness = null,
         bool collapseWithinToolHarness = false,
-        bool? requiresPermissionOverride = null)
+        McpPermissionConfig? permissionOverride = null)
     {
         Id = id;
         _manifestPath = manifestPath;
@@ -47,7 +47,7 @@ public sealed class McpCapabilitySourceFactory : IAgentCapabilitySourceFactory
         _selectedServerName = selectedServerName;
         _parentToolHarness = parentToolHarness;
         _collapseWithinToolHarness = collapseWithinToolHarness;
-        _requiresPermissionOverride = requiresPermissionOverride;
+        _permissionOverride = SnapshotPermission(permissionOverride);
         _catalogPages = new McpCatalogPageCache(options.Catalog);
     }
 
@@ -57,7 +57,7 @@ public sealed class McpCapabilitySourceFactory : IAgentCapabilitySourceFactory
         McpServerConfig server,
         string parentToolHarness,
         bool collapseWithinToolHarness,
-        bool? requiresPermissionOverride = null,
+        McpPermissionConfig? permissionOverride = null,
         McpOptions? options = null) =>
         new(
             CapabilitySourceId.Create(sourceId),
@@ -66,7 +66,7 @@ public sealed class McpCapabilitySourceFactory : IAgentCapabilitySourceFactory
             options ?? new McpOptions(),
             null,
             null,
-            PrepareServer(server, parentToolHarness, collapseWithinToolHarness, requiresPermissionOverride));
+            PrepareServer(server, parentToolHarness, collapseWithinToolHarness, permissionOverride));
 
     /// <summary>Creates a source factory selecting one server from a final manifest file.</summary>
     public static McpCapabilitySourceFactory FromManifestServer(
@@ -75,7 +75,7 @@ public sealed class McpCapabilitySourceFactory : IAgentCapabilitySourceFactory
         string serverName,
         string parentToolHarness,
         bool collapseWithinToolHarness,
-        bool? requiresPermissionOverride = null,
+        McpPermissionConfig? permissionOverride = null,
         McpOptions? options = null) =>
         new(
             CapabilitySourceId.Create(sourceId),
@@ -87,7 +87,7 @@ public sealed class McpCapabilitySourceFactory : IAgentCapabilitySourceFactory
             selectedServerName: serverName,
             parentToolHarness: parentToolHarness,
             collapseWithinToolHarness: collapseWithinToolHarness,
-            requiresPermissionOverride: requiresPermissionOverride);
+            permissionOverride: permissionOverride);
 
     /// <summary>Creates a source factory from inline MCP server declarations.</summary>
     public static McpCapabilitySourceFactory FromServers(
@@ -112,15 +112,43 @@ public sealed class McpCapabilitySourceFactory : IAgentCapabilitySourceFactory
         McpServerConfig server,
         string parentToolHarness,
         bool collapseWithinToolHarness,
-        bool? requiresPermissionOverride)
+        McpPermissionConfig? permissionOverride)
     {
         ArgumentNullException.ThrowIfNull(server);
-        server.ParentToolHarness = parentToolHarness;
-        server.CollapseWithinToolHarness = collapseWithinToolHarness;
-        if (requiresPermissionOverride is { } requiresPermission)
-            server.RequiresPermission = requiresPermission;
-        return server;
+        var json = JsonSerializer.Serialize(server, McpJsonSerializerContext.Default.McpServerConfig);
+        var snapshot = JsonSerializer.Deserialize(
+                json,
+                McpJsonSerializerContext.Default.McpServerConfig)
+            ?? throw new InvalidOperationException($"Failed to snapshot MCP server '{server.Name}'.");
+        snapshot.ParentToolHarness = parentToolHarness;
+        snapshot.CollapseWithinToolHarness = collapseWithinToolHarness;
+        if (permissionOverride is not null)
+            snapshot.Permission = MergePermission(
+                snapshot.Permission,
+                SnapshotPermission(permissionOverride)!);
+        snapshot.Validate();
+        return snapshot;
     }
+
+    private static McpPermissionConfig? SnapshotPermission(McpPermissionConfig? permission)
+    {
+        if (permission is null)
+            return null;
+        var json = JsonSerializer.Serialize(permission, McpJsonSerializerContext.Default.McpPermissionConfig);
+        return JsonSerializer.Deserialize(json, McpJsonSerializerContext.Default.McpPermissionConfig);
+    }
+
+    private static McpPermissionConfig MergePermission(
+        McpPermissionConfig? serverPermission,
+        McpPermissionConfig attributePermission) => new()
+    {
+        RequiresPermission = attributePermission.RequiresPermission,
+        Authority = attributePermission.Authority ?? serverPermission?.Authority,
+        Policy = attributePermission.Policy ?? serverPermission?.Policy,
+        Interaction = attributePermission.Interaction ?? serverPermission?.Interaction,
+        Tools = serverPermission?.Tools ??
+            attributePermission.Tools
+    };
 
     /// <inheritdoc />
     public CapabilitySourceId Id { get; }
@@ -142,7 +170,7 @@ public sealed class McpCapabilitySourceFactory : IAgentCapabilitySourceFactory
             _selectedServerName,
             _parentToolHarness,
             _collapseWithinToolHarness,
-            _requiresPermissionOverride,
+            _permissionOverride,
             _catalogPages));
 }
 
@@ -165,7 +193,7 @@ internal sealed class McpCapabilitySource : IAgentCapabilitySource
     private readonly string? _selectedServerName;
     private readonly string? _parentToolHarness;
     private readonly bool _collapseWithinToolHarness;
-    private readonly bool? _requiresPermissionOverride;
+    private readonly McpPermissionConfig? _permissionOverride;
     private readonly McpCatalogPageCache _catalogPages;
     private long _revision = -1;
     private int _disposed;
@@ -181,7 +209,7 @@ internal sealed class McpCapabilitySource : IAgentCapabilitySource
         string? selectedServerName,
         string? parentToolHarness,
         bool collapseWithinToolHarness,
-        bool? requiresPermissionOverride,
+        McpPermissionConfig? permissionOverride,
         McpCatalogPageCache catalogPages)
     {
         Id = id;
@@ -194,7 +222,7 @@ internal sealed class McpCapabilitySource : IAgentCapabilitySource
         _selectedServerName = selectedServerName;
         _parentToolHarness = parentToolHarness;
         _collapseWithinToolHarness = collapseWithinToolHarness;
-        _requiresPermissionOverride = requiresPermissionOverride;
+        _permissionOverride = permissionOverride;
         _catalogPages = catalogPages;
     }
 
@@ -230,8 +258,9 @@ internal sealed class McpCapabilitySource : IAgentCapabilitySource
                         $"MCP manifest does not contain server '{_selectedServerName}'.");
                 server.ParentToolHarness = _parentToolHarness;
                 server.CollapseWithinToolHarness = _collapseWithinToolHarness;
-                if (_requiresPermissionOverride is { } requiresPermission)
-                    server.RequiresPermission = requiresPermission;
+                if (_permissionOverride is not null)
+                    server.Permission = MergePermission(server.Permission, _permissionOverride);
+                server.Validate();
                 functions = await runtime.LoadToolsForToolHarnessAsync(
                     server,
                     secretResolver: _secretResolver,
@@ -262,6 +291,17 @@ internal sealed class McpCapabilitySource : IAgentCapabilitySource
             throw;
         }
     }
+
+    private static McpPermissionConfig MergePermission(
+        McpPermissionConfig? serverPermission,
+        McpPermissionConfig overridePermission) => new()
+    {
+        RequiresPermission = overridePermission.RequiresPermission,
+        Authority = overridePermission.Authority ?? serverPermission?.Authority,
+        Policy = overridePermission.Policy ?? serverPermission?.Policy,
+        Interaction = overridePermission.Interaction ?? serverPermission?.Interaction,
+        Tools = serverPermission?.Tools ?? overridePermission.Tools
+    };
 
     /// <inheritdoc />
     public async IAsyncEnumerable<CapabilityInvalidation> WatchAsync(

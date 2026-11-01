@@ -1,3 +1,5 @@
+using HPD.Agent.MCP;
+
 namespace HPD.Agent;
 
 /// <summary>Describes one generated ToolHarness-owned MCP source without importing protocol types.</summary>
@@ -7,7 +9,7 @@ namespace HPD.Agent;
 /// <param name="CollapseWithinToolHarness">Whether the source has a nested activation container.</param>
 /// <param name="FromManifest">An optional final manifest path.</param>
 /// <param name="ManifestServerName">An optional server registration selected from that manifest.</param>
-/// <param name="RequiresPermissionOverride">An optional generated permission override.</param>
+/// <param name="PermissionOverride">An optional generated server permission binding.</param>
 /// <param name="FactoryProvider">A generated direct capability-source factory delegate.</param>
 public sealed record McpServerSource(
     string Name,
@@ -16,5 +18,5 @@ public sealed record McpServerSource(
     bool CollapseWithinToolHarness,
     string? FromManifest,
     string? ManifestServerName,
-    bool? RequiresPermissionOverride,
+    McpPermissionConfig? PermissionOverride,
     Func<object?, IAgentCapabilitySourceFactory?> FactoryProvider);

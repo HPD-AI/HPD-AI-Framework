@@ -158,7 +158,10 @@ public sealed class McpRuntime : IAsyncDisposable
             {
                 await ResolveServerSecretsAsync(serverConfig, secretResolver, cancellationToken).ConfigureAwait(false);
                 _serverConfigs[serverConfig.Name] = serverConfig;
-                var functions = await LoadServerFunctionsAsync(serverConfig, cancellationToken);
+                var functions = await LoadServerFunctionsAsync(
+                    serverConfig,
+                    PermissionDeclarationSource.AgentConfig,
+                    cancellationToken);
 
                 // Determine Collapsing for this specific server
                 // Per-server setting takes precedence over global setting
@@ -188,6 +191,10 @@ public sealed class McpRuntime : IAsyncDisposable
                     _logger.LogInformation("Loaded {Count} MCP functions from server '{ServerName}'",
                         functions.Count, serverConfig.Name);
                 }
+            }
+            catch (McpPermissionConfigurationException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -236,7 +243,10 @@ public sealed class McpRuntime : IAsyncDisposable
             {
                 await ResolveServerSecretsAsync(serverConfig, secretResolver, cancellationToken).ConfigureAwait(false);
                 _serverConfigs[serverConfig.Name] = serverConfig;
-                var functions = await LoadServerFunctionsAsync(serverConfig, cancellationToken);
+                var functions = await LoadServerFunctionsAsync(
+                    serverConfig,
+                    PermissionDeclarationSource.AgentConfig,
+                    cancellationToken);
 
                 // Determine Collapsing for this specific server
                 // Per-server setting takes precedence over global setting
@@ -266,6 +276,10 @@ public sealed class McpRuntime : IAsyncDisposable
                     _logger.LogInformation("Loaded {Count} MCP functions from server '{ServerName}'",
                         functions.Count, serverConfig.Name);
                 }
+            }
+            catch (McpPermissionConfigurationException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -338,18 +352,31 @@ public sealed class McpRuntime : IAsyncDisposable
 
     private async Task<List<AIFunction>> LoadServerFunctionsAsync(
         McpServerConfig serverConfig,
+        PermissionDeclarationSource permissionSource,
         CancellationToken cancellationToken)
     {
-        var functions = await LoadServerToolsAsync(serverConfig, cancellationToken).ConfigureAwait(false);
-        functions.AddRange(await LoadServerResourceFunctionsAsync(serverConfig, cancellationToken).ConfigureAwait(false));
-        functions.AddRange(await LoadServerPromptFunctionsAsync(serverConfig, cancellationToken).ConfigureAwait(false));
+        var functions = await LoadServerToolsAsync(
+            serverConfig,
+            permissionSource,
+            cancellationToken).ConfigureAwait(false);
+        functions.AddRange(await LoadServerResourceFunctionsAsync(
+            serverConfig,
+            permissionSource,
+            cancellationToken).ConfigureAwait(false));
+        functions.AddRange(await LoadServerPromptFunctionsAsync(
+            serverConfig,
+            permissionSource,
+            cancellationToken).ConfigureAwait(false));
         return functions;
     }
 
     /// <summary>
     /// Loads tools from a specific MCP server
     /// </summary>
-    private async Task<List<AIFunction>> LoadServerToolsAsync(McpServerConfig serverConfig, CancellationToken cancellationToken)
+    private async Task<List<AIFunction>> LoadServerToolsAsync(
+        McpServerConfig serverConfig,
+        PermissionDeclarationSource permissionSource,
+        CancellationToken cancellationToken)
     {
         var client = await GetOrCreateClientAsync(serverConfig, cancellationToken);
 
@@ -373,10 +400,13 @@ public sealed class McpRuntime : IAsyncDisposable
         }
         while (cursor is not null);
 
+        ReportUnavailableAllowedTools(serverConfig, mcpTools);
         var adaptedTools = new List<AIFunction>();
 
         foreach (var tool in mcpTools)
         {
+            if (!McpPermissionResolver.IsToolAllowed(serverConfig, tool.Name))
+                continue;
             try
             {
                 // Ensure we have an AIFunction reference to invoke
@@ -433,9 +463,10 @@ public sealed class McpRuntime : IAsyncDisposable
                 {
                     Name = originalAIFunction.Name,
                     Description = originalAIFunction.Description,
-                    FunctionPermission = serverConfig.RequiresPermission
-                        ? CreateMcpPermissionDeclaration(originalAIFunction.Name)
-                        : null,
+                    FunctionPermission = McpPermissionResolver.ResolveTool(
+                        serverConfig,
+                        originalAIFunction.Name,
+                        permissionSource),
                     // MCP tools don't have validation since they're external - just pass through
                     Validator = (_, _) => new List<ValidationError>(),
                     // Copy schema from original MCP tool for proper parameter handling
@@ -456,11 +487,16 @@ public sealed class McpRuntime : IAsyncDisposable
                 var adapted = HPDAIFunctionFactory.Create(invocationWrapper, options);
                 adaptedTools.Add(adapted);
             }
+            catch (McpPermissionConfigurationException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to adapt MCP tool from server '{ServerName}': {Error}", serverConfig.Name, ex.Message);
-                // As a fallback, if possible, include the original AIFunction instance
-                if (tool is AIFunction fallback)
+                // A projected tool with any permission binding may never fall back to the
+                // SDK function because that route would bypass the HPD declaration.
+                if (serverConfig.Permission is null && tool is AIFunction fallback)
                 {
                     adaptedTools.Add(fallback);
                 }
@@ -470,8 +506,35 @@ public sealed class McpRuntime : IAsyncDisposable
         return adaptedTools;
     }
 
+    private void ReportUnavailableAllowedTools(
+        McpServerConfig serverConfig,
+        IReadOnlyCollection<McpClientTool> discoveredTools)
+    {
+        if (serverConfig.AllowedTools is not { Count: > 0 } allowedTools)
+            return;
+        var exposed = discoveredTools.Select(static tool => tool.Name)
+            .ToHashSet(StringComparer.Ordinal);
+        var unavailable = allowedTools.Where(tool => !exposed.Contains(tool)).ToArray();
+        const int maximumReported = 20;
+        foreach (var tool in unavailable.Take(maximumReported))
+        {
+            _logger.LogWarning(
+                "MCP allowed tool '{ToolName}' is not exposed by server '{ServerName}'.",
+                tool,
+                serverConfig.Name);
+        }
+        if (unavailable.Length > maximumReported)
+        {
+            _logger.LogWarning(
+                "MCP server '{ServerName}' has {AdditionalUnavailableCount} additional allowed tools that are not exposed.",
+                serverConfig.Name,
+                unavailable.Length - maximumReported);
+        }
+    }
+
     private async Task<List<AIFunction>> LoadServerResourceFunctionsAsync(
         McpServerConfig serverConfig,
+        PermissionDeclarationSource permissionSource,
         CancellationToken cancellationToken)
     {
         if (!serverConfig.EnableResources)
@@ -493,7 +556,11 @@ public sealed class McpRuntime : IAsyncDisposable
         {
             CreateListResourcesFunction(serverConfig, client, serverFunctionName),
             CreateListResourceTemplatesFunction(serverConfig, client, serverFunctionName),
-            CreateReadResourceFunction(serverConfig, client, serverFunctionName)
+            CreateReadResourceFunction(
+                serverConfig,
+                client,
+                serverFunctionName,
+                permissionSource)
         };
     }
 
@@ -656,7 +723,8 @@ public sealed class McpRuntime : IAsyncDisposable
     private AIFunction CreateReadResourceFunction(
         McpServerConfig serverConfig,
         McpClient client,
-        string serverFunctionName)
+        string serverFunctionName,
+        PermissionDeclarationSource permissionSource)
     {
         return HPDAIFunctionFactory.Create(
             async (args, _, ct) =>
@@ -732,9 +800,10 @@ public sealed class McpRuntime : IAsyncDisposable
             {
                 Name = $"mcp_{serverFunctionName}_read_resource",
                 Description = $"Read one MCP resource by URI from server '{serverConfig.Name}'. Binary resources return metadata instead of blob data.",
-                FunctionPermission = serverConfig.RequiresPermission
-                    ? CreateMcpPermissionDeclaration($"mcp_{serverFunctionName}_read_resource")
-                    : null,
+                FunctionPermission = McpPermissionResolver.ResolveSynthetic(
+                    serverConfig,
+                    "resource/read",
+                    permissionSource),
                 Validator = (_, _) => new List<ValidationError>(),
                 SchemaProvider = () => CreateJsonSchema(ReadResourceSchemaJson),
                 AdditionalProperties = CreateResourceFunctionMetadata(serverConfig.Name, "read_resource")
@@ -811,6 +880,7 @@ public sealed class McpRuntime : IAsyncDisposable
 
     private async Task<List<AIFunction>> LoadServerPromptFunctionsAsync(
         McpServerConfig serverConfig,
+        PermissionDeclarationSource permissionSource,
         CancellationToken cancellationToken)
     {
         if (!serverConfig.EnablePrompts)
@@ -831,7 +901,11 @@ public sealed class McpRuntime : IAsyncDisposable
         return new List<AIFunction>
         {
             CreateListPromptsFunction(serverConfig, client, serverFunctionName),
-            CreateGetPromptFunction(serverConfig, client, serverFunctionName)
+            CreateGetPromptFunction(
+                serverConfig,
+                client,
+                serverFunctionName,
+                permissionSource)
         };
     }
 
@@ -922,7 +996,8 @@ public sealed class McpRuntime : IAsyncDisposable
     private static AIFunction CreateGetPromptFunction(
         McpServerConfig serverConfig,
         McpClient client,
-        string serverFunctionName)
+        string serverFunctionName,
+        PermissionDeclarationSource permissionSource)
     {
         return HPDAIFunctionFactory.Create(
             async (args, _, ct) =>
@@ -973,21 +1048,15 @@ public sealed class McpRuntime : IAsyncDisposable
             {
                 Name = $"mcp_{serverFunctionName}_get_prompt",
                 Description = $"Get one MCP prompt by name from server '{serverConfig.Name}'. Prompt messages are returned as structured tool output.",
-                FunctionPermission = serverConfig.RequiresPermission
-                    ? CreateMcpPermissionDeclaration($"mcp_{serverFunctionName}_get_prompt")
-                    : null,
+                FunctionPermission = McpPermissionResolver.ResolveSynthetic(
+                    serverConfig,
+                    "prompt/get",
+                    permissionSource),
                 Validator = (_, _) => new List<ValidationError>(),
                 SchemaProvider = () => CreateJsonSchema(GetPromptSchemaJson),
                 AdditionalProperties = CreatePromptFunctionMetadata(serverConfig.Name, "get_prompt")
             });
     }
-
-    private static AIFunctionPermissionDeclaration CreateMcpPermissionDeclaration(string functionName) => new()
-    {
-        RequiresPermission = true,
-        Authority = $"function/{Uri.EscapeDataString(functionName)}",
-        Source = PermissionDeclarationSource.FrameworkDefault
-    };
 
     private static Dictionary<string, object?> CreatePromptFunctionMetadata(string serverName, string operation)
     {
@@ -1527,7 +1596,10 @@ public sealed class McpRuntime : IAsyncDisposable
 
         await ResolveServerSecretsAsync(config, secretResolver, cancellationToken).ConfigureAwait(false);
         _serverConfigs[config.Name] = config;
-        var functions = await LoadServerFunctionsAsync(config, cancellationToken);
+        var functions = await LoadServerFunctionsAsync(
+            config,
+            PermissionDeclarationSource.FunctionAttribute,
+            cancellationToken);
 
         if (functions.Count == 0)
         {

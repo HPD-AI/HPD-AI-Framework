@@ -83,6 +83,10 @@ public enum PermissionDeclarationSource
     FrameworkDefault,
     /// <summary>The containing function supplied the declaration.</summary>
     FunctionAttribute,
+    /// <summary>Portable agent or manifest configuration supplied the declaration.</summary>
+    AgentConfig,
+    /// <summary>An exact MCP tool override supplied the declaration.</summary>
+    ToolOverride,
     /// <summary>The concrete action atomically replaced the function declaration.</summary>
     ActionOverride
 }

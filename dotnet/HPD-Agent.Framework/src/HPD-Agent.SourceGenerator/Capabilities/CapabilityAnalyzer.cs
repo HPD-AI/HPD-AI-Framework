@@ -847,9 +847,20 @@ internal static class CapabilityAnalyzer
         var conditionalExpression = GetConditionalExpression(attrs);
         var contextTypeName = GetMetadataTypeName(method, semanticModel);
 
-        // Use standalone [RequiresPermission] attribute (same pattern as AIFunction/Skill)
-        var requiresPermission = HasFrameworkPermission(method, semanticModel);
-        DiagnoseUnsupportedPermissionCustomization(method, semanticModel, diagnostics);
+        var permissionAttribute = semanticModel.GetDeclaredSymbol(method)?.GetAttributes()
+            .FirstOrDefault(IsFrameworkRequiresPermissionAttribute);
+        if (!ValidatePermissionAttribute(
+                permissionAttribute,
+                semanticModel.Compilation,
+                diagnostics,
+                method.GetLocation()))
+            return null;
+        McpPermissionInfo? permission = permissionAttribute is null
+            ? null
+            : new(
+                GetNamedString(permissionAttribute, "PermissionAuthority"),
+                GetNamedTypeId(permissionAttribute, "PermissionPolicy"),
+                GetNamedTypeId(permissionAttribute, "PermissionInteraction"));
 
         System.Diagnostics.Debug.WriteLine($"[CapabilityAnalyzer] Analyzed MCPServer: {methodName}, Name={effectiveName}, FromManifest={fromManifest}, CollapseWithinToolHarness={collapseWithinToolHarness}");
 
@@ -864,7 +875,7 @@ internal static class CapabilityAnalyzer
             FromManifest = fromManifest,
             ManifestServerName = serverName,
             CollapseWithinToolHarness = collapseWithinToolHarness,
-            RequiresPermission = requiresPermission,
+            Permission = permission,
 
             // Context and conditionals (feature parity!)
             ContextTypeName = contextTypeName,
@@ -1028,11 +1039,7 @@ internal static class CapabilityAnalyzer
             RequiresPermission = requiresPermission,
             PermissionAuthority = permissionAuthority,
             PermissionPolicyDescriptorId = permissionPolicyDescriptorId,
-            PermissionPolicyType = permissionAttribute?.NamedArguments
-                .FirstOrDefault(pair => pair.Key == "PermissionPolicy").Value.Value as ITypeSymbol,
             PermissionInteractionDescriptorId = permissionInteractionDescriptorId,
-            PermissionInteractionType = permissionAttribute?.NamedArguments
-                .FirstOrDefault(pair => pair.Key == "PermissionInteraction").Value.Value as ITypeSymbol,
             RequiredPermissions = requiredPermissions.ToList(),
             Kind = kind,
             InvocationModePolicy = invocationModePolicy,
@@ -1118,10 +1125,6 @@ internal static class CapabilityAnalyzer
             PermissionAuthority = GetNamedString(permission, "PermissionAuthority"),
             PermissionPolicyDescriptorId = GetNamedTypeId(permission, "PermissionPolicy"),
             PermissionInteractionDescriptorId = GetNamedTypeId(permission, "PermissionInteraction"),
-            PermissionPolicyType = permission?.NamedArguments
-                .FirstOrDefault(pair => pair.Key == "PermissionPolicy").Value.Value as ITypeSymbol,
-            PermissionInteractionType = permission?.NamedArguments
-                .FirstOrDefault(pair => pair.Key == "PermissionInteraction").Value.Value as ITypeSymbol,
             Kind = kind,
             InvocationModePolicy = EnumSetting("InvocationModePolicy", "SynchronousOnly"),
             InvocationModeHandling = EnumSetting("InvocationModeHandling", "Runtime"),
@@ -1292,9 +1295,20 @@ internal static class CapabilityAnalyzer
             return null;
         }
         var permission = attributes.FirstOrDefault(IsFrameworkRequiresPermissionAttribute);
-        if (permission?.NamedArguments.Any(pair => pair.Key is "PermissionAuthority" or "PermissionPolicy" or "PermissionInteraction") == true)
+        if (kind != CapabilityType.MCPServer &&
+            permission?.NamedArguments.Any(pair =>
+                pair.Key is "PermissionAuthority" or "PermissionPolicy" or "PermissionInteraction") == true)
             diagnostics.Add(Diagnostic.Create(PermissionDiagnostics.InvalidDeclaration, location,
                 "custom permission authority, policy, and interaction properties are supported only on AIFunction capabilities"));
+        if (kind == CapabilityType.MCPServer &&
+            !ValidatePermissionAttribute(permission, compilation, diagnostics, location))
+            return null;
+        var mcpPermission = kind == CapabilityType.MCPServer && permission is not null
+            ? new McpPermissionInfo(
+                GetNamedString(permission, "PermissionAuthority"),
+                GetNamedTypeId(permission, "PermissionPolicy"),
+                GetNamedTypeId(permission, "PermissionInteraction"))
+            : null;
         var returns = method.ReturnType;
         var asyncWorkflow = returns is INamedTypeSymbol task && task.Name == "Task" && task.TypeArguments.Length == 1;
         var actualReturn = asyncWorkflow ? ((INamedTypeSymbol)returns).TypeArguments[0] : returns;
@@ -1348,7 +1362,7 @@ internal static class CapabilityAnalyzer
                 IsStatic = method.IsStatic, FromManifest = Setting("FromManifest") as string,
                 ManifestServerName = declaration.ConstructorArguments.FirstOrDefault().Value as string,
                 CollapseWithinToolHarness = Setting("CollapseWithinToolHarness") as bool? ?? false,
-                RequiresPermission = permission is not null
+                Permission = mcpPermission
             },
             CapabilityType.OpenApi => new OpenApiCapability
             {
@@ -1385,9 +1399,24 @@ internal static class CapabilityAnalyzer
     private static string? GetNamedString(AttributeData? attribute, string name) =>
         attribute?.NamedArguments.FirstOrDefault(pair => pair.Key == name).Value.Value as string;
 
-    private static string? GetNamedTypeId(AttributeData? attribute, string name) =>
-        (attribute?.NamedArguments.FirstOrDefault(pair => pair.Key == name).Value.Value as ITypeSymbol)?
-            .ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+    private static string? GetNamedTypeId(AttributeData? attribute, string name)
+    {
+        var type = attribute?.NamedArguments
+            .FirstOrDefault(pair => pair.Key == name).Value.Value as ITypeSymbol;
+        return GetPermissionDefinitionId(type, name);
+    }
+
+    private static string? GetPermissionDefinitionId(ITypeSymbol? type, string property)
+    {
+        if (type is null)
+            return null;
+        var attributeName = property == "PermissionPolicy"
+            ? "PermissionPolicyDefinitionAttribute"
+            : "PermissionInteractionDefinitionAttribute";
+        return type.GetAttributes()
+            .FirstOrDefault(attribute => attribute.AttributeClass?.Name == attributeName)
+            ?.ConstructorArguments.FirstOrDefault().Value as string;
+    }
 
     private static bool ValidatePermissionAttribute(
         AttributeData? attribute,
@@ -1407,7 +1436,21 @@ internal static class CapabilityAnalyzer
         }
         valid &= ValidateServiceType(attribute, "PermissionPolicy", "HPD.Agent.Permissions.IPermissionPolicy");
         valid &= ValidateServiceType(attribute, "PermissionInteraction", "HPD.Agent.Permissions.IPermissionInteraction");
+        valid &= ValidateDefinition("PermissionPolicy");
+        valid &= ValidateDefinition("PermissionInteraction");
         return valid;
+
+        bool ValidateDefinition(string property)
+        {
+            var type = attribute.NamedArguments.FirstOrDefault(pair => pair.Key == property).Value.Value as ITypeSymbol;
+            if (type is null || GetPermissionDefinitionId(type, property) is not null)
+                return true;
+            diagnostics.Add(Diagnostic.Create(
+                PermissionDiagnostics.InvalidDeclaration,
+                location,
+                $"{property} type '{type.ToDisplayString()}' must declare its stable permission definition attribute"));
+            return false;
+        }
 
         bool ValidateServiceType(AttributeData source, string property, string contractName)
         {

@@ -48,6 +48,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
     private readonly AgentConfig? _config;
     private readonly string _middlewareName;
     private readonly PermissionOverrideRegistry? _overrideRegistry;
+    private readonly IPermissionDescriptorCatalog _descriptorCatalog;
     // Batch mediation is owned by one AgentContext (one RunAsync execution). A middleware
     // instance may be shared by concurrent runs, so provider call IDs are not globally unique.
     private readonly ConditionalWeakTable<AgentContext, ConcurrentDictionary<string, BatchPermissionOutcome>>
@@ -59,6 +60,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
     /// <param name="config">Optional agent configuration for default messages</param>
     /// <param name="middlewareName">Optional name for this middleware instance (for event correlation)</param>
     /// <param name="overrideRegistry">Optional registry for runtime permission overrides</param>
+    /// <param name="descriptorCatalog">Optional immutable generated permission descriptor catalog.</param>
     /// <remarks>
     /// Persistent choices require a session store implementing
     /// <see cref="IPermissionPreferenceStore"/>.
@@ -66,11 +68,13 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
     public PermissionMiddleware(
         AgentConfig? config = null,
         string? middlewareName = null,
-        PermissionOverrideRegistry? overrideRegistry = null)
+        PermissionOverrideRegistry? overrideRegistry = null,
+        IPermissionDescriptorCatalog? descriptorCatalog = null)
     {
         _config = config;
         _middlewareName = middlewareName ?? "PermissionMiddleware";
         _overrideRegistry = overrideRegistry;
+        _descriptorCatalog = descriptorCatalog ?? PermissionDescriptorComposition.CreateCatalog();
     }
 
     /// <summary>Performs no persisted-state mutation at iteration start.</summary>
@@ -258,6 +262,18 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             return;
         }
 
+        if (evaluated.LiveEvaluation?.ImmediateDecision is { Kind: not PermissionDecisionKind.Allow } immediateDenial)
+        {
+            await ApplyImmediateDecisionAsync(
+                context,
+                function,
+                permissionKey,
+                evaluation,
+                immediateDenial,
+                cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         var conversationId = context.ConversationId;
         var storedPreference = await FindStoredPreferenceAsync(
             context.Session?.Store,
@@ -293,6 +309,18 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                 await InterruptDeniedPermissionAsync(context, denialReason, cancellationToken).ConfigureAwait(false);
                 return;
             }
+        }
+
+        if (evaluated.LiveEvaluation?.ImmediateDecision is { Kind: PermissionDecisionKind.Allow } immediateAllow)
+        {
+            await ApplyImmediateDecisionAsync(
+                context,
+                function,
+                permissionKey,
+                evaluation,
+                immediateAllow,
+                cancellationToken).ConfigureAwait(false);
+            return;
         }
 
         //
@@ -399,6 +427,52 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         }
     }
 
+    private async Task ApplyImmediateDecisionAsync(
+        BeforeFunctionContext context,
+        AIFunction function,
+        string permissionKey,
+        PermissionEvaluationEnvelope evaluation,
+        PermissionDecision decision,
+        CancellationToken cancellationToken)
+    {
+        var selectedChoice = evaluation.Choices.Items.SingleOrDefault(choice =>
+            string.Equals(choice.Id, decision.ChoiceId, StringComparison.Ordinal))
+            ?? throw new InvalidOperationException(
+                $"Immediate permission decision selected unknown choice '{decision.ChoiceId}'.");
+        await context.PublishAsync(new PermissionDecidedEvent(
+            null,
+            context.FunctionCallId,
+            evaluation.Key,
+            selectedChoice.Decision,
+            "policy"), cancellationToken).ConfigureAwait(false);
+        if (selectedChoice.Decision == PermissionDecisionKind.Allow)
+        {
+            context.PermissionGrant = CreateGrant(
+                context,
+                function,
+                permissionKey,
+                PermissionGrantSource.PolicyDecision,
+                selectedChoice.Id,
+                evaluation: evaluation);
+            await PublishGrantAsync(context, context.PermissionGrant, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        var denialReason = decision.Feedback ??
+            decision.Reason ??
+            _config?.Messages?.PermissionDeniedDefault ??
+            "Permission denied by policy.";
+        context.BlockExecution = true;
+        context.OverrideResult = BlockedResult("denied", permissionKey, denialReason);
+        await context.PublishAsync(new PermissionDeniedEvent(
+            context.FunctionCallId,
+            evaluation.Key,
+            selectedChoice.Id,
+            "policy_decision"), cancellationToken).ConfigureAwait(false);
+        if (selectedChoice.DeniedBehavior == PermissionDeniedBehavior.InterruptTurn)
+            await InterruptDeniedPermissionAsync(context, denialReason, cancellationToken).ConfigureAwait(false);
+    }
+
     private static string BlockedResult(
         string outcome,
         string permissionKey,
@@ -465,6 +539,22 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             context.SessionId is not null && context.ThreadId is not null);
         await context.PublishAsync(new PermissionEvaluatedEvent(
             callId, evaluation.Key, evaluation.Risk, evaluation.RequestFingerprint), cancellationToken).ConfigureAwait(false);
+        if (evaluated.LiveEvaluation?.ImmediateDecision is { Kind: not PermissionDecisionKind.Allow } immediateDenial)
+        {
+            var selected = ResolveImmediateChoice(evaluation, immediateDenial);
+            await context.PublishAsync(new PermissionDecidedEvent(
+                null, callId, evaluation.Key, selected.Decision, "policy"), cancellationToken).ConfigureAwait(false);
+            await context.PublishAsync(new PermissionDeniedEvent(
+                callId, evaluation.Key, selected.Id, "policy_decision"), cancellationToken).ConfigureAwait(false);
+            return (
+                false,
+                immediateDenial.Feedback ?? immediateDenial.Reason ?? "Permission denied by policy.",
+                selected.DeniedBehavior,
+                selected.Id,
+                null,
+                PermissionGrantSource.PolicyDecision,
+                evaluation);
+        }
         var storedPreference = await FindStoredPreferenceAsync(
             context.Session?.Store,
             context.SessionId,
@@ -490,6 +580,21 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                     PermissionDeniedBehavior.InterruptTurn, "always_deny", null,
                     PermissionGrantSource.StoredPreference, evaluation);
             }
+        }
+
+        if (evaluated.LiveEvaluation?.ImmediateDecision is { Kind: PermissionDecisionKind.Allow } immediateAllow)
+        {
+            var selected = ResolveImmediateChoice(evaluation, immediateAllow);
+            await context.PublishAsync(new PermissionDecidedEvent(
+                null, callId, evaluation.Key, PermissionDecisionKind.Allow, "policy"), cancellationToken).ConfigureAwait(false);
+            return (
+                true,
+                string.Empty,
+                PermissionDeniedBehavior.InterruptTurn,
+                selected.Id,
+                null,
+                PermissionGrantSource.PolicyDecision,
+                evaluation);
         }
 
         // Request permission via a request session
@@ -575,6 +680,15 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                 selectedChoice.Id, permissionId, PermissionGrantSource.UserDecision, evaluation);
         }
     }
+
+    private static PermissionChoiceDescriptor ResolveImmediateChoice(
+        PermissionEvaluationEnvelope evaluation,
+        PermissionDecision decision) =>
+        evaluation.Choices.Items.SingleOrDefault(choice =>
+            string.Equals(choice.Id, decision.ChoiceId, StringComparison.Ordinal) &&
+            choice.Decision == decision.Kind)
+        ?? throw new InvalidOperationException(
+            $"Immediate permission decision selected unknown or mismatched choice '{decision.ChoiceId}'.");
 
     private static JsonElement CanonicalizeArguments(IReadOnlyDictionary<string, object?> arguments)
         => JsonSerializer.SerializeToElement(
@@ -755,7 +869,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         };
     }
 
-    private static async ValueTask<EvaluatedPermission> EvaluatePermissionAsync(
+    private async ValueTask<EvaluatedPermission> EvaluatePermissionAsync(
         AIFunction function,
         string authority,
         ResolvedFunctionInvocation? invocation,
@@ -769,8 +883,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         if (declaration?.PolicyDescriptorId is null)
             return new EvaluatedPermission(
                 CreateDefaultEvaluation(function, authority, invocation?.Action), null, null, null, null);
-        if (function is not HPDAIFunctionFactory.HPDAIFunction hpdFunction ||
-            !hpdFunction.HPDOptions.PermissionDescriptors.TryGetValue(
+        if (!_descriptorCatalog.TryGet(
                 declaration.PolicyDescriptorId,
                 out var descriptor) || descriptor.PolicyFactory is null)
             throw new InvalidOperationException(
@@ -859,6 +972,17 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                 throw new InvalidOperationException(
                     "Validated-rule persistence requires a rule type ID and canonical payload.");
         }
+        if (evaluation.ImmediateDecision is { } immediate)
+        {
+            var selected = evaluation.Choices.Items.SingleOrDefault(choice =>
+                string.Equals(choice.Id, immediate.ChoiceId, StringComparison.Ordinal));
+            if (selected is null || selected.Decision != immediate.Kind)
+                throw new InvalidOperationException(
+                    "Immediate permission decision must select a matching declared choice.");
+            if (selected.Persistence is not null)
+                throw new InvalidOperationException(
+                    "Immediate permission decisions cannot persist a preference.");
+        }
     }
 
     private static PermissionChoiceDescriptor ResolveChoice(
@@ -897,6 +1021,8 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             return null;
         var evaluation = evaluated.Envelope;
         var snapshot = await preferences.ReadAsync(sessionId, cancellationToken).ConfigureAwait(false);
+        if (snapshot.SchemaVersion != PermissionPreferenceSchema.CurrentVersion)
+            return null;
         var now = DateTimeOffset.UtcNow;
         return snapshot.Records
             .Where(record => record.Key == evaluation.Key &&
@@ -976,7 +1102,12 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                 SessionId = sessionId,
                 AuditThread = new ThreadKey(sessionId, threadId),
                 ExpectedVersion = snapshot.Version,
-                Replacement = new PermissionPreferenceSnapshot(snapshot.Version + 1, replacement),
+                Replacement = new PermissionPreferenceSnapshot
+                {
+                    Version = snapshot.Version + 1,
+                    SchemaVersion = PermissionPreferenceSchema.CurrentVersion,
+                    Records = replacement
+                },
                 Event = new PermissionPreferenceChangedEvent(
                     preferenceId,
                     record.Key,
@@ -1013,8 +1144,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                     permissionId, _middlewareName, function.Name, action, callId, evaluation))
                 .ConfigureAwait(false);
         }
-        if (function is not HPDAIFunctionFactory.HPDAIFunction hpdFunction ||
-            !hpdFunction.HPDOptions.PermissionDescriptors.TryGetValue(
+        if (!_descriptorCatalog.TryGet(
                 declaration.InteractionDescriptorId,
                 out var descriptor) || descriptor.InteractionFactory is null)
             throw new InvalidOperationException(

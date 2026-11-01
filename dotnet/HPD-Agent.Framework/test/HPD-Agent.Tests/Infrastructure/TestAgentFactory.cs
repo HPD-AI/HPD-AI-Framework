@@ -58,7 +58,8 @@ public static class TestAgentFactory
 
         // Create builder with test provider registry that knows about our chat client
         var builder = new AgentBuilder(config, new TestProviderRegistry(chatClient))
-            .WithEventComposition(HPD.Agent.Tests.TestEventApplication.Composition);
+            .WithEventComposition(HPD.Agent.Tests.TestEventApplication.Composition)
+            .WithAutoApprovePermissions();
 
         // Register standard iteration middlewares for loop protection
         // These are essential for preventing infinite loops in tests

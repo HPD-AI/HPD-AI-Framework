@@ -283,6 +283,8 @@ public sealed record PermissionEvaluation
     public required string PolicyRevision { get; init; }
     /// <summary>Gets the descriptor-constrained typed presentation.</summary>
     public object? Presentation { get; init; }
+    /// <summary>Gets an optional policy-authored decision that does not require interaction.</summary>
+    public PermissionDecision? ImmediateDecision { get; init; }
 }
 
 /// <summary>Contains the exact legal choices for one permission evaluation.</summary>
@@ -388,7 +390,9 @@ public enum PermissionGrantSource
     /// <summary>A legal stored preference matched this invocation.</summary>
     StoredPreference,
     /// <summary>The host explicitly configured automatic approval.</summary>
-    HostAutoApprove
+    HostAutoApprove,
+    /// <summary>The selected policy directly authorized the current invocation.</summary>
+    PolicyDecision
 }
 
 /// <summary>Provides a structured immutable identity for permission lookup and persistence.</summary>

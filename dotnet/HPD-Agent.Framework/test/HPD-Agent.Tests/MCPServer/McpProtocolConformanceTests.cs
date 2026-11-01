@@ -205,7 +205,7 @@ public sealed class McpProtocolConformanceTests
     {
         var handler = new CapabilityProjectionHandler();
         var options = new McpOptions { HttpClientFactory = _ => new HttpClient(handler) };
-        var manifest = """{"servers":[{"name":"wire","transport":"http","endpoint":"https://wire.test/mcp","requiresPermission":true,"enableResources":true,"enablePrompts":true,"maxResourceListResults":2,"maxResourceContentLength":32,"maxPromptListResults":3,"maxPromptContentLength":48}]}""";
+        var manifest = """{"servers":[{"name":"wire","transport":"http","endpoint":"https://wire.test/mcp","permission":{"requiresPermission":true},"enableResources":true,"enablePrompts":true,"maxResourceListResults":2,"maxResourceContentLength":32,"maxPromptListResults":3,"maxPromptContentLength":48}]}""";
         var factory = new McpCapabilitySourceFactory(
             CapabilitySourceId.Create("mcp.test:projection"), null, manifest, options, null, null);
         await using var source = await factory.CreateAsync(null, default);

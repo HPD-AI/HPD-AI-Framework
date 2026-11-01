@@ -17,6 +17,7 @@ public sealed record ExecuteCommandPermissionPresentation(
 /// <summary>
 /// Evaluates ExecuteCommand's semantic command plan while the framework owns mediation and grants.
 /// </summary>
+[PermissionPolicyDefinition("hpd.coding.execute-command")]
 public sealed class ExecuteCommandPermissionPolicy :
     PermissionPolicy<ExecuteCommandPermissionPresentation>,
     IValidatedPermissionRulePolicy
@@ -155,6 +156,7 @@ public sealed class ExecuteCommandPermissionPolicy :
 }
 
 /// <summary>Maps ExecuteCommand's rich typed request protocol to one normalized framework decision.</summary>
+[PermissionInteractionDefinition("hpd.coding.execute-command.interaction")]
 public sealed class ExecuteCommandPermissionInteraction :
     IPermissionInteractionEventContract<ExecuteCommandPermissionRequestEvent, ExecuteCommandPermissionResponseEvent>
 {

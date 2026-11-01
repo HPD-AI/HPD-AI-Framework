@@ -1,13 +1,16 @@
 using HPD.Agent.MCP;
+using HPD.Agent.Permissions;
 using HPD.Agent.Providers;
 using HPD.Agent.Serialization;
 using HPD.Agent.Tests.Infrastructure;
 using HPD.Agent.Tests.Middleware.V2;
+using HPD.Events;
 using HPD.Serialization;
 using Microsoft.Extensions.AI;
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace HPD.Agent.Tests.MCPServer;
 
@@ -29,7 +32,17 @@ public sealed class McpAgentConfigurationTests
                         Name = "inline",
                         Transport = "http",
                         Endpoint = new Uri("https://inline.example/mcp"),
-                        RequiresPermission = true
+                        AllowedTools = ["search", "delete_repository"],
+                        Permission = new McpPermissionConfig
+                        {
+                            Authority = "mcp.inline",
+                            Policy = "inline.default",
+                            Interaction = "host.confirmation",
+                            Tools = new Dictionary<string, McpToolPermissionOverride>(StringComparer.Ordinal)
+                            {
+                                ["search"] = new() { Policy = "inline.read-only" }
+                            }
+                        }
                     }
                 ],
                 Manifests =
@@ -49,6 +62,12 @@ public sealed class McpAgentConfigurationTests
         var server = Assert.Single(output.Mcp!.Servers);
         Assert.Equal("inline", server.Name);
         Assert.Equal("https://inline.example/mcp", server.Endpoint!.AbsoluteUri);
+        Assert.Equal(["search", "delete_repository"], server.AllowedTools);
+        Assert.Equal("mcp.inline", server.Permission!.Authority);
+        Assert.True(server.Permission.RequiresPermission);
+        Assert.Equal("inline.default", server.Permission.Policy);
+        Assert.Equal("host.confirmation", server.Permission.Interaction);
+        Assert.Equal("inline.read-only", server.Permission.Tools["search"].Policy);
         var manifest = Assert.Single(output.Mcp.Manifests);
         Assert.Equal("./mcp.json", manifest.Path);
         Assert.Equal("shared", manifest.SourceName);
@@ -474,6 +493,314 @@ public sealed class McpAgentConfigurationTests
         Assert.NotNull(error.ColumnNumber);
     }
 
+    [Fact]
+    public async Task DuplicateAllowedTool_ReportsStableConfigurationDiagnostic()
+    {
+        var config = HpdAgentConfigSerializer.Deserialize(
+            """
+            mcp:
+              servers:
+                - name: inline
+                  transport: http
+                  endpoint: https://inline.test/mcp
+                  allowedTools:
+                    - search
+                    - search
+            """,
+            HpdConfigFormat.Yaml)!;
+        config.EventComposition = TestEventComposition.Current;
+
+        var error = await Assert.ThrowsAsync<AgentRunConfigurationException>(() =>
+            new AgentBuilder(config)
+                .WithChatClient(new FakeChatClient())
+                .BuildAsync());
+
+        Assert.Equal("McpAllowedToolDuplicate", error.Code);
+        Assert.Equal("mcp.servers[0].allowedTools", error.Path);
+    }
+
+    [Fact]
+    public async Task InactiveMcpPermissionDescriptor_ReportsStableConfigurationDiagnostic()
+    {
+        var config = new AgentConfig
+        {
+            EventComposition = TestEventComposition.Current,
+            Mcp = new AgentMcpConfig
+            {
+                Servers =
+                [
+                    new McpServerConfig
+                    {
+                        Name = "inline",
+                        Transport = "http",
+                        Endpoint = new Uri("https://inline.test/mcp"),
+                        Permission = new McpPermissionConfig
+                        {
+                            RequiresPermission = false,
+                            Policy = "inactive"
+                        }
+                    }
+                ]
+            }
+        };
+
+        var error = await Assert.ThrowsAsync<AgentRunConfigurationException>(() =>
+            new AgentBuilder(config)
+                .WithChatClient(new FakeChatClient())
+                .BuildAsync());
+
+        Assert.Equal("McpToolPermissionOverrideInvalid", error.Code);
+        Assert.Equal("mcp.servers[0].permission", error.Path);
+    }
+
+    [Theory]
+    [InlineData(null, 1)]
+    [InlineData("[]", 0)]
+    [InlineData("""["inline_echo"]""", 1)]
+    public async Task AllowedTools_ControlsProjectedOrdinaryTools(
+        string? allowedToolsJson,
+        int expectedToolCount)
+    {
+        var handler = new DeclarativeMcpHandler();
+        using var http = new HttpClient(handler, disposeHandler: false);
+        var server = new McpServerConfig
+        {
+            Name = "inline",
+            Transport = "http",
+            Endpoint = new Uri("https://inline.test/mcp"),
+            AllowedTools = allowedToolsJson is null
+                ? null
+                : JsonSerializer.Deserialize<string[]>(allowedToolsJson)
+        };
+        var factory = McpCapabilitySourceFactory.FromServers(
+            "mcp.test:allowed-tools",
+            [server],
+            new McpOptions { HttpClientFactory = _ => http });
+        await using var source = await factory.CreateAsync(null, default);
+
+        var loaded = await source.LoadAsync(new CapabilityLoadContext(1, null), default);
+        await using var owner = loaded.Owner;
+
+        Assert.Equal(
+            expectedToolCount,
+            owner.Snapshot.Functions.Count(function => function.Name == "inline_echo"));
+    }
+
+    [Fact]
+    public async Task ProtectedMcpTool_WithoutPermissionMiddleware_FailsPublication()
+    {
+        var handler = new DeclarativeMcpHandler();
+        using var http = new HttpClient(handler, disposeHandler: false);
+        var config = new AgentConfig
+        {
+            EventComposition = TestEventComposition.Current,
+            Mcp = new AgentMcpConfig
+            {
+                Servers =
+                [
+                    new McpServerConfig
+                    {
+                        Name = "inline",
+                        Transport = "http",
+                        Endpoint = new Uri("https://inline.test/mcp"),
+                        Permission = new McpPermissionConfig()
+                    }
+                ]
+            }
+        };
+
+        var error = await Assert.ThrowsAsync<AgentRunConfigurationException>(() =>
+            new AgentBuilder(config)
+                .WithChatClient(new FakeChatClient())
+                .WithMcpOptions(options => options.HttpClientFactory = _ => http)
+                .BuildAsync());
+
+        Assert.Equal("PermissionMiddlewareMissing", error.Code);
+    }
+
+    [Fact]
+    public async Task ProtectedMcpTool_WithAutoApproveMiddleware_Builds()
+    {
+        var handler = new DeclarativeMcpHandler();
+        using var http = new HttpClient(handler, disposeHandler: false);
+        var config = new AgentConfig
+        {
+            Name = "AutoApproveMcp",
+            EventComposition = TestEventComposition.Current,
+            Mcp = new AgentMcpConfig
+            {
+                Servers =
+                [
+                    new McpServerConfig
+                    {
+                        Name = "inline",
+                        Transport = "http",
+                        Endpoint = new Uri("https://inline.test/mcp"),
+                        Permission = new McpPermissionConfig()
+                    }
+                ]
+            }
+        };
+
+        await using var agent = await new AgentBuilder(config)
+            .WithChatClient(new FakeChatClient())
+            .WithAutoApprovePermissions()
+            .WithMcpOptions(options => options.HttpClientFactory = _ => http)
+            .BuildAsync();
+
+        Assert.Equal("AutoApproveMcp", agent.Config.Name);
+    }
+
+    [Fact]
+    public async Task UnknownMcpPolicy_FailsBeforePublication()
+    {
+        var handler = new DeclarativeMcpHandler();
+        using var http = new HttpClient(handler, disposeHandler: false);
+        var config = new AgentConfig
+        {
+            EventComposition = TestEventComposition.Current,
+            Mcp = new AgentMcpConfig
+            {
+                Servers =
+                [
+                    new McpServerConfig
+                    {
+                        Name = "inline",
+                        Transport = "http",
+                        Endpoint = new Uri("https://inline.test/mcp"),
+                        Permission = new McpPermissionConfig
+                        {
+                            Policy = "test.missing-policy"
+                        }
+                    }
+                ]
+            }
+        };
+
+        var error = await Assert.ThrowsAsync<AgentRunConfigurationException>(() =>
+            new AgentBuilder(config)
+                .WithChatClient(new FakeChatClient())
+                .WithPermissions()
+                .WithMcpOptions(options =>
+                {
+                    options.HttpClientFactory = _ => http;
+                    options.FailOnServerError = false;
+                })
+                .BuildAsync());
+
+        Assert.Equal("McpPermissionPolicyUnknown", error.Code);
+    }
+
+    [Fact]
+    public async Task UnknownMcpInteraction_FailsBeforePublication()
+    {
+        var handler = new DeclarativeMcpHandler();
+        using var http = new HttpClient(handler, disposeHandler: false);
+        var config = new AgentConfig
+        {
+            EventComposition = TestEventComposition.Current,
+            Mcp = new AgentMcpConfig
+            {
+                Servers =
+                [
+                    new McpServerConfig
+                    {
+                        Name = "inline",
+                        Transport = "http",
+                        Endpoint = new Uri("https://inline.test/mcp"),
+                        Permission = new McpPermissionConfig
+                        {
+                            Policy = HPD.Agent.Tests.Middleware.PermissionMiddlewareRunConfigTests.ImmediatePermissionPolicy.Id,
+                            Interaction = "test.missing-interaction"
+                        }
+                    }
+                ]
+            }
+        };
+
+        var error = await Assert.ThrowsAsync<AgentRunConfigurationException>(() =>
+            new AgentBuilder(config)
+                .WithChatClient(new FakeChatClient())
+                .WithPermissions()
+                .WithMcpOptions(options => options.HttpClientFactory = _ => http)
+                .BuildAsync());
+
+        Assert.Equal("McpPermissionInteractionUnknown", error.Code);
+    }
+
+    [Fact]
+    public async Task KnownMcpPolicy_ResolvesThroughSharedGeneratedCatalog()
+    {
+        var handler = new DeclarativeMcpHandler();
+        using var http = new HttpClient(handler, disposeHandler: false);
+        var config = new AgentConfig
+        {
+            Name = "DeclarativeMcpAgent",
+            EventComposition = TestEventComposition.Current,
+            Mcp = new AgentMcpConfig
+            {
+                Servers =
+                [
+                    new McpServerConfig
+                    {
+                        Name = "inline",
+                        Transport = "http",
+                        Endpoint = new Uri("https://inline.test/mcp"),
+                        Permission = new McpPermissionConfig
+                        {
+                            Policy = HPD.Agent.Tests.Middleware.PermissionMiddlewareRunConfigTests.ImmediatePermissionPolicy.Id
+                        }
+                    }
+                ]
+            }
+        };
+
+        await using var agent = await new AgentBuilder(config)
+            .WithChatClient(new FakeChatClient())
+            .WithPermissions()
+            .WithMcpOptions(options => options.HttpClientFactory = _ => http)
+            .BuildAsync();
+
+        Assert.Equal("DeclarativeMcpAgent", agent.Config.Name);
+    }
+
+    [Fact]
+    public async Task McpInteractionWithoutDurableCompositionEvents_FailsBeforePublication()
+    {
+        var handler = new DeclarativeMcpHandler();
+        using var http = new HttpClient(handler, disposeHandler: false);
+        var config = new AgentConfig
+        {
+            EventComposition = TestEventComposition.Current,
+            Mcp = new AgentMcpConfig
+            {
+                Servers =
+                [
+                    new McpServerConfig
+                    {
+                        Name = "inline",
+                        Transport = "http",
+                        Endpoint = new Uri("https://inline.test/mcp"),
+                        Permission = new McpPermissionConfig
+                        {
+                            Policy = HPD.Agent.Tests.Middleware.PermissionMiddlewareRunConfigTests.ImmediatePermissionPolicy.Id,
+                            Interaction = "test.mcp-missing-events"
+                        }
+                    }
+                ]
+            }
+        };
+
+        var error = await Assert.ThrowsAsync<AgentRunConfigurationException>(() =>
+            new AgentBuilder(config)
+                .WithChatClient(new FakeChatClient())
+                .WithPermissions()
+                .WithMcpOptions(options => options.HttpClientFactory = _ => http)
+                .BuildAsync());
+
+        Assert.Equal("PermissionInteractionEventsMissing", error.Code);
+    }
+
     private sealed class DeclarativeMcpHandler(bool sameToolName = false) : HttpMessageHandler
     {
         private readonly object _gate = new();
@@ -561,3 +888,41 @@ public sealed class McpAgentConfigurationTests
         }
     }
 }
+
+[PermissionInteractionDefinition("test.mcp-missing-events")]
+public sealed class MissingEventsPermissionInteraction :
+    IPermissionInteractionEventContract<MissingEventsPermissionRequest, MissingEventsPermissionResponse>
+{
+    public ValueTask<PermissionDecision> RequestAsync(
+        PermissionInteractionContext context,
+        PermissionEvaluation evaluation,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+}
+
+[DurableEvent]
+[EventType("HPD_TEST_MISSING_EVENTS_PERMISSION_REQUEST")]
+public sealed record MissingEventsPermissionRequest(string PermissionId, string SourceName) :
+    AgentEvent,
+    IAgentRequestEvent<MissingEventsPermissionResponse>
+{
+    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
+    public override EventKind Kind { get; init; } = EventKind.Control;
+    public string RequestId => PermissionId;
+}
+
+[DurableEvent]
+[EventType("HPD_TEST_MISSING_EVENTS_PERMISSION_RESPONSE")]
+public sealed record MissingEventsPermissionResponse(string PermissionId, string SourceName) :
+    AgentEvent,
+    IAgentResponseEvent
+{
+    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
+    public override EventKind Kind { get; init; } = EventKind.Control;
+    public override EventDirection Direction { get; init; } = EventDirection.Upstream;
+    public string RequestId => PermissionId;
+}
+
+[JsonSerializable(typeof(MissingEventsPermissionRequest))]
+[JsonSerializable(typeof(MissingEventsPermissionResponse))]
+internal partial class MissingEventsPermissionJsonContext : JsonSerializerContext;

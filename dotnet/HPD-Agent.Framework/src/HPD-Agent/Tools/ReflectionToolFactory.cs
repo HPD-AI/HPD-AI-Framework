@@ -199,8 +199,7 @@ internal static class ReflectionToolFactory
         MethodInfo method,
         object? instance,
         IToolMetadata? context,
-        JsonSerializerOptions serializerOptions,
-        IReadOnlyDictionary<string, HPD.Agent.Permissions.AIFunctionPermissionDescriptor>? permissionDescriptors = null)
+        JsonSerializerOptions serializerOptions)
     {
         var parameters = GetModelParameters(method).ToArray();
         var parameterNames = parameters.Select(parameter => parameter.Name!).ToArray();
@@ -211,10 +210,10 @@ internal static class ReflectionToolFactory
         var permissionAttribute = method.GetCustomAttribute<RequiresPermissionAttribute>(inherit: false);
         var requiresPermission = permissionAttribute is not null;
         ValidatePermissionAuthority(permissionAttribute?.PermissionAuthority);
-        var policyDescriptorId = ResolveExplicitDescriptor(permissionAttribute?.PermissionPolicy, permissionDescriptors, policy: true);
-        var interactionDescriptorId = ResolveExplicitDescriptor(permissionAttribute?.PermissionInteraction, permissionDescriptors, policy: false);
+        var policyDescriptorId = ResolveDefinitionId(permissionAttribute?.PermissionPolicy, policy: true);
+        var interactionDescriptorId = ResolveDefinitionId(permissionAttribute?.PermissionInteraction, policy: false);
         var operationContract = CreateOperationContract(
-            parameters, invocationModePolicy, invocationModeHandling, requiresPermission, permissionDescriptors);
+            parameters, invocationModePolicy, invocationModeHandling, requiresPermission);
         var actionSchema = operationContract is null
             ? default
             : CreateSchema(method, parameters, serializerOptions);
@@ -251,8 +250,6 @@ internal static class ReflectionToolFactory
                 VerifiedActionComposition = operationContract is null
                     ? null
                     : new VerifiedAIFunctionActionComposition(actionSchema, operationContract),
-                PermissionDescriptors = permissionDescriptors ??
-                    new Dictionary<string, HPD.Agent.Permissions.AIFunctionPermissionDescriptor>(StringComparer.Ordinal),
                 SerializerOptions = serializerOptions,
                 ResultType = resultType,
                 Validator = (json, options) => ValidateArguments(json, options, parameters, parameterNames),
@@ -274,9 +271,8 @@ internal static class ReflectionToolFactory
     internal static AIFunction CreateExplicitFunction(
         MethodInfo method,
         object? instance,
-        IReadOnlyDictionary<string, HPD.Agent.Permissions.AIFunctionPermissionDescriptor> permissionDescriptors,
         JsonSerializerOptions serializerOptions) =>
-        CreateFunction(method, instance, context: null, serializerOptions, permissionDescriptors);
+        CreateFunction(method, instance, context: null, serializerOptions);
 
     private static AIFunction CreateMultiAgent(
         MethodInfo method,
@@ -860,8 +856,7 @@ internal static class ReflectionToolFactory
         ParameterInfo[] parameters,
         AgentInvocationModePolicy defaultPolicy,
         AgentInvocationModeHandling defaultHandling,
-        bool requiresPermissionByDefault,
-        IReadOnlyDictionary<string, HPD.Agent.Permissions.AIFunctionPermissionDescriptor>? permissionDescriptors = null)
+        bool requiresPermissionByDefault)
     {
         var analyzed = parameters.Select(parameter => new
         {
@@ -899,8 +894,8 @@ internal static class ReflectionToolFactory
             var declaration = unionCase.DerivedType.GetCustomAttribute<AIFunctionActionAttribute>(inherit: false)
                 ?? throw new InvalidOperationException($"Action type '{unionCase.DerivedType.FullName}' requires AIFunctionActionAttribute.");
             ValidatePermissionAuthority(declaration.PermissionAuthority);
-            var policyDescriptorId = ResolveExplicitDescriptor(declaration.PermissionPolicy, permissionDescriptors, policy: true);
-            var interactionDescriptorId = ResolveExplicitDescriptor(declaration.PermissionInteraction, permissionDescriptors, policy: false);
+            var policyDescriptorId = ResolveDefinitionId(declaration.PermissionPolicy, policy: true);
+            var interactionDescriptorId = ResolveDefinitionId(declaration.PermissionInteraction, policy: false);
             if (!string.Equals(declaration.Action, serialized, StringComparison.Ordinal))
                 throw new InvalidOperationException($"Action declaration '{declaration.Action}' does not match serializer discriminator '{serialized}'.");
             var policy = declaration.InvocationModePolicy switch
@@ -951,20 +946,22 @@ internal static class ReflectionToolFactory
         };
     }
 
-    private static string? ResolveExplicitDescriptor(
-        Type? declaredType,
-        IReadOnlyDictionary<string, HPD.Agent.Permissions.AIFunctionPermissionDescriptor>? descriptors,
-        bool policy)
+    private static string? ResolveDefinitionId(Type? declaredType, bool policy)
     {
         if (declaredType is null) return null;
-        var descriptor = declaredType.FullName is { } id && descriptors?.TryGetValue(id, out var found) == true
-            ? found
-            : null;
-        if (descriptor is null || policy && descriptor.PolicyFactory is null ||
-            !policy && descriptor.InteractionFactory is null)
+        var expected = policy
+            ? typeof(HPD.Agent.Permissions.IPermissionPolicy)
+            : typeof(HPD.Agent.Permissions.IPermissionInteraction);
+        if (!expected.IsAssignableFrom(declaredType))
             throw new InvalidOperationException(
-                $"Reflection-created permission type '{declaredType.FullName}' requires an explicit descriptor keyed by its full type name.");
-        return descriptor.DescriptorId;
+                $"Reflection-created permission type '{declaredType.FullName}' must implement {expected.Name}.");
+        var id = policy
+            ? declaredType.GetCustomAttribute<HPD.Agent.Permissions.PermissionPolicyDefinitionAttribute>()
+                ?.Id
+            : declaredType.GetCustomAttribute<HPD.Agent.Permissions.PermissionInteractionDefinitionAttribute>()
+                ?.Id;
+        return id ?? throw new InvalidOperationException(
+            $"Reflection-created permission type '{declaredType.FullName}' requires its stable definition attribute.");
     }
 
     private static string GetSerializedParameterName(ParameterInfo parameter) =>

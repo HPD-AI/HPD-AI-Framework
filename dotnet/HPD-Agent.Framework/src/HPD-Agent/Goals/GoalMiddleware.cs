@@ -113,8 +113,7 @@ internal sealed partial class GoalMiddleware : IAgentMiddleware
                 {
                     Name = function.Name, Description = function.Description,
                     AdditionalProperties = new(function.AdditionalProperties),
-                    FunctionPermission = function.PermissionDeclaration,
-                    PermissionDescriptors = function.PermissionDescriptors
+                    FunctionPermission = function.PermissionDeclaration
                 });
         }
         return Task.CompletedTask;

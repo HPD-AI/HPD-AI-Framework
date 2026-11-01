@@ -537,7 +537,8 @@ namespace TestToolHarnesses
         var (generatedCode, diagnostics) = RunGenerator(source);
 
         Assert.NotNull(generatedCode);
-        Assert.Contains("RequiresPermissionOverride: true", generatedCode!);
+        Assert.Contains("PermissionOverride: new global::HPD.Agent.MCP.McpPermissionConfig", generatedCode!);
+        Assert.Contains("RequiresPermission = true", generatedCode!);
     }
 
     [Fact]
@@ -563,8 +564,59 @@ namespace TestToolHarnesses
         var (generatedCode, diagnostics) = RunGenerator(source);
 
         Assert.NotNull(generatedCode);
-        Assert.Contains("RequiresPermissionOverride: null", generatedCode!);
-        Assert.DoesNotContain("RequiresPermissionOverride: true", generatedCode!);
+        Assert.Contains("PermissionOverride: null", generatedCode!);
+        Assert.DoesNotContain(
+            "PermissionOverride: new global::HPD.Agent.MCP.McpPermissionConfig",
+            generatedCode!);
+    }
+
+    [Fact]
+    public void AttributeExtraction_RequiresPermission_EmitsPortableStableBinding()
+    {
+        var source = @"
+using HPD.Agent;
+using HPD.Agent.MCP;
+using HPD.Agent.Permissions;
+
+[PermissionPolicyDefinition(""test.mcp.policy"")]
+public sealed class TestMcpPolicy : IPermissionPolicy
+{
+    public ValueTask<PermissionEvaluation> EvaluateAsync(
+        PermissionEvaluationContext context,
+        CancellationToken cancellationToken) =>
+        ValueTask.FromResult(new PermissionEvaluation
+        {
+            PolicyId = ""test.mcp.policy"",
+            PolicyRevision = ""1"",
+            Authority = context.Authority,
+            Title = ""Allow?"",
+            Choices = new PermissionChoiceSet()
+        });
+}
+
+namespace TestToolHarnesses
+{
+    public partial class TestToolHarness
+    {
+        [McpServer]
+        [RequiresPermission(
+            PermissionAuthority = ""mcp.test"",
+            PermissionPolicy = typeof(TestMcpPolicy))]
+        public McpServerConfig MyServer() => new McpServerConfig
+        {
+            Name = ""test"",
+            Command = ""node""
+        };
+    }
+}";
+
+        var (generatedCode, diagnostics) = RunGenerator(source);
+
+        Assert.NotNull(generatedCode);
+        Assert.Empty(GetGeneratorErrors(diagnostics));
+        Assert.Contains("Authority = \"mcp.test\"", generatedCode!);
+        Assert.Contains("Policy = \"test.mcp.policy\"", generatedCode!);
+        Assert.DoesNotContain("typeof(TestMcpPolicy)", generatedCode!);
     }
 
     #endregion

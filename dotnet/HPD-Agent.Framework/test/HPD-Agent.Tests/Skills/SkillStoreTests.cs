@@ -140,6 +140,7 @@ public sealed class SkillStoreTests
         var agent = await new AgentBuilder(new AgentConfig { Name = "stored-skill-test" })
             .WithSkillStore(store)
             .WithToolHarness<CombinedCapabilitiesTools>(options => options.AddSkillsFromStore())
+            .WithAutoApprovePermissions()
             .BuildAsync();
         try
         {
@@ -184,6 +185,7 @@ public sealed class SkillStoreTests
         var agent = await new AgentBuilder(new AgentConfig { Name = "di-skill-store" })
             .WithServiceProvider(provider)
             .WithToolHarness<CombinedCapabilitiesTools>(options => options.AddSkillsFromStore())
+            .WithAutoApprovePermissions()
             .BuildAsync();
         try
         {
@@ -209,6 +211,7 @@ public sealed class SkillStoreTests
             .WithServiceProvider(provider)
             .WithSkillStore(explicitStore)
             .WithToolHarness<CombinedCapabilitiesTools>(options => options.AddSkillsFromStore())
+            .WithAutoApprovePermissions()
             .BuildAsync();
         try
         {
@@ -250,6 +253,7 @@ public sealed class SkillStoreTests
                 options.AddSkillsFromStore(SkillQuery.WithTag("domain", "data")))
             .WithToolHarness<NamedWeatherToolHarness>(options =>
                 options.AddSkillsFromStore(SkillQuery.WithTag("domain", "support")))
+            .WithAutoApprovePermissions()
             .BuildAsync();
         try
         {

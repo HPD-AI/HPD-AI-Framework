@@ -722,11 +722,24 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore, IPermis
     {
         var path = GetPermissionPreferencePath(sessionId);
         if (!File.Exists(path))
-            return new FilePermissionPreferenceState(new PermissionPreferenceSnapshot(0, []), []);
+            return new FilePermissionPreferenceState(new PermissionPreferenceSnapshot
+            {
+                Version = 0,
+                SchemaVersion = PermissionPreferenceSchema.CurrentVersion,
+                Records = []
+            }, []);
         await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 16 * 1024, true);
-        return await JsonSerializer.DeserializeAsync<FilePermissionPreferenceState>(
+        var state = await JsonSerializer.DeserializeAsync<FilePermissionPreferenceState>(
                 stream, cancellationToken: cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidDataException($"Permission preference state '{path}' is empty.");
+        if (state.Snapshot.SchemaVersion == PermissionPreferenceSchema.CurrentVersion)
+            return state;
+        return new FilePermissionPreferenceState(new PermissionPreferenceSnapshot
+        {
+            Version = state.Snapshot.Version,
+            SchemaVersion = PermissionPreferenceSchema.CurrentVersion,
+            Records = []
+        }, state.Outbox);
     }
 
     private async ValueTask<FilePermissionPreferenceState> RecoverPreferenceWalAsync(

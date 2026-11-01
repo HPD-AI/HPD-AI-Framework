@@ -28,6 +28,7 @@ public sealed class GeneratedAgentCapabilityInvocationTests
         config.ServerConfiguredTools = [subAgentFunction, multiAgentFunction];
 
         var agent = await new AgentBuilder(config, new TestProviderRegistry(parentClient))
+            .WithAutoApprovePermissions()
             .BuildAsync(CancellationToken.None);
         var events = new System.Collections.Concurrent.ConcurrentQueue<AgentEvent>();
 
@@ -68,7 +69,7 @@ public sealed class GeneratedAgentCapabilityInvocationTests
             {
                 Name = "GeneratedReviewer",
                 Description = "Generated-shape thread-native subagent wrapper",
-                FunctionPermission = AIFunctionPermissionDeclaration.Required("generated_agent"),
+                FunctionPermission = AIFunctionPermissionDeclaration.Required("GeneratedReviewer"),
                 AdditionalProperties = new Dictionary<string, object>
                 {
                     ["IsSubAgent"] = true,
@@ -108,7 +109,7 @@ public sealed class GeneratedAgentCapabilityInvocationTests
             {
                 Name = "GeneratedWorkflow",
                 Description = "Generated-shape multi-agent workflow wrapper",
-                FunctionPermission = AIFunctionPermissionDeclaration.Required("generated_agent"),
+                FunctionPermission = AIFunctionPermissionDeclaration.Required("GeneratedWorkflow"),
                 AdditionalProperties = new Dictionary<string, object>
                 {
                     ["CapabilityType"] = "MultiAgent",
