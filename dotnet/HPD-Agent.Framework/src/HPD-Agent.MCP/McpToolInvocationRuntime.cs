@@ -183,6 +183,21 @@ internal static class McpToolInvocationRuntime
             : serverConfig.InvocationModePolicy;
     }
 
+    internal static AIFunctionArguments CreateExternalArguments(AIFunctionArguments arguments)
+    {
+        ArgumentNullException.ThrowIfNull(arguments);
+        var external = new AIFunctionArguments();
+        foreach (var (key, value) in arguments)
+        {
+            if (key is AIFunctionArgumentsExtensions.JsonKey or
+                AIFunctionArgumentsExtensions.JsonSerializerOptionsKey or
+                AIFunctionArgumentsExtensions.BoundArgumentsKey)
+                continue;
+            external[key] = value;
+        }
+        return external;
+    }
+
     private static class ToolResultText
     {
         internal static string FromResult(object? result)

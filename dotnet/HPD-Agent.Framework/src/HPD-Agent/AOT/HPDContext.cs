@@ -8,6 +8,7 @@ using HPD.Agent.ClientTools;
 using HPD.Agent.Middleware;
 using HPD.Agent.Planning;
 using HPD.Agent.Providers;
+using HPD.Agent.MCP;
 using System.Collections.Immutable;
 using Microsoft.Extensions.AI;
 
@@ -115,6 +116,15 @@ using Microsoft.Extensions.AI;
 // --- ToolHarness and Middleware reference types (Config Serialization) ---
 [JsonSerializable(typeof(ToolHarnessReference))]
 [JsonSerializable(typeof(List<ToolHarnessReference>))]
+[JsonSerializable(typeof(AgentMcpConfig))]
+[JsonSerializable(typeof(McpManifestReference))]
+[JsonSerializable(typeof(List<McpManifestReference>))]
+[JsonSerializable(typeof(McpManifest))]
+[JsonSerializable(typeof(McpServerConfig))]
+[JsonSerializable(typeof(List<McpServerConfig>))]
+[JsonSerializable(typeof(McpProcessIsolationOptions))]
+[JsonSerializable(typeof(McpOAuthOptions))]
+[JsonSerializable(typeof(McpOAuthClientRegistrationMode))]
 [JsonSerializable(typeof(MiddlewareReference))]
 [JsonSerializable(typeof(List<MiddlewareReference>))]
 

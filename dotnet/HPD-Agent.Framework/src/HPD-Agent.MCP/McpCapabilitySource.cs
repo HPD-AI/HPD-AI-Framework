@@ -89,6 +89,25 @@ public sealed class McpCapabilitySourceFactory : IAgentCapabilitySourceFactory
             collapseWithinToolHarness: collapseWithinToolHarness,
             requiresPermissionOverride: requiresPermissionOverride);
 
+    /// <summary>Creates a source factory from inline MCP server declarations.</summary>
+    public static McpCapabilitySourceFactory FromServers(
+        string sourceId,
+        IEnumerable<McpServerConfig> servers,
+        McpOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(servers);
+        var manifest = new McpManifest { Servers = servers.Select(static server => server).ToList() };
+        manifest.Validate();
+        var content = JsonSerializer.Serialize(manifest, McpJsonSerializerContext.Default.McpManifest);
+        return new(
+            CapabilitySourceId.Create(sourceId),
+            null,
+            content,
+            options ?? new McpOptions(),
+            null,
+            null);
+    }
+
     private static McpServerConfig PrepareServer(
         McpServerConfig server,
         string parentToolHarness,

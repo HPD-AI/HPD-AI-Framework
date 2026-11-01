@@ -424,7 +424,7 @@ public sealed class McpRuntime : IAsyncDisposable
                             }
 
                             return await originalAIFunction.InvokeAsync(
-                                invocationArgs,
+                                McpToolInvocationRuntime.CreateExternalArguments(invocationArgs),
                                 invocationToken).ConfigureAwait(false);
                         }
                     };

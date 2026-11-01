@@ -85,6 +85,13 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
 
         foreach (var method in HarnessSymbolDiscovery.GetCapabilityMethods(owner, semanticModel.Compilation))
         {
+            var conflict = CapabilityAnalyzer.ValidateSingleCapabilityDeclaration(
+                method, semanticModel.Compilation);
+            if (conflict is not null)
+            {
+                capabilityDiagnostics.Add(conflict);
+                continue;
+            }
             var attribute = HarnessSymbolDiscovery.GetCapabilityAttribute(method, semanticModel.Compilation)!;
             if (HarnessSymbolDiscovery.Classify(attribute, semanticModel.Compilation) == CapabilityType.Function)
             {

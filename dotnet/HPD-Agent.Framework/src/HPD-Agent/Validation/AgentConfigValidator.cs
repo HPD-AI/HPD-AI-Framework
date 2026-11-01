@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using HPD.Agent.MCP;
 
 namespace HPD.Agent.Validation;
 
@@ -38,9 +39,37 @@ public static class AgentConfigValidator
         ValidateCaching(config, errors);
         ValidateOperations(config, errors);
         ValidateAudio(config, errors);
+        ValidateMcp(config, errors);
         ValidateCrossConfiguration(config, errors);
 
         return errors;
+    }
+
+    private static void ValidateMcp(AgentConfig config, List<string> errors)
+    {
+        if (config.Mcp is null)
+            return;
+
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var server in config.Mcp.Servers)
+        {
+            try
+            {
+                server.Validate();
+            }
+            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+            {
+                errors.Add($"{server.SourcePath ?? "mcp.servers"}: {exception.Message}");
+            }
+            if (!string.IsNullOrWhiteSpace(server.Name) && !names.Add(server.Name))
+                errors.Add($"{server.SourcePath ?? "mcp.servers"}.name: Inline MCP server '{server.Name}' is declared more than once.");
+        }
+
+        foreach (var manifest in config.Mcp.Manifests)
+        {
+            if (string.IsNullOrWhiteSpace(manifest.Path))
+                errors.Add($"{manifest.SourcePath ?? "mcp.manifests"}.path: An MCP manifest path is required.");
+        }
     }
 
     private static void ValidateAudio(AgentConfig config, List<string> errors)

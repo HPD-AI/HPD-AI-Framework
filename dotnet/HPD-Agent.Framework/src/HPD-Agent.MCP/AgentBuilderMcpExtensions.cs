@@ -1,4 +1,6 @@
 using HPD.Agent;
+using HPD.Agent.Secrets;
+using Microsoft.Extensions.Logging;
 using System.Runtime.CompilerServices;
 
 namespace HPD.Agent.MCP;
@@ -34,18 +36,11 @@ public static class AgentBuilderMcpExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(manifestPath);
         var fullPath = Path.GetFullPath(manifestPath);
         var options = CreateOptions(builder, configure);
-        builder.AddCapabilitySource(new AgentCapabilitySourceRegistration(
-            new McpCapabilitySourceFactory(
-                CapabilitySourceId.Create($"mcp.file:{fullPath}"),
-                fullPath,
-                null,
-                options,
-                builder.Logger,
-                builder.SecretResolver),
-            options.Catalog.LoadMode == McpCatalogLoadMode.Deferred
-                ? CapabilitySourceInitialLoadPolicy.Deferred
-                : CapabilitySourceInitialLoadPolicy.Required,
-            CapabilitySourceRefreshFailurePolicy.RetainLastKnownGood));
+        builder.AddCapabilitySource(CreateManifestRegistration(
+            fullPath,
+            options,
+            builder.Logger,
+            builder.SecretResolver));
         return builder;
     }
 
@@ -93,10 +88,28 @@ public static class AgentBuilderMcpExtensions
         return builder.WithMcpContent(manifestContent, digest, configure);
     }
 
-    private static McpOptions CreateOptions(AgentBuilder builder, Action<McpOptions>? configure)
+    internal static McpOptions CreateOptions(AgentBuilder builder, Action<McpOptions>? configure)
     {
         var options = BuilderOptions.GetValue(builder, static _ => new McpOptions());
         configure?.Invoke(options);
         return options;
     }
+
+    internal static AgentCapabilitySourceRegistration CreateManifestRegistration(
+        string fullPath,
+        McpOptions options,
+        ILoggerFactory? loggerFactory,
+        ISecretResolver? secretResolver)
+        => new(
+            new McpCapabilitySourceFactory(
+                CapabilitySourceId.Create($"mcp.file:{fullPath}"),
+                fullPath,
+                null,
+                options,
+                loggerFactory,
+                secretResolver),
+            options.Catalog.LoadMode == McpCatalogLoadMode.Deferred
+                ? CapabilitySourceInitialLoadPolicy.Deferred
+                : CapabilitySourceInitialLoadPolicy.Required,
+            CapabilitySourceRefreshFailurePolicy.RetainLastKnownGood);
 }

@@ -1198,6 +1198,69 @@ internal static class CapabilityAnalyzer
             Named("SystemPrompt"));
     }
 
+    internal static Diagnostic? ValidateSingleCapabilityDeclaration(
+        IMethodSymbol method,
+        Compilation compilation)
+    {
+        var attributes = new List<AttributeData>();
+        for (var current = method; current is not null; current = current.OverriddenMethod)
+            attributes.AddRange(current.GetAttributes());
+        var declarations = attributes
+            .Select(attribute => (
+                Attribute: attribute,
+                Kind: HarnessSymbolDiscovery.Classify(attribute, compilation)))
+            .Where(static declaration => declaration.Kind is not null)
+            .ToArray();
+        var kinds = declarations.Select(static declaration => declaration.Kind!.Value)
+            .Distinct()
+            .ToArray();
+        if (kinds.Length <= 1)
+            return null;
+
+        var location = method.Locations.FirstOrDefault() ?? Location.None;
+
+        if (kinds.Contains(CapabilityType.MultiAgent))
+        {
+            return Diagnostic.Create(
+                MultiAgentDiagnostics.ConflictingAttributes,
+                location,
+                method.Name,
+                CapabilityLabel(kinds.First(kind => kind != CapabilityType.MultiAgent)));
+        }
+        if (kinds.Contains(CapabilityType.MCPServer))
+        {
+            return Diagnostic.Create(
+                MCPServerDiagnostics.ConflictingAttributes,
+                location,
+                method.Name,
+                CapabilityLabel(kinds.First(kind => kind != CapabilityType.MCPServer)));
+        }
+
+        return Diagnostic.Create(
+            new DiagnosticDescriptor(
+                "HPDAG0001",
+                "Conflicting capability attributes",
+                "Capability method '{0}' cannot combine both [{1}] and [{2}].",
+                "HPDAgent.SourceGenerator",
+                DiagnosticSeverity.Error,
+                true),
+            location,
+            method.Name,
+            CapabilityLabel(kinds[0]),
+            CapabilityLabel(kinds[1]));
+    }
+
+    private static string CapabilityLabel(CapabilityType kind) => kind switch
+    {
+        CapabilityType.Function => "AIFunction",
+        CapabilityType.Skill => "Skill",
+        CapabilityType.SubAgent => "SubAgent",
+        CapabilityType.MultiAgent => "MultiAgent",
+        CapabilityType.MCPServer => "McpServer",
+        CapabilityType.OpenApi => "OpenApi",
+        _ => kind.ToString()
+    };
+
     internal static BaseCapability? AnalyzeFactorySymbol(
         IMethodSymbol method, Compilation compilation, string ownerName, string ownerNamespace,
         List<Diagnostic> diagnostics)

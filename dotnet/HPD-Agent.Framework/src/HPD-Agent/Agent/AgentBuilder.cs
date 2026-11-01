@@ -18,6 +18,7 @@ using System.Text.Json;
 using HPD.Agent;
 using HPD.Agent.Secrets;
 using HPD.Agent.Serialization;
+using HPD.Agent.MCP;
 
 namespace HPD.Agent;
 
@@ -306,6 +307,7 @@ public class AgentBuilder
     internal readonly List<AgentCapabilitySourceRegistration> _capabilitySourceRegistrations = [];
     private readonly HashSet<CapabilitySourceId> _collectedToolHarnessCapabilitySources = [];
     private readonly List<IAgentCapabilitySource> _ownedCapabilitySources = [];
+    private bool _configuredMcpSourcesResolved;
 
     /// <summary>
     /// Registers the OpenAPI loader hook. Called by OpenApiAutoDiscovery via [ModuleInitializer].
@@ -905,6 +907,148 @@ public class AgentBuilder
                 _toolharnessMiddlewareConfigs[identity] = reference.MiddlewareConfigs.ToDictionary(
                     pair => pair.Key, pair => pair.Value.Clone(), StringComparer.Ordinal);
             }
+        }
+    }
+
+    private void ResolveConfiguredMcpSources()
+    {
+        if (_configuredMcpSourcesResolved || _config.Mcp is null)
+            return;
+        _configuredMcpSourcesResolved = true;
+        var configured = _config.Mcp;
+        if (configured.Servers.Count == 0 && configured.Manifests.Count == 0)
+            return;
+
+        var activator = McpConfigurationActivation.Current
+            ?? throw new AgentRunConfigurationException(
+                "McpPackageNotReferenced",
+                "mcp",
+                "MCP configuration requires a reference to HPD-Agent.MCP.");
+
+        var inlineNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var index = 0; index < configured.Servers.Count; index++)
+        {
+            var server = configured.Servers[index];
+            var path = server.SourcePath ?? $"mcp.servers[{index}]";
+            try
+            {
+                server.Validate();
+            }
+            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+            {
+                throw McpConfigurationDiagnostics.At(
+                    new AgentRunConfigurationException("McpInlineServerInvalid", path, exception.Message),
+                    path,
+                    server.SourceLocations);
+            }
+            if (!inlineNames.Add(server.Name))
+                throw McpConfigurationDiagnostics.At(
+                    new AgentRunConfigurationException(
+                        "McpInlineServerDuplicate",
+                        path + ".name",
+                        $"Inline MCP server '{server.Name}' is declared more than once."),
+                    path + ".name",
+                    server.SourceLocations);
+        }
+
+        var manifests = new List<ResolvedMcpManifestReference>(configured.Manifests.Count);
+        var resolvedPaths = new HashSet<string>(
+            OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        for (var index = 0; index < configured.Manifests.Count; index++)
+        {
+            var reference = configured.Manifests[index];
+            var path = reference.SourcePath ?? $"mcp.manifests[{index}]";
+            if (string.IsNullOrWhiteSpace(reference.Path))
+                throw McpConfigurationDiagnostics.At(
+                    new AgentRunConfigurationException("McpManifestPathRequired", path + ".path",
+                        "An MCP manifest path is required."),
+                    path + ".path",
+                    reference.SourceLocations);
+
+            string resolvedPath;
+            try
+            {
+                if (Path.IsPathFullyQualified(reference.Path))
+                {
+                    resolvedPath = Path.GetFullPath(reference.Path);
+                }
+                else
+                {
+                    var baseDirectory = _config.SourceDirectory;
+                    if (string.IsNullOrWhiteSpace(baseDirectory))
+                        throw new AgentRunConfigurationException(
+                            "McpManifestPathUnresolved",
+                            path + ".path",
+                            "A relative MCP manifest path requires an agent configuration base directory.");
+                    resolvedPath = Path.GetFullPath(Path.Combine(baseDirectory, reference.Path));
+                }
+            }
+            catch (AgentRunConfigurationException error)
+            {
+                throw McpConfigurationDiagnostics.At(error, path + ".path", reference.SourceLocations);
+            }
+            catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                throw McpConfigurationDiagnostics.At(
+                    new AgentRunConfigurationException("McpManifestPathUnresolved", path + ".path", exception.Message),
+                    path + ".path",
+                    reference.SourceLocations);
+            }
+
+            if (!resolvedPaths.Add(resolvedPath))
+                throw McpConfigurationDiagnostics.At(
+                    new AgentRunConfigurationException(
+                        "McpManifestDuplicateSource",
+                        path + ".path",
+                        $"MCP manifest '{resolvedPath}' is referenced more than once."),
+                    path + ".path",
+                    reference.SourceLocations);
+            if (!File.Exists(resolvedPath))
+                throw McpConfigurationDiagnostics.At(
+                    new AgentRunConfigurationException(
+                        "McpManifestNotFound",
+                        path + ".path",
+                        $"MCP manifest '{resolvedPath}' was not found."),
+                    path + ".path",
+                    reference.SourceLocations);
+
+            manifests.Add(new ResolvedMcpManifestReference
+            {
+                Path = resolvedPath,
+                SourceName = string.IsNullOrWhiteSpace(reference.SourceName)
+                    ? $"mcp-manifest-{index + 1}"
+                    : reference.SourceName,
+                SourcePath = path,
+                SourceLocations = reference.SourceLocations
+            });
+        }
+
+        var resolved = new ResolvedAgentMcpConfig
+        {
+            Servers = configured.Servers.ToArray(),
+            Manifests = manifests,
+            AgentId = _config.Name
+        };
+        var registrations = activator.Create(
+            resolved,
+            new McpConfigurationActivationContext
+            {
+                Builder = this,
+                Services = _serviceProvider,
+                LoggerFactory = _logger,
+                SecretResolver = _secretResolver
+            });
+        foreach (var registration in registrations)
+        {
+            if (_capabilitySourceRegistrations.Any(existing => existing.Factory.Id == registration.Factory.Id))
+            {
+                var isManifest = registration.Factory.Id.Value.StartsWith("mcp.file:", StringComparison.Ordinal);
+                throw new AgentRunConfigurationException(
+                    isManifest ? "McpManifestDuplicateSource" : "McpInlineServerDuplicate",
+                    isManifest ? "mcp.manifests" : "mcp.servers",
+                    $"MCP capability source '{registration.Factory.Id}' is already registered.");
+            }
+            AddCapabilitySource(registration);
         }
     }
 
@@ -2563,6 +2707,7 @@ public class AgentBuilder
         // Resolve toolharnesses from config before creating functions.
         // This enables the Config = Base, Builder = Override/Extend pattern.
         ResolveConfigToolHarnesses();
+        ResolveConfiguredMcpSources();
         var collapseValidationFactories = _selectedToolHarnessFactories.ToList();
         foreach (var registration in _instanceRegistrations)
         {
@@ -2739,8 +2884,33 @@ public class AgentBuilder
             }
         }
 
-        NormalizeCapabilityMetadata(toolFunctions);
-        _ = CapabilityGraph.CreateFromFunctions(toolFunctions);
+        try
+        {
+            NormalizeCapabilityMetadata(toolFunctions);
+            _ = CapabilityGraph.CreateFromFunctions(toolFunctions);
+        }
+        catch (CapabilityGraphValidationException error)
+        {
+            await DisposeCapabilitySourcesAfterFailedBuildAsync(
+                sourceRevisionOwners,
+                loadedCapabilitySources).ConfigureAwait(false);
+            if (HasMcpCapability(toolFunctions) &&
+                error.Message.StartsWith("Duplicate capability ID", StringComparison.Ordinal))
+                throw new AgentRunConfigurationException(
+                    "McpServerNameConflict", "mcp", error.Message, innerException: error);
+            if (HasMcpCapability(toolFunctions) &&
+                error.Message.StartsWith("Duplicate model-facing capability name", StringComparison.Ordinal))
+                throw new AgentRunConfigurationException(
+                    "McpToolNameConflict", "mcp", error.Message, innerException: error);
+            throw;
+        }
+        catch
+        {
+            await DisposeCapabilitySourcesAfterFailedBuildAsync(
+                sourceRevisionOwners,
+                loadedCapabilitySources).ConfigureAwait(false);
+            throw;
+        }
 
         NormalizeCapabilityMetadata(refreshBaseFunctions);
         var refreshBaseMetadata = refreshBaseFunctions
@@ -2828,6 +2998,28 @@ public class AgentBuilder
         if (registration.LoadTimeout <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(registration.LoadTimeout));
     }
+
+    private async ValueTask DisposeCapabilitySourcesAfterFailedBuildAsync(
+        List<ICapabilitySourceRevisionOwner> owners,
+        List<(AgentCapabilitySourceRegistration Registration, IAgentCapabilitySource Source)> sources)
+    {
+        foreach (var owner in owners)
+            await owner.DisposeAsync().ConfigureAwait(false);
+        foreach (var (_, source) in sources)
+        {
+            _ownedCapabilitySources.Remove(source);
+            await source.DisposeAsync().ConfigureAwait(false);
+        }
+        owners.Clear();
+        sources.Clear();
+    }
+
+    private static bool HasMcpCapability(IEnumerable<AIFunction> functions) =>
+        functions.Any(function =>
+            function.AdditionalProperties?.TryGetValue(
+                HPDCapabilityMetadata.AdditionalPropertiesKey,
+                out var value) == true &&
+            value is HPDCapabilityMetadata { Kind: HPDCapabilityKind.Mcp });
 
     private static async ValueTask<T> RunCapabilitySourceStageAsync<T>(
         Func<CancellationToken, ValueTask<T>> stage,

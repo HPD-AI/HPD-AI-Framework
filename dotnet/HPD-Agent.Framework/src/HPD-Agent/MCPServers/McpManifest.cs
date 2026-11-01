@@ -1,10 +1,11 @@
 using System.Text.Json.Serialization;
 using HPD.Agent;
 using HPD.Environment.Contracts;
+using HPD.Serialization;
 
 namespace HPD.Agent.MCP;
 
-/// <summary>Contains the single authoritative MCP server manifest.</summary>
+/// <summary>Contains the authoritative portable MCP server declaration.</summary>
 public sealed class McpManifest
 {
     /// <summary>Gets or sets uniquely named MCP server registrations.</summary>
@@ -14,7 +15,7 @@ public sealed class McpManifest
     /// <summary>Validates uniqueness and every enabled registration.</summary>
     public void Validate()
     {
-        var names = new HashSet<string>(StringComparer.Ordinal);
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var server in Servers)
         {
             server.Validate();
@@ -27,6 +28,11 @@ public sealed class McpManifest
 /// <summary>Configures one MCP server registration without claiming negotiated runtime facts.</summary>
 public sealed class McpServerConfig
 {
+    [JsonIgnore]
+    internal string? SourcePath { get; set; }
+    [JsonIgnore]
+    internal IReadOnlyDictionary<string, HpdConfigSourceLocation>? SourceLocations { get; set; }
+
     /// <summary>Gets or sets the stable registration name.</summary>
     [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;

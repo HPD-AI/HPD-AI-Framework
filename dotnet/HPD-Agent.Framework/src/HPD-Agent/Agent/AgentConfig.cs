@@ -8,6 +8,7 @@ using HPD.Agent.Audio.Policies;
 using Microsoft.Extensions.AI;
 using HPD.Agent;
 using HPD.Agent.Providers;
+using HPD.Agent.MCP;
 
 using System.Collections.Immutable;
 
@@ -18,6 +19,13 @@ namespace HPD.Agent;
 /// </summary>
 public class AgentConfig
 {
+    /// <summary>
+    /// Gets or sets the host-provided directory used to resolve relative configuration references.
+    /// This runtime context is not serialized.
+    /// </summary>
+    [JsonIgnore]
+    public string? SourceDirectory { get; set; }
+
     /// <summary>
     /// Global configuration instance used by source-generated code.
     /// Set by AgentBuilder during agent construction.
@@ -194,6 +202,11 @@ public class AgentConfig
     /// </remarks>
     [JsonPropertyName("toolHarnesses")]
     public List<ToolHarnessReference> ToolHarnesses { get; set; } = new();
+
+    /// <summary>
+    /// Inline MCP servers and external MCP manifest references activated while the agent is built.
+    /// </summary>
+    public AgentMcpConfig? Mcp { get; set; }
 
     /// <summary>
     /// Middleware names to include (in order). Supports both simple string names and rich references.

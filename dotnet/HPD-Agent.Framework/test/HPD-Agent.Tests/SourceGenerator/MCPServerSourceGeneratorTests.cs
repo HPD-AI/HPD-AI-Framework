@@ -34,7 +34,11 @@ public class MCPServerSourceGeneratorTests
                 MetadataReference.CreateFromFile(typeof(CollapseAttribute).Assembly.Location), // HPD-Agent assembly (has McpServerAttribute)
                 MetadataReference.CreateFromFile(typeof(System.Collections.Generic.List<>).Assembly.Location),
                 MetadataReference.CreateFromFile(typeof(System.Linq.Enumerable).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(HPD.Agent.MCP.McpServerConfig).Assembly.Location), // HPD-Agent.MCP assembly
+                MetadataReference.CreateFromFile(System.Reflection.Assembly.Load("System.Runtime").Location),
+                MetadataReference.CreateFromFile(System.Reflection.Assembly.Load("System.Collections").Location),
+                MetadataReference.CreateFromFile(typeof(System.Text.Json.JsonSerializer).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(HPD.Agent.MCP.McpCapabilitySourceFactory).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(System.ComponentModel.DescriptionAttribute).Assembly.Location),
             },
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
 
@@ -80,7 +84,7 @@ namespace TestToolHarnesses
         {
             Name = ""wolfram"",
             Command = ""npx"",
-            Arguments = new[] { ""wolfram-mcp"" }
+            Arguments = new List<string> { ""wolfram-mcp"" }
         };
     }
 }";
@@ -111,7 +115,7 @@ namespace TestToolHarnesses
         {
             Name = ""server1"",
             Command = ""node"",
-            Arguments = new[] { ""server1.js"" }
+            Arguments = new List<string> { ""server1.js"" }
         };
 
         [McpServer]
@@ -119,7 +123,7 @@ namespace TestToolHarnesses
         {
             Name = ""server2"",
             Command = ""python"",
-            Arguments = new[] { ""server2.py"" }
+            Arguments = new List<string> { ""server2.py"" }
         };
     }
 }";
@@ -151,7 +155,7 @@ namespace TestToolHarnesses
         {
             Name = ""test"",
             Command = ""node"",
-            Arguments = new[] { ""test.js"" }
+            Arguments = new List<string> { ""test.js"" }
         };
     }
 }";
@@ -275,7 +279,7 @@ namespace TestToolHarnesses
     }
 
     [Fact]
-    public void AnalyzeMCPServer_CombinedWithSkill_MethodIgnored()
+    public void AnalyzeMCPServer_CombinedWithSkill_ProducesConflictError()
     {
         // [Skill] is checked before [McpServer] in dispatch priority.
         // When return type is McpServerConfig (not Skill), the Skill analyzer returns null.
@@ -303,14 +307,14 @@ namespace TestToolHarnesses
 
         var (generatedCode, diagnostics) = RunGenerator(source);
 
-        // Method is silently dropped (return type doesn't match Skill's expected return type).
-        // The generated code should not contain a McpServerSource for this method.
+        // A method can declare only one capability.
         Assert.NotNull(generatedCode);
         Assert.DoesNotContain("ConflictingServer", generatedCode!);
+        Assert.Contains(GetGeneratorErrors(diagnostics), d => d.Id == "HPDAG0302");
     }
 
     [Fact]
-    public void AnalyzeMCPServer_CombinedWithSubAgent_MethodIgnored()
+    public void AnalyzeMCPServer_CombinedWithSubAgent_ProducesConflictError()
     {
         // [SubAgent] is checked before [McpServer] in dispatch priority.
         // When return type is McpServerConfig (not SubAgent), the SubAgent analyzer returns null.
@@ -337,9 +341,10 @@ namespace TestToolHarnesses
 
         var (generatedCode, diagnostics) = RunGenerator(source);
 
-        // Method is silently dropped
+        // A method can declare only one capability.
         Assert.NotNull(generatedCode);
         Assert.DoesNotContain("ConflictingServer", generatedCode!);
+        Assert.Contains(GetGeneratorErrors(diagnostics), d => d.Id == "HPDAG0302");
     }
 
     [Fact]
@@ -395,7 +400,7 @@ namespace TestToolHarnesses
         {
             Name = ""wolfram"",
             Command = ""npx"",
-            Arguments = new[] { ""wolfram-mcp"" }
+            Arguments = new List<string> { ""wolfram-mcp"" }
         };
     }
 }";
@@ -750,15 +755,17 @@ namespace TestToolHarnesses
         Assert.Contains("McpServerSource", generatedCode!);
         Assert.Contains("CollectMcpServers", generatedCode!);
         // Should contain both server registrations
-        Assert.Contains("ParentToolHarness: \"TestToolHarness\"", generatedCode!);
+        Assert.Contains(
+            "ParentToolHarness: \"TestAssembly:TestToolHarnesses:TestToolHarness\"",
+            generatedCode!);
     }
 
     #endregion
 
-    #region Code Generation - ParentToolHarness Always Set
+    #region Code Generation - ParentToolHarness Stable Identity
 
     [Fact]
-    public void MCPServerRegistration_ParentToolHarness_AlwaysSetToClassName()
+    public void MCPServerRegistration_ParentToolHarness_UsesStableOwnerIdentity()
     {
         var source = @"
 using HPD.Agent;
@@ -780,7 +787,9 @@ namespace TestToolHarnesses
         var (generatedCode, diagnostics) = RunGenerator(source);
 
         Assert.NotNull(generatedCode);
-        Assert.Contains("ParentToolHarness: \"SearchToolHarness\"", generatedCode!);
+        Assert.Contains(
+            "ParentToolHarness: \"TestAssembly:TestToolHarnesses:SearchToolHarness\"",
+            generatedCode!);
     }
 
     #endregion
@@ -935,7 +944,9 @@ namespace TestToolHarnesses
         // MCP server source collection generated.
         Assert.Contains("McpServerSource", generatedCode!);
         Assert.Contains("CollectMcpServers", generatedCode!);
-        Assert.Contains("ParentToolHarness: \"DevToolHarness\"", generatedCode!);
+        Assert.Contains(
+            "ParentToolHarness: \"TestAssembly:TestToolHarnesses:DevToolHarness\"",
+            generatedCode!);
         Assert.Contains("CollapseWithinToolHarness: true", generatedCode!);
 
         // HasMCPServers flag set
