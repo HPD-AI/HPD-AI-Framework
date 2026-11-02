@@ -396,7 +396,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
             : null;
         var coordinator = new S6ProgressiveOutputParticipantV2(new S6ProgressiveOutputParticipantOptionsV2
         {
-            MessageTurnId = request.State.RunId,
+            MessageTurnId = request.State.RunId!,
             SessionId = sessionId,
             Thread = threadRef,
             OutputFlowId = outputFlowId,

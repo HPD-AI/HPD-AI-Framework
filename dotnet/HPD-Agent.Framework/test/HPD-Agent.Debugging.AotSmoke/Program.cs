@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Reflection;
 using HPD.Agent;
 using HPD.Agent.Serialization;
+using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.ToolHarness.Coding.Debugging;
 using HPD.Agent.ToolHarness.Coding.Debugging.Protocol;
 using HPD.Agent.ToolHarness.Coding.Debugging.Protocol.Generated;
@@ -14,7 +15,7 @@ if (!AgentEventCompositionHost.TryGetApplication(applicationIdentity, out var ev
 var eventCodec = eventComposition.Codec;
 
 var functions = CodingToolHarnessRegistration.CreateToolHarness(
-    new CodingToolHarness(),
+    new CodingToolHarness(new StaticCodingHarnessConfig(new CodingHarnessConfig())),
     serialization: new HPDToolSerializationOptions(CodingToolHarnessJsonContext.Default.Options));
 var debugFunctions = functions.Where(function =>
     string.Equals(function.Name, "Debug", StringComparison.Ordinal)).ToArray();
@@ -414,3 +415,11 @@ return root.GetProperty("program").GetString() == "/workspace/app.py" &&
        root.GetProperty("stopOnEntry").GetBoolean()
     ? 0
     : 2;
+
+internal sealed class StaticCodingHarnessConfig(CodingHarnessConfig value)
+    : IHarnessConfig<CodingHarnessConfig>
+{
+    public CodingHarnessConfig AgentDefaults => value;
+
+    public CodingHarnessConfig For(IHarnessConfigurationContext context) => value;
+}

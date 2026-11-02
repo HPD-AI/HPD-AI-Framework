@@ -130,7 +130,8 @@ internal sealed class AnnotatedSourceView : HPD.TUI.Core.Component
         var contentWidth = Math.Max(1, maxWidth - gutter.PrefixWidth);
         var expandedText = ExpandTabs(line.Text);
         var wrapped = Wrap(expandedText, contentWidth);
-        var hasTrailing = !string.IsNullOrWhiteSpace(line.TrailingText);
+        var trailingText = line.TrailingText ?? string.Empty;
+        var hasTrailing = !string.IsNullOrWhiteSpace(trailingText);
         WriteContentRow(
             wrapped[0],
             _document.Language,
@@ -161,7 +162,7 @@ internal sealed class AnnotatedSourceView : HPD.TUI.Core.Component
         }
 
         var lastWidth = UnicodeWidth.GetWidth(wrapped[^1].AsSpan());
-        var trailing = $"  {line.TrailingText}";
+        var trailing = $"  {trailingText}";
         if (lastWidth + UnicodeWidth.GetWidth(trailing.AsSpan()) <= contentWidth)
         {
             output.Write(trailing.AsSpan(), trailingStyle);
@@ -180,7 +181,7 @@ internal sealed class AnnotatedSourceView : HPD.TUI.Core.Component
             ref output);
         output.WriteLineBreak();
         WriteContinuationGutter(gutter.PrefixWidth, gutterStyle, ref output);
-        var trailingRows = Wrap(line.TrailingText, contentWidth);
+        var trailingRows = Wrap(trailingText, contentWidth);
         var continuationStyle = WithoutBackground(trailingStyle);
         for (var i = 0; i < trailingRows.Count; i++)
         {

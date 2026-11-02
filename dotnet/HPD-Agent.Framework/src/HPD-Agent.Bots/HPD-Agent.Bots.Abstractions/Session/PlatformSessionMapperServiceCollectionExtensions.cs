@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
@@ -12,7 +13,8 @@ public static class PlatformSessionMapperServiceCollectionExtensions
     /// <summary>
     /// Registers one mapper whose default thread agent is resolved from the adapter configuration.
     /// </summary>
-    public static IServiceCollection TryAddPlatformSessionMapper<TConfig>(
+    public static IServiceCollection TryAddPlatformSessionMapper<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] TConfig>(
         this IServiceCollection services,
         Func<TConfig, string> resolveAgentId)
         where TConfig : class

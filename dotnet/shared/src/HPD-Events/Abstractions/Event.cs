@@ -7,6 +7,17 @@ namespace HPD.Events;
 /// </summary>
 public abstract record Event : IEvent
 {
+    /// <summary>Initializes an event with the supplied creation timestamp.</summary>
+    protected Event(DateTimeOffset timestamp)
+    {
+        Timestamp = timestamp;
+    }
+
+    /// <summary>Initializes an event with the current UTC timestamp.</summary>
+    protected Event()
+    {
+    }
+
     /// <summary>
     /// Routing channel. Determines which independent channel this event travels through.
     /// Default: Synchronous.

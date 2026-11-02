@@ -139,9 +139,10 @@ internal sealed class DebugToolCallTuiCoordinator : IAgentTuiEventHandler, IAgen
     {
         var label = Label(state, active);
         var lines = Lines(state, active);
+        var entryKey = EntryKey(state.ToolCallId);
         var entry = new TranscriptEntry(
             Id: $"debug-activity-{state.ToolCallId}",
-            EntryKey: EntryKey(state.ToolCallId),
+            EntryKey: entryKey,
             Cell: new DebugActivityCell(
                 state.ToolCallId,
                 state.Action,
@@ -152,7 +153,7 @@ internal sealed class DebugToolCallTuiCoordinator : IAgentTuiEventHandler, IAgen
             Metadata: TranscriptEntryMetadata.FromEvent(evt),
             VerticalSpacing: 1);
         if (active) context.Shell.Transcript.UpsertLive(entry.AsLive(), CommittedHistoryMutationPolicy.Reject);
-        else context.Shell.Transcript.FinalizeLive(entry.EntryKey, entry.AsFinal(), CommittedHistoryMutationPolicy.Reject);
+        else context.Shell.Transcript.FinalizeLive(entryKey, entry.AsFinal(), CommittedHistoryMutationPolicy.Reject);
     }
 
     private static string Label(DebugToolCallPresentationState state, bool active)

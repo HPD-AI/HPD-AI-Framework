@@ -315,7 +315,14 @@ foreach (var audioPath in audioPaths)
     }
 }
 
-var eventComposition = HPD.Agent.Serialization.GeneratedAgentEventComposition.Composition;
+var eventApplicationIdentity = typeof(Program).Assembly.GetName().Name!;
+if (!HPD.Agent.Serialization.AgentEventCompositionHost.TryGetApplication(
+        eventApplicationIdentity,
+        out var eventComposition))
+{
+    throw new InvalidOperationException(
+        $"No generated agent event composition was registered for '{eventApplicationIdentity}'.");
+}
 var sessionStore = new InMemorySessionStore(eventComposition.Codec);
 var contentStore = new InMemoryContentStore();
 var builder = AgentBuilder.Create();

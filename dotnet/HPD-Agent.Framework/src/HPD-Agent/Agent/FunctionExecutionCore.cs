@@ -630,7 +630,11 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                     try
                     {
                         var canonicalRequest = JsonSerializer.SerializeToElement(
-                            req.Arguments, HPDToolArgumentBinder.DefaultSerializerOptions);
+                            req.Arguments.ToDictionary(
+                                static pair => pair.Key,
+                                static pair => pair.Value,
+                                StringComparer.Ordinal),
+                            HPDJsonContext.Default.DictionaryStringObject);
                         if (backgroundCommitted)
                         {
                             if (!JsonElement.DeepEquals(committedBackgroundRequest, canonicalRequest))
@@ -760,7 +764,12 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
     {
         JsonElement element => element.Clone(),
         JsonDocument document => document.RootElement.Clone(),
-        _ => JsonSerializer.SerializeToElement(value, HPDToolArgumentBinder.DefaultSerializerOptions)
+        null => JsonSerializer.SerializeToElement<object?>(null, HPDJsonContext.Default.Object),
+        _ => JsonSerializer.SerializeToElement(
+            value,
+            HPDJsonContext.Default.Options.GetTypeInfo(value.GetType())
+                ?? throw new InvalidOperationException(
+                    $"No source-generated JSON metadata is available for '{value.GetType()}'."))
     };
 
     private static bool ContainsExactProperty(JsonElement value, string name) =>
@@ -807,7 +816,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             providerCall.CallId,
             providerCall.Name,
             CreateInvocationArguments(
-                (IReadOnlyDictionary<string, object?>?)(providerCall.Arguments ??
+                (IReadOnlyDictionary<string, object?>)(providerCall.Arguments ??
                     new Dictionary<string, object?>())));
     }
 

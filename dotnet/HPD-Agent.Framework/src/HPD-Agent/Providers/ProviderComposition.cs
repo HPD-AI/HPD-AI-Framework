@@ -284,7 +284,7 @@ public sealed class ProviderComposition
         public bool TryGetFactory(string providerKey, string backendKey, ProviderClientFamily family, out ProviderRuntimeFactoryRegistration? registration)
         {
             registration = null;
-            if (!_descriptors.TryGet(providerKey, out var descriptor))
+            if (!_descriptors.TryGet(providerKey, out var descriptor) || descriptor is null)
                 return false;
             return _factories.TryGetValue((descriptor.ProviderKey, backendKey, family), out registration);
         }
@@ -323,6 +323,7 @@ public sealed class ProviderComposition
         {
             contract = null;
             return _descriptors.TryGet(providerKey, out var descriptor) &&
+                descriptor is not null &&
                 _contracts.TryGetValue((descriptor.ProviderKey, family, kind), out contract);
         }
 

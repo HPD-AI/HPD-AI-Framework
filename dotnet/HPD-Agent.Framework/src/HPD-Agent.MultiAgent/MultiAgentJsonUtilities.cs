@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
@@ -21,9 +20,6 @@ public static class MultiAgentJsonUtilities
         };
 
         options.TypeInfoResolverChain.Insert(0, MultiAgentGraphConfigJsonContext.Default);
-
-        if (RuntimeFeature.IsDynamicCodeSupported)
-            options.TypeInfoResolverChain.Add(new DefaultJsonTypeInfoResolver());
 
         if (makeReadOnly)
             options.MakeReadOnly();

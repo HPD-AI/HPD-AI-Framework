@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json;
 using HPD.Agent;
@@ -248,6 +249,10 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         };
     }
 
+    [UnconditionalSuppressMessage(
+        "Trimming",
+        "IL2075",
+        Justification = "Structured workflow event properties are supplied by trusted host configuration and must be preserved by that host.")]
     private async Task<Dictionary<string, object>> RunStructuredModeAsync(
         Agent.Agent agent,
         AgentGraphContext context,
@@ -295,6 +300,10 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         return FlattenToOutputs(result, options.StructuredType);
     }
 
+    [UnconditionalSuppressMessage(
+        "Trimming",
+        "IL2075",
+        Justification = "Union workflow event properties are supplied by trusted host configuration and must be preserved by that host.")]
     private async Task<Dictionary<string, object>> RunUnionModeAsync(
         Agent.Agent agent,
         AgentGraphContext context,
@@ -429,6 +438,14 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         return outputs;
     }
 
+    [UnconditionalSuppressMessage(
+        "Trimming",
+        "IL2060",
+        Justification = "Structured workflow types are supplied by trusted host configuration and must be preserved by that host.")]
+    [UnconditionalSuppressMessage(
+        "AOT",
+        "IL3050",
+        Justification = "Structured workflow execution requires a host-preserved closed generic instantiation.")]
     private static async Task RunAgentAsync(
         Agent.Agent agent,
         AgentGraphContext context,
@@ -664,6 +681,14 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         runConfig.Clients.Chat = inherited;
     }
 
+    [UnconditionalSuppressMessage(
+        "Trimming",
+        "IL2070",
+        Justification = "Structured workflow output types are supplied by trusted host configuration and must be preserved by that host.")]
+    [UnconditionalSuppressMessage(
+        "Trimming",
+        "IL2075",
+        Justification = "Structured workflow output values are supplied by trusted host configuration and must be preserved by that host.")]
     private static Dictionary<string, object> FlattenToOutputs(object? result, Type? type)
     {
         if (result == null)

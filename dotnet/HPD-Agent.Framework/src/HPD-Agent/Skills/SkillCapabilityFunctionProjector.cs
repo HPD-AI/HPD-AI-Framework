@@ -228,7 +228,7 @@ public static class SkillCapabilityFunctionProjector
             ArgumentBinder = inputContract is null ? null : inputContract.Bind,
             SerializerOptions = serialization?.SerializerOptions,
             ResultType = resultType,
-            AdditionalProperties = new Dictionary<string, object>
+            AdditionalProperties = new Dictionary<string, object?>
             {
                 [HPDCapabilityMetadata.AdditionalPropertiesKey] = new HPDCapabilityMetadata
                 {

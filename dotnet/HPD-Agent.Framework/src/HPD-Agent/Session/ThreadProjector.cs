@@ -1,4 +1,5 @@
 using System.Text.Json;
+using HPD.Agent.Serialization;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent;
@@ -473,9 +474,13 @@ public static class ThreadProjector
         if (string.IsNullOrWhiteSpace(argsJson))
             return null;
 
-        return JsonSerializer.Deserialize<Dictionary<string, object?>>(
+        var arguments = JsonSerializer.Deserialize(
             argsJson,
-            SessionJsonContext.Combined.Options);
+            AgentEventJsonContext.Default.DictionaryStringObject);
+        return arguments?.ToDictionary(
+            static pair => pair.Key,
+            static pair => (object?)pair.Value,
+            StringComparer.Ordinal);
     }
 
     private static object? ToResultObject(ToolResultPayload payload)

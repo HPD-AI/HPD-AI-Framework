@@ -175,8 +175,10 @@ public sealed class DefaultAgentTuiShellView : Component, IAgentTuiShellView
     {
         if (width >= _headerWidth) return;
         _headerWidth = width;
-        var rows = _headerRows!.Take(_publishedHeaderRows).ToList();
-        foreach (var row in _headerRows.Skip(_publishedHeaderRows))
+        var headerRows = _headerRows
+            ?? throw new InvalidOperationException("Header wrapping requires a captured header.");
+        var rows = headerRows.Take(_publishedHeaderRows).ToList();
+        foreach (var row in headerRows.Skip(_publishedHeaderRows))
         {
             var cells = new List<ScrollbackCell>();
             var columns = 0;

@@ -870,7 +870,7 @@ public sealed record AIFunctionBindingResult(
     IReadOnlyList<ValidationError> Errors)
 {
     /// <summary>Creates a successful binding result.</summary>
-    public static AIFunctionBindingResult Success(object value, JsonElement effectiveJson) =>
+    public static AIFunctionBindingResult Success(object? value, JsonElement effectiveJson) =>
         new(value, effectiveJson.Clone(), Array.Empty<ValidationError>());
 
     /// <summary>Creates a failed binding result.</summary>

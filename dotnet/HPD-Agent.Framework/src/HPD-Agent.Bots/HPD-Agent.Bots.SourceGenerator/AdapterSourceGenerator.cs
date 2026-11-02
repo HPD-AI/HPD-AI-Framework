@@ -53,6 +53,7 @@ internal sealed record ThreadIdPropertyInfo(
 
 // ── Generator entry point ─────────────────────────────────────────────────────
 
+/// <summary>Generates AOT-safe bot adapter dispatch, registration, and JSON metadata.</summary>
 [Generator]
 public sealed class BotSourceGenerator : IIncrementalGenerator
 {
@@ -68,6 +69,7 @@ public sealed class BotSourceGenerator : IIncrementalGenerator
     private const string HpdBotEnvelopeExtractorAttribute     = "HPD.Agent.Bots.HpdBotEnvelopeExtractorAttribute";
     private const string ThreadIdAttribute             = "HPD.Agent.Bots.ThreadIdAttribute";
 
+    /// <inheritdoc />
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         // ── Pipeline: [HpdBot] classes ───────────────────────────────────
@@ -416,7 +418,7 @@ public sealed class BotSourceGenerator : IIncrementalGenerator
             return;
         }
 
-        var normalized = method.Trim().ToUpperInvariant();
+        var normalized = method!.Trim().ToUpperInvariant();
         if (!methods.Contains(normalized, StringComparer.Ordinal))
             methods.Add(normalized);
     }

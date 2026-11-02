@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: FSL-1.1-ALv2
 
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.AI.Evaluation;
 using HPD.Agent.Evaluations.Tracing;
+using HPD.Agent.Evaluations.Serialization;
 
 namespace HPD.Agent.Evaluations.Contexts;
 
@@ -22,7 +24,7 @@ public sealed class GroundTruthContext : EvaluationContext
     public string Expected { get; }
 
     public GroundTruthContext(string expected)
-        : base(ContextName, JsonSerializer.Serialize(new { expected }))
+        : base(ContextName, new JsonObject { ["expected"] = expected }.ToJsonString())
     {
         Expected = expected;
     }
@@ -41,7 +43,7 @@ public sealed class ReasoningContext : EvaluationContext
     public string Reasoning { get; }
 
     public ReasoningContext(string reasoning)
-        : base(ContextName, JsonSerializer.Serialize(new { reasoning }))
+        : base(ContextName, new JsonObject { ["reasoning"] = reasoning }.ToJsonString())
     {
         Reasoning = reasoning;
     }
@@ -59,7 +61,7 @@ public sealed class TurnTraceContext : EvaluationContext
     public TurnTrace Trace { get; }
 
     public TurnTraceContext(TurnTrace trace)
-        : base(ContextName, JsonSerializer.Serialize(trace))
+        : base(ContextName, JsonSerializer.Serialize(trace, EvaluationJsonContext.Default.TurnTrace))
     {
         Trace = trace;
     }
@@ -84,12 +86,16 @@ public sealed class ConversationHistoryContext : EvaluationContext
 
     private static string SerializeHistory(IReadOnlyList<ChatMessage> history)
     {
-        var simplified = history.Select(m => new
+        var simplified = new JsonArray();
+        foreach (var message in history)
         {
-            role = m.Role.Value,
-            text = m.Text
-        });
-        return JsonSerializer.Serialize(simplified);
+            simplified.Add((JsonNode)new JsonObject
+            {
+                ["role"] = message.Role.Value,
+                ["text"] = message.Text
+            });
+        }
+        return simplified.ToJsonString();
     }
 }
 
@@ -108,7 +114,7 @@ public sealed class GroundingDocumentContext : EvaluationContext
 
     /// <summary>Static form — for offline/CI where context is known ahead of time.</summary>
     public GroundingDocumentContext(string[] chunks)
-        : base(ContextName, JsonSerializer.Serialize(chunks))
+        : base(ContextName, JsonSerializer.Serialize(chunks, EvaluationJsonContext.Default.StringArray))
     {
         _staticChunks = chunks;
     }
@@ -164,11 +170,15 @@ public sealed class ToolDefinitionsContext : EvaluationContext
 
     private static string SerializeTools(IReadOnlyList<AITool> tools)
     {
-        var simplified = tools.Select(t => new
+        var simplified = new JsonArray();
+        foreach (var tool in tools)
         {
-            name = t.Name,
-            description = t.Description
-        });
-        return JsonSerializer.Serialize(simplified);
+            simplified.Add((JsonNode)new JsonObject
+            {
+                ["name"] = tool.Name,
+                ["description"] = tool.Description
+            });
+        }
+        return simplified.ToJsonString();
     }
 }

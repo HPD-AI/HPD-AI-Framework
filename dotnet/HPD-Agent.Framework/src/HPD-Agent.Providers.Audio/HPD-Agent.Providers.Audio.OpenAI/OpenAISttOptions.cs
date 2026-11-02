@@ -1,3 +1,4 @@
+#pragma warning disable MEAI001 // HPD-Agent intentionally wraps the experimental Microsoft.Extensions.AI audio contracts.
 // Copyright 2026 Einstein Essibu
 // SPDX-License-Identifier: FSL-1.1-ALv2
 

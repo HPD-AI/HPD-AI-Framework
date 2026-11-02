@@ -59,7 +59,7 @@ public class RetryMiddleware : IAgentMiddleware
     public IAsyncEnumerable<AgentModelUpdate>? WrapModelTurnStreamingAsync(
         AgentModelTurnRequest request,
         Func<AgentModelTurnRequest, IAsyncEnumerable<AgentModelUpdate>> handler,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
+        CancellationToken cancellationToken)
     {
         return RetryModelCallAsync(request, handler, cancellationToken);
     }

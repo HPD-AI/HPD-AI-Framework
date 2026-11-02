@@ -291,7 +291,7 @@ public sealed class TracingObserver : IDisposable
 
         activity.SetStatus(ActivityStatusCode.Error, sanitizedMessage);
         activity.SetTag("error.message", sanitizedMessage);
-        activity.SetTag("error.type", e.Exception?.GetType().Name ?? "");
+            activity.SetTag("error.type", (e as IErrorEvent)?.Exception?.GetType().Name ?? "");
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

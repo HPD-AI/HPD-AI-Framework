@@ -1,3 +1,4 @@
+#pragma warning disable MEAI001 // HPD-Agent intentionally wraps the experimental Microsoft.Extensions.AI audio contracts.
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text.Json;

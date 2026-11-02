@@ -1045,11 +1045,13 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
         ResponseId responseId,
         CancellationToken cancellationToken)
     {
+        var outputOptions = Options.OutputOptions
+            ?? throw new InvalidOperationException("Push-text speech synthesis requires assistant output options.");
         var request = CreateTextToSpeechRequest(responseId, _segmentId);
         var ledger = new List<RealtimeLedgerRecord>();
         var trace = new List<RealtimeAudioTraceRecord>();
-        var providerKey = ResolveProviderKey(Options.OutputOptions);
-        var modelId = FirstNonWhiteSpace(_modelId, Options.OutputOptions?.ModelId);
+        var providerKey = ResolveProviderKey(outputOptions);
+        var modelId = FirstNonWhiteSpace(_modelId, outputOptions.ModelId);
 
         LedgerTraceWriter.AppendTtsRequested(
             ledger,
@@ -1060,7 +1062,7 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
             request,
             providerKey);
 
-        if (RequiresContentStoreArtifact(Options.OutputOptions) && Options.OutputOptions?.ContentStore is null)
+        if (RequiresContentStoreArtifact(outputOptions) && outputOptions.ContentStore is null)
         {
             var missingStore = new AudioErrorInfo
             {
@@ -1079,7 +1081,7 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
                 request,
                 providerKey,
                 modelId,
-                Options.OutputOptions!,
+                outputOptions,
                 TtsSynthesisDisposition.Failed,
                 null,
                 null,
@@ -1107,7 +1109,7 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
                 request,
                 providerKey,
                 modelId,
-                Options.OutputOptions,
+                outputOptions,
                 TtsSynthesisDisposition.Failed,
                 null,
                 null,
@@ -1132,7 +1134,7 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
             request,
             providerKey,
             modelId,
-            Options.OutputOptions,
+            outputOptions,
             TtsSynthesisDisposition.Synthesized,
             mediaType,
             _audioBuffer.Length,
@@ -1140,16 +1142,16 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
             null,
             _providerFirstAudioAt);
 
-        if (RequiresContentStoreArtifact(Options.OutputOptions))
+        if (RequiresContentStoreArtifact(outputOptions))
         {
             var artifact = await _artifactWriter.WriteAssistantAudioArtifactAsync(
-                Options.OutputOptions!.ContentStore!,
+                outputOptions.ContentStore!,
                 Options.SessionId,
                 OutputFlow.Id,
                 responseId,
                 providerKey,
                 modelId,
-                Options.OutputOptions,
+                outputOptions,
                 mediaType,
                 _audioBuffer.ToArray(),
                 cancellationToken).ConfigureAwait(false);

@@ -132,8 +132,6 @@ public sealed class ContextRecallEvaluator : HpdDecomposeVerifyEvaluatorBase
         return ["__use_ground_truth__"];
     }
 
-    private string[]? _groundTruthClaims;
-
     protected override async ValueTask<IReadOnlyList<ClaimVerdict>> VerifyClaimsAsync(
         IReadOnlyList<string> claims,
         IEnumerable<EvaluationContext>? additionalContext,

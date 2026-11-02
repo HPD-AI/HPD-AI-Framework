@@ -8,8 +8,8 @@
     <Description>OpenAI audio provider adapters for HPD Agent audio.</Description>
     <PackageTags>ai;agent;audio;openai;stt;tts</PackageTags>
     <IsAotCompatible>true</IsAotCompatible>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <OutputType>Library</OutputType>
-    <NoWarn>$(NoWarn);1591;MEAI001</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

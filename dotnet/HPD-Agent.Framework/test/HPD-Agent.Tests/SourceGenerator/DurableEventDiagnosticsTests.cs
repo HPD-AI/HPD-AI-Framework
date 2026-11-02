@@ -17,6 +17,8 @@ public sealed class DurableEventDiagnosticsTests
         {
             [System.AttributeUsage(System.AttributeTargets.All)]
             public sealed class DurableEventAttribute : System.Attribute { }
+            [System.AttributeUsage(System.AttributeTargets.Class, Inherited = false)]
+            public sealed class EventRegistrationExcludedAttribute : System.Attribute { }
         }
         """;
 
@@ -73,5 +75,28 @@ public sealed class DurableEventDiagnosticsTests
         var result = driver.RunGenerators(compilation).GetRunResult();
 
         Assert.DoesNotContain(result.Diagnostics, static item => item.Id == "HPDAEVT001");
+    }
+
+    [Fact]
+    public void Explicitly_excluded_generic_event_does_not_emit_generic_event_warning()
+    {
+        var source = """
+            [HPD.Agent.Serialization.EventRegistrationExcluded]
+            public sealed record ExplicitGenericEvent<T>(T Value) : HPD.Agent.AgentEvent;
+            """;
+        var references = ((string?)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES"))!
+            .Split(Path.PathSeparator)
+            .Select(static path => MetadataReference.CreateFromFile(path));
+        var compilation = CSharpCompilation.Create(
+            "excluded-generic-event",
+            [CSharpSyntaxTree.ParseText(Contracts), CSharpSyntaxTree.ParseText(source)],
+            references,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(
+            new CustomEventSourceGenerator().AsSourceGenerator());
+
+        var result = driver.RunGenerators(compilation).GetRunResult();
+
+        Assert.DoesNotContain(result.Diagnostics, static item => item.Id == "HPD011");
     }
 }

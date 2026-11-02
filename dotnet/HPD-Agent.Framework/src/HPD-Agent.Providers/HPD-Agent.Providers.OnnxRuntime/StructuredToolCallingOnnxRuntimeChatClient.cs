@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -130,7 +131,7 @@ internal sealed class StructuredToolCallingOnnxRuntimeChatClient : IChatClient
                 ["parameters"] = JsonNode.Parse(function.JsonSchema.GetRawText()) ?? new JsonObject()
             };
 
-            toolArray.Add(new JsonObject
+            toolArray.Add((JsonNode)new JsonObject
             {
                 ["type"] = "function",
                 ["function"] = functionObject
@@ -143,7 +144,7 @@ internal sealed class StructuredToolCallingOnnxRuntimeChatClient : IChatClient
     internal static bool TryParseToolCallEnvelope(
         string text,
         ISet<string> allowedToolNames,
-        out FunctionCallContent? toolCall)
+        [NotNullWhen(true)] out FunctionCallContent? toolCall)
     {
         toolCall = null;
 
@@ -227,7 +228,7 @@ internal sealed class StructuredToolCallingOnnxRuntimeChatClient : IChatClient
         var enumValues = new JsonArray();
         foreach (var toolName in toolNames.OrderBy(static name => name, StringComparer.Ordinal))
         {
-            enumValues.Add(toolName);
+            enumValues.Add((JsonNode)JsonValue.Create(toolName)!);
         }
 
         var schema = new JsonObject

@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
+using HPD.Agent.Serialization;
 using HPD.Agent.Permissions;
 
 namespace HPD.Agent.TUI.Interactions;
@@ -28,7 +30,8 @@ internal interface IPermissionPresentationRendererAdapter
 }
 
 internal sealed class PermissionPresentationRendererAdapter<TPresentation>(
-    IPermissionPresentationRenderer<TPresentation> renderer) : IPermissionPresentationRendererAdapter
+    IPermissionPresentationRenderer<TPresentation> renderer,
+    JsonTypeInfo<TPresentation> typeInfo) : IPermissionPresentationRendererAdapter
 {
     public Type PresentationType => typeof(TPresentation);
 
@@ -37,7 +40,7 @@ internal sealed class PermissionPresentationRendererAdapter<TPresentation>(
         PermissionChoiceSet choices,
         CancellationToken cancellationToken)
     {
-        var presentation = payload.Deserialize<TPresentation>() ??
+        var presentation = JsonSerializer.Deserialize(payload, typeInfo) ??
             throw new InvalidOperationException(
                 $"Permission presentation '{typeof(TPresentation)}' could not be decoded.");
         return renderer.RenderAsync(presentation, choices, cancellationToken);
@@ -65,9 +68,13 @@ internal sealed class PermissionPresentationRendererRegistry
         if (!string.Equals(declaredId, presentationId, StringComparison.Ordinal))
             throw new InvalidOperationException(
                 $"Permission renderer ID '{presentationId}' does not match presentation ID '{declaredId}'.");
+        var typeInfo = (JsonTypeInfo<TPresentation>)PermissionPresentationDescriptor.RequireGeneratedJsonTypeInfo(
+            HpdAgentJsonUtilities.DefaultOptions,
+            typeof(TPresentation),
+            presentationId);
         if (!_renderers.TryAdd(
                 presentationId,
-                new PermissionPresentationRendererAdapter<TPresentation>(renderer)))
+                new PermissionPresentationRendererAdapter<TPresentation>(renderer, typeInfo)))
             throw new InvalidOperationException(
                 $"A permission renderer is already registered for '{presentationId}'.");
     }

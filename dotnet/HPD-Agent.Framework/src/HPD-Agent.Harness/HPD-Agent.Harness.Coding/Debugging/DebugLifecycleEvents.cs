@@ -225,7 +225,7 @@ public sealed record DebugBreakpointChangedEvent : DebugLifecycleEvent
 [EventType("DEBUG_BREAKPOINT_SELECTION_APPLIED")]
 public sealed record DebugBreakpointSelectionAppliedEvent : DebugLifecycleEvent
 {
-    public required string ToolCallId { get; init; }
+    public new required string ToolCallId { get; init; }
     public required string Action { get; init; }
     public required DebugBreakpointKind BreakpointKind { get; init; }
     public required IReadOnlyList<DebugBreakpointSelectionEventItem> Before { get; init; }

@@ -255,7 +255,7 @@ public interface IAgentMiddleware
     IAsyncEnumerable<AgentModelUpdate>? WrapModelTurnStreamingAsync(
         AgentModelTurnRequest request,
         Func<AgentModelTurnRequest, IAsyncEnumerable<AgentModelUpdate>> handler,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
+        CancellationToken cancellationToken)
         => null;  // null = "I don't need to intercept streaming"
 
     /// <summary>

@@ -459,9 +459,9 @@ public partial class WhatsAppBot
             var data = await _api.DownloadMediaAsync(attachment.MediaId, ct);
             DataContent content = attachment.Kind switch
             {
-                "image" or "sticker" => new ImageContent(data, attachment.MimeType),
-                "audio" or "voice" => new AudioContent(data, attachment.MimeType),
-                "video" => new VideoContent(data, attachment.MimeType),
+                "image" or "sticker" => new ImageContent(data, attachment.MimeType ?? "application/octet-stream"),
+                "audio" or "voice" => new AudioContent(data, attachment.MimeType ?? "audio/ogg"),
+                "video" => new VideoContent(data, attachment.MimeType ?? "video/mp4"),
                 "document" => new DocumentContent(data, attachment.MimeType ?? "application/octet-stream"),
                 _ => new DataContent(data, attachment.MimeType ?? "application/octet-stream"),
             };

@@ -508,7 +508,9 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             ("operationId", JsonValue.Create(request.OperationId)),
             ("subAgents", request.SubAgents is null
                 ? null
-                : JsonSerializer.SerializeToNode(request.SubAgents, JsonOptions))));
+                : JsonSerializer.SerializeToNode(
+                    request.SubAgents,
+                    AgentTuiJsonContext.Default.SubAgentForkOptions))));
         using var response = await PostJsonEnvelopeAsync(
                 $"agents/{Escape(agentId)}/sessions/{Escape(sessionId)}/threads/{Escape(sourceThreadId)}/fork",
                 json,
@@ -522,7 +524,9 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
 
         return await ReadObjectAsync(
                 response,
-                static element => element.Deserialize<AgentTuiThreadForkInfo>(JsonOptions)
+                static element => JsonSerializer.Deserialize(
+                    element,
+                    AgentTuiJsonContext.Default.AgentTuiThreadForkInfo)
                     ?? throw new InvalidDataException("Fork response was empty."),
                 cancellationToken)
             .ConfigureAwait(false);
@@ -591,7 +595,9 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         if (!response.IsSuccessStatusCode)
             await ThrowForUnexpectedResponseAsync(response, "list subagents", cancellationToken).ConfigureAwait(false);
         return await ReadObjectAsync(response,
-            static element => element.Deserialize<IReadOnlyList<AgentTuiSubAgentInfo>>(JsonOptions) ?? [],
+            static element => JsonSerializer.Deserialize(
+                element,
+                AgentTuiJsonContext.Default.IReadOnlyListAgentTuiSubAgentInfo) ?? [],
             cancellationToken).ConfigureAwait(false);
     }
 

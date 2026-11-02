@@ -126,7 +126,7 @@ internal static class RuntimeSkillFunctionProjector
                     Authority = $"function/{Uri.EscapeDataString(skill.Name)}",
                     Source = PermissionDeclarationSource.FrameworkDefault
                 } : null,
-                AdditionalProperties = new Dictionary<string, object>
+                AdditionalProperties = new Dictionary<string, object?>
                 {
                     [HPDCapabilityMetadata.AdditionalPropertiesKey] = new HPDCapabilityMetadata
                     {

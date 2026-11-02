@@ -1,4 +1,5 @@
 using HPD.Agent.Hosting.Lifecycle;
+using HPD.Agent.AspNetCore.Serialization;
 using HPD.Agent.Serialization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -88,15 +89,14 @@ internal static class MiddlewareResponseEndpoints
             AgentServiceStatus.Success => TypedResults.Ok(result.Value),
             AgentServiceStatus.NotFound => TypedResults.NotFound(),
             AgentServiceStatus.Conflict when result.ErrorCode != null => TypedResults.Json(
-                new
-                {
-                    title = result.ErrorMessage ?? "Middleware response conflict.",
-                    result = result.Value,
-                    errors = new Dictionary<string, string[]>
+                new MiddlewareResponseConflictResponse(
+                    result.ErrorMessage ?? "Middleware response conflict.",
+                    result.Value,
+                    new Dictionary<string, string[]>
                     {
                         [result.ErrorCode] = [result.ErrorMessage ?? "Middleware response conflict."]
-                    }
-                },
+                    }),
+                HPDAgentAspNetCoreJsonSerializerContext.Default.MiddlewareResponseConflictResponse,
                 statusCode: StatusCodes.Status409Conflict),
             AgentServiceStatus.Conflict => TypedResults.Conflict(),
             _ => TypedResults.ValidationProblem(new Dictionary<string, string[]>
@@ -106,3 +106,8 @@ internal static class MiddlewareResponseEndpoints
         };
     }
 }
+
+internal sealed record MiddlewareResponseConflictResponse(
+    string Title,
+    AgentRespondResult? Result,
+    Dictionary<string, string[]> Errors);

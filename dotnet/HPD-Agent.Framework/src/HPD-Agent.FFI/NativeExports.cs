@@ -345,7 +345,7 @@ public static partial class NativeExports
             var agentConfig = DeserializeAgentConfig(configJson);
 
             var builder = new AgentBuilder(agentConfig, providerComposition)
-                .WithEventComposition(GeneratedAgentEventComposition.Composition);
+                .WithEventApplicationIdentity(typeof(NativeExports).Assembly.GetName().Name!);
 
             // Parse and add native ToolHarnesses (Rust, C++, Zig, Go, etc.)
             string? ToolHarnessesJson = Marshal.PtrToStringUTF8(ToolHarnessesJsonPtr);
@@ -751,7 +751,7 @@ public static partial class NativeExports
             _ => "ProviderAccountServicesUnavailable"
         };
         return MarshalString(JsonSerializer.Serialize(
-            new ProviderAccountFfiError { DiagnosticCode = code },
+            new ProviderAccountFfiError { DiagnosticCode = code ?? "ProviderAccountServicesUnavailable" },
             HPDFFIJsonContext.Default.ProviderAccountFfiError));
     }
 
@@ -858,7 +858,9 @@ public static partial class NativeExports
             var thread = ObjectManager.Get<FFIConversationThread>(threadHandle);
             if (thread == null) return IntPtr.Zero;
 
-            var json = JsonSerializer.Serialize(thread.Thread.Messages, HPDFFIJsonContext.Default.IEnumerableChatMessage);
+            var json = JsonSerializer.Serialize(
+                thread.Thread.Messages,
+                SessionJsonContext.Combined.ListChatMessage);
             return MarshalString(json);
         }
         catch (Exception ex)
@@ -885,7 +887,9 @@ public static partial class NativeExports
             string? messageJson = Marshal.PtrToStringUTF8(messageJsonPtr);
             if (string.IsNullOrEmpty(messageJson)) return 0;
 
-            var message = JsonSerializer.Deserialize(messageJson, HPDFFIJsonContext.Default.ChatMessage);
+            var message = JsonSerializer.Deserialize(
+                messageJson,
+                SessionJsonContext.Combined.ChatMessage);
             if (message == null) return 0;
 
             thread.Thread.AddMessage(message);
@@ -1121,7 +1125,7 @@ public static partial class NativeExports
                 new ThreadKey(session, thread),
                 (AgentEventHierarchy)hierarchyValue,
                 HPD.Events.EventInboxOptions.Deterministic());
-            nativeSubscription.Start(inbox, agent.Config.EventComposition!.Codec);
+            nativeSubscription.Start(inbox, GetEventCodec(agent));
             subscription = ObjectManager.Add(nativeSubscription);
             return HpdSubscribeStatus.Ok;
         }
@@ -1130,6 +1134,10 @@ public static partial class NativeExports
             return HpdSubscribeStatus.InternalError;
         }
     }
+
+    private static AgentEventCodec GetEventCodec(HPD.Agent.Agent agent) =>
+        agent.Config?.EventComposition?.Codec
+        ?? throw new InvalidOperationException("The agent event composition was not resolved.");
 
     private static HpdSubscriptionDisposeStatus DisposeSubscriptionCore(ref IntPtr subscription)
     {
@@ -1185,7 +1193,7 @@ public static partial class NativeExports
                 {
                     await foreach (var delivery in inbox.Reader.ReadAllAsync().ConfigureAwait(false))
                     {
-                        var eventJson = $"{{\"event\":{agent.Config.EventComposition!.Codec.Serialize(delivery.Event)}," +
+                        var eventJson = $"{{\"event\":{GetEventCodec(agent).Serialize(delivery.Event)}," +
                             $"\"route\":{JsonSerializer.Serialize(delivery.Route, HPDFFIJsonContext.Default.AgentEventRoute)}}}";
                         var eventPtr = MarshalString(eventJson);
                         try { callback(context, eventPtr); }

@@ -13,7 +13,7 @@
     <PackageId>HPD-Agent.ModelsDev</PackageId>
     <Description>models.dev catalog access, caching, and provider metadata for HPD Agent applications.</Description>
     <PackageTags>ai;agent;models;catalog;modelsdev;hpd</PackageTags>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>

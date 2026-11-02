@@ -818,7 +818,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         var scope = target.Scope;
         if (target is ControlledSubAgentTuiExecutionTarget controlled)
         {
-            var store = _agent.Config.SessionStore
+            var store = _agent.Config?.SessionStore
                 ?? throw new InvalidOperationException("Controlled subagent submission requires a durable session store.");
             var resolver = _runtimeResolver
                 ?? throw new InvalidOperationException("Controlled subagent submission requires a registered runtime resolver.");

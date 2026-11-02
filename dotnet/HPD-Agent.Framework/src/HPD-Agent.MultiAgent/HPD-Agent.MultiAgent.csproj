@@ -6,7 +6,7 @@
     <RootNamespace>HPD.Agent.MultiAgent</RootNamespace>
     <AssemblyName>HPD-Agent.MultiAgent</AssemblyName>
     <IsPackable>true</IsPackable>
-    <NoWarn>$(NoWarn);IL2026;IL2070;IL2075;IL3050;SYSLIB1034</NoWarn>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
 
     <!-- Package metadata -->
     <PackageId>HPD-Agent.MultiAgent</PackageId>
@@ -35,6 +35,4 @@
     <InternalsVisibleTo Include="HPD-Agent.MultiAgent.Tests" />
     <ProjectReference Include="../HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
-
-  <PropertyGroup><WarningsAsErrors>$(WarningsAsErrors)</WarningsAsErrors></PropertyGroup>
 </Project>

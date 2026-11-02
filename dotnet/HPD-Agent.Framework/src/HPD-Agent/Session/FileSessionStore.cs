@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using HPD.Agent.Serialization;
 using HPD.Agent.Permissions;
 
@@ -374,7 +375,7 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore, IPermis
             var wal = new FilePermissionPreferenceWal(commit, state);
             await WriteAtomicallyAsync(
                 GetPermissionPreferenceWalPath(commit.SessionId),
-                JsonSerializer.Serialize(wal),
+                JsonSerializer.Serialize(wal, FileSessionJsonContext.Default.FilePermissionPreferenceWal),
                 cancellationToken).ConfigureAwait(false);
             state = await RecoverPreferenceWalAsync(commit.SessionId, cancellationToken).ConfigureAwait(false);
             var outbox = state.Outbox.Single(value => value.IdempotencyKey == commit.IdempotencyKey);
@@ -729,8 +730,9 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore, IPermis
                 Records = []
             }, []);
         await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 16 * 1024, true);
-        var state = await JsonSerializer.DeserializeAsync<FilePermissionPreferenceState>(
-                stream, cancellationToken: cancellationToken).ConfigureAwait(false)
+        var state = await JsonSerializer.DeserializeAsync(
+                stream, FileSessionJsonContext.Default.FilePermissionPreferenceState, cancellationToken)
+            .ConfigureAwait(false)
             ?? throw new InvalidDataException($"Permission preference state '{path}' is empty.");
         if (state.Snapshot.SchemaVersion == PermissionPreferenceSchema.CurrentVersion)
             return state;
@@ -748,8 +750,9 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore, IPermis
     {
         var walPath = GetPermissionPreferenceWalPath(sessionId);
         await using var walStream = new FileStream(walPath, FileMode.Open, FileAccess.Read, FileShare.Read, 16 * 1024, true);
-        var wal = await JsonSerializer.DeserializeAsync<FilePermissionPreferenceWal>(
-                walStream, cancellationToken: cancellationToken).ConfigureAwait(false)
+        var wal = await JsonSerializer.DeserializeAsync(
+                walStream, FileSessionJsonContext.Default.FilePermissionPreferenceWal, cancellationToken)
+            .ConfigureAwait(false)
             ?? throw new InvalidDataException($"Permission preference WAL '{walPath}' is empty.");
         var state = await ReadPreferenceStateFileAsync(sessionId, cancellationToken).ConfigureAwait(false);
         if (state.Outbox.Any(value => value.IdempotencyKey == wal.Commit.IdempotencyKey))
@@ -808,13 +811,13 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore, IPermis
         CancellationToken cancellationToken) =>
         WriteAtomicallyAsync(
             GetPermissionPreferencePath(sessionId),
-            JsonSerializer.Serialize(state),
+            JsonSerializer.Serialize(state, FileSessionJsonContext.Default.FilePermissionPreferenceState),
             cancellationToken);
 
-    private sealed record FilePermissionPreferenceState(
+    internal sealed record FilePermissionPreferenceState(
         PermissionPreferenceSnapshot Snapshot,
         IReadOnlyList<PermissionPreferenceOutboxRecord> Outbox);
-    private sealed record FilePermissionPreferenceWal(
+    internal sealed record FilePermissionPreferenceWal(
         PermissionPreferenceCommit Commit,
         FilePermissionPreferenceState PreviousState);
     private string GetThreadPath(ThreadKey key) => Path.Combine(GetThreadsPath(key.SessionId), key.ThreadId);
@@ -1385,3 +1388,8 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore, IPermis
     private sealed record ReadBoundary(long Generation, long Through, IReadOnlyList<SegmentSnapshot> Segments);
     private sealed record ObservationSnapshot(ThreadJournalCursor Head, Task CommitSignal);
 }
+
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(FileSessionStore.FilePermissionPreferenceState))]
+[JsonSerializable(typeof(FileSessionStore.FilePermissionPreferenceWal))]
+internal partial class FileSessionJsonContext : JsonSerializerContext;

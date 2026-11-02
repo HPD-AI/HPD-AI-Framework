@@ -3,6 +3,7 @@
 
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Extensions.AI.Evaluation;
 using HPD.Agent.Evaluations.Storage;
 
@@ -207,27 +208,40 @@ public sealed class EvaluationReport
     }
 
     public string ToJson()
-        => JsonSerializer.Serialize(new
+    {
+        var cases = new JsonArray();
+        foreach (var item in Cases)
         {
-            experiment = ExperimentName,
-            cases = Cases.Select(c => new
+            var metrics = new JsonObject();
+            foreach (var (name, metric) in item.EvaluationResult.Metrics)
             {
-                c.Name,
-                c.ProviderKey,
-                c.ModelId,
-                c.ResponseModelId,
-                metrics = c.EvaluationResult.Metrics.ToDictionary(
-                    kv => kv.Key,
-                    kv => kv.Value switch
-                    {
-                        NumericMetric nm => (object?)nm.Value,
-                        BooleanMetric bm => bm.Value,
-                        _ => null,
-                    }),
-                c.TaskDuration,
-            }),
-            infrastructure_error_rate = InfrastructureErrorRate,
-        }, new JsonSerializerOptions { WriteIndented = true });
+                metrics[name] = metric switch
+                {
+                    NumericMetric numeric => JsonValue.Create(numeric.Value),
+                    BooleanMetric boolean => JsonValue.Create(boolean.Value),
+                    _ => null
+                };
+            }
+
+            cases.Add((JsonNode)new JsonObject
+            {
+                ["Name"] = item.Name,
+                ["ProviderKey"] = item.ProviderKey,
+                ["ModelId"] = item.ModelId,
+                ["ResponseModelId"] = item.ResponseModelId,
+                ["metrics"] = metrics,
+                ["TaskDuration"] = item.TaskDuration.ToString()
+            });
+        }
+
+        var report = new JsonObject
+        {
+            ["experiment"] = ExperimentName,
+            ["cases"] = cases,
+            ["infrastructure_error_rate"] = InfrastructureErrorRate
+        };
+        return report.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+    }
 
     /// <summary>
     /// Writes a structured HTML report to <paramref name="outputPath"/>.
@@ -456,7 +470,7 @@ public sealed class ScoreRegressionAnalyzer : IReportEvaluator
 /// <summary>
 /// Builds a binary confusion matrix by comparing a predicted metric to an expected metric.
 /// Boolean metrics are used directly; numeric metrics are thresholded; string metrics match
-/// <paramref name="positiveLabel"/> case-insensitively.
+/// <c>positiveLabel</c> case-insensitively.
 /// </summary>
 public sealed class ConfusionMatrixAnalyzer : IReportEvaluator
 {

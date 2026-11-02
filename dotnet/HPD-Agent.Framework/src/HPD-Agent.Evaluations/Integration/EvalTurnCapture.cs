@@ -73,7 +73,8 @@ internal sealed class EvalTurnCapture
                 break;
 
             case MessageTurnErrorEvent error:
-                Fail(error.TraceId, error.MessageTurnId, error.Exception ?? new InvalidOperationException(error.ErrorMessage));
+                Fail(error.TraceId, error.MessageTurnId,
+                    (error as IErrorEvent)?.Exception ?? new InvalidOperationException(error.ErrorMessage));
                 return ValueTask.CompletedTask;
 
             case AgentTurnStartedEvent e:

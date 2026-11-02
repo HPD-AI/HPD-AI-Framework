@@ -91,7 +91,11 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
         LanguageServerTextDocumentSyncKind changeKind,
         string text,
         string previousText)
-        => JsonSerializer.SerializeToNode(CreateDidChangeContentChanges(changeKind, text, previousText))!.AsArray();
+        => new(CreateDidChangeContentChanges(changeKind, text, previousText)
+            .Select(static change => JsonSerializer.SerializeToNode(
+                change,
+                LspJsonContext.Default.TextDocumentContentChangeEvent))
+            .ToArray());
 
     public async ValueTask StartAsync(CancellationToken cancellationToken)
     {
@@ -178,7 +182,7 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
         if (changeKind == LanguageServerTextDocumentSyncKind.Incremental)
         {
             var end = GetEndPosition(previousText);
-            contentChanges.Add(new TextDocumentContentChangeEvent(JsonSerializer.SerializeToElement(new JsonObject
+            contentChanges.Add(new TextDocumentContentChangeEvent(ToJsonElement(new JsonObject
             {
                 ["range"] = new JsonObject
                 {
@@ -198,11 +202,20 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
             return contentChanges;
         }
 
-        contentChanges.Add(new TextDocumentContentChangeEvent(JsonSerializer.SerializeToElement(new JsonObject
+        contentChanges.Add(new TextDocumentContentChangeEvent(ToJsonElement(new JsonObject
         {
             ["text"] = text
         })));
         return contentChanges;
+    }
+
+    private static JsonElement ToJsonElement(JsonNode node)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+            node.WriteTo(writer);
+        using var document = JsonDocument.Parse(stream.ToArray());
+        return document.RootElement.Clone();
     }
 
     private static (int Line, int Character) GetEndPosition(string text)
@@ -1117,7 +1130,7 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
         if (result is null)
             return LanguageServerDiagnosticPullResult.NotHandled;
 
-        var kind = result?["kind"]?.GetValue<string>();
+        var kind = result["kind"]?.GetValue<string>();
         if (kind == "unchanged")
         {
             if (!_pullDiagnostics.TryGetValue(uri, out var existing))
@@ -1125,7 +1138,7 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
 
             var unchanged = existing with
             {
-                ResultId = result?["resultId"]?.GetValue<string>() ?? existing.ResultId,
+                ResultId = result["resultId"]?.GetValue<string>() ?? existing.ResultId,
                 ReceivedAt = DateTimeOffset.UtcNow
             };
             _pullDiagnostics[uri] = unchanged;
@@ -1145,13 +1158,13 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
                 Path = path,
                 ServerId = _serverId,
                 Source = LanguageServerDiagnosticSource.DocumentPull,
-                ResultId = result?["resultId"]?.GetValue<string>(),
+                ResultId = result["resultId"]?.GetValue<string>(),
                 Diagnostics = ParseDiagnostics(items),
                 ReceivedAt = DateTimeOffset.UtcNow
             });
         }
 
-        var relatedDocuments = result?["relatedDocuments"]?.AsObject();
+        var relatedDocuments = result["relatedDocuments"]?.AsObject();
         if (relatedDocuments is not null)
         {
             foreach (var related in relatedDocuments)

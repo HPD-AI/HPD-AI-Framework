@@ -57,20 +57,18 @@ public sealed class SandboxIsolationManager : IAsyncDisposable
             plan,
             cancellationToken);
 
-        Dictionary<string, string>? environment = wrappedCommand.Environment is { Count: > 0 }
-            ? new Dictionary<string, string>(wrappedCommand.Environment)
-            : null;
+        var environment = wrappedCommand.Environment is { Count: > 0 }
+            ? new Dictionary<string, string>(wrappedCommand.Environment, StringComparer.Ordinal)
+            : new Dictionary<string, string>(StringComparer.Ordinal);
 
         foreach (var (key, value) in plan.Environment.InjectedVariables)
         {
-            environment ??= [];
             environment[key] = value;
         }
 
         if (_httpProxy is not null)
         {
             var proxyUrl = $"http://127.0.0.1:{_httpProxy.Port}";
-            environment ??= [];
             environment["HTTP_PROXY"] = proxyUrl;
             environment["HTTPS_PROXY"] = proxyUrl;
             environment["http_proxy"] = proxyUrl;

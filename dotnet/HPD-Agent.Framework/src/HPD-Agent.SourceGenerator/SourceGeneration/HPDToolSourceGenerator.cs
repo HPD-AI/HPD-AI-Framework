@@ -677,8 +677,12 @@ namespace HPD.Agent.Diagnostics {{
             }
             else if (parameter.IsOptional)
             {
-                var literal = parameter.ExplicitDefaultValue is null ? "default" :
-                    Microsoft.CodeAnalysis.CSharp.SymbolDisplay.FormatPrimitive(parameter.ExplicitDefaultValue, true, false);
+                var literal = parameter.ExplicitDefaultValue is null
+                    ? "default"
+                    : Microsoft.CodeAnalysis.CSharp.SymbolDisplay.FormatPrimitive(
+                        parameter.ExplicitDefaultValue,
+                        true,
+                        false) ?? "default";
                 if (parameter.Type.TypeKind == TypeKind.Enum) literal = $"({type}){literal}";
                 arguments.Add(parameter.Type.IsReferenceType
                     ? $"context.GetOptionalService<{type}>() ?? {literal}" : literal);
@@ -801,9 +805,9 @@ namespace HPD.Agent.Diagnostics {{
             // NEW: Collapsing metadata (from [Collapse] attribute)
             sb.AppendLine($"                // ========== COLLAPSING METADATA ==========");
             sb.AppendLine($"                HasDescription: {ToolHarness.IsCollapsed.ToString().ToLower()},");
-            sb.AppendLine($"                Description: {(string.IsNullOrEmpty(ToolHarness.ContainerDescription) ? "null" : $"@\"{EscapeForVerbatim(ToolHarness.ContainerDescription)}\"")},");
-            sb.AppendLine($"                FunctionResult: {(string.IsNullOrEmpty(ToolHarness.FunctionResult) ? "null" : $"@\"{EscapeForVerbatim(ToolHarness.FunctionResult)}\"")},");
-            sb.AppendLine($"                SystemPrompt: {(string.IsNullOrEmpty(ToolHarness.SystemPrompt) ? "null" : $"@\"{EscapeForVerbatim(ToolHarness.SystemPrompt)}\"")},");
+            sb.AppendLine($"                Description: {(string.IsNullOrEmpty(ToolHarness.ContainerDescription) ? "null" : $"@\"{EscapeForVerbatim(ToolHarness.ContainerDescription!)}\"")},");
+            sb.AppendLine($"                FunctionResult: {(string.IsNullOrEmpty(ToolHarness.FunctionResult) ? "null" : $"@\"{EscapeForVerbatim(ToolHarness.FunctionResult!)}\"")},");
+            sb.AppendLine($"                SystemPrompt: {(string.IsNullOrEmpty(ToolHarness.SystemPrompt) ? "null" : $"@\"{EscapeForVerbatim(ToolHarness.SystemPrompt!)}\"")},");
 
             // NEW: Config-based instantiation
             sb.AppendLine($"                // ========== CONFIG INSTANTIATION ==========");
@@ -2620,13 +2624,13 @@ $@"    /// <summary>
         // Validate: Expression syntax (basic check)
         if (!string.IsNullOrEmpty(funcResultExpr))
         {
-            var exprDiagnostics = ValidateContextExpression(funcResultExpr, "FunctionResult", classDecl);
+            var exprDiagnostics = ValidateContextExpression(funcResultExpr!, "FunctionResult", classDecl);
             diagnostics.AddRange(exprDiagnostics);
         }
 
         if (!string.IsNullOrEmpty(sysPromptExpr))
         {
-            var exprDiagnostics = ValidateContextExpression(sysPromptExpr, "SystemPrompt", classDecl);
+            var exprDiagnostics = ValidateContextExpression(sysPromptExpr!, "SystemPrompt", classDecl);
             diagnostics.AddRange(exprDiagnostics);
         }
 
@@ -2828,12 +2832,12 @@ $@"    /// <summary>
         sb.AppendLine("                {");
 
         // Use the ContainerDescription (or ToolHarness description as fallback) in the return message
-        var returnMessage = ToolHarnessContainerHelper.GenerateReturnMessage(description, allCapabilities, ToolHarness.FunctionResult);
+        var returnMessage = ToolHarnessContainerHelper.GenerateReturnMessage(description ?? string.Empty, allCapabilities, ToolHarness.FunctionResult);
 
         if (!string.IsNullOrEmpty(ToolHarness.FunctionResultExpression))
         {
             // Using an interpolated string to combine the base message and the dynamic instructions
-            var baseMessage = ToolHarnessContainerHelper.GenerateReturnMessage(description, allCapabilities, null);
+            var baseMessage = ToolHarnessContainerHelper.GenerateReturnMessage(description ?? string.Empty, allCapabilities, null);
             // Escape special characters for the interpolated string - we need to convert \n\n to \\n\\n in source code
             baseMessage = baseMessage.Replace("\\", "\\\\").Replace("\n", "\\n").Replace("\"", "\\\"");
             // Add separator between capabilities list and dynamic instructions
@@ -2880,7 +2884,7 @@ $@"    /// <summary>
         if (!string.IsNullOrEmpty(ToolHarness.SystemPrompt))
         {
             // Use verbatim string literal - only escape quotes (double them), NOT newlines
-            var escapedSysPrompt = ToolHarness.SystemPrompt.Replace("\"", "\"\"");
+            var escapedSysPrompt = ToolHarness.SystemPrompt!.Replace("\"", "\"\"");
             sb.AppendLine($"                        [\"SystemPrompt\"] = @\"{escapedSysPrompt}\",");
         }
         else if (!string.IsNullOrEmpty(ToolHarness.SystemPromptExpression))
@@ -2898,7 +2902,7 @@ $@"    /// <summary>
         if (!string.IsNullOrEmpty(ToolHarness.FunctionResult))
         {
             // Use verbatim string literal - only escape quotes (double them), NOT newlines
-            var escapedFuncResult = ToolHarness.FunctionResult.Replace("\"", "\"\"");
+            var escapedFuncResult = ToolHarness.FunctionResult!.Replace("\"", "\"\"");
             sb.AppendLine($"                        [\"FunctionResult\"] = @\"{escapedFuncResult}\"");
         }
         else if (!string.IsNullOrEmpty(ToolHarness.FunctionResultExpression))

@@ -7,7 +7,7 @@ using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Providers.Audio.Meai;
 
-#pragma warning disable EXTEXP0001
+#pragma warning disable EXTEXP0001, MEAI001 // HPD pins Microsoft.Extensions.AI 10.11 and exposes its experimental speech contracts.
 
 public sealed class MeaiBatchSpeechToTextInteractionSessionFactory : IAudioInteractionSessionFactory
 {

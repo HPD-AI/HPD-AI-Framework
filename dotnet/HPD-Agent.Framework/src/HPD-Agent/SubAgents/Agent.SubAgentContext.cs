@@ -8,7 +8,7 @@ public sealed partial class Agent
         ThreadKey parent, CompactionSpecification? specification, CancellationToken cancellationToken,
         ThreadJournalCursor? sourceCursor = null)
     {
-        var store = Config.SessionStore ?? throw new InvalidOperationException("Session store required.");
+        var store = RequireConfig().SessionStore ?? throw new InvalidOperationException("Session store required.");
         var descriptor = await store.GetThreadAsync(parent, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException("subagent_parent_missing");
         var cursor = sourceCursor ?? new ThreadJournalCursor(descriptor.Generation, descriptor.Head);
@@ -25,7 +25,7 @@ public sealed partial class Agent
             await using var lease = specification.Strategy is SummarizingCompaction summarizing
                 ? await _chatClientResolver.ResolveAsync(new AgentChatClientResolutionRequest
                 {
-                    AgentConfig = Config,
+                    AgentConfig = RequireConfig(),
                     SpecializedChat = summarizing.Summarizer
                 }, cancellationToken).ConfigureAwait(false)
                 : null;

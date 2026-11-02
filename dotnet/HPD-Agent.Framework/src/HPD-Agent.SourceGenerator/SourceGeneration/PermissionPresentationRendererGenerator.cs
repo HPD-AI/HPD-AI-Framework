@@ -19,6 +19,7 @@ public sealed class PermissionPresentationRendererGenerator : IIncrementalGenera
     private const string PresentationAttribute =
         "HPD.Agent.Permissions.PermissionPresentationAttribute";
 
+    /// <inheritdoc />
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         var renderers = context.SyntaxProvider.ForAttributeWithMetadataName(

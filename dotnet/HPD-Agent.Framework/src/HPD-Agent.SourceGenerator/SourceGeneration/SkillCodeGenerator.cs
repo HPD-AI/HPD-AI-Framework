@@ -260,7 +260,7 @@ internal static class SkillCodeGenerator
         // Use shared helper to generate description and return message
         // Use EffectiveName for LLM-visible container name
         var fullDescription = ToolHarnessContainerHelper.GenerateContainerDescription(description, ToolHarness.EffectiveName, allCapabilities);
-        var returnMessage = ToolHarnessContainerHelper.GenerateReturnMessage(description, allCapabilities, ToolHarness.FunctionResult);
+        var returnMessage = ToolHarnessContainerHelper.GenerateReturnMessage(description ?? string.Empty, allCapabilities, ToolHarness.FunctionResult);
 
         sb.AppendLine("        /// <summary>");
         sb.AppendLine($"        /// Container function for {ToolHarness.ClassName} toolharness.");
@@ -277,7 +277,7 @@ internal static class SkillCodeGenerator
         if (!string.IsNullOrEmpty(ToolHarness.FunctionResultExpression))
         {
             // Using an interpolated string to combine the base message and the dynamic instructions
-            var baseMessage = ToolHarnessContainerHelper.GenerateReturnMessage(description, allCapabilities, null);
+            var baseMessage = ToolHarnessContainerHelper.GenerateReturnMessage(description ?? string.Empty, allCapabilities, null);
             // Escape special characters for the interpolated string - we need to convert \n\n to \\n\\n in source code
             baseMessage = baseMessage.Replace("\\", "\\\\").Replace("\n", "\\n").Replace("\"", "\\\"");
             // Add separator between capabilities list and dynamic instructions
@@ -335,7 +335,7 @@ internal static class SkillCodeGenerator
         // Add FunctionResult if present
         if (!string.IsNullOrEmpty(ToolHarness.FunctionResult))
         {
-            var escapedFuncCtx = ToolHarness.FunctionResult.Replace("\"", "\"\"");
+            var escapedFuncCtx = ToolHarness.FunctionResult!.Replace("\"", "\"\"");
             sb.AppendLine($"                        [\"FunctionResult\"] = @\"{escapedFuncCtx}\",");
         }
         else if (!string.IsNullOrEmpty(ToolHarness.FunctionResultExpression))
@@ -356,7 +356,7 @@ internal static class SkillCodeGenerator
         // AddSystemPrompt if present
         if (!string.IsNullOrEmpty(ToolHarness.SystemPrompt))
         {
-            var escapedSysCtx = ToolHarness.SystemPrompt.Replace("\"", "\"\"");
+            var escapedSysCtx = ToolHarness.SystemPrompt!.Replace("\"", "\"\"");
             sb.AppendLine($"                        [\"SystemPrompt\"] = @\"{escapedSysCtx}\"");
         }
         else if (!string.IsNullOrEmpty(ToolHarness.SystemPromptExpression))

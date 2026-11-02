@@ -266,8 +266,8 @@ $@"({asyncKeyword} (arguments, functionContext, cancellationToken) =>
             options.AppendLine($"                        TargetCapabilityId = CapabilityId.Create(@\"{Escape(targetId)}\"),");
             options.AppendLine($"                        TargetName = @\"{Escape(FunctionName)}\",");
             options.AppendLine($"                        ActivationCapabilityId = CapabilityId.Create(@\"{Escape(activationId)}\"),");
-            options.AppendLine($"                        ActivationName = @\"{Escape(activationName)}\",");
-            options.AppendLine($"                        Description = @\"{Escape(collapse.Description)}\",");
+            options.AppendLine($"                        ActivationName = @\"{Escape(activationName ?? string.Empty)}\",");
+            options.AppendLine($"                        Description = @\"{Escape(collapse.Description ?? string.Empty)}\",");
             options.AppendLine($"                        FunctionResult = {Literal(collapse.FunctionResult)},");
             options.AppendLine($"                        SystemPrompt = {Literal(collapse.SystemPrompt)}");
             options.AppendLine("                    },");

@@ -147,32 +147,21 @@ namespace HPD.Agent.FFI;
 [JsonSerializable(typeof(ThreadContextUsage))]
 [JsonSerializable(typeof(AudioRunConfig))]
 
+// --- Reasoning contracts shared by HPD and Microsoft.Extensions.AI ---
+[JsonSerializable(typeof(HPD.Agent.ReasoningOptions), TypeInfoPropertyName = "HpdReasoningOptions")]
+[JsonSerializable(typeof(Microsoft.Extensions.AI.ReasoningOptions), TypeInfoPropertyName = "MicrosoftAiReasoningOptions")]
+[JsonSerializable(typeof(HPD.Agent.ReasoningEffort), TypeInfoPropertyName = "HpdReasoningEffort")]
+[JsonSerializable(typeof(Microsoft.Extensions.AI.ReasoningEffort), TypeInfoPropertyName = "MicrosoftAiReasoningEffort")]
+[JsonSerializable(typeof(HPD.Agent.ReasoningEffort?), TypeInfoPropertyName = "NullableHpdReasoningEffort")]
+[JsonSerializable(typeof(Microsoft.Extensions.AI.ReasoningEffort?), TypeInfoPropertyName = "NullableMicrosoftAiReasoningEffort")]
+[JsonSerializable(typeof(HPD.Agent.ReasoningOutput), TypeInfoPropertyName = "HpdReasoningOutput")]
+[JsonSerializable(typeof(Microsoft.Extensions.AI.ReasoningOutput), TypeInfoPropertyName = "MicrosoftAiReasoningOutput")]
+[JsonSerializable(typeof(HPD.Agent.ReasoningOutput?), TypeInfoPropertyName = "NullableHpdReasoningOutput")]
+[JsonSerializable(typeof(Microsoft.Extensions.AI.ReasoningOutput?), TypeInfoPropertyName = "NullableMicrosoftAiReasoningOutput")]
+
 // --- Plan Mode types (from HPD.Agent.Planning) ---
 [JsonSerializable(typeof(PlanModeConfig))]
 [JsonSerializable(typeof(PlanStepStatus))]
-
-// --- Conversation and messaging types ---
-[JsonSerializable(typeof(ChatMessage))]
-[JsonSerializable(typeof(ChatRole))]
-[JsonSerializable(typeof(List<ChatMessage>))]
-[JsonSerializable(typeof(ChatResponse))]
-[JsonSerializable(typeof(ChatOptions))]
-
-// --- Extensions.AI types for conversation support ---
-[JsonSerializable(typeof(ChatMessage))]
-[JsonSerializable(typeof(ChatRole))]
-[JsonSerializable(typeof(ChatOptions))]
-[JsonSerializable(typeof(UsageDetails))]
-[JsonSerializable(typeof(AdditionalPropertiesDictionary))]
-[JsonSerializable(typeof(ChatFinishReason))]
-[JsonSerializable(typeof(ChatResponseUpdate))]
-[JsonSerializable(typeof(FunctionCallContent))]
-[JsonSerializable(typeof(FunctionResultContent))]
-[JsonSerializable(typeof(AIContent))]
-[JsonSerializable(typeof(List<ChatMessage>))]
-[JsonSerializable(typeof(List<AIContent>))]
-[JsonSerializable(typeof(IList<ChatMessage>))]
-[JsonSerializable(typeof(IEnumerable<ChatMessage>))]
 
 // --- FFI-specific native ToolHarness types (language-agnostic) ---
 [JsonSerializable(typeof(NativeFunctionInfo))]
@@ -202,7 +191,8 @@ namespace HPD.Agent.FFI;
 [JsonSerializable(typeof(List<HPD.Agent.ClientTools.IToolResultContent>))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.ClientToolInvokeOutcomeKind))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.ClientToolOperationOutcomeState))]
-[JsonSerializable(typeof(HPD.Agent.ClientTools.TextContent))]
+[JsonSerializable(typeof(HPD.Agent.ClientTools.TextContent), TypeInfoPropertyName = "HpdClientTextContent")]
+[JsonSerializable(typeof(Microsoft.Extensions.AI.TextContent), TypeInfoPropertyName = "MicrosoftAiTextContent")]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.BinaryContent))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.JsonContent))]
 
@@ -217,7 +207,6 @@ namespace HPD.Agent.FFI;
 [JsonSerializable(typeof(CircuitBreakerStateData))]
 [JsonSerializable(typeof(ErrorTrackingStateData))]
 [JsonSerializable(typeof(ContinuationPermissionStateData))]
-[JsonSerializable(typeof(IReadOnlyList<ChatMessage>))]
 [JsonSerializable(typeof(TotalErrorThresholdStateData))]
 
 // --- Checkpointing / Resume Types ---

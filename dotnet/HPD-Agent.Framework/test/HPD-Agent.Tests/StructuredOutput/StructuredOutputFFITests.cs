@@ -84,7 +84,7 @@ public class StructuredOutputFFITests
         Assert.Equal("invalid json", deserialized.RawJson);
         Assert.Equal("Unexpected character at position 0", deserialized.ErrorMessage);
         Assert.Equal("TestResponse", deserialized.ExpectedTypeName);
-        Assert.Null(deserialized.Exception);
+        Assert.Null((deserialized as IErrorEvent)?.Exception);
     }
 
     [Fact]

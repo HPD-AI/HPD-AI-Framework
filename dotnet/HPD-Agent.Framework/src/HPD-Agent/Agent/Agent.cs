@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.AI;
+#pragma warning disable MEAI001 // HPD pins Microsoft.Extensions.AI 10.11 while adopting its experimental realtime and media contracts.
+using Microsoft.Extensions.AI;
 using System.Collections.Concurrent;
 using HPD.Agent.Middleware;
 using System.Runtime.CompilerServices;
@@ -206,6 +207,9 @@ public sealed partial class Agent : IAsyncDisposable
     /// Agent configuration object containing all settings
     /// </summary>
     public AgentConfig? Config { get; private set; }
+
+    private AgentConfig RequireConfig() =>
+        Config ?? throw new InvalidOperationException("Agent configuration is not available.");
 
     /// <summary>
     /// Gets the base chat client used by this agent.
@@ -667,8 +671,7 @@ public sealed partial class Agent : IAsyncDisposable
     private sealed class RuntimeStructHandlerSubscription(
         Agent agent,
         IDisposable innerSubscription,
-        CancellationTokenSource drainCts,
-        Task drainTask) : IDisposable
+        CancellationTokenSource drainCts) : IDisposable
     {
         private int _disposed;
 
@@ -934,7 +937,7 @@ public sealed partial class Agent : IAsyncDisposable
 
         var subscription = _structEvents.Route<TEvent>().Subscribe();
         var drainCts = new CancellationTokenSource();
-        var drainTask = Task.Run(async () =>
+        _ = Task.Run(async () =>
         {
             while (!drainCts.IsCancellationRequested)
             {
@@ -963,8 +966,7 @@ public sealed partial class Agent : IAsyncDisposable
         var runtimeSubscription = new RuntimeStructHandlerSubscription(
             this,
             subscription,
-            drainCts,
-            drainTask);
+            drainCts);
 
         lock (_structHandlerLock)
         {
@@ -1801,7 +1803,7 @@ public sealed partial class Agent : IAsyncDisposable
         }
 
         if (registration.RoutingClass != AgentInputRoutingClass.Work ||
-            Config.SessionStore is not { } executionStore ||
+            RequireConfig().SessionStore is not { } executionStore ||
             input.SessionId is not { Length: > 0 } executionSessionId ||
             input.ThreadId is not { Length: > 0 } executionThreadId)
         {
@@ -3031,11 +3033,11 @@ public sealed partial class Agent : IAsyncDisposable
         if (!_toolHarnessExecutionCompletions.TryAdd(toolHarnessExecutionId, toolHarnessExecutionScope.Completion))
             throw new InvalidOperationException("Failed to track ToolHarness execution cleanup.");
         _ = toolHarnessExecutionScope.Completion.ContinueWith(
-            (_, state) =>
+            (completionTask, state) =>
             {
                 var tuple = ((ConcurrentDictionary<long, Task> Completions, long Id))state!;
                 if (tuple.Completions.TryGetValue(tuple.Id, out var completion) && completion.IsCompletedSuccessfully)
-                    tuple.Completions.TryRemove(tuple.Id, out _);
+                    _ = tuple.Completions.TryRemove(tuple.Id, out _);
             },
             (_toolHarnessExecutionCompletions, toolHarnessExecutionId),
             CancellationToken.None,
@@ -3288,7 +3290,7 @@ public sealed partial class Agent : IAsyncDisposable
                 thread,
                 turnHistory,
                 clientInputId,
-                eventCoordinator,
+                eventCoordinator!,
                 effectiveCancellationToken).ConfigureAwait(false);
 
             var realtimeTranscriptTargetMessageId = ResolveRealtimeTranscriptTargetMessageId(turnHistory);
@@ -3311,7 +3313,7 @@ public sealed partial class Agent : IAsyncDisposable
                         turnHistory,
                         session,
                         thread,
-                        eventCoordinator,
+                        eventCoordinator!,
                         effectiveCancellationToken).ConfigureAwait(false))
                 {
                     lastResponse = null;
@@ -3626,9 +3628,9 @@ public sealed partial class Agent : IAsyncDisposable
                             Options = CollapsedOptions,
                             State = agentContext.State,
                             Iteration = state.Iteration,
-                            EventFlows = eventCoordinator.EventFlows,
+                            EventFlows = eventCoordinator!.EventFlows,
                             RunConfig = effectiveRunConfig,
-                            EventCoordinator = eventCoordinator,
+                            EventCoordinator = eventCoordinator!,
                             EventPublisher = agentContext.PublishAsync,
                             StructEvents = GetActiveStructEvents(),
                             Session = agentContext.Session,
@@ -3812,7 +3814,7 @@ public sealed partial class Agent : IAsyncDisposable
                                 {
                                     foreach (var (itemId, transcription) in transcriptionAttempts)
                                     {
-                                        accountingBridge.EnqueueTerminal(new ProviderOperationUsageEvent(
+                                        accountingBridge?.EnqueueTerminal(new ProviderOperationUsageEvent(
                                             messageTurnId, transcription.OperationId, itemId, 1,
                                             ProviderOperationKind.RealtimeInputTranscription,
                                             ProviderClientFamily.Realtime,
@@ -3837,7 +3839,7 @@ public sealed partial class Agent : IAsyncDisposable
                                 {
                                     foreach (var (itemId, transcription) in transcriptionAttempts)
                                     {
-                                        accountingBridge.EnqueueTerminal(new ProviderOperationUsageEvent(
+                                        accountingBridge?.EnqueueTerminal(new ProviderOperationUsageEvent(
                                             messageTurnId, transcription.OperationId, itemId, 1,
                                             ProviderOperationKind.RealtimeInputTranscription,
                                             ProviderClientFamily.Realtime, ProviderOperationOutcome.Unknown,
@@ -3892,7 +3894,7 @@ public sealed partial class Agent : IAsyncDisposable
                                     }
                                     if (transcript.Stage is AgentInputTranscriptStage.Final or AgentInputTranscriptStage.Failed)
                                     {
-                                        accountingBridge.EnqueueTerminal(new ProviderOperationUsageEvent(
+                                        accountingBridge?.EnqueueTerminal(new ProviderOperationUsageEvent(
                                             messageTurnId, transcription.OperationId, itemId, 1,
                                             ProviderOperationKind.RealtimeInputTranscription,
                                             ProviderClientFamily.Realtime,
@@ -3962,7 +3964,6 @@ public sealed partial class Agent : IAsyncDisposable
                                 responseUpdates.Add(update);
 
                                 // Check for background operation continuation token (M.E.AI 10.1.1+ strongly-typed)
-#pragma warning disable MEAI001 // Experimental API - Background Responses
                                 var continuationToken = update.ContinuationToken;
                                 if (continuationToken != null)
                                 {
@@ -4001,7 +4002,6 @@ public sealed partial class Agent : IAsyncDisposable
                                     else if (providerResponseOperation?.Observer is ProviderResponseObservation observation)
                                         observation.ContinuationToken = continuationToken;
                                 }
-#pragma warning restore MEAI001
 
                                 // Accumulate content without emitting events yet
                                 if (update.Contents != null)
@@ -4161,7 +4161,6 @@ public sealed partial class Agent : IAsyncDisposable
                                 responseUpdates.Add(update);
 
                                 // Check for background operation continuation token (M.E.AI 10.1.1+ strongly-typed)
-#pragma warning disable MEAI001 // Experimental API - Background Responses
                                 var continuationToken = update.ContinuationToken;
                                 if (continuationToken != null)
                                 {
@@ -4200,7 +4199,6 @@ public sealed partial class Agent : IAsyncDisposable
                                     else if (providerResponseOperation?.Observer is ProviderResponseObservation observation)
                                         observation.ContinuationToken = continuationToken;
                                 }
-#pragma warning restore MEAI001
 
                                 // Process contents and emit internal events
                                 if (update.Contents != null)
@@ -4396,7 +4394,7 @@ public sealed partial class Agent : IAsyncDisposable
                                 thread,
                                 [historyMessage],
                                 clientInputId: null,
-                                eventCoordinator,
+                                eventCoordinator!,
                                 effectiveCancellationToken).ConfigureAwait(false);
                         }
 
@@ -4432,7 +4430,7 @@ public sealed partial class Agent : IAsyncDisposable
                             { MessageId = Guid.NewGuid().ToString("N") };
                             sharedMessages.Add(skippedResults);
                             turnHistory.Add(skippedResults);
-                            await CommitThreadMessagesAsync(session, thread, [skippedResults], null, eventCoordinator,
+                            await CommitThreadMessagesAsync(session, thread, [skippedResults], null, eventCoordinator!,
                                 effectiveCancellationToken).ConfigureAwait(false);
                             foreach (var call in toolRequests)
                             {
@@ -4539,7 +4537,7 @@ public sealed partial class Agent : IAsyncDisposable
                             thread,
                             [toolResultMessage],
                             clientInputId: null,
-                            eventCoordinator,
+                            eventCoordinator!,
                             effectiveCancellationToken).ConfigureAwait(false);
 
                         // Build callId → toolharnessName / callType mappings for result events
@@ -4648,7 +4646,7 @@ public sealed partial class Agent : IAsyncDisposable
                                         thread,
                                         [finalAssistantMessage],
                                         clientInputId: null,
-                                        eventCoordinator,
+                                        eventCoordinator!,
                                         effectiveCancellationToken).ConfigureAwait(false);
                                 }
                             }
@@ -4721,7 +4719,7 @@ public sealed partial class Agent : IAsyncDisposable
                             thread,
                             [finalAssistantMessage],
                             clientInputId: null,
-                            eventCoordinator,
+                            eventCoordinator!,
                             effectiveCancellationToken).ConfigureAwait(false);
                     }
                 }
@@ -4785,7 +4783,7 @@ public sealed partial class Agent : IAsyncDisposable
                 turnHistory,
                 messageIdsBeforeAccountingClose,
                 messageSnapshotsBeforeAccountingClose,
-                eventCoordinator,
+                eventCoordinator!,
                 effectiveCancellationToken).ConfigureAwait(false);
 
             // Emit MESSAGE TURN finished event after all turn-owned provider work has settled.
@@ -4848,7 +4846,7 @@ public sealed partial class Agent : IAsyncDisposable
                             thread.SessionId,
                             thread.Id,
                             thread.MiddlewareState),
-                        eventCoordinator,
+                        eventCoordinator!,
                         effectiveCancellationToken).ConfigureAwait(false);
                 }
             }
@@ -5046,6 +5044,7 @@ public sealed partial class Agent : IAsyncDisposable
 
     private async ValueTask DisposeCoreAsync()
     {
+        var config = RequireConfig();
         var failures = new List<Exception>();
         async ValueTask AttemptAsync(Func<ValueTask> cleanup)
         {
@@ -5077,8 +5076,8 @@ public sealed partial class Agent : IAsyncDisposable
         foreach (var subscription in _eventSubscriptions)
             try { subscription.Dispose(); } catch (Exception ex) { failures.Add(ex); }
 
-        await AttemptAsync(() => DrainActiveTurnsAsync(Config.Shutdown)).ConfigureAwait(false);
-        await AttemptAsync(() => _operationRegistry.ShutdownAsync(Config.Shutdown)).ConfigureAwait(false);
+        await AttemptAsync(() => DrainActiveTurnsAsync(config.Shutdown)).ConfigureAwait(false);
+        await AttemptAsync(() => _operationRegistry.ShutdownAsync(config.Shutdown)).ConfigureAwait(false);
         try { await DrainToolHarnessExecutionCompletionsAsync().ConfigureAwait(false); }
         catch (Exception ex) { failures.Add(ex); }
         if (_harnessOwnerLifetime is not null)
@@ -5090,13 +5089,13 @@ public sealed partial class Agent : IAsyncDisposable
             try
             {
                 var leakedRevisionOwners = await _capabilityCatalog
-                    .ShutdownAsync(Config.Shutdown.LeaseLeaks)
+                    .ShutdownAsync(config.Shutdown.LeaseLeaks)
                     .ConfigureAwait(false);
                 if (leakedRevisionOwners > 0)
                     _agentLogger?.LogWarning(
                         "Agent shutdown found {LeakedRevisionOwnerCount} capability revision owner(s) still pinned by leaked leases; policy {LeaseLeakPolicy} was applied.",
                         leakedRevisionOwners,
-                        Config.Shutdown.LeaseLeaks);
+                        config.Shutdown.LeaseLeaks);
             }
             catch (Exception ex) { failures.Add(ex); }
         }
@@ -5126,7 +5125,7 @@ public sealed partial class Agent : IAsyncDisposable
         if (_ownsContentStore)
             await AttemptAsync(() => DisposeOwnedStoreAsync(_contentStore)).ConfigureAwait(false);
         if (_ownsSessionStore)
-            await AttemptAsync(() => DisposeOwnedStoreAsync(Config.SessionStore)).ConfigureAwait(false);
+            await AttemptAsync(() => DisposeOwnedStoreAsync(config.SessionStore)).ConfigureAwait(false);
 
         if (failures.Count > 0)
             throw new AggregateException("Agent shutdown encountered one or more cleanup failures.", failures);
@@ -6414,7 +6413,7 @@ public sealed partial class Agent : IAsyncDisposable
                 description: unionType.Name,
                 serializerOptions: serializerOptions);
 
-            anyOfSchemas.Add(typeSchema);
+            anyOfSchemas.Add(JsonNode.Parse(typeSchema.GetRawText()));
         }
 
         // Create combined schema with anyOf
@@ -6425,7 +6424,7 @@ public sealed partial class Agent : IAsyncDisposable
             ["anyOf"] = anyOfSchemas
         };
 
-        return JsonSerializer.SerializeToElement(combinedSchema);
+        return JsonSerializer.SerializeToElement(combinedSchema, HPDJsonContext.Default.JsonObject);
     }
 
     /// <summary>
@@ -6635,7 +6634,6 @@ public sealed partial class Agent : IAsyncDisposable
     /// <param name="allowBackground">Whether to allow background responses</param>
     /// <param name="continuationToken">Continuation token for polling/resumption</param>
     /// <returns>ChatOptions with background responses settings applied</returns>
-#pragma warning disable MEAI001 // Experimental API - Background Responses
     private static ChatOptions ApplyBackgroundResponsesOptions(
         ChatOptions? chatOptions,
         bool allowBackground,
@@ -6647,7 +6645,6 @@ public sealed partial class Agent : IAsyncDisposable
 
         return newOptions;
     }
-#pragma warning restore MEAI001
 
     //──────────────────────────────────────────────────────────────────
     // AUTO-POLL BACKGROUND RESPONSES SUPPORT
@@ -6914,7 +6911,7 @@ public sealed partial class Agent : IAsyncDisposable
         }
 
         // Auto-save if configured
-        if (Config.SessionStoreOptions?.PersistAfterTurn == true)
+        if (RequireConfig().SessionStoreOptions?.PersistAfterTurn == true)
         {
             await SaveSessionAndThreadAsync(session, thread, cancellationToken);
         }
@@ -6958,7 +6955,7 @@ public sealed partial class Agent : IAsyncDisposable
         }
 
         // Auto-save if configured
-        if (Config.SessionStoreOptions?.PersistAfterTurn == true)
+        if (RequireConfig().SessionStoreOptions?.PersistAfterTurn == true)
         {
             await SaveSessionAndThreadAsync(session, thread, cancellationToken);
         }
@@ -6983,7 +6980,7 @@ public sealed partial class Agent : IAsyncDisposable
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
 
-        var store = Config.SessionStore
+        var store = RequireConfig().SessionStore
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
@@ -7044,7 +7041,7 @@ public sealed partial class Agent : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(thread);
 
-        var store = Config.SessionStore
+        var store = RequireConfig().SessionStore
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
@@ -7073,7 +7070,7 @@ public sealed partial class Agent : IAsyncDisposable
         Dictionary<string, object>? metadata = null,
         CancellationToken cancellationToken = default)
     {
-        var store = Config.SessionStore
+        var store = RequireConfig().SessionStore
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
@@ -7116,7 +7113,7 @@ public sealed partial class Agent : IAsyncDisposable
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
 
-        var store = Config.SessionStore
+        var store = RequireConfig().SessionStore
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
@@ -7262,7 +7259,7 @@ public sealed partial class Agent : IAsyncDisposable
         if (forkOptions.Metadata?.Keys.Any(static key => key is
                 "forkOperationId" or "forkSourceSessionId" or "forkSourceThreadId" or "forkRequestFingerprint") == true)
             throw new InvalidOperationException("thread_fork_reserved_metadata_key");
-        var store = Config.SessionStore
+        var store = RequireConfig().SessionStore
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
@@ -7339,7 +7336,7 @@ public sealed partial class Agent : IAsyncDisposable
         }
 
         var forkOperationId = forkOptions.OperationId ?? Guid.NewGuid().ToString("N");
-        var effectiveSubAgentOptions = forkOptions.SubAgents ?? Config.DefaultSubAgentForkOptions;
+        var effectiveSubAgentOptions = forkOptions.SubAgents ?? RequireConfig().DefaultSubAgentForkOptions;
         var requestFingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('|',
             sourceKey.SessionId,
             sourceKey.ThreadId,
@@ -7525,7 +7522,7 @@ public sealed partial class Agent : IAsyncDisposable
                 sourceForkBoundary,
                 forkOperationId,
                 requestFingerprint,
-                forkOptions.SubAgents ?? Config.DefaultSubAgentForkOptions,
+                forkOptions.SubAgents ?? RequireConfig().DefaultSubAgentForkOptions,
                 forkOperationStore,
                 cancellationToken).ConfigureAwait(false);
             forkOperation = await forkOperationStore.GetThreadForkOperationAsync(
@@ -7795,7 +7792,7 @@ public sealed partial class Agent : IAsyncDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceThreadId);
         ArgumentException.ThrowIfNullOrWhiteSpace(newThreadId);
 
-        var store = Config.SessionStore
+        var store = RequireConfig().SessionStore
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
@@ -7862,7 +7859,7 @@ public sealed partial class Agent : IAsyncDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceThreadId);
         ArgumentException.ThrowIfNullOrWhiteSpace(newThreadId);
 
-        var store = Config.SessionStore
+        var store = RequireConfig().SessionStore
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
@@ -8874,7 +8871,7 @@ public sealed partial class Agent : IAsyncDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
-        var store = Config.SessionStore
+        var store = RequireConfig().SessionStore
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
@@ -8937,7 +8934,7 @@ public sealed partial class Agent : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(session);
 
-        var store = Config.SessionStore
+        var store = RequireConfig().SessionStore
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
@@ -8955,7 +8952,7 @@ public sealed partial class Agent : IAsyncDisposable
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
 
-        var store = Config.SessionStore
+        var store = RequireConfig().SessionStore
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
@@ -8970,7 +8967,7 @@ public sealed partial class Agent : IAsyncDisposable
     public async Task<List<string>> ListSessionsAsync(
         CancellationToken cancellationToken = default)
     {
-        var store = Config.SessionStore;
+        var store = RequireConfig().SessionStore;
         if (store == null)
             return [];
 

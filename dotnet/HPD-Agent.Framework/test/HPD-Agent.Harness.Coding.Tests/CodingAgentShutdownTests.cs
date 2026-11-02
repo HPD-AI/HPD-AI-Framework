@@ -30,7 +30,8 @@ public sealed class CodingAgentShutdownTests
             })
             .WithChatClient(client)
             .WithEventComposition(CodingEventTestCodec.Composition)
-            .WithToolHarness<CodingToolHarness>();
+            .WithToolHarness<CodingToolHarness>()
+            .WithAutoApprovePermissions();
         ReplaceWorkspaceResource(builder, workspaces);
         var agent = await builder.BuildAsync();
         var run = agent.RunAsync("activate-coding");

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using HPD.Graph.Abstractions.Execution;
 using HPD.Graph.Abstractions.Graph;
 using HPD.Graph.Abstractions.Validation;
@@ -29,6 +30,10 @@ internal static class WorkflowOutputContract
         _ => throw new InvalidOperationException("Unknown workflow error policy.")
     };
 
+    [UnconditionalSuppressMessage(
+        "Trimming",
+        "IL2070",
+        Justification = "Structured workflow output types are supplied by trusted host configuration and must be preserved by that host.")]
     internal static NodeOutputContract Create(AgentNodeOptions options)
     {
         var values = new List<OutputValueContract>();

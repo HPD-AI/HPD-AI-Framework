@@ -652,7 +652,9 @@ public class ContainerMiddleware : IAgentMiddleware
 
         // Check if this is a recovered call
         var state = context.GetMiddlewareState<ContainerMiddlewareState>();
-        if (state?.RecoveredFunctionCalls.TryGetValue(context.FunctionCallId, out var recovery) != true)
+        if (state?.RecoveredFunctionCalls is not { } recoveredCalls ||
+            !recoveredCalls.TryGetValue(context.FunctionCallId, out var recovery) ||
+            recovery is null)
             return; // Not a recovered call
 
         context.OverrideResult = recovery.Type switch

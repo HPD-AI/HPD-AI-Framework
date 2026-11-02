@@ -79,10 +79,19 @@ internal sealed class MitmCertificateAuthority : IAsyncDisposable
         using var generated = request.CreateSelfSigned(
             now.AddMinutes(-5),
             now.AddDays(1));
+#if NET9_0_OR_GREATER
+        var certificate = X509CertificateLoader.LoadPkcs12(
+            generated.Export(X509ContentType.Pfx),
+            password: null,
+            X509KeyStorageFlags.Exportable);
+#else
+#pragma warning disable SYSLIB0057 // X509CertificateLoader is unavailable on net8.0.
         var certificate = new X509Certificate2(
             generated.Export(X509ContentType.Pfx),
             (string?)null,
             X509KeyStorageFlags.Exportable);
+#pragma warning restore SYSLIB0057
+#endif
 
         await File.WriteAllTextAsync(
             certificatePath,

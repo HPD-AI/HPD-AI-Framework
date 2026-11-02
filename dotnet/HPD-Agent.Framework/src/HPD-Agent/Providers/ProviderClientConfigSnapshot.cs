@@ -10,7 +10,7 @@ public static class ProviderClientConfigSnapshot
     {
         ArgumentNullException.ThrowIfNull(source);
         var target = Create(source);
-        target.Provider = Clone(source.Provider);
+        target.Provider = CloneProviderReference(source.Provider);
         target.ModelName = source.ModelName;
         target.Endpoint = source.Endpoint;
         target.CustomHeaders = source.CustomHeaders is null
@@ -55,15 +55,13 @@ public static class ProviderClientConfigSnapshot
         return target;
     }
 
-    private static ProviderReference? Clone(ProviderReference? source) =>
-        source is null ? null : CloneProviderReference(source);
-
     /// <summary>Creates a defensive copy of one complete portable provider reference.</summary>
     /// <param name="source">The provider reference to copy.</param>
     /// <returns>An independent provider reference including its authentication selection.</returns>
-    public static ProviderReference CloneProviderReference(ProviderReference source)
+    public static ProviderReference? CloneProviderReference(ProviderReference? source)
     {
-        ArgumentNullException.ThrowIfNull(source);
+        if (source is null)
+            return null;
         return new ProviderReference
         {
             Key = source.Key,

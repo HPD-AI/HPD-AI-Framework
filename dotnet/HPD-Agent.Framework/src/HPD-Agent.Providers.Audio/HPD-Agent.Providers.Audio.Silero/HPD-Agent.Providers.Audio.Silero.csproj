@@ -8,8 +8,8 @@
     <Description>Silero voice activity detection provider adapter for HPD Agent audio.</Description>
     <PackageTags>ai;agent;audio;silero;vad</PackageTags>
     <IsAotCompatible>true</IsAotCompatible>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <OutputType>Library</OutputType>
-    <NoWarn>$(NoWarn);1591</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

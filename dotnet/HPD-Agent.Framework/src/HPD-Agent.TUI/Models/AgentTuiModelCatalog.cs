@@ -201,7 +201,8 @@ public sealed class AgentTuiModelSelectionState
             selectionId,
             targetId,
             connectionId,
-            ProviderClientConfigSnapshot.CloneProviderReference(provider),
+            ProviderClientConfigSnapshot.CloneProviderReference(provider)
+                ?? throw new InvalidOperationException("The selected provider reference could not be cloned."),
             modelId,
             displayName,
             capabilities ?? AgentTuiModelCapabilities.None,

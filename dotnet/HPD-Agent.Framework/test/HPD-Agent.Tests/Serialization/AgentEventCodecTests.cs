@@ -61,6 +61,22 @@ public sealed partial class AgentEventCodecTests
     }
 
     [Fact]
+    public void PositionalTimestampEvent_PreservesSuppliedTimestamp()
+    {
+        var timestamp = DateTimeOffset.Parse("2026-10-31T12:34:56Z");
+        var value = new CollapsedToolsVisibleEvent(
+            "agent",
+            3,
+            ["search"],
+            [],
+            [],
+            1,
+            timestamp);
+
+        value.Timestamp.Should().Be(timestamp);
+    }
+
+    [Fact]
     public void ThreadExecutionFinishedEvent_IsAScalarDurableFact()
     {
         var value = new ThreadExecutionFinishedEvent(

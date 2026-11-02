@@ -486,7 +486,7 @@ public class MultiAgent
 
         // ExportConfigJson writes assembly-qualified names. Only resolve types
         // supplied by the trusted host configuration, never model output.
-        var type = host?.ResolveType(config.StructuredOutputType) ?? Type.GetType(config.StructuredOutputType, throwOnError: false);
+        var type = host?.ResolveType(config.StructuredOutputType) ?? WorkflowTypeResolver.Resolve(config.StructuredOutputType);
         if (type is null || !type.IsClass || type.IsAbstract || type.ContainsGenericParameters)
             throw new ArgumentException(
                 $"Cannot resolve structuredOutputType '{config.StructuredOutputType}' to a concrete closed class. Use an assembly-qualified type name available to the host.");
@@ -500,7 +500,7 @@ public class MultiAgent
             OutputMode = config.OutputMode,
             StructuredOutputMode = config.StructuredOutputMode,
             StructuredType = ResolveStructuredType(config, host),
-            UnionTypes = config.UnionTypeNames?.Select(name => host?.ResolveType(name) ?? Type.GetType(name, false) ?? throw new InvalidOperationException($"Unresolved union type: {name}")).ToArray(),
+            UnionTypes = config.UnionTypeNames?.Select(name => host?.ResolveType(name) ?? WorkflowTypeResolver.Resolve(name) ?? throw new InvalidOperationException($"Unresolved union type: {name}")).ToArray(),
             RecoveryOnly = config.RecoveryOnly,
             ExhaustionMode = config.OnError?.ExhaustionMode,
             Timeout = config.Timeout,

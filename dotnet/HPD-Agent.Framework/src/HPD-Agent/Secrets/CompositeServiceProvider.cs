@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Agent.Secrets;
@@ -12,6 +13,10 @@ internal class CompositeServiceProvider : IServiceProvider
     private readonly IReadOnlyDictionary<Type, object> _overrides;
 
     /// <summary>Creates a provider overlay from the supplied singleton instances.</summary>
+    [UnconditionalSuppressMessage(
+        "Trimming",
+        "IL2075",
+        Justification = "Every overlay service is instantiated by AgentBuilder, so its concrete type and interface metadata are statically reachable.")]
     public CompositeServiceProvider(IServiceProvider? inner, params object[] services)
     {
         _inner = inner ?? new ServiceCollection().BuildServiceProvider();

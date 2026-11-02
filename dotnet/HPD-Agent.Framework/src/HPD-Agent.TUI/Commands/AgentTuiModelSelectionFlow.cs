@@ -321,7 +321,7 @@ public static class AgentTuiModelSelectionFlow
                     provider.SelectionId,
                     provider.TargetId,
                     provider.ConnectionId,
-                    ProviderClientConfigSnapshot.CloneProviderReference(provider.Provider),
+                    CloneProvider(provider),
                     modelId,
                     Capabilities: AgentTuiModelCapabilities.None,
                     Chat: provider.Chat is null ? null : (ChatClientConfig)ProviderClientConfigSnapshot.Clone(provider.Chat)),
@@ -466,7 +466,7 @@ public static class AgentTuiModelSelectionFlow
             provider.SelectionId,
             provider.TargetId,
             provider.ConnectionId,
-            ProviderClientConfigSnapshot.CloneProviderReference(provider.Provider),
+            CloneProvider(provider),
             modelId.Value.Trim(),
             Capabilities: AgentTuiModelCapabilities.None,
             Chat: provider.Chat is null ? null : (ChatClientConfig)ProviderClientConfigSnapshot.Clone(provider.Chat)));
@@ -558,11 +558,15 @@ public static class AgentTuiModelSelectionFlow
             provider.SelectionId,
             provider.TargetId,
             provider.ConnectionId,
-            ProviderClientConfigSnapshot.CloneProviderReference(provider.Provider),
+            CloneProvider(provider),
             model.ModelId,
             model.DisplayName,
             model.Capabilities ?? AgentTuiModelCapabilities.None,
             CreateModelChat(provider, model));
+
+    private static ProviderReference CloneProvider(AgentTuiProviderChoice provider) =>
+        ProviderClientConfigSnapshot.CloneProviderReference(provider.Provider)
+        ?? throw new InvalidOperationException("The provider choice has no provider reference.");
 
     private static string FormatModel(AgentTuiSelectedModel model)
     {

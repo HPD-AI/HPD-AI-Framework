@@ -62,11 +62,13 @@ internal class AnthropicProvider : IProvider, IProviderClientFactory<IChatClient
         });
 
         const int maxTokens = 4096;
-        var chatClient = anthropicClient.AsIChatClient(config.ModelName, maxTokens);
+        var modelName = config.ModelName
+            ?? throw new InvalidOperationException("The Anthropic provider requires a model name.");
+        var chatClient = anthropicClient.AsIChatClient(modelName, maxTokens);
 
         IChatClient configured = new AnthropicConfiguredChatClient(
             chatClient,
-            config.ModelName,
+            modelName,
             maxTokens);
         return ValueTask.FromResult(new ProviderClientConstruction<IChatClient>
         {

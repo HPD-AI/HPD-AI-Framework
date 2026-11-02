@@ -1,3 +1,4 @@
+#pragma warning disable MEAI001 // HPD pins Microsoft.Extensions.AI 10.11 while adopting its experimental realtime and media contracts.
 using HPD.Agent.Providers;
 using HPD.Agent.Middleware;
 using HPD.Agent.Middleware.Function;
@@ -2087,6 +2088,8 @@ public class AgentBuilder
             _secretResolver = new ChainedSecretResolver(resolvers);
             _secretResolverChainBuilt = true;
         }
+        var secretResolver = _secretResolver
+            ?? throw new InvalidOperationException("The provider secret resolver chain was not initialized.");
 
         if (!_builderAddedToolHarnesses.Contains(nameof(ParentToolHarness)))
             this.WithToolHarness<ParentToolHarness>();
@@ -2104,7 +2107,7 @@ public class AgentBuilder
         var storeRegistry = ResolveAuthorizationStoreRegistry(hostServices);
         var credentialSource = GetOptionalService<IProviderCredentialSource>(hostServices) ??
             new ProviderAuthenticationCoordinator(
-                _secretResolver,
+                secretResolver,
                 GetOptionalService<IProviderRuntimeSecretRegistry>(hostServices) ?? _runtimeSecretRegistry,
                 externalRegistry,
                 strategyRegistry,
@@ -2121,7 +2124,7 @@ public class AgentBuilder
         // Publish only narrow runtime contracts. Provider packages never receive the root container.
         _serviceProvider = new CompositeServiceProvider(
             hostServices,
-            _secretResolver,
+            secretResolver,
             credentialSource,
             externalRegistry,
             strategyRegistry,
@@ -2321,15 +2324,24 @@ public class AgentBuilder
                             $"Permission authority '{declaration.Authority}' disables permission but declares a policy or interaction.");
                     continue;
                 }
-                PermissionAuthorityOwner owner = new(label, IsMcpSource(declaration.Source));
+                PermissionAuthorityOwner owner = new(function.Name, IsMcpSource(declaration.Source));
                 if (authorities.TryGetValue(declaration.Authority, out var existing))
-                    throw new AgentRunConfigurationException(
-                        owner.IsMcp || existing.IsMcp
-                            ? "McpPermissionAuthorityInvalid"
-                            : "PermissionDescriptorInvalid",
-                        declaration.Authority,
-                        $"Permission authority '{declaration.Authority}' is shared by '{existing.Label}' and '{owner.Label}'.");
-                authorities.Add(declaration.Authority, owner);
+                {
+                    if (!StringComparer.Ordinal.Equals(existing.FunctionName, owner.FunctionName) ||
+                        existing.IsMcp != owner.IsMcp)
+                    {
+                        throw new AgentRunConfigurationException(
+                            owner.IsMcp || existing.IsMcp
+                                ? "McpPermissionAuthorityInvalid"
+                                : "PermissionDescriptorInvalid",
+                            declaration.Authority,
+                            $"Permission authority '{declaration.Authority}' is shared by functions '{existing.FunctionName}' and '{owner.FunctionName}'.");
+                    }
+                }
+                else
+                {
+                    authorities.Add(declaration.Authority, owner);
+                }
 
                 if (declaration.PolicyDescriptorId is { } policyId)
                 {
@@ -2392,7 +2404,7 @@ public class AgentBuilder
                 "Permission authority must be canonical, non-empty, control-free, and at most 512 UTF-8 bytes.");
     }
 
-    private sealed record PermissionAuthorityOwner(string Label, bool IsMcp);
+    private sealed record PermissionAuthorityOwner(string FunctionName, bool IsMcp);
 
     private void ValidatePermissionMiddlewareAvailability(IEnumerable<AITool> tools)
     {
@@ -3317,10 +3329,17 @@ public class AgentBuilder
 
     private static bool TryGetCapabilityMetadata(AIFunction function, out HPDCapabilityMetadata metadata)
     {
-        metadata = function.AdditionalProperties?.TryGetValue(
-            HPDCapabilityMetadata.AdditionalPropertiesKey,
-            out var value) == true ? value as HPDCapabilityMetadata : null!;
-        return metadata is not null;
+        if (function.AdditionalProperties?.TryGetValue(
+                HPDCapabilityMetadata.AdditionalPropertiesKey,
+                out var value) == true &&
+            value is HPDCapabilityMetadata found)
+        {
+            metadata = found;
+            return true;
+        }
+
+        metadata = null!;
+        return false;
     }
 
     private static HPDCapabilityMetadata GetCapabilityMetadata(AIFunction function)
@@ -4602,6 +4621,7 @@ public static class AgentBuilderToolHarnessExtensions
     /// Use this when config names toolharnesses that should be resolved from a referenced assembly without registering
     /// every toolharness eagerly in code.
     /// </summary>
+    [RequiresUnreferencedCode("Loading generated catalogs from an arbitrary assembly requires the generated registry types to be preserved.")]
     public static AgentBuilder WithToolHarnessCatalogFrom<T>(this AgentBuilder builder)
     {
         RuntimeHelpers.RunModuleConstructor(typeof(T).Assembly.ManifestModule.ModuleHandle);
@@ -4616,6 +4636,7 @@ public static class AgentBuilderToolHarnessExtensions
     /// </summary>
     /// <exception cref="ArgumentException">Thrown when the function name is empty or the qualified toolharness name does not match <typeparamref name="T"/>.</exception>
     /// <exception cref="InvalidOperationException">Thrown when the toolharness or generated function is not found.</exception>
+    [RequiresUnreferencedCode("Loading generated catalogs from an arbitrary assembly requires the generated registry types to be preserved.")]
     public static AgentBuilder WithTool<T>(this AgentBuilder builder, string functionName, IToolMetadata? context = null) where T : class
     {
         RuntimeHelpers.RunModuleConstructor(typeof(T).Assembly.ManifestModule.ModuleHandle);
@@ -4641,6 +4662,7 @@ public static class AgentBuilderToolHarnessExtensions
     /// </summary>
     /// <exception cref="ArgumentException">Thrown when the function name is empty or the qualified toolharness name does not match <paramref name="toolharnessType"/>.</exception>
     /// <exception cref="InvalidOperationException">Thrown when the toolharness or generated function is not found.</exception>
+    [RequiresUnreferencedCode("Loading generated catalogs from an arbitrary assembly requires the generated registry types to be preserved.")]
     public static AgentBuilder WithTool(this AgentBuilder builder, Type toolharnessType, string functionName, IToolMetadata? context = null)
     {
         RuntimeHelpers.RunModuleConstructor(toolharnessType.Assembly.ManifestModule.ModuleHandle);
@@ -4882,7 +4904,6 @@ public static class AgentBuilderToolHarnessExtensions
     public static AgentBuilder WithToolHarness<T>(this AgentBuilder builder, T instance, IToolMetadata? context = null) where T : class
     {
         RuntimeHelpers.RunModuleConstructor(typeof(T).Assembly.ManifestModule.ModuleHandle);
-        builder.LoadToolRegistryFromAssembly(typeof(T).Assembly);
         builder.LoadGeneratedRegistries();
         var toolharnessName = typeof(T).Name;
 
@@ -4914,6 +4935,7 @@ public static class AgentBuilderToolHarnessExtensions
     /// Auto-registers referenced toolharnesses from skills via GetReferencedToolHarnesses().
     /// </summary>
     /// <exception cref="InvalidOperationException">Thrown if toolharness is not found in any loaded registry.</exception>
+    [RequiresUnreferencedCode("Loading generated catalogs from an arbitrary assembly requires the generated registry types to be preserved.")]
     public static AgentBuilder WithToolHarness(this AgentBuilder builder, Type toolharnessType, IToolMetadata? context = null)
     {
         RuntimeHelpers.RunModuleConstructor(toolharnessType.Assembly.ManifestModule.ModuleHandle);

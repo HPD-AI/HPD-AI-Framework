@@ -74,7 +74,9 @@ public sealed class ExecuteCommandPermissionPolicy :
         ExecuteCommandPermissionRule[]? rules;
         try
         {
-            rules = canonicalRule.Deserialize<ExecuteCommandPermissionRule[]>();
+            rules = JsonSerializer.Deserialize(
+                canonicalRule,
+                CodingToolHarnessJsonContext.Default.ExecuteCommandPermissionRuleArray);
         }
         catch (JsonException)
         {
@@ -114,10 +116,7 @@ public sealed class ExecuteCommandPermissionPolicy :
                 {
                     Kind = PermissionPersistenceKind.ValidatedRule,
                     RuleTypeId = RuleTypeId,
-                    CanonicalRule = JsonSerializer.SerializeToElement(
-                        persisted.Proposal is SegmentRuleBundleProposal bundle
-                            ? bundle.SegmentRules
-                            : [persisted.Proposal.Rule])
+                    CanonicalRule = CreateCanonicalRule(persisted)
                 }
             },
             FeedbackChoice => new PermissionChoiceDescriptor
@@ -140,6 +139,17 @@ public sealed class ExecuteCommandPermissionPolicy :
                 Decision = PermissionDecisionKind.Allow
             }
         };
+
+    private static JsonElement CreateCanonicalRule(PersistRuleChoice choice)
+    {
+        IReadOnlyList<ExecuteCommandPermissionRule> rules =
+            choice.Proposal is SegmentRuleBundleProposal bundle
+                ? bundle.SegmentRules
+                : [choice.Proposal.Rule];
+        return JsonSerializer.SerializeToElement(
+            rules,
+            CodingToolHarnessJsonContext.Default.ExecuteCommandPermissionRuleReadOnlyList);
+    }
 
     private static PermissionRisk ToFrameworkRisk(ExecuteCommandPermissionRisk risk)
     {

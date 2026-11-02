@@ -15,6 +15,7 @@ namespace HPD.Agent.SourceGenerator.Memory;
 [Generator]
 public class MemoryHandlerSourceGenerator : IIncrementalGenerator
 {
+    /// <inheritdoc />
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         // Find all classes marked with [PipelineHandler]
@@ -76,6 +77,7 @@ public class MemoryHandlerSourceGenerator : IIncrementalGenerator
         }
 
         // If no explicit step name, derive from class name (remove "Handler" suffix)
+        stepName ??= classSymbol.Name;
         if (string.IsNullOrEmpty(stepName))
         {
             stepName = classSymbol.Name;

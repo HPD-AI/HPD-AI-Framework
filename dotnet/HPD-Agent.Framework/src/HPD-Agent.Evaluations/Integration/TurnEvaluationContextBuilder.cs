@@ -4,6 +4,7 @@
 using Microsoft.Extensions.AI;
 using HPD.Agent.Middleware;
 using HPD.Agent.Evaluations.Tracing;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 
 namespace HPD.Agent.Evaluations.Integration;
@@ -308,6 +309,14 @@ internal static class TurnEvaluationContextBuilder
         return AgentStopKind.Unknown;
     }
 
+    [UnconditionalSuppressMessage(
+        "Trimming",
+        "IL2026",
+        Justification = "Diagnostic argument capture is not a durable or Native AOT event boundary; arbitrary tool arguments require runtime JSON metadata.")]
+    [UnconditionalSuppressMessage(
+        "AOT",
+        "IL3050",
+        Justification = "Diagnostic argument capture is not a Native AOT event boundary; arbitrary tool arguments require runtime JSON metadata.")]
     private static string SerializeArguments(object? arguments)
     {
         if (arguments is null)

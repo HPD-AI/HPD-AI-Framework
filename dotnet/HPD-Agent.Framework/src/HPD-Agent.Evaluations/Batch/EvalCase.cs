@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
+using System.Diagnostics.CodeAnalysis;
 using HPD.Serialization;
 using Microsoft.Extensions.AI.Evaluation;
 
@@ -69,6 +70,8 @@ public sealed class Dataset<TInput>
     // ── Serialization ─────────────────────────────────────────────────────────
 
     /// <summary>Load a JSON dataset file.</summary>
+    [RequiresUnreferencedCode("The untyped dataset loader uses runtime reflection for TInput JSON metadata.")]
+    [RequiresDynamicCode("The untyped dataset loader uses runtime reflection for TInput JSON metadata.")]
     public static Dataset<TInput> FromFile(string path)
         => HpdConfigSerializer.InferFormat(path) == HpdConfigFormat.Yaml
             ? throw new InvalidOperationException("YAML dataset files require FromFile(path, parseInput) so input parsing remains AOT-safe.")
@@ -87,6 +90,8 @@ public sealed class Dataset<TInput>
     }
 
     /// <summary>Deserialize dataset from JSON.</summary>
+    [RequiresUnreferencedCode("The untyped dataset loader uses runtime reflection for TInput JSON metadata.")]
+    [RequiresDynamicCode("The untyped dataset loader uses runtime reflection for TInput JSON metadata.")]
     public static Dataset<TInput> FromJson(string json)
     {
         var dto = JsonSerializer.Deserialize<DatasetDto<TInput>>(json,
@@ -99,6 +104,8 @@ public sealed class Dataset<TInput>
         => DatasetYamlSerializer.FromYaml(yaml, parseInput);
 
     /// <summary>Save dataset to a JSON file.</summary>
+    [RequiresUnreferencedCode("The untyped dataset saver uses runtime reflection for TInput JSON metadata.")]
+    [RequiresDynamicCode("The untyped dataset saver uses runtime reflection for TInput JSON metadata.")]
     public void ToFile(string path)
         => File.WriteAllText(path, JsonSerializer.Serialize(ToDto(),
             new JsonSerializerOptions { WriteIndented = true }));

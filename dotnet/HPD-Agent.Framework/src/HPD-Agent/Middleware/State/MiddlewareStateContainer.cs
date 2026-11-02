@@ -603,7 +603,12 @@ internal sealed class MiddlewareStateJsonConverter : JsonConverter<MiddlewareSta
         if (TryWriteWithFactory(writer, key, value))
             return;
 
-        JsonSerializer.Serialize(writer, value, value.GetType(), options);
+        JsonSerializer.Serialize(
+            writer,
+            value,
+            options.GetTypeInfo(value.GetType())
+                ?? throw new NotSupportedException(
+                    $"No source-generated JSON metadata is available for middleware state '{value.GetType()}'."));
     }
 
     private static bool TryWriteWithFactory(

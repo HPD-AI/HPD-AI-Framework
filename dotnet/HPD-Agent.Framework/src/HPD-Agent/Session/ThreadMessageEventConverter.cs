@@ -1,4 +1,5 @@
 using System.Text.Json;
+using HPD.Agent.Serialization;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent;
@@ -108,7 +109,12 @@ internal static class ThreadMessageEventConverter
 
                 case FunctionCallContent call:
                     var argsJson = call.Arguments is { Count: > 0 }
-                        ? JsonSerializer.Serialize(call.Arguments, SessionJsonContext.Combined.Options)
+                        ? JsonSerializer.Serialize(
+                            call.Arguments.ToDictionary(
+                                static pair => pair.Key,
+                                static pair => (object?)pair.Value,
+                                StringComparer.Ordinal),
+                            AgentEventJsonContext.Default.DictionaryStringObject)
                         : "{}";
                     events.Add(ThreadEventFactory.ToolCallStarted(
                         sessionId,

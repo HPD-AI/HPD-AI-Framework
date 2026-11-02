@@ -377,7 +377,7 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
                 }
 
                 if (evt is WorkflowCompletedEvent { FailedNodes: > 0 }) { success = false; error = "Workflow completed with failed nodes."; }
-                if (evt is MessageTurnErrorEvent failure) { success = false; error = failure.ErrorMessage; exception = failure.Exception; }
+                if (evt is MessageTurnErrorEvent failure) { success = false; error = failure.ErrorMessage; exception = (failure as IErrorEvent)?.Exception; }
                 // Capture workflow agent outputs.
                 if (evt is WorkflowAgentCompletedEvent agentComplete)
                 {
@@ -939,10 +939,18 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
             Field = c.Field,
             Value = c.Value is null ? null
                   : c.Value is JsonElement je ? je
-                  : JsonSerializer.SerializeToElement(c.Value),
+                  : SerializeWorkflowValue(c.Value),
             RegexOptions = c.RegexOptions,
             Conditions = c.Conditions?.Select(MapEdgeConditionToConfig).ToList()
         };
+
+    private static JsonElement SerializeWorkflowValue(object value)
+    {
+        var typeInfo = Serialization.MultiAgentJsonUtilities.DefaultOptions.GetTypeInfo(value.GetType())
+            ?? throw new InvalidOperationException(
+                $"No generated JSON metadata is registered for workflow condition value type '{value.GetType()}'.");
+        return JsonSerializer.SerializeToElement(value, typeInfo);
+    }
 }
 
 /// <summary>

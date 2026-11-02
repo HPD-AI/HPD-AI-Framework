@@ -3,7 +3,9 @@ using HPD.Agent;
 using HPD.Agent.AspNetCore.Streaming;
 using HPD.Agent.Hosting.Data;
 using HPD.Agent.Hosting.Lifecycle;
+using HPD.Agent.Hosting.Serialization;
 using HPD.Agent.Serialization;
+using HPD.Agent.AspNetCore.Serialization;
 using HPD.Agent.Providers;
 using Microsoft.Extensions.AI;
 using Microsoft.AspNetCore.Builder;
@@ -18,11 +20,6 @@ namespace HPD.Agent.AspNetCore.EndpointMapping.Endpoints;
 /// </summary>
 internal static class StreamingEndpoints
 {
-    private static readonly JsonSerializerOptions CaseInsensitiveJson = new(JsonSerializerDefaults.Web)
-    {
-        PropertyNameCaseInsensitive = true
-    };
-
     /// <summary>
     /// Maps all streaming-related endpoints.
     /// </summary>
@@ -213,9 +210,9 @@ internal static class StreamingEndpoints
     {
         if (request is { ValueKind: JsonValueKind.Object } body)
         {
-            return JsonSerializer.Deserialize<ContextUsageRequest>(
+            return JsonSerializer.Deserialize(
                     body.GetRawText(),
-                    CaseInsensitiveJson)
+                    HPDAgentApiJsonSerializerContext.Default.ContextUsageRequest)
                 ?? new ContextUsageRequest(null);
         }
 
@@ -277,13 +274,15 @@ internal static class StreamingEndpoints
         {
             [result.ErrorCode ?? "Conflict"] = result.ErrorMessages?.ToArray()
                 ?? [result.ErrorMessage ?? "The requested operation conflicts with the current thread state."]
-        }, statusCode: StatusCodes.Status409Conflict);
+        }, HPDAgentAspNetCoreJsonSerializerContext.Default.DictionaryStringStringArray,
+            statusCode: StatusCodes.Status409Conflict);
 
     private static IResult ConflictProblem<T>(AgentServiceResult<T> result)
         => Results.Json(new Dictionary<string, string[]>
         {
             [result.ErrorCode ?? "Conflict"] = result.ErrorMessages?.ToArray()
                 ?? [result.ErrorMessage ?? "The requested operation conflicts with the current thread state."]
-        }, statusCode: StatusCodes.Status409Conflict);
+        }, HPDAgentAspNetCoreJsonSerializerContext.Default.DictionaryStringStringArray,
+            statusCode: StatusCodes.Status409Conflict);
 
 }

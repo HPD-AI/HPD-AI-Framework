@@ -65,12 +65,17 @@ internal sealed class ExecuteCommandProcessOperation : IAsyncDisposable
         var result = await WaitForCompletionAsync(CancellationToken.None).ConfigureAwait(false);
         await PublishProcessExitedAsync(result).ConfigureAwait(false);
         operationToken.ThrowIfCancellationRequested();
-        var artifacts = OutputMetadata is null ? [OutputStore.CombinedPath] : new[]
-        {
-            OutputMetadata.Stdout.ArtifactPath ?? OutputMetadata.Stdout.LocalPath,
-            OutputMetadata.Stderr.ArtifactPath ?? OutputMetadata.Stderr.LocalPath,
-            OutputMetadata.Combined.ArtifactPath ?? OutputMetadata.Combined.LocalPath
-        };
+        var artifacts = OutputMetadata is null
+            ? [OutputStore.CombinedPath]
+            : new[]
+            {
+                OutputMetadata.Stdout.ArtifactPath ?? OutputMetadata.Stdout.LocalPath,
+                OutputMetadata.Stderr.ArtifactPath ?? OutputMetadata.Stderr.LocalPath,
+                OutputMetadata.Combined.ArtifactPath ?? OutputMetadata.Combined.LocalPath
+            }
+            .Where(static artifact => !string.IsNullOrWhiteSpace(artifact))
+            .Select(static artifact => artifact!)
+            .ToArray();
         return new($"Command finished with {CompletionKind} and exit code {ExitCode?.ToString() ?? "none"}.", artifacts);
     }
 

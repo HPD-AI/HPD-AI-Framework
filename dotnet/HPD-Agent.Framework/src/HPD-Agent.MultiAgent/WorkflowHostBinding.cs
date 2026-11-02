@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using HPD.Agent;
 using HPD.Agent.Providers;
 using HPD.Agent.Security;
@@ -29,7 +30,7 @@ public class WorkflowHostBinding
     }
 
     /// <summary>Hosts can resolve preserved/AOT-known types without reflective discovery.</summary>
-    public virtual Type? ResolveType(string name) => Type.GetType(name, throwOnError: false);
+    public virtual Type? ResolveType(string name) => WorkflowTypeResolver.Resolve(name);
     public virtual void ConfigureAgent(WorkflowNodeIdentity identity, AgentBuilder builder) { }
     public virtual void ValidateNode(WorkflowNodeIdentity identity, AgentConfig? definition, AgentNodeOptions options) { }
 
@@ -62,6 +63,15 @@ public class WorkflowHostBinding
         };
         return requested;
     }
+}
+
+internal static class WorkflowTypeResolver
+{
+    [UnconditionalSuppressMessage(
+        "Trimming",
+        "IL2057",
+        Justification = "Structured workflow type names are trusted host configuration; the host must preserve declared types.")]
+    internal static Type? Resolve(string name) => Type.GetType(name, throwOnError: false);
 }
 
 /// <summary>A host-owned attempt scope; resource disposal is separate from configuration snapshotting.</summary>

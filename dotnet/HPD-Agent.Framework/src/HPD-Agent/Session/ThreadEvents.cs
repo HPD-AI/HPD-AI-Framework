@@ -1,4 +1,5 @@
 using System.Text.Json;
+using HPD.Agent.Serialization;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent;
@@ -241,7 +242,11 @@ public static class ThreadEventFactory
                 null => null,
                 string or bool or byte or sbyte or short or ushort or int or uint or long or ulong or float or double or decimal => value,
                 JsonElement => value,
-                _ => JsonSerializer.SerializeToElement(value, value.GetType())
+                _ => JsonSerializer.SerializeToElement(
+                    value,
+                    HpdAgentJsonUtilities.DefaultOptions.GetTypeInfo(value.GetType())
+                        ?? throw new NotSupportedException(
+                            $"No source-generated JSON metadata is available for '{value.GetType()}'."))
             };
         }
 

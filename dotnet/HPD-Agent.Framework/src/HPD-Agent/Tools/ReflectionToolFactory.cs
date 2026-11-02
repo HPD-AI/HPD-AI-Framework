@@ -7,6 +7,9 @@ using System.Text.Json.Serialization;
 using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
 
+// ReflectionToolFactory is the explicit non-AOT compatibility lane. Its public entry points
+// carry RequiresUnreferencedCode/RequiresDynamicCode; internal helpers intentionally inspect
+// runtime attributes and tool types that must be preserved by the application.
 #pragma warning disable IL2070, IL2075
 
 namespace HPD.Agent;
@@ -195,6 +198,8 @@ internal static class ReflectionToolFactory
         return CreateFunction(method, instance, context, serializerOptions);
     }
 
+    [RequiresUnreferencedCode(ReflectionRequiresUnreferencedCodeMessage)]
+    [RequiresDynamicCode("Reflection function creation uses runtime method invocation and JSON metadata.")]
     private static AIFunction CreateFunction(
         MethodInfo method,
         object? instance,
@@ -345,6 +350,8 @@ internal static class ReflectionToolFactory
             });
     }
 
+    [RequiresUnreferencedCode("Reflection tool invocation requires parameter and return types to be preserved.")]
+    [RequiresDynamicCode("Reflection tool invocation uses runtime JSON metadata.")]
     private static object?[] BindParameters(
         MethodInfo method,
         JsonElement json,
@@ -386,6 +393,8 @@ internal static class ReflectionToolFactory
         return values;
     }
 
+    [RequiresUnreferencedCode("Reflection tool parameters require their runtime types and members to be preserved.")]
+    [RequiresDynamicCode("Reflection tool parameters use runtime JSON metadata.")]
     private static object? BindModelParameter(JsonElement json, ParameterInfo parameter, JsonSerializerOptions serializerOptions)
     {
         var parameterName = parameter.Name ?? throw new InvalidOperationException("Tool parameters must be named.");
@@ -685,7 +694,8 @@ internal static class ReflectionToolFactory
         return value;
     }
 
-    private static IEnumerable<MethodInfo> GetAIFunctionMethods(Type toolharnessType)
+    private static IEnumerable<MethodInfo> GetAIFunctionMethods(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods)] Type toolharnessType)
     {
         const BindingFlags flags = BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
         return toolharnessType.GetMethods(flags).Where(HasAIFunctionAttribute);
@@ -852,6 +862,7 @@ internal static class ReflectionToolFactory
             : AgentInvocationModeHandling.Runtime;
     }
 
+    [RequiresUnreferencedCode("Operation contract discovery inspects runtime assembly types.")]
     private static AIFunctionOperationContract? CreateOperationContract(
         ParameterInfo[] parameters,
         AgentInvocationModePolicy defaultPolicy,
@@ -975,6 +986,7 @@ internal static class ReflectionToolFactory
                 "Permission authority must be canonical, non-empty, control-free, and at most 512 UTF-8 bytes.");
     }
 
+    [RequiresUnreferencedCode("Loading assembly types requires those types to be preserved.")]
     private static IEnumerable<Type> GetLoadableTypes(Assembly assembly)
     {
         try
@@ -987,7 +999,8 @@ internal static class ReflectionToolFactory
         }
     }
 
-    private static IEnumerable<MethodInfo> GetCapabilityMethods(Type toolharnessType)
+    private static IEnumerable<MethodInfo> GetCapabilityMethods(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods)] Type toolharnessType)
     {
         const BindingFlags flags = BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
         return toolharnessType.GetMethods(flags).Where(method =>

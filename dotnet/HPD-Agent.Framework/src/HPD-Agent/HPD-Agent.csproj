@@ -8,8 +8,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
-    <NoWarn>$(NoWarn);HPDAUDIO001;MEAI001;IL2026;IL2075;IL3050;CS0108;CS0628;CS8424;CS8600;CS8601;CS8602;CS8604;CS8619;CS8907;CS9113</NoWarn>
-    <WarningsAsErrors>$(WarningsAsErrors)</WarningsAsErrors>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- System.Text.Json 9/10 reports Exception.TargetSite while generating metadata for
+         Microsoft.Extensions.AI content types. Live exception values are excluded from the
+         durable event contract, and the net8.0 build audits the same source graph without it. -->
+    <NoWarn Condition="'$(TargetFramework)' != 'net8.0'">$(NoWarn);IL2026</NoWarn>
     <!-- Native AOT Configuration -->
     <PublishAot>true</PublishAot>
     <IsAotCompatible>true</IsAotCompatible>

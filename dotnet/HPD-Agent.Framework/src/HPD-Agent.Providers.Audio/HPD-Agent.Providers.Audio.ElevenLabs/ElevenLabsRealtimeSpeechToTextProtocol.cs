@@ -1,3 +1,4 @@
+#pragma warning disable MEAI001 // HPD-Agent intentionally wraps the experimental Microsoft.Extensions.AI audio contracts.
 namespace HPD.Agent.Providers.Audio.ElevenLabs;
 
 internal static class ElevenLabsRealtimeSpeechToTextProtocol

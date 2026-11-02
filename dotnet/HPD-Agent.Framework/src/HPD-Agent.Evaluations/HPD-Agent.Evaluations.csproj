@@ -6,7 +6,11 @@
     <RootNamespace>HPD.Agent.Evaluations</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <NoWarn>$(NoWarn);MEAI001;IL2026;IL3050;CS0108;CS0169;CS1734</NoWarn>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- System.Text.Json 9/10 reports Exception.TargetSite while traversing
+         Microsoft.Extensions.AI content metadata. Live exceptions remain outside
+         the durable evaluation event contract; the net8.0 build audits source code without it. -->
+    <NoWarn Condition="'$(TargetFramework)' != 'net8.0'">$(NoWarn);IL2026</NoWarn>
   </PropertyGroup>
 
   <!-- NuGet Package Metadata -->
@@ -40,5 +44,4 @@
     <ProjectReference Include="../HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
-  <PropertyGroup><WarningsAsErrors>$(WarningsAsErrors)</WarningsAsErrors></PropertyGroup>
 </Project>

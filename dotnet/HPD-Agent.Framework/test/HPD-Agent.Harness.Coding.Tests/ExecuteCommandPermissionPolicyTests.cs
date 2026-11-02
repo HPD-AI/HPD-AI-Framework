@@ -4,6 +4,7 @@ using HPD.Agent.Permissions;
 
 namespace HPD.Agent.ToolHarness.Coding.Tests;
 
+[Collection(CurrentDirectoryCollection.Name)]
 public sealed class ExecuteCommandPermissionPolicyTests
 {
     [Fact]

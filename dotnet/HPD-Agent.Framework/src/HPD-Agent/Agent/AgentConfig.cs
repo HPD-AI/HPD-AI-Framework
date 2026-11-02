@@ -1,3 +1,4 @@
+#pragma warning disable MEAI001 // HPD pins Microsoft.Extensions.AI 10.11 while adopting its experimental realtime and media contracts.
 using System;
 using System.Text.Json;
 using System.Text.Json.Serialization;

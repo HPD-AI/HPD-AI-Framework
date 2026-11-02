@@ -445,7 +445,9 @@ public class LocalFileContentStore : IContentStore
     private static ContentInfo BuildContentInfo(ContentScope scope, string contentId, string contentType, long sizeBytes,
         DateTime createdAt, DateTime lastModified, ContentMetadata? metadata, LocalContentMetadata? metaRaw)
     {
-        var hash = metaRaw?.ContentHash;
+        if (metaRaw is null)
+            throw new InvalidDataException($"Content '{contentId}' metadata is missing.");
+        var hash = metaRaw.ContentHash;
         var extendedMeta = hash != null
             ? (IReadOnlyDictionary<string, object>)new Dictionary<string, object> { ["contentHash"] = hash }
             : null;

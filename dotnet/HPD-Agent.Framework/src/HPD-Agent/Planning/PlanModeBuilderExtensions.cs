@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: FSL-1.1-ALv2
 
 using Microsoft.Extensions.Logging;
+using System.Diagnostics.CodeAnalysis;
 
 namespace HPD.Agent.Planning;
 
@@ -23,6 +24,7 @@ public static class PlanModeBuilderExtensions
     ///     .Build();
     /// </code>
     /// </example>
+    [RequiresUnreferencedCode("Plan mode loads the assembly's generated middleware-state registry at runtime.")]
     public static AgentBuilder WithPlanMode(this AgentBuilder builder, Action<PlanModeOptions>? configure = null)
     {
         var options = new PlanModeOptions();

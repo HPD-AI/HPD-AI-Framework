@@ -9,6 +9,7 @@
     <RootNamespace>HPD.Agent.FFI</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     
     <!-- Native AOT Configuration for FFI Export -->
     <PublishAot>true</PublishAot>
@@ -19,13 +20,10 @@
     <OutputType>Library</OutputType>
     <NativeLib>Shared</NativeLib>
     <EnableUnmanagedCallersOnlyAttribute>true</EnableUnmanagedCallersOnlyAttribute>
-    
+
     <!-- Swift Interop Support -->
     <EnableSwiftInterop>true</EnableSwiftInterop>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    
-    <!-- Suppress AOT warnings for provider discovery -->
-    <NoWarn>$(NoWarn);IL2026;IL3050</NoWarn>
   </PropertyGroup>
 
   <!-- Core HPD-Agent reference -->

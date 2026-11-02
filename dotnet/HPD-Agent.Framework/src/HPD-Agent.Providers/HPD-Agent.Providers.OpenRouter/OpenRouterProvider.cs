@@ -57,7 +57,9 @@ internal class OpenRouterProvider : IProvider, IProviderClientFactory<IChatClien
         httpClient.DefaultRequestHeaders.Add("HTTP-Referer", attributionInfo.Referer);
         httpClient.DefaultRequestHeaders.Add("X-Title", attributionInfo.Title);
 
-        IChatClient client = new OpenRouterChatClient(httpClient, config.ModelName);
+        var modelName = config.ModelName
+            ?? throw new InvalidOperationException("The OpenRouter provider requires a model name.");
+        IChatClient client = new OpenRouterChatClient(httpClient, modelName);
         return ValueTask.FromResult(new ProviderClientConstruction<IChatClient>
         {
             Client = client,

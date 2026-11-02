@@ -147,7 +147,7 @@ public class InMemoryContentStore : IContentStore
             {
                 var name = removed.Metadata?.Name;
                 if (name != null && _nameIndex.TryGetValue(actualScope, out var nameIndex))
-                    nameIndex.TryRemove(MakeNameKey(removed.Metadata), out _);
+                    nameIndex.TryRemove(MakeNameKey(removed.Metadata!), out _);
             }
         }
 

@@ -1758,7 +1758,7 @@ public partial class CodingToolHarness
         string fileName,
         IReadOnlyList<string> arguments,
         string? workingDirectory,
-        IReadOnlyDictionary<string, string>? environment,
+        IReadOnlyDictionary<string, string?>? environment,
         TimeSpan timeout,
         ProcessIsolationPolicy isolation) =>
         new()
@@ -1794,12 +1794,16 @@ public partial class CodingToolHarness
             Isolation = isolation,
         };
 
-    private static IReadOnlyDictionary<string, string?> BuildProcessEnvironment(IReadOnlyDictionary<string, string>? environment)
+    private static IReadOnlyDictionary<string, string?> BuildProcessEnvironment(
+        IReadOnlyDictionary<string, string?>? environment)
     {
         if (environment is null || environment.Count == 0)
             return new Dictionary<string, string?>(0, StringComparer.Ordinal);
 
-        return environment.ToDictionary(pair => pair.Key, pair => (string?)pair.Value, StringComparer.Ordinal);
+        return environment.ToDictionary(
+            pair => pair.Key,
+            pair => pair.Value,
+            StringComparer.Ordinal);
     }
 
 }

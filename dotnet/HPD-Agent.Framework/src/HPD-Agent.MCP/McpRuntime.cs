@@ -847,7 +847,8 @@ public sealed class McpRuntime : IAsyncDisposable
         var metadata = ImmutableDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
         foreach (var (serverName, client) in _clients.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
         {
-            metadata[$"mcp.server.{serverName}.protocol"] = client.NegotiatedProtocolVersion;
+            metadata[$"mcp.server.{serverName}.protocol"] =
+                client.NegotiatedProtocolVersion ?? "unknown";
             if (client.ServerCapabilities.Extensions?.ContainsKey("io.modelcontextprotocol/apps") == true)
             {
                 metadata[$"mcp.server.{serverName}.extension.apps.advertised"] = "true";

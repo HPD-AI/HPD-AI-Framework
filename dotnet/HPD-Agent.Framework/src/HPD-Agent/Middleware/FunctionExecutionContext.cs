@@ -133,8 +133,9 @@ public sealed class FunctionExecutionContext : IHarnessConfigurationContext
         };
         _stateSnapshot = request.State;
         RunConfig = request.RunConfig;
-        if (request.Function.AdditionalProperties?.TryGetValue(HPDCapabilityMetadata.AdditionalPropertiesKey, out var descriptor) == true && descriptor is HPDCapabilityMetadata metadata)
-            HarnessConfiguration = request.RunConfig.HarnessConfiguration?.ForOwner(metadata.OwnerHarnessIdentity);
+        if (request.Function.AdditionalProperties?.TryGetValue(HPDCapabilityMetadata.AdditionalPropertiesKey, out var descriptor) == true &&
+            descriptor is HPDCapabilityMetadata { OwnerHarnessIdentity: { Length: > 0 } owner })
+            HarnessConfiguration = request.RunConfig.HarnessConfiguration?.ForOwner(owner);
         SubAgentRunConfig = request.SubAgentRunConfig;
         InvocationMode = request.InvocationMode;
         Permission = new FunctionExecutionPermission(request.PermissionRequired, request.PermissionGrant);

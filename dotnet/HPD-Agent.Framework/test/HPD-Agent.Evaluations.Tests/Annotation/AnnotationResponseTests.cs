@@ -9,6 +9,7 @@ using HPD.Agent.Evaluations.Integration;
 using HPD.Agent.Evaluations.Storage;
 using HPD.Agent.Evaluations.Tests.Integration;
 using HPD.Agent.Providers;
+using HPD.Agent.Serialization;
 using Microsoft.Extensions.AI.Evaluation;
 
 namespace HPD.Agent.Evaluations.Tests.Annotation;
@@ -125,6 +126,10 @@ public sealed class AnnotationResponseTests
         };
 
         return await new AgentBuilder(config, new StubProviderRegistry(new StubChatClient()))
+            .WithEventComposition(AgentEventComposition.Create([
+                CoreAgentEventModule.Fragment,
+                GeneratedAgentEventModule_HPD_Agent_Evaluations_301bac1e.Fragment
+            ]))
             .BuildAsync(CancellationToken.None);
     }
 }

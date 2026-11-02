@@ -41,7 +41,7 @@ public partial class SlackCardRenderer
             AltText: image.AltText ?? image.Title ?? "image",
             Title: image.Title is not null ? new SlackPlainText(image.Title) : null);
 
-    public partial SlackBlock RenderDivider(CardDivider _) => new SlackDividerBlock();
+    public partial SlackBlock RenderDivider(CardDivider divider) => new SlackDividerBlock();
 
     public partial SlackBlock[] RenderActions(CardActions actions)
     {

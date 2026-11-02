@@ -1,6 +1,7 @@
 // Copyright 2026 Einstein Essibu
 // SPDX-License-Identifier: FSL-1.1-ALv2
 
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Microsoft.Extensions.AI;
@@ -137,6 +138,14 @@ public static class DatasetGenerator
             ct).ConfigureAwait(false);
     }
 
+    [UnconditionalSuppressMessage(
+        "Trimming",
+        "IL2026",
+        Justification = "The dynamic overload intentionally uses reflection; callers with source-generated metadata use the typed overload.")]
+    [UnconditionalSuppressMessage(
+        "AOT",
+        "IL3050",
+        Justification = "The dynamic overload intentionally uses runtime metadata; callers with source-generated metadata use the typed overload.")]
     private static async Task<Dataset<TInput>> GenerateAsync<TInput>(
         DatasetGenerationOptions options,
         string inputSchema,
@@ -197,6 +206,14 @@ public static class DatasetGenerator
             .ConfigureAwait(false);
     }
 
+    [UnconditionalSuppressMessage(
+        "Trimming",
+        "IL2026",
+        Justification = "The dynamic overload intentionally uses reflection; callers with source-generated metadata use the typed overload.")]
+    [UnconditionalSuppressMessage(
+        "AOT",
+        "IL3050",
+        Justification = "The dynamic overload intentionally uses runtime metadata; callers with source-generated metadata use the typed overload.")]
     private static async Task<Dataset<TInput>> AugmentAsync<TInput>(
         Dataset<TInput> existing,
         DatasetAugmentOptions options,
@@ -293,6 +310,14 @@ public static class DatasetGenerator
         throw new DatasetGenerationException("Dataset generation failed unexpectedly.");
     }
 
+    [UnconditionalSuppressMessage(
+        "Trimming",
+        "IL2026",
+        Justification = "Runtime metadata is used only when the caller omitted source-generated input metadata.")]
+    [UnconditionalSuppressMessage(
+        "AOT",
+        "IL3050",
+        Justification = "Runtime metadata is used only when the caller omitted source-generated input metadata.")]
     private static List<EvalCase<TInput>> ParseCases<TInput>(
         string json,
         JsonTypeInfo<TInput>? inputTypeInfo)
@@ -411,6 +436,14 @@ public static class DatasetGenerator
         }
     }
 
+    [UnconditionalSuppressMessage(
+        "Trimming",
+        "IL2026",
+        Justification = "Runtime metadata is used only when the caller omitted source-generated input metadata.")]
+    [UnconditionalSuppressMessage(
+        "AOT",
+        "IL3050",
+        Justification = "Runtime metadata is used only when the caller omitted source-generated input metadata.")]
     private static string SerializeExistingInputs<TInput>(
         Dataset<TInput> existing,
         JsonTypeInfo<TInput>? inputTypeInfo)

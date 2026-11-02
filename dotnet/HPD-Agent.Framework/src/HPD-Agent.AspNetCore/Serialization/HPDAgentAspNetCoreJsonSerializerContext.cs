@@ -38,6 +38,7 @@ namespace HPD.Agent.AspNetCore.Serialization;
 [JsonSerializable(typeof(EvaluationResult))]
 // Error response collections
 [JsonSerializable(typeof(Dictionary<string, string[]>))]
+[JsonSerializable(typeof(MiddlewareResponseConflictResponse))]
 // Evaluation score endpoints
 [JsonSerializable(typeof(ScoreRecord))]
 [JsonSerializable(typeof(ScoreRecord[]))]

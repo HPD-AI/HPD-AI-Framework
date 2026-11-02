@@ -122,6 +122,17 @@ public sealed record InterruptionHandledEvent : AgentEvent
 /// </summary>
 public abstract record AgentEvent : HPD.Events.Event
 {
+    /// <summary>Initializes an event with the supplied creation timestamp.</summary>
+    protected AgentEvent(DateTimeOffset timestamp)
+        : base(timestamp)
+    {
+    }
+
+    /// <summary>Initializes an event with the current UTC timestamp.</summary>
+    protected AgentEvent()
+    {
+    }
+
     /// <summary>
     /// Stable identity assigned when the event is created. Canonical commit preserves it.
     /// </summary>
@@ -557,12 +568,39 @@ public record MessageTurnFinishedEvent : AgentEvent
 /// </summary>
 [HPD.Agent.Serialization.DurableEvent]
 [HPD.Agent.Serialization.EventType("MESSAGE_TURN_ERROR")]
-public record MessageTurnErrorEvent(
-    string MessageTurnId,
-    string ErrorMessage,
-    MessageTurnUsageSummary Usage,
-    [property: System.Text.Json.Serialization.JsonIgnore] Exception? Exception = null) : AgentEvent, IErrorEvent
+public record MessageTurnErrorEvent : AgentEvent, IErrorEvent
 {
+    /// <summary>Creates a serializable error event without a live exception.</summary>
+    [System.Text.Json.Serialization.JsonConstructor]
+    public MessageTurnErrorEvent(
+        string MessageTurnId,
+        string ErrorMessage,
+        MessageTurnUsageSummary Usage)
+        : this(MessageTurnId, ErrorMessage, Usage, Exception: null)
+    {
+    }
+
+    public MessageTurnErrorEvent(
+        string MessageTurnId,
+        string ErrorMessage,
+        MessageTurnUsageSummary Usage,
+        Exception? Exception = null)
+    {
+        this.MessageTurnId = MessageTurnId;
+        this.ErrorMessage = ErrorMessage;
+        this.Usage = Usage;
+        ErrorException = Exception;
+    }
+
+    public string MessageTurnId { get; init; }
+    public string ErrorMessage { get; init; }
+    public MessageTurnUsageSummary Usage { get; init; }
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    internal Exception? ErrorException { get; init; }
+
+    Exception? IErrorEvent.Exception => ErrorException;
+
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
 
     public string? ConversationId { get; init; }
@@ -582,10 +620,10 @@ public record MessageTurnErrorEvent(
         if (!_errorDetailsParsed)
         {
             _errorDetailsParsed = true;
-            if (Exception != null)
+            if (ErrorException is not null)
             {
                 var handler = new ErrorHandling.GenericErrorHandler();
-                _errorDetails = handler.ParseError(Exception);
+                _errorDetails = handler.ParseError(ErrorException);
             }
         }
         return _errorDetails;
@@ -712,9 +750,7 @@ public sealed record AgentCapabilityRefreshRejectedEvent(
     /// <inheritdoc />
     public string ErrorMessage => Error;
 
-    /// <inheritdoc />
-    [JsonIgnore]
-    public Exception? Exception => null;
+    Exception? IErrorEvent.Exception => null;
 }
 
 /// <summary>Emitted when one immutable effective capability surface is pinned for a turn.</summary>
@@ -751,9 +787,7 @@ public sealed record SkillActivationFailedEvent(
     /// <inheritdoc />
     public string ErrorMessage => "Skill activation failed.";
 
-    /// <inheritdoc />
-    [JsonIgnore]
-    public Exception? Exception => null;
+    Exception? IErrorEvent.Exception => null;
 }
 
 /// <summary>Emitted before a model-visible skill resource is read.</summary>
@@ -777,9 +811,7 @@ public sealed record SkillResourceReadFailedEvent(
     /// <inheritdoc />
     public string ErrorMessage => "Skill resource read failed.";
 
-    /// <inheritdoc />
-    [JsonIgnore]
-    public Exception? Exception => null;
+    Exception? IErrorEvent.Exception => null;
 }
 
 /// <summary>Emitted before an external skill script runner starts.</summary>
@@ -806,9 +838,7 @@ public sealed record SkillScriptFailedEvent(
     /// <inheritdoc />
     public string ErrorMessage => "Skill script execution failed.";
 
-    /// <inheritdoc />
-    [JsonIgnore]
-    public Exception? Exception => null;
+    Exception? IErrorEvent.Exception => null;
 }
 
 /// <summary>Emitted when an external skill script exceeds its configured timeout.</summary>
@@ -819,9 +849,7 @@ public sealed record SkillScriptTimedOutEvent(CapabilityId CapabilityId, string 
     /// <inheritdoc />
     public string ErrorMessage => "Skill script execution timed out.";
 
-    /// <inheritdoc />
-    [JsonIgnore]
-    public Exception? Exception => null;
+    Exception? IErrorEvent.Exception => null;
 }
 
 /// <summary>
@@ -948,8 +976,7 @@ public sealed record UserAudioTranscriptFailedEvent(
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
 
-    [JsonIgnore]
-    public Exception? Exception => null;
+    Exception? IErrorEvent.Exception => null;
 }
 
 
@@ -1415,7 +1442,9 @@ public record MiddlewareErrorEvent(
     /// The underlying exception. Not serialized.
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
-    public Exception? Exception { get; init; }
+    internal Exception? Exception { get; init; }
+
+    Exception? IErrorEvent.Exception => Exception;
 }
 
 #endregion
@@ -1470,7 +1499,7 @@ public record CollapsedToolsVisibleEvent(
     ImmutableHashSet<string> ExpandedSkills,
     int TotalToolCount,
     DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent
+) : AgentEvent(Timestamp), IObservabilityEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 }
@@ -1486,7 +1515,7 @@ public record ContainerExpandedEvent(
     IReadOnlyList<string> UnlockedFunctions,
     int Iteration,
     DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent
+) : AgentEvent(Timestamp), IObservabilityEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 }
@@ -1507,7 +1536,7 @@ public record PermissionCheckEvent(
     int Iteration,
     TimeSpan Duration,
     DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent
+) : AgentEvent(Timestamp), IObservabilityEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 }
@@ -1541,7 +1570,7 @@ public record CircuitBreakerTriggeredEvent(
     int ConsecutiveCount,
     int Iteration,
     DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent
+) : AgentEvent(Timestamp), IObservabilityEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Control;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
@@ -1563,7 +1592,7 @@ public record InternalParallelToolExecutionEvent(
     TimeSpan? SemaphoreWaitDuration,
     bool IsParallel,
     DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent
+) : AgentEvent(Timestamp), IObservabilityEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 }
@@ -1598,7 +1627,7 @@ public record FunctionRetryEvent(
     /// therefore <see langword="null"/> after the event is rehydrated.
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
-    public Exception? Exception { get; init; }
+    internal Exception? Exception { get; init; }
 
     // Lazy-computed error details
     private ErrorHandling.ProviderErrorDetails? _errorDetails;
@@ -1688,7 +1717,7 @@ public record ModelCallRetryEvent(
     /// therefore <see langword="null"/> after the event is rehydrated.
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
-    public Exception? Exception { get; init; }
+    internal Exception? Exception { get; init; }
 
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
@@ -1736,7 +1765,7 @@ public record DeltaSendingActivatedEvent(
     string AgentName,
     int MessageCountSent,
     DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent
+) : AgentEvent(Timestamp), IObservabilityEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 }
@@ -1810,7 +1839,7 @@ public record NestedAgentInvokedEvent(
     string ChildAgentName,
     int NestingDepth,
     DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent
+) : AgentEvent(Timestamp), IObservabilityEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 }
@@ -1826,7 +1855,7 @@ public record DocumentProcessedEvent(
     long SizeBytes,
     TimeSpan Duration,
     DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent
+) : AgentEvent(Timestamp), IObservabilityEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 }
@@ -1841,7 +1870,7 @@ public record InternalMessagePreparedEvent(
     int Iteration,
     int FinalMessageCount,
     DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent
+) : AgentEvent(Timestamp), IObservabilityEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 }
@@ -1856,7 +1885,7 @@ public record RequestEventProcessedEvent(
     string EventType,
     bool RequiresResponse,
     DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent
+) : AgentEvent(Timestamp), IObservabilityEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 }
@@ -1887,7 +1916,7 @@ public record AgentCompletionEvent(
     int TotalIterations,
     TimeSpan Duration,
     DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent
+) : AgentEvent(Timestamp), IObservabilityEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 }
@@ -1935,7 +1964,7 @@ public record IterationContextSnapshotEvent(
     int ToolCount,
     IReadOnlyList<ToolContextSnapshot> Tools,
     DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent
+) : AgentEvent(Timestamp), IObservabilityEvent
 {
     /// <summary>Gets summaries present at the model-request boundary; this is not a server receipt.</summary>
     public IReadOnlyList<CompactionSummaryInputSnapshot> CompactionSummaryInputs { get; init; } = [];
@@ -2027,7 +2056,7 @@ public record CollapsingStateEvent(
     int ExpandedToolHarnessesCount,
     int ExpandedSkillsCount,
     DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent
+) : AgentEvent(Timestamp), IObservabilityEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 }
@@ -2047,6 +2076,7 @@ public record CollapsingStateEvent(
 /// <param name="Value">The parsed value (partial or complete)</param>
 /// <param name="IsPartial">True if this is an intermediate result, false if final</param>
 /// <param name="RawJson">The raw JSON string that was parsed</param>
+[HPD.Agent.Serialization.EventRegistrationExcluded]
 public sealed record StructuredResultEvent<T>(
     T Value,
     bool IsPartial,
@@ -2066,14 +2096,39 @@ public sealed record StructuredResultEvent<T>(
 /// <param name="Exception">The underlying exception (if any)</param>
 [HPD.Agent.Serialization.DurableEvent]
 [HPD.Agent.Serialization.EventType("STRUCTURED_OUTPUT_ERROR")]
-public sealed record StructuredOutputErrorEvent(
-    string RawJson,
-    string ErrorMessage,
-    string ExpectedTypeName,
-    [property: System.Text.Json.Serialization.JsonIgnore]
-    Exception? Exception = null
-) : AgentEvent, IErrorEvent
+public sealed record StructuredOutputErrorEvent : AgentEvent, IErrorEvent
 {
+    /// <summary>Creates a serializable error event without a live exception.</summary>
+    [System.Text.Json.Serialization.JsonConstructor]
+    public StructuredOutputErrorEvent(
+        string RawJson,
+        string ErrorMessage,
+        string ExpectedTypeName)
+        : this(RawJson, ErrorMessage, ExpectedTypeName, Exception: null)
+    {
+    }
+
+    public StructuredOutputErrorEvent(
+        string RawJson,
+        string ErrorMessage,
+        string ExpectedTypeName,
+        Exception? Exception = null)
+    {
+        this.RawJson = RawJson;
+        this.ErrorMessage = ErrorMessage;
+        this.ExpectedTypeName = ExpectedTypeName;
+        ErrorException = Exception;
+    }
+
+    public string RawJson { get; init; }
+    public string ErrorMessage { get; init; }
+    public string ExpectedTypeName { get; init; }
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    internal Exception? ErrorException { get; init; }
+
+    Exception? IErrorEvent.Exception => ErrorException;
+
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
 }
 

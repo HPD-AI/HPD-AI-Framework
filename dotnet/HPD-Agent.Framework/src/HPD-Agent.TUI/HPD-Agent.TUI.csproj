@@ -8,7 +8,7 @@
     <PackageId>HPD-Agent.TUI</PackageId>
     <Description>Terminal UI shell primitives for HPD agents.</Description>
     <PackageTags>ai;agent;tui;terminal;hpd</PackageTags>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>
@@ -17,6 +17,4 @@
     <ProjectReference Include="../../../HPD-TUI.Framework/src/HPD-TUI.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
     <PackageReference Include="HPD-TUI" Version="$(HPDTuiVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
   </ItemGroup>
-
-  <PropertyGroup><WarningsAsErrors>$(WarningsAsErrors)</WarningsAsErrors></PropertyGroup>
 </Project>

@@ -168,7 +168,7 @@ public class CircuitBreakerMiddleware : IAgentMiddleware
                 var sortedArgs = toolCall.Arguments
                     .OrderBy(kvp => kvp.Key)
                     .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-                argsJson = JsonSerializer.Serialize(sortedArgs);
+                argsJson = JsonSerializer.Serialize(sortedArgs, HPDJsonContext.Default.DictionaryStringObject);
             }
             catch
             {

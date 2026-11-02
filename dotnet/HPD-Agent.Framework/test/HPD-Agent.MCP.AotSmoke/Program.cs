@@ -90,7 +90,7 @@ try
     using var externalHttp = new HttpClient(handler, disposeHandler: false);
     var client = new SmokeMcpChatClient();
     await using (var agent = await new AgentBuilder(agentConfig)
-        .WithEventComposition(GeneratedAgentEventComposition.Composition)
+        .WithEventApplicationIdentity(typeof(Program).Assembly.GetName().Name!)
         .WithChatClient(client)
         .WithPermissions()
         .WithMcpOptions(options => options.HttpClientFactory = server => server.Name == "inline"

@@ -418,14 +418,14 @@ internal static class CapabilityAnalyzer
 
         System.Diagnostics.Debug.WriteLine($"[AnalyzeSkillCapability] Skill={name}, Description={description}");
         System.Diagnostics.Debug.WriteLine($"[AnalyzeSkillCapability] ContextTypeName={contextTypeName ?? "NULL"}");
-        System.Diagnostics.Debug.WriteLine($"[AnalyzeSkillCapability] HasDynamicDescription={description.Contains("{metadata.")}");
+        System.Diagnostics.Debug.WriteLine($"[AnalyzeSkillCapability] HasDynamicDescription={description?.Contains("{metadata.") == true}");
 
         return new SkillCapability
         {
-            Name = name,
+            Name = name!,
             MethodName = methodName,
             MethodIsStatic = method.Modifiers.Any(SyntaxKind.StaticKeyword),
-            Description = description,
+            Description = description!,
             ParentToolHarnessName = className,
             ParentNamespace = namespaceName,
             UnresolvedReferences = references,
@@ -489,9 +489,9 @@ internal static class CapabilityAnalyzer
 
         var subAgentCapability = new SubAgentCapability
         {
-            Name = name,
+            Name = name!,
             MethodName = methodName,
-            SubAgentName = name,
+            SubAgentName = name!,
             Description = description ?? GetDescription(attrs) ?? $"Sub-agent: {name}",
             ParentToolHarnessName = className,
             ParentNamespace = namespaceName,
@@ -1196,7 +1196,7 @@ internal static class CapabilityAnalyzer
             .FirstOrDefault(pair => pair.Key == name).Value.Value as string;
         return new FunctionCollapseInfo(
             containerName,
-            description,
+            description!,
             Named("FunctionResult"),
             Named("SystemPrompt"));
     }
@@ -1759,7 +1759,7 @@ internal static class CapabilityAnalyzer
     {
         var enumMember = GetNamedEnumMember(attr, name);
         if (!string.IsNullOrWhiteSpace(enumMember))
-            return enumMember;
+            return enumMember!;
 
         return GetNamedBool(attr, name) switch
         {

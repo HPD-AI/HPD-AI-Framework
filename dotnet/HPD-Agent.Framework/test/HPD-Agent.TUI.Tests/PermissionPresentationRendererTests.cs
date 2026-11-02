@@ -1,13 +1,16 @@
+using System.Text.Json.Serialization;
 using HPD.Agent.Permissions;
+using HPD.Agent.Serialization;
 using HPD.Agent.TUI.Interactions;
 
 namespace HPD.Agent.TUI.Tests;
 
-public sealed class PermissionPresentationRendererTests
+public sealed partial class PermissionPresentationRendererTests
 {
     [Fact]
     public void Registration_requires_exact_presentation_identity_and_rejects_duplicates()
     {
+        HpdAgentJsonUtilities.RegisterTypeInfoResolver(TicketJsonContext.Default);
         var builder = new HpdAgentTuiBuilder();
 
         builder.AddPermissionPresentationRenderer(
@@ -21,7 +24,7 @@ public sealed class PermissionPresentationRendererTests
             .AddPermissionPresentationRenderer("wrong.id", new TicketRenderer()));
     }
 
-    [PermissionPresentation("test.permission.ticket")]
+    [PermissionPresentation("test.permission.ticket", typeof(TicketJsonContext))]
     private sealed record Ticket(string Label);
 
     private sealed class TicketRenderer : IPermissionPresentationRenderer<Ticket>
@@ -36,4 +39,7 @@ public sealed class PermissionPresentationRendererTests
                 ChoiceId = "allow_once"
             });
     }
+
+    [JsonSerializable(typeof(Ticket))]
+    private sealed partial class TicketJsonContext : JsonSerializerContext;
 }

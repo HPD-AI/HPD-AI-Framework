@@ -1,5 +1,7 @@
 namespace HPD.Agent.Providers.Audio.Meai;
 
+#pragma warning disable MEAI001 // HPD pins Microsoft.Extensions.AI 10.11 and exposes its experimental speech contracts.
+
 using HPD.Agent.ErrorHandling;
 using Microsoft.Extensions.AI;
 

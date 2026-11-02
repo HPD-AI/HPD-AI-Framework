@@ -13,4 +13,4 @@ public record CreateThreadRequest(
     string? Name,
     string? Description,
     List<string>? Tags,
-    Dictionary<string, object>? Metadata = null);
+    Dictionary<string, object?>? Metadata = null);

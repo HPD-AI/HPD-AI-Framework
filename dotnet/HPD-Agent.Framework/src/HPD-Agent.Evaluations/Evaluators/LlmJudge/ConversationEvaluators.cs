@@ -7,6 +7,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.AI.Evaluation;
 using HPD.Agent.Evaluations.Contexts;
 using HPD.Agent.Evaluations.Evaluators;
+using HPD.Agent.Evaluations.Serialization;
 using HPD.Agent.Middleware;
 
 namespace HPD.Agent.Evaluations.Evaluators.LlmJudge;
@@ -124,7 +125,12 @@ public sealed class GoalProgressionEvaluator : HpdJsonJudgeEvaluatorBase<GoalPro
 
     protected override GoalProgressionRating? ParseRating(string json)
     {
-        try { return JsonSerializer.Deserialize<GoalProgressionRating>(json); }
+        try
+        {
+            return JsonSerializer.Deserialize(
+                json,
+                EvaluationJsonContext.Default.GoalProgressionRating);
+        }
         catch { return null; }
     }
 
@@ -241,7 +247,12 @@ public sealed class MemoryAccuracyEvaluator : HpdJsonJudgeEvaluatorBase<MemoryAc
 
     protected override MemoryAccuracyRating? ParseRating(string json)
     {
-        try { return JsonSerializer.Deserialize<MemoryAccuracyRating>(json); }
+        try
+        {
+            return JsonSerializer.Deserialize(
+                json,
+                EvaluationJsonContext.Default.MemoryAccuracyRating);
+        }
         catch { return null; }
     }
 

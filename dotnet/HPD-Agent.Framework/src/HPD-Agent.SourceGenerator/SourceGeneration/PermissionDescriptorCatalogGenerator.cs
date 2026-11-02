@@ -22,6 +22,7 @@ public sealed class PermissionDescriptorCatalogGenerator : IIncrementalGenerator
     private const string PresentationAttribute =
         "HPD.Agent.Permissions.PermissionPresentationAttribute";
 
+    /// <inheritdoc />
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         var model = context.CompilationProvider.Select(static (compilation, _) =>
@@ -183,7 +184,7 @@ public sealed class PermissionDescriptorCatalogGenerator : IIncrementalGenerator
             var id = attribute.ConstructorArguments.FirstOrDefault().Value as string;
             var reservedFrameworkId = id?.StartsWith("hpd.", StringComparison.OrdinalIgnoreCase) == true &&
                 compilation.AssemblyName?.StartsWith("HPD-Agent", StringComparison.Ordinal) != true;
-            if (string.IsNullOrWhiteSpace(id) || id != id.Trim() || id.Any(char.IsControl) ||
+            if (id is null || id.Length == 0 || id.Any(char.IsWhiteSpace) || id.Any(char.IsControl) ||
                 reservedFrameworkId)
             {
                 diagnostics.Add(Diagnostic.Create(
@@ -308,10 +309,10 @@ public sealed class PermissionDescriptorCatalogGenerator : IIncrementalGenerator
             var contextName = context.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             var typeInfo =
                 $"global::HPD.Agent.Permissions.PermissionPresentationDescriptor.RequireGeneratedJsonTypeInfo(" +
-                $"{contextName}.Default.Options, typeof({typeName}), {Literal(id)})";
+                $"{contextName}.Default.Options, typeof({typeName}), {Literal(id!)})";
             return
                 "Presentation = new global::HPD.Agent.Permissions.PermissionPresentationDescriptor { " +
-                $"PresentationId = {Literal(id)}, PresentationType = typeof({typeName}), TypeInfo = {typeInfo}, " +
+                $"PresentationId = {Literal(id!)}, PresentationType = typeof({typeName}), TypeInfo = {typeInfo}, " +
                 $"Serialize = static value => global::System.Text.Json.JsonSerializer.SerializeToElement(value, {typeInfo}) }},";
         }
         return string.Empty;
@@ -371,7 +372,7 @@ internal static class PermissionCatalogDiagnostics
     internal static readonly DiagnosticDescriptor InvalidId = new(
         "HPDAG1002",
         "Invalid permission descriptor ID",
-        "Permission descriptor ID '{0}' on '{1}' is invalid or uses the reserved hpd. prefix",
+        "Permission descriptor ID '{0}' on '{1}' is invalid or uses the reserved hpd namespace prefix",
         "HPD.Permissions",
         DiagnosticSeverity.Error,
         true);

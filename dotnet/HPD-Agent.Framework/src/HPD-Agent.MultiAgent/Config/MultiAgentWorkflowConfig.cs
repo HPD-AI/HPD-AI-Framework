@@ -65,7 +65,7 @@ public sealed record AgentNodeConfig
     /// <summary>
     /// Output mode for this agent.
     /// </summary>
-    [JsonConverter(typeof(JsonStringEnumConverter))]
+    [JsonConverter(typeof(JsonStringEnumConverter<AgentOutputMode>))]
     public AgentOutputMode OutputMode { get; init; } = AgentOutputMode.String;
 
     /// <summary>
@@ -75,7 +75,7 @@ public sealed record AgentNodeConfig
     public string? StructuredOutputType { get; init; }
 
     /// <summary>Provider-native schema output or an auto-generated output tool.</summary>
-    [JsonConverter(typeof(JsonStringEnumConverter))]
+    [JsonConverter(typeof(JsonStringEnumConverter<StructuredOutputMode>))]
     public StructuredOutputMode StructuredOutputMode { get; init; } = StructuredOutputMode.Native;
 
     /// <summary>
@@ -147,7 +147,7 @@ public sealed record RetryConfig
     /// <summary>
     /// Backoff strategy.
     /// </summary>
-    [JsonConverter(typeof(JsonStringEnumConverter))]
+    [JsonConverter(typeof(JsonStringEnumConverter<BackoffStrategy>))]
     public BackoffStrategy Strategy { get; init; } = BackoffStrategy.Exponential;
 
     /// <summary>
@@ -174,7 +174,7 @@ public sealed record ErrorConfig
     /// <summary>
     /// Error handling mode.
     /// </summary>
-    [JsonConverter(typeof(JsonStringEnumConverter))]
+    [JsonConverter(typeof(JsonStringEnumConverter<ErrorMode>))]
     public ErrorMode Mode { get; init; } = ErrorMode.Stop;
 
     /// <summary>
@@ -238,7 +238,7 @@ public sealed record ConditionConfig
     /// <summary>
     /// Condition type.
     /// </summary>
-    [JsonConverter(typeof(JsonStringEnumConverter))]
+    [JsonConverter(typeof(JsonStringEnumConverter<ConditionType>))]
     public ConditionType Type { get; init; } = ConditionType.Always;
 
     /// <summary>
@@ -288,7 +288,7 @@ public sealed record WorkflowSettingsConfig
     /// <summary>
     /// When to emit streaming events.
     /// </summary>
-    [JsonConverter(typeof(JsonStringEnumConverter))]
+    [JsonConverter(typeof(JsonStringEnumConverter<StreamingMode>))]
     public StreamingMode StreamingMode { get; init; } = StreamingMode.PerNode;
 
     /// <summary>

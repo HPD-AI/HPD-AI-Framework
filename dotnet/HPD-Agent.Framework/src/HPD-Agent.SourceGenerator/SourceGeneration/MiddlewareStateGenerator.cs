@@ -71,6 +71,7 @@ public class MiddlewareStateGenerator : IIncrementalGenerator
     // INITIALIZATION
     //
 
+    /// <inheritdoc />
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         // Find all types with [MiddlewareState] attribute in SOURCE CODE ONLY

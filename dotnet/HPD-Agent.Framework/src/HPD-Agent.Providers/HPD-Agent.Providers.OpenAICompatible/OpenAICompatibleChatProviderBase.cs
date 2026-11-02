@@ -125,7 +125,7 @@ public abstract class OpenAICompatibleChatProviderBase<TConfig> :
         ProviderKey = ProviderKey,
         DisplayName = DisplayName,
         ProviderUri = Definition.ProviderUri ?? endpoint,
-        DefaultModelId = config.ModelName,
+        DefaultModelId = RequireModelId(config),
         ChatCompletionsPath = Definition.ChatCompletionsPath,
         RequestProfile = Definition.RequestProfile
     };
@@ -138,9 +138,16 @@ public abstract class OpenAICompatibleChatProviderBase<TConfig> :
         TConfig? providerConfig) => new OpenAICompatibleConfiguredChatClient<TConfig>(
             innerClient,
             ProviderKey,
-            config.ModelName,
+            RequireModelId(config),
             Definition.ProviderUri ?? endpoint,
             providerConfig);
+
+    private string RequireModelId(EffectiveProviderClientConfig config) =>
+        !string.IsNullOrWhiteSpace(config.ModelName)
+            ? config.ModelName
+            : Definition.DefaultModelId
+                ?? throw new InvalidOperationException(
+                    $"Provider '{ProviderKey}' requires a model name.");
 
     /// <summary>Applies authentication and safe configured headers.</summary>
     protected virtual void ConfigureHttpClient(

@@ -1,3 +1,4 @@
+#pragma warning disable MEAI001 // HPD pins Microsoft.Extensions.AI 10.11 while adopting its experimental realtime and media contracts.
 using Microsoft.Extensions.AI;
 using HPD.Agent.Providers;
 

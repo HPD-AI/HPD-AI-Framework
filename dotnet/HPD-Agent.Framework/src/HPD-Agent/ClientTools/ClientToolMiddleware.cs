@@ -259,8 +259,8 @@ public class ClientToolMiddleware : IAgentMiddleware
         return reference.Harnesses
             .Select(selector => (Harness: manifest.ClientToolHarnesses.FirstOrDefault(h =>
                 string.Equals(h.Name, selector.Name, StringComparison.OrdinalIgnoreCase)), Selector: selector))
-            .Where(static item => item.Harness is not null)!
-            .Select(static item => (item.Harness!, item.Selector));
+            .Where(static item => item.Harness is not null)
+            .Select(static item => (item.Harness!, (ClientToolHarnessSelector?)item.Selector));
     }
 
     private static IEnumerable<ClientToolDefinition> SelectTools(
@@ -832,7 +832,7 @@ public class ClientToolMiddleware : IAgentMiddleware
                 RequiresFreshContext = requiresFreshContext,
                 RequestedInvocationMode = requestedMode,
                 ResolvedInvocationMode = resolvedMode,
-                Description = context.Function.Description
+                Description = context.Function?.Description ?? string.Empty
             },
             _config.InvokeTimeout,
             ct).ConfigureAwait(false);
@@ -1042,7 +1042,11 @@ public class ClientToolMiddleware : IAgentMiddleware
             null => null,
             string text => text,
             JsonElement json => json.GetRawText(),
-            _ => JsonSerializer.Serialize(result, HPDJsonContext.Default.Options)
+            _ => JsonSerializer.Serialize(
+                result,
+                HPDJsonContext.Default.Options.GetTypeInfo(result.GetType())
+                    ?? throw new InvalidOperationException(
+                        $"No source-generated JSON metadata is available for '{result.GetType()}'."))
         };
     }
 

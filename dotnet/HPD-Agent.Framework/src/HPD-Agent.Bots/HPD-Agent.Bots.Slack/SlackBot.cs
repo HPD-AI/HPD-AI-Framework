@@ -273,6 +273,7 @@ public partial class SlackBot(
         BotRequestContext ctx, SlackSlashCommandPayload payload)
     {
         var userName    = await userCache.GetDisplayNameAsync(payload.UserId, ctx.CancellationToken);
+        OnSlashCommand?.Invoke(new SlackSlashCommandReceivedEvent(payload, userName));
         var platformKey = SlackThreadId.Format(payload.ChannelId, ""); // slash commands have no thread
         var (sessionId, threadId) = await sessionMapper.ResolveAsync(platformKey, ctx.CancellationToken);
 

@@ -122,10 +122,8 @@ internal sealed class OpenRouterChatClient : IChatClient
         var toolCallAccumulators = new Dictionary<int, ToolCallAccumulator>();
         var reasoningAccumulators = new Dictionary<int, ReasoningAccumulator>();
 
-        while (!reader.EndOfStream)
+        while (await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false) is { } line)
         {
-            var line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
-            
             // ✨ PERFORMANCE: Early validation before any processing
             if (string.IsNullOrWhiteSpace(line) || 
                 OpenRouterErrorHandler.IsProcessingComment(line) ||

@@ -38,6 +38,8 @@ using HPDOS.ToolHarnesses.Middleware;
 [JsonSerializable(typeof(AskRuleProposal))]
 [JsonSerializable(typeof(DenyRuleProposal))]
 [JsonSerializable(typeof(ExecuteCommandPermissionRule))]
+[JsonSerializable(typeof(ExecuteCommandPermissionRule[]), TypeInfoPropertyName = "ExecuteCommandPermissionRuleArray")]
+[JsonSerializable(typeof(IReadOnlyList<ExecuteCommandPermissionRule>), TypeInfoPropertyName = "ExecuteCommandPermissionRuleReadOnlyList")]
 [JsonSerializable(typeof(ExecuteCommandSubcommandPlan))]
 [JsonSerializable(typeof(ExecuteCommandShellScope))]
 [JsonSerializable(typeof(ExecuteCommandPermissionWorkspaceScope))]

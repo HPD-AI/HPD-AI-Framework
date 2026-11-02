@@ -9,6 +9,7 @@ public sealed class McpConfigurationCompositionGenerator : IIncrementalGenerator
 {
     private const string PackageTypeName = "HPD.Agent.MCP.McpConfigurationPackage";
 
+    /// <inheritdoc />
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         var referenced = context.CompilationProvider.Select(static (compilation, _) =>

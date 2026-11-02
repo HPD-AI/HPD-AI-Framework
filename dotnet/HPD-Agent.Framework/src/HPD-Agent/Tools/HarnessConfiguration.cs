@@ -145,7 +145,8 @@ public abstract class HarnessConfigurationContract
             {
                 var fieldPath = path + "." + property.Name;
                 if (!seen.Add(property.Name)) throw Error("HarnessConfigDuplicateProperty", fieldPath, "Duplicate setting.");
-                if (schema.Properties?.TryGetValue(property.Name, out var childSchema) != true)
+                if (schema.Properties is null ||
+                    !schema.Properties.TryGetValue(property.Name, out var childSchema))
                     throw Error("HarnessConfigUnknownProperty", fieldPath, "Unknown setting; names are case-sensitive.");
                 var child = target[property.Name]?.DeepClone();
                 MergeNode(ref child, property.Value, childSchema, run, fieldPath);
@@ -190,7 +191,8 @@ public abstract class HarnessConfigurationContract
             var schema = Schema; var value = libraryDefaults; var target = resetPatch;
             for (var index = 0; index < parts.Length; index++)
             {
-                if (schema.Properties?.TryGetValue(parts[index], out var child) != true)
+                if (schema.Properties is null ||
+                    !schema.Properties.TryGetValue(parts[index], out var child))
                     throw Error("HarnessResetInvalid", path + ".resets", "Reset must target a declared setting.");
                 schema = child;
                 if (!value.TryGetProperty(parts[index], out value))
