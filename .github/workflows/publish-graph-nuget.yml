@@ -119,6 +119,39 @@ jobs:
           fi
           dotnet nuget push ./nupkg-graph/*.nupkg --source https://api.nuget.org/v3/index.json --api-key "$NUGET_KEY" --skip-duplicate
 
+      - name: Wait for NuGet package availability
+        env:
+          PACKAGE_VERSION: ${{ needs.determine-version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          PACKAGE_IDS=(
+            "HPD-Graph.Abstractions"
+            "HPD-Graph.Core"
+          )
+          VERSION_LOWER="${PACKAGE_VERSION,,}"
+
+          for attempt in {1..60}; do
+            all_available=true
+            for PACKAGE_ID in "${PACKAGE_IDS[@]}"; do
+              PACKAGE_ID_LOWER="${PACKAGE_ID,,}"
+              PACKAGE_URL="https://api.nuget.org/v3-flatcontainer/$PACKAGE_ID_LOWER/$VERSION_LOWER/$PACKAGE_ID_LOWER.$VERSION_LOWER.nupkg"
+              if ! curl -fsSL -o /dev/null "$PACKAGE_URL"; then
+                all_available=false
+              fi
+            done
+
+            if [[ "$all_available" == "true" ]]; then
+              echo "All HPD-Graph $PACKAGE_VERSION packages are available from NuGet."
+              exit 0
+            fi
+            echo "Waiting for HPD-Graph $PACKAGE_VERSION to become available (attempt $attempt/60)..."
+            sleep 10
+          done
+
+          echo "::error::HPD-Graph $PACKAGE_VERSION did not become available within 10 minutes."
+          exit 1
+
       - name: Summary
         run: |
           echo "## Published HPD-Graph Packages" >> $GITHUB_STEP_SUMMARY

@@ -146,6 +146,29 @@ jobs:
           fi
           dotnet nuget push ./nupkg-tui/*.nupkg --source https://api.nuget.org/v3/index.json --api-key "$NUGET_KEY" --skip-duplicate
 
+      - name: Wait for NuGet package availability
+        env:
+          PACKAGE_VERSION: ${{ needs.determine-version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          PACKAGE_ID="HPD-TUI"
+          PACKAGE_ID_LOWER="${PACKAGE_ID,,}"
+          VERSION_LOWER="${PACKAGE_VERSION,,}"
+          PACKAGE_URL="https://api.nuget.org/v3-flatcontainer/$PACKAGE_ID_LOWER/$VERSION_LOWER/$PACKAGE_ID_LOWER.$VERSION_LOWER.nupkg"
+
+          for attempt in {1..60}; do
+            if curl -fsSL -o /dev/null "$PACKAGE_URL"; then
+              echo "$PACKAGE_ID $PACKAGE_VERSION is available from NuGet."
+              exit 0
+            fi
+            echo "Waiting for $PACKAGE_ID $PACKAGE_VERSION to become available (attempt $attempt/60)..."
+            sleep 10
+          done
+
+          echo "::error::$PACKAGE_ID $PACKAGE_VERSION did not become available within 10 minutes."
+          exit 1
+
       - name: Summary
         run: |
           echo "## Published HPD-TUI" >> $GITHUB_STEP_SUMMARY
