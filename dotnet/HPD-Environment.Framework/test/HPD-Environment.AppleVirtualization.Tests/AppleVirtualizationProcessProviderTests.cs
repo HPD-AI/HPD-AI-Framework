@@ -886,7 +886,7 @@ public sealed class AppleVirtualizationProcessProviderTests
         AppleVirtualizationProcessStartRequest request = fixture.Helper.Requests.Single().ProcessStartRequest!;
         request.Isolation.Should().Be(spec.Isolation);
         request.SandboxPlan.Should().NotBeNull();
-        request.SandboxPlan!.EnforcementLocation.Should().Be(HPD.Agent.Sandbox.ProcessIsolation.SandboxEnforcementLocation.Guest);
+        request.SandboxPlan!.EnforcementLocation.Should().Be(SandboxEnforcementLocation.Guest);
         request.SandboxPlan.ExecutionPlatform.OperatingSystem.Should().Be("linux");
         request.SandboxPlan.Plan.Filesystem.Rules.Should().ContainSingle(rule =>
             rule.Kind == PathAccessRuleKind.AllowWrite &&

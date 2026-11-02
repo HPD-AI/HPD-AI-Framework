@@ -3,7 +3,6 @@ namespace HPD.Environment.AppleVirtualization;
 using System.Runtime.InteropServices;
 using System.Text.Json.Serialization;
 using System.Runtime.CompilerServices;
-using HPD.Agent.Sandbox.ProcessIsolation;
 using HPD.Environment.AppleVirtualization.Activation;
 using HPD.Environment.AppleVirtualization.Authority;
 using HPD.Environment.AppleVirtualization.Engines;

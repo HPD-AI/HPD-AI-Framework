@@ -1,9 +1,9 @@
 using System.Net;
 using System.Text.RegularExpressions;
 
-namespace HPD.Agent.Sandbox.Policy;
+namespace HPD.Environment.Contracts;
 
-internal enum DomainPatternKind
+public enum DomainPatternKind
 {
     ExactHost,
     WildcardSubdomain,
@@ -14,7 +14,7 @@ internal enum DomainPatternKind
 /// <summary>
 /// Validated network domain pattern.
 /// </summary>
-internal sealed partial record DomainPattern
+public sealed partial record DomainPattern
 {
     private DomainPattern(string raw, string canonical, DomainPatternKind kind)
     {
@@ -129,19 +129,6 @@ internal sealed partial record DomainPattern
 
         pattern = new DomainPattern(raw, lowered, DomainPatternKind.ExactHost);
         return true;
-    }
-
-    public bool Matches(CanonicalHost host)
-    {
-        return Kind switch
-        {
-            DomainPatternKind.Localhost => host.Value == "localhost",
-            DomainPatternKind.IpLiteral => host.IsIpLiteral && host.Value == Canonical,
-            DomainPatternKind.ExactHost => !host.IsIpLiteral && host.Value == Canonical,
-            DomainPatternKind.WildcardSubdomain => !host.IsIpLiteral &&
-                host.Value.EndsWith("." + Canonical, StringComparison.Ordinal),
-            _ => false,
-        };
     }
 
     private static bool IsValidDomainName(string value)

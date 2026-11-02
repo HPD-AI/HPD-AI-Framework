@@ -1,7 +1,5 @@
-namespace HPD.Agent.Sandbox.ProcessIsolation;
+namespace HPD.Environment.Contracts;
 
-using HPD.Environment.Contracts;
-using HPD.Agent.Sandbox.Policy;
 
 public sealed record SandboxIsolationPlan
 {

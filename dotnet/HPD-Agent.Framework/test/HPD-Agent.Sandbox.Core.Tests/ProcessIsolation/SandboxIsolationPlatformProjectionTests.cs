@@ -4,7 +4,6 @@ using FluentAssertions;
 using HPD.Environment.Contracts;
 using HPD.Agent.Sandbox.Platforms.Linux;
 using HPD.Agent.Sandbox.Platforms.MacOS;
-using HPD.Agent.Sandbox.ProcessIsolation;
 using HPD.Agent.Sandbox.Security;
 using Xunit;
 

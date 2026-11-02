@@ -5,12 +5,12 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
-using HPD.Agent.Sandbox.ProcessIsolation;
 using HPD.Environment.AppleVirtualization.Authority;
 using HPD.Environment.AppleVirtualization.Hosts;
 using HPD.Environment.AppleVirtualization.Protocol;
 using HPD.Environment.AppleVirtualization.State;
 using HPD.Environment.Contracts;
+using HPD.Environment.Runtime;
 
 public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IRetainedProcessProvider
 {

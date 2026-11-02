@@ -1,4 +1,8 @@
 <Project>
+  <PropertyGroup>
+    <IsHpdAgentFrameworkProject Condition="'$(IsHpdAgentFrameworkProject)' == ''">$([System.String]::Copy('$(MSBuildProjectFullPath)').StartsWith('$(MSBuildThisFileDirectory)HPD-Agent.Framework'))</IsHpdAgentFrameworkProject>
+  </PropertyGroup>
+
   <PropertyGroup Condition="'$(TargetFramework)' != '' AND '$(TargetFrameworks)' == '$(TargetFrameworksModern)'">
     <TargetFrameworks></TargetFrameworks>
   </PropertyGroup>
@@ -7,14 +11,14 @@
     <TargetFrameworks></TargetFrameworks>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(MSBuildProjectName)' != 'HPD-Agent.EventPrecompiler' And Exists('$(MSBuildThisFileDirectory)HPD-Agent.Framework/src/HPD-Agent/buildTransitive/HPD-Agent.Framework.targets')">
+  <PropertyGroup Condition="'$(IsHpdAgentFrameworkProject)' == 'true' And '$(MSBuildProjectName)' != 'HPD-Agent.EventPrecompiler' And Exists('$(MSBuildThisFileDirectory)HPD-Agent.Framework/src/HPD-Agent/buildTransitive/HPD-Agent.Framework.targets')">
     <HpdAgentEventPrecompilerPath>$(MSBuildThisFileDirectory)HPD-Agent.Framework/src/HPD-Agent.EventPrecompiler/bin/Debug/net8.0/HPD-Agent.EventPrecompiler.dll</HpdAgentEventPrecompilerPath>
     <HpdAgentEventPrecompileDependsOn>HpdBuildEventPrecompiler</HpdAgentEventPrecompileDependsOn>
     <HpdAgentEventPrecompileRequireAnalyzer Condition="'$(HpdAgentEventPrecompileRequireAnalyzer)' == ''">true</HpdAgentEventPrecompileRequireAnalyzer>
   </PropertyGroup>
 
   <Target Name="HpdBuildEventPrecompiler"
-          Condition="'$(MSBuildProjectName)' != 'HPD-Agent.EventPrecompiler' And Exists('$(MSBuildThisFileDirectory)HPD-Agent.Framework/src/HPD-Agent.EventPrecompiler/HPD-Agent.EventPrecompiler.csproj')">
+          Condition="'$(IsHpdAgentFrameworkProject)' == 'true' And '$(MSBuildProjectName)' != 'HPD-Agent.EventPrecompiler' And Exists('$(MSBuildThisFileDirectory)HPD-Agent.Framework/src/HPD-Agent.EventPrecompiler/HPD-Agent.EventPrecompiler.csproj')">
     <MSBuild Projects="$(MSBuildThisFileDirectory)HPD-Agent.Framework/src/HPD-Agent.EventPrecompiler/HPD-Agent.EventPrecompiler.csproj"
              Targets="Restore;Build"
              BuildInParallel="false"
@@ -22,5 +26,5 @@
   </Target>
 
   <Import Project="$(MSBuildThisFileDirectory)HPD-Agent.Framework/src/HPD-Agent/buildTransitive/HPD-Agent.Framework.targets"
-          Condition="'$(MSBuildProjectName)' != 'HPD-Agent.EventPrecompiler' And Exists('$(MSBuildThisFileDirectory)HPD-Agent.Framework/src/HPD-Agent/buildTransitive/HPD-Agent.Framework.targets')" />
+          Condition="'$(IsHpdAgentFrameworkProject)' == 'true' And '$(MSBuildProjectName)' != 'HPD-Agent.EventPrecompiler' And Exists('$(MSBuildThisFileDirectory)HPD-Agent.Framework/src/HPD-Agent/buildTransitive/HPD-Agent.Framework.targets')" />
 </Project>

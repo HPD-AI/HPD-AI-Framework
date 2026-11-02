@@ -1,6 +1,7 @@
 using System.Text;
 using HPD.Agent.Sandbox.ProcessIsolation;
 using HPD.Agent.Sandbox.Security;
+using HPD.Environment.Contracts;
 
 namespace HPD.Agent.Sandbox.Platforms.MacOS;
 

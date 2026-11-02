@@ -1,5 +1,6 @@
 using System.Threading.Channels;
 using HPD.Agent.Sandbox.ProcessIsolation;
+using HPD.Environment.Contracts;
 
 namespace HPD.Agent.Sandbox.Platforms;
 

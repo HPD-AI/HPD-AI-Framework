@@ -1,5 +1,7 @@
 namespace HPD.Agent.Sandbox.ProcessIsolation;
 
+using HPD.Environment.Contracts;
+
 public sealed class HostSandboxApplicator : ISandboxApplicator
 {
     private readonly SandboxIsolationManager _isolationManager;

@@ -3,7 +3,7 @@ namespace HPD.Agent.Sandbox.Tests.ProcessIsolation;
 using FluentAssertions;
 using HPD.Environment.Contracts;
 using HPD.Agent.Sandbox.Policy;
-using HPD.Agent.Sandbox.ProcessIsolation;
+using HPD.Environment.Runtime;
 using Xunit;
 
 public sealed class SandboxIsolationCompilerTests

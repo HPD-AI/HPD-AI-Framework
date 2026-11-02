@@ -3,6 +3,7 @@ using HPD.Agent.Sandbox.Network;
 using HPD.Agent.Sandbox.Platforms.Linux.Seccomp;
 using HPD.Agent.Sandbox.ProcessIsolation;
 using HPD.Agent.Sandbox.Security;
+using HPD.Environment.Contracts;
 using Microsoft.Extensions.Logging;
 
 namespace HPD.Agent.Sandbox.Platforms.Linux;

@@ -3,10 +3,10 @@ namespace HPD.Environment.AppleVirtualization.Tests;
 using System.Text;
 using System.Text.Json;
 using FluentAssertions;
-using HPD.Agent.Sandbox.ProcessIsolation;
 using HPD.Environment.AppleVirtualization.GuestAgent;
 using HPD.Environment.AppleVirtualization.Protocol;
 using HPD.Environment.Contracts;
+using HPD.Environment.Runtime;
 using Xunit;
 
 public sealed class AppleVirtualizationHelperProtocolTests

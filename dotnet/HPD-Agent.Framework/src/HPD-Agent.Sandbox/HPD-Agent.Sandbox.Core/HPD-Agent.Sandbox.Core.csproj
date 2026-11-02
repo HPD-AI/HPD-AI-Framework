@@ -20,9 +20,13 @@
   <ItemGroup>
     <ProjectReference Include="../../HPD-Agent/HPD-Agent.csproj" />
     <ProjectReference Include="../../../../shared/src/HPD-Events/HPD-Events.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
+    <ProjectReference Include="../../../../HPD-Environment.Framework/src/HPD-Environment.Abstractions/HPD-Environment.Abstractions.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
+    <ProjectReference Include="../../../../HPD-Environment.Framework/src/HPD-Environment.Runtime/HPD-Environment.Runtime.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
 
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.13" />
     <PackageReference Include="HPD-Events" Version="$(HPDEventsVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
+    <PackageReference Include="HPD-Environment.Abstractions" Version="$(HPDEnvironmentVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
+    <PackageReference Include="HPD-Environment.Runtime" Version="$(HPDEnvironmentVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
   </ItemGroup>
 
   <ItemGroup>

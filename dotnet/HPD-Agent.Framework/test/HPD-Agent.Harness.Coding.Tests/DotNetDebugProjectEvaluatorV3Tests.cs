@@ -8,6 +8,7 @@ using HPD.Agent.Sandbox.Local;
 using HPD.Agent.Sandbox.ProcessIsolation;
 using HPD.Agent.ToolHarness.Coding.Debugging;
 using HPD.Environment.Contracts;
+using HPD.Environment.Runtime;
 
 namespace HPD.Agent.ToolHarness.Coding.Tests;
 

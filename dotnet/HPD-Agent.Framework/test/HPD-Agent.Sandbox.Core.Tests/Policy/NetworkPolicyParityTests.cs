@@ -1,5 +1,6 @@
 using FluentAssertions;
 using HPD.Agent.Sandbox.Policy;
+using HPD.Environment.Contracts;
 using Xunit;
 
 namespace HPD.Agent.Sandbox.Tests.Policy;

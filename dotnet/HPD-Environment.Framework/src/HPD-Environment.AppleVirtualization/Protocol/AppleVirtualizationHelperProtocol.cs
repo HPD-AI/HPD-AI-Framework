@@ -6,7 +6,6 @@ using System.Runtime.CompilerServices;
 using HPD.Environment.AppleVirtualization;
 using HPD.Environment.AppleVirtualization.GuestAgent;
 using HPD.Environment.Contracts;
-using HPD.Agent.Sandbox.ProcessIsolation;
 
 public static class AppleVirtualizationHelperProtocol
 {

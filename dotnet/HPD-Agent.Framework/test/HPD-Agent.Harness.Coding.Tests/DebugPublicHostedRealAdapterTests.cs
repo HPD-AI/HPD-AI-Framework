@@ -16,6 +16,7 @@ using HPD.Agent.Sandbox.Local;
 using HPD.Agent.Sandbox.ProcessIsolation;
 using HPD.Events.Core;
 using HPD.Environment.Contracts;
+using HPD.Environment.Runtime;
 using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;

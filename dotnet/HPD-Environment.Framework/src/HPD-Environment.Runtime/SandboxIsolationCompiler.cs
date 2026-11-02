@@ -1,7 +1,6 @@
-namespace HPD.Agent.Sandbox.ProcessIsolation;
+namespace HPD.Environment.Runtime;
 
 using HPD.Environment.Contracts;
-using HPD.Agent.Sandbox.Policy;
 
 public sealed class SandboxIsolationPlanner : ISandboxPlanner
 {
