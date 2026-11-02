@@ -12,6 +12,10 @@ concurrency:
   group: hpd-agent-release
   cancel-in-progress: false
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   validate:
     runs-on: ubuntu-latest
