@@ -11,6 +11,19 @@ on:
         description: 'HPD-Events package version to validate against. Defaults to latest stable on NuGet.'
         required: false
         type: string
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version to publish'
+        required: true
+        type: string
+      hpd_events_version:
+        description: 'Published HPD-Events version'
+        required: false
+        type: string
+    secrets:
+      NUGET_API_KEY:
+        required: true
 
 jobs:
   determine-version:

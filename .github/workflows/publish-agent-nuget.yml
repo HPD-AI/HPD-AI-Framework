@@ -35,6 +35,43 @@ on:
         description: 'HPD-OpenApi.Core package version to validate against. Defaults to latest stable on NuGet.'
         required: false
         type: string
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version to publish'
+        required: true
+        type: string
+      hpd_environment_version:
+        description: 'Published HPD-Environment version'
+        required: false
+        type: string
+      hpd_graph_version:
+        description: 'Published HPD-Graph version'
+        required: false
+        type: string
+      hpd_tui_version:
+        description: 'Published HPD-TUI version'
+        required: false
+        type: string
+      hpd_realtime_media_version:
+        description: 'Published HPD-RealtimeMedia version'
+        required: false
+        type: string
+      hpd_events_version:
+        description: 'Published HPD-Events version'
+        required: false
+        type: string
+      hpd_serialization_version:
+        description: 'Published HPD-Serialization version'
+        required: false
+        type: string
+      hpd_openapi_core_version:
+        description: 'Published HPD-OpenApi.Core version'
+        required: false
+        type: string
+    secrets:
+      NUGET_API_KEY:
+        required: true
 
 jobs:
   determine-version:

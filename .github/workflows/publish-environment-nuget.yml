@@ -7,6 +7,15 @@ on:
         description: 'Version to publish (e.g., 0.2.0 or 0.2.0-alpha)'
         required: true
         type: string
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version to publish'
+        required: true
+        type: string
+    secrets:
+      NUGET_API_KEY:
+        required: true
 
 jobs:
   determine-version:

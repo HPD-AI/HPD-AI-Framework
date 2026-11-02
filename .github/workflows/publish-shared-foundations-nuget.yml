@@ -15,6 +15,19 @@ on:
         description: 'Version to publish (e.g., 0.2.0 or 0.2.0-alpha)'
         required: true
         type: string
+  workflow_call:
+    inputs:
+      package:
+        description: 'Shared foundation package to publish'
+        required: true
+        type: string
+      version:
+        description: 'Version to publish'
+        required: true
+        type: string
+    secrets:
+      NUGET_API_KEY:
+        required: true
 
 jobs:
   determine-version:
@@ -109,7 +122,7 @@ jobs:
       - name: Upload shared foundation package as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: shared-foundation-nuget-package
+          name: shared-foundation-${{ inputs.package }}-nuget-package
           path: ./nupkg-shared-foundations/*.nupkg
 
       - name: Push shared foundation package to NuGet

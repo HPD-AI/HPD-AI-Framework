@@ -1,0 +1,111 @@
+name: Release HPD Agent and Dependencies
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version for every package in the HPD Agent release train'
+        required: true
+        type: string
+
+concurrency:
+  group: hpd-agent-release
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Validate release version
+        id: version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          VERSION="${INPUT_VERSION#v}"
+
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Version must be a three-part NuGet version with an optional prerelease suffix."
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing all HPD Agent train packages as $VERSION"
+
+  publish-serialization:
+    needs: validate
+    uses: ./.github/workflows/publish-shared-foundations-nuget.yml
+    with:
+      package: HPD-Serialization
+      version: ${{ needs.validate.outputs.version }}
+    secrets: inherit
+
+  publish-events:
+    needs: validate
+    uses: ./.github/workflows/publish-shared-foundations-nuget.yml
+    with:
+      package: HPD-Events
+      version: ${{ needs.validate.outputs.version }}
+    secrets: inherit
+
+  publish-openapi-core:
+    needs: [validate, publish-serialization]
+    uses: ./.github/workflows/publish-shared-foundations-nuget.yml
+    with:
+      package: HPD-OpenApi.Core
+      version: ${{ needs.validate.outputs.version }}
+    secrets: inherit
+
+  publish-environment:
+    needs: validate
+    uses: ./.github/workflows/publish-environment-nuget.yml
+    with:
+      version: ${{ needs.validate.outputs.version }}
+    secrets: inherit
+
+  publish-realtime-media:
+    needs: [validate, publish-events]
+    uses: ./.github/workflows/publish-realtime-media-nuget.yml
+    with:
+      version: ${{ needs.validate.outputs.version }}
+    secrets: inherit
+
+  publish-tui:
+    needs: [validate, publish-events]
+    uses: ./.github/workflows/publish-tui-nuget.yml
+    with:
+      version: ${{ needs.validate.outputs.version }}
+      hpd_events_version: ${{ needs.validate.outputs.version }}
+    secrets: inherit
+
+  publish-graph:
+    needs: [validate, publish-events, publish-serialization, publish-openapi-core]
+    uses: ./.github/workflows/publish-graph-nuget.yml
+    with:
+      version: ${{ needs.validate.outputs.version }}
+    secrets: inherit
+
+  publish-agent:
+    needs:
+      - validate
+      - publish-environment
+      - publish-events
+      - publish-serialization
+      - publish-openapi-core
+      - publish-realtime-media
+      - publish-tui
+      - publish-graph
+    uses: ./.github/workflows/publish-agent-nuget.yml
+    with:
+      version: ${{ needs.validate.outputs.version }}
+      hpd_environment_version: ${{ needs.validate.outputs.version }}
+      hpd_graph_version: ${{ needs.validate.outputs.version }}
+      hpd_tui_version: ${{ needs.validate.outputs.version }}
+      hpd_realtime_media_version: ${{ needs.validate.outputs.version }}
+      hpd_events_version: ${{ needs.validate.outputs.version }}
+      hpd_serialization_version: ${{ needs.validate.outputs.version }}
+      hpd_openapi_core_version: ${{ needs.validate.outputs.version }}
+    secrets: inherit
