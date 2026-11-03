@@ -6,6 +6,8 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <!-- Apple helper golden tests intentionally inspect platform and reflection-backed fixture contracts. -->
+    <NoWarn>$(NoWarn);CA1416;CS8425;CS8602;CS8625;IL2026;IL3050;xUnit1031</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

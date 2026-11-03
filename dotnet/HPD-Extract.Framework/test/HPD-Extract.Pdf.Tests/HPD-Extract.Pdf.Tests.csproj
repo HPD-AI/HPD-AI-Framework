@@ -6,6 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
+    <!-- Fixture tests intentionally use reflection-based JSON and concise collection assertions. -->
+    <NoWarn>$(NoWarn);IL2026;IL3050;xUnit2013</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

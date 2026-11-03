@@ -6,6 +6,8 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <!-- Contract-shape tests intentionally enumerate and inspect runtime reflection metadata. -->
+    <NoWarn>$(NoWarn);IL2026;IL2070</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

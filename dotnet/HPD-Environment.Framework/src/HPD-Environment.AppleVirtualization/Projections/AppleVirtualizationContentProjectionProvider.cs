@@ -648,7 +648,8 @@ internal sealed class AppleVirtualizationContentProjectionProvider : IContentPro
         string? expectedGuestBootGeneration)
     {
         AppleVirtualizationGuestAgentProjectionStatus? guestProjection = response?.GuestProjectionStatus;
-        bool guestBootMatches = GuestBootGenerationMatches(expectedGuestBootGeneration, guestProjection?.Generation ?? default);
+        bool guestBootMatches = guestProjection is { } verifiedProjection &&
+            GuestBootGenerationMatches(expectedGuestBootGeneration, verifiedProjection.Generation);
         bool guestVerified = response?.ReadyForHpdUse == true && guestBootMatches;
         ContentProjectionPhase projectionPhase = guestVerified ? ContentProjectionPhase.Projected : ContentProjectionPhase.Projecting;
         ResourcePhase phase = guestVerified ? ResourcePhase.Ready : ResourcePhase.Reconciling;
@@ -1384,7 +1385,9 @@ internal sealed class AppleVirtualizationContentProjectionProvider : IContentPro
 
         if (!guestBootMatches)
         {
-            string observed = FormatGuestBootGeneration(guestProjection?.Generation) ?? "unknown";
+            string observed = guestProjection is { } projection
+                ? FormatGuestBootGeneration(projection.Generation) ?? "unknown"
+                : "unknown";
             AddDiagnosticAndCondition(
                 metadata,
                 diagnostics,

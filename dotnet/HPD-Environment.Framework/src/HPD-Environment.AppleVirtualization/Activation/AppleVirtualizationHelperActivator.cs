@@ -2,6 +2,7 @@ namespace HPD.Environment.AppleVirtualization.Activation;
 
 using System.Buffers;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json;
 using System.Runtime.CompilerServices;
@@ -541,7 +542,7 @@ internal sealed class AppleVirtualizationHelperActivator :
 
     private bool TryValidateHello(
         AppleVirtualizationHelperEnvelope response,
-        out AppleVirtualizationHelperHelloResponse? hello,
+        [NotNullWhen(true)] out AppleVirtualizationHelperHelloResponse? hello,
         out Diagnostic? diagnostic)
     {
         hello = response.HelloResponse;

@@ -2648,7 +2648,7 @@ public sealed class FakeAppleVirtualizationGuestAgentToolHarness
             return request.ToErrorResponse(Interlocked.Increment(ref _sequence), MissingPayload("projection.sync"));
         }
 
-        if (ValidateProjectionReady(sync.ProjectionId, sync.Generation, out AppleVirtualizationGuestAgentError? error))
+        if (ValidateProjectionReady(sync.ProjectionId, sync.Generation) is { } error)
         {
             return request.ToErrorResponse(Interlocked.Increment(ref _sequence), error);
         }
@@ -2892,7 +2892,7 @@ public sealed class FakeAppleVirtualizationGuestAgentToolHarness
             return request.ToErrorResponse(Interlocked.Increment(ref _sequence), MissingPayload("projection.finalize"));
         }
 
-        if (ValidateProjectionReady(finalization.ProjectionId, finalization.Generation, out AppleVirtualizationGuestAgentError? error))
+        if (ValidateProjectionReady(finalization.ProjectionId, finalization.Generation) is { } error)
         {
             return request.ToErrorResponse(Interlocked.Increment(ref _sequence), error);
         }
@@ -2942,7 +2942,7 @@ public sealed class FakeAppleVirtualizationGuestAgentToolHarness
             return request.ToErrorResponse(Interlocked.Increment(ref _sequence), MissingPayload("projection.enumerateChanges"));
         }
 
-        if (ValidateProjectionReady(enumeration.ProjectionId, enumeration.Generation, out AppleVirtualizationGuestAgentError? error))
+        if (ValidateProjectionReady(enumeration.ProjectionId, enumeration.Generation) is { } error)
         {
             return request.ToErrorResponse(Interlocked.Increment(ref _sequence), error);
         }
@@ -2968,7 +2968,7 @@ public sealed class FakeAppleVirtualizationGuestAgentToolHarness
             return request.ToErrorResponse(Interlocked.Increment(ref _sequence), MissingPayload("projection.promote"));
         }
 
-        if (ValidateProjectionReady(promotion.ProjectionId, promotion.Generation, out AppleVirtualizationGuestAgentError? error))
+        if (ValidateProjectionReady(promotion.ProjectionId, promotion.Generation) is { } error)
         {
             return request.ToErrorResponse(Interlocked.Increment(ref _sequence), error);
         }
@@ -3005,14 +3005,16 @@ public sealed class FakeAppleVirtualizationGuestAgentToolHarness
         };
     }
 
-    private bool ValidateProjectionReady(
+    private AppleVirtualizationGuestAgentError? ValidateProjectionReady(
         string projectionId,
-        AppleVirtualizationGuestAgentProjectionGenerationStamp generation,
-        out AppleVirtualizationGuestAgentError? error)
+        AppleVirtualizationGuestAgentProjectionGenerationStamp generation)
     {
-        if (!_verifiedProjections.TryGetValue(projectionId, out AppleVirtualizationGuestAgentProjectionGenerationStamp observed))
+        if (!_verifiedProjections.TryGetValue(
+                projectionId,
+                out AppleVirtualizationGuestAgentProjectionGenerationStamp? observed) ||
+            observed is null)
         {
-            error = new AppleVirtualizationGuestAgentError
+            return new AppleVirtualizationGuestAgentError
             {
                 Code = "AppleVirtualization.ProjectionNotVerified",
                 Message = "Projection sync/finalization requires a guest-verified projection.",
@@ -3021,14 +3023,13 @@ public sealed class FakeAppleVirtualizationGuestAgentToolHarness
                 Retryable = true,
                 Severity = DiagnosticSeverity.Error,
             };
-            return true;
         }
 
         if (generation.ProjectionGeneration != 0 &&
             observed.ProjectionGeneration != 0 &&
             generation.ProjectionGeneration != observed.ProjectionGeneration)
         {
-            error = new AppleVirtualizationGuestAgentError
+            return new AppleVirtualizationGuestAgentError
             {
                 Code = "AppleVirtualization.ProjectionStaleGeneration",
                 Message = "Projection generation is stale for sync/finalization.",
@@ -3037,11 +3038,9 @@ public sealed class FakeAppleVirtualizationGuestAgentToolHarness
                 Retryable = true,
                 Severity = DiagnosticSeverity.Error,
             };
-            return true;
         }
 
-        error = null;
-        return false;
+        return null;
     }
 
     private static AppleVirtualizationGuestAgentProjectionSyncState UnsupportedSync(AppleVirtualizationGuestAgentProjectionSyncRequest sync)

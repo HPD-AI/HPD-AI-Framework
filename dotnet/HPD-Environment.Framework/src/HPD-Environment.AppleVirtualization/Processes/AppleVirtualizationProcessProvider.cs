@@ -2,6 +2,7 @@ namespace HPD.Environment.AppleVirtualization.Processes;
 
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
@@ -494,7 +495,7 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
 
     private bool TryGetStoredResult(
         TargetHandle<ProcessInvocation> handle,
-        out ProcessInvocationResult? result)
+        [NotNullWhen(true)] out ProcessInvocationResult? result)
     {
         AppleVirtualizationLedgerEntry<ProcessInvocation, ProcessInvocationStatus> entry = ResolveProcess(handle);
         result = entry.Status.Result;
@@ -1351,7 +1352,7 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
         AppleVirtualizationLedgerEntry<ProcessInvocation, ProcessInvocationStatus> entry,
         AppleVirtualizationHelperEnvelope response,
         string operation,
-        out Diagnostic? diagnostic)
+        [NotNullWhen(true)] out Diagnostic? diagnostic)
     {
         if (response.ResponseStatus == AppleVirtualizationHelperResponseStatus.Error)
         {
