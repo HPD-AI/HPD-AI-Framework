@@ -202,8 +202,8 @@ static async Task<int> ContinueAfterRestartAsync(
            inheritedClient.CallCount == 1 &&
            childDefaultClient.CallCount == 0 &&
            resolver.LeaseCount == 1 &&
-           continuedEvents.OfType<ThreadExecutionFinishedEvent>()
-               .Any(value => value.Outcome == ThreadExecutionOutcome.Succeeded) ? 0 : 7;
+           continuedEvents?.OfType<ThreadExecutionFinishedEvent>()
+               .Any(value => value.Outcome == ThreadExecutionOutcome.Succeeded) == true ? 0 : 7;
 }
 
 /// <summary>Commits operation facts to the durable child thread journal.</summary>

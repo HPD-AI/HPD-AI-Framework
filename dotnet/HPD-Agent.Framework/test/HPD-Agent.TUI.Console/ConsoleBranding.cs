@@ -78,7 +78,7 @@ internal static class ConsoleBranding
             output.Render(stack, in context, maxWidth);
         }
 
-        public bool HandleInput(in TuiInputEvent key)
+        public override bool HandleInput(in TuiInputEvent key)
         {
             return false;
         }
