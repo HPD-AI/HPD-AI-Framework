@@ -167,8 +167,17 @@ public sealed class SkillCapabilityContractTests
             builder._selectedToolHarnessFactories,
             candidate => candidate.Name == nameof(CombinedCapabilitiesTools));
 
-        var functions = factory.CreateFunctions(new CombinedCapabilitiesTools(), null, null);
-        var resource = Assert.Single(functions, function => function.Name == "read_validation_guide");
+        var instance = new CombinedCapabilitiesTools();
+        var functions = factory.CreateFunctions(instance, null, null);
+        var definitions = factory.CreateSkills!(instance, null, null);
+        var projected = RuntimeSkillFunctionProjector.Project(
+            factory.Name,
+            definitions.Select(static definition => definition.Definition).ToArray(),
+            functions,
+            null,
+            nativeDefinitions: definitions,
+            parentContainer: null);
+        var resource = Assert.Single(projected, function => function.Name == "read_validation_guide");
         var metadata = Assert.IsType<HPDCapabilityMetadata>(
             resource.AdditionalProperties![HPDCapabilityMetadata.AdditionalPropertiesKey]);
 
@@ -184,7 +193,16 @@ public sealed class SkillCapabilityContractTests
         var factory = Assert.Single(
             builder._selectedToolHarnessFactories,
             candidate => candidate.Name == nameof(CombinedCapabilitiesTools));
-        var functions = factory.CreateFunctions(new CombinedCapabilitiesTools(), null, null);
+        var instance = new CombinedCapabilitiesTools();
+        var functions = factory.CreateFunctions(instance, null, null);
+        var definitions = factory.CreateSkills!(instance, null, null);
+        functions.AddRange(RuntimeSkillFunctionProjector.Project(
+            factory.Name,
+            definitions.Select(static definition => definition.Definition).ToArray(),
+            functions,
+            null,
+            nativeDefinitions: definitions,
+            parentContainer: null));
         var visibility = new ToolVisibilityManager(functions);
 
         var before = visibility.GetToolsForAgentTurn(functions, ImmutableHashSet<string>.Empty);
@@ -266,8 +284,11 @@ public sealed class SkillCapabilityContractTests
         var source = new InMemorySkillSource();
         var builder = new AgentBuilder().WithToolHarness<CombinedCapabilitiesTools>(
             options => options.AddSkillSource(source));
+        var factory = Assert.Single(
+            builder._selectedToolHarnessFactories,
+            candidate => candidate.Name == nameof(CombinedCapabilitiesTools));
 
-        Assert.Same(source, Assert.Single(builder._skillSources[nameof(CombinedCapabilitiesTools)]));
+        Assert.Same(source, Assert.Single(builder._skillSources[factory.ActivationIdentity]));
     }
 
     private sealed class DelegateRunner(

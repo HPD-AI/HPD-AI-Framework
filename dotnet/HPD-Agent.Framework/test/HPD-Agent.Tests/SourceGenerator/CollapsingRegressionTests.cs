@@ -27,15 +27,12 @@ public class CollapsingRegressionTests
         var compilation = CSharpCompilation.Create(
             "TestAssembly",
             new[] { CSharpSyntaxTree.ParseText(source) },
-            new[]
-            {
-                MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(System.Runtime.CompilerServices.RuntimeHelpers).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(Microsoft.Extensions.AI.AIFunction).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(CollapseAttribute).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(System.Collections.Generic.List<>).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(System.Linq.Enumerable).Assembly.Location),
-            },
+            ((string?)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES"))!
+                .Split(Path.PathSeparator)
+                .Append(typeof(Microsoft.Extensions.AI.AIFunction).Assembly.Location)
+                .Append(typeof(CollapseAttribute).Assembly.Location)
+                .Distinct()
+                .Select(static path => MetadataReference.CreateFromFile(path)),
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
 
         var generator = new global::HPDToolSourceGenerator();
@@ -69,7 +66,7 @@ public class CollapsingRegressionTests
     [Fact]
     public void Bug1_ToolHarnessWithCollapseAndFunctionsButNoSkills_GeneratesContainer()
     {
-        // Arrange: ToolHarness with [Collapse] attribute (Collapsed=true), multiple functions, but NO skills
+        // Arrange: ToolHarness with [Collapse] attribute , multiple functions, but NO skills
         var HARNESSource = @"
 using HPD.Agent;
 using System;
@@ -83,13 +80,13 @@ namespace TestToolHarnesses
         SystemPrompt = ""Use these functions carefully."")]
     public partial class FunctionOnlyToolHarness
     {
-        [AIFunction]
+        [AIFunctionAttribute]
         public string Function1() => ""Result1"";
 
-        [AIFunction]
+        [AIFunctionAttribute]
         public string Function2() => ""Result2"";
 
-        [AIFunction]
+        [AIFunctionAttribute]
         public string Function3() => ""Result3"";
     }
 }";
@@ -130,16 +127,16 @@ namespace TestToolHarnesses
     [Fact]
     public void Bug2_CollapseOnlyToolHarness_TriggersSkillCodeGeneration()
     {
-        // Arrange: ToolHarness with [Collapse(Collapsed=true)] but no skills
+        // Arrange: ToolHarness with [Collapse] but no skills
         var HARNESSource = @"
 using HPD.Agent;
 
 namespace TestToolHarnesses
 {
-    [Collapse(""Collapsed ToolHarness without skills"", Collapsed = true)]
+    [Collapse(""Collapsed ToolHarness without skills"")]
     public partial class CollapseOnlyToolHarness
     {
-        [AIFunction]
+        [AIFunctionAttribute]
         public string DoSomething() => ""Done"";
     }
 }";
@@ -179,10 +176,10 @@ using HPD.Agent;
 
 namespace TestToolHarnesses
 {
-    [Collapse(""Test collapsed ToolHarness"", Collapsed = true)]
+    [Collapse(""Test collapsed ToolHarness"")]
     public partial class TestToolHarness
     {
-        [AIFunction]
+        [AIFunctionAttribute]
         public string TestFunction() => ""Test"";
     }
 }";
@@ -240,13 +237,13 @@ using HPD.Agent;
 
 namespace TestToolHarnesses
 {
-    [Collapse(""Explicitly registered collapsed ToolHarness"", Collapsed = true)]
+    [Collapse(""Explicitly registered collapsed ToolHarness"")]
     public partial class ExplicitToolHarness
     {
-        [AIFunction]
+        [AIFunctionAttribute]
         public string Func1() => ""1"";
 
-        [AIFunction]
+        [AIFunctionAttribute]
         public string Func2() => ""2"";
     }
 }";
@@ -298,7 +295,7 @@ namespace TestToolHarnesses
         FunctionResult = ""This is ephemeral context returned in function result."")]
     public partial class ContextToolHarness
     {
-        [AIFunction]
+        [AIFunctionAttribute]
         public string TestFunc() => ""Test"";
     }
 }";
@@ -330,7 +327,7 @@ namespace TestToolHarnesses
         SystemPrompt = ""This is persistent context injected into system prompt."")]
     public partial class SystemPromptToolHarness
     {
-        [AIFunction]
+        [AIFunctionAttribute]
         public string TestFunc() => ""Test"";
     }
 }";
@@ -363,7 +360,7 @@ namespace TestToolHarnesses
         SystemPrompt = ""Persistent instructions."")]
     public partial class DualContextToolHarness
     {
-        [AIFunction]
+        [AIFunctionAttribute]
         public string TestFunc() => ""Test"";
     }
 }";
@@ -391,10 +388,10 @@ using HPD.Agent;
 
 namespace TestToolHarnesses
 {
-    [Collapse(""ToolHarness without contexts"", Collapsed = true)]
+    [Collapse(""ToolHarness without contexts"")]
     public partial class NoContextToolHarness
     {
-        [AIFunction]
+        [AIFunctionAttribute]
         public string TestFunc() => ""Test"";
     }
 }";
@@ -423,7 +420,7 @@ namespace TestToolHarnesses
     public void Integration_FinancialAnalysisHARNESScenario_AllBugsFixed()
     {
         // Arrange: Realistic ToolHarness similar to FinancialAnalysisToolHarness
-        // - Has [Collapse(Collapsed=true)] attribute
+        // - Has [Collapse] attribute
         // - Has multiple functions (17 in real case, using 5 for test)
         // - Has NO skills
         // - Has both FunctionResult and SystemPrompt
@@ -447,19 +444,19 @@ Available capabilities:
 - Express currency values in USD unless specified otherwise"")]
     public partial class FinancialAnalysisToolHarness
     {
-        [AIFunction]
+        [AIFunctionAttribute]
         public string CalculateCommonSizePercentage(decimal value, decimal total) => ""Result"";
 
-        [AIFunction]
+        [AIFunctionAttribute]
         public string CalculateCurrentRatio(decimal currentAssets, decimal currentLiabilities) => ""Result"";
 
-        [AIFunction]
+        [AIFunctionAttribute]
         public string CalculateQuickRatio(decimal quickAssets, decimal currentLiabilities) => ""Result"";
 
-        [AIFunction]
+        [AIFunctionAttribute]
         public string ValidateAccountingEquation(decimal assets, decimal liabilities, decimal equity) => ""Result"";
 
-        [AIFunction]
+        [AIFunctionAttribute]
         public string ComprehensiveBalanceSheetAnalysis(string balanceSheetJson) => ""Result"";
     }
 }";

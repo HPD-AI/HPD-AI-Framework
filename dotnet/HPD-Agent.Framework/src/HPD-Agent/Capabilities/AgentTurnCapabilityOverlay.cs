@@ -119,14 +119,14 @@ internal sealed record AgentTurnCapabilityOverlay
                 metadata.Any(static value => value is null))
                 return false;
 
-            var activation = metadata.SingleOrDefault(static value =>
-                value!.Kind == HPDCapabilityKind.FunctionActivation);
-            var target = metadata.SingleOrDefault(static value =>
-                value!.Kind == HPDCapabilityKind.Function);
-            return activation is not null &&
-                   target is not null &&
-                   activation.Reveals.Contains(target.Id) &&
-                   target.ParentContainerIds.Contains(activation.Id);
+            var activations = metadata.Where(static value =>
+                value!.Kind == HPDCapabilityKind.FunctionActivation).ToArray();
+            var targets = metadata.Where(static value =>
+                value!.Kind == HPDCapabilityKind.Function).ToArray();
+            return activations.Length == 1 &&
+                   targets.Length == 1 &&
+                   activations[0]!.Reveals.Contains(targets[0]!.Id) &&
+                   targets[0]!.ParentContainerIds.Contains(activations[0]!.Id);
         }
     }
 

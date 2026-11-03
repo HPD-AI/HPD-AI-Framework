@@ -86,8 +86,10 @@ public class AgentBuilderWithToolTests
             .GetMethod("ResolveConfigToolHarnesses", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
             .Invoke(builder, null);
 
-        Assert.Equal(new[] { "get_forecast" }, builder._toolFunctionFilters[nameof(NamedWeatherToolHarness)]);
-        Assert.Single(builder._selectedToolHarnessFactories.Where(factory => factory.Name == nameof(NamedWeatherToolHarness)));
+        var factory = Assert.Single(
+            builder._selectedToolHarnessFactories,
+            factory => factory.Name == nameof(NamedWeatherToolHarness));
+        Assert.Equal(new[] { "get_forecast" }, builder._toolFunctionFilters[factory.ActivationIdentity]);
     }
 
     [Fact]
@@ -221,7 +223,17 @@ public class AgentBuilderWithToolTests
     public void GeneratedFactory_CreatesSkillCapabilityWithoutDiscoveryLeakage()
     {
         var factory = GetAdvancedFactory();
-        var functions = factory.CreateFunctions(new ReflectionAdvancedToolHarness(), null, null);
+        var instance = new ReflectionAdvancedToolHarness();
+        var functions = factory.CreateFunctions(instance, null, null);
+        var skillDefinitions = factory.CreateSkills!(instance, null, null);
+        var projected = RuntimeSkillFunctionProjector.Project(
+            factory.Name,
+            skillDefinitions.Select(static definition => definition.Definition).ToArray(),
+            functions,
+            null,
+            nativeDefinitions: skillDefinitions,
+            parentContainer: null);
+        functions.AddRange(projected);
         var skill = Assert.Single(functions, f => f.Name == "order_support");
 
         Assert.Equal("Order support flow", skill.Description);
@@ -346,8 +358,17 @@ public class AgentBuilderWithToolTests
     [Fact]
     public void GeneratedFactory_PreservesMixedCapabilitiesWithoutNameCollisions()
     {
-        var functions = GetAdvancedFactory()
-            .CreateFunctions(new ReflectionAdvancedToolHarness(), null, null);
+        var factory = GetAdvancedFactory();
+        var instance = new ReflectionAdvancedToolHarness();
+        var functions = factory.CreateFunctions(instance, null, null);
+        var skillDefinitions = factory.CreateSkills!(instance, null, null);
+        functions.AddRange(RuntimeSkillFunctionProjector.Project(
+            factory.Name,
+            skillDefinitions.Select(static definition => definition.Definition).ToArray(),
+            functions,
+            null,
+            nativeDefinitions: skillDefinitions,
+            parentContainer: null));
 
         Assert.Single(functions, function => function.Name == "advanced_lookup_order");
         Assert.Single(functions, function => function.Name == "advanced_get_return_policy");

@@ -1141,14 +1141,15 @@ public class StructuredOutputTests
         };
 
         // Act & Assert
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        var ex = await Assert.ThrowsAsync<AgentRunConfigurationException>(async () =>
         {
             await foreach (var evt in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
             {
                 // Enumerate to trigger the exception
             }
         });
-        Assert.Contains("Unsupported structured output mode 'union'", ex.Message);
+        Assert.Equal("StructuredOutputConflict", ex.Code);
+        Assert.Equal("StructuredOutput.mode", ex.Path);
     }
 
     #endregion

@@ -404,7 +404,7 @@ public sealed class CompiledHarnessInheritanceTests
                 public static class McpCapabilitySourceFactory
                 {
                     public static HPD.Agent.IAgentCapabilitySourceFactory? FromServer(
-                        string id, McpServerConfig config, string owner, bool collapse, bool? permission) => null;
+                        string id, global::McpServerConfig config, string owner, bool collapse, bool? permission) => null;
                 }
             }
             namespace SourcePackage
@@ -414,7 +414,7 @@ public sealed class CompiledHarnessInheritanceTests
                     [AIFunction]
                     public string Backtest() => "done";
                     [McpServer("fixture")]
-                    public McpServerConfig Tools()
+                    public global::McpServerConfig Tools()
                     {
                         System.Threading.Interlocked.Increment(ref SourceProviderState.McpCalls);
                         return new();
@@ -567,7 +567,7 @@ public sealed class CompiledHarnessInheritanceTests
                 public static class McpCapabilitySourceFactory
                 {
                     public static IAgentCapabilitySourceFactory FromServer(
-                        string id, McpServerConfig config, string owner, bool collapse, bool? permission)
+                        string id, global::McpServerConfig config, string owner, bool collapse, bool? permission)
                         => new FakeFactory(CapabilitySourceId.Create(id));
                 }
                 internal sealed class FakeFactory(CapabilitySourceId id) : IAgentCapabilitySourceFactory
@@ -619,7 +619,7 @@ public sealed class CompiledHarnessInheritanceTests
                 public class BaseHarness
                 {
                     [McpServer("fixture")]
-                    public McpServerConfig Tools() => new();
+                    public global::McpServerConfig Tools() => new();
                 }
             }
             """));

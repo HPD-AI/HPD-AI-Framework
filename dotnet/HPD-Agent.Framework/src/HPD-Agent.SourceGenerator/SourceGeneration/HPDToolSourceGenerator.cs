@@ -104,6 +104,7 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
                 className, namespaceName, capabilityDiagnostics);
             if (capability is not null) capabilities.Add(capability);
         }
+        AddSkillDeclarationDiagnostics(owner, semanticModel, capabilityDiagnostics);
 
         var collapseDeclarations = GetCollapseDeclarations(owner, semanticModel.Compilation);
         var isCollapsed = collapseDeclarations.Count != 0;
@@ -243,6 +244,103 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
             // ToolHarness-scoped middleware (015)
             CollapseMiddlewareEntries = collapseMiddlewareEntries
         };
+    }
+
+    private static void AddSkillDeclarationDiagnostics(
+        INamedTypeSymbol owner,
+        SemanticModel semanticModel,
+        List<Diagnostic> diagnostics)
+    {
+        foreach (var reference in owner.DeclaringSyntaxReferences)
+        {
+            if (reference.GetSyntax() is not ClassDeclarationSyntax declaration) continue;
+            foreach (var method in declaration.Members.OfType<MethodDeclarationSyntax>())
+            {
+                if (!method.AttributeLists.SelectMany(static list => list.Attributes).Any(attribute =>
+                        attribute.Name.ToString() is "Skill" or "SkillAttribute"))
+                    continue;
+
+                var methodSymbol = semanticModel.GetDeclaredSymbol(method);
+                if (methodSymbol is null) continue;
+                var methodName = methodSymbol.Name;
+                if (methodSymbol.DeclaredAccessibility != Accessibility.Public)
+                {
+                    diagnostics.Add(Diagnostic.Create(
+                        HPD.Agent.SourceGenerator.Capabilities.SkillDiagnostics.InaccessibleMember,
+                        method.Identifier.GetLocation(),
+                        methodName));
+                }
+
+                var create = method.DescendantNodes().OfType<InvocationExpressionSyntax>().FirstOrDefault(
+                    invocation => semanticModel.GetSymbolInfo(invocation).Symbol is IMethodSymbol
+                    {
+                        Name: "Create",
+                        ContainingType.Name: "Skill"
+                    });
+                if (create is null || create.ArgumentList.Arguments.Count < 3) continue;
+
+                var description = semanticModel.GetConstantValue(create.ArgumentList.Arguments[1].Expression);
+                if (!description.HasValue || description.Value is not string descriptionText ||
+                    string.IsNullOrWhiteSpace(descriptionText))
+                {
+                    diagnostics.Add(Diagnostic.Create(
+                        HPD.Agent.SourceGenerator.Capabilities.SkillDiagnostics.InvalidDescription,
+                        create.ArgumentList.Arguments[1].GetLocation(),
+                        methodName));
+                }
+
+                var childNames = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var invocation in create.DescendantNodes().OfType<InvocationExpressionSyntax>())
+                {
+                    var symbol = semanticModel.GetSymbolInfo(invocation).Symbol as IMethodSymbol;
+                    if (symbol?.ContainingType.Name != "SkillCapabilities" ||
+                        invocation.ArgumentList.Arguments.Count == 0)
+                        continue;
+
+                    if (symbol.Name == "Resource")
+                    {
+                        var name = semanticModel.GetConstantValue(
+                            invocation.ArgumentList.Arguments[0].Expression);
+                        if (name.Value is string resourceName && !childNames.Add(resourceName))
+                        {
+                            diagnostics.Add(Diagnostic.Create(
+                                HPD.Agent.SourceGenerator.Capabilities.SkillDiagnostics.DuplicateChildName,
+                                invocation.GetLocation(),
+                                methodName,
+                                resourceName));
+                        }
+                    }
+                    else if (symbol.Name == "Function")
+                    {
+                        var memberName = semanticModel.GetConstantValue(
+                            invocation.ArgumentList.Arguments[0].Expression);
+                        if (memberName.Value is not string referencedName) continue;
+                        var toolType = symbol.TypeArguments.Length == 1
+                            ? symbol.TypeArguments[0]
+                            : invocation.Expression is MemberAccessExpressionSyntax
+                            {
+                                Name: GenericNameSyntax
+                                {
+                                    TypeArgumentList.Arguments.Count: 1
+                                } genericName
+                            }
+                                ? semanticModel.GetTypeInfo(
+                                    genericName.TypeArgumentList.Arguments[0]).Type
+                                : null;
+                        var member = toolType?.GetMembers(referencedName).OfType<IMethodSymbol>().SingleOrDefault();
+                        if (member is null || !member.GetAttributes().Any(attribute =>
+                                attribute.AttributeClass?.Name == "AIFunctionAttribute"))
+                        {
+                            diagnostics.Add(Diagnostic.Create(
+                                HPD.Agent.SourceGenerator.Capabilities.SkillDiagnostics.MemberNotFunction,
+                                invocation.GetLocation(),
+                                methodName,
+                                referencedName));
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -497,11 +595,10 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
             }
         }
 
+        // DIAGNOSTIC: Generate detailed diagnostic report AFTER grouping
         // Invalid owners must not emit duplicate binders or otherwise misleading registrations.
         ToolHarnessGroups.RemoveAll(harness => harness.Diagnostics.Any(diagnostic =>
             diagnostic.Severity == DiagnosticSeverity.Error));
-
-        // DIAGNOSTIC: Generate detailed diagnostic report AFTER grouping
         var reportLines = string.Join("\\n", _diagnosticMessages.Select(m => m.Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "")));
         var diagnosticCode = $@"
 // HPD Source Generator Diagnostic Report

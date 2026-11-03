@@ -30,7 +30,7 @@ public class MultiAgentCapabilityGenerationTests
 
         code.Should().Contain("MultiAgentRuntime.InvokeAsync");
         code.Should().Contain("MultiAgentRuntime.MultiAgentInvocationRequest");
-        code.Should().Contain("Workflow = workflow");
+        code.Should().Contain("WorkflowFactory = () =>");
         code.Should().Contain("Name = \"ResearchWorkflow\"");
         code.Should().Contain("Input = input");
         code.Should().Contain("ParentContext = functionContext");

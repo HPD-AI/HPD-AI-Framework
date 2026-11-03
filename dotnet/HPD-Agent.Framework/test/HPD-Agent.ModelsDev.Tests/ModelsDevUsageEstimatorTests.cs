@@ -2,6 +2,7 @@ using FluentAssertions;
 using HPD.Agent.Providers;
 using Microsoft.Extensions.AI;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 
 namespace HPD.Agent.ModelsDev.Tests;
 
@@ -96,9 +97,12 @@ public sealed class ModelsDevUsageEstimatorTests
         var estimator = CreateEstimator(new ModelsDevCost { Input = 1m, Output = 2m });
         var result = await estimator.ValueAsync(new(Input(new UsageDetails { InputTokenCount = 10 }), []));
         var options = ModelsDevValuationJson.CreateOptions();
+        var typeInfo = options.GetTypeInfo(typeof(ProviderUsageValuation)) as
+            JsonTypeInfo<ProviderUsageValuation> ??
+            throw new InvalidOperationException("Missing generated valuation metadata.");
 
-        var json = JsonSerializer.Serialize(result, options);
-        var restored = JsonSerializer.Deserialize<ProviderUsageValuation>(json, options);
+        var json = JsonSerializer.Serialize(result, typeInfo);
+        var restored = JsonSerializer.Deserialize(json, typeInfo);
 
         json.Should().Contain("\"$type\"").And.Contain("\"models_dev\"");
         restored!.Amount.Should().Be(result.Amount);

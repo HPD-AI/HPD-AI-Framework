@@ -30,13 +30,14 @@ public class UnionModeTests
         };
 
         // Act & Assert
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        var ex = await Assert.ThrowsAsync<AgentRunConfigurationException>(async () =>
         {
             await foreach (var _ in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
             {
             }
         });
-        Assert.Contains("Unsupported structured output mode 'union'", ex.Message);
+        Assert.Equal("StructuredOutputConflict", ex.Code);
+        Assert.Equal("StructuredOutput.mode", ex.Path);
     }
 
     #region Tool Mode with UnionTypes (Merged Union Behavior)

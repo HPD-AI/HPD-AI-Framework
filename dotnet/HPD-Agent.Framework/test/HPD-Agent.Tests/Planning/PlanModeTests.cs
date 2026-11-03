@@ -432,7 +432,8 @@ public class PlanModeTests
 
         var registration = Assert.Single(
             builder._instanceRegistrations,
-            registration => registration.ToolTypeName == nameof(AgentPlanToolHarness));
+            registration => registration.ToolTypeName.EndsWith(
+                $":{nameof(AgentPlanToolHarness)}", StringComparison.Ordinal));
         Assert.IsType<AgentPlanToolHarness>(registration.Instance);
         Assert.Contains(builder.Middlewares, middleware => middleware is AgentPlanAgentMiddleware);
         var factory = builder._availableToolHarnesses[nameof(AgentPlanToolHarness)];

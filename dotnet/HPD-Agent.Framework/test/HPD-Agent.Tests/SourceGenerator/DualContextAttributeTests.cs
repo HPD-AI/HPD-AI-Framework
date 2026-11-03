@@ -27,7 +27,7 @@ using HPD.Agent;
 )]
 public class TestToolHarness
 {
-    [AIFunction]
+    [AIFunctionAttribute]
     public string TestFunction() => ""result"";
 }
 ";
@@ -61,7 +61,7 @@ using HPD.Agent;
 )]
 public class TestToolHarness
 {
-    [AIFunction]
+    [AIFunctionAttribute]
     public string TestFunction() => ""result"";
 }
 ";
@@ -90,7 +90,7 @@ using HPD.Agent;
 )]
 public class TestToolHarness
 {
-    [AIFunction]
+    [AIFunctionAttribute]
     public string TestFunction() => ""result"";
 }
 ";
@@ -123,7 +123,7 @@ using HPD.Agent;
 )]
 public class FinancialToolHarness
 {
-    [AIFunction]
+    [AIFunctionAttribute]
     public decimal Calculate(decimal x) => x;
 }
 ";
@@ -154,7 +154,7 @@ using HPD.Agent;
 )]
 public class TestToolHarness
 {
-    [AIFunction]
+    [AIFunctionAttribute]
     public string TestFunction() => ""result"";
 }
 ";
@@ -190,7 +190,7 @@ using HPD.Agent;
 )]
 public class TestToolHarness
 {
-    [AIFunction]
+    [AIFunctionAttribute]
     public string TestFunction() => ""result"";
 }
 ";
@@ -221,7 +221,7 @@ using HPD.Agent;
 )]
 public class TestToolHarness
 {
-    [AIFunction]
+    [AIFunctionAttribute]
     public string TestFunction() => ""result"";
 }
 ";
@@ -251,13 +251,13 @@ using HPD.Agent;
 )]
 public partial class TestToolHarness
 {
-    [AIFunction]
+    [AIFunctionAttribute]
     public string Function1() => ""result1"";
 }
 
 public partial class TestToolHarness
 {
-    [AIFunction]
+    [AIFunctionAttribute]
     public string Function2() => ""result2"";
 }
 ";
@@ -289,7 +289,7 @@ using HPD.Agent;
 )]
 public class LegacyToolHarness
 {
-    [AIFunction]
+    [AIFunctionAttribute]
     public string TestFunction() => ""result"";
 }
 ";
@@ -321,7 +321,7 @@ using HPD.Agent;
 )]
 public class TestToolHarness
 {{
-    [AIFunction]
+    [AIFunctionAttribute]
     public string TestFunction() => ""result"";
 }}
 ";
@@ -344,10 +344,10 @@ public class TestToolHarness
 using Microsoft.Extensions.AI;
 using HPD.Agent;
 
-[Collapse(""Test ToolHarness"", Collapsed = true)]
+[Collapse(""Test ToolHarness"")]
 public class TestToolHarness
 {
-    [AIFunction]
+    [AIFunctionAttribute]
     public string TestFunction() => ""result"";
 }
 ";
@@ -374,7 +374,7 @@ using HPD.Agent;
 [Collapse(""Test ToolHarness"",   FunctionResult = ""Positional function context"", SystemPrompt = ""Positional system context"")]
 public class TestToolHarness
 {
-    [AIFunction]
+    [AIFunctionAttribute]
     public string TestFunction() => ""result"";
 }
 ";
@@ -395,15 +395,12 @@ public class TestToolHarness
         var compilation = CSharpCompilation.Create(
             "TestAssembly",
             new[] { CSharpSyntaxTree.ParseText(source) },
-            new[]
-            {
-                MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(System.Runtime.CompilerServices.RuntimeHelpers).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(Microsoft.Extensions.AI.AIFunction).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(CollapseAttribute).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(System.Collections.Generic.List<>).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(System.Linq.Enumerable).Assembly.Location),
-            },
+            ((string?)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES"))!
+                .Split(Path.PathSeparator)
+                .Append(typeof(Microsoft.Extensions.AI.AIFunction).Assembly.Location)
+                .Append(typeof(CollapseAttribute).Assembly.Location)
+                .Distinct()
+                .Select(static path => MetadataReference.CreateFromFile(path)),
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
 
         var generator = new global::HPDToolSourceGenerator();

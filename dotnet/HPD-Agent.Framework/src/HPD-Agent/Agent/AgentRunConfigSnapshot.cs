@@ -12,6 +12,8 @@ internal static class AgentRunConfigSnapshot
     internal static IReadOnlySet<string> CapturedPropertyNames { get; } = new HashSet<string>(StringComparer.Ordinal)
     {
         nameof(AgentRunConfig.Harnesses),
+        nameof(AgentRunConfig.HarnessOverrideLayers),
+        nameof(AgentRunConfig.HarnessOverridePath),
         nameof(AgentRunConfig.HarnessConfiguration),
         nameof(AgentRunConfig.Security),
         nameof(AgentRunConfig.Clients),
