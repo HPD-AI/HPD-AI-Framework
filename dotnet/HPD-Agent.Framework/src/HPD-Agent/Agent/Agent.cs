@@ -112,6 +112,7 @@ public sealed partial class Agent : IAsyncDisposable
     private IReadOnlyList<IAgentCapabilitySource> _capabilitySources = [];
     private readonly AgentOperationRegistry _operationRegistry;
     private readonly ConcurrentDictionary<long, CancellationTokenSource> _activeTurnCancellations = new();
+    private readonly ConcurrentDictionary<long, Task> _activeRunCompletions = new();
     private readonly ConcurrentDictionary<long, Task> _toolHarnessExecutionCompletions = new();
     private readonly AgentResourceRegistry _agentResources;
     private IAsyncDisposable? _harnessOwnerLifetime;
@@ -119,6 +120,7 @@ public sealed partial class Agent : IAsyncDisposable
     internal void SetHarnessConfigurationCatalog(HarnessConfigurationCatalog catalog) => _harnessConfigurations = catalog;
     internal void SetHarnessOwnerLifetime(IAsyncDisposable lifetime) => _harnessOwnerLifetime = lifetime;
     private long _nextActiveTurnId;
+    private long _nextActiveRunId;
     private long _nextToolHarnessExecutionId;
     private readonly ContainerMiddleware? _containerMiddleware;
     private CancellationTokenSource? _skillWatchCancellation;
@@ -2525,14 +2527,27 @@ public sealed partial class Agent : IAsyncDisposable
         AgentInputEvent input,
         CancellationToken cancellationToken)
     {
-        var registration = _inputDispatcher.GetRegistration(input.GetType());
+        var runId = Interlocked.Increment(ref _nextActiveRunId);
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!_activeRunCompletions.TryAdd(runId, completion.Task))
+            throw new InvalidOperationException("Failed to track the active agent run.");
 
-        if (input is UserMessagesInputEvent { Delivery: AgentInputDelivery.Steer } steering)
-            return await TrySteerAsync(steering, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var registration = _inputDispatcher.GetRegistration(input.GetType());
 
-        input = AuthorizeWorkIdentity(input, registration);
+            if (input is UserMessagesInputEvent { Delivery: AgentInputDelivery.Steer } steering)
+                return await TrySteerAsync(steering, cancellationToken).ConfigureAwait(false);
 
-        return await RunCapturedInputCoreAsync(input, registration, cancellationToken).ConfigureAwait(false);
+            input = AuthorizeWorkIdentity(input, registration);
+
+            return await RunCapturedInputCoreAsync(input, registration, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _activeRunCompletions.TryRemove(runId, out _);
+            completion.TrySetResult();
+        }
     }
 
     internal AgentInputEvent AuthorizeCoordinatorAssignedWork(
@@ -5145,22 +5160,25 @@ public sealed partial class Agent : IAsyncDisposable
     private async ValueTask DrainActiveTurnsAsync(AgentShutdownOptions options)
     {
         var gracefulDeadline = DateTimeOffset.UtcNow + options.GracefulDrainTimeout;
-        while (!_activeTurnCancellations.IsEmpty && DateTimeOffset.UtcNow < gracefulDeadline)
+        while ((!_activeTurnCancellations.IsEmpty || !_activeRunCompletions.IsEmpty) &&
+               DateTimeOffset.UtcNow < gracefulDeadline)
             await Task.Delay(TimeSpan.FromMilliseconds(25)).ConfigureAwait(false);
-        if (_activeTurnCancellations.IsEmpty)
+        if (_activeTurnCancellations.IsEmpty && _activeRunCompletions.IsEmpty)
             return;
 
         foreach (var cancellation in _activeTurnCancellations.Values)
             cancellation.Cancel();
 
         var cancellationDeadline = DateTimeOffset.UtcNow + options.CancellationDrainTimeout;
-        while (!_activeTurnCancellations.IsEmpty && DateTimeOffset.UtcNow < cancellationDeadline)
+        while ((!_activeTurnCancellations.IsEmpty || !_activeRunCompletions.IsEmpty) &&
+               DateTimeOffset.UtcNow < cancellationDeadline)
             await Task.Delay(TimeSpan.FromMilliseconds(25)).ConfigureAwait(false);
-        if (!_activeTurnCancellations.IsEmpty)
+        if (!_activeTurnCancellations.IsEmpty || !_activeRunCompletions.IsEmpty)
         {
             _agentLogger?.LogWarning(
-                "Agent shutdown abandoned {Count} turn(s) that retained resources after both drain deadlines; policy {Policy}.",
+                "Agent shutdown abandoned {TurnCount} turn(s) and {RunCount} run(s) that retained resources after both drain deadlines; policy {Policy}.",
                 _activeTurnCancellations.Count,
+                _activeRunCompletions.Count,
                 options.LeaseLeaks);
         }
     }

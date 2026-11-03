@@ -231,6 +231,14 @@ internal static class AgentLocalOperationScheduler
             {
                 cancellationToken.ThrowIfCancellationRequested();
             }
+            catch (InvalidOperationException) when (operation.Snapshot.ProviderStatus is
+                AgentOperationProviderStatus.Completed or
+                AgentOperationProviderStatus.Failed or
+                AgentOperationProviderStatus.Cancelled)
+            {
+                // Shutdown owns the final terminal transition once it force-fails an operation.
+                return;
+            }
             catch (ObjectDisposedException)
             {
                 // Shutdown can race a terminal observer's final transition.

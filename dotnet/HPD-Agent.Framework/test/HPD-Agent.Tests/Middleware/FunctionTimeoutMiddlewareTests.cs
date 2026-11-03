@@ -22,11 +22,7 @@ public class FunctionTimeoutMiddlewareTests
         var middleware = new FunctionTimeoutMiddleware(timeout);
         var request = CreateFunctionRequest();
 
-        Func<FunctionRequest, Task<object?>> handler = async (req) =>
-        {
-            await Task.Delay(50); // Fast execution
-            return "Success";
-        };
+        Func<FunctionRequest, Task<object?>> handler = _ => Task.FromResult<object?>("Success");
 
         // Act
         var result = await middleware.WrapFunctionCallAsync(request, handler, CancellationToken.None);
@@ -44,11 +40,7 @@ public class FunctionTimeoutMiddlewareTests
         var request = CreateFunctionRequest(
             function: AIFunctionFactory.Create(() => "test", "TestFunction"));
 
-        Func<FunctionRequest, Task<object?>> handler = async (req) =>
-        {
-            await Task.Delay(500); // Slow execution (will timeout)
-            return "Success";
-        };
+        Func<FunctionRequest, Task<object?>> handler = _ => WaitForCancellationSignal();
 
         // Act & Assert
         var exception = await Assert.ThrowsAsync<TimeoutException>(async () =>
@@ -125,12 +117,7 @@ public class FunctionTimeoutMiddlewareTests
         var middleware = new FunctionTimeoutMiddleware(timeout);
         var request = CreateFunctionRequest();
 
-        Func<FunctionRequest, Task<object?>> handler = async (req) =>
-        {
-            // Slow operation that will timeout
-            await Task.Delay(500);
-            return "Success";
-        };
+        Func<FunctionRequest, Task<object?>> handler = _ => WaitForCancellationSignal();
 
         // Act & Assert - Should throw TimeoutException, not OperationCanceledException
         var exception = await Assert.ThrowsAsync<TimeoutException>(async () =>
@@ -179,11 +166,7 @@ public class FunctionTimeoutMiddlewareTests
         var request = CreateFunctionRequest(
             function: AIFunctionFactory.Create(() => "test", "MyCustomFunction"));
 
-        Func<FunctionRequest, Task<object?>> handler = async (req) =>
-        {
-            await Task.Delay(200);
-            return "Success";
-        };
+        Func<FunctionRequest, Task<object?>> handler = _ => WaitForCancellationSignal();
 
         // Act & Assert
         var exception = await Assert.ThrowsAsync<TimeoutException>(async () =>
@@ -213,11 +196,7 @@ public class FunctionTimeoutMiddlewareTests
             State = state
         };
 
-        Func<FunctionRequest, Task<object?>> handler = async (req) =>
-        {
-            await Task.Delay(200);
-            return "Success";
-        };
+        Func<FunctionRequest, Task<object?>> handler = _ => WaitForCancellationSignal();
 
         // Act & Assert
         var exception = await Assert.ThrowsAsync<TimeoutException>(async () =>
@@ -328,11 +307,7 @@ public class FunctionTimeoutMiddlewareTests
         {
             var result = await middleware.WrapFunctionCallAsync(
                 request1,
-                async (req) =>
-                {
-                    await Task.Delay(100);
-                    return "Fast";
-                },
+                _ => Task.FromResult<object?>("Fast"),
                 CancellationToken.None);
             Assert.Equal("Fast", result);
         }));
@@ -344,11 +319,7 @@ public class FunctionTimeoutMiddlewareTests
             await Assert.ThrowsAsync<TimeoutException>(async () =>
                 await middleware.WrapFunctionCallAsync(
                     request2,
-                    async (req) =>
-                    {
-                        await Task.Delay(1000);
-                        return "Slow";
-                    },
+                    _ => WaitForCancellationSignal(),
                     CancellationToken.None));
         }));
 
@@ -357,6 +328,9 @@ public class FunctionTimeoutMiddlewareTests
     }
 
     #endregion
+
+    private static Task<object?> WaitForCancellationSignal() =>
+        new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously).Task;
 
     private static AgentContext CreateAgentContext(AgentLoopState? state = null)
     {

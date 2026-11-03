@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using FluentAssertions;
 using HPD.Agent.Providers;
@@ -105,32 +106,33 @@ public class MessageTurnFinishedEventTests : AgentTestBase
     [Fact]
     public async Task AfterMessageTurn_FinalizesBeforeSuccessTerminalAndCompletion()
     {
-        var order = new List<string>();
+        var order = new ConcurrentQueue<string>();
         var fakeClient = new FakeChatClientWithUsage();
         fakeClient.EnqueueResponse("done", 3, 2);
         var agent = CreateAgentWithMiddlewares(client: fakeClient, middlewares: [new FinalizationOrderMiddleware(order)]);
         using var subscription = agent.SubscribeAny(evt =>
         {
-            if (evt is MessageTurnFinishedEvent) order.Add("finished");
-            if (evt is AgentCompletionEvent) order.Add("completion");
+            if (evt is MessageTurnFinishedEvent) order.Enqueue("finished");
+            if (evt is AgentCompletionEvent) order.Enqueue("completion");
             return ValueTask.CompletedTask;
         });
 
         await agent.RunAsync("hi", cancellationToken: TestCancellationToken);
 
-        Assert.True(order.IndexOf("after") < order.IndexOf("finished"));
-        Assert.True(order.IndexOf("finished") < order.IndexOf("completion"));
-        Assert.Equal(1, order.Count(item => item == "after"));
+        var ordered = order.ToArray();
+        Assert.True(Array.IndexOf(ordered, "after") < Array.IndexOf(ordered, "finished"));
+        Assert.True(Array.IndexOf(ordered, "finished") < Array.IndexOf(ordered, "completion"));
+        Assert.Equal(1, ordered.Count(item => item == "after"));
     }
 
     [Fact]
     public async Task AfterMessageTurnFailure_EmitsErrorWithoutSuccessTerminal()
     {
-        var events = new List<AgentEvent>();
+        var events = new ConcurrentQueue<AgentEvent>();
         var fakeClient = new FakeChatClientWithUsage();
         fakeClient.EnqueueResponse("done", 3, 2);
         var agent = CreateAgentWithMiddlewares(client: fakeClient, middlewares: [new FailingFinalizationMiddleware()]);
-        using var subscription = agent.SubscribeAny(evt => { events.Add(evt); return ValueTask.CompletedTask; });
+        using var subscription = agent.SubscribeAny(evt => { events.Enqueue(evt); return ValueTask.CompletedTask; });
 
         await Assert.ThrowsAnyAsync<Exception>(() => agent.RunAsync("hi", cancellationToken: TestCancellationToken));
 
@@ -155,12 +157,12 @@ public class MessageTurnFinishedEventTests : AgentTestBase
     [Fact]
     public async Task FinalizerProviderAttempt_IsIncludedInErrorTerminalUsage()
     {
-        var events = new List<AgentEvent>();
+        var events = new ConcurrentQueue<AgentEvent>();
         var fakeClient = new FakeChatClientWithUsage();
         fakeClient.EnqueueResponse("done", 3, 2);
         fakeClient.EnqueueResponse("finalized", 5, 4);
         var agent = CreateAgentWithMiddlewares(client: fakeClient, middlewares: [new ProviderCallingFinalizer(true)]);
-        using var subscription = agent.SubscribeAny(evt => { events.Add(evt); return ValueTask.CompletedTask; });
+        using var subscription = agent.SubscribeAny(evt => { events.Enqueue(evt); return ValueTask.CompletedTask; });
 
         await Assert.ThrowsAnyAsync<Exception>(() => agent.RunAsync("hi", cancellationToken: TestCancellationToken));
 
@@ -197,14 +199,14 @@ public class MessageTurnFinishedEventTests : AgentTestBase
     [InlineData(true)]
     public async Task FinalizerCannotRemoveOrReorderCommittedMessages(bool reorder)
     {
-        var events = new List<AgentEvent>();
+        var events = new ConcurrentQueue<AgentEvent>();
         var config = DefaultConfig();
         config.SessionStore = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var fakeClient = new FakeChatClientWithUsage();
         fakeClient.EnqueueResponse("done", 3, 2);
         var agent = CreateAgentWithMiddlewares(config, fakeClient, [new InvalidHistoryFinalizer(reorder)]);
         await agent.CreateSessionAsync("session-invalid-history", cancellationToken: TestCancellationToken);
-        using var subscription = agent.SubscribeAny(evt => { events.Add(evt); return ValueTask.CompletedTask; });
+        using var subscription = agent.SubscribeAny(evt => { events.Enqueue(evt); return ValueTask.CompletedTask; });
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => agent.RunAsync("hi", "session-invalid-history", "main", cancellationToken: TestCancellationToken));
@@ -216,7 +218,7 @@ public class MessageTurnFinishedEventTests : AgentTestBase
     [Fact]
     public async Task ReconciliationFailureSuppressesSuccessTerminal()
     {
-        var events = new List<AgentEvent>();
+        var events = new ConcurrentQueue<AgentEvent>();
         var store = new InMemorySessionStore(HPD.Agent.Tests.TestEventApplication.Codec);
         var config = DefaultConfig();
         config.SessionStore = store;
@@ -224,7 +226,7 @@ public class MessageTurnFinishedEventTests : AgentTestBase
         fakeClient.EnqueueResponse("secret", 3, 2);
         var agent = CreateAgentWithMiddlewares(config, fakeClient, [new DuplicateIdentityFinalizer()]);
         await agent.CreateSessionAsync("session-reconcile-failure", cancellationToken: TestCancellationToken);
-        using var subscription = agent.SubscribeAny(evt => { events.Add(evt); return ValueTask.CompletedTask; });
+        using var subscription = agent.SubscribeAny(evt => { events.Enqueue(evt); return ValueTask.CompletedTask; });
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => agent.RunAsync(
             "hi", "session-reconcile-failure", "main", cancellationToken: TestCancellationToken));
@@ -357,8 +359,8 @@ public class MessageTurnFinishedEventTests : AgentTestBase
         var fakeClient = new FakeChatClientWithUsage();
         fakeClient.EnqueueFailure(new HttpRequestException("provider failed"));
         var agent = CreatePersistentAgent(fakeClient);
-        var events = new List<AgentEvent>();
-        using var subscription = agent.SubscribeAny(events.Add);
+        var events = new ConcurrentQueue<AgentEvent>();
+        using var subscription = agent.SubscribeAny(events.Enqueue);
 
         Func<Task> action = async () => await RunPersistedAsync(agent, "hi");
 
@@ -380,8 +382,8 @@ public class MessageTurnFinishedEventTests : AgentTestBase
         var fakeClient = new FakeChatClientWithUsage();
         fakeClient.EnqueueFailure(new OperationCanceledException("provider cancelled"), repeat: 4);
         var agent = CreatePersistentAgent(fakeClient);
-        var events = new List<AgentEvent>();
-        using var subscription = agent.SubscribeAny(events.Add);
+        var events = new ConcurrentQueue<AgentEvent>();
+        using var subscription = agent.SubscribeAny(events.Enqueue);
 
         Func<Task> action = async () => await RunPersistedAsync(agent, "hi");
 
@@ -431,11 +433,11 @@ public class MessageTurnFinishedEventTests : AgentTestBase
             ProviderOperationOutcome.Succeeded, usage, "test", "fake-model", "response-1")
     ]);
 
-    private sealed class FinalizationOrderMiddleware(List<string> order) : IAgentMiddleware
+    private sealed class FinalizationOrderMiddleware(ConcurrentQueue<string> order) : IAgentMiddleware
     {
         public Task AfterMessageTurnAsync(AfterMessageTurnContext context, CancellationToken cancellationToken)
         {
-            order.Add("after");
+            order.Enqueue("after");
             return Task.CompletedTask;
         }
     }
