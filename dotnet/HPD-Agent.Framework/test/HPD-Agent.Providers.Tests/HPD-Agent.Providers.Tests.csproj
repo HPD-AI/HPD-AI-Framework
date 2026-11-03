@@ -33,7 +33,7 @@
          against the generated composition's secret-alias registry. -->
     <ProjectReference Include="../../src/HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj"
                       OutputItemType="Analyzer"
-                      ReferenceOutputAssembly="true" />
+                      ReferenceOutputAssembly="false" />
 
     <!-- Reference all provider packages -->
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.OpenAICompatible/HPD-Agent.Providers.OpenAICompatible.csproj" />
