@@ -1,8 +1,5 @@
 using HPD.Agent;
 using HPD.MultiAgent.Config;
-using HPD.RAG.Core.Pipeline;
-using HPD.RAG.Core.Serialization;
-using HPD.RAG.Pipeline;
 using HPD.Graph.Abstractions.Serialization;
 using HPD.Graph.Abstractions.Graph;
 using HPD.Graph.Core.Builders;
@@ -88,42 +85,6 @@ public sealed class MultiAgentGraphBuilderExtensionsTests
         var contributor = provider.GetRequiredService<IGraphJsonTypeInfoResolverContributor>();
 
         contributor.Resolver.Should().BeSameAs(MultiAgentGraphConfigJsonContext.Default);
-    }
-
-    [Fact]
-    public async Task GraphBuilder_CanComposeRagAndMultiAgentSubGraphs()
-    {
-        var ragPipeline = await MragPipeline.Create()
-            .WithName("Retrieve Context")
-            .AddHandler("retrieve", MragHandlerNames.EmbedQuery)
-            .From("START").To("retrieve").To("END").Done()
-            .BuildRetrievalAsync();
-
-        var graph = new GraphBuilder()
-            .WithId("rag-agent-composition")
-            .WithName("RAG Agent Composition")
-            .AddStartNode()
-            .AddRagRetrieval("retrieve_context", ragPipeline)
-            .AddMultiAgent("agent_workflow", CreateWorkflowConfig())
-            .AddEndNode()
-            .From("START").To("retrieve_context").To("agent_workflow").To("END").Done()
-            .Build();
-
-        var ragNode = graph.GetNode("retrieve_context");
-        var agentNode = graph.GetNode("agent_workflow");
-
-        ragNode.Should().NotBeNull();
-        ragNode!.Type.Should().Be(NodeType.SubGraph);
-        AssertEquivalentSubGraph(ragNode.SubGraph, ragPipeline.Graph);
-
-        agentNode.Should().NotBeNull();
-        agentNode!.Type.Should().Be(NodeType.SubGraph);
-        agentNode.SubGraph.Should().NotBeNull();
-        graph.Edges.Should().Contain(edge => edge.From == "retrieve_context" && edge.To == "agent_workflow");
-
-        var config = graph.ToConfig();
-        config.Nodes["retrieve_context"].SubGraph.Should().NotBeNull();
-        config.Nodes["agent_workflow"].SubGraph.Should().NotBeNull();
     }
 
     private static MultiAgentWorkflowConfig CreateWorkflowConfig() => new()

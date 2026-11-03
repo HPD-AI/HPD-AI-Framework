@@ -1,3 +1,6 @@
+using HPD.Agent;
+using HPD.MultiAgent;
+using HPD.MultiAgent.Config;
 using HPD.RAG.Core.Pipeline;
 using HPD.RAG.Core.Serialization;
 using HPD.Graph.Abstractions.Config;
@@ -91,6 +94,43 @@ public sealed class RagGraphBuilderExtensionsTests
     }
 
     [Fact]
+    public async Task RagAndMultiAgentSubGraphs_ComposeInOneGraph()
+    {
+        var ragPipeline = await MragPipeline.Create()
+            .WithName("Retrieve Context")
+            .AddHandler("retrieve", MragHandlerNames.EmbedQuery)
+            .From("START").To("retrieve").To("END").Done()
+            .BuildRetrievalAsync();
+
+        var graph = new GraphBuilder()
+            .WithId("rag-agent-composition")
+            .WithName("RAG Agent Composition")
+            .AddStartNode()
+            .AddRagRetrieval("retrieve_context", ragPipeline)
+            .AddMultiAgent("agent_workflow", CreateWorkflowConfig())
+            .AddEndNode()
+            .From("START").To("retrieve_context").To("agent_workflow").To("END").Done()
+            .Build();
+
+        var ragNode = graph.GetNode("retrieve_context");
+        var agentNode = graph.GetNode("agent_workflow");
+
+        Assert.NotNull(ragNode);
+        Assert.Equal(NodeType.SubGraph, ragNode!.Type);
+        AssertEquivalentGraph(ragPipeline.Graph, ragNode.SubGraph);
+
+        Assert.NotNull(agentNode);
+        Assert.Equal(NodeType.SubGraph, agentNode!.Type);
+        Assert.NotNull(agentNode.SubGraph);
+        Assert.Contains(graph.Edges, edge =>
+            edge.From == "retrieve_context" && edge.To == "agent_workflow");
+
+        var config = graph.ToConfig();
+        Assert.NotNull(config.Nodes["retrieve_context"].SubGraph);
+        Assert.NotNull(config.Nodes["agent_workflow"].SubGraph);
+    }
+
+    [Fact]
     public async Task MragEdgeBuilder_UsesGraphDefaultConditionForDefaultRoutes()
     {
         var pipeline = await MragPipeline.Create()
@@ -151,6 +191,27 @@ public sealed class RagGraphBuilderExtensionsTests
 
         Assert.Same(MragJsonSerializerContext.Shared, contributor.Resolver);
     }
+
+    private static MultiAgentWorkflowConfig CreateWorkflowConfig() => new()
+    {
+        Name = "AgentWorkflow",
+        Agents = new Dictionary<string, AgentNodeConfig>
+        {
+            ["classifier"] = new()
+            {
+                Agent = new AgentConfig
+                {
+                    Name = "Classifier",
+                    SystemInstructions = "Classify the request."
+                }
+            }
+        },
+        Edges =
+        [
+            new HPD.MultiAgent.Config.EdgeConfig { From = "START", To = "classifier" },
+            new HPD.MultiAgent.Config.EdgeConfig { From = "classifier", To = "END" }
+        ]
+    };
 
     private static void AssertEquivalentGraph(GraphDefinition expected, GraphDefinition? actual)
     {

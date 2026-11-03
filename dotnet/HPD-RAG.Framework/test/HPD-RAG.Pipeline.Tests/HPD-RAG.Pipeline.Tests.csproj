@@ -19,6 +19,7 @@
     <ProjectReference Include="..\..\src\HPD-RAG.Pipeline\HPD-RAG.Pipeline.csproj" />
     <ProjectReference Include="..\..\src\HPD-RAG.Extensions\HPD-RAG.Extensions.csproj" />
     <ProjectReference Include="..\..\src\HPD-RAG.VectorStores\HPD-RAG.VectorStores.InMemory\HPD-RAG.VectorStores.InMemory.csproj" />
+    <ProjectReference Include="../../../HPD-Agent.Framework/src/HPD-Agent.MultiAgent/HPD-Agent.MultiAgent.csproj" />
     <ProjectReference Include="../../../HPD-Graph.Framework\src\HPD-Graph.Core\HPD-Graph.Core.csproj" />
   </ItemGroup>
 </Project>
