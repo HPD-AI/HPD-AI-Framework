@@ -1,0 +1,13 @@
+<Project>
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)..'))" />
+
+  <!--
+    Ordinary unit and integration tests intentionally exercise reflection, dynamic JSON,
+    generated fixture type overlap, and legacy test-server APIs. Keep AOT/trimming checks
+    active in *.AotSmoke projects, but do not make non-shipping test fixtures carry the
+    production analyzer contract.
+  -->
+  <PropertyGroup Condition="$([System.String]::Copy('$(MSBuildProjectName)').EndsWith('.Tests'))">
+    <NoWarn>$(NoWarn);ASPDEPR004;ASPDEPR008;CA1416;CA2014;CA2022;CS0105;CS0162;CS0184;CS0219;CS0419;CS0436;CS0649;CS8424;CS8600;CS8601;CS8602;CS8604;CS8605;CS8619;CS8620;CS8625;IL2026;IL2057;IL2060;IL2070;IL2072;IL2075;IL2090;IL3000;IL3050;MEAI001;SYSLIB0057;SYSLIB1034;xUnit1026;xUnit1030;xUnit1031;xUnit2013;xUnit2031</NoWarn>
+  </PropertyGroup>
+</Project>
