@@ -2,6 +2,7 @@ namespace HPD.Environment.Virtualization.Apple.Workspaces;
 
 using HPD.Environment.Contracts;
 using HPD.Environment.Runtime.Workspaces;
+using HPD.Environment.Search.Ripgrep;
 
 /// <summary>
 /// Opens workspace access through the Apple guest process provider. File
@@ -42,7 +43,11 @@ internal sealed class AppleVirtualizationWorkspaceFileStoreProvider(
             spec.PathSemantics,
             processProvider,
             unit.Value,
-            "AppleVirtualization");
+            "AppleVirtualization",
+            ripgrepToolProvisioner:
+                new BundledRipgrepToolProvisioner(
+                    processProvider,
+                    unit.Value));
         return ValueTask.FromResult(new WorkspaceFileStoreAttachment
         {
             Files = store,

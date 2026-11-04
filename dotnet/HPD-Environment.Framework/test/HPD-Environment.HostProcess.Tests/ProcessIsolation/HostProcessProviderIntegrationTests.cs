@@ -8,10 +8,50 @@ using HPD.Environment.HostProcess;
 using HPD.Environment.HostProcess.ProcessIsolation;
 using HPD.Environment.Contracts;
 using HPD.Environment.Runtime;
+using HPD.Environment.Runtime.Workspaces;
+using HPD.Environment.Search.Ripgrep;
 using Xunit;
 
 public sealed class HostProcessProviderIntegrationTests
 {
+    [Theory]
+    [InlineData("Darwin", "arm64", "osx-arm64")]
+    [InlineData("Darwin", "x86_64", "osx-x64")]
+    [InlineData("Linux", "x86_64", "linux-x64")]
+    [InlineData("Linux", "aarch64", "linux-arm64-musl")]
+    public void Bundled_ripgrep_target_selection_is_explicit(
+        string operatingSystem,
+        string architecture,
+        string expected)
+    {
+        BundledRipgrepToolProvisioner.ResolveTarget(
+                operatingSystem,
+                architecture)
+            .Should()
+            .Be(expected);
+    }
+
+    [Fact]
+    public void Bundled_ripgrep_command_uses_absolute_path_instead_of_path_lookup()
+    {
+        var tool = new WorkspaceRipgrepTool(
+            "/tmp/hpd-ripgrep-test",
+            "/tmp/hpd-ripgrep-test/rg",
+            [],
+            "15.1.0",
+            "osx-arm64",
+            "digest",
+            "bundled");
+
+        string command = WorkspaceRipgrep.BuildCommand(
+            tool,
+            ["--version"]);
+
+        command.Should().Be(
+            "exec '/tmp/hpd-ripgrep-test/rg' '--version'");
+        command.Should().NotContain("command -v");
+    }
+
     [SkippableFact]
     [Trait("Category", "RealAdapter")]
     public async Task Netcoredbg_initializes_through_production_sidecar_isolation()
@@ -228,6 +268,69 @@ public sealed class HostProcessProviderIntegrationTests
             .Trim()
             .Should()
             .Be("local-provider-ok");
+    }
+
+    [SkippableFact]
+    public async Task Bundled_ripgrep_is_provisioned_through_environment_process_lane()
+    {
+        Skip.If(
+            RuntimeInformation.IsOSPlatform(OSPlatform.Windows),
+            "The portable bundled ripgrep test currently requires a POSIX Environment.");
+        Skip.If(
+            RipgrepBundledBinaries.Manifest.Count == 0,
+            "Run prepare-ripgrep-binaries.cs before this acceptance test.");
+        await SkipIfLocalSandboxUnavailableAsync();
+
+        await using HostProcessTestEnvironment environment =
+            await HostProcessTestEnvironment.CreateAsync();
+        var provisioner = new BundledRipgrepToolProvisioner(
+            environment.ProcessProvider,
+            environment.ExecutionTarget);
+        WorkspaceRipgrepTool? tool =
+            await provisioner.EnsureAsync();
+        tool.Should().NotBeNull(provisioner.FailureReason);
+        tool!.Source.Should().Be("bundled");
+        tool.ExecutablePath.Should().StartWith("/tmp/hpd-ripgrep-");
+
+        ProcessInvocationResult result =
+            await environment.ProcessProvider.RunAsync(
+                new ProcessInvocationSpec
+                {
+                    Target = environment.ExecutionTarget,
+                    Command = new ProcessCommandSpec
+                    {
+                        FileName = tool.ExecutablePath,
+                        Arguments =
+                        [
+                            .. tool.ArgumentsPrefix,
+                            "--version",
+                        ],
+                        WorkingDirectory = "/tmp",
+                    },
+                    Io = new ProcessIoSpec
+                    {
+                        StandardInput = ProcessInputSpec.None,
+                        StandardOutput = new ProcessOutputSpec
+                        {
+                            Capture = true,
+                            Stream = false,
+                        },
+                        StandardError = new ProcessOutputSpec
+                        {
+                            Capture = true,
+                            Stream = false,
+                        },
+                        MergeStandardError = false,
+                    },
+                    Isolation = MinimalExecutableIsolation(),
+                });
+
+        result.CompletionKind.Should().Be(ProcessCompletionKind.Completed);
+        result.ExitCode.Should().Be(0);
+        Encoding.UTF8.GetString(
+                result.Output.Stdout.CapturedBytes.Span)
+            .Should()
+            .StartWith("ripgrep ");
     }
 
     [SkippableFact]

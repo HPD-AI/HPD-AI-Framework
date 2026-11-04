@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/HPD-Environment.Contracts/HPD-Environment.Contracts.csproj" />
     <Project Path="src/HPD-Environment.Runtime/HPD-Environment.Runtime.csproj" />
+    <Project Path="src/HPD-Environment.Search.Ripgrep/HPD-Environment.Search.Ripgrep.csproj" />
     <Project Path="src/HPD-Environment.HostProcess/HPD-Environment.HostProcess.csproj" />
     <Project Path="src/HPD-Environment.Virtualization/HPD-Environment.Virtualization.Contracts/HPD-Environment.Virtualization.Contracts.csproj" />
     <Project Path="src/HPD-Environment.Virtualization/HPD-Environment.Virtualization.GuestAgent/HPD-Environment.Virtualization.GuestAgent.csproj" />

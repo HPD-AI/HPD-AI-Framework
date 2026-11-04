@@ -24,10 +24,13 @@ internal interface IWorkspaceRipgrepExecutor
 /// </summary>
 internal sealed class ProcessWorkspaceRipgrepExecutor(
     IProcessProvider processProvider,
-    TargetHandle<ExecutionUnit> unit)
+    TargetHandle<ExecutionUnit> unit,
+    IWorkspaceRipgrepToolProvisioner? toolProvisioner = null)
     : IWorkspaceRipgrepExecutor
 {
     private const int MaximumOutputBytes = 4 * 1024 * 1024;
+    private WorkspaceRipgrepTool? _tool;
+    private bool _toolResolutionAttempted;
 
     public async ValueTask<WorkspaceSearchResultSet?> ExecuteAsync(
         WorkspaceRootId rootId,
@@ -43,10 +46,12 @@ internal sealed class ProcessWorkspaceRipgrepExecutor(
         }
         IReadOnlyList<string> arguments =
             WorkspaceRipgrep.BuildArguments(request, ".");
-        string script = new StringBuilder(
-                "command -v rg >/dev/null 2>&1 || exit 127; exec rg ")
-            .AppendJoin(' ', arguments.Select(Quote))
-            .ToString();
+        WorkspaceRipgrepTool? tool =
+            await ResolveToolAsync(cancellationToken)
+                .ConfigureAwait(false);
+        string script = WorkspaceRipgrep.BuildCommand(
+            tool,
+            arguments);
         try
         {
             ProcessInvocationResult result =
@@ -105,6 +110,25 @@ internal sealed class ProcessWorkspaceRipgrepExecutor(
                                         Reason =
                                             "Workspace-scoped ripgrep search",
                                     },
+                                    .. tool is null
+                                        ? Array.Empty<PathAccessRule>()
+                                        :
+                                        new[]
+                                        {
+                                            new PathAccessRule
+                                            {
+                                                Kind =
+                                                    PathAccessRuleKind
+                                                        .AllowRead,
+                                                Path = new HostPath(
+                                                    tool.RootPath),
+                                                PatternKind =
+                                                    PathPatternKind
+                                                        .LiteralOrSubpath,
+                                                Reason =
+                                                    "Bundled ripgrep executable",
+                                            },
+                                        },
                                 ],
                                 Symlinks =
                                     SymlinkEvaluationPolicy
@@ -175,6 +199,39 @@ internal sealed class ProcessWorkspaceRipgrepExecutor(
         }
     }
 
+    private async ValueTask<WorkspaceRipgrepTool?>
+        ResolveToolAsync(
+            CancellationToken cancellationToken)
+    {
+        if (_toolResolutionAttempted)
+        {
+            return _tool;
+        }
+        if (toolProvisioner is null)
+        {
+            _toolResolutionAttempted = true;
+            return null;
+        }
+        try
+        {
+            _tool = await toolProvisioner
+                .EnsureAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (
+            exception is IOException or
+                InvalidOperationException or
+                System.ComponentModel.Win32Exception)
+        {
+            _tool = null;
+        }
+        finally
+        {
+            _toolResolutionAttempted = true;
+        }
+        return _tool;
+    }
+
     private static WorkspacePath? MapRelativePath(
         WorkspaceRootId rootId,
         string path)
@@ -212,9 +269,4 @@ internal sealed class ProcessWorkspaceRipgrepExecutor(
         return string.Join('/', segments);
     }
 
-    private static string Quote(string value) =>
-        "'" + value.Replace(
-            "'",
-            "'\"'\"'",
-            StringComparison.Ordinal) + "'";
 }

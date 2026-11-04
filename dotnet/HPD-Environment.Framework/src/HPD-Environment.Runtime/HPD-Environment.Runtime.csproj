@@ -22,7 +22,9 @@
     <InternalsVisibleTo Include="HPD-Environment.Virtualization.Apple" />
     <InternalsVisibleTo Include="HPD-Environment.HostContainers" />
     <InternalsVisibleTo Include="HPD-Environment.HostProcess" />
+    <InternalsVisibleTo Include="HPD-Environment.Search.Ripgrep" />
     <InternalsVisibleTo Include="HPD-Environment.Runtime.Tests" />
+    <InternalsVisibleTo Include="HPD-Environment.HostProcess.Tests" />
     <InternalsVisibleTo Include="HPD-Environment.Virtualization.Apple.Tests" />
   </ItemGroup>
 </Project>

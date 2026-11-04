@@ -3,6 +3,7 @@ namespace HPD.Environment.HostContainers;
 using HPD.Environment.Contracts;
 using HPD.Environment.Runtime;
 using HPD.Environment.Runtime.Workspaces;
+using HPD.Environment.Search.Ripgrep;
 
 /// <summary>
 /// Opens host-side file operations for a verified local-engine bind mount. A
@@ -81,7 +82,11 @@ internal sealed class HostContainersWorkspaceFileStoreProvider(
                 spec.PathSemantics,
                 processProvider,
                 unit.Value,
-                "HostContainers");
+                "HostContainers",
+                ripgrepToolProvisioner:
+                    new BundledRipgrepToolProvisioner(
+                        processProvider,
+                        unit.Value));
             return ValueTask.FromResult(
                 new WorkspaceFileStoreAttachment
                 {
@@ -116,7 +121,10 @@ internal sealed class HostContainersWorkspaceFileStoreProvider(
             spec.PathSemantics,
             new ProcessWorkspaceRipgrepExecutor(
                 processProvider,
-                unit.Value));
+                unit.Value,
+                new BundledRipgrepToolProvisioner(
+                    processProvider,
+                    unit.Value)));
         return ValueTask.FromResult(new WorkspaceFileStoreAttachment
         {
             Files = store,

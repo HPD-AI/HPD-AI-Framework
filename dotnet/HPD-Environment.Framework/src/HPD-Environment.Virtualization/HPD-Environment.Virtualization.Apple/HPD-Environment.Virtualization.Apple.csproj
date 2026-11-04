@@ -17,6 +17,7 @@
   <ItemGroup>
     <ProjectReference Include="../../HPD-Environment.Contracts/HPD-Environment.Contracts.csproj" />
     <ProjectReference Include="../../HPD-Environment.Runtime/HPD-Environment.Runtime.csproj" />
+    <ProjectReference Include="../../HPD-Environment.Search.Ripgrep/HPD-Environment.Search.Ripgrep.csproj" />
     <ProjectReference Include="../HPD-Environment.Virtualization.Contracts/HPD-Environment.Virtualization.Contracts.csproj" />
     <ProjectReference Include="../HPD-Environment.Virtualization.GuestAgent/HPD-Environment.Virtualization.GuestAgent.csproj" />
   </ItemGroup>

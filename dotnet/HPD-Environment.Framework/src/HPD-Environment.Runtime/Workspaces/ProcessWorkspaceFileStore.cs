@@ -25,8 +25,11 @@ internal sealed class ProcessWorkspaceFileStore
     private readonly IProcessProvider _process;
     private readonly TargetHandle<ExecutionUnit> _unit;
     private readonly string _providerName;
+    private readonly IWorkspaceRipgrepToolProvisioner? _ripgrepToolProvisioner;
     private readonly bool _enableRipgrep;
     private readonly SemaphoreSlim _mutationGate = new(1, 1);
+    private WorkspaceRipgrepTool? _ripgrepTool;
+    private bool _ripgrepToolResolutionAttempted;
     private bool _disposed;
 
     public ProcessWorkspaceFileStore(
@@ -37,7 +40,8 @@ internal sealed class ProcessWorkspaceFileStore
         IProcessProvider process,
         TargetHandle<ExecutionUnit> unit,
         string providerName,
-        bool enableRipgrep = true)
+        bool enableRipgrep = true,
+        IWorkspaceRipgrepToolProvisioner? ripgrepToolProvisioner = null)
     {
         _rootId = rootId;
         _root = root;
@@ -49,6 +53,7 @@ internal sealed class ProcessWorkspaceFileStore
             ? "Environment"
             : providerName;
         _enableRipgrep = enableRipgrep;
+        _ripgrepToolProvisioner = ripgrepToolProvisioner;
     }
 
     /// <summary>
@@ -840,10 +845,12 @@ internal sealed class ProcessWorkspaceFileStore
             : "./" + RelativeToRoot(guestRoot);
         IReadOnlyList<string> arguments =
             WorkspaceRipgrep.BuildArguments(request, searchPath);
-        string script = new StringBuilder(
-                "command -v rg >/dev/null 2>&1 || exit 127; exec rg ")
-            .AppendJoin(' ', arguments.Select(Quote))
-            .ToString();
+        WorkspaceRipgrepTool? tool =
+            await ResolveRipgrepToolAsync(cancellationToken)
+                .ConfigureAwait(false);
+        string script = WorkspaceRipgrep.BuildCommand(
+            tool,
+            arguments);
         ProcessRunResult result;
         try
         {
@@ -912,6 +919,39 @@ internal sealed class ProcessWorkspaceFileStore
             Message = resultSet.Message ??
                 (timedOut ? "timeout" : null),
         };
+    }
+
+    private async ValueTask<WorkspaceRipgrepTool?>
+        ResolveRipgrepToolAsync(
+            CancellationToken cancellationToken)
+    {
+        if (_ripgrepToolResolutionAttempted)
+        {
+            return _ripgrepTool;
+        }
+        if (_ripgrepToolProvisioner is null)
+        {
+            _ripgrepToolResolutionAttempted = true;
+            return null;
+        }
+        try
+        {
+            _ripgrepTool = await _ripgrepToolProvisioner
+                .EnsureAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (
+            exception is IOException or
+                InvalidOperationException or
+                System.ComponentModel.Win32Exception)
+        {
+            _ripgrepTool = null;
+        }
+        finally
+        {
+            _ripgrepToolResolutionAttempted = true;
+        }
+        return _ripgrepTool;
     }
 
     private static Regex CreateSearchRegex(

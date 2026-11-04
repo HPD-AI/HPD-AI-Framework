@@ -30,6 +30,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/HPD-Environment.Contracts/HPD-Environment.Contracts.csproj" />
     <ProjectReference Include="../../src/HPD-Environment.Runtime/HPD-Environment.Runtime.csproj" />
+    <ProjectReference Include="../../src/HPD-Environment.Search.Ripgrep/HPD-Environment.Search.Ripgrep.csproj" />
     <ProjectReference Include="../../src/HPD-Environment.HostProcess/HPD-Environment.HostProcess.csproj" />
   </ItemGroup>
 </Project>

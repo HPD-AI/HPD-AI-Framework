@@ -105,6 +105,14 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y gcc gcc-aarch64-linux-gnu
 
+    - name: Prepare bundled ripgrep
+      if: matrix.collect-coverage
+      run: >-
+        dotnet run --file
+        dotnet/HPD-Environment.Framework/src/HPD-Environment.Search.Ripgrep/pack/prepare-ripgrep-binaries.cs
+        -- --output-root
+        dotnet/HPD-Environment.Framework/src/HPD-Environment.Search.Ripgrep/obj/RipgrepPack
+
     - name: Restore dependencies
       run: dotnet restore dotnet/HPD-Agent.Framework/HPD-Agent.slnx
 
@@ -237,6 +245,13 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y gcc gcc-aarch64-linux-gnu
+
+    - name: Prepare bundled ripgrep
+      run: >-
+        dotnet run --file
+        dotnet/HPD-Environment.Framework/src/HPD-Environment.Search.Ripgrep/pack/prepare-ripgrep-binaries.cs
+        -- --output-root
+        dotnet/HPD-Environment.Framework/src/HPD-Environment.Search.Ripgrep/obj/RipgrepPack
 
     - name: Pack NuGet packages
       run: dotnet pack dotnet/HPD-Agent.Framework/HPD-Agent.slnx -c Release --output ./artifacts

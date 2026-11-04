@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!--
+      The embedded binary bundle is target-framework independent. A single
+      net8.0 assembly avoids shipping duplicate multi-megabyte resources in
+      every lib/ TFM folder and remains usable by net9.0 and net10.0 callers.
+    -->
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>HPD.Environment.Search.Ripgrep</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Environment.Search.Ripgrep</PackageId>
+    <Description>Verified, Environment-provisioned ripgrep binaries for HPD workspace search.</Description>
+    <PackageTags>environment;workspace;search;ripgrep;rg;hpd</PackageTags>
+    <RipgrepPackRoot>$(MSBuildProjectDirectory)/obj/RipgrepPack/</RipgrepPackRoot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../HPD-Environment.Contracts/HPD-Environment.Contracts.csproj" />
+    <ProjectReference Include="../HPD-Environment.Runtime/HPD-Environment.Runtime.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="pack/**/*.cs" />
+    <None Remove="pack/**" />
+    <None Include="THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile
+      Include="$(RipgrepPackRoot)Generated/**/*.cs"
+      Visible="false"
+      Condition="Exists('$(RipgrepPackRoot)Generated')" />
+    <EmbeddedResource
+      Include="$(RipgrepPackRoot)bundles/*.tar"
+      LogicalName="HPD.Environment.Search.Ripgrep.Bundles.%(Filename)%(Extension)"
+      Visible="false"
+      Condition="Exists('$(RipgrepPackRoot)bundles')" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="HPD-Environment.Search.Ripgrep.Tests" />
+    <InternalsVisibleTo Include="HPD-Environment.HostProcess.Tests" />
+    <InternalsVisibleTo Include="HPD-Environment.HostProcess" />
+    <InternalsVisibleTo Include="HPD-Environment.HostContainers" />
+    <InternalsVisibleTo Include="HPD-Environment.Virtualization.Apple" />
+  </ItemGroup>
+
+  <Target Name="ValidateRipgrepBundles" BeforeTargets="GenerateNuspec">
+    <Error
+      Condition="!Exists('$(RipgrepPackRoot)bundles/osx-arm64.tar') Or !Exists('$(RipgrepPackRoot)bundles/osx-x64.tar') Or !Exists('$(RipgrepPackRoot)bundles/linux-x64.tar') Or !Exists('$(RipgrepPackRoot)bundles/linux-arm64-musl.tar')"
+      Text="Ripgrep bundles are missing. Run pack/prepare-ripgrep-binaries.cs before packing HPD-Environment.Search.Ripgrep." />
+  </Target>
+</Project>

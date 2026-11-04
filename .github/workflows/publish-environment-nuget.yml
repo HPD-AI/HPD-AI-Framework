@@ -71,6 +71,13 @@ jobs:
             9.0.x
             10.0.x
 
+      - name: Prepare verified ripgrep bundles
+        run: >-
+          dotnet run --file
+          dotnet/HPD-Environment.Framework/src/HPD-Environment.Search.Ripgrep/pack/prepare-ripgrep-binaries.cs
+          -- --output-root
+          dotnet/HPD-Environment.Framework/src/HPD-Environment.Search.Ripgrep/obj/RipgrepPack
+
       - name: Pack HPD-Environment packages
         run: |
           mkdir -p ./nupkg-environment
@@ -78,6 +85,7 @@ jobs:
           PROJECTS=(
             "dotnet/HPD-Environment.Framework/src/HPD-Environment.Contracts/HPD-Environment.Contracts.csproj"
             "dotnet/HPD-Environment.Framework/src/HPD-Environment.Runtime/HPD-Environment.Runtime.csproj"
+            "dotnet/HPD-Environment.Framework/src/HPD-Environment.Search.Ripgrep/HPD-Environment.Search.Ripgrep.csproj"
             "dotnet/HPD-Environment.Framework/src/HPD-Environment.HostProcess/HPD-Environment.HostProcess.csproj"
             "dotnet/HPD-Environment.Framework/src/HPD-Environment.HostContainers/HPD-Environment.HostContainers.csproj"
             "dotnet/HPD-Environment.Framework/src/HPD-Environment.Virtualization/HPD-Environment.Virtualization.Contracts/HPD-Environment.Virtualization.Contracts.csproj"
@@ -112,6 +120,16 @@ jobs:
           grep -q "runtimes/linux-x64/native/apply-seccomp-x64" /tmp/hpd-environment-host-process-package.txt
           grep -q "runtimes/linux-arm64/native/apply-seccomp-arm64" /tmp/hpd-environment-host-process-package.txt
 
+      - name: Validate bundled ripgrep package contents
+        run: |
+          set -euo pipefail
+          RIPGREP_PACKAGE="$(ls ./nupkg-environment/HPD-Environment.Search.Ripgrep.*.nupkg | head -n 1)"
+          test -n "$RIPGREP_PACKAGE"
+
+          unzip -l "$RIPGREP_PACKAGE" | tee /tmp/hpd-environment-ripgrep-package.txt
+          grep -q "lib/net8.0/HPD-Environment.Search.Ripgrep.dll" /tmp/hpd-environment-ripgrep-package.txt
+          grep -q "THIRD-PARTY-NOTICES.md" /tmp/hpd-environment-ripgrep-package.txt
+
       - name: Upload HPD-Environment packages as artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -137,6 +155,7 @@ jobs:
           PACKAGE_IDS=(
             "HPD-Environment.Contracts"
             "HPD-Environment.Runtime"
+            "HPD-Environment.Search.Ripgrep"
             "HPD-Environment.HostProcess"
             "HPD-Environment.HostContainers"
             "HPD-Environment.Virtualization.Contracts"

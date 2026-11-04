@@ -2,6 +2,7 @@ namespace HPD.Environment.HostProcess;
 
 using HPD.Environment.Contracts;
 using HPD.Environment.Runtime.Workspaces;
+using HPD.Environment.Search.Ripgrep;
 
 /// <summary>
 /// Opens Host Process workspace operations over one already-authorized host
@@ -76,7 +77,10 @@ internal sealed class HostProcessWorkspaceFileStoreProvider(
             spec.PathSemantics,
             new ProcessWorkspaceRipgrepExecutor(
                 processProvider,
-                unit.Value));
+                unit.Value,
+                new BundledRipgrepToolProvisioner(
+                    processProvider,
+                    unit.Value)));
         return ValueTask.FromResult(new WorkspaceFileStoreAttachment
         {
             Files = store,

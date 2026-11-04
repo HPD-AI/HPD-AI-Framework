@@ -12,6 +12,43 @@ using HPD.Environment.Contracts;
 /// </summary>
 internal static class WorkspaceRipgrep
 {
+    /// <summary>
+    /// Builds a shell command for a provisioned executable or the provider
+    /// PATH fallback.
+    /// </summary>
+    internal static string BuildCommand(
+        WorkspaceRipgrepTool? tool,
+        IReadOnlyList<string> arguments)
+    {
+        ArgumentNullException.ThrowIfNull(arguments);
+        var command = new StringBuilder();
+        if (tool is null)
+        {
+            command.Append(
+                "command -v rg >/dev/null 2>&1 || exit 127; exec rg ");
+            command.AppendJoin(' ', arguments.Select(Quote));
+            return command.ToString();
+        }
+        command.Append("exec ")
+            .Append(Quote(tool.ExecutablePath));
+        foreach (string argument in tool.ArgumentsPrefix)
+        {
+            command.Append(' ').Append(Quote(argument));
+        }
+        foreach (string argument in arguments)
+        {
+            command.Append(' ').Append(Quote(argument));
+        }
+        return command.ToString();
+    }
+
+    /// <summary>Quotes one POSIX shell argument.</summary>
+    internal static string Quote(string value) =>
+        "'" + value.Replace(
+            "'",
+            "'\"'\"'",
+            StringComparison.Ordinal) + "'";
+
     /// <summary>Builds deterministic JSON-output arguments for one search.</summary>
     internal static IReadOnlyList<string> BuildArguments(
         WorkspaceSearchRequest request,
