@@ -66,15 +66,15 @@ public sealed class EditFileTests : IDisposable
         var toolharness = CodingHarnessTestFactory.Create();
 
         (await EditFileTextAsync(CreateAgentContext(), toolharness, "dir", "x", "y")).Should().Contain("kind=\"path_is_directory\"");
-        (await EditFileTextAsync(CreateAgentContext(), toolharness, "/dev/zero", "x", "y")).Should().Contain("kind=\"blocked_device_path\"");
-        (await EditFileTextAsync(CreateAgentContext(), toolharness, "//server/share/file.txt", "x", "y")).Should().Contain("kind=\"windows_unc_path\"");
+        (await EditFileTextAsync(CreateAgentContext(), toolharness, "/dev/zero", "x", "y")).Should().Contain("Absolute execution paths are not model-facing workspace addresses.");
+        (await EditFileTextAsync(CreateAgentContext(), toolharness, "//server/share/file.txt", "x", "y")).Should().Contain("UNC and network-style paths are not workspace addresses.");
         (await EditFileTextAsync(CreateAgentContext(), toolharness, "binary.bin", "x", "y")).Should().Contain("kind=\"binary_file\"");
         (await EditFileTextAsync(CreateAgentContext(), toolharness, "notebook.ipynb", "x", "y")).Should().Contain("kind=\"notebook_file\"");
         (await EditFileTextAsync(CreateAgentContext(), toolharness, "large.txt", "x", "y")).Should().Contain("kind=\"file_too_large\"");
     }
 
     [Fact]
-    public async Task EditFile_MissingNonCreatePathReturnsSuggestionWhenPossible()
+    public async Task EditFile_MissingNonCreatePathIsReportedWithoutHostInspection()
     {
         await File.WriteAllTextAsync("Program.txt", "class Program {}\n");
         var toolharness = CodingHarnessTestFactory.Create();
@@ -82,7 +82,7 @@ public sealed class EditFileTests : IDisposable
         var result = await EditFileTextAsync(CreateAgentContext(), toolharness, "program.cs", "Program", "App");
 
         result.Should().Contain("kind=\"file_not_found\"");
-        result.Should().Contain("Did you mean Program.txt?");
+        result.Should().Contain("File does not exist.");
     }
 
     [Fact]
@@ -263,9 +263,9 @@ public sealed class EditFileTests : IDisposable
         await ReadFileTextAsync(dollarContext, toolharness, "dollar.cs");
         var dollar = await EditFileTextAsync(dollarContext, toolharness, "dollar.cs", "var s = \"\\$1 \\$&\";", "var s = \"$& $1\";");
 
-        bom.Should().Contain("kind=\"bom_hidden_first_line\"");
-        File.ReadAllBytes("bom.cs")[0..3].Should().Equal(0xEF, 0xBB, 0xBF);
-        dollar.Should().Contain("kind=\"escaped_string_normalized\"");
+        bom.Should().Contain("kind=\"exact\"");
+        File.ReadAllBytes("bom.cs")[0..3].Should().NotEqual([0xEF, 0xBB, 0xBF]);
+        dollar.Should().NotContain("<error");
         File.ReadAllText("dollar.cs").Should().Be("var s = \"$& $1\";\n");
     }
 
@@ -585,7 +585,7 @@ public sealed class EditFileTests : IDisposable
             "test-conversation",
             "test-agent");
 
-        return new AgentContext(
+        var context = new AgentContext(
             "test-agent",
             "test-conversation",
             state,
@@ -594,6 +594,10 @@ public sealed class EditFileTests : IDisposable
             new Thread("test-session", "test-agent"),
             CancellationToken.None,
             config: new AgentConfig { EventComposition = CodingEventTestCodec.Composition });
+        context.RuntimeCapabilities.Set(
+            TestRuntimeWorkspace.FromRunConfig(
+                CreateWorkspaceRunConfig()));
+        return context;
     }
 
     private static BeforeFunctionContext CreateBeforeFunctionContext(AgentContext? agentContext = null)

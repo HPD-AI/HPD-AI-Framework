@@ -181,6 +181,8 @@ public sealed class DebugExecutionStartOrchestratorV3Tests
                 SessionId = "session",
                 ThreadId = "thread",
                 SessionManager = Manager,
+                Workspace = TestRuntimeWorkspace.Create(
+                    Path.GetTempPath()),
                 EventScope = new(null, "session", "thread"),
                 State = new()
             };
@@ -204,7 +206,8 @@ public sealed class DebugExecutionStartOrchestratorV3Tests
             Orchestrator = new(
                 Starter,
                 Activator,
-                new DebugSourcePreviewProvider([], new DebugSourcePreviewOptions()));
+                new DebugSourcePreviewProvider(
+                    new DebugSourcePreviewOptions()));
         }
 
         public DebugSessionManager Manager { get; }
@@ -223,10 +226,6 @@ public sealed class DebugExecutionStartOrchestratorV3Tests
         public DebugExecutionStartRequest Request() => new()
         {
             Runtime = Runtime,
-            Workspace = new(
-                "root",
-                Path.GetTempPath(),
-                [new AgentWorkspaceRoot("root", Path.GetTempPath(), AgentWorkspaceAccess.ReadWrite)]),
             ExecutionPlan = Plan,
             Permission = new("call", "launch", DebugPermissionClass.Launch),
             ExecutionContext = CreateExecutionContext(),
@@ -369,6 +368,8 @@ public sealed class DebugExecutionStartOrchestratorV3Tests
                 SessionId = sessionId,
                 RootSessionId = sessionId,
                 ParentSessionId = parentSessionId,
+                Workspace = TestRuntimeWorkspace.Create(
+                    Path.GetTempPath()),
                 AdapterStartMethod = adapterPlan.Method,
                 AdapterPlan = adapterPlan,
                 Protocol = new DebugProtocolClient(Transport)

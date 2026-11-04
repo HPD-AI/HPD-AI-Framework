@@ -1,4 +1,4 @@
-using HPD.Agent.Sandbox.Local;
+using HPD.Agent.Sandbox.HostProcess;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.TUI.Runtime;
 using HPD.Agent.TUI.Composition;
@@ -34,7 +34,18 @@ internal static class CodingMode
             .WithName("TUI Coding Agent")
             .WithInstructions("You are a coding agent. Be concise, inspect before editing, and explain code changes clearly.")
             .WithProvider("openrouter", model)
-            .WithLocalSandbox()
+            .WithHostProcessSandbox(new HostProcessSandboxOptions
+            {
+                Workspaces =
+                [
+                    new HostProcessWorkspaceOptions
+                    {
+                        Path = workspacePath,
+                        RootId = "default",
+                        DisplayName = Path.GetFileName(workspacePath),
+                    },
+                ],
+            })
             .WithToolHarness<CodingToolHarness>()
             .BuildAsync();
 

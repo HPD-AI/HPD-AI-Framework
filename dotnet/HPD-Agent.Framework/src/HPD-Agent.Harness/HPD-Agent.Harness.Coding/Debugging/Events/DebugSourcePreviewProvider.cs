@@ -1,13 +1,15 @@
 using System.Security.Cryptography;
 using System.Text;
 using HPD.Agent.Security;
+using HPD.Agent.Sandbox;
 using HPD.Agent.ToolHarness.Coding;
+using HPD.Environment.Contracts;
 using HPDOS.ToolHarnesses.Middleware;
 
 namespace HPD.Agent.ToolHarness.Coding.Debugging;
 
 internal sealed record DebugSourcePreviewRequest(
-    AgentWorkspace Workspace,
+    RuntimeWorkspaceBinding Workspace,
     string Path,
     IReadOnlyList<long> Lines,
     string? Language = null,
@@ -30,15 +32,12 @@ internal sealed record DebugSourcePreviewOptions
 }
 
 /// <summary>
-/// Captures replay-safe source excerpts only from registered live text sources
-/// or files authorized by the invocation's multi-root workspace.
+/// Captures replay-safe source excerpts from the session workspace or content
+/// explicitly returned by the debug adapter.
 /// </summary>
 internal sealed class DebugSourcePreviewProvider(
-    IEnumerable<IReadFileTextSource> textSources,
     DebugSourcePreviewOptions options) : IDebugSourcePreviewProvider
 {
-    private readonly IReadOnlyList<IReadFileTextSource> _textSources =
-        textSources?.ToArray() ?? [];
     private readonly DebugSourcePreviewOptions _options =
         options ?? throw new ArgumentNullException(nameof(options));
 
@@ -58,81 +57,51 @@ internal sealed class DebugSourcePreviewProvider(
                 request.SourceVersion,
                 bounded.Truncated);
         }
-        string fullPath;
+        RuntimeWorkspaceBinding workspace = request.Workspace;
         try
         {
-            fullPath = request.Workspace.ResolveWorkspacePath(request.Path);
-        }
-        catch (AgentWorkspaceException)
-        {
-            return Unavailable(SafeDisplayPath(request.Workspace, request.Path), "outside_workspace");
-        }
-
-        try
-        {
-            var snapshot = await ReadTrustedTextAsync(fullPath, cancellationToken).ConfigureAwait(false);
+            WorkspacePath logical =
+                DebugWorkspaceAccess.Resolve(
+                    workspace,
+                    request.Path);
+            WorkspaceTextSnapshot? snapshot =
+                await workspace.Files.ReadTextAsync(
+                    logical,
+                    new WorkspaceTextReadOptions
+                    {
+                        StartLine = 1,
+                        MaxLines = null,
+                        MaxBytes =
+                            _options.MaximumUtf8Bytes,
+                    },
+                    cancellationToken).ConfigureAwait(false);
             if (snapshot is null)
-                return Unavailable(DisplayPath(request.Workspace, fullPath), "source_unavailable");
-
-            var preview = BuildPreview(
-                DisplayPath(request.Workspace, fullPath),
+            {
+                return Unavailable(
+                    logical.ToString(),
+                    "source_unavailable");
+            }
+            return BuildPreview(
+                logical.ToString(),
                 request.Language,
-                snapshot.Value.Text,
+                snapshot.Content,
                 request.Lines,
-                snapshot.Value.Version,
-                snapshot.Value.Truncated);
-            return preview;
+                snapshot.Version.ContentDigest?.Value ??
+                    snapshot.Version.BackendRevision?.ToString(
+                        System.Globalization.CultureInfo
+                            .InvariantCulture),
+                snapshot.Truncated);
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (Exception exception)
+            when (exception is IOException or
+                UnauthorizedAccessException or
+                DecoderFallbackException or
+                ArgumentException)
         {
-            throw;
+            return Unavailable(
+                "source",
+                "source_unavailable");
         }
-        catch (Exception exception) when (
-            exception is IOException or UnauthorizedAccessException or
-            DecoderFallbackException)
-        {
-            return Unavailable(DisplayPath(request.Workspace, fullPath), "source_unavailable");
-        }
-    }
-
-    private async ValueTask<(string Text, string? Version, bool Truncated)?> ReadTrustedTextAsync(
-        string fullPath,
-        CancellationToken cancellationToken)
-    {
-        foreach (var source in _textSources)
-        {
-            var result = await source.TryReadTextAsync(fullPath, cancellationToken).ConfigureAwait(false);
-            if (result is null) continue;
-            using var sourceReader = result.Reader;
-            var bounded = await ReadBoundedAsync(sourceReader, cancellationToken).ConfigureAwait(false);
-            return (bounded.Text, result.Version, bounded.Truncated);
-        }
-
-        if (!File.Exists(fullPath)) return null;
-        await using var stream = new FileStream(
-            fullPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete,
-            bufferSize: 4096, FileOptions.Asynchronous | FileOptions.SequentialScan);
-        using var reader = new StreamReader(stream, detectEncodingFromByteOrderMarks: true);
-        var fileText = await ReadBoundedAsync(reader, cancellationToken).ConfigureAwait(false);
-        return (fileText.Text,
-            File.GetLastWriteTimeUtc(fullPath).Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            fileText.Truncated);
-    }
-
-    private async ValueTask<(string Text, bool Truncated)> ReadBoundedAsync(
-        TextReader reader,
-        CancellationToken cancellationToken)
-    {
-        var buffer = new char[4096];
-        var raw = new StringBuilder();
-        while (raw.Length <= _options.MaximumUtf8Bytes)
-        {
-            var count = await reader.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false);
-            if (count == 0) break;
-            raw.Append(buffer, 0, count);
-        }
-
-        return Bound(raw.ToString());
     }
 
     private (string Text, bool Truncated) Bound(string value)
@@ -211,20 +180,6 @@ internal sealed class DebugSourcePreviewProvider(
             Truncated = truncated || contentTruncated
         };
     }
-
-    private static string DisplayPath(AgentWorkspace workspace, string fullPath)
-    {
-        var owner = workspace.GetOwningRoot(fullPath);
-        var canonicalOwner = AgentFilesystemPath.Canonicalize(owner.Path);
-        var canonicalPath = AgentFilesystemPath.Canonicalize(fullPath);
-        var relative = Path.GetRelativePath(canonicalOwner, canonicalPath);
-        var ambiguous = workspace.Roots.Count(root =>
-            File.Exists(Path.Combine(AgentFilesystemPath.Canonicalize(root.Path), relative))) > 1;
-        return ambiguous ? $"@{owner.Id}/{relative}" : relative;
-    }
-
-    private static string SafeDisplayPath(AgentWorkspace workspace, string path)
-        => Path.IsPathRooted(path) ? Path.GetFileName(path) : path;
 
     private static DebugSourcePreview Unavailable(string displayPath, string reason)
         => new()

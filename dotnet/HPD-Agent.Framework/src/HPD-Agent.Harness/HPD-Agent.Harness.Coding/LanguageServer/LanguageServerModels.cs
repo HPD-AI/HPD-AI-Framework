@@ -1,4 +1,6 @@
 using HPD.Agent;
+using HPD.Agent.Middleware;
+using HPD.Agent.Sandbox;
 
 namespace HPDOS.ToolHarnesses.Middleware;
 
@@ -22,6 +24,17 @@ public interface ILanguageServerWorkspaceLease : IAsyncDisposable
 
 public interface ILanguageServerService : IAsyncDisposable
 {
+    /// <summary>
+    /// Binds the service to the current sandbox process and workspace
+    /// instances. The default keeps existing in-process test implementations
+    /// source-compatible while real services override it.
+    /// </summary>
+    ValueTask ConfigureRuntimeAsync(
+        RuntimeProcessExecutionBinding processExecution,
+        RuntimeWorkspaceBinding workspace,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.CompletedTask;
+
     ValueTask<IReadOnlyList<LanguageServerStatus>> GetStatusAsync(
         CancellationToken cancellationToken = default);
 
@@ -188,6 +201,7 @@ public sealed record LanguageServerRootContext
 {
     public required string Path { get; init; }
     public required string WorkspaceRoot { get; init; }
+    public required RuntimeWorkspaceBinding Workspace { get; init; }
     public required LanguageServerDefinition Definition { get; init; }
     public required LanguageServerOptions Options { get; init; }
 }
@@ -196,6 +210,7 @@ public sealed record LanguageServerLaunchContext
 {
     public required string Root { get; init; }
     public required string WorkspaceRoot { get; init; }
+    public required RuntimeWorkspaceBinding Workspace { get; init; }
     public required LanguageServerDefinition Definition { get; init; }
     public required LanguageServerOptions Options { get; init; }
     public required ILanguageServerToolResolver ToolResolver { get; init; }
@@ -205,6 +220,7 @@ public sealed record LanguageServerInitializationContext
 {
     public required string Root { get; init; }
     public required string WorkspaceRoot { get; init; }
+    public required RuntimeWorkspaceBinding Workspace { get; init; }
     public required LanguageServerDefinition Definition { get; init; }
     public required LanguageServerOptions Options { get; init; }
     public required ILanguageServerToolResolver ToolResolver { get; init; }

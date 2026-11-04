@@ -14,12 +14,15 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../HPD-Environment.Abstractions/HPD-Environment.Abstractions.csproj" />
+    <PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" Version="10.0.13" />
+    <ProjectReference Include="../HPD-Environment.Contracts/HPD-Environment.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="HPD-Environment.AppleVirtualization" />
-    <InternalsVisibleTo Include="HPD-Environment.Local" />
-    <InternalsVisibleTo Include="HPD-Environment.Tests" />
+    <InternalsVisibleTo Include="HPD-Environment.Virtualization.Apple" />
+    <InternalsVisibleTo Include="HPD-Environment.HostContainers" />
+    <InternalsVisibleTo Include="HPD-Environment.HostProcess" />
+    <InternalsVisibleTo Include="HPD-Environment.Runtime.Tests" />
+    <InternalsVisibleTo Include="HPD-Environment.Virtualization.Apple.Tests" />
   </ItemGroup>
 </Project>

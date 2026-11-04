@@ -1,5 +1,7 @@
 namespace HPD.Agent.ToolHarness.Coding.Debugging;
 
+using HPD.Environment.Contracts;
+
 [Flags]
 public enum DebugTreeGrant
 {
@@ -45,6 +47,7 @@ public sealed record DebugTreeAuthorization
     public required string TrustPolicyRevision { get; init; }
     public required string EnvironmentId { get; init; }
     public required long EnvironmentRevision { get; init; }
+    public required WorkspaceContentIdentity WorkspaceContent { get; init; }
     public required long PolicyRevision { get; init; }
     public required long EndpointCatalogRevision { get; init; }
     public required string CanonicalWorkingDirectory { get; init; }
@@ -83,6 +86,7 @@ public sealed record DebugTreeAuthorization
             : !string.Equals(TrustPolicyRevision, plan.TrustDecision.PolicyRevision, StringComparison.Ordinal) ? "trust-policy"
             : !string.Equals(EnvironmentId, plan.EnvironmentId, StringComparison.Ordinal) ? "environment"
             : EnvironmentRevision != plan.EnvironmentRevision ? "environment-revision"
+            : WorkspaceContent != runtime.Workspace.Content ? "workspace-content"
             : PolicyRevision != plan.PolicyRevision ? "policy-revision"
             : EndpointCatalogRevision != plan.EndpointCatalogRevision ? "endpoint-catalog-revision"
             : !IsWithinWorkingDirectoryScope(plan.CanonicalWorkingDirectory, WorkingDirectoryScope) ? "working-directory"
@@ -123,6 +127,7 @@ public sealed record DebugTreeAuthorization
             TrustPolicyRevision = plan.TrustDecision.PolicyRevision,
             EnvironmentId = plan.EnvironmentId,
             EnvironmentRevision = plan.EnvironmentRevision,
+            WorkspaceContent = runtime.Workspace.Content,
             PolicyRevision = plan.PolicyRevision,
             EndpointCatalogRevision = plan.EndpointCatalogRevision,
             CanonicalWorkingDirectory = plan.CanonicalWorkingDirectory,

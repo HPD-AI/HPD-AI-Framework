@@ -50,11 +50,11 @@
 
   <ItemGroup>
     <ProjectReference Include="../HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="PublishAot;SelfContained;RuntimeIdentifier" AdditionalProperties="PublishAot=false;SelfContained=false;RuntimeIdentifier=" />
-    <ProjectReference Include="../../../HPD-Environment.Framework/src/HPD-Environment.Abstractions/HPD-Environment.Abstractions.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
+    <ProjectReference Include="../../../HPD-Environment.Framework/src/HPD-Environment.Contracts/HPD-Environment.Contracts.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
     <ProjectReference Include="../../../HPD-Environment.Framework/src/HPD-Environment.Runtime/HPD-Environment.Runtime.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
     <ProjectReference Include="../../../shared/src/HPD-Events/HPD-Events.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
     <ProjectReference Include="../../../shared/src/HPD-Serialization/HPD-Serialization.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
-    <PackageReference Include="HPD-Environment.Abstractions" Version="$(HPDEnvironmentVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
+    <PackageReference Include="HPD-Environment.Contracts" Version="$(HPDEnvironmentVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
     <PackageReference Include="HPD-Environment.Runtime" Version="$(HPDEnvironmentVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
     <PackageReference Include="HPD-Events" Version="$(HPDEventsVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
     <PackageReference Include="HPD-Serialization" Version="$(HPDSerializationVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
@@ -101,6 +101,7 @@
     <InternalsVisibleTo Include="HPD-Agent.Harness.Coding" />
     <InternalsVisibleTo Include="HPD-Agent.Evaluations.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.Harness.Coding.Tests" />
+    <InternalsVisibleTo Include="HPD-Agent.Sandbox.HostContainers.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.AIFunctionContracts.AotSmoke" />
     <InternalsVisibleTo Include="HPD-Agent.Audio.VoiceActivity.AotSmoke" />
     <InternalsVisibleTo Include="HPD-Agent.Audio.VoiceActivity.CompositionExample" />

@@ -35,18 +35,15 @@
   <ItemGroup>
     <!-- Reference to core HPD-Agent project -->
     <ProjectReference Include="../../HPD-Agent/HPD-Agent.csproj" />
+    <ProjectReference Include="../../HPD-Agent.Sandbox/HPD-Agent.Sandbox/HPD-Agent.Sandbox.csproj" />
     <ProjectReference Include="../../HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../HPD-Agent.Harness.Coding.SourceGenerator/HPD-Agent.Harness.Coding.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="PublishAot;SelfContained;RuntimeIdentifier" AdditionalProperties="PublishAot=false;SelfContained=false;RuntimeIdentifier=" />
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Remove="Ripgrep/pack/**/*.cs" />
-    <None Remove="Ripgrep/pack/**" />
-  </ItemGroup>
-
-  <ItemGroup>
     <InternalsVisibleTo Include="HPD-Agent.Harness.Coding.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.Harness.Coding.TUI.Tests" />
+    <InternalsVisibleTo Include="HPD-Agent.Sandbox.HostContainers.Tests" />
   </ItemGroup>
 
   <!-- Pack coding source generator as analyzer in the Coding NuGet package. -->
@@ -74,25 +71,6 @@
       <None Include="../../../../HPD-TUI.Framework/src/bin/$(Configuration)/$(TargetFramework)/HPD.TUI.dll" Pack="true" PackagePath="lib/$(TargetFramework)/" Visible="false" Condition="Exists('../../../../HPD-TUI.Framework/src/bin/$(Configuration)/$(TargetFramework)/HPD.TUI.dll')" />
       <None Include="../../../../HPD-TUI.Framework/src/bin/$(Configuration)/$(TargetFramework)/HPD.TUI.xml" Pack="true" PackagePath="lib/$(TargetFramework)/" Visible="false" Condition="Exists('../../../../HPD-TUI.Framework/src/bin/$(Configuration)/$(TargetFramework)/HPD.TUI.xml')" />
     </ItemGroup>
-  </Target>
-
-  <PropertyGroup>
-    <RipgrepPackRoot>$(MSBuildProjectDirectory)/obj/RipgrepPack/</RipgrepPackRoot>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <Compile Include="$(RipgrepPackRoot)Generated/**/*.cs" Visible="false" Condition="Exists('$(RipgrepPackRoot)Generated')" />
-    <None Include="$(RipgrepPackRoot)runtimes/**/native/*" Pack="true" PackagePath="runtimes/" Visible="false" Condition="Exists('$(RipgrepPackRoot)runtimes')" />
-  </ItemGroup>
-
-  <Target Name="CopyRipgrepRuntimeAssets" AfterTargets="Build" Condition="Exists('$(RipgrepPackRoot)runtimes')">
-    <ItemGroup>
-      <RipgrepRuntimeAsset Include="$(RipgrepPackRoot)runtimes/**/native/*" />
-    </ItemGroup>
-    <Copy
-      SourceFiles="@(RipgrepRuntimeAsset)"
-      DestinationFiles="@(RipgrepRuntimeAsset->'$(OutputPath)runtimes/%(RecursiveDir)%(Filename)%(Extension)')"
-      SkipUnchangedFiles="true" />
   </Target>
 
 </Project>

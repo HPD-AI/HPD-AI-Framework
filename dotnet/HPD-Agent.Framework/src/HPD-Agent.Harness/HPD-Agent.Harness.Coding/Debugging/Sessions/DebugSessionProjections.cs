@@ -1,4 +1,6 @@
 using System.Text.Json;
+using HPD.Agent.Sandbox;
+using HPD.Environment.Contracts;
 using HPD.Agent.ToolHarness.Coding.Debugging.Protocol.Generated;
 
 namespace HPD.Agent.ToolHarness.Coding.Debugging;
@@ -27,6 +29,7 @@ internal sealed class DebugSessionProjections
     private const int MaximumSources = 4096;
     private const int MaximumMemoryRanges = 1024;
     private readonly object _gate = new();
+    private readonly RuntimeWorkspaceBinding _workspace;
     private readonly Dictionary<string, DebugModuleSnapshot> _modules = new(StringComparer.Ordinal);
     private readonly Dictionary<string, DebugLoadedSourceSnapshot> _sources = new(StringComparer.Ordinal);
     private readonly Dictionary<long, MemoryRange> _memoryRanges = [];
@@ -49,11 +52,29 @@ internal sealed class DebugSessionProjections
     private const int MaximumTokens = 4096;
     private long _followUpFailures;
 
+    public DebugSessionProjections(RuntimeWorkspaceBinding workspace)
+    {
+        _workspace = workspace ??
+            throw new ArgumentNullException(nameof(workspace));
+    }
+
     public DebugProcessSnapshot? Process { get; private set; }
 
     public IReadOnlyList<DebugModuleSnapshot> Modules
     {
-        get { lock (_gate) return _modules.Values.OrderBy(x => x.OpaqueId, StringComparer.Ordinal).ToArray(); }
+        get
+        {
+            lock (_gate)
+            {
+                return _modules.Values
+                    .OrderBy(x => x.OpaqueId, StringComparer.Ordinal)
+                    .Select(module => module with
+                    {
+                        Path = ToLogicalPath(module.Path),
+                    })
+                    .ToArray();
+            }
+        }
     }
 
     public bool HasObservedModuleEvents
@@ -63,7 +84,19 @@ internal sealed class DebugSessionProjections
 
     public IReadOnlyList<DebugLoadedSourceSnapshot> Sources
     {
-        get { lock (_gate) return _sources.Values.OrderBy(x => x.Key, StringComparer.Ordinal).ToArray(); }
+        get
+        {
+            lock (_gate)
+            {
+                return _sources.Values
+                    .OrderBy(x => x.Key, StringComparer.Ordinal)
+                    .Select(source => source with
+                    {
+                        Path = ToLogicalPath(source.Path),
+                    })
+                    .ToArray();
+            }
+        }
     }
 
     public DebugProjectionGenerations Generations
@@ -440,9 +473,54 @@ internal sealed class DebugSessionProjections
         ArgumentNullException.ThrowIfNull(frames);
         lock (_gate)
             _stackFrames[threadId] = new(suspensionEpoch, frames.Take(64).Select(frame => new DebugStackFrameSnapshot(
-                frame.Id, Bound(frame.Name, 1024)!, Bound(frame.Source?.Path, 4096), frame.Line, frame.Column,
+                frame.Id, Bound(frame.Name, 1024)!, ToLogicalPath(frame.Source?.Path), frame.Line, frame.Column,
                 Bound(frame.InstructionPointerReference, 1024), frame.CanRestart)).ToArray());
     }
+
+    /// <summary>
+    /// Maps an effective adapter path to the model-facing workspace path. Paths
+    /// supplied by an adapter for generated or virtual sources remain bounded
+    /// leaf identities rather than leaking a host path.
+    /// </summary>
+    public string? ToLogicalPath(string? effectivePath)
+    {
+        if (string.IsNullOrWhiteSpace(effectivePath))
+        {
+            return null;
+        }
+        if (_workspace.Paths.TryFromExecutionPath(
+                new WorkspaceExecutionPath(effectivePath)) is { } logical)
+        {
+            return logical.ToString();
+        }
+        if (Uri.TryCreate(
+                effectivePath,
+                UriKind.Absolute,
+                out Uri? uri) &&
+            _workspace.Paths.TryFromExecutionFileUri(uri) is
+                { } uriLogical)
+        {
+            return uriLogical.ToString();
+        }
+        return Bound(
+            Path.GetFileName(effectivePath.Replace('\\', '/')),
+            1024);
+    }
+
+    /// <summary>Maps a model-facing workspace address to an adapter path.</summary>
+    public string ToAdapterPath(string logicalPath) =>
+        DebugWorkspaceAccess.ToEffective(
+            _workspace,
+            DebugWorkspaceAccess.Resolve(
+                _workspace,
+                logicalPath));
+
+    /// <summary>Maps a workspace address to the effective adapter file URI.</summary>
+    public Uri ToAdapterFileUri(string logicalPath) =>
+        _workspace.Paths.ToExecutionFileUri(
+            DebugWorkspaceAccess.Resolve(
+                _workspace,
+                logicalPath));
 
     public IReadOnlyList<DebugStackFrameSnapshot> GetStackFrames(int threadId, long suspensionEpoch)
     {

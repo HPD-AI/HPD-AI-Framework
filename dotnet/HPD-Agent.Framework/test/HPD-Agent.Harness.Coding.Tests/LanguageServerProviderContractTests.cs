@@ -85,6 +85,7 @@ public sealed class LanguageServerProviderContractTests
         {
             Root = "/workspace",
             WorkspaceRoot = "/workspace",
+            Workspace = TestRuntimeWorkspace.Create(Path.GetTempPath(), resolveLinks: false),
             Definition = definition,
             Options = new LanguageServerOptions(),
             ToolResolver = resolver
@@ -112,7 +113,7 @@ public sealed class LanguageServerProviderContractTests
 
         try
         {
-            await using var service = new LanguageServerService(new LanguageServerOptions { WorkspaceFolders = [root] });
+            await using var service = LanguageServerTestFactory.Create(new LanguageServerOptions { WorkspaceFolders = [root] });
             var node = await service.ResolveDocumentAsync(nodeFile);
             var deno = await service.ResolveDocumentAsync(denoFile);
 
@@ -253,7 +254,7 @@ public sealed class LanguageServerProviderContractTests
             LanguageIds = new Dictionary<string, string> { [".canceltest"] = "cancel-test" },
             Provider = provider
         };
-        await using var service = new LanguageServerService(new LanguageServerOptions
+        await using var service = LanguageServerTestFactory.Create(new LanguageServerOptions
         {
             WorkspaceFolders = [root],
             Servers = [definition]
@@ -287,7 +288,7 @@ public sealed class LanguageServerProviderContractTests
         var path = Path.Combine(root, "main.starttest");
         await File.WriteAllTextAsync(path, "");
         var provider = new BlockingLaunchProvider();
-        await using var service = new LanguageServerService(new LanguageServerOptions
+        await using var service = LanguageServerTestFactory.Create(new LanguageServerOptions
         {
             WorkspaceFolders = [root],
             Servers =
@@ -346,7 +347,7 @@ public sealed class LanguageServerProviderContractTests
                     ? new HashSet<string>(StringComparer.Ordinal) { providerId }
                     : new HashSet<string>(StringComparer.Ordinal)
             };
-            await using var service = new LanguageServerService(options);
+            await using var service = LanguageServerTestFactory.Create(options);
             var resolution = await service.ResolveDocumentAsync(path);
             resolution.Servers.Should().Contain(server => server.ServerId == providerId && server.LanguageId == languageId);
         }
@@ -364,13 +365,21 @@ public sealed class LanguageServerProviderContractTests
             type.GetCustomAttribute<HpdLanguageServerAttribute>()?.Id == id);
 
     private static LanguageServerRootContext Context(LanguageServerDefinition definition, string path, string root)
-        => new() { Path = path, WorkspaceRoot = root, Definition = definition, Options = new LanguageServerOptions() };
+        => new()
+        {
+            Path = path,
+            WorkspaceRoot = root,
+            Workspace = TestRuntimeWorkspace.Create(root, resolveLinks: false),
+            Definition = definition,
+            Options = new LanguageServerOptions(),
+        };
 
     private static LanguageServerLaunchContext LaunchContext(LanguageServerDefinition definition, ILanguageServerToolResolver resolver)
         => new()
         {
             Root = "/workspace",
             WorkspaceRoot = "/workspace",
+            Workspace = TestRuntimeWorkspace.Create(Path.GetTempPath(), resolveLinks: false),
             Definition = definition,
             Options = new LanguageServerOptions(),
             ToolResolver = resolver

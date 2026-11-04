@@ -17,13 +17,14 @@ public sealed class DebugPresentationEventTests : IDisposable
     {
         var path = Path.Combine(_root, "Program.cs");
         await File.WriteAllLinesAsync(path, Enumerable.Range(1, 30).Select(line => $"line {line}"));
-        var provider = new DebugSourcePreviewProvider([], new DebugSourcePreviewOptions());
+        var provider = new DebugSourcePreviewProvider(
+            new DebugSourcePreviewOptions());
 
         var preview = await provider.CaptureAsync(
             new DebugSourcePreviewRequest(Workspace(), path, [10]),
             CancellationToken.None);
 
-        preview.DisplayPath.Should().Be("Program.cs");
+        preview.DisplayPath.Should().Be("@root/Program.cs");
         preview.Hunks.Should().ContainSingle().Which.Should().BeEquivalentTo(
             new DebugSourcePreviewHunk(
                 7,
@@ -35,7 +36,8 @@ public sealed class DebugPresentationEventTests : IDisposable
     [Fact]
     public async Task Preview_rejects_paths_outside_every_workspace_root()
     {
-        var provider = new DebugSourcePreviewProvider([], new DebugSourcePreviewOptions());
+        var provider = new DebugSourcePreviewProvider(
+            new DebugSourcePreviewOptions());
 
         var preview = await provider.CaptureAsync(
             new DebugSourcePreviewRequest(
@@ -45,25 +47,8 @@ public sealed class DebugPresentationEventTests : IDisposable
             CancellationToken.None);
 
         preview.Hunks.Should().BeEmpty();
-        preview.UnavailableReason.Should().Be("outside_workspace");
+        preview.UnavailableReason.Should().Be("source_unavailable");
         preview.DisplayPath.Should().NotContain(_root);
-    }
-
-    [Fact]
-    public async Task Live_text_source_wins_over_disk()
-    {
-        var path = Path.Combine(_root, "Live.cs");
-        await File.WriteAllTextAsync(path, "disk");
-        var provider = new DebugSourcePreviewProvider(
-            [new StubTextSource(path, "editor")],
-            new DebugSourcePreviewOptions());
-
-        var preview = await provider.CaptureAsync(
-            new DebugSourcePreviewRequest(Workspace(), path, [1]),
-            CancellationToken.None);
-
-        preview.Hunks.Single().Lines.Should().ContainSingle().Which.Should().Be("editor");
-        preview.SourceVersion.Should().Be("live-2");
     }
 
     [Fact]
@@ -83,10 +68,14 @@ public sealed class DebugPresentationEventTests : IDisposable
                     new AgentWorkspaceRoot("first", _root, AgentWorkspaceAccess.ReadWrite),
                     new AgentWorkspaceRoot("second", secondRoot, AgentWorkspaceAccess.ReadWrite)
                 ]);
-            var provider = new DebugSourcePreviewProvider([], new DebugSourcePreviewOptions());
+            var provider = new DebugSourcePreviewProvider(
+                new DebugSourcePreviewOptions());
 
             var preview = await provider.CaptureAsync(
-                new DebugSourcePreviewRequest(workspace, firstPath, [1]),
+                new DebugSourcePreviewRequest(
+                    TestRuntimeWorkspace.FromAgentWorkspace(workspace),
+                    firstPath,
+                    [1]),
                 CancellationToken.None);
 
             preview.DisplayPath.Should().Be("@first/Shared.cs");
@@ -100,7 +89,8 @@ public sealed class DebugPresentationEventTests : IDisposable
     [Fact]
     public async Task Owned_adapter_source_can_be_previewed_without_filesystem_access()
     {
-        var provider = new DebugSourcePreviewProvider([], new DebugSourcePreviewOptions());
+        var provider = new DebugSourcePreviewProvider(
+            new DebugSourcePreviewOptions());
 
         var preview = await provider.CaptureAsync(
             new DebugSourcePreviewRequest(
@@ -121,7 +111,8 @@ public sealed class DebugPresentationEventTests : IDisposable
     [Fact]
     public async Task Selection_event_has_semantic_delta_and_never_exposes_opaque_data_identity()
     {
-        var provider = new DebugSourcePreviewProvider([], new DebugSourcePreviewOptions());
+        var provider = new DebugSourcePreviewProvider(
+            new DebugSourcePreviewOptions());
         var factory = new DebugBreakpointSelectionEventFactory(provider);
         var before = new DebugDesiredBreakpointSnapshot();
         var desired = new DebugDataBreakpoint("raw-adapter-data-id", "write", "ready");
@@ -221,39 +212,12 @@ public sealed class DebugPresentationEventTests : IDisposable
         stopped.HitBreakpointClientIds.Should().Equal("client-breakpoint");
     }
 
-    private AgentWorkspace Workspace()
-        => new("root", _root, [new AgentWorkspaceRoot("root", _root, AgentWorkspaceAccess.ReadWrite)]);
+    private HPD.Agent.Sandbox.RuntimeWorkspaceBinding Workspace()
+        => TestRuntimeWorkspace.Create(_root);
 
     public void Dispose()
     {
         if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
     }
 
-    private sealed class StubTextSource : IReadFileTextSource
-    {
-        private readonly string _path;
-        private readonly string _text;
-
-        public StubTextSource(string path, string text)
-        {
-            _path = AgentFilesystemPath.Canonicalize(path);
-            _text = text;
-        }
-
-        public ValueTask<ReadFileTextSourceResult?> TryReadTextAsync(
-            string fullPath,
-            CancellationToken cancellationToken)
-            => ValueTask.FromResult<ReadFileTextSourceResult?>(
-                string.Equals(_path, AgentFilesystemPath.Canonicalize(fullPath), StringComparison.Ordinal)
-                    ? new ReadFileTextSourceResult
-                    {
-                        FullPath = _path,
-                        Reader = new StringReader(_text),
-                        LastWriteTimeUtc = DateTimeOffset.UtcNow,
-                        Length = _text.Length,
-                        Version = "live-2",
-                        IsUnsavedEditorContent = true
-                    }
-                    : null);
-    }
 }

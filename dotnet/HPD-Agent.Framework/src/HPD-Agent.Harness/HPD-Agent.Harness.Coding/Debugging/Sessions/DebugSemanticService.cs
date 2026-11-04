@@ -322,7 +322,7 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
         session.Projections.CacheStackFrames(threadId, epoch, response.StackFrames);
         var frames = response.StackFrames.Take(pageSize).Select(frame => new DebugSemanticStackFrame(
             session.Projections.CreateSuspensionToken(threadId, frame.Id, "frame", frame.Id),
-            Bound(frame.Name, 1024)!, Bound(frame.Source?.Path, 4096), frame.Line, frame.Column,
+            Bound(frame.Name, 1024)!, session.Projections.ToLogicalPath(frame.Source?.Path), frame.Line, frame.Column,
             frame.CanRestart == true,
             frame.Source is { } source && (source.SourceReference is > 0 || !string.IsNullOrWhiteSpace(source.Path))
                 ? session.Projections.CreateSourceToken(threadId, frame.Id, source) : null,
@@ -608,7 +608,7 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
                 new LoadedSourcesArguments(), cancellationToken).ConfigureAwait(false);
             all = response.Sources.Take(4096).Select(source => new DebugSemanticSourceSummary(
                 session.Projections.CreateSourceToken(0, null, source), Bound(source.Name, 1024),
-                Bound(source.Path, 4096), Bound(source.Origin, 256), Bound(source.PresentationHint, 128))).ToArray();
+                session.Projections.ToLogicalPath(source.Path), Bound(source.Origin, 256), Bound(source.PresentationHint, 128))).ToArray();
         }
         var page = all.Skip(offset).Take(pageSize).ToArray();
         var nextOffset = checked(offset + page.Length);
@@ -657,7 +657,7 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
             var response = await session.Protocol.SendAsync(DebugProtocolDescriptors.ModulesRequest,
                 new ModulesArguments { StartModule = start, ModuleCount = pageSize }, cancellationToken).ConfigureAwait(false);
             modules = response.Modules.Take(pageSize).Select(module => new DebugModuleMetadata(
-                Bound(module.Name, 1024)!, Bound(module.Path, 4096), module.IsOptimized, module.IsUserCode,
+                Bound(module.Name, 1024)!, session.Projections.ToLogicalPath(module.Path), module.IsOptimized, module.IsUserCode,
                 Bound(module.Version, 256), Bound(module.SymbolStatus, 512))).ToArray();
             totalModules = response.TotalModules;
         }
@@ -785,7 +785,8 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
         var response = await session.Protocol.SendAsync(DebugProtocolDescriptors.LocationsRequest,
             new LocationsArguments { LocationReference = reference }, cancellationToken).ConfigureAwait(false);
         var sourceToken = session.Projections.CreateSourceToken(threadId, frameId, response.Source);
-        return new(new(sourceToken, Bound(response.Source.Name, 1024), Bound(response.Source.Path, 4096),
+        return new(new(sourceToken, Bound(response.Source.Name, 1024),
+            session.Projections.ToLogicalPath(response.Source.Path),
             Bound(response.Source.Origin, 256), Bound(response.Source.PresentationHint, 128)),
             response.Line, response.Column, response.EndLine, response.EndColumn);
     }
@@ -894,7 +895,8 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
             if (item.Location is { } location)
             {
                 var sourceToken = session.Projections.CreateSourceToken(referenceThreadId, referenceFrameId, location);
-                source = new(sourceToken, Bound(location.Name, 1024), Bound(location.Path, 4096),
+                source = new(sourceToken, Bound(location.Name, 1024),
+                    session.Projections.ToLogicalPath(location.Path),
                     Bound(location.Origin, 256), Bound(location.PresentationHint, 128));
             }
             return new DebugSemanticInstruction(

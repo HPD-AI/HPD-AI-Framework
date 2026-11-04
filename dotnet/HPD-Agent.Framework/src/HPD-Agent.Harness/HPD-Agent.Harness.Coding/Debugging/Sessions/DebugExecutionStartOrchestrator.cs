@@ -1,5 +1,6 @@
 using HPD.Agent.Middleware;
 using HPD.Agent;
+using HPD.Agent.Sandbox;
 using System.Text.Json;
 using HPD.Agent.ToolHarness.Coding.Debugging.Protocol;
 using HPD.Agent.ToolHarness.Coding.Debugging.Protocol.Generated;
@@ -23,7 +24,6 @@ internal sealed class DebugAdapterStartException(
 internal sealed record DebugExecutionStartRequest
 {
     public required DebugRuntimeBinding Runtime { get; init; }
-    public required AgentWorkspace Workspace { get; init; }
     public required DebugExecutionPlan ExecutionPlan { get; init; }
     public required DebugPermissionDecision Permission { get; init; }
     public LaunchDebugOperation? SemanticLaunchOperation { get; init; }
@@ -365,7 +365,8 @@ internal sealed class DebugExecutionStartOrchestrator
                 session.ScheduleFollowUp(() => FetchPrimaryStopAsync(
                     tree, session, thread.ThreadId, thread.SuspensionEpoch, body.Reason,
                     body.Description ?? body.Text, hitObservation,
-                    request.Workspace, _sourcePreviews));
+                    request.Runtime.Workspace,
+                    _sourcePreviews));
             else
                 session.ScheduleFollowUp(() => PublishAsync(tree, new DebugPrimaryStopAvailableEvent
                 {
@@ -536,7 +537,7 @@ internal sealed class DebugExecutionStartOrchestrator
                 Verified = reconciliation.Verified,
                 SafeMessage = reconciliation.SafeMessage,
                 DisplayPath = reconciliation.ResolvedPath is { } path
-                    ? Path.GetFileName(path)
+                    ? session.Projections.ToLogicalPath(path)
                     : body.Breakpoint.Source?.Name,
                 ResolvedLine = reconciliation.ResolvedLine,
                 ResolvedColumn = reconciliation.ResolvedColumn,
@@ -804,7 +805,7 @@ internal sealed class DebugExecutionStartOrchestrator
         string reason,
         string? description,
         DebugBreakpointHitObservation adapterHitObservation,
-        AgentWorkspace workspace,
+        RuntimeWorkspaceBinding? runtimeWorkspace,
         IDebugSourcePreviewProvider sourcePreviews)
     {
         try
@@ -838,7 +839,9 @@ internal sealed class DebugExecutionStartOrchestrator
                 }
                 preview = await sourcePreviews.CaptureAsync(
                     new DebugSourcePreviewRequest(
-                        workspace,
+                        runtimeWorkspace ??
+                            throw new InvalidOperationException(
+                                "The debug session lost its workspace binding."),
                         source.Path ?? source.Name ?? "source",
                         [frame.Line],
                         language,
@@ -865,7 +868,12 @@ internal sealed class DebugExecutionStartOrchestrator
                 Reason = reason,
                 Description = description,
                 FrameName = frame?.Name,
-                DisplayPath = frame?.Source?.Path is { } path ? Path.GetFileName(path) : frame?.Source?.Name,
+                DisplayPath = runtimeWorkspace is not null
+                    ? session.Projections.ToLogicalPath(
+                        frame?.Source?.Path)
+                    : frame?.Source?.Path is { } path
+                        ? Path.GetFileName(path)
+                        : frame?.Source?.Name,
                 Line = frame?.Line,
                 Column = frame?.Column,
                 SourcePreview = preview,

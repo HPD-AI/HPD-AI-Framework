@@ -928,7 +928,7 @@ public sealed class LanguageServerMiddlewareTests
 
         try
         {
-            var service = new LanguageServerService(new LanguageServerOptions
+            var service = LanguageServerTestFactory.Create(new LanguageServerOptions
             {
                 WorkspaceFolders = [tempRoot],
                 Servers =
@@ -974,7 +974,7 @@ public sealed class LanguageServerMiddlewareTests
 
         try
         {
-            var service = new LanguageServerService(new LanguageServerOptions
+            var service = LanguageServerTestFactory.Create(new LanguageServerOptions
             {
                 WorkspaceFolders = [tempRoot]
             });
@@ -999,11 +999,11 @@ public sealed class LanguageServerMiddlewareTests
 
         try
         {
-            var defaults = new LanguageServerService(new LanguageServerOptions
+            var defaults = LanguageServerTestFactory.Create(new LanguageServerOptions
             {
                 WorkspaceFolders = [tempRoot]
             });
-            var enabled = new LanguageServerService(new LanguageServerOptions
+            var enabled = LanguageServerTestFactory.Create(new LanguageServerOptions
             {
                 WorkspaceFolders = [tempRoot],
                 EnabledServers = new HashSet<string>(StringComparer.Ordinal) { "nil" }
@@ -1030,7 +1030,7 @@ public sealed class LanguageServerMiddlewareTests
 
         try
         {
-            var service = new LanguageServerService(new LanguageServerOptions
+            var service = LanguageServerTestFactory.Create(new LanguageServerOptions
             {
                 WorkspaceFolders = [tempRoot],
                 DisabledServers = new HashSet<string>(StringComparer.Ordinal) { "rust-analyzer" }
@@ -1062,7 +1062,7 @@ public sealed class LanguageServerMiddlewareTests
 
         try
         {
-            var service = new LanguageServerService(new LanguageServerOptions
+            var service = LanguageServerTestFactory.Create(new LanguageServerOptions
             {
                 WorkspaceFolders = [tempRoot]
             });
@@ -1121,7 +1121,7 @@ public sealed class LanguageServerMiddlewareTests
 
         try
         {
-            var service = new LanguageServerService(new LanguageServerOptions
+            var service = LanguageServerTestFactory.Create(new LanguageServerOptions
             {
                 WorkspaceFolders = [tempRoot]
             });
@@ -1167,7 +1167,7 @@ public sealed class LanguageServerMiddlewareTests
         const string correctedText = "public static class Program { public static string Value => \"fixed 😀\"; }\n";
         await File.WriteAllTextAsync(path, invalidText);
 
-        var service = new LanguageServerService(new LanguageServerOptions { WorkspaceFolders = [root] });
+        var service = LanguageServerTestFactory.Create(new LanguageServerOptions { WorkspaceFolders = [root] });
         try
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
@@ -1251,7 +1251,7 @@ public sealed class LanguageServerMiddlewareTests
         var uri = new Uri(path).AbsoluteUri;
         await File.WriteAllTextAsync(path, "export const hpdLspSmoke: string = 42;\n");
 
-        await using var service = new LanguageServerService(new LanguageServerOptions
+        await using var service = LanguageServerTestFactory.Create(new LanguageServerOptions
         {
             WorkspaceFolders = [smokeRoot!]
         });
@@ -1397,7 +1397,7 @@ public sealed class LanguageServerMiddlewareTests
 
         try
         {
-            var service = new LanguageServerService(new LanguageServerOptions
+            var service = LanguageServerTestFactory.Create(new LanguageServerOptions
             {
                 WorkspaceFolders = [tempRoot],
                 Servers = [definition],
@@ -1433,7 +1433,7 @@ public sealed class LanguageServerMiddlewareTests
                 item.Status == LanguageServerStatusKind.Unavailable);
 
             var nextVersionProvider = new CountingNullProvider();
-            var nextVersionService = new LanguageServerService(new LanguageServerOptions
+            var nextVersionService = LanguageServerTestFactory.Create(new LanguageServerOptions
             {
                 WorkspaceFolders = [tempRoot],
                 Servers = [definition with { Provider = nextVersionProvider }],
@@ -1469,7 +1469,7 @@ public sealed class LanguageServerMiddlewareTests
 
         try
         {
-            var service = new LanguageServerService(new LanguageServerOptions
+            var service = LanguageServerTestFactory.Create(new LanguageServerOptions
             {
                 WorkspaceFolders = [tempRoot],
                 Servers =

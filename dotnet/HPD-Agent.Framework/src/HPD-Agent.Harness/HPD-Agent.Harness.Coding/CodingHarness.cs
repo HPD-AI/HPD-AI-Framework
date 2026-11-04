@@ -2,7 +2,6 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
 using HPD.Agent;
-using HPD.Agent.ToolHarness.Coding.Ripgrep;
 using HPDOS.ToolHarnesses.Middleware;
 
 /// <summary>
@@ -34,11 +33,7 @@ public partial class CodingToolHarness
         "target"
     };
 
-    private readonly IReadOnlyList<IReadFileTextSource> _readFileTextSources;
-    private readonly IReadOnlyList<IDirectoryListingSource> _directoryListingSources;
-    private readonly IReadOnlyList<IGlobSearchPathResolver> _globSearchPathResolvers;
     private readonly IHarnessConfig<CodingHarnessConfig> _config;
-    private readonly IRipgrepRunner _ripgrepRunner;
     private readonly IFileMutationLockProvider _fileMutationLockProvider;
     private readonly IReadOnlyList<IFileMutationTextSink> _fileMutationTextSinks;
     private readonly IReadOnlyList<IFileMutationHistorySink> _fileMutationHistorySinks;
@@ -51,19 +46,11 @@ public partial class CodingToolHarness
     /// <summary>Creates a coding harness with optional host-provided dependencies.</summary>
     public CodingToolHarness(
         IHarnessConfig<CodingHarnessConfig> config,
-        IEnumerable<IReadFileTextSource>? readFileTextSources = null,
-        IEnumerable<IDirectoryListingSource>? directoryListingSources = null,
-        IEnumerable<IGlobSearchPathResolver>? globSearchPathResolvers = null,
-        IRipgrepRunner? ripgrepRunner = null,
         IFileMutationLockProvider? fileMutationLockProvider = null,
         IEnumerable<IFileMutationTextSink>? fileMutationTextSinks = null,
         IEnumerable<IFileMutationHistorySink>? fileMutationHistorySinks = null)
     {
-        _readFileTextSources = readFileTextSources?.ToArray() ?? [];
-        _directoryListingSources = directoryListingSources?.ToArray() ?? [];
-        _globSearchPathResolvers = globSearchPathResolvers?.ToArray() ?? [];
         _config = config ?? throw new ArgumentNullException(nameof(config));
-        _ripgrepRunner = ripgrepRunner ?? new RipgrepRunner();
         _fileMutationLockProvider = fileMutationLockProvider ?? NoOpFileMutationLockProvider.Instance;
         _fileMutationTextSinks = fileMutationTextSinks?.ToArray() ?? [];
         _fileMutationHistorySinks = fileMutationHistorySinks?.ToArray() ?? [];
@@ -93,49 +80,7 @@ public partial class CodingToolHarness
         => pattern.Replace('\\', '/');
 
     private static string BuildMissingDirectoryMessage(string fullPath)
-    {
-        var suggestions = FindSimilarDirectories(fullPath);
-        return suggestions.Count switch
-        {
-            0 => "Directory does not exist.",
-            1 => $"Directory does not exist. Did you mean {suggestions[0]}?",
-            _ => $"Directory does not exist. Did you mean one of these? {string.Join(", ", suggestions)}"
-        };
-    }
-
-    private static IReadOnlyList<string> FindSimilarDirectories(string fullPath)
-    {
-        var parent = Path.GetDirectoryName(fullPath);
-        var requestedName = Path.GetFileName(fullPath);
-        if (string.IsNullOrEmpty(parent) || string.IsNullOrEmpty(requestedName) || !Directory.Exists(parent))
-            return [];
-
-        var normalizedRequestedName = NormalizeSuggestionName(requestedName);
-
-        try
-        {
-            return Directory.EnumerateDirectories(parent)
-                .Select(path => new
-                {
-                    FullPath = path,
-                    Name = Path.GetFileName(path),
-                    NormalizedName = NormalizeSuggestionName(Path.GetFileName(path))
-                })
-                .Where(item =>
-                    string.Equals(item.NormalizedName, normalizedRequestedName, StringComparison.OrdinalIgnoreCase) ||
-                    item.NormalizedName.Contains(normalizedRequestedName, StringComparison.OrdinalIgnoreCase) ||
-                    normalizedRequestedName.Contains(item.NormalizedName, StringComparison.OrdinalIgnoreCase) ||
-                    HasSmallEditDistance(item.NormalizedName, normalizedRequestedName))
-                .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
-                .Take(3)
-                .Select(item => item.FullPath)
-                .ToArray();
-        }
-        catch
-        {
-            return [];
-        }
-    }
+        => "Directory does not exist.";
 
     private static string NormalizeSuggestionName(string value)
     {

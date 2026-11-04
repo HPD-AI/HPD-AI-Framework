@@ -2,10 +2,13 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Text;
 using System.Xml;
-using HPD.Agent.ToolHarness.Coding.Ripgrep;
+using HPD.Agent.Sandbox;
+using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.ToolHarness.Coding.Security;
 using HPD.Agent.Middleware;
+using HPD.Environment.Contracts;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.FileSystemGlobbing;
 
 public partial class CodingToolHarness
 {
@@ -35,27 +38,28 @@ public partial class CodingToolHarness
     ];
 
     /// <summary>
-    /// Searches file contents with ripgrep and returns bounded XML results.
+    /// Searches the Environment workspace and returns bounded XML results.
+    /// Backend implementations may accelerate the operation with ripgrep.
     /// </summary>
     [AIFunction]
     [RequiresPermission]
-    [Description("Searches file contents with ripgrep. Defaults to files_with_matches for broad discovery. Use outputMode=Content for matching lines and optional context, or outputMode=Count for per-file counts. Use includeGlobs/excludeGlobs, path, fixedStrings, wordRegexp, and multiline to narrow searches.")]
+    [Description("Searches file contents through the active Environment workspace. Defaults to files_with_matches for broad discovery. Use outputMode=Content for matching lines and optional context, or outputMode=Count for per-file counts. Use includeGlobs/excludeGlobs, path, fixedStrings, wordRegexp, and multiline to narrow searches.")]
     public async Task<string> Grep(
         [Description("The regex pattern to search for. Use fixedStrings for literal text.")] string pattern,
         [Description("The file or directory path to search. Relative paths are resolved from the current working directory.")] string path = ".",
         [Description("Controls whether to return files, matching content, or per-file counts.")] GrepOutputMode outputMode = GrepOutputMode.FilesWithMatches,
         [Description("The 1-based result number to start returning after filtering.")] int offset = 1,
         [Description("The maximum number of results to return. Maximum: 1000.")] int limit = DefaultGrepLimit,
-        [Description("Optional ripgrep glob patterns to include.")] string[]? includeGlobs = null,
-        [Description("Optional ripgrep glob patterns to exclude.")] string[]? excludeGlobs = null,
+        [Description("Optional workspace glob patterns to include.")] string[]? includeGlobs = null,
+        [Description("Optional workspace glob patterns to exclude.")] string[]? excludeGlobs = null,
         [Description("Controls case sensitivity.")] GrepCaseMode caseMode = GrepCaseMode.Smart,
         [Description("Whether to treat pattern as literal text.")] bool fixedStrings = false,
         [Description("Whether matches must be whole words.")] bool wordRegexp = false,
         [Description("Symmetric before/after context lines. Applies only to content output.")] int contextLines = 0,
         [Description("Before-context lines. Applies only to content output and overrides the before side of contextLines when greater than zero.")] int beforeContext = 0,
         [Description("After-context lines. Applies only to content output and overrides the after side of contextLines when greater than zero.")] int afterContext = 0,
-        [Description("Optional per-file match cap. Maps to ripgrep --max-count.")] int? maxMatchesPerFile = null,
-        [Description("Optional recursive directory depth cap. Maps to ripgrep --max-depth.")] int? maxDepth = null,
+        [Description("Optional per-file match cap.")] int? maxMatchesPerFile = null,
+        [Description("Optional recursive directory depth cap.")] int? maxDepth = null,
         [Description("Whether to enable multiline search with dot matching newlines.")] bool multiline = false,
         [Description("Whether to include hidden files and directories.")] bool includeHidden = false,
         [Description("Whether to respect ignore files such as .gitignore.")] bool respectIgnoreFiles = true,
@@ -78,21 +82,16 @@ public partial class CodingToolHarness
             if (argumentError != null)
                 return FormatGrepError(path ?? string.Empty, argumentError);
 
-            var resolved = ResolveGrepPath(path, context);
-            _ = await AgentFilesystemAccess.AuthorizeReadAsync(
-                resolved.FullPath,
-                nameof(Grep),
-                context,
-                CancellationToken.None).ConfigureAwait(false);
-            if (IsBlockedSearchPath(resolved.FullPath))
-                return FormatGrepError(resolved.FullPath, "Cannot search blocked system path.");
-
-            if (!File.Exists(resolved.FullPath) && !Directory.Exists(resolved.FullPath))
-                return FormatGrepError(resolved.FullPath, "Path does not exist.");
-
-            var options = CreateRipgrepOptions(
-                pattern.Trim(),
-                resolved,
+            if (!CodingWorkspaceAccess.TryGet(context, out var workspace))
+            {
+                return FormatGrepError(
+                    path ?? string.Empty,
+                    "No Environment workspace binding is available for Grep.");
+            }
+            return await GrepWorkspaceAsync(
+                workspace,
+                pattern,
+                path,
                 outputMode,
                 offset,
                 limit,
@@ -108,80 +107,7 @@ public partial class CodingToolHarness
                 maxDepth,
                 multiline,
                 includeHidden,
-                respectIgnoreFiles);
-
-            var normalizedIncludeGlobs = NormalizeGlobs(includeGlobs);
-            var normalizedExcludeGlobs = NormalizeGlobs(excludeGlobs);
-            var effectiveBeforeContext = CalculateEffectiveBeforeContext(contextLines, beforeContext);
-            var effectiveAfterContext = CalculateEffectiveAfterContext(contextLines, afterContext);
-
-            return outputMode switch
-            {
-                GrepOutputMode.FilesWithMatches => await ExecuteFilesWithMatchesGrepAsync(
-                    pattern.Trim(),
-                    resolved,
-                    options,
-                    offset,
-                    limit,
-                    caseMode,
-                    fixedStrings,
-                    wordRegexp,
-                    contextLines,
-                    effectiveBeforeContext,
-                    effectiveAfterContext,
-                    maxMatchesPerFile,
-                    maxDepth,
-                    normalizedIncludeGlobs,
-                    normalizedExcludeGlobs,
-                    multiline,
-                    includeHidden,
-                    respectIgnoreFiles,
-                    CancellationToken.None).ConfigureAwait(false),
-
-                GrepOutputMode.Content => await ExecuteContentGrepAsync(
-                    pattern.Trim(),
-                    resolved,
-                    options,
-                    offset,
-                    limit,
-                    caseMode,
-                    fixedStrings,
-                    wordRegexp,
-                    contextLines,
-                    effectiveBeforeContext,
-                    effectiveAfterContext,
-                    maxMatchesPerFile,
-                    maxDepth,
-                    normalizedIncludeGlobs,
-                    normalizedExcludeGlobs,
-                    multiline,
-                    includeHidden,
-                    respectIgnoreFiles,
-                    CancellationToken.None).ConfigureAwait(false),
-
-                GrepOutputMode.Count => await ExecuteCountGrepAsync(
-                    pattern.Trim(),
-                    resolved,
-                    options,
-                    offset,
-                    limit,
-                    caseMode,
-                    fixedStrings,
-                    wordRegexp,
-                    contextLines,
-                    effectiveBeforeContext,
-                    effectiveAfterContext,
-                    maxMatchesPerFile,
-                    maxDepth,
-                    normalizedIncludeGlobs,
-                    normalizedExcludeGlobs,
-                    multiline,
-                    includeHidden,
-                    respectIgnoreFiles,
-                    CancellationToken.None).ConfigureAwait(false),
-
-                _ => FormatGrepError(resolved.FullPath, "OutputMode must be a valid GrepOutputMode value.")
-            };
+                respectIgnoreFiles).ConfigureAwait(false);
         }
         catch (AgentCapabilityDeniedException ex)
         {
@@ -205,317 +131,10 @@ public partial class CodingToolHarness
         }
     }
 
-    private async Task<string> ExecuteFilesWithMatchesGrepAsync(
+    private static async Task<string> GrepWorkspaceAsync(
+        RuntimeWorkspaceBinding workspace,
         string pattern,
-        ResolvedGrepPath resolved,
-        RipgrepSearchOptions options,
-        int offset,
-        int limit,
-        GrepCaseMode caseMode,
-        bool fixedStrings,
-        bool wordRegexp,
-        int contextLines,
-        int effectiveBeforeContext,
-        int effectiveAfterContext,
-        int? maxMatchesPerFile,
-        int? maxDepth,
-        IReadOnlyList<string> includeGlobs,
-        IReadOnlyList<string> excludeGlobs,
-        bool multiline,
-        bool includeHidden,
-        bool respectIgnoreFiles,
-        CancellationToken cancellationToken)
-    {
-        var result = await _ripgrepRunner.ListFilesWithMatchesAsync(options, cancellationToken).ConfigureAwait(false);
-        var files = result.Files
-            .Distinct(GetPathComparer())
-            .OrderByDescending(path => TryGetLastWriteTimeUtc(resolved.WorkingDirectory, path))
-            .ThenBy(path => path, GetPathComparer())
-            .ToArray();
-
-        var page = SlicePage(files, offset, limit);
-        var state = CreateGrepResultState(page.HasMore, result.Completion);
-        if (TryFormatGrepCompletionError(resolved.FullPath, result.Completion, page.Items.Count) is { } error)
-            return error;
-
-        return FormatGrepResult(
-            pattern,
-            resolved.FullPath,
-            GrepOutputMode.FilesWithMatches,
-            offset,
-            limit,
-            caseMode,
-            fixedStrings,
-            wordRegexp,
-            contextLines,
-            effectiveBeforeContext,
-            effectiveAfterContext,
-            maxMatchesPerFile,
-            maxDepth,
-            includeGlobs,
-            excludeGlobs,
-            multiline,
-            includeHidden,
-            respectIgnoreFiles,
-            page.Items.Count,
-            state.HasNextPage ? "unknown" : files.Length.ToString(CultureInfo.InvariantCulture),
-            files.Length == 0 && result.Completion.Status == RipgrepCompletionStatus.NoMatches ? "0" : "unknown",
-            state,
-            result.Completion,
-            writer =>
-            {
-                foreach (var file in page.Items)
-                {
-                    writer.WriteStartElement("file");
-                    writer.WriteAttributeString("path", NormalizeResultPath(file));
-                    writer.WriteEndElement();
-                }
-            });
-    }
-
-    private async Task<string> ExecuteCountGrepAsync(
-        string pattern,
-        ResolvedGrepPath resolved,
-        RipgrepSearchOptions options,
-        int offset,
-        int limit,
-        GrepCaseMode caseMode,
-        bool fixedStrings,
-        bool wordRegexp,
-        int contextLines,
-        int effectiveBeforeContext,
-        int effectiveAfterContext,
-        int? maxMatchesPerFile,
-        int? maxDepth,
-        IReadOnlyList<string> includeGlobs,
-        IReadOnlyList<string> excludeGlobs,
-        bool multiline,
-        bool includeHidden,
-        bool respectIgnoreFiles,
-        CancellationToken cancellationToken)
-    {
-        var result = await _ripgrepRunner.CountAsync(options, cancellationToken).ConfigureAwait(false);
-        var page = SlicePage(result.Counts, offset, limit);
-        var state = CreateGrepResultState(page.HasMore, result.Completion);
-        if (TryFormatGrepCompletionError(resolved.FullPath, result.Completion, page.Items.Count) is { } error)
-            return error;
-
-        var totalMatches = state.HasNextPage
-            ? "unknown"
-            : result.Counts.Sum(count => count.Count).ToString(CultureInfo.InvariantCulture);
-
-        return FormatGrepResult(
-            pattern,
-            resolved.FullPath,
-            GrepOutputMode.Count,
-            offset,
-            limit,
-            caseMode,
-            fixedStrings,
-            wordRegexp,
-            contextLines,
-            effectiveBeforeContext,
-            effectiveAfterContext,
-            maxMatchesPerFile,
-            maxDepth,
-            includeGlobs,
-            excludeGlobs,
-            multiline,
-            includeHidden,
-            respectIgnoreFiles,
-            page.Items.Count,
-            state.HasNextPage ? "unknown" : result.Counts.Count.ToString(CultureInfo.InvariantCulture),
-            totalMatches,
-            state,
-            result.Completion,
-            writer =>
-            {
-                foreach (var count in page.Items)
-                {
-                    writer.WriteStartElement("count");
-                    writer.WriteAttributeString("path", NormalizeResultPath(count.Path));
-                    writer.WriteAttributeString("matches", count.Count.ToString(CultureInfo.InvariantCulture));
-                    writer.WriteEndElement();
-                }
-            });
-    }
-
-    private async Task<string> ExecuteContentGrepAsync(
-        string pattern,
-        ResolvedGrepPath resolved,
-        RipgrepSearchOptions options,
-        int offset,
-        int limit,
-        GrepCaseMode caseMode,
-        bool fixedStrings,
-        bool wordRegexp,
-        int contextLines,
-        int effectiveBeforeContext,
-        int effectiveAfterContext,
-        int? maxMatchesPerFile,
-        int? maxDepth,
-        IReadOnlyList<string> includeGlobs,
-        IReadOnlyList<string> excludeGlobs,
-        bool multiline,
-        bool includeHidden,
-        bool respectIgnoreFiles,
-        CancellationToken cancellationToken)
-    {
-        var matches = new List<GrepMatchInfo>();
-        var pendingContext = new Dictionary<string, List<RipgrepContextEvent>>(GetPathComparer());
-        var lastMatchByPath = new Dictionary<string, GrepMatchInfo>(GetPathComparer());
-        RipgrepCompletionEvent? completion = null;
-        var lineTruncated = false;
-        var contextRequested = effectiveBeforeContext > 0 || effectiveAfterContext > 0;
-
-        await foreach (var item in _ripgrepRunner.SearchAsync(options, cancellationToken).ConfigureAwait(false))
-        {
-            switch (item)
-            {
-                case RipgrepContextEvent context:
-                    if (contextRequested)
-                    {
-                        var key = NormalizeResultPath(context.Path);
-                        if (lastMatchByPath.TryGetValue(key, out var previousMatch) &&
-                            context.LineNumber > previousMatch.LineNumber)
-                        {
-                            previousMatch.ContextLines.Add(new GrepContextLineInfo(
-                                context.LineNumber,
-                                ShortenLine(TrimLineEnding(context.Text), ref lineTruncated)));
-                        }
-                        else
-                        {
-                            if (!pendingContext.TryGetValue(key, out var contexts))
-                            {
-                                contexts = [];
-                                pendingContext[key] = contexts;
-                            }
-
-                            contexts.Add(context);
-                        }
-                    }
-                    break;
-
-                case RipgrepMatchEvent match:
-                    var matchPath = NormalizeResultPath(match.Path);
-                    pendingContext.TryGetValue(matchPath, out var before);
-                    var matchInfo = new GrepMatchInfo(
-                        matchPath,
-                        match.LineNumber,
-                        ShortenLine(TrimLineEnding(match.Text), ref lineTruncated));
-
-                    if (before != null)
-                    {
-                        foreach (var context in before)
-                        {
-                            matchInfo.ContextLines.Add(new GrepContextLineInfo(
-                                context.LineNumber,
-                                ShortenLine(TrimLineEnding(context.Text), ref lineTruncated)));
-                        }
-                    }
-
-                    matches.Add(matchInfo);
-                    lastMatchByPath[matchPath] = matchInfo;
-                    pendingContext[matchPath] = [];
-                    break;
-
-                case RipgrepCompletionEvent completed:
-                    completion = completed;
-                    break;
-            }
-        }
-
-        completion ??= new RipgrepCompletionEvent
-        {
-            Status = RipgrepCompletionStatus.Failed,
-            ExitCode = null,
-            Partial = matches.Count > 0,
-            TimedOut = false,
-            Cancelled = false,
-            Truncated = false,
-            MatchesEmitted = matches.Count,
-            Stderr = null,
-            Reason = "missing_completion"
-        };
-
-        var page = SlicePage(matches, offset, limit);
-        var state = CreateGrepResultState(page.HasMore, completion, lineTruncated);
-        if (TryFormatGrepCompletionError(resolved.FullPath, completion, page.Items.Count) is { } error)
-            return error;
-
-        return FormatGrepResult(
-            pattern,
-            resolved.FullPath,
-            GrepOutputMode.Content,
-            offset,
-            limit,
-            caseMode,
-            fixedStrings,
-            wordRegexp,
-            contextLines,
-            effectiveBeforeContext,
-            effectiveAfterContext,
-            maxMatchesPerFile,
-            maxDepth,
-            includeGlobs,
-            excludeGlobs,
-            multiline,
-            includeHidden,
-            respectIgnoreFiles,
-            page.Items.Count,
-            state.HasNextPage ? "unknown" : matches.Count.ToString(CultureInfo.InvariantCulture),
-            state.HasNextPage ? "unknown" : matches.Count.ToString(CultureInfo.InvariantCulture),
-            state,
-            completion,
-            writer =>
-            {
-                foreach (var match in page.Items)
-                {
-                    writer.WriteStartElement("match");
-                    writer.WriteAttributeString("path", match.Path);
-                    writer.WriteAttributeString("line", match.LineNumber.ToString(CultureInfo.InvariantCulture));
-
-                    if (!contextRequested)
-                    {
-                        writer.WriteString($"{match.LineNumber.ToString(CultureInfo.InvariantCulture)}\t{match.Text}");
-                    }
-                    else
-                    {
-                        foreach (var context in match.ContextLines.OrderBy(item => item.LineNumber))
-                        {
-                            if (context.LineNumber < match.LineNumber)
-                            {
-                                writer.WriteStartElement("context");
-                                writer.WriteAttributeString("line", context.LineNumber.ToString(CultureInfo.InvariantCulture));
-                                writer.WriteString($"{context.LineNumber.ToString(CultureInfo.InvariantCulture)}\t{context.Text}");
-                                writer.WriteEndElement();
-                            }
-                        }
-
-                        writer.WriteStartElement("line");
-                        writer.WriteString($"{match.LineNumber.ToString(CultureInfo.InvariantCulture)}\t{match.Text}");
-                        writer.WriteEndElement();
-
-                        foreach (var context in match.ContextLines.OrderBy(item => item.LineNumber))
-                        {
-                            if (context.LineNumber > match.LineNumber)
-                            {
-                                writer.WriteStartElement("context");
-                                writer.WriteAttributeString("line", context.LineNumber.ToString(CultureInfo.InvariantCulture));
-                                writer.WriteString($"{context.LineNumber.ToString(CultureInfo.InvariantCulture)}\t{context.Text}");
-                                writer.WriteEndElement();
-                            }
-                        }
-                    }
-
-                    writer.WriteEndElement();
-                }
-            });
-    }
-
-    private static RipgrepSearchOptions CreateRipgrepOptions(
-        string pattern,
-        ResolvedGrepPath resolved,
+        string path,
         GrepOutputMode outputMode,
         int offset,
         int limit,
@@ -532,38 +151,360 @@ public partial class CodingToolHarness
         bool multiline,
         bool includeHidden,
         bool respectIgnoreFiles)
-        => new()
+    {
+        WorkspacePath searchRoot =
+            CodingWorkspaceAccess.Resolve(workspace, path);
+        string displayPath =
+            CodingWorkspaceAccess.Display(workspace, searchRoot);
+        WorkspaceFileInfo? rootInfo =
+            await workspace.Files.GetInfoAsync(searchRoot)
+                .ConfigureAwait(false);
+        if (rootInfo is null)
         {
-            Pattern = pattern,
-            WorkingDirectory = resolved.WorkingDirectory,
-            SearchPaths = [resolved.SearchPath],
-            IncludeGlobs = NormalizeGlobs(includeGlobs),
-            ExcludeGlobs = NormalizeGlobs(excludeGlobs).Concat(GrepBuiltInExcludeGlobs).ToArray(),
-            CaseMode = caseMode switch
+            return FormatGrepError(
+                displayPath,
+                "Path does not exist.");
+        }
+
+        int searchLimit = Math.Min(
+            10_000,
+            offset + limit + 1);
+        string[] includes = NormalizeGlobs(includeGlobs).ToArray();
+        string[] exclusions = NormalizeGlobs(excludeGlobs)
+            .Concat(GrepBuiltInExcludeGlobs)
+            .ToArray();
+        int effectiveBefore =
+            CalculateEffectiveBeforeContext(
+                contextLines,
+                beforeContext);
+        int effectiveAfter =
+            CalculateEffectiveAfterContext(
+                contextLines,
+                afterContext);
+        WorkspaceSearchResultSet search =
+            await workspace.Files.SearchTextAsync(
+                new WorkspaceSearchRequest
+                {
+                    Root = searchRoot,
+                    Query = pattern.Trim(),
+                    OutputMode = outputMode switch
+                    {
+                        GrepOutputMode.FilesWithMatches =>
+                            WorkspaceSearchOutputMode.FilesWithMatches,
+                        GrepOutputMode.Count =>
+                            WorkspaceSearchOutputMode.Count,
+                        _ => WorkspaceSearchOutputMode.Matches,
+                    },
+                    IncludeGlobs = includes,
+                    ExcludeGlobs = exclusions,
+                    CaseMode = caseMode switch
+                    {
+                        GrepCaseMode.Sensitive =>
+                            WorkspaceSearchCaseMode.Sensitive,
+                        GrepCaseMode.Insensitive =>
+                            WorkspaceSearchCaseMode.Insensitive,
+                        _ => WorkspaceSearchCaseMode.Smart,
+                    },
+                    FixedStrings = fixedStrings,
+                    WordRegexp = wordRegexp,
+                    Multiline = multiline,
+                    IncludeHidden = includeHidden,
+                    RespectIgnoreFiles = respectIgnoreFiles,
+                    MaxDepth = maxDepth,
+                    MaxMatchesPerFile = maxMatchesPerFile,
+                    BeforeContext = outputMode == GrepOutputMode.Content
+                        ? effectiveBefore
+                        : 0,
+                    AfterContext = outputMode == GrepOutputMode.Content
+                        ? effectiveAfter
+                        : 0,
+                    MaxColumns = MaxGrepColumns,
+                    Timeout = TimeSpan.FromMilliseconds(
+                        GrepTimeoutMilliseconds),
+                    MaxResults = searchLimit,
+                }).ConfigureAwait(false);
+        bool providerTruncated =
+            search.Status == WorkspaceSearchStatus.Truncated;
+        WorkspaceSearchResult[] filtered = search.Results
+            .DistinctBy(result => (
+                result.Path.RootId,
+                result.Path.RelativePath,
+                result.Line,
+                result.Column))
+            .ToArray();
+        GrepMatchInfo[] matches = filtered
+            .Select(result => new GrepMatchInfo(
+                CodingWorkspaceAccess.Display(workspace, result.Path),
+                checked((int)result.Line),
+                ShortenLine(result.LineText),
+                result.ContextLines
+                    .Select(context => new GrepContextLineInfo(
+                        checked((int)context.Line),
+                        ShortenLine(context.Text)))
+                    .ToArray()))
+            .ToArray();
+
+        int resultsRead;
+        int totalResults;
+        int totalMatches;
+        Action<XmlWriter> writeBody;
+        switch (outputMode)
+        {
+            case GrepOutputMode.FilesWithMatches:
             {
-                GrepCaseMode.Sensitive => RipgrepCaseMode.Sensitive,
-                GrepCaseMode.Insensitive => RipgrepCaseMode.Insensitive,
-                _ => RipgrepCaseMode.Smart
-            },
-            FixedStrings = fixedStrings,
-            WordRegexp = wordRegexp,
-            Multiline = multiline,
-            MultilineDotAll = multiline,
-            IncludeHidden = includeHidden,
-            RespectIgnoreFiles = respectIgnoreFiles,
-            BeforeContext = outputMode == GrepOutputMode.Content
-                ? NullIfZero(CalculateEffectiveBeforeContext(contextLines, beforeContext))
-                : null,
-            AfterContext = outputMode == GrepOutputMode.Content
-                ? NullIfZero(CalculateEffectiveAfterContext(contextLines, afterContext))
-                : null,
-            MaxMatches = CalculateGrepMaxMatches(offset, limit),
-            MaxMatchesPerFile = maxMatchesPerFile,
-            MaxDepth = maxDepth,
-            MaxColumns = MaxGrepColumns,
-            Timeout = TimeSpan.FromMilliseconds(GrepTimeoutMilliseconds),
-            StrictJsonParsing = false
-        };
+                var fileCandidates =
+                    new List<(string Path, DateTimeOffset ModifiedAt)>();
+                foreach (WorkspacePath file in search.Files)
+                {
+                    WorkspaceFileInfo? info =
+                        await workspace.Files.GetInfoAsync(
+                            file).ConfigureAwait(false);
+                    fileCandidates.Add((
+                        CodingWorkspaceAccess.Display(workspace, file),
+                        info?.Version.ModifiedAt ??
+                            DateTimeOffset.MinValue));
+                }
+                string[] files = fileCandidates
+                    .OrderByDescending(item => item.ModifiedAt)
+                    .ThenBy(
+                        item => item.Path,
+                        StringComparer.Ordinal)
+                    .Select(item => item.Path)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToArray();
+                GrepPage<string> page = SlicePage(
+                    files,
+                    offset,
+                    limit);
+                resultsRead = page.Items.Count;
+                totalResults = files.Length;
+                totalMatches = (int)Math.Min(
+                    int.MaxValue,
+                    files.Length);
+                writeBody = writer =>
+                {
+                    foreach (string file in page.Items)
+                    {
+                        writer.WriteStartElement("file");
+                        writer.WriteAttributeString(
+                            "path",
+                            file);
+                        writer.WriteEndElement();
+                    }
+                };
+                return FormatWorkspaceGrep(
+                    page.HasMore,
+                    providerTruncated);
+            }
+            case GrepOutputMode.Count:
+            {
+                (string Path, int Count)[] counts = search.Counts
+                    .Select(count => (
+                        Path:
+                        CodingWorkspaceAccess.Display(
+                            workspace,
+                            count.Path),
+                        Count: checked((int)count.Count)))
+                    .OrderBy(item => item.Path, StringComparer.Ordinal)
+                    .ToArray();
+                GrepPage<(string Path, int Count)> page =
+                    SlicePage<(string Path, int Count)>(
+                        counts,
+                        offset,
+                        limit);
+                resultsRead = page.Items.Count;
+                totalResults = counts.Length;
+                totalMatches = counts.Sum(count => count.Count);
+                writeBody = writer =>
+                {
+                    foreach (var count in page.Items)
+                    {
+                        writer.WriteStartElement("count");
+                        writer.WriteAttributeString(
+                            "path",
+                            count.Path);
+                        writer.WriteAttributeString(
+                            "matches",
+                            count.Count.ToString(
+                                CultureInfo.InvariantCulture));
+                        writer.WriteEndElement();
+                    }
+                };
+                return FormatWorkspaceGrep(
+                    page.HasMore,
+                    providerTruncated);
+            }
+            default:
+            {
+                GrepPage<GrepMatchInfo> page = SlicePage(
+                    matches,
+                    offset,
+                    limit);
+                resultsRead = page.Items.Count;
+                totalResults = matches.Length;
+                totalMatches = matches.Length;
+                writeBody = writer =>
+                {
+                    foreach (GrepMatchInfo match in page.Items)
+                    {
+                        writer.WriteStartElement("match");
+                        writer.WriteAttributeString(
+                            "path",
+                            match.Path);
+                        writer.WriteAttributeString(
+                            "line",
+                            match.LineNumber.ToString(
+                                CultureInfo.InvariantCulture));
+                        if (effectiveBefore == 0 &&
+                            effectiveAfter == 0)
+                        {
+                            writer.WriteString(
+                                $"{match.LineNumber.ToString(CultureInfo.InvariantCulture)}\t{match.Text}");
+                        }
+                        else
+                        {
+                            foreach (GrepContextLineInfo context in
+                                     match.ContextLines
+                                         .Where(context =>
+                                             context.LineNumber <
+                                             match.LineNumber)
+                                         .OrderBy(context =>
+                                             context.LineNumber))
+                            {
+                                writer.WriteStartElement("context");
+                                writer.WriteAttributeString(
+                                    "line",
+                                    context.LineNumber.ToString(
+                                        CultureInfo.InvariantCulture));
+                                writer.WriteString(
+                                    $"{context.LineNumber.ToString(CultureInfo.InvariantCulture)}\t{context.Text}");
+                                writer.WriteEndElement();
+                            }
+                            writer.WriteStartElement("line");
+                            writer.WriteString(
+                                $"{match.LineNumber.ToString(CultureInfo.InvariantCulture)}\t{match.Text}");
+                            writer.WriteEndElement();
+                            foreach (GrepContextLineInfo context in
+                                     match.ContextLines
+                                         .Where(context =>
+                                             context.LineNumber >
+                                             match.LineNumber)
+                                         .OrderBy(context =>
+                                             context.LineNumber))
+                            {
+                                writer.WriteStartElement("context");
+                                writer.WriteAttributeString(
+                                    "line",
+                                    context.LineNumber.ToString(
+                                        CultureInfo.InvariantCulture));
+                                writer.WriteString(
+                                    $"{context.LineNumber.ToString(CultureInfo.InvariantCulture)}\t{context.Text}");
+                                writer.WriteEndElement();
+                            }
+                        }
+                        writer.WriteEndElement();
+                    }
+                };
+                return FormatWorkspaceGrep(
+                    page.HasMore,
+                    providerTruncated);
+            }
+        }
+
+        string FormatWorkspaceGrep(
+            bool pageHasMore,
+            bool providerTruncated)
+        {
+            GrepCompletionStatus completionStatus =
+                search.Status switch
+                {
+                    WorkspaceSearchStatus.Completed
+                        when resultsRead == 0 =>
+                        GrepCompletionStatus.NoMatches,
+                    WorkspaceSearchStatus.Completed =>
+                        pageHasMore
+                            ? GrepCompletionStatus.Truncated
+                            : GrepCompletionStatus.Success,
+                    WorkspaceSearchStatus.NoMatches =>
+                        GrepCompletionStatus.NoMatches,
+                    WorkspaceSearchStatus.Truncated =>
+                        GrepCompletionStatus.Truncated,
+                    WorkspaceSearchStatus.TimedOut =>
+                        GrepCompletionStatus.TimedOut,
+                    WorkspaceSearchStatus.Cancelled =>
+                        GrepCompletionStatus.Cancelled,
+                    _ => GrepCompletionStatus.Failed,
+                };
+            bool partial =
+                pageHasMore ||
+                providerTruncated ||
+                search.Status is WorkspaceSearchStatus.TimedOut or
+                    WorkspaceSearchStatus.Cancelled or
+                    WorkspaceSearchStatus.Failed;
+            var completion = new GrepCompletionEvent
+            {
+                Status = completionStatus,
+                ExitCode = completionStatus switch
+                {
+                    GrepCompletionStatus.NoMatches => 1,
+                    GrepCompletionStatus.Failed => 2,
+                    _ => 0,
+                },
+                Partial = partial,
+                TimedOut =
+                    search.Status == WorkspaceSearchStatus.TimedOut,
+                Cancelled =
+                    search.Status == WorkspaceSearchStatus.Cancelled,
+                Truncated =
+                    pageHasMore || providerTruncated,
+                MatchesEmitted = resultsRead,
+                Stderr = search.Message,
+                Reason = search.Message,
+            };
+            if (TryFormatGrepCompletionError(
+                    displayPath,
+                    completion,
+                    resultsRead) is { } error)
+            {
+                return error;
+            }
+            GrepResultState state =
+                CreateGrepResultState(
+                    pageHasMore,
+                    completion);
+            return FormatGrepResult(
+                pattern,
+                displayPath,
+                outputMode,
+                offset,
+                limit,
+                caseMode,
+                fixedStrings,
+                wordRegexp,
+                contextLines,
+                effectiveBefore,
+                effectiveAfter,
+                maxMatchesPerFile,
+                maxDepth,
+                includes,
+                exclusions,
+                multiline,
+                includeHidden,
+                respectIgnoreFiles,
+                resultsRead,
+                state.HasNextPage || providerTruncated
+                    ? "unknown"
+                    : totalResults.ToString(
+                        CultureInfo.InvariantCulture),
+                providerTruncated
+                    ? "unknown"
+                    : totalMatches.ToString(
+                        CultureInfo.InvariantCulture),
+                state,
+                completion,
+                writeBody);
+        }
+    }
 
     private static string? ValidateGrepArguments(
         string? pattern,
@@ -606,44 +547,17 @@ public partial class CodingToolHarness
         return null;
     }
 
-    private static ResolvedGrepPath ResolveGrepPath(
-        string path,
-        FunctionExecutionContext? context)
-    {
-        var trimmed = path.Trim();
-        var fullPath = CodingHarnessPathResolution.ResolvePath(trimmed, context);
-        if (File.Exists(fullPath))
-        {
-            return new ResolvedGrepPath(
-                fullPath,
-                Path.GetDirectoryName(fullPath)
-                    ?? CodingHarnessPathResolution.BaseDirectory(context),
-                Path.GetFileName(fullPath));
-        }
-
-        return new ResolvedGrepPath(fullPath, fullPath, ".");
-    }
-
     private static IReadOnlyList<string> NormalizeGlobs(string[]? globs)
         => globs?
             .Where(glob => !string.IsNullOrWhiteSpace(glob))
             .Select(glob => glob.Trim().Replace('\\', '/'))
             .ToArray() ?? [];
 
-    private static int CalculateGrepMaxMatches(int offset, int limit)
-    {
-        var requested = (long)offset + limit;
-        return requested > int.MaxValue ? int.MaxValue : (int)requested;
-    }
-
     private static int CalculateEffectiveBeforeContext(int contextLines, int beforeContext)
         => beforeContext > 0 ? beforeContext : contextLines;
 
     private static int CalculateEffectiveAfterContext(int contextLines, int afterContext)
         => afterContext > 0 ? afterContext : contextLines;
-
-    private static int? NullIfZero(int value)
-        => value == 0 ? null : value;
 
     private static GrepPage<T> SlicePage<T>(IReadOnlyList<T> items, int offset, int limit)
     {
@@ -654,19 +568,6 @@ public partial class CodingToolHarness
         var requested = items.Skip(start).Take(limit + 1).ToArray();
         var hasMore = requested.Length > limit;
         return new GrepPage<T>(hasMore ? requested.Take(limit).ToArray() : requested, hasMore);
-    }
-
-    private static DateTime TryGetLastWriteTimeUtc(string workingDirectory, string relativePath)
-    {
-        try
-        {
-            var fullPath = Path.GetFullPath(relativePath, workingDirectory);
-            return File.Exists(fullPath) ? File.GetLastWriteTimeUtc(fullPath) : DateTime.MinValue;
-        }
-        catch
-        {
-            return DateTime.MinValue;
-        }
     }
 
     private static string FormatGrepResult(
@@ -692,7 +593,7 @@ public partial class CodingToolHarness
         string totalResults,
         string totalMatches,
         GrepResultState state,
-        RipgrepCompletionEvent completion,
+        GrepCompletionEvent completion,
         Action<XmlWriter> writeBody)
     {
         var builder = new StringBuilder();
@@ -743,7 +644,7 @@ public partial class CodingToolHarness
             writer.WriteEndElement();
         }
 
-        if (resultsRead == 0 && completion.Status is RipgrepCompletionStatus.NoMatches or RipgrepCompletionStatus.Success)
+        if (resultsRead == 0 && completion.Status is GrepCompletionStatus.NoMatches or GrepCompletionStatus.Success)
         {
             writer.WriteStartElement("no_matches");
             writer.WriteEndElement();
@@ -808,17 +709,9 @@ public partial class CodingToolHarness
         return builder.ToString();
     }
 
-    private static string NormalizeResultPath(string path)
-    {
-        var normalized = path.Replace('\\', '/');
-        while (normalized.StartsWith("./", StringComparison.Ordinal))
-            normalized = normalized[2..];
-        return normalized;
-    }
-
     private static string? TryFormatGrepCompletionError(
         string path,
-        RipgrepCompletionEvent completion,
+        GrepCompletionEvent completion,
         int resultsRead)
     {
         if (resultsRead > 0)
@@ -826,23 +719,23 @@ public partial class CodingToolHarness
 
         return completion.Status switch
         {
-            RipgrepCompletionStatus.Failed => FormatGrepError(path, "Ripgrep search failed."),
-            RipgrepCompletionStatus.TimedOut => FormatGrepError(path, "Ripgrep search timed out."),
-            RipgrepCompletionStatus.Cancelled => FormatGrepError(path, "Ripgrep search cancelled."),
+            GrepCompletionStatus.Failed => FormatGrepError(path, "Workspace search failed."),
+            GrepCompletionStatus.TimedOut => FormatGrepError(path, "Workspace search timed out."),
+            GrepCompletionStatus.Cancelled => FormatGrepError(path, "Workspace search cancelled."),
             _ => null
         };
     }
 
     private static GrepResultState CreateGrepResultState(
         bool pageHasMore,
-        RipgrepCompletionEvent completion,
+        GrepCompletionEvent completion,
         bool lineTruncated = false)
     {
         var hasNextPage = pageHasMore ||
             completion.Truncated ||
             completion.TimedOut ||
             completion.Cancelled ||
-            completion.Status == RipgrepCompletionStatus.Failed && completion.Partial;
+            completion.Status == GrepCompletionStatus.Failed && completion.Partial;
 
         var reason = GetGrepTruncationReason(completion, lineTruncated, hasNextPage);
         return new GrepResultState(
@@ -853,34 +746,31 @@ public partial class CodingToolHarness
     }
 
     private static string? GetGrepTruncationReason(
-        RipgrepCompletionEvent completion,
+        GrepCompletionEvent completion,
         bool lineTruncated,
         bool hasNextPage)
     {
-        if (completion.TimedOut || completion.Status == RipgrepCompletionStatus.TimedOut)
+        if (completion.TimedOut || completion.Status == GrepCompletionStatus.TimedOut)
             return "timeout";
-        if (completion.Cancelled || completion.Status == RipgrepCompletionStatus.Cancelled)
+        if (completion.Cancelled || completion.Status == GrepCompletionStatus.Cancelled)
             return "cancelled";
-        if (completion.Status == RipgrepCompletionStatus.Failed && completion.Partial)
+        if (completion.Status == GrepCompletionStatus.Failed && completion.Partial)
             return "failed";
         if (hasNextPage)
             return "limit";
         return lineTruncated ? "line_length" : null;
     }
 
-    private static string GetNextGrepReason(RipgrepCompletionEvent completion)
+    private static string GetNextGrepReason(GrepCompletionEvent completion)
     {
-        if (completion.TimedOut || completion.Status == RipgrepCompletionStatus.TimedOut)
+        if (completion.TimedOut || completion.Status == GrepCompletionStatus.TimedOut)
             return "partial_results_timeout";
-        if (completion.Cancelled || completion.Status == RipgrepCompletionStatus.Cancelled)
+        if (completion.Cancelled || completion.Status == GrepCompletionStatus.Cancelled)
             return "partial_results_cancelled";
-        if (completion.Status == RipgrepCompletionStatus.Failed && completion.Partial)
+        if (completion.Status == GrepCompletionStatus.Failed && completion.Partial)
             return "partial_results_failed";
         return "more_matches_available";
     }
-
-    private static string TrimLineEnding(string value)
-        => value.TrimEnd('\r', '\n');
 
     private static string ShortenLine(string value)
     {
@@ -909,17 +799,20 @@ public partial class CodingToolHarness
     private static string ToXmlValue(GrepCaseMode mode)
         => mode.ToString().ToLowerInvariant();
 
-    private static string ToXmlValue(RipgrepCompletionStatus status)
+    private static string ToXmlValue(GrepCompletionStatus status)
         => status.ToString().ToLowerInvariant();
 
-    private sealed record ResolvedGrepPath(string FullPath, string WorkingDirectory, string SearchPath);
-
-    private sealed class GrepMatchInfo(string path, int lineNumber, string text)
+    private sealed class GrepMatchInfo(
+        string path,
+        int lineNumber,
+        string text,
+        IEnumerable<GrepContextLineInfo>? contextLines = null)
     {
         public string Path { get; } = path;
         public int LineNumber { get; } = lineNumber;
         public string Text { get; } = text;
-        public List<GrepContextLineInfo> ContextLines { get; } = [];
+        public List<GrepContextLineInfo> ContextLines { get; } =
+            contextLines?.ToList() ?? [];
     }
 
     private sealed record GrepContextLineInfo(int LineNumber, string Text);

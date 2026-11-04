@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using HPD.Agent.Sandbox;
 using HPD.Agent.ToolHarness.Coding.Debugging.Protocol;
 using HPD.Agent.ToolHarness.Coding.Debugging.Protocol.Generated;
 using System.Text.Json;
@@ -376,6 +377,7 @@ internal sealed class DebugSession : IAsyncDisposable
     public required string SessionId { get; init; }
     public required string RootSessionId { get; init; }
     public string? ParentSessionId { get; init; }
+    public required RuntimeWorkspaceBinding Workspace { get; init; }
     public required DebugAdapterStartMethod AdapterStartMethod { get; init; }
     public required DebugProtocolClient Protocol { get; init; }
     public required DebugAdapterStartPlan AdapterPlan { get; init; }
@@ -383,7 +385,8 @@ internal sealed class DebugSession : IAsyncDisposable
     public int? ExitCode { get; set; }
     public JsonElement? RestartData { get; set; }
     public DebugSessionState State { get; } = new();
-    public DebugSessionProjections Projections { get; } = new();
+    public DebugSessionProjections Projections => _projections ??=
+        new(Workspace);
     public DebugOutputBuffer Output { get; } = new();
     public DebugProgressProjection Progress { get; } = new();
     public DebugOutputEventCoalescer? OutputEvents { get; set; }
@@ -394,6 +397,8 @@ internal sealed class DebugSession : IAsyncDisposable
     public ConcurrentDictionary<long, Task> FollowUpTasks { get; } = [];
     public DateTimeOffset CreatedAt { get; } = DateTimeOffset.UtcNow;
     public bool DisconnectRequested => Volatile.Read(ref _disconnectRequested) != 0;
+
+    private DebugSessionProjections? _projections;
 
     public void BeginDisconnect()
         => Interlocked.Exchange(ref _disconnectRequested, 1);

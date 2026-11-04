@@ -505,6 +505,8 @@ public sealed class DebugModelFacingTests
             CancellationToken.None);
         agentContext.RuntimeCapabilities.Set(manager);
         agentContext.RuntimeCapabilities.Set(new DebugRuntimeBindingState());
+        agentContext.RuntimeCapabilities.Set(
+            TestRuntimeWorkspace.Create(Path.GetTempPath()));
         var before = agentContext.AsBeforeFunction(
             function, callId, new Dictionary<string, object?>(),
             new AgentRunConfig(), nameof(CodingToolHarness), null);
@@ -605,7 +607,8 @@ public sealed class DebugModelFacingTests
     }
 
     private static DebugBreakpointSelectionEventFactory CreateBreakpointEvents()
-        => new(new DebugSourcePreviewProvider([], new DebugSourcePreviewOptions()));
+        => new(new DebugSourcePreviewProvider(
+            new DebugSourcePreviewOptions()));
 
     private sealed record ModelFacingStubPlan : DebugExecutionPlan;
 

@@ -2,6 +2,9 @@ using System.Security.Cryptography;
 using System.Text;
 using HPD.Agent;
 using HPD.Agent.Middleware;
+using HPD.Agent.Sandbox;
+using HPD.Agent.ToolHarness.Coding;
+using HPD.Environment.Contracts;
 using Microsoft.Extensions.AI;
 
 namespace HPDOS.ToolHarnesses.Middleware;
@@ -92,10 +95,23 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
         return Task.CompletedTask;
     }
 
-    public Task BeforeFunctionAsync(BeforeFunctionContext context, CancellationToken cancellationToken)
+    public async Task BeforeFunctionAsync(
+        BeforeFunctionContext context,
+        CancellationToken cancellationToken)
     {
         if (!_options.Enabled || !IsObservedCodingFunction(context.ToolHarnessName, context.Function))
-            return Task.CompletedTask;
+            return;
+
+        if (context.RuntimeCapabilities.TryGet<RuntimeProcessExecutionBinding>(
+                out var processExecution) &&
+            context.RuntimeCapabilities.TryGet<RuntimeWorkspaceBinding>(
+                out var workspace))
+        {
+            await _languageServerService.ConfigureRuntimeAsync(
+                processExecution,
+                workspace,
+                cancellationToken).ConfigureAwait(false);
+        }
 
         var path = TryGetPathArgument(context.Arguments);
         context.UpdateMiddlewareState<LanguageServerState>(state =>
@@ -114,7 +130,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
             return state with { PendingOperations = pendingOperations };
         });
 
-        return Task.CompletedTask;
+        return;
     }
 
     public async Task<object?> WrapFunctionCallAsync(
@@ -202,18 +218,26 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
         ReadFileSnapshot snapshot,
         CancellationToken cancellationToken)
     {
-        var resolution = await _languageServerService.ResolveDocumentAsync(snapshot.Path, cancellationToken)
+        LanguageServerPathMap paths = MapPath(
+            snapshot.Path,
+            context.RuntimeCapabilities);
+        var resolution = await _languageServerService.ResolveDocumentAsync(
+                paths.ExecutionPath,
+                cancellationToken)
             .ConfigureAwait(false);
         if (!resolution.HasServers || resolution.PrimaryLanguageId is null)
             return;
 
-        var text = await TryReadDocumentTextAsync(resolution.Path, cancellationToken).ConfigureAwait(false);
+        var text = await TryReadDocumentTextAsync(
+                paths,
+                cancellationToken)
+            .ConfigureAwait(false);
         if (text == null)
             return;
 
         var existing = context.GetMiddlewareState<LanguageServerState>()?
             .DocumentsByPath
-            .GetValueOrDefault(resolution.Path);
+            .GetValueOrDefault(paths.LogicalPath);
 
         var languageId = resolution.PrimaryLanguageId;
         var uri = resolution.Uri;
@@ -233,12 +257,17 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
 
         await RefreshUnavailableServersAsync(context, cancellationToken).ConfigureAwait(false);
 
-        var diagnosticSets = result.Diagnostics;
+        var diagnosticSets = result.Diagnostics
+            .Select(set => set with
+            {
+                Path = paths.LogicalPath,
+            })
+            .ToArray();
         await context.PublishAsync(new LanguageServerDocumentOpenedEvent
         {
             SessionId = context.SessionId,
             ThreadId = context.ThreadId,
-            Path = resolution.Path,
+            Path = paths.LogicalPath,
             Uri = uri,
             LanguageId = languageId,
             DocumentVersion = result.Version
@@ -250,9 +279,9 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
                 state.DocumentsByPath,
                 StringComparer.Ordinal)
             {
-                [resolution.Path] = new LanguageServerDocumentSnapshot
+                [paths.LogicalPath] = new LanguageServerDocumentSnapshot
                 {
-                    Path = resolution.Path,
+                    Path = paths.LogicalPath,
                     Uri = uri,
                     LanguageId = languageId,
                     Version = result.Version,
@@ -260,7 +289,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
                     PositionEncoding = result.PositionEncoding,
                     ContentHash = ComputeContentHash(text),
                     LastWriteTimeUtc = snapshot.LastWriteTimeUtc,
-                    DirtySinceLastDiagnostics = diagnosticSets.Count == 0,
+                    DirtySinceLastDiagnostics = diagnosticSets.Length == 0,
                     LastObservedAt = DateTimeOffset.UtcNow
                 }
             };
@@ -285,14 +314,19 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
         CodingFileMutationSnapshot mutation,
         CancellationToken cancellationToken)
     {
-        var resolution = await _languageServerService.ResolveDocumentAsync(mutation.Path, cancellationToken)
+        LanguageServerPathMap paths = MapPath(
+            mutation.Path,
+            context.RuntimeCapabilities);
+        var resolution = await _languageServerService.ResolveDocumentAsync(
+                paths.ExecutionPath,
+                cancellationToken)
             .ConfigureAwait(false);
         if (!resolution.HasServers || resolution.PrimaryLanguageId is null)
             return;
 
         var existing = context.GetMiddlewareState<LanguageServerState>()?
             .DocumentsByPath
-            .GetValueOrDefault(resolution.Path);
+            .GetValueOrDefault(paths.LogicalPath);
 
         var languageId = resolution.PrimaryLanguageId;
         var uri = resolution.Uri;
@@ -310,7 +344,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
         {
             SessionId = context.SessionId,
             ThreadId = context.ThreadId,
-            Path = resolution.Path,
+            Path = paths.LogicalPath,
             Uri = uri,
             ChangeKind = watchedChangeKind
         }, cancellationToken).ConfigureAwait(false);
@@ -330,7 +364,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
                 {
                     SessionId = context.SessionId,
                     ThreadId = context.ThreadId,
-                    Path = resolution.Path,
+                    Path = paths.LogicalPath,
                     Uri = uri
                 }, cancellationToken).ConfigureAwait(false);
             }
@@ -340,13 +374,13 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
                 var documents = new Dictionary<string, LanguageServerDocumentSnapshot>(
                     state.DocumentsByPath,
                     StringComparer.Ordinal);
-                documents.Remove(resolution.Path);
+                documents.Remove(paths.LogicalPath);
 
                 var diagnostics = new Dictionary<string, LanguageServerDiagnosticSet>(
                     state.DiagnosticsByPath,
                     StringComparer.Ordinal);
                 foreach (var key in diagnostics
-                             .Where(pair => string.Equals(pair.Value.Path, resolution.Path, StringComparison.Ordinal))
+                             .Where(pair => string.Equals(pair.Value.Path, paths.LogicalPath, StringComparison.Ordinal))
                              .Select(pair => pair.Key)
                              .ToArray())
                 {
@@ -363,7 +397,10 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
             return;
         }
 
-        var text = mutation.Text ?? await TryReadDocumentTextAsync(resolution.Path, cancellationToken).ConfigureAwait(false);
+        var text = mutation.Text ?? await TryReadDocumentTextAsync(
+                paths,
+                cancellationToken)
+            .ConfigureAwait(false);
         if (text == null)
             return;
 
@@ -388,13 +425,15 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
                 },
                 cancellationToken).ConfigureAwait(false);
 
-            diagnostics = openResult.Diagnostics;
+            diagnostics = MapDiagnosticPaths(
+                openResult.Diagnostics,
+                paths);
             opened = openResult.Opened;
             await context.PublishAsync(new LanguageServerDocumentOpenedEvent
             {
                 SessionId = context.SessionId,
                 ThreadId = context.ThreadId,
-                Path = resolution.Path,
+                Path = paths.LogicalPath,
                 Uri = uri,
                 LanguageId = languageId,
                 DocumentVersion = version
@@ -412,12 +451,14 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
                 },
                 cancellationToken).ConfigureAwait(false);
 
-            diagnostics = changeResult.Diagnostics;
+            diagnostics = MapDiagnosticPaths(
+                changeResult.Diagnostics,
+                paths);
             await context.PublishAsync(new LanguageServerDocumentChangedEvent
             {
                 SessionId = context.SessionId,
                 ThreadId = context.ThreadId,
-                Path = resolution.Path,
+                Path = paths.LogicalPath,
                 Uri = uri,
                 LanguageId = languageId,
                 DocumentVersion = version
@@ -436,11 +477,12 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
         {
             SessionId = context.SessionId,
             ThreadId = context.ThreadId,
-            Path = resolution.Path,
+            Path = paths.LogicalPath,
             Uri = uri
         }, cancellationToken).ConfigureAwait(false);
 
-        diagnostics = await _languageServerService.GetDiagnosticsAsync(
+        diagnostics = MapDiagnosticPaths(
+            await _languageServerService.GetDiagnosticsAsync(
             new LanguageServerDiagnosticRequest
             {
                 Path = resolution.Path,
@@ -449,12 +491,13 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
                 DocumentVersion = version,
                 StartedAt = diagnosticStartedAt
             },
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken).ConfigureAwait(false),
+            paths);
         await context.PublishAsync(new LanguageServerDiagnosticsReceivedEvent
         {
             SessionId = context.SessionId,
             ThreadId = context.ThreadId,
-            Path = resolution.Path,
+            Path = paths.LogicalPath,
             Uri = uri,
             DiagnosticSetCount = diagnostics.Count,
             ErrorCount = diagnostics.Sum(set => set.Diagnostics.Count(diagnostic =>
@@ -477,9 +520,9 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
                 state.DocumentsByPath,
                 StringComparer.Ordinal)
             {
-                [resolution.Path] = new LanguageServerDocumentSnapshot
+                [paths.LogicalPath] = new LanguageServerDocumentSnapshot
                 {
-                    Path = resolution.Path,
+                    Path = paths.LogicalPath,
                     Uri = uri,
                     LanguageId = languageId,
                     Version = version,
@@ -578,20 +621,99 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
         });
     }
 
-    private static async Task<string?> TryReadDocumentTextAsync(string path, CancellationToken cancellationToken)
+    private static LanguageServerPathMap MapPath(
+        string path,
+        IRuntimeCapabilityRegistry capabilities)
     {
+        if (capabilities.TryGet<RuntimeWorkspaceBinding>(
+                out var workspace))
+        {
+            WorkspacePath logical =
+                CodingWorkspaceAccess.Resolve(workspace, path);
+            return new LanguageServerPathMap(
+                logical,
+                workspace.Paths.ToExecutionPath(logical).Value,
+                workspace);
+        }
+        return new LanguageServerPathMap(
+            null,
+            Path.GetFullPath(
+                path,
+                Directory.GetCurrentDirectory()),
+            null);
+    }
+
+    private static IReadOnlyList<LanguageServerDiagnosticSet>
+        MapDiagnosticPaths(
+            IReadOnlyList<LanguageServerDiagnosticSet> diagnostics,
+            LanguageServerPathMap paths)
+    {
+        if (paths.Workspace is null)
+        {
+            return diagnostics;
+        }
+        return diagnostics
+            .Select(set => set with
+            {
+                Path = MapExecutionPath(
+                    paths.Workspace,
+                    set.Path),
+            })
+            .ToArray();
+    }
+
+    private static string MapExecutionPath(
+        RuntimeWorkspaceBinding workspace,
+        string path) =>
+        workspace.Paths.TryFromExecutionPath(
+                new WorkspaceExecutionPath(path)) is { } logical
+            ? logical.ToString()
+            : path;
+
+    private static async Task<string?> TryReadDocumentTextAsync(
+        LanguageServerPathMap paths,
+        CancellationToken cancellationToken)
+    {
+        if (paths.Workspace is not null &&
+            paths.Logical is { } logical)
+        {
+            WorkspaceTextSnapshot? snapshot =
+                await paths.Workspace.Files.ReadTextAsync(
+                    logical,
+                    new WorkspaceTextReadOptions
+                    {
+                        StartLine = 1,
+                        MaxLines = null,
+                        MaxBytes = MaxOpenDocumentBytes,
+                    },
+                    cancellationToken).ConfigureAwait(false);
+            return snapshot is null || snapshot.Truncated
+                ? null
+                : snapshot.Content;
+        }
         try
         {
-            var fileInfo = new FileInfo(path);
+            var fileInfo = new FileInfo(paths.ExecutionPath);
             if (!fileInfo.Exists || fileInfo.Length > MaxOpenDocumentBytes)
                 return null;
 
-            return await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
+            return await File.ReadAllTextAsync(
+                paths.ExecutionPath,
+                cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or DecoderFallbackException)
         {
             return null;
         }
+    }
+
+    private sealed record LanguageServerPathMap(
+        WorkspacePath? Logical,
+        string ExecutionPath,
+        RuntimeWorkspaceBinding? Workspace)
+    {
+        public string LogicalPath =>
+            Logical?.ToString() ?? ExecutionPath;
     }
 
     private static object AppendToResult(object? result, string appendix)

@@ -6,6 +6,7 @@ using HPD.Agent;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.ToolHarness.Coding.Security;
 using HPD.Agent.Middleware;
+using HPD.Environment.Contracts;
 using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
 
@@ -34,97 +35,18 @@ public partial class CodingToolHarness
             if (argumentError != null)
                 return FormatError(path ?? string.Empty, argumentError);
 
-            if (Path.IsPathRooted(path) && IsBlockedDevicePath(Path.GetFullPath(path)))
-                return FormatError(path, "Cannot read blocked device path.");
-
-            var resolvedPath = ResolveReadPath(path, context);
-            var authorizedPath = await AgentFilesystemAccess.AuthorizeReadAsync(
-                resolvedPath.FullPath,
-                nameof(ReadFile),
+            if (!CodingWorkspaceAccess.TryGet(context, out var workspace))
+            {
+                return FormatError(
+                    path ?? string.Empty,
+                    "No Environment workspace binding is available for ReadFile.");
+            }
+            return await ReadWorkspaceFileAsync(
+                workspace,
+                path,
                 context,
-                CancellationToken.None).ConfigureAwait(false);
-            resolvedPath = resolvedPath with { FullPath = authorizedPath };
-            if (IsBlockedDevicePath(resolvedPath.FullPath))
-                return FormatError(resolvedPath.FullPath, "Cannot read blocked device path.");
-
-            var readFileStateKey = typeof(ReadFileState).FullName!;
-            var priorSnapshot = context
-                .Analyze(s => s.MiddlewareState.GetState<ReadFileState>(readFileStateKey))
-                ?.FilesByPath.GetValueOrDefault(resolvedPath.FullPath);
-
-            var sourceResult = await TryReadFromTextSourcesAsync(resolvedPath.FullPath, CancellationToken.None).ConfigureAwait(false);
-            ReadFileTextResult result;
-
-            if (sourceResult != null)
-            {
-                using var reader = sourceResult.Reader;
-                result = await ReadTextRangeAsync(
-                    sourceResult.FullPath,
-                    reader,
-                    offset,
-                    limit,
-                    sourceResult.LastWriteTimeUtc,
-                    sourceResult.Length,
-                    ReadFileSourceKind.TextSource,
-                    sourceResult.Version).ConfigureAwait(false);
-            }
-            else
-            {
-                if (Directory.Exists(resolvedPath.FullPath))
-                    return FormatError(resolvedPath.FullPath, "Path is a directory. Use ListDirectory instead.");
-
-                if (!File.Exists(resolvedPath.FullPath))
-                    return FormatError(resolvedPath.FullPath, BuildMissingFileMessage(resolvedPath.FullPath));
-
-                var fileInfo = new FileInfo(resolvedPath.FullPath);
-                var sample = await ReadByteSampleAsync(resolvedPath.FullPath).ConfigureAwait(false);
-                var bomEncoding = DetectBomEncoding(sample);
-
-                if (LooksBinary(sample, bomEncoding != null))
-                    return FormatError(resolvedPath.FullPath, "Cannot read binary file.");
-
-                var encoding = DetectTextEncoding(sample, bomEncoding);
-                await using var stream = new FileStream(resolvedPath.FullPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096, useAsync: true);
-                using var reader = new StreamReader(stream, encoding, detectEncodingFromByteOrderMarks: false);
-
-                result = await ReadTextRangeAsync(
-                    resolvedPath.FullPath,
-                    reader,
-                    offset,
-                    limit,
-                    fileInfo.LastWriteTimeUtc,
-                    fileInfo.Length,
-                    ReadFileSourceKind.FileSystem,
-                    null).ConfigureAwait(false);
-            }
-
-            if (CanReturnUnchanged(priorSnapshot, result, offset, limit))
-                return FormatFileUnchanged(priorSnapshot!);
-
-            var snapshot = new ReadFileSnapshot
-            {
-                Path = result.Path,
-                ReadAt = DateTimeOffset.UtcNow,
-                LastWriteTimeUtc = result.LastWriteTimeUtc,
-                Length = result.Length,
-                Offset = offset,
-                Limit = limit,
-                StartLine = result.Lines.Count == 0 ? 0 : result.StartLine,
-                EndLine = result.EndLine,
-                LinesRead = result.Lines.Count,
-                TotalLines = result.TotalLines,
-                Truncated = result.Truncated,
-                Coverage = result.Coverage,
-                SourceKind = result.SourceKind,
-                SourceVersion = result.SourceVersion,
-                ReturnedContentHash = result.ReturnedContentHash
-            };
-
-            context.ResultMetadata.Set(
-                CodingToolMetadataKeys.ReadFileSnapshot,
-                snapshot);
-
-            return FormatReadResult(result);
+                offset,
+                limit).ConfigureAwait(false);
         }
         catch (DecoderFallbackException)
         {
@@ -148,16 +70,148 @@ public partial class CodingToolHarness
         }
     }
 
-    private async ValueTask<ReadFileTextSourceResult?> TryReadFromTextSourcesAsync(string fullPath, CancellationToken cancellationToken)
+    private async Task<object> ReadWorkspaceFileAsync(
+        HPD.Agent.Sandbox.RuntimeWorkspaceBinding workspace,
+        string path,
+        FunctionExecutionContext context,
+        int offset,
+        int limit)
     {
-        foreach (var source in _readFileTextSources)
+        WorkspacePath logical =
+            CodingWorkspaceAccess.Resolve(workspace, path);
+        string displayPath =
+            CodingWorkspaceAccess.Display(workspace, logical);
+        WorkspaceFileInfo? info =
+            await workspace.Files.GetInfoAsync(logical)
+                .ConfigureAwait(false);
+        if (info is null)
+            return FormatError(displayPath, BuildMissingFileMessage(displayPath));
+        if (info.Kind == WorkspaceEntryKind.Directory)
+            return FormatError(displayPath, "Path is a directory. Use ListDirectory instead.");
+
+        WorkspaceBinarySnapshot sample =
+            (await workspace.Files.ReadBytesAsync(
+                logical,
+                new WorkspaceByteReadOptions
+                {
+                    MaxBytes = 4096,
+                }).ConfigureAwait(false))!;
+        if (LooksBinary(
+                sample.Content.ToArray(),
+                DetectBomEncoding(sample.Content.ToArray()) is not null))
         {
-            var result = await source.TryReadTextAsync(fullPath, cancellationToken).ConfigureAwait(false);
-            if (result != null)
-                return result;
+            return FormatError(displayPath, "Cannot read binary file.");
         }
 
-        return null;
+        WorkspaceTextSnapshot snapshot =
+            (await workspace.Files.ReadTextAsync(
+                logical,
+                new WorkspaceTextReadOptions
+                {
+                    StartLine = offset,
+                    MaxLines = limit,
+                    MaxBytes = (int)MaxTextReadBytes,
+                }).ConfigureAwait(false)) ??
+            throw new IOException(
+                $"Workspace file '{displayPath}' disappeared during read.");
+        var lines = new List<string>();
+        using var reader = new StringReader(snapshot.Content);
+        while (await reader.ReadLineAsync().ConfigureAwait(false) is { } line)
+        {
+            string returnedLine = line;
+            if (returnedLine.Length > MaxLineLength)
+            {
+                returnedLine =
+                    returnedLine[..MaxLineLength] + "... [line truncated]";
+            }
+            lines.Add(returnedLine);
+        }
+
+        var linesWereShortened =
+            lines.Any(line => line.EndsWith(
+                "... [line truncated]",
+                StringComparison.Ordinal));
+        var sourceVersion =
+            snapshot.Version.ContentDigest is { } digest
+                ? $"{digest.Algorithm}:{digest.Value}"
+                : snapshot.Version.BackendRevision?.ToString(
+                    CultureInfo.InvariantCulture);
+        int totalLines = checked((int)Math.Min(
+            snapshot.TotalLines,
+            int.MaxValue));
+        int endLine = lines.Count == 0
+            ? 0
+            : checked((int)Math.Min(
+                snapshot.EndLine,
+                int.MaxValue));
+        bool hasMoreLines =
+            offset + lines.Count - 1 < totalLines;
+        var result = new ReadFileTextResult
+        {
+            Path = displayPath,
+            Lines = lines,
+            StartLine = lines.Count == 0 ? 0 : offset,
+            EndLine = endLine,
+            TotalLines = totalLines,
+            Truncated =
+                snapshot.Truncated ||
+                linesWereShortened ||
+                hasMoreLines,
+            LinesWereShortened = linesWereShortened,
+            NextOffset = snapshot.Truncated || hasMoreLines
+                ? offset + lines.Count
+                : null,
+            LastWriteTimeUtc =
+                snapshot.Version.ModifiedAt ??
+                DateTimeOffset.MinValue,
+            Length = snapshot.Version.Size.Value,
+            Coverage = DetermineCoverage(
+                totalLines,
+                lines.Count,
+                offset,
+                snapshot.Truncated || linesWereShortened),
+            SourceKind = ReadFileSourceKind.Workspace,
+            SourceVersion = sourceVersion,
+            ReturnedContentHash =
+                ComputeReturnedContentHash(lines),
+        };
+        var readFileStateKey = typeof(ReadFileState).FullName!;
+        ReadFileSnapshot? priorSnapshot = context
+            .Analyze(state =>
+                state.MiddlewareState.GetState<ReadFileState>(
+                    readFileStateKey))
+            ?.FilesByPath.GetValueOrDefault(displayPath);
+        if (CanReturnUnchanged(
+                priorSnapshot,
+                result,
+                offset,
+                limit))
+        {
+            return FormatFileUnchanged(priorSnapshot!);
+        }
+
+        var readSnapshot = new ReadFileSnapshot
+        {
+            Path = result.Path,
+            ReadAt = DateTimeOffset.UtcNow,
+            LastWriteTimeUtc = result.LastWriteTimeUtc,
+            Length = result.Length,
+            Offset = offset,
+            Limit = limit,
+            StartLine = result.StartLine,
+            EndLine = result.EndLine,
+            LinesRead = result.Lines.Count,
+            TotalLines = result.TotalLines,
+            Truncated = result.Truncated,
+            Coverage = result.Coverage,
+            SourceKind = result.SourceKind,
+            SourceVersion = result.SourceVersion,
+            ReturnedContentHash = result.ReturnedContentHash,
+        };
+        context.ResultMetadata.Set(
+            CodingToolMetadataKeys.ReadFileSnapshot,
+            readSnapshot);
+        return FormatReadResult(result);
     }
 
     private static string? ValidateReadArguments(string? path, int offset, int limit)
@@ -423,97 +477,12 @@ public partial class CodingToolHarness
         return builder.ToString();
     }
 
-    private static string BuildMissingFileMessage(string fullPath)
-    {
-        var suggestion = FindSimilarFile(fullPath);
-        return suggestion == null
-            ? "File does not exist."
-            : $"File does not exist. Did you mean {suggestion}?";
-    }
-
-    private static string? FindSimilarFile(string fullPath)
-    {
-        var directory = Path.GetDirectoryName(fullPath);
-        if (string.IsNullOrEmpty(directory) || !Directory.Exists(directory))
-            return null;
-
-        var requestedBaseName = Path.GetFileNameWithoutExtension(fullPath);
-        if (string.IsNullOrEmpty(requestedBaseName))
-            return null;
-
-        try
-        {
-            return Directory.EnumerateFiles(directory)
-                .Select(Path.GetFileName)
-                .Where(name => !string.IsNullOrEmpty(name))
-                .FirstOrDefault(name => string.Equals(
-                    Path.GetFileNameWithoutExtension(name),
-                    requestedBaseName,
-                    StringComparison.OrdinalIgnoreCase));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+    private static string BuildMissingFileMessage(string fullPath) =>
+        "File does not exist.";
 }
 
 namespace HPDOS.ToolHarnesses.Middleware
 {
-/// <summary>
-/// Provides live text for a path before `ReadFile` falls back to disk.
-/// </summary>
-public interface IReadFileTextSource
-{
-    /// <summary>
-    /// Returns a readable text snapshot for a resolved path, or null when the source does not own it.
-    /// </summary>
-    ValueTask<ReadFileTextSourceResult?> TryReadTextAsync(
-        string fullPath,
-        CancellationToken cancellationToken);
-}
-
-/// <summary>
-/// Text snapshot returned by an <see cref="IReadFileTextSource"/>.
-/// </summary>
-public sealed record ReadFileTextSourceResult
-{
-    /// <summary>
-    /// Resolved absolute path represented by the snapshot.
-    /// </summary>
-    public required string FullPath { get; init; }
-
-    /// <summary>
-    /// Reader for the text content.
-    /// </summary>
-    public required TextReader Reader { get; init; }
-
-    /// <summary>
-    /// Last known write time or source version time.
-    /// </summary>
-    public required DateTimeOffset LastWriteTimeUtc { get; init; }
-
-    /// <summary>
-    /// Source content length in bytes or characters, depending on host metadata.
-    /// </summary>
-    public required long Length { get; init; }
-
-    /// <summary>
-    /// Optional host content type or language identifier.
-    /// </summary>
-    public string? ContentType { get; init; }
-
-    /// <summary>
-    /// Optional host version stamp.
-    /// </summary>
-    public string? Version { get; init; }
-
-    /// <summary>
-    /// True when the snapshot includes unsaved editor content.
-    /// </summary>
-    public bool IsUnsavedEditorContent { get; init; }
-}
-
 /// <summary>
 /// Session-scoped read tracking state for coding file tools.
 /// </summary>
@@ -647,7 +616,8 @@ public enum ReadFileCoverage
 public enum ReadFileSourceKind
 {
     FileSystem,
-    TextSource
+    TextSource,
+    Workspace
 }
 
 internal sealed record ResolvedReadPath(string InputPath, string FullPath);

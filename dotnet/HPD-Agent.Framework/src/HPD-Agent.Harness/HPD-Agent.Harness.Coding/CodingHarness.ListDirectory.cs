@@ -4,9 +4,11 @@ using System.Globalization;
 using System.Text;
 using System.Xml;
 using HPD.Agent;
+using HPD.Agent.Sandbox;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.Middleware;
 using HPD.Agent.ToolHarness.Coding.Security;
+using HPD.Environment.Contracts;
 using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
 
@@ -45,20 +47,15 @@ public partial class CodingToolHarness
             if (argumentError != null)
                 return FormatListDirectoryError(path ?? string.Empty, argumentError);
 
-            if (Path.IsPathRooted(path) && IsBlockedDirectoryPath(Path.GetFullPath(path)))
-                return FormatListDirectoryError(path, "Cannot list blocked system path.");
-
-            var resolvedPath = ResolveDirectoryPath(path, context);
-            _ = await AgentFilesystemAccess.AuthorizeReadAsync(
-                resolvedPath.FullPath,
-                nameof(ListDirectory),
-                context,
-                CancellationToken.None).ConfigureAwait(false);
-            if (IsBlockedDirectoryPath(resolvedPath.FullPath))
-                return FormatListDirectoryError(resolvedPath.FullPath, "Cannot list blocked system path.");
-
-            var request = CreateDirectoryListingRequest(
-                resolvedPath.FullPath,
+            if (!CodingWorkspaceAccess.TryGet(context, out var workspace))
+            {
+                return FormatListDirectoryError(
+                    path ?? string.Empty,
+                    "No Environment workspace binding is available for ListDirectory.");
+            }
+            return await ListWorkspaceDirectoryAsync(
+                workspace,
+                path,
                 offset,
                 limit,
                 recursive,
@@ -68,20 +65,7 @@ public partial class CodingToolHarness
                 kind,
                 sortBy,
                 sortDirection,
-                includeMetadata);
-
-            var sourceResult = await TryListFromDirectorySourcesAsync(request, CancellationToken.None).ConfigureAwait(false);
-            if (sourceResult != null)
-                return FormatDirectoryResult(CreateResultFromSource(request, sourceResult));
-
-            if (File.Exists(resolvedPath.FullPath))
-                return FormatListDirectoryError(resolvedPath.FullPath, "Path is a file. Use ReadFile instead.");
-
-            if (!Directory.Exists(resolvedPath.FullPath))
-                return FormatListDirectoryError(resolvedPath.FullPath, BuildMissingDirectoryMessage(resolvedPath.FullPath));
-
-            var result = await ListLocalDirectoryAsync(request, CancellationToken.None).ConfigureAwait(false);
-            return FormatDirectoryResult(result);
+                includeMetadata).ConfigureAwait(false);
         }
         catch (AgentCapabilityDeniedException ex)
         {
@@ -101,18 +85,176 @@ public partial class CodingToolHarness
         }
     }
 
-    private async ValueTask<DirectoryListingSourceResult?> TryListFromDirectorySourcesAsync(
-        DirectoryListingRequest request,
-        CancellationToken cancellationToken)
+    private static async Task<string> ListWorkspaceDirectoryAsync(
+        RuntimeWorkspaceBinding workspace,
+        string path,
+        int offset,
+        int limit,
+        bool recursive,
+        int? maxDepth,
+        bool includeHidden,
+        bool respectIgnoreFiles,
+        DirectoryEntryKindFilter kind,
+        DirectorySortBy sortBy,
+        SortDirection sortDirection,
+        bool includeMetadata)
     {
-        foreach (var source in _directoryListingSources)
+        WorkspacePath logical =
+            CodingWorkspaceAccess.Resolve(workspace, path);
+        string displayPath =
+            CodingWorkspaceAccess.Display(workspace, logical);
+        WorkspaceFileInfo? info =
+            await workspace.Files.GetInfoAsync(logical)
+                .ConfigureAwait(false);
+        if (info is null)
         {
-            var result = await source.TryListAsync(request, cancellationToken).ConfigureAwait(false);
-            if (result != null)
-                return result;
+            return FormatListDirectoryError(
+                displayPath,
+                BuildMissingDirectoryMessage(displayPath));
+        }
+        if (info.Kind != WorkspaceEntryKind.Directory)
+        {
+            return FormatListDirectoryError(
+                displayPath,
+                "Path is a file. Use ReadFile instead.");
         }
 
-        return null;
+        int maxEntries = Math.Min(
+            MaxRecursiveTraversalEntries,
+            Math.Max(
+                limit + offset,
+                recursive ? MaxRecursiveTraversalEntries : limit));
+        int effectiveDepth = recursive
+            ? maxDepth ?? MaxDepth
+            : DefaultMaxDepth;
+        WorkspaceListResultSet listing =
+            await workspace.Files.ListAsync(
+                logical,
+                new WorkspaceListOptions
+                {
+                    Recursive = recursive,
+                    MaxDepth = effectiveDepth,
+                    IncludeHidden = includeHidden,
+                    RespectIgnoreFiles = respectIgnoreFiles,
+                    MaxEntries = maxEntries,
+                }).ConfigureAwait(false);
+        IEnumerable<WorkspaceDirectoryEntry> filtered = listing.Entries
+            .Where(entry =>
+            {
+                string relative = EntryRelativePath(
+                    logical,
+                    entry.Path);
+                int depth = relative.Count(character =>
+                    character == '/') + 1;
+                return depth <= effectiveDepth;
+            })
+            .Where(entry =>
+                includeHidden ||
+                !EntryRelativePath(logical, entry.Path)
+                    .Split('/')
+                    .Any(part => part.StartsWith(
+                        ".",
+                        StringComparison.Ordinal)))
+            .Where(entry => kind switch
+            {
+                DirectoryEntryKindFilter.Files =>
+                    entry.Kind == WorkspaceEntryKind.File,
+                DirectoryEntryKindFilter.Directories =>
+                    entry.Kind == WorkspaceEntryKind.Directory,
+                _ => true,
+            });
+        DirectoryEntryInfo[] entries = filtered
+            .Select(entry =>
+            {
+                string relative =
+                    EntryRelativePath(logical, entry.Path);
+                DirectoryEntryKind entryKind =
+                    entry.Kind == WorkspaceEntryKind.Directory
+                        ? DirectoryEntryKind.Directory
+                        : DirectoryEntryKind.File;
+                return new DirectoryEntryInfo
+                {
+                    RelativePath = entryKind ==
+                        DirectoryEntryKind.Directory &&
+                        !relative.EndsWith(
+                            "/",
+                            StringComparison.Ordinal)
+                            ? relative + "/"
+                            : relative,
+                    Kind = entryKind,
+                    Size = includeMetadata
+                        ? entry.Version.Size.Value
+                        : null,
+                    LastWriteTimeUtc = includeMetadata
+                        ? entry.Version.ModifiedAt
+                        : null,
+                    IsSymlink =
+                        entry.Kind == WorkspaceEntryKind.Symlink,
+                };
+            })
+            .ToArray();
+        DirectoryEntryInfo[] sorted =
+            SortEntries(
+                entries,
+                sortBy,
+                sortDirection).ToArray();
+        DirectoryEntryInfo[] page = sorted
+            .Skip(offset - 1)
+            .Take(limit)
+            .ToArray();
+        bool hasMore =
+            offset - 1 + page.Length < sorted.Length;
+        bool sourceTruncated =
+            listing.Status == WorkspaceListStatus.Truncated &&
+            listing.Entries.Count >= maxEntries &&
+            maxEntries < MaxRecursiveTraversalEntries ||
+            listing.Entries.Count >= MaxRecursiveTraversalEntries ||
+            listing.Status is WorkspaceListStatus.TimedOut or
+                WorkspaceListStatus.Failed;
+        var result = new ListDirectoryResult
+        {
+            Path = displayPath,
+            Entries = page,
+            Offset = offset,
+            Limit = limit,
+            Recursive = recursive,
+            MaxDepth = effectiveDepth,
+            IncludeHidden = includeHidden,
+            RespectIgnoreFiles = respectIgnoreFiles,
+            Kind = kind,
+            SortBy = sortBy,
+            SortDirection = sortDirection,
+            IncludeMetadata = includeMetadata,
+            TotalEntries = sorted.Length.ToString(
+                CultureInfo.InvariantCulture),
+            IgnoredCount = listing.IgnoredCount,
+            Truncated = sourceTruncated || hasMore,
+            TruncationReason = sourceTruncated
+                ? "provider_limit"
+                : hasMore
+                    ? "limit"
+                    : null,
+            NextOffset = hasMore
+                ? offset + page.Length
+                : null,
+        };
+        return FormatDirectoryResult(result);
+    }
+
+    private static string EntryRelativePath(
+        WorkspacePath directory,
+        WorkspacePath entry)
+    {
+        if (directory.RelativePath.Length == 0)
+        {
+            return entry.RelativePath;
+        }
+        string prefix = directory.RelativePath.TrimEnd('/') + "/";
+        return entry.RelativePath.StartsWith(
+                prefix,
+                StringComparison.Ordinal)
+            ? entry.RelativePath[prefix.Length..]
+            : entry.RelativePath;
     }
 
     private static string? ValidateListDirectoryArguments(
@@ -607,62 +749,28 @@ public partial class CodingToolHarness
 
 namespace HPDOS.ToolHarnesses.Middleware
 {
-/// <summary>
-/// Provides directory entries for a path before `ListDirectory` falls back to disk.
-/// </summary>
-public interface IDirectoryListingSource
-{
-    /// <summary>
-    /// Returns a structured directory listing for a resolved path, or null when the source does not own it.
-    /// </summary>
-    ValueTask<DirectoryListingSourceResult?> TryListAsync(
-        DirectoryListingRequest request,
-        CancellationToken cancellationToken);
-}
-
-/// <summary>
-/// Request sent to host-provided directory listing sources.
-/// </summary>
-public sealed record DirectoryListingRequest
+internal sealed record DirectoryListingRequest
 {
     public required string FullPath { get; init; }
-
     public required int Offset { get; init; }
-
     public required int Limit { get; init; }
-
     public required bool Recursive { get; init; }
-
     public int? MaxDepth { get; init; }
-
     public required bool IncludeHidden { get; init; }
-
     public required bool RespectIgnoreFiles { get; init; }
-
     public required DirectoryEntryKindFilter Kind { get; init; }
-
     public required DirectorySortBy SortBy { get; init; }
-
     public required SortDirection SortDirection { get; init; }
-
     public required bool IncludeMetadata { get; init; }
 }
 
-/// <summary>
-/// Directory entries returned by a host-provided listing source.
-/// </summary>
-public sealed record DirectoryListingSourceResult
+internal sealed record DirectoryListingSourceResult
 {
     public required string FullPath { get; init; }
-
     public required IReadOnlyList<DirectoryEntryInfo> Entries { get; init; }
-
     public required string TotalEntries { get; init; }
-
     public required int IgnoredCount { get; init; }
-
     public required bool Truncated { get; init; }
-
     public string? TruncationReason { get; init; }
 }
 

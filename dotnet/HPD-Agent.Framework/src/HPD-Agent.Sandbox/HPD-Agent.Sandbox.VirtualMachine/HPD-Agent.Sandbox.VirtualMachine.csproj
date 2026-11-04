@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net9.0;net8.0</TargetFrameworks>
+    <RootNamespace>HPD.Agent.Sandbox.VirtualMachine</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Agent.Sandbox.VirtualMachine</PackageId>
+    <Description>Agent-facing Apple Virtualization sandbox integration for HPD Agent.</Description>
+    <PackageTags>agent;sandbox;execution;apple;virtualization;macos;vm;hpd</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../HPD-Agent/HPD-Agent.csproj" />
+    <ProjectReference Include="../HPD-Agent.Sandbox/HPD-Agent.Sandbox.csproj" />
+    <ProjectReference Include="../../../../HPD-Environment.Framework/src/HPD-Environment.Virtualization/HPD-Environment.Virtualization.Apple/HPD-Environment.Virtualization.Apple.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
+    <PackageReference Include="HPD-Environment.Virtualization.Apple" Version="$(HPDEnvironmentVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
+  </ItemGroup>
+</Project>

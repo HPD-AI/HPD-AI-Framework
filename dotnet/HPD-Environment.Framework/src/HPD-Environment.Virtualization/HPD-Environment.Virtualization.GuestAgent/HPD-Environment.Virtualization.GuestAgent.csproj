@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net9.0;net8.0</TargetFrameworks>
+    <RootNamespace>HPD.Environment.Virtualization.GuestAgent</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Environment.Virtualization.GuestAgent</PackageId>
+    <Description>Shared guest-agent protocol vocabulary and transport contracts for HPD virtual-machine providers.</Description>
+    <PackageTags>environment;virtualization;guest-agent;protocol;transport;hpd</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../HPD-Environment.Contracts/HPD-Environment.Contracts.csproj" />
+    <ProjectReference Include="../HPD-Environment.Virtualization.Contracts/HPD-Environment.Virtualization.Contracts.csproj" />
+  </ItemGroup>
+</Project>

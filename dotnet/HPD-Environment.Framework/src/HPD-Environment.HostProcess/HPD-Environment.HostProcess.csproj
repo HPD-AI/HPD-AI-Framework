@@ -1,0 +1,62 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net9.0;net8.0</TargetFrameworks>
+    <RootNamespace>HPD.Environment.HostProcess</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Environment.HostProcess</PackageId>
+    <Description>Direct host process execution, operating-system sandbox enforcement, and network mediation for HPD Environment.</Description>
+    <PackageTags>environment;host-process;sandbox;seatbelt;bubblewrap;seccomp;network</PackageTags>
+    <BuildSeccompHelpers Condition="'$(BuildSeccompHelpers)' == ''">true</BuildSeccompHelpers>
+    <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);AddSeccompHelpersToPackage</TargetsForTfmSpecificContentInPackage>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../HPD-Environment.Contracts/HPD-Environment.Contracts.csproj" />
+    <ProjectReference Include="../HPD-Environment.Runtime/HPD-Environment.Runtime.csproj" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.13" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="HPD-Environment.HostProcess.Tests" />
+  </ItemGroup>
+
+  <Target Name="BuildSeccompHelpersForLinux"
+          Condition="$([MSBuild]::IsOSPlatform('Linux')) and '$(BuildSeccompHelpers)' == 'true'">
+    <Exec Command="bash &quot;$(MSBuildProjectDirectory)/Platforms/Linux/Seccomp/native/build.sh&quot;" />
+  </Target>
+
+  <Target Name="AddSeccompHelpersToPackage"
+          DependsOnTargets="BuildSeccompHelpersForLinux"
+          Condition="$([MSBuild]::IsOSPlatform('Linux')) and '$(BuildSeccompHelpers)' == 'true'">
+    <ItemGroup>
+      <TfmSpecificPackageFile Include="$(MSBuildProjectDirectory)/Platforms/Linux/Seccomp/native/bin/apply-seccomp-x64"
+                              Condition="Exists('$(MSBuildProjectDirectory)/Platforms/Linux/Seccomp/native/bin/apply-seccomp-x64')">
+        <PackagePath>runtimes/linux-x64/native/apply-seccomp-x64</PackagePath>
+      </TfmSpecificPackageFile>
+      <TfmSpecificPackageFile Include="$(MSBuildProjectDirectory)/Platforms/Linux/Seccomp/native/bin/apply-seccomp-arm64"
+                              Condition="Exists('$(MSBuildProjectDirectory)/Platforms/Linux/Seccomp/native/bin/apply-seccomp-arm64')">
+        <PackagePath>runtimes/linux-arm64/native/apply-seccomp-arm64</PackagePath>
+      </TfmSpecificPackageFile>
+    </ItemGroup>
+  </Target>
+
+  <ItemGroup>
+    <Content Include="Platforms/Linux/Seccomp/native/*.c">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+      <Pack>true</Pack>
+      <PackagePath>contentFiles/any/any/native-src</PackagePath>
+    </Content>
+    <Content Include="Platforms/Linux/Seccomp/native/build.sh">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+      <Pack>true</Pack>
+      <PackagePath>contentFiles/any/any/native-src</PackagePath>
+    </Content>
+  </ItemGroup>
+</Project>

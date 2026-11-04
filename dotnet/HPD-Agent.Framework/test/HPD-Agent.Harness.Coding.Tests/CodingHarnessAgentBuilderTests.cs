@@ -401,6 +401,8 @@ public class CodingToolHarnessAgentBuilderTests
                     [new AgentWorkspaceRoot("default", cwd, AgentWorkspaceAccess.ReadWrite)])
             } }
         });
+        agentContext.RuntimeCapabilities.Set(
+            TestRuntimeWorkspace.FromRunConfig(runConfig));
         var beforeContext = agentContext.AsBeforeFunction(
             function,
             "call-1",

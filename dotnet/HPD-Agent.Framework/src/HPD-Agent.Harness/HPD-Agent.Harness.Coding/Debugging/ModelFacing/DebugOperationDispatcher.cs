@@ -1,5 +1,6 @@
 using System.Globalization;
 using HPD.Agent.Middleware;
+using HPD.Agent.Sandbox;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.ToolHarness.Coding.Debugging.Protocol;
 using HPDOS.ToolHarnesses.Middleware;
@@ -718,9 +719,16 @@ public sealed class DebugOperationDispatcher
         try
         {
             var session = tree.SelectSession(mutation.DebugSessionId);
+            context.RuntimeCapabilities.TryGet<
+                RuntimeWorkspaceBinding>(out var workspaceBinding);
+            RuntimeWorkspaceBinding workspace =
+                workspaceBinding ??
+                tree.RuntimeBinding.Workspace ??
+                throw new InvalidOperationException(
+                    "The debug tree has no workspace binding.");
             var @event = await _breakpointEvents.CreateAsync(
                 mutation,
-                AgentWorkspace.From(context.RunConfig),
+                workspace,
                 context.FunctionCallId,
                 action,
                 treeId,

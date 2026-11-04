@@ -32,6 +32,7 @@ public sealed class EnvironmentProviderRegistry :
     public IReadOnlyList<IArtifactProvider> ArtifactProviders => _artifactProviders;
     public IReadOnlyList<IRootFilesystemProvider> RootFilesystemProviders => _rootFilesystemProviders;
     public IReadOnlyList<IWorkspaceStore> WorkspaceStores => _workspaceStores;
+    public IReadOnlyList<IWorkspaceFileStoreProvider> WorkspaceFileStoreProviders => _workspaceFileStoreProviders;
     public IReadOnlyList<IContentProjectionProvider> ContentProjectionProviders => _contentProjectionProviders;
     public IReadOnlyList<INetworkProvider> NetworkProviders => _networkProviders;
     public IReadOnlyList<INetworkMembershipProvider> NetworkMembershipProviders => _networkMembershipProviders;
@@ -59,6 +60,7 @@ public sealed class EnvironmentProviderRegistry :
     private readonly List<IArtifactProvider> _artifactProviders = [];
     private readonly List<IRootFilesystemProvider> _rootFilesystemProviders = [];
     private readonly List<IWorkspaceStore> _workspaceStores = [];
+    private readonly List<IWorkspaceFileStoreProvider> _workspaceFileStoreProviders = [];
     private readonly List<IContentProjectionProvider> _contentProjectionProviders = [];
     private readonly List<INetworkProvider> _networkProviders = [];
     private readonly List<INetworkMembershipProvider> _networkMembershipProviders = [];
@@ -133,6 +135,7 @@ public sealed class EnvironmentProviderRegistry :
     public void AddArtifactProvider(IArtifactProvider provider) => _artifactProviders.Add(provider);
     public void AddRootFilesystemProvider(IRootFilesystemProvider provider) => _rootFilesystemProviders.Add(provider);
     public void AddWorkspaceStore(IWorkspaceStore provider) => _workspaceStores.Add(provider);
+    public void AddWorkspaceFileStoreProvider(IWorkspaceFileStoreProvider provider) => _workspaceFileStoreProviders.Add(provider);
     public void AddContentProjectionProvider(IContentProjectionProvider provider) => _contentProjectionProviders.Add(provider);
     public void AddNetworkProvider(INetworkProvider provider) => _networkProviders.Add(provider);
     public void AddNetworkMembershipProvider(INetworkMembershipProvider provider) => _networkMembershipProviders.Add(provider);
@@ -510,7 +513,7 @@ public sealed partial class InMemoryEnvironmentRuntime(
     TimeSpan? executionUnitObservationTimeout = null,
     TimeSpan? processObservationTimeout = null,
     IEnvironmentRuntimeStorageStateStore? storageStateStore = null)
-    : IEnvironmentRuntime
+    : IEnvironmentRuntime, IContentProjectionRuntime
 {
     private readonly IRuntimePlanner _planner = planner ?? new DefaultRuntimePlanner(registry, registry);
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
@@ -536,6 +539,8 @@ public sealed partial class InMemoryEnvironmentRuntime(
     private readonly Dictionary<string, OwnedPublishedEndpoint> _publishedEndpoints =
         new(StringComparer.Ordinal);
     private readonly Dictionary<string, OwnedProcess> _processes = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, OwnedProjection> _projections =
+        new(StringComparer.Ordinal);
     private readonly Dictionary<string, PendingEngineAuthorityPlan> _engineAuthorityPlans =
         new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<long, ActiveRun> _activeRuns = [];
@@ -857,6 +862,23 @@ public sealed partial class InMemoryEnvironmentRuntime(
                                 stepToken).ConfigureAwait(false);
                         },
                         cleanup).ConfigureAwait(false);
+                }
+
+                foreach (OwnedProjection projection in
+                         ProjectionsForCurrentHost())
+                {
+                    bool released = await ExecuteCleanupStepAsync(
+                        $"content-projection release '{projection.Snapshot.Metadata.Id.Value}'",
+                        async stepToken =>
+                            await ReleaseProjectionCoreAsync(
+                                projection,
+                                stepToken).ConfigureAwait(false),
+                        cleanup).ConfigureAwait(false);
+                    if (released)
+                    {
+                        _projections.Remove(
+                            projection.Snapshot.Metadata.Id.Value);
+                    }
                 }
 
                 foreach (OwnedPublishedEndpoint endpoint in
@@ -1372,6 +1394,15 @@ public sealed partial class InMemoryEnvironmentRuntime(
         try
         {
             OwnedExecutionUnit owned = FindUnit(unit);
+            if (owned.Snapshot.Status.Handle is { } projectionUnit &&
+                _projections.Values.Any(projection =>
+                    projection.Unit is { } target &&
+                    target.Equals(projectionUnit)))
+            {
+                throw OwnershipFailure(
+                    "hpd.environment.execution-unit.content-projections-active",
+                    $"Execution unit '{unit.Id.Value}' still owns content projections.");
+            }
             if (owned.Snapshot.Status.Handle is { } unitHandle &&
                 _networkMemberships.Values.Any(membership =>
                     membership.Snapshot.Spec.Target.Unit is { } target &&
@@ -2095,6 +2126,227 @@ public sealed partial class InMemoryEnvironmentRuntime(
         ProviderForRoute(registry.FunctionSandboxProviders, spec.Sandbox.Route, "function sandbox")
             .InvokeAsync(spec, observations, cancellationToken);
 
+    /// <inheritdoc />
+    public async ValueTask<ResourceSnapshot<
+        ContentProjection,
+        ContentProjectionSpec,
+        ContentProjectionStatus>> EnsureAsync(
+            ContentProjectionSpec spec,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(spec);
+        await _reconciliationGate.WaitAsync(cancellationToken)
+            .ConfigureAwait(false);
+        try
+        {
+            (IContentProjectionProvider provider,
+                TargetHandle<RuntimeHost>? host,
+                TargetHandle<ExecutionUnit>? unit) =
+                ResolveProjectionTarget(spec);
+            string fingerprint = spec.ToString();
+            OwnedProjection? observed = _projections.Values
+                .FirstOrDefault(projection =>
+                    projection.ProviderId.Equals(provider.ProviderId) &&
+                    string.Equals(
+                        projection.SpecFingerprint,
+                        fingerprint,
+                        StringComparison.Ordinal) &&
+                    HandlesEqual(projection.Host, host) &&
+                    HandlesEqual(projection.Unit, unit));
+            ResourceMetadata<ContentProjection> metadata =
+                observed?.Snapshot.Metadata ??
+                Metadata<ContentProjection>("content-projection");
+            ContentProjectionStatus status =
+                await provider.ProjectAsync(
+                    metadata,
+                    spec,
+                    host,
+                    unit,
+                    cancellationToken).ConfigureAwait(false);
+            if (status.ReconciliationOutcome !=
+                    ResourceReconciliationOutcome.Accepted ||
+                status.ProjectionPhase is not (
+                    ContentProjectionPhase.Projected or
+                    ContentProjectionPhase.Degraded) ||
+                status.Views.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    $"Content projection '{metadata.Id.Value}' was not verified: " +
+                    string.Join(
+                        " | ",
+                        status.Diagnostics.Select(diagnostic =>
+                            $"{diagnostic.Code.Value}: {diagnostic.Message}")));
+            }
+
+            var snapshot = new ResourceSnapshot<
+                ContentProjection,
+                ContentProjectionSpec,
+                ContentProjectionStatus>(
+                    metadata,
+                    spec,
+                    status);
+            _projections[metadata.Id.Value] = new OwnedProjection(
+                provider.ProviderId,
+                fingerprint,
+                host,
+                unit,
+                snapshot);
+            return snapshot;
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<ResourceSnapshot<
+        ContentProjection,
+        ContentProjectionSpec,
+        ContentProjectionStatus>> GetAsync(
+            ResourceRef<ContentProjection> projection,
+            CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        await _reconciliationGate.WaitAsync(cancellationToken)
+            .ConfigureAwait(false);
+        try
+        {
+            return FindProjection(projection).Snapshot;
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask EnumerateAsync(
+        ResourceRef<ContentProjection> projection,
+        IContentProjectionEntrySink sink,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        OwnedProjection owned = FindProjection(projection);
+        await ProviderById(
+                registry.ContentProjectionProviders,
+                owned.ProviderId,
+                "content projection")
+            .EnumerateEntriesAsync(
+                projection,
+                sink,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<SyncResult> SyncAsync(
+        ResourceRef<ContentProjection> projection,
+        SyncRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        await _reconciliationGate.WaitAsync(cancellationToken)
+            .ConfigureAwait(false);
+        try
+        {
+            OwnedProjection owned = FindProjection(projection);
+            IContentProjectionProvider provider = ProviderById(
+                registry.ContentProjectionProviders,
+                owned.ProviderId,
+                "content projection");
+            SyncResult result = await provider.SyncAsync(
+                    ProjectionHandle(owned),
+                    request,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            OwnedProjection updated = owned with
+            {
+                Snapshot = owned.Snapshot with
+                {
+                    Status = owned.Snapshot.Status with
+                    {
+                        ProjectionPhase =
+                            ContentProjectionPhase.Projected,
+                        LastSync = result.Checkpoint,
+                    },
+                },
+            };
+            _projections[projection.Id.Value] = updated;
+            return result;
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<FinalizationResult> FinalizeAsync(
+        ResourceRef<ContentProjection> projection,
+        FinalizationRequest request,
+        IExecutionEventSink? events = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        await _reconciliationGate.WaitAsync(cancellationToken)
+            .ConfigureAwait(false);
+        try
+        {
+            OwnedProjection owned = FindProjection(projection);
+            IContentProjectionProvider provider = ProviderById(
+                registry.ContentProjectionProviders,
+                owned.ProviderId,
+                "content projection");
+            FinalizationResult result = await provider.FinalizeAsync(
+                    ProjectionHandle(owned),
+                    request,
+                    events,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            _projections[projection.Id.Value] = owned with
+            {
+                Snapshot = owned.Snapshot with
+                {
+                    Status = owned.Snapshot.Status with
+                    {
+                        ProjectionPhase =
+                            ContentProjectionPhase.Finalized,
+                        LastFinalization = result,
+                        LastTransitionAt = DateTimeOffset.UtcNow,
+                    },
+                },
+            };
+            return result;
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask ReleaseAsync(
+        ResourceRef<ContentProjection> projection,
+        CancellationToken cancellationToken = default)
+    {
+        await _reconciliationGate.WaitAsync(cancellationToken)
+            .ConfigureAwait(false);
+        try
+        {
+            OwnedProjection owned = FindProjection(projection);
+            await ReleaseProjectionCoreAsync(
+                    owned,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            _projections.Remove(projection.Id.Value);
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+    }
+
     public async ValueTask<RuntimeFinalizationResult> FinalizeRuntimeAsync(
         RuntimeFinalizationRequest request,
         CancellationToken cancellationToken = default)
@@ -2319,6 +2571,7 @@ public sealed partial class InMemoryEnvironmentRuntime(
     private void RemoveCurrentHostDependentOwnership()
     {
         _engineAuthorityPlans.Clear();
+        _projections.Clear();
         foreach (OwnedAuthorityBinding authority in AuthoritiesForCurrentHost())
         {
             _authorities.Remove(authority.Snapshot.Metadata.Id.Value);
@@ -2819,6 +3072,7 @@ public sealed partial class InMemoryEnvironmentRuntime(
 
     private bool HasCurrentHostDependents() =>
         UnitsForCurrentHost().Any() ||
+        _projections.Count > 0 ||
         EnginesForCurrentHost().Any() ||
         AuthoritiesForCurrentHost().Any() ||
         NetworksForCurrentHost().Any() ||
@@ -2831,6 +3085,7 @@ public sealed partial class InMemoryEnvironmentRuntime(
             unit.Snapshot.Status.UnitPhase is not (
                 ExecutionUnitPhase.Stopped or
                 ExecutionUnitPhase.Deleted)) ||
+        _projections.Count > 0 ||
         EnginesForCurrentHost().Any() ||
         AuthoritiesForCurrentHost().Any() ||
         NetworksForCurrentHost().Any() ||
@@ -2855,7 +3110,10 @@ public sealed partial class InMemoryEnvironmentRuntime(
 
         TargetHandle<ExecutionUnit>? handle = status.Handle;
         return handle is not null &&
-            (_authorities.Values.Any(authority => authority.Snapshot.Spec.Target.Unit is { } target &&
+            (_projections.Values.Any(projection =>
+                projection.Unit is { } projectionTarget &&
+                projectionTarget.Equals(handle.Value)) ||
+             _authorities.Values.Any(authority => authority.Snapshot.Spec.Target.Unit is { } target &&
                 target.Equals(handle.Value)) ||
              _networkMemberships.Values.Any(membership =>
                 membership.Snapshot.Spec.Target.Unit is { } target &&
@@ -3047,6 +3305,130 @@ public sealed partial class InMemoryEnvironmentRuntime(
                 pair.Key.HostId == _host.Snapshot.Metadata.Id.Value &&
                 pair.Key.Scope == _host.Snapshot.Metadata.Scope.Value).ToArray();
 
+    private IEnumerable<OwnedProjection> ProjectionsForCurrentHost() =>
+        _host is null
+            ? []
+            : _projections.Values.Where(projection =>
+                projection.Host is { } host &&
+                host.Route.BackingResourceId ==
+                    _host.Snapshot.Metadata.Id.Value).ToArray();
+
+    private (
+        IContentProjectionProvider Provider,
+        TargetHandle<RuntimeHost>? Host,
+        TargetHandle<ExecutionUnit>? Unit) ResolveProjectionTarget(
+            ContentProjectionSpec spec)
+    {
+        if (_host is null ||
+            _host.Snapshot.Status.Handle is not { } hostHandle)
+        {
+            throw OwnershipFailure(
+                "hpd.environment.content-projection.host-missing",
+                "Content projection requires a ready runtime host owned by this Environment runtime.");
+        }
+
+        ResourceRef<RuntimeHost> hostRef = Ref(_host.Snapshot.Metadata);
+        if (spec.Target.Host is { } requestedHost &&
+            !SameResource(requestedHost, hostRef))
+        {
+            throw OwnershipFailure(
+                "hpd.environment.content-projection.host-mismatch",
+                "Content projection target does not match the current runtime host.");
+        }
+
+        TargetHandle<ExecutionUnit>? unitHandle = null;
+        if (spec.Target.Unit is { } requestedUnit)
+        {
+            OwnedExecutionUnit owned = FindUnit(requestedUnit);
+            if (owned.Snapshot.Spec.PreferredHost is { } preferred &&
+                !SameResource(preferred, hostRef))
+            {
+                throw OwnershipFailure(
+                    "hpd.environment.content-projection.unit-host-mismatch",
+                    "Content projection execution unit belongs to a different runtime host.");
+            }
+            unitHandle = owned.Snapshot.Status.Handle ??
+                throw OwnershipFailure(
+                    "hpd.environment.content-projection.unit-handle-missing",
+                    "Content projection execution unit has no provider handle.");
+            if (unitHandle.Value.Route.ProviderId is { } unitProvider &&
+                !unitProvider.Equals(_host.ProviderId))
+            {
+                throw OwnershipFailure(
+                    "hpd.environment.content-projection.unit-provider-mismatch",
+                    "Content projection execution unit and runtime host use different providers.");
+            }
+        }
+
+        IContentProjectionProvider provider =
+            registry.ContentProjectionProviders.SingleOrDefault(candidate =>
+                candidate.ProviderId.Equals(_host.ProviderId)) ??
+            throw OwnershipFailure(
+                "hpd.environment.content-projection.provider-missing",
+                $"Provider '{_host.ProviderId.Value}' does not implement content projection.");
+        return (provider, hostHandle, unitHandle);
+    }
+
+    private OwnedProjection FindProjection(
+        ResourceRef<ContentProjection> projection)
+    {
+        if (!_projections.TryGetValue(projection.Id.Value, out var owned) ||
+            (projection.Generation is { } generation &&
+             !generation.Equals(owned.Snapshot.Metadata.Generation)))
+        {
+            throw OwnershipFailure(
+                "hpd.environment.content-projection.not-owned",
+                $"Content projection '{projection.Id.Value}' is not owned at the requested generation.");
+        }
+        return owned;
+    }
+
+    private static TargetHandle<ContentProjection> ProjectionHandle(
+        OwnedProjection projection)
+    {
+        ContentProjectionStatus status = projection.Snapshot.Status;
+        return new TargetHandle<ContentProjection>(
+            new TargetRoute
+            {
+                Kind = new TargetKind("content-projection"),
+                Scope = projection.Snapshot.Metadata.Scope,
+                BackingResourceKind =
+                    projection.Snapshot.Metadata.Kind,
+                BackingResourceId =
+                    projection.Snapshot.Metadata.Id.Value,
+                ProviderId = projection.ProviderId,
+                ProviderHandle = status.ProviderHandle,
+            },
+            TargetHandleLifetime.Lease,
+            TargetHandleAuthority.Observe |
+            TargetHandleAuthority.Read |
+            TargetHandleAuthority.Write |
+            TargetHandleAuthority.Control,
+            status.ProviderHandle?.Generation ?? 0);
+    }
+
+    private async ValueTask ReleaseProjectionCoreAsync(
+        OwnedProjection projection,
+        CancellationToken cancellationToken)
+    {
+        await ProviderById(
+                registry.ContentProjectionProviders,
+                projection.ProviderId,
+                "content projection")
+            .ReleaseAsync(
+                ProjectionHandle(projection),
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private static bool HandlesEqual<T>(
+        TargetHandle<T>? left,
+        TargetHandle<T>? right)
+        where T : IOperationTargetMarker =>
+        left is null
+            ? right is null
+            : right is { } value && left.Value.Equals(value);
+
     private ResourceMetadata<TResource> Metadata<TResource>(string kind)
         where TResource : IExecutionResourceMarker
     {
@@ -3215,6 +3597,8 @@ public sealed partial class InMemoryEnvironmentRuntime(
             candidate is IServiceDiscoveryProvider discovery && discovery.ProviderId.Equals(providerId) ||
             candidate is IEndpointPublicationProvider endpoint && endpoint.ProviderId.Equals(providerId) ||
             candidate is IAuthorityBindingProvider authority && authority.ProviderId.Equals(providerId) ||
+            candidate is IContentProjectionProvider projection && projection.ProviderId.Equals(providerId) ||
+            candidate is IWorkspaceFileStoreProvider workspace && workspace.ProviderId.Equals(providerId) ||
             candidate is IEngineControlPlaneProvider engine && engine.ProviderId.Equals(providerId) ||
             candidate is IStorageProvider storage && storage.ProviderId.Equals(providerId));
         return provider ?? throw OwnershipFailure(
@@ -3247,6 +3631,15 @@ public sealed partial class InMemoryEnvironmentRuntime(
         ExecutionUnitIdentity? Identity,
         string SpecFingerprint,
         ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> Snapshot);
+    private sealed record OwnedProjection(
+        ProviderId ProviderId,
+        string SpecFingerprint,
+        TargetHandle<RuntimeHost>? Host,
+        TargetHandle<ExecutionUnit>? Unit,
+        ResourceSnapshot<
+            ContentProjection,
+            ContentProjectionSpec,
+            ContentProjectionStatus> Snapshot);
     private sealed record OwnedEngine(
         ProviderId ProviderId,
         string SpecFingerprint,

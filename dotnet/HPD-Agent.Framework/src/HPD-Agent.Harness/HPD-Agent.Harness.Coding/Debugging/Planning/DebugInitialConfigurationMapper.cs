@@ -1,4 +1,6 @@
 using HPD.Agent.ToolHarness.Coding;
+using HPD.Agent.Sandbox;
+using HPD.Environment.Contracts;
 
 namespace HPD.Agent.ToolHarness.Coding.Debugging;
 
@@ -11,14 +13,18 @@ internal static class DebugInitialConfigurationMapper
     public static DebugInitialConfiguration Map(
         DebugInitialConfigurationInput? input,
         bool stopOnEntry,
-        AgentWorkspace workspace)
+        RuntimeWorkspaceBinding workspace)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         var configuration = new DebugInitialConfiguration
         {
             SourceBreakpoints = input?.SourceBreakpoints?
                 .Select(item => new DebugSourceBreakpoint(
-                    workspace.CanonicalizeExplicitPath(item.Path),
+                    DebugWorkspaceAccess.ToEffective(
+                        workspace,
+                        DebugWorkspaceAccess.Resolve(
+                            workspace,
+                            item.Path)),
                     item.Line,
                     item.Column,
                     Normalize(item.Condition),

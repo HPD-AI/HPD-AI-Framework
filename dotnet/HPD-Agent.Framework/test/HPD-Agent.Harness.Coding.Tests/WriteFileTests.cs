@@ -73,8 +73,8 @@ public sealed class WriteFileTests : IDisposable
         var toolharness = CodingHarnessTestFactory.Create();
 
         (await WriteFileTextAsync(CreateAgentContext(), toolharness, "dir", "x")).Should().Contain("kind=\"path_is_directory\"");
-        (await WriteFileTextAsync(CreateAgentContext(), toolharness, "/dev/zero", "x")).Should().Contain("kind=\"blocked_device_path\"");
-        (await WriteFileTextAsync(CreateAgentContext(), toolharness, "//server/share/file.txt", "x")).Should().Contain("kind=\"windows_unc_path\"");
+        (await WriteFileTextAsync(CreateAgentContext(), toolharness, "/dev/zero", "x")).Should().Contain("Absolute execution paths are not model-facing workspace addresses.");
+        (await WriteFileTextAsync(CreateAgentContext(), toolharness, "//server/share/file.txt", "x")).Should().Contain("UNC and network-style paths are not workspace addresses.");
         (await WriteFileTextAsync(CreateAgentContext(), toolharness, "binary.bin", "x")).Should().Contain("kind=\"binary_file\"");
         (await WriteFileTextAsync(CreateAgentContext(), toolharness, "notebook.ipynb", "x")).Should().Contain("kind=\"notebook_file\"");
         (await WriteFileTextAsync(CreateAgentContext(), toolharness, "large.txt", "x")).Should().Contain("kind=\"file_too_large\"");
@@ -92,7 +92,7 @@ public sealed class WriteFileTests : IDisposable
         result.Should().Contain("created=\"true\"");
         result.Should().Contain("event_emitted=\"true\"");
         File.ReadAllText(Path.Combine("src", "NewFile.cs")).Should().Be("class NewFile {}\n");
-        GetReadFileState(agentContext)!.FilesByPath[FullPath("src/NewFile.cs")].Coverage.Should().Be(ReadFileCoverage.FullFile);
+        GetReadFileState(agentContext)!.FilesByPath["src/NewFile.cs"].Coverage.Should().Be(ReadFileCoverage.FullFile);
     }
 
     [Fact]
@@ -211,7 +211,7 @@ public sealed class WriteFileTests : IDisposable
     }
 
     [Fact]
-    public async Task WriteFile_PreservesExistingBomAndNewFilesDefaultToUtf8WithoutBom()
+    public async Task WriteFile_UsesUtf8WithoutBomForWorkspaceText()
     {
         await File.WriteAllTextAsync("bom.txt", "before\n", new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
         var agentContext = CreateAgentContext();
@@ -221,7 +221,7 @@ public sealed class WriteFileTests : IDisposable
         await WriteFileTextAsync(agentContext, toolharness, "bom.txt", "after\n");
         await WriteFileTextAsync(CreateAgentContext(), toolharness, "new.txt", "new\n");
 
-        (await File.ReadAllBytesAsync("bom.txt"))[..3].Should().Equal(0xEF, 0xBB, 0xBF);
+        (await File.ReadAllBytesAsync("bom.txt"))[..3].Should().NotEqual([0xEF, 0xBB, 0xBF]);
         (await File.ReadAllBytesAsync("new.txt"))[..3].Should().NotEqual([0xEF, 0xBB, 0xBF]);
     }
 
@@ -282,7 +282,7 @@ public sealed class WriteFileTests : IDisposable
         var writeEvent = await inbox.Reader.ReadAsync(timeout.Token);
         writeEvent.ToolCallId.Should().Be("call-1");
         writeEvent.FunctionName.Should().Be(nameof(CodingToolHarness.WriteFile));
-        writeEvent.Path.Should().Be(FullPath("A.cs"));
+        writeEvent.Path.Should().Be("A.cs");
         writeEvent.Mode.Should().Be(FileWriteMode.Create);
         writeEvent.MutationKind.Should().Be(CodingFileMutationKind.Created);
         writeEvent.Created.Should().BeTrue();
@@ -322,7 +322,7 @@ public sealed class WriteFileTests : IDisposable
     }
 
     [Fact]
-    public async Task WriteFile_ExistingUtf16BomReportsExactByteLengthInXmlAndMetadata()
+    public async Task WriteFile_ExistingUtf16ContentIsCanonicalizedAsUtf8()
     {
         await File.WriteAllTextAsync("utf16.txt", "before\n", Encoding.Unicode);
         var agentContext = CreateAgentContext();
@@ -331,14 +331,14 @@ public sealed class WriteFileTests : IDisposable
 
         var result = await WriteFileWithContextAsync(agentContext, toolharness, "utf16.txt", "after\n");
 
-        var expectedLength = Encoding.Unicode.GetPreamble().Length + Encoding.Unicode.GetByteCount("after\n");
+        var expectedLength = Encoding.UTF8.GetByteCount("after\n");
         ResultToString(result.Result).Should().Contain($"byte_length=\"{expectedLength}\"");
         new FileInfo("utf16.txt").Length.Should().Be(expectedLength);
         result.Metadata.TryGet<CodingFileMutationSnapshot>(
             CodingToolMetadataKeys.FileMutationSnapshot,
             out var mutation).Should().BeTrue();
         mutation!.ByteLength.Should().Be(expectedLength);
-        (await File.ReadAllBytesAsync("utf16.txt"))[..2].Should().Equal(0xFF, 0xFE);
+        (await File.ReadAllBytesAsync("utf16.txt"))[..2].Should().NotEqual([0xFF, 0xFE]);
     }
 
     private static async Task<string> ReadFileTextAsync(
@@ -447,7 +447,7 @@ public sealed class WriteFileTests : IDisposable
             "test-conversation",
             "test-agent");
 
-        return new AgentContext(
+        var context = new AgentContext(
             "test-agent",
             "test-conversation",
             state,
@@ -456,6 +456,10 @@ public sealed class WriteFileTests : IDisposable
             new Thread("test-session", "test-agent"),
             CancellationToken.None,
             config: new AgentConfig { EventComposition = CodingEventTestCodec.Composition });
+        context.RuntimeCapabilities.Set(
+            TestRuntimeWorkspace.FromRunConfig(
+                CreateWorkspaceRunConfig()));
+        return context;
     }
 
     private static BeforeFunctionContext CreateBeforeFunctionContext(AgentContext? agentContext = null)

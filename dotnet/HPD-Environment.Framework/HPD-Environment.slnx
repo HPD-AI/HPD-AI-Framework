@@ -1,14 +1,19 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="src/HPD-Environment.Abstractions/HPD-Environment.Abstractions.csproj" />
+    <Project Path="src/HPD-Environment.Contracts/HPD-Environment.Contracts.csproj" />
     <Project Path="src/HPD-Environment.Runtime/HPD-Environment.Runtime.csproj" />
-    <Project Path="src/HPD-Environment.AppleVirtualization/HPD-Environment.AppleVirtualization.csproj" />
-    <Project Path="src/HPD-Environment.Local/HPD-Environment.Local.csproj" />
+    <Project Path="src/HPD-Environment.HostProcess/HPD-Environment.HostProcess.csproj" />
+    <Project Path="src/HPD-Environment.Virtualization/HPD-Environment.Virtualization.Contracts/HPD-Environment.Virtualization.Contracts.csproj" />
+    <Project Path="src/HPD-Environment.Virtualization/HPD-Environment.Virtualization.GuestAgent/HPD-Environment.Virtualization.GuestAgent.csproj" />
+    <Project Path="src/HPD-Environment.Virtualization/HPD-Environment.Virtualization.Apple/HPD-Environment.Virtualization.Apple.csproj" />
+    <Project Path="src/HPD-Environment.HostContainers/HPD-Environment.HostContainers.csproj" />
   </Folder>
   <Folder Name="/test/">
-    <Project Path="test/HPD-Environment.Tests/HPD-Environment.Tests.csproj" />
-    <Project Path="test/HPD-Environment.AppleVirtualization.Tests/HPD-Environment.AppleVirtualization.Tests.csproj" />
-    <Project Path="test/HPD-Environment.Local.Tests/HPD-Environment.Local.Tests.csproj" />
+    <Project Path="test/HPD-Environment.Contracts.Tests/HPD-Environment.Contracts.Tests.csproj" />
+    <Project Path="test/HPD-Environment.Runtime.Tests/HPD-Environment.Runtime.Tests.csproj" />
+    <Project Path="test/HPD-Environment.HostProcess.Tests/HPD-Environment.HostProcess.Tests.csproj" />
+    <Project Path="test/HPD-Environment.Virtualization.Apple.Tests/HPD-Environment.Virtualization.Apple.Tests.csproj" />
+    <Project Path="test/HPD-Environment.HostContainers.Tests/HPD-Environment.HostContainers.Tests.csproj" />
     <Project Path="test/HPD-Environment.NativeAotSmoke/HPD-Environment.NativeAotSmoke.csproj" />
   </Folder>
 </Solution>

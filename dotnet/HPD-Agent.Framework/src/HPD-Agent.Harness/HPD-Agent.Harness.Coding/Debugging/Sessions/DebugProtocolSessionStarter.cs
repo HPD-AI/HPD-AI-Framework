@@ -62,6 +62,9 @@ internal sealed class DebugProtocolSessionStarter(
                 SessionId = sessionId,
                 RootSessionId = tree.RootSessionId,
                 ParentSessionId = parentSessionId,
+                Workspace = request.Runtime.Workspace ??
+                    throw new InvalidOperationException(
+                        "A debug session requires a workspace binding."),
                 AdapterStartMethod = adapterPlan.Method,
                 Protocol = new DebugProtocolClient(transport, new DebugProtocolClientOptions
                 {

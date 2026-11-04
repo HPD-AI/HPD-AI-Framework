@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using HPD.Agent.Middleware;
+using HPD.Agent.Sandbox;
 using HPD.Agent.Security;
 using HPD.Environment.Contracts;
 
@@ -47,16 +48,9 @@ internal sealed record DotNetDebugProjectEvaluationRequest
     public required string Configuration { get; init; }
     public string? TargetFramework { get; init; }
     public required RuntimeProcessExecutionBinding ProcessExecution { get; init; }
+    public required RuntimeWorkspaceBinding RuntimeWorkspace { get; init; }
     public AgentSandboxRuntime ProcessSandbox { get; init; } = AgentSandboxRuntime.Default;
-    public required AgentWorkspace Workspace { get; init; }
-    public DebugPathCapabilityAuthorizer? AuthorizePath { get; init; }
 }
-
-internal delegate ValueTask<AgentSandboxRuntime> DebugPathCapabilityAuthorizer(
-    string path,
-    AgentSandboxPathAccess access,
-    AgentSandboxRuntime current,
-    CancellationToken cancellationToken);
 
 /// <summary>Evaluated project shape and exact output identity.</summary>
 internal sealed record DotNetDebugProjectEvaluation
@@ -101,7 +95,8 @@ internal sealed class DotNetDebugProjectEvaluator : IDotNetDebugProjectEvaluator
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
-        Validate(request);
+        await ValidateAsync(request, cancellationToken)
+            .ConfigureAwait(false);
 
         var first = await QueryAsync(request, targetFramework: null, cancellationToken)
             .ConfigureAwait(false);
@@ -149,20 +144,6 @@ internal sealed class DotNetDebugProjectEvaluator : IDotNetDebugProjectEvaluator
                 throw new DebugStartPlanningException(
                     "debug_build_required",
                     "The transitive project-reference graph exceeds the trusted bound.");
-            var referenceDirectory = Path.GetDirectoryName(pending.ProjectPath)!;
-            if (request.AuthorizePath is not null)
-            {
-                activeSandbox = await request.AuthorizePath(
-                    referenceDirectory,
-                    AgentSandboxPathAccess.Read,
-                    activeSandbox,
-                    cancellationToken).ConfigureAwait(false);
-                activeSandbox = await request.AuthorizePath(
-                    referenceDirectory,
-                    AgentSandboxPathAccess.Write,
-                    activeSandbox,
-                    cancellationToken).ConfigureAwait(false);
-            }
             var referenceRequest = request with
             {
                 CanonicalProjectPath = pending.ProjectPath,
@@ -272,7 +253,11 @@ internal sealed class DotNetDebugProjectEvaluator : IDotNetDebugProjectEvaluator
             TargetFrameworks = frameworks,
             SelectedTargetFramework = selectedFramework,
             TargetPath = targetPath,
-            AppHostPath = FindAppHost(targetPath, Boolean(properties, "UseAppHost")),
+            AppHostPath = await FindAppHostAsync(
+                request.RuntimeWorkspace,
+                targetPath,
+                Boolean(properties, "UseAppHost"),
+                cancellationToken).ConfigureAwait(false),
             ProjectReferences = visitedReferences.Keys
                 .OrderBy(path => path, StringComparer.Ordinal)
                 .ToArray(),
@@ -282,13 +267,18 @@ internal sealed class DotNetDebugProjectEvaluator : IDotNetDebugProjectEvaluator
             Packages = packages,
             EvaluationFingerprint = Convert.ToHexString(
                 SHA256.HashData(Encoding.UTF8.GetBytes(fingerprintText))).ToLowerInvariant(),
-            ArtifactIsCurrent = IsCurrent(
+            ArtifactIsCurrent = await IsCurrentAsync(
                 targetPath,
                 request.CanonicalProjectPath,
                 referenceOutputs.Values.ToArray(),
                 kind,
-                FindAppHost(targetPath, Boolean(properties, "UseAppHost")),
-                request.Workspace),
+                await FindAppHostAsync(
+                    request.RuntimeWorkspace,
+                    targetPath,
+                    Boolean(properties, "UseAppHost"),
+                    cancellationToken).ConfigureAwait(false),
+                request.RuntimeWorkspace,
+                cancellationToken).ConfigureAwait(false),
             EffectiveSandbox = activeSandbox
         };
     }
@@ -508,9 +498,25 @@ internal sealed class DotNetDebugProjectEvaluator : IDotNetDebugProjectEvaluator
         };
     }
 
-    private static void Validate(DotNetDebugProjectEvaluationRequest request)
+    private static async ValueTask ValidateAsync(
+        DotNetDebugProjectEvaluationRequest request,
+        CancellationToken cancellationToken)
     {
-        if (!File.Exists(request.CanonicalProjectPath) ||
+        WorkspacePath? projectPath =
+            DebugWorkspaceAccess.TryFromEffective(
+                request.RuntimeWorkspace,
+                request.CanonicalProjectPath);
+        if (projectPath is null)
+        {
+            throw new DebugStartPlanningException(
+                "debug_project_not_found",
+                "No supported .NET project was selected.");
+        }
+        WorkspaceFileInfo? projectInfo =
+            await request.RuntimeWorkspace.Files.GetInfoAsync(
+                projectPath.Value,
+                cancellationToken).ConfigureAwait(false);
+        if (projectInfo is not { Kind: WorkspaceEntryKind.File } ||
             !IsProject(request.CanonicalProjectPath))
             throw new DebugStartPlanningException(
                 "debug_project_not_found",
@@ -551,52 +557,109 @@ internal sealed class DotNetDebugProjectEvaluator : IDotNetDebugProjectEvaluator
            packageId.Equals("MSTest.TestFramework", StringComparison.OrdinalIgnoreCase) ||
            packageId.Equals("MSTest.TestAdapter", StringComparison.OrdinalIgnoreCase);
 
-    private static string? FindAppHost(string targetPath, bool useAppHost)
+    private static async ValueTask<string?> FindAppHostAsync(
+        RuntimeWorkspaceBinding workspace,
+        string targetPath,
+        bool useAppHost,
+        CancellationToken cancellationToken)
     {
         if (!useAppHost)
             return null;
         var withoutExtension = Path.Combine(
             Path.GetDirectoryName(targetPath)!,
             Path.GetFileNameWithoutExtension(targetPath));
-        if (File.Exists(withoutExtension))
+        if (await IsVisibleFileAsync(
+                workspace,
+                withoutExtension,
+                cancellationToken).ConfigureAwait(false))
+        {
             return withoutExtension;
+        }
         var windows = withoutExtension + ".exe";
-        return File.Exists(windows) ? windows : null;
+        return await IsVisibleFileAsync(
+                workspace,
+                windows,
+                cancellationToken).ConfigureAwait(false)
+            ? windows
+            : null;
     }
 
-    private static bool IsCurrent(
+    private static async ValueTask<bool> IsCurrentAsync(
         string targetPath,
         string projectPath,
         IReadOnlyList<DotNetProjectReferenceOutput> projectReferences,
         DotNetDebugProjectKind projectKind,
         string? appHostPath,
-        AgentWorkspace workspace)
+        RuntimeWorkspaceBinding workspace,
+        CancellationToken cancellationToken)
     {
-        if (!File.Exists(targetPath))
+        WorkspaceFileInfo? targetInfo =
+            await GetWorkspaceInfoAsync(
+                workspace,
+                targetPath,
+                cancellationToken).ConfigureAwait(false);
+        if (targetInfo is not { Kind: WorkspaceEntryKind.File } ||
+            targetInfo.Version.ModifiedAt is not { } targetTime)
             return false;
-        var targetTime = File.GetLastWriteTimeUtc(targetPath);
         if (projectKind == DotNetDebugProjectKind.Application)
         {
             var stem = Path.Combine(
                 Path.GetDirectoryName(targetPath)!,
                 Path.GetFileNameWithoutExtension(targetPath));
-            if (!File.Exists(stem + ".runtimeconfig.json") ||
-                !File.Exists(stem + ".deps.json"))
+            if (!await IsVisibleFileAsync(
+                    workspace,
+                    stem + ".runtimeconfig.json",
+                    cancellationToken).ConfigureAwait(false) ||
+                !await IsVisibleFileAsync(
+                    workspace,
+                    stem + ".deps.json",
+                    cancellationToken).ConfigureAwait(false))
                 return false;
-            if (appHostPath is not null &&
-                (!File.Exists(appHostPath) ||
-                 File.GetLastWriteTimeUtc(appHostPath) < targetTime))
-                return false;
+            if (appHostPath is not null)
+            {
+                WorkspaceFileInfo? appHostInfo =
+                    await GetWorkspaceInfoAsync(
+                        workspace,
+                        appHostPath,
+                        cancellationToken).ConfigureAwait(false);
+                if (appHostInfo is not
+                        { Kind: WorkspaceEntryKind.File } ||
+                    appHostInfo.Version.ModifiedAt < targetTime)
+                {
+                    return false;
+                }
+            }
         }
-        if (!InputsAreCurrent(projectPath, targetTime, workspace))
+        if (!await InputsAreCurrentAsync(
+                workspace,
+                projectPath,
+                targetTime,
+                cancellationToken).ConfigureAwait(false))
+        {
             return false;
+        }
         foreach (var reference in projectReferences)
         {
-            if (!File.Exists(reference.TargetPath))
+            WorkspaceFileInfo? referenceInfo =
+                await GetWorkspaceInfoAsync(
+                    workspace,
+                    reference.TargetPath,
+                    cancellationToken).ConfigureAwait(false);
+            if (referenceInfo is not
+                    { Kind: WorkspaceEntryKind.File } ||
+                referenceInfo.Version.ModifiedAt is not
+                    { } referenceTime)
+            {
                 return false;
-            var referenceTime = File.GetLastWriteTimeUtc(reference.TargetPath);
-            if (!InputsAreCurrent(reference.ProjectPath, referenceTime, workspace))
+            }
+            if (!await InputsAreCurrentAsync(
+                    workspace,
+                    reference.ProjectPath,
+                    referenceTime,
+                    cancellationToken).ConfigureAwait(false))
+            {
                 return false;
+            }
             if (!reference.RequiresRuntimeCopy)
             {
                 if (targetTime < referenceTime)
@@ -606,42 +669,65 @@ internal sealed class DotNetDebugProjectEvaluator : IDotNetDebugProjectEvaluator
             var loadedCopy = Path.Combine(
                 Path.GetDirectoryName(targetPath)!,
                 Path.GetFileName(reference.TargetPath));
-            if (!File.Exists(loadedCopy) ||
-                File.GetLastWriteTimeUtc(loadedCopy) < referenceTime)
+            WorkspaceFileInfo? loadedInfo =
+                await GetWorkspaceInfoAsync(
+                    workspace,
+                    loadedCopy,
+                    cancellationToken).ConfigureAwait(false);
+            if (loadedInfo is not
+                    { Kind: WorkspaceEntryKind.File } ||
+                loadedInfo.Version.ModifiedAt < referenceTime)
                 return false;
         }
         return true;
     }
 
-    private static bool InputsAreCurrent(
+    private static async ValueTask<bool> InputsAreCurrentAsync(
+        RuntimeWorkspaceBinding workspace,
         string project,
-        DateTime outputTime,
-        AgentWorkspace workspace)
+        DateTimeOffset outputTime,
+        CancellationToken cancellationToken)
     {
-        if (!File.Exists(project) || File.GetLastWriteTimeUtc(project) > outputTime)
+        WorkspacePath projectPath =
+            DebugWorkspaceAccess.FromEffective(workspace, project);
+        WorkspaceFileInfo? projectInfo =
+            await workspace.Files.GetInfoAsync(
+                projectPath,
+                cancellationToken).ConfigureAwait(false);
+        if (projectInfo is not { Kind: WorkspaceEntryKind.File } ||
+            projectInfo.Version.ModifiedAt > outputTime)
             return false;
-        var directory = Path.GetDirectoryName(project)!;
-        var inputs = Directory.EnumerateFiles(
-                     directory,
-                     "*.*",
-                     SearchOption.AllDirectories)
-                 .Where(path =>
-                     path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) ||
-                     path.EndsWith(".fs", StringComparison.OrdinalIgnoreCase) ||
-                     path.EndsWith(".vb", StringComparison.OrdinalIgnoreCase))
-                 .Where(path => !ContainsBuildDirectory(path))
-                 .Take(10_001)
-                 .ToArray();
+        WorkspacePath directory =
+            DebugWorkspaceAccess.Parent(projectPath) ??
+            DebugWorkspaceAccess.Root(projectPath.RootId);
+        WorkspaceListResultSet listing =
+            await workspace.Files.ListAsync(
+                directory,
+                new WorkspaceListOptions
+                {
+                    Recursive = true,
+                    MaxEntries = 10_002,
+                },
+                cancellationToken).ConfigureAwait(false);
+        WorkspaceDirectoryEntry[] inputs = listing.Entries
+            .Where(entry =>
+                entry.Kind == WorkspaceEntryKind.File &&
+                IsSourceFile(entry.Path.RelativePath) &&
+                !ContainsBuildDirectory(entry.Path.RelativePath))
+            .Take(10_001)
+            .ToArray();
         if (inputs.Length > 10_000)
             return false;
-        foreach (var input in inputs)
-            if (File.GetLastWriteTimeUtc(input) > outputTime)
+        foreach (WorkspaceDirectoryEntry input in inputs)
+        {
+            if (input.Version.ModifiedAt > outputTime)
                 return false;
-        var owningRoot = workspace.IsAllowedPath(project)
-            ? workspace.GetOwningRoot(project).Path
-            : directory;
-        for (var ancestor = directory;
-             !string.IsNullOrEmpty(ancestor);)
+        }
+
+        WorkspacePath owningRoot =
+            DebugWorkspaceAccess.Root(projectPath.RootId);
+        for (WorkspacePath? ancestor = directory;
+             ancestor is { } current;)
         {
             foreach (var name in new[]
                      {
@@ -649,19 +735,23 @@ internal sealed class DotNetDebugProjectEvaluator : IDotNetDebugProjectEvaluator
                          "Directory.Build.targets"
                      })
             {
-                var imported = Path.Combine(ancestor, name);
-                if (File.Exists(imported) &&
-                    File.GetLastWriteTimeUtc(imported) > outputTime)
+                WorkspacePath imported =
+                    DebugWorkspaceAccess.ResolveRelative(
+                        workspace,
+                        current,
+                        name);
+                WorkspaceFileInfo? importedInfo =
+                    await workspace.Files.GetInfoAsync(
+                        imported,
+                        cancellationToken).ConfigureAwait(false);
+                if (importedInfo is
+                        { Kind: WorkspaceEntryKind.File } &&
+                    importedInfo.Version.ModifiedAt > outputTime)
                     return false;
             }
-            if (string.Equals(
-                    Path.GetFullPath(ancestor),
-                    owningRoot,
-                    StringComparison.Ordinal))
+            if (current.Equals(owningRoot))
                 break;
-            var parent = Path.GetDirectoryName(ancestor);
-            if (parent is null ||
-                !AgentWorkspace.IsPathUnderDirectory(owningRoot, parent))
+            if (DebugWorkspaceAccess.Parent(current) is not { } parent)
                 break;
             ancestor = parent;
         }
@@ -669,10 +759,42 @@ internal sealed class DotNetDebugProjectEvaluator : IDotNetDebugProjectEvaluator
     }
 
     private static bool ContainsBuildDirectory(string path)
-        => path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}",
-               StringComparison.Ordinal) ||
-           path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}",
-               StringComparison.Ordinal);
+        => path.Contains("/bin/", StringComparison.Ordinal) ||
+           path.Contains("/obj/", StringComparison.Ordinal) ||
+           path.Contains("\\bin\\", StringComparison.Ordinal) ||
+           path.Contains("\\obj\\", StringComparison.Ordinal);
+
+    private static bool IsSourceFile(string path)
+        => path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) ||
+           path.EndsWith(".fs", StringComparison.OrdinalIgnoreCase) ||
+           path.EndsWith(".vb", StringComparison.OrdinalIgnoreCase);
+
+    private static async ValueTask<WorkspaceFileInfo?>
+        GetWorkspaceInfoAsync(
+            RuntimeWorkspaceBinding workspace,
+            string effectivePath,
+            CancellationToken cancellationToken)
+    {
+        WorkspacePath? logical =
+            DebugWorkspaceAccess.TryFromEffective(
+                workspace,
+                effectivePath);
+        return logical is null
+            ? null
+            : await workspace.Files.GetInfoAsync(
+                logical.Value,
+                cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async ValueTask<bool> IsVisibleFileAsync(
+        RuntimeWorkspaceBinding workspace,
+        string effectivePath,
+        CancellationToken cancellationToken) =>
+        await GetWorkspaceInfoAsync(
+                workspace,
+                effectivePath,
+                cancellationToken).ConfigureAwait(false) is
+            { Kind: WorkspaceEntryKind.File };
 
     internal static bool IsProject(string path)
         => path.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) ||

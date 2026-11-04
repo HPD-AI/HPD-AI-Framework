@@ -549,6 +549,8 @@ public sealed class DebugSessionStateTests
         SessionId = id,
         RootSessionId = rootId,
         ParentSessionId = parentId,
+        Workspace = TestRuntimeWorkspace.Create(
+            Path.GetTempPath()),
         AdapterStartMethod = DebugAdapterStartMethod.Launch,
         Protocol = new DebugProtocolClient(transport, new() { RequireInitializeFirst = false }),
         AdapterPlan = Plan()
@@ -567,6 +569,8 @@ public sealed class DebugSessionStateTests
             SessionId = ownership.SessionId,
             ThreadId = ownership.ThreadId,
             SessionManager = manager,
+            Workspace = TestRuntimeWorkspace.Create(
+                Path.GetTempPath()),
             EventScope = new(null, ownership.SessionId, ownership.ThreadId, ownership.DebugTreeId),
             State = new()
         };

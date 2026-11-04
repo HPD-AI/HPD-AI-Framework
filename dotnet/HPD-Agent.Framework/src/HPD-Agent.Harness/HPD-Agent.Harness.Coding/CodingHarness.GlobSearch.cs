@@ -3,8 +3,11 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Xml;
+using HPD.Agent.Sandbox;
 using HPD.Agent.Middleware;
+using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.ToolHarness.Coding.Security;
+using HPD.Environment.Contracts;
 using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.FileSystemGlobbing;
@@ -43,59 +46,24 @@ public partial class CodingToolHarness
             if (argumentError != null)
                 return FormatGlobSearchError(path ?? string.Empty, argumentError);
 
-            var baseDirectory = CodingHarnessPathResolution.BaseDirectory(context);
-            var hostResolved = CodingHarnessPathResolution.UsesWorkspace(context)
-                ? null
-                : await TryResolveGlobSearchWithHostAsync(
-                    path,
-                    pattern,
-                    baseDirectory,
-                    CancellationToken.None).ConfigureAwait(false);
-            var resolved = hostResolved is null
-                ? ResolveGlobSearch(path, pattern, baseDirectory)
-                : hostResolved;
-            _ = await AgentFilesystemAccess.AuthorizeReadAsync(
-                resolved.EffectiveFullPath,
-                nameof(GlobSearch),
-                context,
-                CancellationToken.None).ConfigureAwait(false);
-
-            if (IsBlockedSearchPath(resolved.InputPath) ||
-                IsBlockedSearchPath(resolved.OriginalPattern) ||
-                IsBlockedSearchPath(resolved.EffectiveFullPath))
+            if (!CodingWorkspaceAccess.TryGet(context, out var workspace))
             {
-                return FormatGlobSearchError(resolved.EffectiveFullPath, "Cannot search blocked system path.");
+                return FormatGlobSearchError(
+                    path ?? string.Empty,
+                    "No Environment workspace binding is available for GlobSearch.");
             }
-
-            if (IsBroadRootGlobSearch(resolved.EffectiveFullPath, resolved.EffectivePattern))
-                return FormatGlobSearchError(resolved.EffectiveFullPath, "Pattern is too broad. Use a more specific path or pattern.");
-
-            if (File.Exists(resolved.EffectiveFullPath))
-                return FormatGlobSearchError(resolved.EffectiveFullPath, "Path is a file. Use ReadFile instead.");
-
-            if (!Directory.Exists(resolved.EffectiveFullPath))
-                return FormatGlobSearchError(resolved.EffectiveFullPath, BuildMissingDirectoryMessage(resolved.EffectiveFullPath));
-
-            var request = new GlobSearchRequest
-            {
-                Options = _config.For(context).Glob,
-                FullPath = resolved.FullPath,
-                EffectiveFullPath = resolved.EffectiveFullPath,
-                OriginalPattern = resolved.OriginalPattern,
-                EffectivePattern = resolved.EffectivePattern,
-                LiteralFullPath = resolved.LiteralFullPath,
-                Offset = offset,
-                Limit = limit,
-                CaseSensitive = caseSensitive,
-                IncludeHidden = includeHidden,
-                RespectIgnoreFiles = respectIgnoreFiles,
-                Kind = kind,
-                SortBy = sortBy,
-                SortDirection = sortDirection
-            };
-
-            var result = await ExecuteGlobSearchAsync(request, CancellationToken.None).ConfigureAwait(false);
-            return FormatGlobSearchResult(result);
+            return await GlobWorkspaceSearchAsync(
+                workspace,
+                path,
+                pattern,
+                offset,
+                limit,
+                caseSensitive,
+                includeHidden,
+                respectIgnoreFiles,
+                kind,
+                sortBy,
+                sortDirection).ConfigureAwait(false);
         }
         catch (AgentCapabilityDeniedException ex)
         {
@@ -115,20 +83,140 @@ public partial class CodingToolHarness
         }
     }
 
-    private async Task<ResolvedGlobSearch?> TryResolveGlobSearchWithHostAsync(
+    private static async Task<string> GlobWorkspaceSearchAsync(
+        RuntimeWorkspaceBinding workspace,
         string path,
         string pattern,
-        string baseDirectory,
-        CancellationToken cancellationToken)
+        int offset,
+        int limit,
+        bool caseSensitive,
+        bool includeHidden,
+        bool respectIgnoreFiles,
+        GlobEntryKindFilter kind,
+        GlobSortBy sortBy,
+        SortDirection sortDirection)
     {
-        foreach (var resolver in _globSearchPathResolvers)
+        WorkspacePath root =
+            CodingWorkspaceAccess.Resolve(workspace, path);
+        string displayPath =
+            CodingWorkspaceAccess.Display(workspace, root);
+        WorkspaceFileInfo? rootInfo =
+            await workspace.Files.GetInfoAsync(root)
+                .ConfigureAwait(false);
+        if (rootInfo is null)
         {
-            var result = await resolver.TryResolveAsync(path, pattern, baseDirectory, cancellationToken).ConfigureAwait(false);
-            if (result != null)
-                return result;
+            return FormatGlobSearchError(
+                displayPath,
+                BuildMissingDirectoryMessage(displayPath));
+        }
+        if (rootInfo.Kind != WorkspaceEntryKind.Directory)
+        {
+            return FormatGlobSearchError(
+                displayPath,
+                "Path is a file. Use ReadFile instead.");
         }
 
-        return null;
+        string effectivePattern =
+            NormalizeModelFriendlyPattern(pattern);
+        var matcher = new Matcher(
+            caseSensitive
+                ? StringComparison.Ordinal
+                : StringComparison.OrdinalIgnoreCase);
+        matcher.AddInclude(effectivePattern);
+        WorkspaceListResultSet listing =
+            await workspace.Files.ListAsync(
+                root,
+                new WorkspaceListOptions
+                {
+                    Recursive = true,
+                    GlobPattern = effectivePattern,
+                    IncludeHidden = includeHidden,
+                    RespectIgnoreFiles = respectIgnoreFiles,
+                    MaxEntries = MaxGlobTraversalEntries,
+                }).ConfigureAwait(false);
+        var candidates = new List<GlobMatchInfo>();
+        foreach (WorkspaceDirectoryEntry entry in listing.Entries)
+        {
+            string relative = EntryRelativePath(root, entry.Path);
+            if (!includeHidden &&
+                relative.Split('/').Any(part =>
+                    part.StartsWith(
+                        ".",
+                        StringComparison.Ordinal)))
+            {
+                continue;
+            }
+            GlobEntryKind entryKind =
+                entry.Kind == WorkspaceEntryKind.Directory
+                    ? GlobEntryKind.Directory
+                    : GlobEntryKind.File;
+            if (kind == GlobEntryKindFilter.Files &&
+                entryKind != GlobEntryKind.File ||
+                kind == GlobEntryKindFilter.Directories &&
+                entryKind != GlobEntryKind.Directory)
+            {
+                continue;
+            }
+            if (!matcher.Match(relative).HasMatches)
+            {
+                continue;
+            }
+            candidates.Add(new GlobMatchInfo
+            {
+                RelativePath = EnsureGlobDirectorySuffix(
+                    relative,
+                    entryKind),
+                Kind = entryKind,
+                Size = entry.Version.Size.Value,
+                LastWriteTimeUtc =
+                    entry.Version.ModifiedAt,
+                IsSymlink =
+                    entry.Kind == WorkspaceEntryKind.Symlink,
+            });
+        }
+
+        IReadOnlyList<GlobMatchInfo> sorted =
+            SortGlobMatches(
+                candidates,
+                sortBy,
+                sortDirection);
+        GlobMatchInfo[] page = sorted
+            .Skip(offset - 1)
+            .Take(limit)
+            .ToArray();
+        bool hasMore =
+            offset - 1 + page.Length < sorted.Count;
+        bool providerTruncated =
+            listing.Status == WorkspaceListStatus.Truncated ||
+            listing.Entries.Count >= MaxGlobTraversalEntries;
+        return FormatGlobSearchResult(new GlobSearchResult
+        {
+            Path = displayPath,
+            EffectivePath = displayPath,
+            OriginalPattern = pattern,
+            EffectivePattern = effectivePattern,
+            Matches = page,
+            Offset = offset,
+            Limit = limit,
+            CaseSensitive = caseSensitive,
+            IncludeHidden = includeHidden,
+            RespectIgnoreFiles = respectIgnoreFiles,
+            Kind = kind,
+            SortBy = sortBy,
+            SortDirection = sortDirection,
+            TotalMatches = sorted.Count.ToString(
+                CultureInfo.InvariantCulture),
+            IgnoredCount = listing.IgnoredCount,
+            Truncated = providerTruncated || hasMore,
+            TruncationReason = providerTruncated
+                ? "provider_limit"
+                : hasMore
+                    ? "limit"
+                    : null,
+            NextOffset = hasMore
+                ? offset + page.Length
+                : null,
+        });
     }
 
     private static string? ValidateGlobSearchArguments(
@@ -726,21 +814,6 @@ public partial class CodingToolHarness
 
 namespace HPDOS.ToolHarnesses.Middleware
 {
-/// <summary>
-/// Allows hosts to resolve workspace-facing glob paths before local filesystem fallback.
-/// </summary>
-public interface IGlobSearchPathResolver
-{
-    /// <summary>
-    /// Returns a resolved glob search, or null when the resolver does not own the path/pattern.
-    /// </summary>
-    ValueTask<ResolvedGlobSearch?> TryResolveAsync(
-        string path,
-        string pattern,
-        string baseDirectory,
-        CancellationToken cancellationToken);
-}
-
 /// <summary>
 /// Tunable filesystem traversal limits for GlobSearch.
 /// </summary>

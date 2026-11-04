@@ -1,4 +1,5 @@
 using HPD.Agent.ToolHarness.Coding;
+using HPD.Agent.Sandbox;
 using HPDOS.ToolHarnesses.Middleware;
 
 namespace HPD.Agent.ToolHarness.Coding.Debugging;
@@ -13,7 +14,7 @@ internal sealed class DebugBreakpointSelectionEventFactory(
 
     public async ValueTask<DebugBreakpointSelectionAppliedEvent> CreateAsync(
         DebugBreakpointMutationResult mutation,
-        AgentWorkspace workspace,
+        RuntimeWorkspaceBinding workspace,
         string toolCallId,
         string action,
         string treeId,
@@ -29,11 +30,17 @@ internal sealed class DebugBreakpointSelectionEventFactory(
         var afterSelection = Select(mutation.After, mutation.Kind);
         var before = beforeSelection
             .Take(MaximumItems)
-            .Select(item => ToEventItem(item, bindings.GetValueOrDefault(item.ClientBreakpointId), workspace))
+            .Select(item => ToEventItem(
+                item,
+                bindings.GetValueOrDefault(item.ClientBreakpointId),
+                workspace))
             .ToArray();
         var after = afterSelection
             .Take(MaximumItems)
-            .Select(item => ToEventItem(item, bindings.GetValueOrDefault(item.ClientBreakpointId), workspace))
+            .Select(item => ToEventItem(
+                item,
+                bindings.GetValueOrDefault(item.ClientBreakpointId),
+                workspace))
             .ToArray();
         var changes = Diff(before, after);
         var sourcePreviews = mutation.Kind == DebugBreakpointKind.Source
@@ -64,7 +71,7 @@ internal sealed class DebugBreakpointSelectionEventFactory(
 
     private async ValueTask<IReadOnlyList<DebugSourcePreview>> CaptureSourcePreviewsAsync(
         IReadOnlyList<SemanticBreakpointItem> items,
-        AgentWorkspace workspace,
+        RuntimeWorkspaceBinding workspace,
         CancellationToken cancellationToken)
     {
         var result = new List<DebugSourcePreview>();
@@ -143,12 +150,16 @@ internal sealed class DebugBreakpointSelectionEventFactory(
     private static DebugBreakpointSelectionEventItem ToEventItem(
         SemanticBreakpointItem item,
         DebugBreakpointBindingState? binding,
-        AgentWorkspace workspace)
+        RuntimeWorkspaceBinding workspace)
         => new()
         {
             ClientBreakpointId = item.ClientBreakpointId,
             Kind = item.Kind,
-            DisplayPath = item.Path is null ? null : DisplayPath(workspace, item.Path),
+            DisplayPath = item.Path is null
+                ? null
+                : DisplayPath(
+                    workspace,
+                    item.Path),
             RequestedLine = item.Line,
             RequestedColumn = item.Column,
             ResolvedLine = binding?.ResolvedLine,
@@ -162,20 +173,23 @@ internal sealed class DebugBreakpointSelectionEventFactory(
             SafeMessage = SafeText(binding?.Message)
         };
 
-    private static string DisplayPath(AgentWorkspace workspace, string path)
+    private static string DisplayPath(
+        RuntimeWorkspaceBinding workspace,
+        string path)
     {
         try
         {
-            var fullPath = workspace.ResolveWorkspacePath(path);
-            var owner = workspace.GetOwningRoot(fullPath);
-            var relative = Path.GetRelativePath(owner.Path, fullPath);
-            var ambiguous = workspace.Roots.Count(root =>
-                File.Exists(Path.Combine(root.Path, relative))) > 1;
-            return SafeText(ambiguous ? $"@{owner.Id}/{relative}" : relative)!;
+            return SafeText(
+                CodingWorkspaceAccess.Resolve(
+                    workspace,
+                    path).ToString()) ?? "source";
         }
-        catch (AgentWorkspaceException)
+        catch (Exception exception)
+            when (exception is ArgumentException or
+                UnauthorizedAccessException)
         {
-            return SafeText(Path.GetFileName(path)) ?? "source";
+            return SafeText(Path.GetFileName(path)) ??
+                "source";
         }
     }
 

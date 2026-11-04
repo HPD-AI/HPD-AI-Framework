@@ -1,6 +1,6 @@
-using HPD.Environment.AppleVirtualization;
+using HPD.Environment.Virtualization.Apple;
 using HPD.Environment.Contracts;
-using HPD.Environment.Local;
+using HPD.Environment.HostContainers;
 using HPD.Environment.Runtime;
 
 var options = new AppleVirtualizationProviderOptions
@@ -15,8 +15,8 @@ var options = new AppleVirtualizationProviderOptions
 
 var registry = new EnvironmentProviderRegistry();
 registry.RegisterModule(new AppleVirtualizationProviderModule(options));
-registry.RegisterModule(new LocalEnvironmentProviderModule(
-    new LocalEnvironmentProviderOptions
+registry.RegisterModule(new HostContainersProviderModule(
+    new HostContainersProviderOptions
     {
         EnableWellKnownSocketDiscovery = false,
     }));
@@ -26,17 +26,17 @@ ProviderDescriptor? appleDescriptor =
 ProviderCapabilityReport appleCapabilities =
     await registry.GetCapabilitiesAsync(AppleVirtualizationProviderDescriptor.ProviderId);
 ProviderDescriptor? localDescriptor =
-    await registry.GetAsync(LocalEnvironmentProviderDescriptor.ProviderId);
+    await registry.GetAsync(HostContainersProviderDescriptor.ProviderId);
 ProviderCapabilityReport localCapabilities =
-    await registry.GetCapabilitiesAsync(LocalEnvironmentProviderDescriptor.ProviderId);
+    await registry.GetCapabilitiesAsync(HostContainersProviderDescriptor.ProviderId);
 
 bool valid =
     appleDescriptor is not null &&
     appleDescriptor.Id.Equals(AppleVirtualizationProviderDescriptor.ProviderId) &&
     appleCapabilities.ProviderId.Equals(AppleVirtualizationProviderDescriptor.ProviderId) &&
     localDescriptor is not null &&
-    localDescriptor.Id.Equals(LocalEnvironmentProviderDescriptor.ProviderId) &&
-    localCapabilities.ProviderId.Equals(LocalEnvironmentProviderDescriptor.ProviderId) &&
+    localDescriptor.Id.Equals(HostContainersProviderDescriptor.ProviderId) &&
+    localCapabilities.ProviderId.Equals(HostContainersProviderDescriptor.ProviderId) &&
     registry.RuntimeHostProviders.Count == 2 &&
     registry.ExecutionUnitProviders.Count == 2 &&
     registry.ProcessProviders.Count == 2 &&

@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Xml.Linq;
 using HPD.Agent;
 using HPD.Agent.ToolHarness.Coding;
+using HPD.Agent.ToolHarness.Coding.Security;
 using HPD.Agent.Middleware;
 using HPD.Agent.Permissions;
 using HPD.Agent.Security;
@@ -226,7 +227,7 @@ public sealed class ExecuteCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task ExecuteCommand_InvalidWorkspaceShape_ReturnsWorkspaceValidationError()
+    public void ExecuteCommand_InvalidWorkspaceShape_FailsSessionComposition()
     {
         var workspaceJson = $$"""
         {
@@ -246,12 +247,12 @@ public sealed class ExecuteCommandTests : IDisposable
             } }
         };
 
-        var result = await CodingHarnessTestFactory.Create().ExecuteCommandCore(
-            context: CreateContext(new FakeProcessProvider(), runConfig: runConfig),
-            command: "ls");
+        Action action = () => CreateContext(
+            new FakeProcessProvider(),
+            runConfig: runConfig);
 
-        result.ToString().Should().Contain("kind=\"invalid_workspace\"");
-        result.ToString().Should().Contain("Workspace 'version' is required.");
+        action.Should().Throw<AgentWorkspaceException>()
+            .WithMessage("*Workspace 'version' is required.*");
     }
 
     [Fact]
@@ -446,8 +447,11 @@ public sealed class ExecuteCommandTests : IDisposable
             CancellationToken.None,
             services: EmptyServiceProvider.Instance,
             config: CreateTestAgentConfig());
-        RegisterProcessExecution(agentContext.RuntimeCapabilities, runner);
         var runConfig = CreateWorkspaceRunConfig();
+        RegisterProcessExecution(
+            agentContext.RuntimeCapabilities,
+            runner,
+            runConfig);
         var arguments = RunArguments("node server.js");
         var beforeContext = agentContext.AsBeforeFunction(
             function,
@@ -1270,7 +1274,10 @@ public sealed class ExecuteCommandTests : IDisposable
             CancellationToken.None,
             services: EmptyServiceProvider.Instance,
             config: CreateTestAgentConfig());
-        RegisterProcessExecution(agentContext.RuntimeCapabilities, runner);
+        RegisterProcessExecution(
+            agentContext.RuntimeCapabilities,
+            runner,
+            runConfig);
         var requestArguments = new Dictionary<string, object?>
         {
             ["action"] = action switch
@@ -1575,7 +1582,10 @@ public sealed class ExecuteCommandTests : IDisposable
         ]);
     }
 
-    private static void RegisterProcessExecution(IRuntimeCapabilityRegistry capabilities, IProcessProvider provider)
+    private static void RegisterProcessExecution(
+        IRuntimeCapabilityRegistry capabilities,
+        IProcessProvider provider,
+        AgentRunConfig? runConfig = null)
     {
         capabilities.Set(new RuntimeProcessExecutionBinding
         {
@@ -1589,7 +1599,12 @@ public sealed class ExecuteCommandTests : IDisposable
                     Scope = new ResourceScope("test")
                 },
                 TargetHandleLifetime.LiveCapability,
-                TargetHandleAuthority.Control | TargetHandleAuthority.Observe)
+                TargetHandleAuthority.Control | TargetHandleAuthority.Observe),
+            Isolation = runConfig is null
+                ? ProcessIsolationPolicy.Default
+                : CodingSandboxRuntime.Capture(runConfig)
+                    .ToProcessIsolationPolicy(
+                        Directory.GetCurrentDirectory()),
         });
     }
 
@@ -1624,12 +1639,17 @@ public sealed class ExecuteCommandTests : IDisposable
             CancellationToken.None,
             config: CreateTestAgentConfig(),
             contentStore: contentStore);
+        runConfig ??= CreateWorkspaceRunConfig();
         if (runner is not null)
-            RegisterProcessExecution(agentContext.RuntimeCapabilities, runner);
+        {
+            RegisterProcessExecution(
+                agentContext.RuntimeCapabilities,
+                runner,
+                runConfig);
+        }
         if (operations is not null)
             agentContext.RuntimeCapabilities.Set(operations.Registry);
 
-        runConfig ??= CreateWorkspaceRunConfig();
         var beforeContext = agentContext.AsBeforeFunction(
             function,
             "call-1",
@@ -1675,7 +1695,10 @@ public sealed class ExecuteCommandTests : IDisposable
             CancellationToken.None,
             services: EmptyServiceProvider.Instance,
             config: CreateTestAgentConfig());
-        RegisterProcessExecution(agentContext.RuntimeCapabilities, runner);
+        RegisterProcessExecution(
+            agentContext.RuntimeCapabilities,
+            runner,
+            runConfig);
 
         var arguments = new Dictionary<string, object?>
         {

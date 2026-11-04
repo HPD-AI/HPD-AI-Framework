@@ -4,10 +4,9 @@ using HPD.Agent;
 using HPD.Agent.Middleware;
 using HPD.Agent.Security;
 using HPD.Agent.Sandbox;
-using HPD.Agent.Sandbox.Local;
-using HPD.Agent.Sandbox.ProcessIsolation;
 using HPD.Agent.ToolHarness.Coding.Debugging;
 using HPD.Environment.Contracts;
+using HPD.Environment.HostProcess;
 using HPD.Environment.Runtime;
 
 namespace HPD.Agent.ToolHarness.Coding.Tests;
@@ -120,7 +119,7 @@ public sealed class DotNetDebugProjectEvaluatorV3Tests
     }
 
     [Fact]
-    public async Task Evaluation_does_not_treat_workspace_membership_as_authorization()
+    public async Task Evaluation_rejects_a_project_outside_the_runtime_workspace()
     {
         using var fixture = new EvaluationFixture();
         var outsideWorkspace = Path.Combine(fixture.Root, "authorized");
@@ -128,15 +127,20 @@ public sealed class DotNetDebugProjectEvaluatorV3Tests
         var provider = new EvaluationProcessProvider(_ =>
             fixture.Json("Exe", false, false, "net10.0"));
 
-        var result = await new DotNetDebugProjectEvaluator().EvaluateAsync(
-            fixture.Request(provider) with
-            {
-                Workspace = Workspace(outsideWorkspace)
-            },
-            CancellationToken.None);
+        var action = async () =>
+            await new DotNetDebugProjectEvaluator().EvaluateAsync(
+                fixture.Request(provider) with
+                {
+                    RuntimeWorkspace =
+                        TestRuntimeWorkspace.FromAgentWorkspace(
+                            Workspace(outsideWorkspace)),
+                },
+                CancellationToken.None);
 
-        result.ProjectPath.Should().Be(fixture.ProjectPath);
-        provider.Specifications.Should().NotBeEmpty();
+        var exception = await action.Should()
+            .ThrowAsync<DebugStartPlanningException>();
+        exception.Which.Kind.Should().Be("debug_project_not_found");
+        provider.Specifications.Should().BeEmpty();
     }
 
     [Fact]
@@ -219,7 +223,10 @@ public sealed class DotNetDebugProjectEvaluatorV3Tests
             Path.GetTempPath(),
             "hpd-real-msbuild-evaluation-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
-        await using var isolation = new SandboxIsolationManager();
+        await using var module = new HostProcessProviderModule();
+        var registry = new EnvironmentProviderRegistry();
+        registry.RegisterModule(module);
+        var runtime = new InMemoryEnvironmentRuntime(registry);
         try
         {
             var project = Path.Combine(root, "Imported.csproj");
@@ -243,9 +250,29 @@ public sealed class DotNetDebugProjectEvaluatorV3Tests
                   </PropertyGroup>
                 </Project>
                 """);
-            var provider = new LocalProcessProvider(
-                new SandboxIsolationPlanner(),
-                new HostSandboxApplicator(isolation));
+            ResourceSnapshot<
+                RuntimeHost,
+                RuntimeHostSpec,
+                RuntimeHostStatus> host =
+                await runtime.EnsureHostAsync(new RuntimeHostSpec
+                {
+                    PreferredProvider =
+                        HostProcessProviderDescriptor.ProviderId,
+                    Platform =
+                        HostProcessProviderDescriptor.CurrentPlatform(),
+                });
+            ResourceSnapshot<
+                ExecutionUnit,
+                ExecutionUnitSpec,
+                ExecutionUnitStatus> unit =
+                await runtime.EnsureExecutionUnitAsync(
+                    new ExecutionUnitSpec
+                    {
+                        PreferredHost = new ResourceRef<RuntimeHost>(
+                            host.Metadata.Id,
+                            host.Metadata.Scope,
+                            host.Metadata.Generation),
+                    });
             var result = await new DotNetDebugProjectEvaluator().EvaluateAsync(
                 new()
                 {
@@ -255,10 +282,11 @@ public sealed class DotNetDebugProjectEvaluatorV3Tests
                     {
                         EnvironmentId = "local",
                         EnvironmentRevision = 1,
-                        ProcessProvider = provider,
-                        ExecutionTarget = ExecutionTarget()
+                        ProcessProvider = module.ProcessProvider,
+                        EnvironmentRuntime = runtime,
+                        ExecutionTarget = unit.Status.Handle!.Value,
                     },
-                    Workspace = Workspace(root)
+                    RuntimeWorkspace = TestRuntimeWorkspace.FromAgentWorkspace(Workspace(root))
                 },
                 CancellationToken.None);
 
@@ -477,7 +505,7 @@ public sealed class DotNetDebugProjectEvaluatorV3Tests
             var result = await new DotNetDebugProjectEvaluator().EvaluateAsync(
                 fixture.Request(provider) with
                 {
-                    Workspace = Workspace(fixture.Root, secondRoot)
+                    RuntimeWorkspace = TestRuntimeWorkspace.FromAgentWorkspace(Workspace(fixture.Root, secondRoot))
                 },
                 CancellationToken.None);
 
@@ -673,7 +701,7 @@ public sealed class DotNetDebugProjectEvaluatorV3Tests
                     ProcessProvider = provider,
                     ExecutionTarget = ExecutionTarget()
                 },
-                Workspace = Workspace(Root)
+                RuntimeWorkspace = TestRuntimeWorkspace.FromAgentWorkspace(Workspace(Root))
             };
 
         public string Json(

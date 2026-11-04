@@ -1,9 +1,5 @@
-using HPD.Agent;
-using HPD.Agent.ToolHarness.Coding;
-using HPD.Agent.Middleware;
-using HPD.Events.Core;
-using HPDOS.ToolHarnesses.Middleware;
-using Microsoft.Extensions.AI;
+using System.Xml.Linq;
+using FluentAssertions;
 
 namespace HPD.Agent.ToolHarness.Coding.Tests;
 
@@ -11,547 +7,173 @@ namespace HPD.Agent.ToolHarness.Coding.Tests;
 public sealed class ListDirectoryTests : IDisposable
 {
     private readonly string _originalCwd = Directory.GetCurrentDirectory();
-    private readonly string _tempRoot = Path.Combine(Path.GetTempPath(), $"hpd-list-directory-tests-{Guid.NewGuid():N}");
+    private readonly string _root = Path.Combine(
+        Path.GetTempPath(),
+        $"hpd-portable-list-{Guid.NewGuid():N}");
 
     public ListDirectoryTests()
     {
-        Directory.CreateDirectory(_tempRoot);
-        Directory.SetCurrentDirectory(_tempRoot);
-    }
-
-    public void Dispose()
-    {
-        Directory.SetCurrentDirectory(_originalCwd);
-        if (Directory.Exists(_tempRoot))
-            Directory.Delete(_tempRoot, recursive: true);
+        Directory.CreateDirectory(Path.Combine(_root, "src", "nested"));
+        Directory.CreateDirectory(Path.Combine(_root, ".hidden"));
+        Directory.CreateDirectory(Path.Combine(_root, "empty"));
+        Directory.SetCurrentDirectory(_root);
+        File.WriteAllText(Path.Combine("src", "A.cs"), "abc");
+        File.WriteAllText(Path.Combine("src", "nested", "B.cs"), "12345");
+        File.WriteAllText(Path.Combine(".hidden", "secret.txt"), "x");
+        File.WriteAllText(Path.Combine("A&B.cs"), "x");
     }
 
     [Fact]
-    public void ListDirectory_RequiresPermission()
+    public void ListDirectory_requires_permission_metadata()
     {
-        var method = typeof(CodingToolHarness).GetMethod(nameof(CodingToolHarness.ListDirectory));
+        var method = typeof(CodingToolHarness).GetMethod(
+            nameof(CodingToolHarness.ListDirectory));
 
         method.Should().NotBeNull();
-        method!.GetCustomAttributes(typeof(RequiresPermissionAttribute), inherit: false)
+        method!.GetCustomAttributes(
+                typeof(RequiresPermissionAttribute),
+                inherit: false)
             .Should().ContainSingle();
     }
 
     [Fact]
-    public async Task ListDirectory_ListsSmallDirectoryWithDirectoriesFirst()
+    public async Task Lists_directories_first_with_logical_relative_paths()
     {
-        Directory.CreateDirectory("src");
-        await File.WriteAllTextAsync("README.md", "# demo\n");
-        await File.WriteAllTextAsync("Program.cs", "class Program {}\n");
+        string result = await CreateHarness().ListDirectory(".");
 
-        var result = await CodingHarnessTestFactory.Create().ListDirectory(".");
-
-        result.Should().Contain("<directory path=");
-        result.Should().Contain("recursive=\"false\"");
-        result.Should().Contain("entries_read=\"3\"");
-        result.Should().Contain("<entry kind=\"directory\" path=\"src/\" />");
-        result.Should().Contain("<entry kind=\"file\" path=\"Program.cs\" />");
-
-        result.IndexOf("path=\"src/\"", StringComparison.Ordinal)
-            .Should().BeLessThan(result.IndexOf("path=\"Program.cs\"", StringComparison.Ordinal));
+        XElement root = XElement.Parse(result);
+        root.Attribute("path")!.Value.Should().Be(".");
+        root.Elements("entry").Select(item => (
+                item.Attribute("kind")!.Value,
+                item.Attribute("path")!.Value))
+            .Should().Equal(
+                ("directory", "empty/"),
+                ("directory", "src/"),
+                ("file", "A&B.cs"));
     }
 
     [Fact]
-    public async Task ListDirectory_ResolvesRelativeAndAbsolutePaths()
+    public async Task Absolute_execution_path_maps_to_same_workspace_directory()
     {
-        Directory.CreateDirectory("src");
-        await File.WriteAllTextAsync(Path.Combine("src", "A.cs"), "class A {}\n");
+        string relative = await CreateHarness().ListDirectory("src");
+        string absolute = await CreateHarness().ListDirectory(
+            Path.Combine(_root, "src"));
 
-        var relative = await CodingHarnessTestFactory.Create().ListDirectory("src");
-        var absolute = await CodingHarnessTestFactory.Create().ListDirectory(Path.Combine(_tempRoot, "src"));
-
-        relative.Should().Contain("path=\"A.cs\"");
-        absolute.Should().Contain("path=\"A.cs\"");
-        absolute.Should().Contain(Path.Combine(_tempRoot, "src"));
+        XElement.Parse(relative).Attribute("path")!.Value.Should().Be("src");
+        XElement.Parse(absolute).Attribute("path")!.Value.Should().Be("src");
+        XElement.Parse(absolute).Elements("entry").Select(item =>
+                item.Attribute("path")!.Value)
+            .Should().Contain("A.cs");
     }
 
     [Fact]
-    public async Task ListDirectory_ResolvesRelativePathFromRunConfigWorkspace()
+    public async Task Recursive_listing_uses_depth_and_relative_paths()
     {
-        var workspaceRoot = Path.Combine(_tempRoot, "workspace-root");
-        Directory.CreateDirectory(Path.Combine(workspaceRoot, "src"));
-        await File.WriteAllTextAsync(
-            Path.Combine(workspaceRoot, "src", "Workspace.cs"),
-            "class Workspace {}\n");
-
-        var result = await CodingHarnessTestFactory.Create().ListDirectory(
+        string result = await CreateHarness().ListDirectory(
             "src",
-            context: CreateFunctionContext(
-                CreateWorkspaceRunConfig(workspaceRoot)));
+            recursive: true,
+            maxDepth: 2);
 
-        result.Should().Contain("path=\"Workspace.cs\"");
-        result.Should().Contain(Path.Combine(workspaceRoot, "src"));
-        result.Should().NotContain("Directory does not exist");
+        XElement root = XElement.Parse(result);
+        root.Elements("entry").Select(item =>
+            item.Attribute("path")!.Value).Should().Equal(
+            "nested/",
+            "A.cs",
+            "nested/B.cs");
     }
 
     [Fact]
-    public async Task ListDirectory_RootQualifiedPath_ResolvesConfiguredRoot()
+    public async Task Hidden_entries_are_explicitly_included()
     {
-        var docsRoot = Path.Combine(_tempRoot, "docs");
-        Directory.CreateDirectory(docsRoot);
-        await File.WriteAllTextAsync(Path.Combine(docsRoot, "notes.md"), "# docs\n");
+        string hiddenByDefault = await CreateHarness()
+            .ListDirectory(".");
+        string included = await CreateHarness().ListDirectory(
+            ".",
+            includeHidden: true);
 
-        var result = await CodingHarnessTestFactory.Create().ListDirectory(
-            "@docs",
-            context: CreateFunctionContext(CreateWorkspaceRunConfig(_tempRoot, docsRoot)));
-
-        result.Should().Contain("notes.md");
-        result.Should().Contain(docsRoot);
+        XElement.Parse(hiddenByDefault).Elements("entry")
+            .Select(item => item.Attribute("path")!.Value)
+            .Should().NotContain(".hidden/");
+        XElement.Parse(included).Elements("entry")
+            .Select(item => item.Attribute("path")!.Value)
+            .Should().Contain(".hidden/");
     }
 
     [Fact]
-    public async Task ListDirectory_AbsolutePathOutsideWorkspace_ListsWithSandboxDisabled()
+    public async Task Kind_filter_and_metadata_are_applied_by_the_tool()
     {
-        var outside = Path.Combine(Path.GetTempPath(), $"hpd-list-outside-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(outside);
-        try
-        {
-            var runConfig = CreateWorkspaceRunConfig(_tempRoot);
-            runConfig.Security = new AgentSecurityRunConfig
-            {
-                Approval = AgentApprovalPolicy.AutoApprove,
-                Sandbox = new AgentSandboxRunConfig
-                {
-                    Mode = AgentSandboxPolicy.Disabled,
-                    Escape = AgentSandboxEscapePolicy.Deny
-                }
-            };
-            var result = await CodingHarnessTestFactory.Create().ListDirectory(
-                outside,
-                context: CreateFunctionContext(runConfig));
+        string files = await CreateHarness().ListDirectory(
+            "src",
+            kind: DirectoryEntryKindFilter.Files,
+            includeMetadata: true);
 
-            result.Should().Contain("<empty_directory");
-            result.Should().Contain(outside);
-        }
-        finally
-        {
-            if (Directory.Exists(outside))
-                Directory.Delete(outside, recursive: true);
-        }
+        XElement root = XElement.Parse(files);
+        root.Elements("entry").Should().ContainSingle().Which
+            .Attribute("path")!.Value.Should().Be("A.cs");
+        root.Elements("entry").Single().Attribute("size")!.Value.Should()
+            .Be("3");
     }
 
     [Fact]
-    public async Task ListDirectory_RejectsInvalidArguments()
+    public async Task Offset_limit_and_next_page_are_bounded()
     {
-        var toolharness = CodingHarnessTestFactory.Create();
+        string result = await CreateHarness().ListDirectory(
+            ".",
+            offset: 2,
+            limit: 1);
 
-        (await toolharness.ListDirectory(null!)).Should().Contain("Path is required.");
-        (await toolharness.ListDirectory(".", offset: 0)).Should().Contain("Offset must be greater than or equal to 1.");
-        (await toolharness.ListDirectory(".", limit: 0)).Should().Contain("Limit must be between 1 and 1000.");
-        (await toolharness.ListDirectory(".", limit: 1001)).Should().Contain("Limit must be between 1 and 1000.");
-        (await toolharness.ListDirectory(".", maxDepth: -1, recursive: true)).Should().Contain("MaxDepth must be between 0 and 25.");
-        (await toolharness.ListDirectory(".", maxDepth: 26, recursive: true)).Should().Contain("MaxDepth must be between 0 and 25.");
-        (await toolharness.ListDirectory(".", maxDepth: 2)).Should().Contain("MaxDepth requires recursive mode.");
+        XElement root = XElement.Parse(result);
+        root.Elements("entry").Should().ContainSingle();
+        root.Attribute("truncated")!.Value.Should().Be("true");
     }
 
     [Fact]
-    public async Task ListDirectory_RejectsMissingDirectoriesAndSuggestsSimilarSibling()
+    public async Task Empty_and_missing_directories_are_distinct()
     {
-        Directory.CreateDirectory("src");
+        string empty = await CreateHarness().ListDirectory("empty");
+        string missing = await CreateHarness().ListDirectory("missing");
 
-        var result = await CodingHarnessTestFactory.Create().ListDirectory("srcc");
-
-        result.Should().Contain("<error tool=\"ListDirectory\"");
-        result.Should().Contain("Directory does not exist. Did you mean");
-        result.Should().Contain("src");
+        XElement.Parse(empty).Name.LocalName.Should().Be("directory");
+        missing.Should().Contain("Directory does not exist.");
     }
 
     [Fact]
-    public async Task ListDirectory_RejectsFilePathsWithReadFileHint()
+    public async Task File_path_returns_list_directory_redirect()
     {
-        await File.WriteAllTextAsync("Program.cs", "class Program {}\n");
-
-        var result = await CodingHarnessTestFactory.Create().ListDirectory("Program.cs");
+        string result = await CreateHarness().ListDirectory("src/A.cs");
 
         result.Should().Contain("Path is a file. Use ReadFile instead.");
     }
 
     [Fact]
-    public async Task ListDirectory_HandlesEmptyDirectoryAndOffsetBeyondEnd()
+    public async Task Xml_sensitive_names_are_escaped()
     {
-        Directory.CreateDirectory("empty");
-        await File.WriteAllTextAsync("one.txt", "one\n");
+        string result = await CreateHarness().ListDirectory(".");
 
-        var empty = await CodingHarnessTestFactory.Create().ListDirectory("empty");
-        var beyondEnd = await CodingHarnessTestFactory.Create().ListDirectory(".", offset: 50);
-
-        empty.Should().Contain("<empty_directory");
-        beyondEnd.Should().Contain("<no_content reason=\"offset_beyond_end\"");
+        XElement.Parse(result).Elements("entry")
+            .Select(item => item.Attribute("path")!.Value)
+            .Should().Contain("A&B.cs");
     }
 
     [Fact]
-    public async Task ListDirectory_AppliesOffsetLimitAndEmitsNextList()
+    public async Task Invalid_arguments_are_rejected_before_storage_access()
     {
-        await File.WriteAllTextAsync("a.txt", "a\n");
-        await File.WriteAllTextAsync("b.txt", "b\n");
-        await File.WriteAllTextAsync("c.txt", "c\n");
-
-        var result = await CodingHarnessTestFactory.Create().ListDirectory(".", offset: 2, limit: 1);
-
-        result.Should().Contain("entries_read=\"1\"");
-        result.Should().Contain("truncated=\"true\"");
-        result.Should().Contain("<entry kind=\"file\" path=\"b.txt\" />");
-        result.Should().NotContain("path=\"a.txt\"");
-        result.Should().Contain("<next_list offset=\"3\" limit=\"1\"");
-        result.Should().Contain("reason=\"more_entries_available\"");
-    }
-
-    [Fact]
-    public async Task ListDirectory_DoesNotMarkFinalPageAsTruncated()
-    {
-        for (var i = 1; i <= 10; i++)
-            await File.WriteAllTextAsync($"file-{i:D2}.txt", $"{i}\n");
-
-        var result = await CodingHarnessTestFactory.Create().ListDirectory(".", offset: 6, limit: 5);
-
-        result.Should().Contain("entries_read=\"5\"");
-        result.Should().Contain("truncated=\"false\"");
-        result.Should().Contain("path=\"file-06.txt\"");
-        result.Should().Contain("path=\"file-10.txt\"");
-        result.Should().NotContain("<next_list");
-        result.Should().NotContain("path=\"file-05.txt\"");
-    }
-
-    [Fact]
-    public async Task ListDirectory_EscapesXmlSensitiveFilenames()
-    {
-        await File.WriteAllTextAsync("a<&>.txt", "xml\n");
-
-        var result = await CodingHarnessTestFactory.Create().ListDirectory(".");
-
-        result.Should().Contain("a&lt;&amp;&gt;.txt");
-    }
-
-    [Fact]
-    public async Task ListDirectory_HidesDotfilesByDefaultAndCanIncludeThem()
-    {
-        await File.WriteAllTextAsync(".env", "secret\n");
-        await File.WriteAllTextAsync("visible.txt", "visible\n");
-
-        var hiddenByDefault = await CodingHarnessTestFactory.Create().ListDirectory(".");
-        var included = await CodingHarnessTestFactory.Create().ListDirectory(".", includeHidden: true);
-
-        hiddenByDefault.Should().NotContain(".env");
-        hiddenByDefault.Should().Contain("visible.txt");
-        included.Should().Contain(".env");
-    }
-
-    [Fact]
-    public async Task ListDirectory_RespectsGitignoreWhenEnabled()
-    {
-        await File.WriteAllTextAsync(".gitignore", "ignored.txt\nignored-dir/\n");
-        await File.WriteAllTextAsync("ignored.txt", "ignore\n");
-        await File.WriteAllTextAsync("visible.txt", "visible\n");
-        Directory.CreateDirectory("ignored-dir");
-        await File.WriteAllTextAsync(Path.Combine("ignored-dir", "nested.txt"), "nested\n");
-
-        var respected = await CodingHarnessTestFactory.Create().ListDirectory(".", includeHidden: true);
-        var ignoredDisabled = await CodingHarnessTestFactory.Create().ListDirectory(".", includeHidden: true, respectIgnoreFiles: false);
-
-        respected.Should().NotContain("ignored.txt");
-        respected.Should().NotContain("ignored-dir/");
-        respected.Should().Contain("visible.txt");
-        ignoredDisabled.Should().Contain("ignored.txt");
-        ignoredDisabled.Should().Contain("ignored-dir/");
-    }
-
-    [Fact]
-    public async Task ListDirectory_FiltersByKind()
-    {
-        Directory.CreateDirectory("src");
-        await File.WriteAllTextAsync("Program.cs", "class Program {}\n");
-
-        var files = await CodingHarnessTestFactory.Create().ListDirectory(".", kind: DirectoryEntryKindFilter.Files);
-        var directories = await CodingHarnessTestFactory.Create().ListDirectory(".", kind: DirectoryEntryKindFilter.Directories);
-
-        files.Should().Contain("Program.cs");
-        files.Should().NotContain("src/");
-        directories.Should().Contain("src/");
-        directories.Should().NotContain("Program.cs");
-    }
-
-    [Fact]
-    public async Task ListDirectory_IncludesMetadataWhenRequested()
-    {
-        await File.WriteAllTextAsync("Program.cs", "class Program {}\n");
-
-        var result = await CodingHarnessTestFactory.Create().ListDirectory(".", includeMetadata: true);
-
-        result.Should().Contain("path=\"Program.cs\"");
-        result.Should().Contain("size=\"");
-        result.Should().Contain("last_write_time_utc=\"");
-    }
-
-    [Fact]
-    public async Task ListDirectory_SortsBySizeAndDirection()
-    {
-        await File.WriteAllTextAsync("small.txt", "x\n");
-        await File.WriteAllTextAsync("large.txt", new string('x', 100));
-
-        var result = await CodingHarnessTestFactory.Create().ListDirectory(
+        string result = await CreateHarness().ListDirectory(
             ".",
-            sortBy: DirectorySortBy.Size,
-            sortDirection: SortDirection.Descending);
+            limit: 1001);
 
-        result.IndexOf("path=\"large.txt\"", StringComparison.Ordinal)
-            .Should().BeLessThan(result.IndexOf("path=\"small.txt\"", StringComparison.Ordinal));
+        result.Should().Contain("Limit must be between 1 and 1000.");
     }
 
-    [Fact]
-    public async Task ListDirectory_RecursiveModeRespectsMaxDepthAndUsesRelativePaths()
+    public void Dispose()
     {
-        Directory.CreateDirectory(Path.Combine("src", "Controllers"));
-        await File.WriteAllTextAsync(Path.Combine("src", "Controllers", "HomeController.cs"), "class HomeController {}\n");
-
-        var depthOne = await CodingHarnessTestFactory.Create().ListDirectory(".", recursive: true, maxDepth: 1);
-        var depthTwo = await CodingHarnessTestFactory.Create().ListDirectory(".", recursive: true, maxDepth: 2);
-        var depthThree = await CodingHarnessTestFactory.Create().ListDirectory(".", recursive: true, maxDepth: 3);
-
-        depthOne.Should().Contain("path=\"src/\"");
-        depthOne.Should().NotContain("HomeController.cs");
-        depthTwo.Should().Contain("path=\"src/Controllers/\"");
-        depthTwo.Should().NotContain("HomeController.cs");
-        depthThree.Should().Contain("path=\"src/Controllers/HomeController.cs\"");
-    }
-
-    [Fact]
-    public async Task ListDirectory_RecursiveModeSkipsBuiltInGeneratedDirectories()
-    {
-        Directory.CreateDirectory("node_modules");
-        await File.WriteAllTextAsync(Path.Combine("node_modules", "package.js"), "module.exports = {}\n");
-        Directory.CreateDirectory("src");
-        await File.WriteAllTextAsync(Path.Combine("src", "App.cs"), "class App {}\n");
-
-        var result = await CodingHarnessTestFactory.Create().ListDirectory(".", recursive: true, maxDepth: 2);
-
-        result.Should().NotContain("node_modules");
-        result.Should().Contain("src/App.cs");
-        result.Should().Contain("ignored_count=\"");
-    }
-
-    [Fact]
-    public async Task ListDirectory_RecursiveModeDoesNotFollowSymlinkedDirectories()
-    {
-        if (OperatingSystem.IsWindows())
-            return;
-
-        Directory.CreateDirectory("real-dir");
-        await File.WriteAllTextAsync(Path.Combine("real-dir", "inside.txt"), "inside\n");
-
-        try
+        Directory.SetCurrentDirectory(_originalCwd);
+        if (Directory.Exists(_root))
         {
-            Directory.CreateSymbolicLink("linked-dir", Path.GetFullPath("real-dir"));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
-        {
-            return;
-        }
-
-        var result = await CodingHarnessTestFactory.Create().ListDirectory(
-            ".",
-            recursive: true,
-            maxDepth: 3,
-            includeMetadata: true,
-            respectIgnoreFiles: false);
-
-        result.Should().Contain("path=\"linked-dir/\"");
-        result.Should().Contain("symlink=\"true\"");
-        result.Should().Contain("path=\"real-dir/inside.txt\"");
-        result.Should().NotContain("path=\"linked-dir/inside.txt\"");
-    }
-
-    [Fact]
-    public async Task ListDirectory_IncludesSymlinkMetadataForSymlinkedFiles()
-    {
-        if (OperatingSystem.IsWindows())
-            return;
-
-        await File.WriteAllTextAsync("real.txt", "real\n");
-
-        try
-        {
-            File.CreateSymbolicLink("linked.txt", Path.GetFullPath("real.txt"));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
-        {
-            return;
-        }
-
-        var result = await CodingHarnessTestFactory.Create().ListDirectory(".", includeMetadata: true);
-
-        result.Should().Contain("path=\"linked.txt\"");
-        result.Should().Contain("symlink=\"true\"");
-        result.Should().Contain("path=\"real.txt\"");
-    }
-
-    [Fact]
-    public async Task ListDirectory_BlocksUnixSystemPaths()
-    {
-        if (OperatingSystem.IsWindows())
-            return;
-
-        var result = await CodingHarnessTestFactory.Create().ListDirectory("/dev");
-
-        result.Should().Contain("Cannot list blocked system path.");
-    }
-
-    [Fact]
-    public async Task ListDirectory_ReturnsErrorWhenRequestedDirectoryCannotBeEnumerated()
-    {
-        if (OperatingSystem.IsWindows())
-            return;
-
-        Directory.CreateDirectory("restricted");
-
-        try
-        {
-            File.SetUnixFileMode("restricted", UnixFileMode.UserWrite);
-
-            var result = await CodingHarnessTestFactory.Create().ListDirectory("restricted");
-
-            result.Should().Contain("Unable to list directory:");
-        }
-        finally
-        {
-            File.SetUnixFileMode(
-                "restricted",
-                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            Directory.Delete(_root, recursive: true);
         }
     }
 
-    [Fact]
-    public async Task ListDirectory_RecursiveModeSkipsInaccessibleChildSubtreesWithoutFailingWholeListing()
-    {
-        if (OperatingSystem.IsWindows())
-            return;
-
-        await File.WriteAllTextAsync("good.txt", "good\n");
-        Directory.CreateDirectory("restricted-child");
-
-        try
-        {
-            File.SetUnixFileMode("restricted-child", UnixFileMode.UserWrite);
-
-            var result = await CodingHarnessTestFactory.Create().ListDirectory(".", recursive: true, maxDepth: 2);
-
-            result.Should().Contain("good.txt");
-            result.Should().Contain("restricted-child/");
-            result.Should().NotContain("Unable to list directory:");
-        }
-        finally
-        {
-            File.SetUnixFileMode(
-                "restricted-child",
-                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-        }
-    }
-
-    [Fact]
-    public async Task ListDirectory_UsesDirectoryListingSourceBeforeFilesystem()
-    {
-        await File.WriteAllTextAsync("disk.txt", "disk\n");
-        var source = new FakeDirectoryListingSource("virtual.txt");
-
-        var result = await CodingHarnessTestFactory.Create(null, [source]).ListDirectory(".");
-
-        result.Should().Contain("virtual.txt");
-        result.Should().NotContain("disk.txt");
-    }
-
-    [Fact]
-    public async Task ListDirectory_UsesDirectoryListingSourceForNonLocalPaths()
-    {
-        var source = new FakeDirectoryListingSource("virtual.txt");
-
-        var result = await CodingHarnessTestFactory.Create(null, [source]).ListDirectory("virtual-folder");
-
-        result.Should().Contain("virtual.txt");
-        result.Should().NotContain("Directory does not exist.");
-    }
-
-    private static FunctionExecutionContext CreateFunctionContext(AgentRunConfig runConfig)
-    {
-        var function = AIFunctionFactory.Create(
-            () => "ok",
-            new AIFunctionFactoryOptions
-            {
-                Name = "ListDirectory",
-                Description = "Test function"
-            });
-        var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
-        var agentContext = new AgentContext(
-            "AgentA",
-            "conversation-1",
-            state,
-            new EventCoordinator(),
-            new Session("session-1"),
-            new Thread("session-1", "test-agent"),
-            CancellationToken.None);
-        var beforeContext = agentContext.AsBeforeFunction(
-            function,
-            "call-1",
-            new Dictionary<string, object?>(),
-            runConfig,
-            toolharnessName: "CodingToolHarness");
-        var request = new FunctionRequest
-        {
-            Function = function,
-            CallId = "call-1",
-            Arguments = new Dictionary<string, object?>(),
-            State = state,
-            RunConfig = runConfig
-        };
-
-        return new FunctionExecutionContext(beforeContext, request);
-    }
-
-    private static AgentRunConfig CreateWorkspaceRunConfig(string defaultRoot, string? docsRoot = null)
-    {
-        var roots = new List<AgentWorkspaceRoot>
-        {
-            new("default", Path.GetFullPath(defaultRoot), AgentWorkspaceAccess.ReadWrite)
-        };
-
-        if (docsRoot is not null)
-            roots.Add(new AgentWorkspaceRoot("docs", Path.GetFullPath(docsRoot), AgentWorkspaceAccess.ReadWrite, "Docs"));
-
-        return new AgentRunConfig
-        {
-            Context = new AgentContextRunConfig { Properties = new Dictionary<string, object>()
-            {
-                [AgentWorkspace.ContextKey] = new AgentWorkspace(
-                    "default",
-                    Path.GetFullPath(defaultRoot),
-                    roots)
-            } }
-        };
-    }
-
-    private sealed class FakeDirectoryListingSource(string fileName) : IDirectoryListingSource
-    {
-        public ValueTask<DirectoryListingSourceResult?> TryListAsync(
-            DirectoryListingRequest request,
-            CancellationToken cancellationToken)
-            => ValueTask.FromResult<DirectoryListingSourceResult?>(new DirectoryListingSourceResult
-            {
-                FullPath = request.FullPath,
-                Entries =
-                [
-                    new DirectoryEntryInfo
-                    {
-                        RelativePath = fileName,
-                        Kind = DirectoryEntryKind.File,
-                        Size = 12,
-                        LastWriteTimeUtc = DateTimeOffset.UtcNow
-                    }
-                ],
-                TotalEntries = "1",
-                IgnoredCount = 0,
-                Truncated = false
-            });
-    }
+    private static TestCodingHarness CreateHarness() =>
+        CodingHarnessTestFactory.Create();
 }

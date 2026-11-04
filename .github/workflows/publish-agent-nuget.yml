@@ -135,11 +135,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc gcc-aarch64-linux-gnu
 
-      - name: Prepare ripgrep binaries
-        run: |
-          dotnet run --file dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/Ripgrep/pack/prepare-ripgrep-binaries.cs -- \
-            --project dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj
-
       - name: Build bundled coding TUI assets
         run: dotnet build dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding.TUI/HPD-Agent.Harness.Coding.TUI.csproj --configuration Release
 
@@ -163,9 +158,10 @@ jobs:
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.MCP/HPD-Agent.MCP.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Hosting/HPD-Agent.Hosting.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj"
-            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.Core/HPD-Agent.Sandbox.Core.csproj"
-            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.Local/HPD-Agent.Sandbox.Local.csproj"
-            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.AppleVirtualization/HPD-Agent.Sandbox.AppleVirtualization.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Sandbox/HPD-Agent.Sandbox/HPD-Agent.Sandbox.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.HostProcess/HPD-Agent.Sandbox.HostProcess.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.HostContainers/HPD-Agent.Sandbox.HostContainers.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.VirtualMachine/HPD-Agent.Sandbox.VirtualMachine.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.MultiAgent/HPD-Agent.MultiAgent.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Evaluations/HPD-Agent.Evaluations.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.OpenApi/HPD-Agent.OpenApi.csproj"
@@ -254,7 +250,7 @@ jobs:
             printf '%s' "$response" | python3 -c 'import json, sys; versions = json.load(sys.stdin)["versions"]; stable = [version for version in versions if "-" not in version]; print((stable or versions)[-1])'
           }
 
-          HPD_ENVIRONMENT_VERSION="$(resolve_nuget_version "HPD-Environment.Abstractions" "$INPUT_HPD_ENVIRONMENT_VERSION")"
+          HPD_ENVIRONMENT_VERSION="$(resolve_nuget_version "HPD-Environment.Contracts" "$INPUT_HPD_ENVIRONMENT_VERSION")"
           HPD_GRAPH_VERSION="$(resolve_nuget_version "HPD-Graph.Core" "$INPUT_HPD_GRAPH_VERSION")"
           HPD_TUI_VERSION="$(resolve_nuget_version "HPD-TUI" "$INPUT_HPD_TUI_VERSION")"
           HPD_REALTIME_MEDIA_VERSION="$(resolve_nuget_version "HPD-Audio.Primitives" "$INPUT_HPD_REALTIME_MEDIA_VERSION")"
@@ -307,17 +303,21 @@ jobs:
             fi
           done
 
-      - name: Validate sandbox native helper package contents
+      - name: Validate sandbox package contents
         run: |
-          SANDBOX_PACKAGE="$(ls ./nupkg/HPD-Agent.Sandbox.Core.*.nupkg | head -n 1)"
-          if [ -z "$SANDBOX_PACKAGE" ]; then
-            echo "HPD-Agent.Sandbox.Core package was not produced"
-            exit 1
-          fi
+          SANDBOX_PACKAGES=(
+            "HPD-Agent.Sandbox"
+            "HPD-Agent.Sandbox.HostProcess"
+            "HPD-Agent.Sandbox.HostContainers"
+            "HPD-Agent.Sandbox.VirtualMachine"
+          )
 
-          unzip -l "$SANDBOX_PACKAGE" | tee /tmp/hpd-sandbox-package.txt
-          grep -q "runtimes/linux-x64/native/apply-seccomp-x64" /tmp/hpd-sandbox-package.txt
-          grep -q "runtimes/linux-arm64/native/apply-seccomp-arm64" /tmp/hpd-sandbox-package.txt
+          for PACKAGE_ID in "${SANDBOX_PACKAGES[@]}"; do
+            if ! ls "./nupkg/${PACKAGE_ID}."*.nupkg >/dev/null 2>&1; then
+              echo "::error::${PACKAGE_ID} package was not produced."
+              exit 1
+            fi
+          done
 
       - name: Validate coding package contents
         run: |

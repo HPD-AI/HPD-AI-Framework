@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Runtime.InteropServices;
 using System.Xml.Linq;
 using HPD.Agent.Middleware;
+using HPD.Agent.Sandbox;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Environment.Contracts;
 
@@ -166,7 +167,7 @@ internal sealed class DirectSourceDebugExecutionTargetPlanner(
             InitialConfiguration = DebugInitialConfigurationMapper.Map(
                 context.Operation.InitialConfiguration,
                 context.Operation.StopOnEntry,
-                context.Workspace),
+                context.RuntimeWorkspace),
             Adapter = adapter
         });
     }
@@ -187,7 +188,12 @@ internal sealed class DirectExecutableDebugExecutionTargetPlanner(
         if (context.Target is not ExecutableDebugTarget target)
             return DebugExecutionPlanningResult.NotApplicable;
         DebugInputBounds.ValidateArguments(target.Arguments);
-        if (!File.Exists(context.CanonicalTargetPath))
+        if (await context.RuntimeWorkspace.Files.GetInfoAsync(
+                DebugWorkspaceAccess.FromEffective(
+                    context.RuntimeWorkspace,
+                    context.CanonicalTargetPath),
+                cancellationToken).ConfigureAwait(false) is not
+            { Kind: WorkspaceEntryKind.File })
             throw new DebugStartPlanningException(
                 "debug_artifact_not_found",
                 "The requested executable artifact does not exist.");
@@ -227,7 +233,7 @@ internal sealed class DirectExecutableDebugExecutionTargetPlanner(
             InitialConfiguration = DebugInitialConfigurationMapper.Map(
                 context.Operation.InitialConfiguration,
                 context.Operation.StopOnEntry,
-                context.Workspace),
+                context.RuntimeWorkspace),
             Adapter = adapter
         });
     }
@@ -258,7 +264,10 @@ internal sealed class DotNetApplicationDebugExecutionTargetPlanner(
         if (context.Target is not ApplicationProjectDebugTarget target)
             return DebugExecutionPlanningResult.NotApplicable;
         DebugInputBounds.ValidateArguments(target.Arguments);
-        var project = DotNetProjectSelection.Select(context, target.ProjectPath);
+        var project = await DotNetProjectSelection.SelectAsync(
+            context,
+            target.ProjectPath,
+            cancellationToken).ConfigureAwait(false);
         var evaluation = await evaluator.EvaluateAsync(new()
         {
             CanonicalProjectPath = project,
@@ -266,8 +275,7 @@ internal sealed class DotNetApplicationDebugExecutionTargetPlanner(
             TargetFramework = target.TargetFramework,
             ProcessExecution = context.Runtime.ProcessExecution!,
             ProcessSandbox = context.Runtime.ProcessSandbox,
-            Workspace = context.Workspace,
-            AuthorizePath = context.AuthorizePath
+            RuntimeWorkspace = context.RuntimeWorkspace,
         }, cancellationToken).ConfigureAwait(false);
         switch (evaluation.ProjectKind)
         {
@@ -326,7 +334,7 @@ internal sealed class DotNetApplicationDebugExecutionTargetPlanner(
             InitialConfiguration = DebugInitialConfigurationMapper.Map(
                 effectiveContext.Operation.InitialConfiguration,
                 effectiveContext.Operation.StopOnEntry,
-                effectiveContext.Workspace),
+                effectiveContext.RuntimeWorkspace),
             ProjectEvaluation = DotNetEvaluationMetadata.Project(evaluation),
             Adapter = adapter
         });
@@ -349,7 +357,10 @@ internal sealed class DotNetTestDebugExecutionTargetPlanner(
             target.Framework is not (DebugTestFramework.Auto or DebugTestFramework.DotNet))
             return DebugExecutionPlanningResult.NotApplicable;
         DebugInputBounds.ValidateFilter(target.Filter);
-        var project = DotNetProjectSelection.Select(context, target.ProjectPath);
+        var project = await DotNetProjectSelection.SelectAsync(
+            context,
+            target.ProjectPath,
+            cancellationToken).ConfigureAwait(false);
         var evaluation = await evaluator.EvaluateAsync(new()
         {
             CanonicalProjectPath = project,
@@ -357,8 +368,7 @@ internal sealed class DotNetTestDebugExecutionTargetPlanner(
             TargetFramework = target.TargetFramework,
             ProcessExecution = context.Runtime.ProcessExecution!,
             ProcessSandbox = context.Runtime.ProcessSandbox,
-            Workspace = context.Workspace,
-            AuthorizePath = context.AuthorizePath
+            RuntimeWorkspace = context.RuntimeWorkspace,
         }, cancellationToken).ConfigureAwait(false);
         if (evaluation.ProjectKind != DotNetDebugProjectKind.Test)
             throw new DebugStartPlanningException(
@@ -431,7 +441,7 @@ internal sealed class DotNetTestDebugExecutionTargetPlanner(
             InitialConfiguration = DebugInitialConfigurationMapper.Map(
                 context.Operation.InitialConfiguration,
                 context.Operation.StopOnEntry,
-                context.Workspace),
+                context.RuntimeWorkspace),
             ProjectEvaluation = DotNetEvaluationMetadata.Project(evaluation),
             Host = new DebugHostProcessPlan
             {
@@ -457,18 +467,30 @@ internal sealed class DotNetTestDebugExecutionTargetPlanner(
                         StopProcessTree = true,
                         StopOnRunCancellation = true
                     },
-                    Isolation = ProcessIsolationPolicy.Default with
+                    Isolation = new ProcessIsolationPolicy
                     {
-                        // The debugger must attach across the host boundary and
-                        // VSTest must retain its dynamically allocated local IPC
-                        // channel. Current process-isolation contracts cannot
-                        // express a per-PID debugger grant plus an exact dynamic
-                        // loopback endpoint. This trusted, planner-built command
-                        // therefore follows the same attach exception as the
-                        // adapter transport. Permission, workspace containment,
-                        // fixed executable/arguments, ownership, and cleanup are
-                        // all revalidated before it starts.
-                        Mode = ProcessIsolationMode.Disabled
+                        Mode = ProcessIsolationMode.Isolated,
+                        Network = new NetworkEgressPolicy
+                        {
+                            Mode = NetworkEgressMode.Filtered,
+                            AllowedDomains =
+                            [
+                                new DomainRule
+                                {
+                                    Pattern = "localhost",
+                                    Kind = DomainRuleKind.Localhost,
+                                    Reason = "debug-ready-loopback",
+                                },
+                            ],
+                            RequireProxyMediation = false,
+                        },
+                        Interactive = ProcessInteractivePolicy.Default with
+                        {
+                            AllowStdin = true,
+                            AllowLocalBinding = true,
+                        },
+                        Degradation =
+                            ProcessIsolationDegradationPolicy.FailClosed,
                     },
                     Io = ProcessIoSpec.Default with
                     {
@@ -535,7 +557,7 @@ internal sealed class DotNetTestDebugExecutionTargetPlanner(
             InitialConfiguration = DebugInitialConfigurationMapper.Map(
                 context.Operation.InitialConfiguration,
                 context.Operation.StopOnEntry,
-                context.Workspace),
+                context.RuntimeWorkspace),
             ProjectEvaluation = DotNetEvaluationMetadata.Project(evaluation),
             Adapter = adapter
         });
@@ -588,32 +610,62 @@ internal static class DebugInputBounds
 /// <summary>Selects one canonical .NET project from explicit or discovered evidence.</summary>
 internal static class DotNetProjectSelection
 {
-    public static string Select(
+    public static async ValueTask<string> SelectAsync(
         DebugExecutionPlanningContext context,
-        string? explicitProjectPath)
+        string? explicitProjectPath,
+        CancellationToken cancellationToken)
     {
+        RuntimeWorkspaceBinding workspace = context.RuntimeWorkspace;
+        WorkspacePath target = DebugWorkspaceAccess.FromEffective(
+            workspace,
+            context.CanonicalTargetPath);
+        WorkspaceFileInfo targetInfo =
+            await workspace.Files.GetInfoAsync(
+                target,
+                cancellationToken).ConfigureAwait(false) ??
+            throw new DebugStartPlanningException(
+                "debug_project_not_found",
+                "No supported .NET project was selected.");
         if (!string.IsNullOrWhiteSpace(explicitProjectPath))
         {
-            var selectionRoot = Directory.Exists(context.CanonicalTargetPath)
-                ? context.CanonicalTargetPath
-                : Path.GetDirectoryName(context.CanonicalTargetPath)!;
-            var candidate = context.Workspace.CanonicalizeExplicitPath(
-                Path.IsPathRooted(explicitProjectPath)
-                    ? explicitProjectPath
-                    : Path.Combine(selectionRoot, explicitProjectPath));
-            candidate = DotNetDebugProjectEvaluator.CanonicalPath(candidate);
-            if (!DotNetDebugProjectEvaluator.IsProject(candidate) || !File.Exists(candidate))
+            WorkspacePath selectionRoot =
+                targetInfo.Kind == WorkspaceEntryKind.Directory
+                    ? target
+                    : DebugWorkspaceAccess.Parent(target) ??
+                        DebugWorkspaceAccess.Root(target.RootId);
+            WorkspacePath candidatePath =
+                DebugWorkspaceAccess.ResolveRelative(
+                    workspace,
+                    selectionRoot,
+                    explicitProjectPath.Replace('\\', '/'));
+            string candidate = DotNetDebugProjectEvaluator.CanonicalPath(
+                DebugWorkspaceAccess.ToEffective(
+                    workspace,
+                    candidatePath));
+            WorkspaceFileInfo? candidateInfo =
+                await workspace.Files.GetInfoAsync(
+                    candidatePath,
+                    cancellationToken).ConfigureAwait(false);
+            if (!DotNetDebugProjectEvaluator.IsProject(candidate) ||
+                candidateInfo is not
+                    { Kind: WorkspaceEntryKind.File })
+            {
                 throw new DebugStartPlanningException(
                     "debug_project_not_found",
                     "The selected .NET project does not exist.");
+            }
             return candidate;
         }
 
-        if (File.Exists(context.CanonicalTargetPath) &&
+        if (targetInfo.Kind == WorkspaceEntryKind.File &&
             DotNetDebugProjectEvaluator.IsProject(context.CanonicalTargetPath))
+        {
             return context.CanonicalTargetPath;
+        }
 
-        var candidates = Candidates(context);
+        IReadOnlyList<string> candidates = await CandidatesAsync(
+            context,
+            cancellationToken).ConfigureAwait(false);
         if (candidates.Count == 0)
             throw new DebugStartPlanningException(
                 "debug_project_not_found",
@@ -625,15 +677,25 @@ internal static class DotNetProjectSelection
         return candidates[0];
     }
 
-    internal static IReadOnlyList<string> Candidates(
-        DebugExecutionPlanningContext context)
+    internal static async ValueTask<IReadOnlyList<string>> CandidatesAsync(
+        DebugExecutionPlanningContext context,
+        CancellationToken cancellationToken)
     {
-        var candidates = context.Evidence.MatchedPaths
+        IEnumerable<string> evidenceProjects = context.Evidence.MatchedPaths
             .Where(DotNetDebugProjectEvaluator.IsProject)
-            .Concat(DiscoverDirect(context.CanonicalTargetPath))
-            .Concat(ProjectsFromSolutions(
-                context.Evidence.MatchedPaths,
-                context.Workspace))
+            .Select(path => CanonicalWorkspacePath(
+                context.RuntimeWorkspace,
+                path))
+            .ToArray();
+        IEnumerable<string> directProjects = await DiscoverDirectAsync(
+            context,
+            cancellationToken).ConfigureAwait(false);
+        IEnumerable<string> solutionProjects = await ProjectsFromSolutionsAsync(
+            context,
+            cancellationToken).ConfigureAwait(false);
+        string[] candidates = evidenceProjects
+            .Concat(directProjects)
+            .Concat(solutionProjects)
             .Distinct(StringComparer.Ordinal)
             .OrderBy(path => path, StringComparer.Ordinal)
             .Take(257)
@@ -645,90 +707,213 @@ internal static class DotNetProjectSelection
         return candidates;
     }
 
-    private static IEnumerable<string> DiscoverDirect(string target)
+    private static string CanonicalWorkspacePath(
+        RuntimeWorkspaceBinding workspace,
+        string effectivePath)
     {
-        if (File.Exists(target) && DotNetDebugProjectEvaluator.IsProject(target))
-            return [target];
-        var directory = Directory.Exists(target)
-            ? target
-            : Path.GetDirectoryName(target);
-        if (directory is null || !Directory.Exists(directory))
-            return [];
-        return Directory.EnumerateFiles(directory, "*.*proj", SearchOption.TopDirectoryOnly)
-            .Where(DotNetDebugProjectEvaluator.IsProject)
-            .OrderBy(path => path, StringComparer.Ordinal)
-            .Take(257);
+        WorkspacePath? logical =
+            DebugWorkspaceAccess.TryFromEffective(
+                workspace,
+                effectivePath);
+        return logical is { } path
+            ? DebugWorkspaceAccess.ToEffective(workspace, path)
+            : DotNetDebugProjectEvaluator.CanonicalPath(
+                effectivePath);
     }
 
-    private static IEnumerable<string> ProjectsFromSolutions(
-        IReadOnlyList<string> markerPaths,
-        AgentWorkspace workspace)
+    private static async ValueTask<IReadOnlyList<string>> DiscoverDirectAsync(
+        DebugExecutionPlanningContext context,
+        CancellationToken cancellationToken)
     {
-        foreach (var solution in markerPaths.Where(path =>
+        RuntimeWorkspaceBinding workspace = context.RuntimeWorkspace;
+        WorkspacePath target = DebugWorkspaceAccess.FromEffective(
+            workspace,
+            context.CanonicalTargetPath);
+        WorkspaceFileInfo? targetInfo =
+            await workspace.Files.GetInfoAsync(
+                target,
+                cancellationToken).ConfigureAwait(false);
+        if (targetInfo is null)
+        {
+            return [];
+        }
+        if (targetInfo.Kind == WorkspaceEntryKind.File &&
+            DotNetDebugProjectEvaluator.IsProject(context.CanonicalTargetPath))
+        {
+            return [context.CanonicalTargetPath];
+        }
+        WorkspacePath directory = targetInfo.Kind ==
+            WorkspaceEntryKind.Directory
+            ? target
+            : DebugWorkspaceAccess.Parent(target) ??
+                DebugWorkspaceAccess.Root(target.RootId);
+        WorkspaceListResultSet listing =
+            await workspace.Files.ListAsync(
+                directory,
+                new WorkspaceListOptions
+                {
+                    Recursive = false,
+                    MaxEntries = 258,
+                },
+                cancellationToken).ConfigureAwait(false);
+        return listing.Entries
+            .Where(entry =>
+                entry.Kind == WorkspaceEntryKind.File &&
+                IsProjectLeaf(entry.Path.RelativePath))
+            .Select(entry => DebugWorkspaceAccess.ToEffective(
+                workspace,
+                entry.Path))
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .Take(257)
+            .ToArray();
+    }
+
+    private static async ValueTask<IReadOnlyList<string>>
+        ProjectsFromSolutionsAsync(
+        DebugExecutionPlanningContext context,
+        CancellationToken cancellationToken)
+    {
+        RuntimeWorkspaceBinding workspace = context.RuntimeWorkspace;
+        var projects = new List<string>();
+        foreach (string solution in context.Evidence.MatchedPaths.Where(path =>
                      path.EndsWith(".sln", StringComparison.OrdinalIgnoreCase) ||
                      path.EndsWith(".slnx", StringComparison.OrdinalIgnoreCase)))
         {
-            IReadOnlyList<string> relativeProjects;
+            cancellationToken.ThrowIfCancellationRequested();
+            WorkspacePath solutionPath;
             try
             {
-                if (new FileInfo(solution).Length > 1024 * 1024)
-                    throw new DebugStartPlanningException(
-                        "debug_project_evaluation_failed",
-                        "The selected solution exceeds the trusted evidence bound.");
-                if (solution.EndsWith(".slnx", StringComparison.OrdinalIgnoreCase))
+                solutionPath = DebugWorkspaceAccess.FromEffective(
+                    workspace,
+                    solution);
+                WorkspaceTextSnapshot solutionText =
+                    await DebugWorkspaceAccess.ReadTextAsync(
+                        workspace,
+                        solutionPath,
+                        1024 * 1024,
+                        cancellationToken).ConfigureAwait(false);
+                IReadOnlyList<string> relativeProjects;
+                if (solution.EndsWith(
+                        ".slnx",
+                        StringComparison.OrdinalIgnoreCase))
                 {
-                    var settings = new System.Xml.XmlReaderSettings
-                    {
-                        DtdProcessing = System.Xml.DtdProcessing.Prohibit,
-                        MaxCharactersInDocument = 1024 * 1024
-                    };
-                    using var reader = System.Xml.XmlReader.Create(solution, settings);
-                    var values = XDocument.Load(reader, LoadOptions.None).Descendants()
-                        .Where(element => element.Name.LocalName == "Project")
-                        .Select(element => element.Attribute("Path")?.Value)
-                        .OfType<string>()
-                        .Take(258)
-                        .ToArray();
-                    if (values.Length > 257)
-                        throw new DebugStartPlanningException(
-                            "debug_project_evaluation_failed",
-                            "The selected solution exceeds the trusted project-count bound.");
-                    relativeProjects = values;
+                    relativeProjects = ReadSolutionXml(
+                        solutionText.Content).ToArray();
                 }
                 else
                 {
-                    var lines = File.ReadLines(solution).Take(10_002).ToArray();
-                    if (lines.Length > 10_001)
-                        throw new DebugStartPlanningException(
-                            "debug_project_evaluation_failed",
-                            "The selected solution exceeds the trusted line bound.");
-                    relativeProjects = lines
-                        .Select(line => line.Split(',').ElementAtOrDefault(1)?.Trim().Trim('"'))
-                        .OfType<string>()
-                        .Where(DotNetDebugProjectEvaluator.IsProject)
-                        .Take(258)
-                        .ToArray();
-                    if (relativeProjects.Count > 257)
-                        throw new DebugStartPlanningException(
-                            "debug_project_evaluation_failed",
-                            "The selected solution exceeds the trusted project-count bound.");
+                    relativeProjects = ReadSolutionText(
+                        solutionText.Content).ToArray();
+                }
+
+                WorkspacePath solutionDirectory =
+                    DebugWorkspaceAccess.Parent(solutionPath) ??
+                    DebugWorkspaceAccess.Root(solutionPath.RootId);
+                foreach (string relative in relativeProjects)
+                {
+                    string normalized = relative.Replace('\\', '/');
+                    WorkspacePath candidatePath =
+                        DebugWorkspaceAccess.ResolveEffectiveRelative(
+                            workspace,
+                            solutionDirectory,
+                            normalized);
+                    WorkspaceFileInfo? candidateInfo =
+                        await workspace.Files.GetInfoAsync(
+                            candidatePath,
+                            cancellationToken).ConfigureAwait(false);
+                    string candidate =
+                        DotNetDebugProjectEvaluator.CanonicalPath(
+                            DebugWorkspaceAccess.ToEffective(
+                                workspace,
+                                candidatePath));
+                    if (candidateInfo is
+                            { Kind: WorkspaceEntryKind.File } &&
+                        DotNetDebugProjectEvaluator.IsProject(candidate))
+                    {
+                        projects.Add(candidate);
+                    }
                 }
             }
+            catch (DebugStartPlanningException)
+            {
+                throw;
+            }
             catch (Exception exception) when (
-                exception is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+                exception is IOException or
+                    UnauthorizedAccessException or
+                    System.Xml.XmlException or
+                    ArgumentException)
             {
                 throw new DebugStartPlanningException(
                     "debug_project_evaluation_failed",
                     "The selected solution could not be read.");
             }
-            foreach (var relative in relativeProjects)
-            {
-                var candidate = Path.GetFullPath(
-                    Path.Combine(Path.GetDirectoryName(solution)!, relative));
-                candidate = DotNetDebugProjectEvaluator.CanonicalPath(candidate);
-                if (File.Exists(candidate) && DotNetDebugProjectEvaluator.IsProject(candidate))
-                    yield return candidate;
-            }
         }
+        return projects.Distinct(StringComparer.Ordinal).ToArray();
+    }
+
+    private static IEnumerable<string> ReadSolutionXml(string content)
+    {
+        var settings = new System.Xml.XmlReaderSettings
+        {
+            DtdProcessing = System.Xml.DtdProcessing.Prohibit,
+            MaxCharactersInDocument = 1024 * 1024,
+        };
+        using var text = new StringReader(content);
+        using var reader = System.Xml.XmlReader.Create(text, settings);
+        string[] values = XDocument.Load(reader, LoadOptions.None)
+            .Descendants()
+            .Where(element => element.Name.LocalName == "Project")
+            .Select(element => element.Attribute("Path")?.Value)
+            .OfType<string>()
+            .Take(258)
+            .ToArray();
+        if (values.Length > 257)
+        {
+            throw new DebugStartPlanningException(
+                "debug_project_evaluation_failed",
+                "The selected solution exceeds the trusted project-count bound.");
+        }
+        return values;
+    }
+
+    private static IEnumerable<string> ReadSolutionText(string content)
+    {
+        string[] lines = content
+            .Split(
+                ['\r', '\n'],
+                StringSplitOptions.RemoveEmptyEntries)
+            .Take(10_002)
+            .ToArray();
+        if (lines.Length > 10_001)
+        {
+            throw new DebugStartPlanningException(
+                "debug_project_evaluation_failed",
+                "The selected solution exceeds the trusted line bound.");
+        }
+        string[] values = lines
+            .Select(line => line.Split(',').ElementAtOrDefault(1)
+                ?.Trim()
+                .Trim('"'))
+            .OfType<string>()
+            .Where(DotNetDebugProjectEvaluator.IsProject)
+            .Take(258)
+            .ToArray();
+        if (values.Length > 257)
+        {
+            throw new DebugStartPlanningException(
+                "debug_project_evaluation_failed",
+                "The selected solution exceeds the trusted project-count bound.");
+        }
+        return values;
+    }
+
+    private static bool IsProjectLeaf(string path)
+    {
+        int separator = path.LastIndexOf('/');
+        string leaf = separator < 0
+            ? path
+            : path[(separator + 1)..];
+        return DotNetDebugProjectEvaluator.IsProject(leaf);
     }
 }

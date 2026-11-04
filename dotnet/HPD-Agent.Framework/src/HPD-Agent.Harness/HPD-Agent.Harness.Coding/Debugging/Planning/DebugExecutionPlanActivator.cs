@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Runtime.InteropServices;
 using HPD.Agent.Middleware;
+using HPD.Agent.Sandbox;
 using HPD.Environment.Contracts;
 using HPDOS.ToolHarnesses.Middleware;
 
@@ -193,6 +194,11 @@ internal sealed class DebugExecutionPlanActivator(
             throw new DebugStartPlanningException(
                 "debug_preparation_unavailable",
                 "The runtime has no process capability for preparation.");
+        RuntimeWorkspaceBinding workspace =
+            context.Runtime.Workspace ??
+            throw new DebugStartPlanningException(
+                "debug_workspace_unavailable",
+                "The runtime has no workspace capability for preparation.");
         if (plan.Preparation.Invocation.Target != processBinding.ExecutionTarget)
             throw new UnauthorizedAccessException(
                 "The preparation plan targets a different execution unit.");
@@ -245,23 +251,30 @@ internal sealed class DebugExecutionPlanActivator(
                 throw new DebugStartPlanningException(
                     "debug_preparation_failed",
                     "The trusted debug preparation did not complete successfully.");
-            var outputPath = Path.GetFullPath(plan.Preparation.ExpectedOutputPath);
-            var relativeOutput = Path.GetRelativePath(
-                Path.GetFullPath(plan.CanonicalWorkingDirectory),
-                outputPath);
-            if (Path.IsPathRooted(relativeOutput) ||
-                relativeOutput == ".." ||
-                relativeOutput.StartsWith(
-                    $"..{Path.DirectorySeparatorChar}",
-                    StringComparison.Ordinal))
+            WorkspacePath outputLogical =
+                DebugWorkspaceAccess.FromEffective(
+                    workspace,
+                    plan.Preparation.ExpectedOutputPath);
+            WorkspacePath workingLogical =
+                DebugWorkspaceAccess.FromEffective(
+                    workspace,
+                    plan.CanonicalWorkingDirectory);
+            if (!IsLogicalSubpath(workingLogical, outputLogical))
                 throw new UnauthorizedAccessException(
                     "The preparation output is outside the authorized working directory.");
-            if (!File.Exists(outputPath))
+            if (await workspace.Files.GetInfoAsync(
+                    outputLogical,
+                    cancellationToken).ConfigureAwait(false) is not
+                { Kind: WorkspaceEntryKind.File })
                 throw new DebugStartPlanningException(
                     "debug_preparation_output_missing",
                     "Debug preparation did not produce the exact expected output.");
             if (plan.Preparation.OwnsExpectedOutput)
-                rollback.Push(new DebugOwnedFileResource(outputPath));
+            {
+                rollback.Push(new DebugOwnedFileResource(
+                    workspace,
+                    outputLogical));
+            }
 
             if (!catalog.TryGet(plan.Launch.AdapterId, out var entry))
                 throw new DebugStartPlanningException(
@@ -276,7 +289,7 @@ internal sealed class DebugExecutionPlanActivator(
                         entry.Descriptor,
                         plan.Launch.Resolution,
                         new DebugSemanticLaunchConfiguration(
-                            outputPath,
+                            plan.Preparation.ExpectedOutputPath,
                             plan.Launch.WorkingDirectory,
                             plan.Launch.TargetKind,
                             plan.Launch.ProgramKind,
@@ -321,6 +334,27 @@ internal sealed class DebugExecutionPlanActivator(
                 try { await resource.DisposeAsync().ConfigureAwait(false); } catch { }
             throw;
         }
+    }
+
+    private static bool IsLogicalSubpath(
+        WorkspacePath directory,
+        WorkspacePath candidate)
+    {
+        if (!directory.RootId.Equals(candidate.RootId))
+        {
+            return false;
+        }
+        if (directory.RelativePath.Length == 0)
+        {
+            return true;
+        }
+        return string.Equals(
+                directory.RelativePath,
+                candidate.RelativePath,
+                StringComparison.Ordinal) ||
+            candidate.RelativePath.StartsWith(
+                directory.RelativePath.TrimEnd('/') + "/",
+                StringComparison.Ordinal);
     }
 
     private async ValueTask<DebugActivatedExecution> ActivateHostedAsync(

@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net9.0;net8.0</TargetFrameworks>
+    <RootNamespace>HPD.Environment.HostContainers</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Environment.HostContainers</PackageId>
+    <Description>Host container Environment provider for trusted HPD workloads using a mediated container engine.</Description>
+    <PackageTags>execution;environment;containers;host-containers;docker;podman;hpd</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../HPD-Environment.Contracts/HPD-Environment.Contracts.csproj" />
+    <ProjectReference Include="../HPD-Environment.Runtime/HPD-Environment.Runtime.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="HPD-Environment.HostContainers.Tests" />
+  </ItemGroup>
+</Project>

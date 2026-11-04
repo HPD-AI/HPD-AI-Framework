@@ -3,9 +3,11 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using HPD.Agent.Middleware;
 using HPD.Agent.Security;
+using HPD.Agent.Sandbox;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.ToolHarness.Coding.Security;
 using HPD.Agent.ToolHarness.Coding.Debugging.Protocol;
+using HPD.Environment.Contracts;
 using HPDOS.ToolHarnesses.Middleware;
 
 namespace HPD.Agent.ToolHarness.Coding.Debugging;
@@ -62,118 +64,96 @@ internal sealed class DebugExecutionPlanningService(
     {
         ArgumentNullException.ThrowIfNull(operation);
         var runtime = DebugRuntimeBinding.Capture(context, requireProcessExecution: true);
-        var workspace = AgentWorkspace.From(context.RunConfig);
-        var canonicalTarget = ResolveTarget(workspace, operation.Target);
-        AgentFilesystemAuthorization targetAuthorization;
-        try
-        {
-            targetAuthorization = await AgentFilesystemAccess.AuthorizeReadCapabilityAsync(
-                canonicalTarget,
-                "Debug.launch.target",
-                context,
-                cancellationToken).ConfigureAwait(false);
-        }
-        catch (AgentCapabilityDeniedException)
+        if (!runtime.Capabilities.Attach)
         {
             throw new DebugStartPlanningException(
-                "debug_capability_denied",
-                "Reading the selected debug target was not authorized.");
+                "debug_attach_authority_unavailable",
+                "The selected environment cannot prove scoped authority for process attachment.");
         }
-        if (targetAuthorization.Escalated)
+        RuntimeWorkspaceBinding runtimeWorkspace =
+            runtime.Workspace ??
+            throw new DebugStartPlanningException(
+                "debug_workspace_unavailable",
+                "The selected environment does not expose a debug workspace binding.");
+        WorkspacePath logicalTarget = ResolveTarget(
+            runtimeWorkspace,
+            operation.Target);
+        DebugWorkspaceAccess.DemandAccess(
+            runtimeWorkspace,
+            logicalTarget,
+            AccessMode.ReadOnly);
+        WorkspaceFileInfo targetInfo =
+            await runtimeWorkspace.Files.GetInfoAsync(
+                logicalTarget,
+                cancellationToken).ConfigureAwait(false) ??
+            throw new DebugStartPlanningException(
+                "debug_target_not_found",
+                "The selected debug target is not visible in the workspace.");
+        if (operation.Target is ApplicationProjectDebugTarget or
+            TestDebugTarget)
         {
-            runtime = runtime with
-            {
-                ProcessSandbox = runtime.ProcessSandbox.WithPathGrant(
-                    AgentSandboxPathAccess.Read,
-                    Directory.Exists(canonicalTarget)
-                        ? canonicalTarget
-                        : Path.GetDirectoryName(canonicalTarget)!)
-            };
+            WorkspacePath buildOutputRoot =
+                targetInfo.Kind == WorkspaceEntryKind.Directory
+                    ? logicalTarget
+                    : DebugWorkspaceAccess.Parent(logicalTarget) ??
+                        DebugWorkspaceAccess.Root(
+                            logicalTarget.RootId);
+            DebugWorkspaceAccess.DemandAccess(
+                runtimeWorkspace,
+                buildOutputRoot,
+                AccessMode.ReadWrite);
         }
-        if (operation.Target is ApplicationProjectDebugTarget or TestDebugTarget)
+
+        WorkspacePath logicalWorkspace =
+            string.IsNullOrWhiteSpace(operation.WorkspacePath)
+                ? DebugWorkspaceAccess.Root(logicalTarget.RootId)
+                : ResolveWorkspacePath(
+                    runtimeWorkspace,
+                    operation.WorkspacePath);
+        DebugWorkspaceAccess.DemandAccess(
+            runtimeWorkspace,
+            logicalWorkspace,
+            AccessMode.ReadOnly);
+        WorkspacePath requestedWorkspaceInfoPath = logicalWorkspace;
+        WorkspaceFileInfo? requestedWorkspaceInfo =
+            await runtimeWorkspace.Files.GetInfoAsync(
+                requestedWorkspaceInfoPath,
+                cancellationToken).ConfigureAwait(false);
+        if (requestedWorkspaceInfo is not
+            { Kind: WorkspaceEntryKind.Directory })
         {
-            var projectDirectory = Directory.Exists(canonicalTarget)
-                ? canonicalTarget
-                : Path.GetDirectoryName(canonicalTarget)!;
-            AgentFilesystemAuthorization writeAuthorization;
-            try
-            {
-                writeAuthorization = await AgentFilesystemAccess.AuthorizeWriteCapabilityAsync(
-                    projectDirectory,
-                    "Debug.launch.build-output",
-                    context,
-                    cancellationToken).ConfigureAwait(false);
-            }
-            catch (AgentCapabilityDeniedException)
-            {
-                throw new DebugStartPlanningException(
-                    "debug_capability_denied",
-                    "Writing the selected project's build outputs was not authorized.");
-            }
-            if (writeAuthorization.Escalated)
-            {
-                runtime = runtime with
-                {
-                    ProcessSandbox = runtime.ProcessSandbox.WithPathGrant(
-                        AgentSandboxPathAccess.Write,
-                        projectDirectory)
-                };
-            }
+            throw new DebugStartPlanningException(
+                "debug_workspace_not_found",
+                "The selected debug workspace is not a visible directory.");
         }
-        var discoveryWorkspace = workspace.WithExplicitDiscoveryRoot(canonicalTarget);
-        string workspacePath;
-        if (string.IsNullOrWhiteSpace(operation.WorkspacePath))
-        {
-            workspacePath = discoveryWorkspace.GetOwningRoot(canonicalTarget).Path;
-        }
-        else
-        {
-            workspacePath = workspace.CanonicalizeExplicitPath(operation.WorkspacePath);
-            AgentFilesystemAuthorization workspaceAuthorization;
-            try
-            {
-                workspaceAuthorization = await AgentFilesystemAccess.AuthorizeReadCapabilityAsync(
-                    workspacePath,
-                    "Debug.launch.workspace",
-                    context,
-                    cancellationToken).ConfigureAwait(false);
-            }
-            catch (AgentCapabilityDeniedException)
-            {
-                throw new DebugStartPlanningException(
-                    "debug_capability_denied",
-                    "Reading the selected debug workspace was not authorized.");
-            }
-            if (workspaceAuthorization.Escalated)
-            {
-                runtime = runtime with
-                {
-                    ProcessSandbox = runtime.ProcessSandbox.WithPathGrant(
-                        AgentSandboxPathAccess.Read,
-                        workspacePath)
-                };
-            }
-            discoveryWorkspace = discoveryWorkspace.WithExplicitDiscoveryRoot(workspacePath);
-        }
+        string canonicalTarget =
+            DebugWorkspaceAccess.ToEffective(
+                runtimeWorkspace,
+                logicalTarget);
+        string workspacePath =
+            DebugWorkspaceAccess.ToEffective(
+                runtimeWorkspace,
+                logicalWorkspace);
         var markers = catalog.Entries.SelectMany(entry => entry.Descriptor.RootMarkers)
             .Concat(["*.csproj", "*.fsproj", "*.vbproj", "*.sln", "*.slnx"])
             .Distinct(StringComparer.Ordinal)
             .ToArray();
         var evidence = await markerResolver.ResolveAsync(
-            discoveryWorkspace, canonicalTarget, markers, cancellationToken).ConfigureAwait(false);
+            runtimeWorkspace,
+            canonicalTarget,
+            markers,
+            cancellationToken).ConfigureAwait(false);
         var plan = await planners.PlanAsync(new DebugExecutionPlanningContext
         {
             Operation = operation,
             Target = operation.Target,
             Runtime = runtime,
-            Workspace = discoveryWorkspace,
+            RuntimeWorkspace = runtimeWorkspace,
             CanonicalWorkspacePath = workspacePath,
             CanonicalTargetPath = canonicalTarget,
             Evidence = evidence,
             ExplicitAdapterId = operation.AdapterId,
             LanguageHint = operation.Language,
-            AuthorizePath = (path, access, current, token) =>
-                AuthorizePlannerPathAsync(path, access, current, context, token)
         }, cancellationToken).ConfigureAwait(false);
         context.ResultMetadata.Set(
             CodingToolMetadataKeys.DebugExecutionPlan,
@@ -189,7 +169,6 @@ internal sealed class DebugExecutionPlanningService(
             runtime,
             context,
             operation,
-            discoveryWorkspace,
             isRestart,
             cancellationToken).ConfigureAwait(false);
     }
@@ -202,34 +181,42 @@ internal sealed class DebugExecutionPlanningService(
     {
         ArgumentNullException.ThrowIfNull(operation);
         var runtime = DebugRuntimeBinding.Capture(context, requireProcessExecution: true);
-        var workspace = AgentWorkspace.From(context.RunConfig);
-        var workspacePath = string.IsNullOrWhiteSpace(operation.WorkspacePath)
-            ? workspace.DefaultRootPath
-            : workspace.CanonicalizeExplicitPath(operation.WorkspacePath);
-        AgentFilesystemAuthorization workspaceAuthorization;
-        try
-        {
-            workspaceAuthorization = await AgentFilesystemAccess.AuthorizeReadCapabilityAsync(
-                workspacePath,
-                "Debug.attach.workspace",
-                context,
-                cancellationToken).ConfigureAwait(false);
-        }
-        catch (AgentCapabilityDeniedException)
+        if (!runtime.Capabilities.AdapterLaunch ||
+            !runtime.Capabilities.Launch ||
+            !runtime.Capabilities.UnitOwnership)
         {
             throw new DebugStartPlanningException(
-                "debug_capability_denied",
-                "Reading the selected debug workspace was not authorized.");
+                "debug_capability_unavailable",
+                "The selected environment cannot launch an adapter and debuggee in one execution unit.");
         }
-        if (workspaceAuthorization.Escalated)
+        RuntimeWorkspaceBinding runtimeWorkspace =
+            runtime.Workspace ??
+            throw new DebugStartPlanningException(
+                "debug_workspace_unavailable",
+                "The selected environment does not expose a debug workspace binding.");
+        WorkspacePath logicalWorkspace =
+            string.IsNullOrWhiteSpace(operation.WorkspacePath)
+                ? runtimeWorkspace.WorkingDirectory
+                : ResolveWorkspacePath(
+                    runtimeWorkspace,
+                    operation.WorkspacePath);
+        DebugWorkspaceAccess.DemandAccess(
+            runtimeWorkspace,
+            logicalWorkspace,
+            AccessMode.ReadOnly);
+        if (await runtimeWorkspace.Files.GetInfoAsync(
+                logicalWorkspace,
+                cancellationToken).ConfigureAwait(false) is not
+            { Kind: WorkspaceEntryKind.Directory })
         {
-            runtime = runtime with
-            {
-                ProcessSandbox = runtime.ProcessSandbox.WithPathGrant(
-                    AgentSandboxPathAccess.Read,
-                    workspacePath)
-            };
+            throw new DebugStartPlanningException(
+                "debug_workspace_not_found",
+                "The selected debug workspace is not a visible directory.");
         }
+        string workspacePath =
+            DebugWorkspaceAccess.ToEffective(
+                runtimeWorkspace,
+                logicalWorkspace);
         var targetKind = operation.Target switch
         {
             ProcessDebugAttachTarget => DebugTargetKind.Process,
@@ -269,7 +256,7 @@ internal sealed class DebugExecutionPlanningService(
             InitialConfiguration = DebugInitialConfigurationMapper.Map(
                 operation.InitialConfiguration,
                 stopOnEntry: false,
-                workspace),
+                runtimeWorkspace),
             Adapter = adapter
         };
         context.ResultMetadata.Set(
@@ -282,7 +269,6 @@ internal sealed class DebugExecutionPlanningService(
             runtime,
             context,
             semanticLaunchOperation: null,
-            workspace,
             isRestart: false,
             cancellationToken).ConfigureAwait(false);
     }
@@ -294,7 +280,6 @@ internal sealed class DebugExecutionPlanningService(
         DebugRuntimeBinding runtime,
         FunctionExecutionContext context,
         LaunchDebugOperation? semanticLaunchOperation,
-        AgentWorkspace workspace,
         bool isRestart,
         CancellationToken cancellationToken)
     {
@@ -306,7 +291,6 @@ internal sealed class DebugExecutionPlanningService(
             result = await starts.StartAsync(new DebugExecutionStartRequest
             {
                 Runtime = runtime,
-                Workspace = workspace,
                 ExecutionPlan = plan,
                 Permission = permission,
                 SemanticLaunchOperation = semanticLaunchOperation,
@@ -369,7 +353,6 @@ internal sealed class DebugExecutionPlanningService(
             result,
             plan,
             runtime,
-            workspace,
             context,
             action).ConfigureAwait(false);
         return startResults.Project(action, plan, result, context);
@@ -379,7 +362,6 @@ internal sealed class DebugExecutionPlanningService(
         DebugSessionStartResult result,
         DebugExecutionPlan plan,
         DebugRuntimeBinding runtime,
-        AgentWorkspace workspace,
         FunctionExecutionContext context,
         string action)
     {
@@ -411,7 +393,9 @@ internal sealed class DebugExecutionPlanningService(
                         session.AdapterBreakpoints.Snapshot,
                         result.Breakpoints,
                         result.DebugSessionId),
-                    workspace,
+                    runtime.Workspace ??
+                        throw new InvalidOperationException(
+                            "The debug session lost its workspace binding."),
                     context.FunctionCallId,
                     action,
                     result.DebugTreeId,
@@ -437,57 +421,41 @@ internal sealed class DebugExecutionPlanningService(
                 Path.DirectorySeparatorChar,
                 Path.AltDirectorySeparatorChar)));
 
-    private static async ValueTask<AgentSandboxRuntime> AuthorizePlannerPathAsync(
-        string path,
-        AgentSandboxPathAccess access,
-        AgentSandboxRuntime current,
-        FunctionExecutionContext context,
-        CancellationToken cancellationToken)
-    {
-        AgentFilesystemAuthorization authorization;
-        try
-        {
-            authorization = access == AgentSandboxPathAccess.Read
-                ? await AgentFilesystemAccess.AuthorizeReadCapabilityAsync(
-                    path,
-                    "Debug.plan.read",
-                    context,
-                    cancellationToken).ConfigureAwait(false)
-                : await AgentFilesystemAccess.AuthorizeWriteCapabilityAsync(
-                    path,
-                    "Debug.plan.write",
-                    context,
-                    cancellationToken).ConfigureAwait(false);
-        }
-        catch (AgentCapabilityDeniedException)
-        {
-            throw new DebugStartPlanningException(
-                "debug_capability_denied",
-                "A filesystem capability required by the debug plan was not authorized.");
-        }
-
-        return authorization.Escalated
-            ? current.WithPathGrant(access, authorization.Path)
-            : current;
-    }
-
-    private static string ResolveTarget(AgentWorkspace workspace, DebugTarget target)
+    private static WorkspacePath ResolveTarget(
+        RuntimeWorkspaceBinding workspace,
+        DebugTarget target)
         => target switch
         {
-            SourceFileDebugTarget source => workspace.CanonicalizeExplicitPath(source.Path),
+            SourceFileDebugTarget source =>
+                DebugWorkspaceAccess.Resolve(
+                    workspace,
+                    source.Path),
             ApplicationProjectDebugTarget project =>
-                ResolveProjectLike(workspace, project.Path),
-            ExecutableDebugTarget executable => workspace.CanonicalizeExplicitPath(executable.Path),
-            TestDebugTarget test => ResolveProjectLike(workspace, test.Path),
+                DebugWorkspaceAccess.Resolve(
+                    workspace,
+                    project.Path),
+            ExecutableDebugTarget executable =>
+                DebugWorkspaceAccess.Resolve(
+                    workspace,
+                    executable.Path),
+            TestDebugTarget test =>
+                DebugWorkspaceAccess.Resolve(
+                    workspace,
+                    test.Path),
             _ => throw new ArgumentOutOfRangeException(nameof(target))
         };
 
-    private static string ResolveProjectLike(AgentWorkspace workspace, string path)
+    private static WorkspacePath ResolveWorkspacePath(
+        RuntimeWorkspaceBinding workspace,
+        string? path)
     {
-        var candidate = workspace.CanonicalizeExplicitPath(path);
-        return File.Exists(candidate)
-            ? candidate
-            : workspace.ResolveDirectory(path);
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return workspace.WorkingDirectory;
+        }
+        return DebugWorkspaceAccess.Resolve(
+            workspace,
+            path);
     }
 
     private static DebugAdapterResolutionContext Resolution(

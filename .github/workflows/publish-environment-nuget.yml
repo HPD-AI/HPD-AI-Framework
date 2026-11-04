@@ -76,9 +76,13 @@ jobs:
           mkdir -p ./nupkg-environment
 
           PROJECTS=(
-            "dotnet/HPD-Environment.Framework/src/HPD-Environment.Abstractions/HPD-Environment.Abstractions.csproj"
+            "dotnet/HPD-Environment.Framework/src/HPD-Environment.Contracts/HPD-Environment.Contracts.csproj"
             "dotnet/HPD-Environment.Framework/src/HPD-Environment.Runtime/HPD-Environment.Runtime.csproj"
-            "dotnet/HPD-Environment.Framework/src/HPD-Environment.AppleVirtualization/HPD-Environment.AppleVirtualization.csproj"
+            "dotnet/HPD-Environment.Framework/src/HPD-Environment.HostProcess/HPD-Environment.HostProcess.csproj"
+            "dotnet/HPD-Environment.Framework/src/HPD-Environment.HostContainers/HPD-Environment.HostContainers.csproj"
+            "dotnet/HPD-Environment.Framework/src/HPD-Environment.Virtualization/HPD-Environment.Virtualization.Contracts/HPD-Environment.Virtualization.Contracts.csproj"
+            "dotnet/HPD-Environment.Framework/src/HPD-Environment.Virtualization/HPD-Environment.Virtualization.GuestAgent/HPD-Environment.Virtualization.GuestAgent.csproj"
+            "dotnet/HPD-Environment.Framework/src/HPD-Environment.Virtualization/HPD-Environment.Virtualization.Apple/HPD-Environment.Virtualization.Apple.csproj"
           )
 
           VERSION_PREFIX="${{ needs.determine-version.outputs.version_prefix }}"
@@ -97,6 +101,16 @@ jobs:
                 -p:VersionPrefix="$VERSION_PREFIX"
             fi
           done
+
+      - name: Validate Host Process native helper package contents
+        run: |
+          set -euo pipefail
+          SANDBOX_PACKAGE="$(ls ./nupkg-environment/HPD-Environment.HostProcess.*.nupkg | head -n 1)"
+          test -n "$SANDBOX_PACKAGE"
+
+          unzip -l "$SANDBOX_PACKAGE" | tee /tmp/hpd-environment-host-process-package.txt
+          grep -q "runtimes/linux-x64/native/apply-seccomp-x64" /tmp/hpd-environment-host-process-package.txt
+          grep -q "runtimes/linux-arm64/native/apply-seccomp-arm64" /tmp/hpd-environment-host-process-package.txt
 
       - name: Upload HPD-Environment packages as artifacts
         uses: actions/upload-artifact@v4
@@ -121,9 +135,13 @@ jobs:
         run: |
           set -euo pipefail
           PACKAGE_IDS=(
-            "HPD-Environment.Abstractions"
+            "HPD-Environment.Contracts"
             "HPD-Environment.Runtime"
-            "HPD-Environment.AppleVirtualization"
+            "HPD-Environment.HostProcess"
+            "HPD-Environment.HostContainers"
+            "HPD-Environment.Virtualization.Contracts"
+            "HPD-Environment.Virtualization.GuestAgent"
+            "HPD-Environment.Virtualization.Apple"
           )
           VERSION_LOWER="${PACKAGE_VERSION,,}"
 

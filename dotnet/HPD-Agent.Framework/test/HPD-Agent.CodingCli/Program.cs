@@ -3,7 +3,7 @@ using HPD.Agent.Middleware;
 using HPD.Agent.Providers.OpenRouter;
 using HPD.Agent.Serialization;
 using HPD.Agent.ToolHarness.Coding;
-using HPD.Agent.Sandbox.Local;
+using HPD.Agent.Sandbox.HostProcess;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
@@ -19,7 +19,16 @@ if (options.ShowHelp)
 
 var agentBuilder = CreateAgentBuilder(options.ConfigPath)
     .WithAPIConfiguration(appsettingsPath ?? "appsettings.json", optional: true)
-    .WithLocalSandbox()
+    .WithHostProcessSandbox(new HostProcessSandboxOptions
+    {
+        Workspaces =
+        [
+            new HostProcessWorkspaceOptions
+            {
+                Path = Directory.GetCurrentDirectory(),
+            },
+        ],
+    })
     .WithToolHarness<CodingToolHarness>();
 
 ConfigureDefaultCompaction(agentBuilder);

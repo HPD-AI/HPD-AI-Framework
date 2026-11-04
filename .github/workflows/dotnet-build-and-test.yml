@@ -238,11 +238,6 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y gcc gcc-aarch64-linux-gnu
 
-    - name: Prepare ripgrep binaries
-      run: |
-        dotnet run --file dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/Ripgrep/pack/prepare-ripgrep-binaries.cs -- \
-          --project dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj
-
     - name: Pack NuGet packages
       run: dotnet pack dotnet/HPD-Agent.Framework/HPD-Agent.slnx -c Release --output ./artifacts
 

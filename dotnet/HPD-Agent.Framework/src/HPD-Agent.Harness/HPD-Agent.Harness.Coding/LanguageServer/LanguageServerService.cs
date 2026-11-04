@@ -1,5 +1,9 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using HPD.Agent.Middleware;
+using HPD.Agent.Sandbox;
+using HPD.Agent.ToolHarness.Coding;
+using HPD.Environment.Contracts;
 using HPDOS.ToolHarnesses.Middleware.Generated;
 
 namespace HPDOS.ToolHarnesses.Middleware;
@@ -9,10 +13,14 @@ public sealed class LanguageServerService : ILanguageServerService
     private readonly LanguageServerOptions _options;
     private readonly IReadOnlyList<ILanguageServerRegistryProvider> _registryProviders;
     private readonly ILanguageServerToolResolver _toolResolver;
+    private ILanguageServerToolResolver? _environmentToolResolver;
     private readonly ConcurrentDictionary<string, ClientSession> _clients = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, Task<ClientSession?>> _startupTasks = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, LanguageServerStatus> _starting = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, LanguageServerUnavailableServer> _unavailable = new(StringComparer.Ordinal);
+    private readonly SemaphoreSlim _bindingLock = new(1, 1);
+    private RuntimeProcessExecutionBinding? _processExecution;
+    private RuntimeWorkspaceBinding? _workspace;
 
     public LanguageServerService()
         : this(new LanguageServerOptions())
@@ -28,6 +36,54 @@ public sealed class LanguageServerService : ILanguageServerService
         _registryProviders = registryProviders?.Concat([new GeneratedLanguageServerRegistryProvider()]).ToArray()
             ?? [new GeneratedLanguageServerRegistryProvider()];
         _toolResolver = toolResolver ?? new LanguageServerToolResolver();
+    }
+
+    /// <inheritdoc />
+    public async ValueTask ConfigureRuntimeAsync(
+        RuntimeProcessExecutionBinding processExecution,
+        RuntimeWorkspaceBinding workspace,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(processExecution);
+        ArgumentNullException.ThrowIfNull(workspace);
+        await _bindingLock.WaitAsync(cancellationToken)
+            .ConfigureAwait(false);
+        try
+        {
+            bool changed =
+                _processExecution?.EnvironmentRevision !=
+                    processExecution.EnvironmentRevision ||
+                !_processExecution.ExecutionTarget.Equals(
+                    processExecution.ExecutionTarget) ||
+                !string.Equals(
+                    _workspace?.Content.Value,
+                    workspace.Content.Value,
+                    StringComparison.Ordinal);
+            _processExecution = processExecution;
+            _workspace = workspace;
+            _environmentToolResolver =
+                _toolResolver is LanguageServerToolResolver
+                    ? new EnvironmentLanguageServerToolResolver(
+                        processExecution,
+                        workspace)
+                    : null;
+            if (!changed)
+            {
+                return;
+            }
+            foreach (ClientSession client in _clients.Values)
+            {
+                await client.Client.DisposeAsync()
+                    .ConfigureAwait(false);
+            }
+            _clients.Clear();
+            _startupTasks.Clear();
+            _unavailable.Clear();
+        }
+        finally
+        {
+            _bindingLock.Release();
+        }
     }
 
     public ValueTask<IReadOnlyList<LanguageServerStatus>> GetStatusAsync(
@@ -71,7 +127,7 @@ public sealed class LanguageServerService : ILanguageServerService
         var candidates = await ResolveCandidatesAsync(path, cancellationToken).ConfigureAwait(false);
         if (candidates.Count == 0)
         {
-            var normalizedPath = Path.GetFullPath(path, Directory.GetCurrentDirectory());
+            var normalizedPath = NormalizePath(path);
             return new LanguageServerDocumentResolution
             {
                 Path = normalizedPath,
@@ -300,9 +356,13 @@ public sealed class LanguageServerService : ILanguageServerService
                 {
                     Root = candidate.Root,
                     WorkspaceRoot = candidate.WorkspaceRoot,
+                    Workspace = _workspace ??
+                        throw new InvalidOperationException(
+                            "Language services require a workspace binding."),
                     Definition = candidate.Definition,
                     Options = _options,
-                    ToolResolver = _toolResolver
+                    ToolResolver = _environmentToolResolver ??
+                        _toolResolver
                 },
                 cancellationToken).ConfigureAwait(false);
 
@@ -317,9 +377,13 @@ public sealed class LanguageServerService : ILanguageServerService
                 {
                     Root = candidate.Root,
                     WorkspaceRoot = candidate.WorkspaceRoot,
+                    Workspace = _workspace ??
+                        throw new InvalidOperationException(
+                            "Language services require a workspace binding."),
                     Definition = candidate.Definition,
                     Options = _options,
-                    ToolResolver = _toolResolver
+                    ToolResolver = _environmentToolResolver ??
+                        _toolResolver
                 },
                 cancellationToken).ConfigureAwait(false);
 
@@ -331,7 +395,9 @@ public sealed class LanguageServerService : ILanguageServerService
                 candidate.Root,
                 launch,
                 _options,
-                initialization);
+                initialization,
+                _processExecution,
+                _workspace);
             await client.StartAsync(cancellationToken).ConfigureAwait(false);
             var session = new ClientSession(candidate.Definition, candidate.Root, client);
             _clients[key] = session;
@@ -369,7 +435,7 @@ public sealed class LanguageServerService : ILanguageServerService
         string path,
         CancellationToken cancellationToken)
     {
-        var normalizedPath = Path.GetFullPath(path, Directory.GetCurrentDirectory());
+        var normalizedPath = NormalizePath(path);
         var uri = new Uri(normalizedPath).AbsoluteUri;
         if (!_options.Enabled)
             return [];
@@ -396,6 +462,9 @@ public sealed class LanguageServerService : ILanguageServerService
                 {
                     Path = normalizedPath,
                     WorkspaceRoot = workspaceRoot,
+                    Workspace = _workspace ??
+                        throw new InvalidOperationException(
+                            "Language services require a workspace binding."),
                     Definition = definition,
                     Options = _options
                 },
@@ -441,6 +510,22 @@ public sealed class LanguageServerService : ILanguageServerService
 
     }
 
+    private string NormalizePath(string path)
+    {
+        if (_workspace is not null)
+        {
+            WorkspacePath logical =
+                CodingWorkspaceAccess.Resolve(
+                    _workspace,
+                    path);
+            return _workspace.Paths
+                .ToExecutionPath(logical)
+                .Value;
+        }
+        throw new InvalidOperationException(
+            "Language services require a configured workspace binding.");
+    }
+
     private bool IsEnabled(LanguageServerDefinition definition)
     {
         if (_options.DisabledServers.Contains(definition.Id))
@@ -468,17 +553,40 @@ public sealed class LanguageServerService : ILanguageServerService
 
     private string ResolveWorkspaceRoot(string normalizedPath)
     {
+        RuntimeWorkspaceBinding workspace =
+            _workspace ??
+            throw new InvalidOperationException(
+                "Language services require a workspace binding.");
+        WorkspacePath logicalPath =
+            workspace.Paths.TryFromExecutionPath(
+                new WorkspaceExecutionPath(normalizedPath)) ??
+            throw new UnauthorizedAccessException(
+                "The language-server document is outside the session workspace.");
         foreach (var workspaceFolder in _options.WorkspaceFolders)
         {
             if (string.IsNullOrWhiteSpace(workspaceFolder))
                 continue;
 
-            var normalizedWorkspace = Path.GetFullPath(workspaceFolder, Directory.GetCurrentDirectory());
-            if (IsInsideWorkspace(normalizedPath, normalizedWorkspace))
-                return normalizedWorkspace;
+            WorkspacePath folder =
+                CodingWorkspaceAccess.Resolve(
+                    workspace,
+                    workspaceFolder);
+            if (folder.RootId.Equals(logicalPath.RootId) &&
+                (folder.RelativePath.Length == 0 ||
+                 string.Equals(
+                     folder.RelativePath,
+                     logicalPath.RelativePath,
+                     StringComparison.Ordinal) ||
+                 logicalPath.RelativePath.StartsWith(
+                     folder.RelativePath.TrimEnd('/') + "/",
+                     StringComparison.Ordinal)))
+            {
+                return workspace.Paths.ToExecutionPath(folder).Value;
+            }
         }
 
-        return Directory.GetCurrentDirectory();
+        return workspace.Paths.ToExecutionPath(
+            workspace.WorkingDirectory).Value;
     }
 
     private static bool IsInsideWorkspace(string path, string workspaceRoot)

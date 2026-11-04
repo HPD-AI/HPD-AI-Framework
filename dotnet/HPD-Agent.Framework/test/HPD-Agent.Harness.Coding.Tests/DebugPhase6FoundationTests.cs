@@ -101,7 +101,7 @@ public sealed class DebugPhase6FoundationTests
     [Fact]
     public void Source_tokens_roundtrip_owned_adapter_data_without_exposing_it_in_the_token()
     {
-        var projections = new DebugSessionProjections();
+        var projections = new DebugSessionProjections(TestRuntimeWorkspace.Create(Path.GetTempPath()));
         using var document = JsonDocument.Parse("{\"private\":\"adapter-state\"}");
         var token = projections.CreateSourceToken(0, null, new Source
         {

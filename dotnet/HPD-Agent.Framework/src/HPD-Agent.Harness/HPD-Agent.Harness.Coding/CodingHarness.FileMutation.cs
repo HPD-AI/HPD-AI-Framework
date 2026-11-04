@@ -7,8 +7,10 @@ using DiffPlex;
 using DiffPlex.DiffBuilder;
 using DiffPlex.DiffBuilder.Model;
 using HPD.Agent;
+using HPD.Agent.Sandbox;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.Middleware;
+using HPD.Environment.Contracts;
 using HPDOS.ToolHarnesses.Middleware;
 
 public partial class CodingToolHarness
@@ -78,32 +80,6 @@ public partial class CodingToolHarness
 
         if (IsNotebookPath(path.FullPath))
             throw new FileMutationException(FileMutationErrorKind.NotebookFile, "File is a notebook. Use NotebookEdit when available.");
-    }
-
-    private static string? FindSimilarMutationPath(string fullPath)
-    {
-        var directory = Path.GetDirectoryName(fullPath);
-        if (string.IsNullOrEmpty(directory) || !Directory.Exists(directory))
-            return null;
-
-        var requestedBaseName = Path.GetFileNameWithoutExtension(fullPath);
-        if (string.IsNullOrEmpty(requestedBaseName))
-            return null;
-
-        try
-        {
-            return Directory.EnumerateFiles(directory)
-                .Select(Path.GetFileName)
-                .Where(name => !string.IsNullOrEmpty(name))
-                .FirstOrDefault(name => string.Equals(
-                    Path.GetFileNameWithoutExtension(name),
-                    requestedBaseName,
-                    StringComparison.OrdinalIgnoreCase));
-        }
-        catch
-        {
-            return null;
-        }
     }
 
     private static async Task<FileMutationContent> ReadMutationContentAsync(string fullPath, bool allowMissing, CancellationToken cancellationToken = default)
@@ -519,6 +495,291 @@ public partial class CodingToolHarness
             eventEmitted);
     }
 
+    /// <summary>
+    /// Applies a text mutation through the session workspace file store. The
+    /// expected content version came from the same read used for tool policy,
+    /// so the provider rejects a concurrent process or external mutation.
+    /// </summary>
+    internal async Task<FileMutationResult> ApplyWorkspaceTextMutationAsync(
+        RuntimeWorkspaceBinding workspace,
+        WorkspacePath path,
+        FileMutationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        WorkspaceFileInfo? info =
+            await workspace.Files.GetInfoAsync(
+                path,
+                cancellationToken).ConfigureAwait(false);
+        FileMutationContent before;
+        WorkspaceContentVersion? expectedVersion = null;
+        if (info is null)
+        {
+            if (!request.AllowCreate)
+            {
+                throw new FileMutationException(
+                    FileMutationErrorKind.FileNotFound,
+                    BuildMissingMutationMessage(request.Path));
+            }
+            before = FileMutationContent.Missing(request.Path);
+        }
+        else
+        {
+            if (info.Kind == WorkspaceEntryKind.Directory)
+            {
+                throw new FileMutationException(
+                    FileMutationErrorKind.PathIsDirectory,
+                    "Cannot mutate a directory.");
+            }
+            WorkspaceTextSnapshot snapshot =
+                (await workspace.Files.ReadTextAsync(
+                    path,
+                    new WorkspaceTextReadOptions
+                    {
+                        StartLine = 1,
+                        MaxLines = null,
+                        MaxBytes = checked((int)MaxMutableFileBytes),
+                    },
+                    cancellationToken).ConfigureAwait(false)) ??
+                throw new FileMutationException(
+                    FileMutationErrorKind.FileNotFound,
+                    $"Workspace file '{request.Path}' does not exist.");
+            if (snapshot.Truncated)
+            {
+                throw new FileMutationException(
+                    FileMutationErrorKind.FileTooLarge,
+                    "File is too large to mutate.");
+            }
+            expectedVersion = snapshot.Version;
+            before = new FileMutationContent(
+                Text: snapshot.Content,
+                Exists: true,
+                Encoding: new UTF8Encoding(
+                    encoderShouldEmitUTF8Identifier: false,
+                    throwOnInvalidBytes: true),
+                HasBom: false,
+                LineEnding: DetectLineEnding(snapshot.Content),
+                LastWriteTimeUtc: snapshot.Version.ModifiedAt,
+                ByteLength: snapshot.Version.Size.Value,
+                ContentHash: ComputeContentHash(
+                    snapshot.Content));
+        }
+        request.ValidateBeforeMutation?.Invoke(before);
+
+        bool created = !before.Exists;
+        string finalText = request.NormalizeLineEndingsToExistingFile
+            ? NormalizeLineEndings(
+                request.UpdatedText,
+                before.LineEnding)
+            : request.UpdatedText;
+        bool changed = !before.Exists ||
+            !string.Equals(
+                before.Text,
+                finalText,
+                StringComparison.Ordinal);
+        var notes = request.Notes
+            .Take(MaxMutationEventNotes)
+            .ToList();
+        var textEdits =
+            NormalizeMutationTextEdits(request.TextEdits);
+        WorkspaceContentVersion finalVersion =
+            expectedVersion ??
+            new WorkspaceContentVersion(
+                null,
+                null,
+                null,
+                default);
+        if (changed)
+        {
+            WorkspaceMutationResult write =
+                await workspace.Files.WriteTextAsync(
+                    path,
+                    finalText,
+                    new WorkspaceWriteCondition
+                    {
+                        ExpectedVersion = expectedVersion,
+                        AllowCreate = request.AllowCreate,
+                    },
+                    cancellationToken).ConfigureAwait(false);
+            if (write.Outcome !=
+                WorkspaceMutationOutcome.Succeeded)
+            {
+                throw write.Outcome switch
+                {
+                    WorkspaceMutationOutcome.Stale =>
+                        new FileMutationException(
+                            FileMutationErrorKind.StaleFile,
+                            write.Message ??
+                                "File has been modified since it was read."),
+                    WorkspaceMutationOutcome.AccessDenied =>
+                        new UnauthorizedAccessException(
+                            write.Message ??
+                                "Workspace mutation was denied."),
+                    WorkspaceMutationOutcome.AlreadyExists =>
+                        new FileMutationException(
+                            FileMutationErrorKind.StaleFile,
+                            write.Message ??
+                                "File already exists."),
+                    WorkspaceMutationOutcome.NotFound =>
+                        new FileMutationException(
+                            FileMutationErrorKind.FileNotFound,
+                            write.Message ??
+                                "File was not found."),
+                    _ => new FileMutationException(
+                        FileMutationErrorKind.WriteFailed,
+                        write.Message ??
+                            "Workspace mutation failed."),
+                };
+            }
+            finalVersion = write.Version ?? finalVersion;
+        }
+
+        long finalByteLength =
+            Encoding.UTF8.GetByteCount(finalText);
+        string finalHash = ComputeContentHash(finalText);
+        DateTimeOffset finalLastWrite =
+            finalVersion.ModifiedAt ?? DateTimeOffset.UtcNow;
+        var (firstChangedLine, lastChangedLine) =
+            GetChangedLineRange(before.Text, finalText);
+        bool eventEmitted = false;
+        if (changed)
+        {
+            SetFileMutationMetadata(
+                request.FunctionContext,
+                request.ToolName,
+                request.Path,
+                request.Kind,
+                finalText.Length <= MaxEventSnapshotChars
+                    ? finalText
+                    : null,
+                finalByteLength,
+                finalLastWrite);
+            if (request.EventFactory is not null)
+            {
+                FileMutationAppliedEvent mutationEvent =
+                    BuildFileMutationEvent(
+                        request with
+                        {
+                            TextEdits = textEdits,
+                            Notes = notes,
+                        },
+                        before,
+                        finalText,
+                        finalByteLength,
+                        finalHash,
+                        finalLastWrite,
+                        created,
+                        changed);
+                eventEmitted =
+                    await EmitFileMutationEventAsync(
+                        request.FunctionContext,
+                        mutationEvent,
+                        cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        return new FileMutationResult(
+            request.Path,
+            created,
+            changed,
+            before.Text,
+            finalText,
+            finalByteLength,
+            finalHash,
+            finalLastWrite,
+            firstChangedLine,
+            lastChangedLine,
+            textEdits,
+            notes,
+            eventEmitted);
+    }
+
+    /// <summary>
+    /// Reads the current workspace content needed by write and edit policy
+    /// checks. The returned version remains bound to this exact snapshot.
+    /// </summary>
+    internal static async ValueTask<FileMutationContent>
+        ReadWorkspaceMutationContentAsync(
+            RuntimeWorkspaceBinding workspace,
+            WorkspacePath path,
+            bool allowMissing,
+            string displayPath,
+            CancellationToken cancellationToken = default)
+    {
+        WorkspaceFileInfo? info =
+            await workspace.Files.GetInfoAsync(
+                path,
+                cancellationToken).ConfigureAwait(false);
+        if (info is null)
+        {
+            if (!allowMissing)
+            {
+                throw new FileMutationException(
+                    FileMutationErrorKind.FileNotFound,
+                    BuildMissingMutationMessage(displayPath));
+            }
+            return FileMutationContent.Missing(displayPath);
+        }
+        if (info.Kind == WorkspaceEntryKind.Directory)
+        {
+            throw new FileMutationException(
+                FileMutationErrorKind.PathIsDirectory,
+                "Cannot mutate a directory.");
+        }
+        if (info.Version.Size.Value > MaxMutableFileBytes)
+        {
+            throw new FileMutationException(
+                FileMutationErrorKind.FileTooLarge,
+                "File is too large to mutate.");
+        }
+        WorkspaceBinarySnapshot? sample =
+            await workspace.Files.ReadBytesAsync(
+                path,
+                new WorkspaceByteReadOptions
+                {
+                    MaxBytes = 4096,
+                },
+                cancellationToken).ConfigureAwait(false);
+        if (sample is not null &&
+            LooksBinary(
+                sample.Content.ToArray(),
+                DetectBomEncoding(sample.Content.ToArray()) is not null))
+        {
+            throw new FileMutationException(
+                FileMutationErrorKind.BinaryFile,
+                "Cannot mutate binary file.");
+        }
+        WorkspaceTextSnapshot snapshot =
+            (await workspace.Files.ReadTextAsync(
+                path,
+                new WorkspaceTextReadOptions
+                {
+                    StartLine = 1,
+                    MaxLines = null,
+                    MaxBytes = checked((int)MaxMutableFileBytes),
+                },
+                cancellationToken).ConfigureAwait(false)) ??
+            throw new FileMutationException(
+                FileMutationErrorKind.FileNotFound,
+                $"Workspace file '{displayPath}' does not exist.");
+        if (snapshot.Truncated)
+        {
+            throw new FileMutationException(
+                FileMutationErrorKind.FileTooLarge,
+                "File is too large to mutate.");
+        }
+        return new FileMutationContent(
+            Text: snapshot.Content,
+            Exists: true,
+            Encoding: new UTF8Encoding(
+                encoderShouldEmitUTF8Identifier: false,
+                throwOnInvalidBytes: true),
+            HasBom: false,
+            LineEnding: DetectLineEnding(snapshot.Content),
+            LastWriteTimeUtc: snapshot.Version.ModifiedAt,
+            ByteLength: snapshot.Version.Size.Value,
+            ContentHash: ComputeContentHash(snapshot.Content));
+    }
+
     private async Task CaptureMutationHistoryAsync(
         string toolName,
         string fullPath,
@@ -807,12 +1068,7 @@ public partial class CodingToolHarness
     }
 
     private static string BuildMissingMutationMessage(string fullPath)
-    {
-        var suggestion = FindSimilarMutationPath(fullPath);
-        return suggestion == null
-            ? "File does not exist."
-            : $"File does not exist. Did you mean {suggestion}?";
-    }
+        => "File does not exist.";
 
     private static (int Line, int Column) GetLineColumn(string text, int offset)
     {

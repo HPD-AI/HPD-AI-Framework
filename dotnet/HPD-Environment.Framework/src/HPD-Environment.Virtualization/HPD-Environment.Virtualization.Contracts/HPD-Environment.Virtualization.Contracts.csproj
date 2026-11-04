@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net9.0;net8.0</TargetFrameworks>
+    <RootNamespace>HPD.Environment.Virtualization.Contracts</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Environment.Virtualization.Contracts</PackageId>
+    <Description>Provider-neutral virtual-machine placement, boot, disk, lifecycle, and guest-control contracts for HPD Environment.</Description>
+    <PackageTags>environment;virtualization;vm;guest-agent;contracts;hpd</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../HPD-Environment.Contracts/HPD-Environment.Contracts.csproj" />
+  </ItemGroup>
+</Project>

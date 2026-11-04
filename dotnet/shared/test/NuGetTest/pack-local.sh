@@ -66,7 +66,7 @@ PROJECTS=(
   "HPD-Agent.Memory/HPD-Agent.Memory.csproj"
   "HPD-Agent.ToolHarness/HPD-Agent.ToolHarness.FileSystem/HPD-Agent.ToolHarness.FileSystem.csproj"
   "HPD-Agent.ToolHarness/HPD-Agent.ToolHarness.WebSearch/HPD-Agent.ToolHarness.WebSearch.csproj"
-  "HPD-Agent.ToolHarness/HPD-Agent.ToolHarness.Coding/HPD-Agent.ToolHarness.Coding.csproj"
+  "HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj"
   "HPD-Agent.Providers/HPD-Agent.Providers.Anthropic/HPD-Agent.Providers.Anthropic.csproj"
   "HPD-Agent.Providers/HPD-Agent.Providers.AzureAI/HPD-Agent.Providers.AzureAI.csproj"
   "HPD-Agent.Providers/HPD-Agent.Providers.AzureAIInference/HPD-Agent.Providers.AzureAIInference.csproj"
@@ -96,13 +96,6 @@ fi
 echo ""
 echo "Building and packing packages..."
 echo ""
-
-CODING_PROJECT="$AGENT_FRAMEWORK_SRC/HPD-Agent.ToolHarness/HPD-Agent.ToolHarness.Coding/HPD-Agent.ToolHarness.Coding.csproj"
-RIPGREP_PREP="$AGENT_FRAMEWORK_SRC/HPD-Agent.ToolHarness/HPD-Agent.ToolHarness.Coding/Ripgrep/pack/prepare-ripgrep-binaries.cs"
-if [ -f "$CODING_PROJECT" ] && [ -f "$RIPGREP_PREP" ]; then
-  echo "Preparing ripgrep binaries for HPD-Agent.ToolHarness.Coding..."
-  dotnet run --file "$RIPGREP_PREP" -- --project "$CODING_PROJECT"
-fi
 
 # Pack each project
 for PROJECT in "${PROJECTS[@]}"; do

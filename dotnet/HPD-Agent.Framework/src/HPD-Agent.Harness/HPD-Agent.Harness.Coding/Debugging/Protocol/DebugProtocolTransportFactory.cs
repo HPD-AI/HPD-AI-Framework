@@ -129,18 +129,6 @@ public sealed class DebugProtocolTransportFactory
             return plan.ProcessSandbox.ToProcessIsolationPolicy(
                 plan.CanonicalWorkingDirectory);
 
-        // A launch adapter creates its debuggee inside the same sandbox and remains
-        // fail-closed isolated. An attach adapter must inspect an already-running
-        // process outside that sandbox. The Environment contract cannot currently
-        // express an enforceable per-PID debug grant, so attach runs unsandboxed
-        // only after the trusted planner, permission middleware, ownership checks,
-        // adapter trust policy, and activation revalidation have all succeeded.
-        if (plan.Method == DebugAdapterStartMethod.Attach)
-            return ProcessIsolationPolicy.Default with
-            {
-                Mode = ProcessIsolationMode.Disabled
-            };
-
         return new ProcessIsolationPolicy
         {
             Mode = ProcessIsolationMode.Isolated,

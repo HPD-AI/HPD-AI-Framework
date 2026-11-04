@@ -197,6 +197,8 @@ public sealed class DebugAdapterRuntimeInfrastructureTests
         SessionId = "session",
         ThreadId = "thread",
         SessionManager = manager,
+        Workspace = TestRuntimeWorkspace.Create(
+            Path.GetTempPath()),
         EventScope = new(null, "session", "thread"),
         State = new()
     };

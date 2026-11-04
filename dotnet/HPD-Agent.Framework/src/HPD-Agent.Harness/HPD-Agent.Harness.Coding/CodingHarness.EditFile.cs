@@ -4,8 +4,11 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using HPD.Agent;
+using HPD.Agent.Sandbox;
 using HPD.Agent.Middleware;
+using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.ToolHarness.Coding.Security;
+using HPD.Environment.Contracts;
 using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
 
@@ -31,53 +34,18 @@ public partial class CodingToolHarness
             if (argumentError != null)
                 return FormatEditError(EditFileErrorKind.InvalidArguments, path, argumentError);
 
-            resolvedPath = ResolveMutationPath(path, context);
-            ValidateMutationPath(resolvedPath);
-            var authorizedPath = await AgentFilesystemAccess.AuthorizeWriteAsync(
-                resolvedPath.FullPath,
-                nameof(EditFile),
-                context,
-                CancellationToken.None).ConfigureAwait(false);
-            resolvedPath = resolvedPath with { FullPath = authorizedPath };
-
-            var allowMissing = IsCreateEdit(edits);
-            var current = await ReadMutationContentAsync(resolvedPath.FullPath, allowMissing).ConfigureAwait(false);
-            if (current.Exists && current.ByteLength > 0 && allowMissing)
+            if (!CodingWorkspaceAccess.TryGet(context, out var workspace))
             {
                 return FormatEditError(
-                    EditFileErrorKind.InvalidEmptyOldString,
-                    resolvedPath.FullPath,
-                    "Cannot edit a non-empty file with an empty OldString.");
+                    EditFileErrorKind.InvalidArguments,
+                    path,
+                    "No Environment workspace binding is available for EditFile.");
             }
-
-            var priorRead = ValidateEditReadPolicy(resolvedPath.FullPath, current, allowMissing, context);
-            if (priorRead.ErrorKind != null)
-                return FormatEditError(priorRead.ErrorKind.Value, resolvedPath.FullPath, priorRead.ErrorMessage!);
-
-            var application = ApplyEdits(resolvedPath.FullPath, current, edits, priorRead.PriorRead);
-            if (application.ErrorKind != null)
-                return FormatEditError(application.ErrorKind.Value, resolvedPath.FullPath, application.ErrorMessage!, application.ErrorStrategy);
-
-            var mutationKind = application.Created ? CodingFileMutationKind.Created : CodingFileMutationKind.Changed;
-            var result = await ApplyTextMutationAsync(
-                new FileMutationRequest(
-                    ToolName: "EditFile",
-                    Path: resolvedPath.FullPath,
-                    UpdatedText: application.UpdatedContent,
-                    Kind: mutationKind,
-                    AllowCreate: application.Created,
-                    CreateParentDirectories: application.Created,
-                    NormalizeLineEndingsToExistingFile: current.Exists,
-                    TextEdits: application.TextEdits,
-                    Notes: application.NormalizationNotes
-                        .Take(MaxNormalizationNotes)
-                        .Select(note => new FileMutationNote(note.EditIndex, note.Kind))
-                        .ToArray(),
-                    FunctionContext: context,
-                    ValidateBeforeMutation: before => ValidateEditBeforeMutation(resolvedPath.FullPath, priorRead.PriorRead, before, application.Created),
-                    EventFactory: request => BuildFileEditAppliedEvent(request, application))).ConfigureAwait(false);
-
-            return FormatEditResult(result, application);
+            return await EditWorkspaceFileAsync(
+                workspace,
+                path,
+                edits,
+                context).ConfigureAwait(false);
         }
         catch (AgentCapabilityDeniedException exception)
         {
@@ -109,6 +77,117 @@ public partial class CodingToolHarness
         {
             return FormatEditError(EditFileErrorKind.InvalidArguments, path, $"Invalid path: {exception.Message}");
         }
+    }
+
+    private async Task<string> EditWorkspaceFileAsync(
+        RuntimeWorkspaceBinding workspace,
+        string path,
+        IReadOnlyList<FileEditReplacement> edits,
+        FunctionExecutionContext context)
+    {
+        WorkspacePath logical =
+            CodingWorkspaceAccess.Resolve(workspace, path);
+        string displayPath =
+            CodingWorkspaceAccess.Display(workspace, logical);
+        WorkspaceRootBinding root =
+            CodingWorkspaceAccess.GetRoot(workspace, logical);
+        if (root.Access == AccessMode.ReadOnly)
+        {
+            return FormatEditError(
+                EditFileErrorKind.InvalidArguments,
+                displayPath,
+                "Workspace root is read-only.");
+        }
+        if (IsNotebookPath(displayPath))
+        {
+            throw new FileMutationException(
+                FileMutationErrorKind.NotebookFile,
+                "File is a notebook. Use NotebookEdit when available.");
+        }
+
+        bool allowMissing = IsCreateEdit(edits);
+        FileMutationContent current =
+            await ReadWorkspaceMutationContentAsync(
+                workspace,
+                logical,
+                allowMissing,
+                displayPath).ConfigureAwait(false);
+        if (current.Exists &&
+            current.ByteLength > 0 &&
+            allowMissing)
+        {
+            return FormatEditError(
+                EditFileErrorKind.InvalidEmptyOldString,
+                displayPath,
+                "Cannot edit a non-empty file with an empty OldString.");
+        }
+
+        EditReadValidationResult priorRead =
+            ValidateEditReadPolicy(
+                displayPath,
+                current,
+                allowMissing,
+                context);
+        if (priorRead.ErrorKind != null)
+        {
+            return FormatEditError(
+                priorRead.ErrorKind.Value,
+                displayPath,
+                priorRead.ErrorMessage!);
+        }
+        EditApplicationResult application =
+            ApplyEdits(
+                displayPath,
+                current,
+                edits,
+                priorRead.PriorRead);
+        if (application.ErrorKind != null)
+        {
+            return FormatEditError(
+                application.ErrorKind.Value,
+                displayPath,
+                application.ErrorMessage!,
+                application.ErrorStrategy);
+        }
+
+        CodingFileMutationKind mutationKind =
+            application.Created
+                ? CodingFileMutationKind.Created
+                : CodingFileMutationKind.Changed;
+        FileMutationResult result =
+            await ApplyWorkspaceTextMutationAsync(
+                workspace,
+                logical,
+                new FileMutationRequest(
+                    ToolName: "EditFile",
+                    Path: displayPath,
+                    UpdatedText: application.UpdatedContent,
+                    Kind: mutationKind,
+                    AllowCreate: application.Created,
+                    CreateParentDirectories: application.Created,
+                    NormalizeLineEndingsToExistingFile:
+                        current.Exists,
+                    TextEdits: application.TextEdits,
+                    Notes: application.NormalizationNotes
+                        .Take(MaxNormalizationNotes)
+                        .Select(note =>
+                            new FileMutationNote(
+                                note.EditIndex,
+                                note.Kind))
+                        .ToArray(),
+                    FunctionContext: context,
+                    ValidateBeforeMutation: before =>
+                        ValidateEditBeforeMutation(
+                            displayPath,
+                            priorRead.PriorRead,
+                            before,
+                            application.Created),
+                    EventFactory: request =>
+                        BuildFileEditAppliedEvent(
+                            request,
+                            application)))
+                .ConfigureAwait(false);
+        return FormatEditResult(result, application);
     }
 
     private static string? ValidateEditArguments(string? path, IReadOnlyList<FileEditReplacement>? edits)

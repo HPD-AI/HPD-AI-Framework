@@ -1,5 +1,7 @@
 namespace HPDOS.ToolHarnesses.Middleware;
 
+using HPD.Environment.Contracts;
+
 [HpdLanguageServer("deno")]
 [LanguageServerExtensions(".ts", ".tsx", ".js", ".jsx", ".mjs")]
 [LanguageServerLanguageIds(
@@ -13,30 +15,57 @@ public sealed partial class DenoLanguageServer : ILanguageServerProvider
 {
     public string ConfigurationIdentity => "deno-language-server:v1";
 
-    public ValueTask<string?> ResolveRootAsync(
+    public async ValueTask<string?> ResolveRootAsync(
         LanguageServerRootContext context,
         CancellationToken cancellationToken = default)
     {
-        var directory = File.Exists(context.Path)
-            ? Path.GetDirectoryName(context.Path)
-            : context.Path;
+        WorkspacePath start =
+            await LanguageServerWorkspaceAccess.ResolveAsync(
+                context.Workspace,
+                context.Path,
+                cancellationToken).ConfigureAwait(false) ??
+            throw new InvalidOperationException(
+                "The Deno document is outside the session workspace.");
+        WorkspaceFileInfo info =
+            await context.Workspace.Files.GetInfoAsync(
+                start,
+                cancellationToken).ConfigureAwait(false) ??
+            throw new InvalidOperationException(
+                "The Deno document disappeared.");
+        WorkspacePath? directory = info.Kind ==
+            WorkspaceEntryKind.Directory
+                ? start
+                : LanguageServerWorkspaceAccess.Parent(start);
+        WorkspacePath workspaceRoot =
+            HPD.Agent.ToolHarness.Coding.CodingWorkspaceAccess.Resolve(
+                context.Workspace,
+                context.WorkspaceRoot);
 
-        while (!string.IsNullOrEmpty(directory) && IsInsideWorkspace(directory, context.WorkspaceRoot))
+        while (directory is { } current)
         {
-            if (File.Exists(Path.Combine(directory, "deno.json")) ||
-                File.Exists(Path.Combine(directory, "deno.jsonc")))
+            if (await LanguageServerWorkspaceAccess.MarkerExistsAsync(
+                    context.Workspace,
+                    current,
+                    "deno.json",
+                    cancellationToken).ConfigureAwait(false) ||
+                await LanguageServerWorkspaceAccess.MarkerExistsAsync(
+                    context.Workspace,
+                    current,
+                    "deno.jsonc",
+                    cancellationToken).ConfigureAwait(false))
             {
-                return ValueTask.FromResult<string?>(directory);
+                return LanguageServerWorkspaceAccess.ToExecutionPath(
+                    context.Workspace,
+                    current);
             }
-
-            var parent = Path.GetDirectoryName(directory);
-            if (parent == directory)
+            if (current.Equals(workspaceRoot))
+            {
                 break;
-
-            directory = parent;
+            }
+            directory = LanguageServerWorkspaceAccess.Parent(current);
         }
 
-        return ValueTask.FromResult<string?>(null);
+        return null;
     }
 
     public async ValueTask<LanguageServerLaunchDescriptor?> ResolveLaunchAsync(
@@ -62,10 +91,4 @@ public sealed partial class DenoLanguageServer : ILanguageServerProvider
         LanguageServerInitializationContext context,
         CancellationToken cancellationToken = default)
         => ValueTask.FromResult(new LanguageServerInitialization());
-
-    private static bool IsInsideWorkspace(string directory, string workspaceRoot)
-    {
-        var relative = Path.GetRelativePath(workspaceRoot, directory);
-        return relative == "." || (!relative.StartsWith("..", StringComparison.Ordinal) && !Path.IsPathRooted(relative));
-    }
 }

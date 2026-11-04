@@ -4,8 +4,11 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using HPD.Agent;
+using HPD.Agent.Sandbox;
 using HPD.Agent.Middleware;
+using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.ToolHarness.Coding.Security;
+using HPD.Environment.Contracts;
 using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
 
@@ -26,48 +29,18 @@ public partial class CodingToolHarness
             if (argumentError != null)
                 return FormatWriteError(WriteFileErrorKind.InvalidArguments, path, argumentError);
 
-            resolvedPath = ResolveMutationPath(path, context);
-            ValidateMutationPath(resolvedPath);
-            var authorizedPath = await AgentFilesystemAccess.AuthorizeWriteAsync(
-                resolvedPath.FullPath,
-                nameof(WriteFile),
-                context,
-                CancellationToken.None).ConfigureAwait(false);
-            resolvedPath = resolvedPath with { FullPath = authorizedPath };
-
-            if (ContainsStandaloneOmissionPlaceholder(content))
+            if (!CodingWorkspaceAccess.TryGet(context, out var workspace))
+            {
                 return FormatWriteError(
-                    WriteFileErrorKind.NewOmissionPlaceholder,
-                    resolvedPath.FullPath,
-                    "Content contains an omission placeholder. Provide complete file content.");
-
-            var current = await ReadMutationContentAsync(resolvedPath.FullPath, allowMissing: true).ConfigureAwait(false);
-            var validation = ValidateWritePolicy(resolvedPath.FullPath, current, context);
-            if (validation.ErrorKind != null)
-                return FormatWriteError(validation.ErrorKind.Value, resolvedPath.FullPath, validation.ErrorMessage!);
-
-            var mode = validation.Mode;
-            var mutationKind = mode == FileWriteMode.Create
-                ? CodingFileMutationKind.Created
-                : CodingFileMutationKind.Changed;
-            var textEdit = BuildWholeFileTextEdit(current.Text, content);
-
-            var result = await ApplyTextMutationAsync(
-                new FileMutationRequest(
-                    ToolName: "WriteFile",
-                    Path: resolvedPath.FullPath,
-                    UpdatedText: content,
-                    Kind: mutationKind,
-                    AllowCreate: true,
-                    CreateParentDirectories: true,
-                    NormalizeLineEndingsToExistingFile: false,
-                    TextEdits: [textEdit],
-                    Notes: [],
-                    FunctionContext: context,
-                    ValidateBeforeMutation: before => ValidateWriteBeforeMutation(resolvedPath.FullPath, validation.PriorRead, before),
-                    EventFactory: request => BuildFileWriteAppliedEvent(request, mode))).ConfigureAwait(false);
-
-            return FormatWriteResult(result, mode);
+                    WriteFileErrorKind.InvalidArguments,
+                    path,
+                    "No Environment workspace binding is available for WriteFile.");
+            }
+            return await WriteWorkspaceFileAsync(
+                workspace,
+                path,
+                content,
+                context).ConfigureAwait(false);
         }
         catch (AgentCapabilityDeniedException exception)
         {
@@ -99,6 +72,91 @@ public partial class CodingToolHarness
         {
             return FormatWriteError(WriteFileErrorKind.InvalidArguments, path, $"Invalid path: {exception.Message}");
         }
+    }
+
+    private async Task<object> WriteWorkspaceFileAsync(
+        RuntimeWorkspaceBinding workspace,
+        string path,
+        string content,
+        FunctionExecutionContext context)
+    {
+        WorkspacePath logical =
+            CodingWorkspaceAccess.Resolve(workspace, path);
+        string displayPath =
+            CodingWorkspaceAccess.Display(workspace, logical);
+        WorkspaceRootBinding root =
+            CodingWorkspaceAccess.GetRoot(workspace, logical);
+        if (root.Access == AccessMode.ReadOnly)
+        {
+            return FormatWriteError(
+                WriteFileErrorKind.InvalidArguments,
+                displayPath,
+                "Workspace root is read-only.");
+        }
+        if (IsNotebookPath(displayPath))
+        {
+            throw new FileMutationException(
+                FileMutationErrorKind.NotebookFile,
+                "File is a notebook. Use NotebookEdit when available.");
+        }
+        if (ContainsStandaloneOmissionPlaceholder(content))
+        {
+            return FormatWriteError(
+                WriteFileErrorKind.NewOmissionPlaceholder,
+                displayPath,
+                "Content contains an omission placeholder. Provide complete file content.");
+        }
+
+        FileMutationContent current =
+            await ReadWorkspaceMutationContentAsync(
+                workspace,
+                logical,
+                allowMissing: true,
+                displayPath).ConfigureAwait(false);
+        WriteFileValidationResult validation =
+            ValidateWritePolicy(
+                displayPath,
+                current,
+                context);
+        if (validation.ErrorKind != null)
+        {
+            return FormatWriteError(
+                validation.ErrorKind.Value,
+                displayPath,
+                validation.ErrorMessage!);
+        }
+
+        FileWriteMode mode = validation.Mode;
+        CodingFileMutationKind mutationKind =
+            mode == FileWriteMode.Create
+                ? CodingFileMutationKind.Created
+                : CodingFileMutationKind.Changed;
+        FileMutationTextEdit textEdit =
+            BuildWholeFileTextEdit(current.Text, content);
+        FileMutationResult result =
+            await ApplyWorkspaceTextMutationAsync(
+                workspace,
+                logical,
+                new FileMutationRequest(
+                    ToolName: "WriteFile",
+                    Path: displayPath,
+                    UpdatedText: content,
+                    Kind: mutationKind,
+                    AllowCreate: true,
+                    CreateParentDirectories: true,
+                    NormalizeLineEndingsToExistingFile: false,
+                    TextEdits: [textEdit],
+                    Notes: [],
+                    FunctionContext: context,
+                    ValidateBeforeMutation: before =>
+                        ValidateWriteBeforeMutation(
+                            displayPath,
+                            validation.PriorRead,
+                            before),
+                    EventFactory: request =>
+                        BuildFileWriteAppliedEvent(request, mode)))
+                .ConfigureAwait(false);
+        return FormatWriteResult(result, mode);
     }
 
     private static string? ValidateWriteArguments(string? path, string? content)

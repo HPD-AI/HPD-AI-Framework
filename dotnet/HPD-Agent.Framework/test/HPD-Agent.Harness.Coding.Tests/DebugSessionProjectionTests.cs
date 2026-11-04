@@ -30,7 +30,7 @@ public sealed class DebugSessionProjectionTests
     [Fact]
     public void Process_module_and_source_events_reconcile_create_change_and_remove()
     {
-        var projections = new DebugSessionProjections();
+        var projections = new DebugSessionProjections(TestRuntimeWorkspace.Create(Path.GetTempPath()));
         projections.ObserveProcess(new ProcessEventBody { Name = "target", SystemProcessId = 42 });
         projections.Process.Should().Be(new DebugProcessSnapshot("target", 42, null, null, null));
 
@@ -60,7 +60,7 @@ public sealed class DebugSessionProjectionTests
     [Fact]
     public void Module_event_projection_is_bounded_and_evicts_oldest_entries_deterministically()
     {
-        var projections = new DebugSessionProjections();
+        var projections = new DebugSessionProjections(TestRuntimeWorkspace.Create(Path.GetTempPath()));
 
         for (var id = 0; id <= 4096; id++)
             projections.ObserveModule(new ModuleEventBody
@@ -78,7 +78,7 @@ public sealed class DebugSessionProjectionTests
     [Fact]
     public void Targeted_invalidation_advances_only_required_generations()
     {
-        var projections = new DebugSessionProjections();
+        var projections = new DebugSessionProjections(TestRuntimeWorkspace.Create(Path.GetTempPath()));
         var result = projections.Invalidate(new InvalidatedEventBody
         {
             Areas = [InvalidatedAreas.Variables],
@@ -95,7 +95,7 @@ public sealed class DebugSessionProjectionTests
     [Fact]
     public void Frame_and_thread_invalidation_revoke_only_matching_suspension_tokens()
     {
-        var projections = new DebugSessionProjections();
+        var projections = new DebugSessionProjections(TestRuntimeWorkspace.Create(Path.GetTempPath()));
         var frameIdentity = projections.CreateSuspensionToken(1, 10, "frame", 10);
         var frameOne = projections.CreateSuspensionToken(1, 10, "variables");
         var frameTwo = projections.CreateSuspensionToken(1, 20, "variables");
@@ -119,7 +119,7 @@ public sealed class DebugSessionProjectionTests
     [Fact]
     public void Module_source_and_memory_changes_revoke_only_affected_reference_families()
     {
-        var projections = new DebugSessionProjections();
+        var projections = new DebugSessionProjections(TestRuntimeWorkspace.Create(Path.GetTempPath()));
         var module = projections.CreateSessionTextToken("module", "m1");
         var source = projections.CreateSourceToken(0, null, new Source { SourceReference = 7 });
         var memory = projections.CreateSessionTextToken("memory", "mem");
@@ -146,8 +146,8 @@ public sealed class DebugSessionProjectionTests
     [Fact]
     public void Opaque_references_are_session_isolated_and_suspension_families_expire_together()
     {
-        var owner = new DebugSessionProjections();
-        var otherSession = new DebugSessionProjections();
+        var owner = new DebugSessionProjections(TestRuntimeWorkspace.Create(Path.GetTempPath()));
+        var otherSession = new DebugSessionProjections(TestRuntimeWorkspace.Create(Path.GetTempPath()));
         var source = owner.CreateSourceToken(7, 11, new Source { SourceReference = 9 });
         var frame = owner.CreateSuspensionToken(7, 11, "frame", 11);
         var stepTarget = owner.CreateSuspensionToken(7, 11, "stepInTarget", 12);
@@ -167,7 +167,7 @@ public sealed class DebugSessionProjectionTests
     [Fact]
     public void Memory_invalidation_is_reference_specific_overlap_safe_and_overflow_safe()
     {
-        var projections = new DebugSessionProjections();
+        var projections = new DebugSessionProjections(TestRuntimeWorkspace.Create(Path.GetTempPath()));
         var matching = projections.TrackMemoryRange("a", long.MaxValue - 8, 8);
         var otherReference = projections.TrackMemoryRange("b", long.MaxValue - 8, 8);
         var nonOverlapping = projections.TrackMemoryRange("a", 0, 8);
@@ -246,7 +246,7 @@ public sealed class DebugSessionProjectionTests
     [Fact]
     public void Opaque_references_are_kind_checked_and_expire_with_the_thread_epoch()
     {
-        var projections = new DebugSessionProjections();
+        var projections = new DebugSessionProjections(TestRuntimeWorkspace.Create(Path.GetTempPath()));
         var token = projections.CreateSuspensionToken(7, 11, "variables", 42);
         projections.ResolveSuspensionToken(token, "variables", out var thread, out var frame).Should().Be(42);
         thread.Should().Be(7);

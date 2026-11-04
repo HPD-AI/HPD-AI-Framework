@@ -429,6 +429,7 @@ public sealed class DebugExecutionPlanActivatorV3Tests
                 SessionManager = Manager,
                 EventScope = new(null, "session", "thread"),
                 ProcessExecution = Binding,
+                Workspace = TestRuntimeWorkspace.Create(Workspace),
                 State = new()
             };
             Trust = new()

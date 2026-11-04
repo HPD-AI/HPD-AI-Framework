@@ -36,7 +36,9 @@ internal sealed class DotNetDebugExecutableArtifactClassifier(
             .ToArray();
         var candidates = directCandidates.Length > 0
             ? directCandidates
-            : DotNetProjectSelection.Candidates(context);
+            : await DotNetProjectSelection.CandidatesAsync(
+                context,
+                cancellationToken).ConfigureAwait(false);
         if (candidates.Count == 0)
             return new(DebugExecutableArtifactKind.Unassociated);
         var process = context.Runtime.ProcessExecution ??
@@ -53,7 +55,7 @@ internal sealed class DotNetDebugExecutableArtifactClassifier(
                 TargetFramework = InferTargetFramework(context.CanonicalTargetPath),
                 ProcessExecution = process,
                 ProcessSandbox = context.Runtime.ProcessSandbox,
-                Workspace = context.Workspace
+                RuntimeWorkspace = context.RuntimeWorkspace,
             }, cancellationToken).ConfigureAwait(false);
             if (SamePath(context.CanonicalTargetPath, evaluation.TargetPath) ||
                 evaluation.AppHostPath is not null &&

@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Text;
 using HPD.Agent.Middleware;
 using HPD.Agent.Security;
+using HPD.Agent.Sandbox;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Environment.Contracts;
 
@@ -13,13 +14,12 @@ internal sealed record DebugExecutionPlanningContext
     public required LaunchDebugOperation Operation { get; init; }
     public required DebugTarget Target { get; init; }
     public required DebugRuntimeBinding Runtime { get; init; }
-    public required AgentWorkspace Workspace { get; init; }
+    public required RuntimeWorkspaceBinding RuntimeWorkspace { get; init; }
     public required string CanonicalWorkspacePath { get; init; }
     public required string CanonicalTargetPath { get; init; }
     public required WorkspaceRootMarkerResolution Evidence { get; init; }
     public string? ExplicitAdapterId { get; init; }
     public string? LanguageHint { get; init; }
-    public DebugPathCapabilityAuthorizer? AuthorizePath { get; init; }
 }
 
 /// <summary>Indicates whether an execution planner owns a semantic target.</summary>
@@ -417,16 +417,18 @@ internal sealed class DebugOwnedProcessResource(
 }
 
 /// <summary>Owns one trusted preparation output explicitly marked for cleanup.</summary>
-internal sealed class DebugOwnedFileResource(string path) : IDebugOwnedResource
+internal sealed class DebugOwnedFileResource(
+    RuntimeWorkspaceBinding workspace,
+    WorkspacePath path) : IDebugOwnedResource
 {
-    private readonly string _path = Path.GetFullPath(
-        string.IsNullOrWhiteSpace(path)
-            ? throw new ArgumentException("An owned file path is required.", nameof(path))
-            : path);
+    private readonly RuntimeWorkspaceBinding _workspace =
+        workspace ?? throw new ArgumentNullException(nameof(workspace));
+    private readonly WorkspacePath _path = path;
     private int _disposed;
 
     public string Kind => "file";
-    public string SafeIdentity => Path.GetFileName(_path);
+    public string SafeIdentity => Path.GetFileName(
+        _path.RelativePath);
 
     public ValueTask StopAsync(
         string reason,
@@ -436,10 +438,32 @@ internal sealed class DebugOwnedFileResource(string path) : IDebugOwnedResource
         return ValueTask.CompletedTask;
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) == 0 && File.Exists(_path))
-            File.Delete(_path);
-        return ValueTask.CompletedTask;
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+        WorkspaceFileInfo? info = await _workspace.Files.GetInfoAsync(
+            _path).ConfigureAwait(false);
+        if (info is null)
+        {
+            return;
+        }
+        WorkspaceMutationResult result =
+            await _workspace.Files.DeleteAsync(
+                _path,
+                new WorkspaceWriteCondition
+                {
+                    ExpectedVersion = info.Version,
+                }).ConfigureAwait(false);
+        if (result.Outcome is not (
+            WorkspaceMutationOutcome.Succeeded or
+            WorkspaceMutationOutcome.NotFound))
+        {
+            throw new IOException(
+                result.Message ??
+                    $"Debug output '{_path}' could not be released.");
+        }
     }
 }

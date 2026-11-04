@@ -1,9 +1,11 @@
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using HPD.Agent.Middleware;
+using HPD.Agent.Sandbox;
+using HPD.Environment.Contracts;
 using HPDOS.ToolHarnesses.Middleware.Protocol.Generated;
 
 namespace HPDOS.ToolHarnesses.Middleware;
@@ -16,6 +18,8 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
     private readonly LanguageServerOptions _options;
     private readonly IReadOnlyDictionary<string, object?> _workspaceConfiguration;
     private readonly IReadOnlyDictionary<string, object?> _clientCapabilityOverrides;
+    private readonly RuntimeProcessExecutionBinding? _processExecution;
+    private readonly RuntimeWorkspaceBinding? _workspace;
     private readonly ConcurrentDictionary<int, TaskCompletionSource<JsonNode?>> _pendingRequests = new();
     private readonly ConcurrentDictionary<string, LanguageServerDiagnosticSet> _pushDiagnostics = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, LanguageServerDiagnosticSet> _pullDiagnostics = new(StringComparer.Ordinal);
@@ -25,7 +29,7 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
     private readonly object _diagnosticRegistrationSignalLock = new();
     private TaskCompletionSource<int> _diagnosticRegistrationSignal =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private Process? _process;
+    private IProcessInvocationHandle? _environmentProcess;
     private Stream? _stdin;
     private Stream? _stdout;
     private Task? _readLoop;
@@ -38,7 +42,9 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
         string root,
         LanguageServerLaunchDescriptor launchDescriptor,
         LanguageServerOptions options,
-        LanguageServerInitialization? initialization = null)
+        LanguageServerInitialization? initialization = null,
+        RuntimeProcessExecutionBinding? processExecution = null,
+        RuntimeWorkspaceBinding? workspace = null)
     {
         _serverId = serverId;
         _root = root;
@@ -49,11 +55,13 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
             initialization?.WorkspaceConfiguration);
         _clientCapabilityOverrides = initialization?.ClientCapabilities
             ?? new Dictionary<string, object?>(StringComparer.Ordinal);
+        _processExecution = processExecution;
+        _workspace = workspace;
     }
 
     public LanguageServerClientCapabilities Capabilities { get; private set; } = new();
 
-    public bool IsRunning => _process is { HasExited: false };
+    public bool IsRunning => _environmentProcess is not null;
 
     public IReadOnlyList<LanguageServerDiagnosticSet> CurrentDiagnostics
         => GetMergedCurrentDiagnostics();
@@ -99,36 +107,87 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
 
     public async ValueTask StartAsync(CancellationToken cancellationToken)
     {
-        if (_process != null)
+        if (_environmentProcess != null)
             return;
-
-        var startInfo = new ProcessStartInfo
+        if (_processExecution is null)
         {
-            FileName = _launchDescriptor.FileName,
-            WorkingDirectory = _launchDescriptor.WorkingDirectory ?? _root,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        foreach (var argument in _launchDescriptor.Arguments)
-            startInfo.ArgumentList.Add(argument);
-
-        foreach (var pair in _launchDescriptor.Environment)
-            startInfo.Environment[pair.Key] = pair.Value;
-
-        var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
-        if (!process.Start())
-            throw new InvalidOperationException($"Language server '{_serverId}' did not start.");
-
-        _process = process;
-        _stdin = process.StandardInput.BaseStream;
-        _stdout = process.StandardOutput.BaseStream;
+            throw new InvalidOperationException(
+                $"Language server '{_serverId}' requires an Environment process execution binding.");
+        }
+        await StartEnvironmentProcessAsync(cancellationToken)
+            .ConfigureAwait(false);
         _readLoop = Task.Run(() => ReadLoopAsync(_disposeCts.Token), CancellationToken.None);
-
         await InitializeAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask StartEnvironmentProcessAsync(
+        CancellationToken cancellationToken)
+    {
+        RuntimeProcessExecutionBinding execution =
+            _processExecution!;
+        string workingDirectory =
+            _launchDescriptor.WorkingDirectory ?? _root;
+        if (_workspace is not null &&
+            _workspace.Paths.TryFromExecutionPath(
+                new WorkspaceExecutionPath(
+                    workingDirectory)) is { } logical)
+        {
+            workingDirectory = _workspace.Paths
+                .ToExecutionPath(logical)
+                .Value;
+        }
+        IProcessInvocationHandle process =
+            await execution.ProcessProvider.StartAsync(
+                new ProcessInvocationSpec
+                {
+                    Target = execution.ExecutionTarget,
+                    Role = ProcessRole.Sidecar,
+                    Command = new ProcessCommandSpec
+                    {
+                        FileName = _launchDescriptor.FileName,
+                        Arguments =
+                            _launchDescriptor.Arguments.ToArray(),
+                        WorkingDirectory = workingDirectory,
+                        Environment =
+                            _launchDescriptor.Environment.ToDictionary(
+                                pair => pair.Key,
+                                pair => (string?)pair.Value,
+                                StringComparer.Ordinal),
+                    },
+                    Io = new ProcessIoSpec
+                    {
+                        StandardInput = new ProcessInputSpec
+                        {
+                            Kind = ProcessInputKind.Stream,
+                        },
+                        StandardOutput = new ProcessOutputSpec
+                        {
+                            Capture = false,
+                            Stream = true,
+                        },
+                        StandardError = new ProcessOutputSpec
+                        {
+                            Capture = false,
+                            Stream = true,
+                        },
+                        MergeStandardError = false,
+                    },
+                    Policy = new ProcessInvocationPolicy
+                    {
+                        AllowBackground = true,
+                        StopProcessTree = true,
+                        StopOnRunCancellation = false,
+                    },
+                    Isolation = execution.Isolation,
+                    PersistResource = false,
+                    ObservationRetention =
+                        ObservationRetentionPolicy.None,
+                },
+                cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+        _environmentProcess = process;
+        _stdin = new EnvironmentProcessInputStream(process);
+        _stdout = new EnvironmentProcessOutputStream(process);
     }
 
     public async ValueTask DidOpenAsync(LanguageServerDocumentOpenRequest request, CancellationToken cancellationToken)
@@ -373,8 +432,15 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
             _disposeCts.Cancel();
             try
             {
-                if (_process is { HasExited: false })
-                    _process.Kill(entireProcessTree: true);
+                if (_environmentProcess is not null)
+                {
+                    await _environmentProcess.StopAsync(
+                        new ProcessStopRequest(
+                            StopKind.GracefulThenKill,
+                            "language server disposal",
+                            TimeSpan.FromSeconds(2)))
+                        .ConfigureAwait(false);
+                }
             }
             catch
             {
@@ -386,7 +452,14 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
                 catch { }
             }
 
-            _process?.Dispose();
+            if (_environmentProcess is not null)
+            {
+                await _environmentProcess.DisposeAsync()
+                    .ConfigureAwait(false);
+                _environmentProcess = null;
+            }
+            _stdin?.Dispose();
+            _stdout?.Dispose();
             _disposeCts.Dispose();
             _sendLock.Dispose();
         }

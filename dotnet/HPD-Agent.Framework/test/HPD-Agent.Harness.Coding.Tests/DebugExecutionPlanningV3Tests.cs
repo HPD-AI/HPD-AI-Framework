@@ -253,7 +253,7 @@ public sealed class DebugExecutionPlanningV3Tests
     [Theory]
     [InlineData(".sln")]
     [InlineData(".slnx")]
-    public void Project_selection_reads_solution_membership_without_guessing(
+    public async Task Project_selection_reads_solution_membership_without_guessing(
         string extension)
     {
         var root = Path.Combine(
@@ -279,7 +279,8 @@ public sealed class DebugExecutionPlanningV3Tests
                 Target = new ApplicationProjectDebugTarget(root),
                 Operation = new LaunchDebugOperation(
                     new ApplicationProjectDebugTarget(root)),
-                Workspace = workspace,
+                RuntimeWorkspace =
+                    TestRuntimeWorkspace.FromAgentWorkspace(workspace),
                 CanonicalWorkspacePath = root,
                 CanonicalTargetPath = solution,
                 Evidence = new(
@@ -290,7 +291,11 @@ public sealed class DebugExecutionPlanningV3Tests
                     "solution")
             };
 
-            DotNetProjectSelection.Select(context, null).Should().Be(project);
+            string selected = await DotNetProjectSelection.SelectAsync(
+                context,
+                null,
+                CancellationToken.None);
+            selected.Should().EndWith("App.csproj");
         }
         finally
         {
@@ -299,7 +304,7 @@ public sealed class DebugExecutionPlanningV3Tests
     }
 
     [Fact]
-    public void Project_selection_allows_solution_membership_in_another_workspace_root()
+    public async Task Project_selection_allows_solution_membership_in_another_workspace_root()
     {
         var container = Path.Combine(
             Path.GetTempPath(),
@@ -328,7 +333,8 @@ public sealed class DebugExecutionPlanningV3Tests
                 Target = new ApplicationProjectDebugTarget(solution),
                 Operation = new LaunchDebugOperation(
                     new ApplicationProjectDebugTarget(solution)),
-                Workspace = workspace,
+                RuntimeWorkspace =
+                    TestRuntimeWorkspace.FromAgentWorkspace(workspace),
                 CanonicalWorkspacePath = solutionRoot,
                 CanonicalTargetPath = solution,
                 Evidence = new(
@@ -339,7 +345,11 @@ public sealed class DebugExecutionPlanningV3Tests
                     "solution")
             };
 
-            DotNetProjectSelection.Select(context, null).Should().Be(project);
+            string selected = await DotNetProjectSelection.SelectAsync(
+                context,
+                null,
+                CancellationToken.None);
+            selected.Should().EndWith("App.csproj");
         }
         finally
         {
@@ -348,7 +358,7 @@ public sealed class DebugExecutionPlanningV3Tests
     }
 
     [Fact]
-    public void Project_selection_rejects_ambiguous_projects()
+    public async Task Project_selection_rejects_ambiguous_projects()
     {
         var root = Path.Combine(
             Path.GetTempPath(),
@@ -369,7 +379,8 @@ public sealed class DebugExecutionPlanningV3Tests
                 Target = new ApplicationProjectDebugTarget(root),
                 Operation = new LaunchDebugOperation(
                     new ApplicationProjectDebugTarget(root)),
-                Workspace = workspace,
+                RuntimeWorkspace =
+                    TestRuntimeWorkspace.FromAgentWorkspace(workspace),
                 CanonicalWorkspacePath = root,
                 CanonicalTargetPath = root,
                 Evidence = new(
@@ -380,10 +391,13 @@ public sealed class DebugExecutionPlanningV3Tests
                     "ambiguous")
             };
 
-            var action = () => DotNetProjectSelection.Select(context, null);
+            var action = async () => await DotNetProjectSelection.SelectAsync(
+                context,
+                null,
+                CancellationToken.None);
 
-            var exception = action.Should()
-                .Throw<DebugStartPlanningException>();
+            var exception = await action.Should()
+                .ThrowAsync<DebugStartPlanningException>();
             exception.Which.Kind.Should().Be("debug_project_ambiguous");
         }
         finally
@@ -393,7 +407,7 @@ public sealed class DebugExecutionPlanningV3Tests
     }
 
     [Fact]
-    public void Project_selection_prefers_an_exact_project_target_over_broader_evidence()
+    public async Task Project_selection_prefers_an_exact_project_target_over_broader_evidence()
     {
         var root = Path.Combine(
             Path.GetTempPath(),
@@ -413,7 +427,8 @@ public sealed class DebugExecutionPlanningV3Tests
             {
                 Target = new TestDebugTarget(exact),
                 Operation = new LaunchDebugOperation(new TestDebugTarget(exact)),
-                Workspace = workspace,
+                RuntimeWorkspace =
+                    TestRuntimeWorkspace.FromAgentWorkspace(workspace),
                 CanonicalWorkspacePath = root,
                 CanonicalTargetPath = exact,
                 Evidence = new(
@@ -424,7 +439,10 @@ public sealed class DebugExecutionPlanningV3Tests
                     "broader-evidence")
             };
 
-            DotNetProjectSelection.Select(context, null).Should().Be(exact);
+            (await DotNetProjectSelection.SelectAsync(
+                context,
+                null,
+                CancellationToken.None)).Should().Be(exact);
         }
         finally
         {
@@ -435,7 +453,7 @@ public sealed class DebugExecutionPlanningV3Tests
     [Theory]
     [InlineData(".sln")]
     [InlineData(".slnx")]
-    public void Project_selection_rejects_solution_manifests_beyond_the_bound(
+    public async Task Project_selection_rejects_solution_manifests_beyond_the_bound(
         string extension)
     {
         var root = Path.Combine(
@@ -464,7 +482,8 @@ public sealed class DebugExecutionPlanningV3Tests
                 Target = new ApplicationProjectDebugTarget(root),
                 Operation = new LaunchDebugOperation(
                     new ApplicationProjectDebugTarget(root)),
-                Workspace = workspace,
+                RuntimeWorkspace =
+                    TestRuntimeWorkspace.FromAgentWorkspace(workspace),
                 CanonicalWorkspacePath = root,
                 CanonicalTargetPath = solution,
                 Evidence = new(
@@ -475,9 +494,13 @@ public sealed class DebugExecutionPlanningV3Tests
                     "oversized")
             };
 
-            var action = () => DotNetProjectSelection.Select(context, null);
+            var action = async () => await DotNetProjectSelection.SelectAsync(
+                context,
+                null,
+                CancellationToken.None);
 
-            var exception = action.Should().Throw<DebugStartPlanningException>();
+            var exception = await action.Should()
+                .ThrowAsync<DebugStartPlanningException>();
             exception.Which.Kind.Should().Be("debug_project_evaluation_failed");
         }
         finally
@@ -650,6 +673,8 @@ public sealed class DebugExecutionPlanningV3Tests
             SessionId = "session",
             ThreadId = "thread",
             SessionManager = manager,
+            Workspace = TestRuntimeWorkspace.Create(
+                Path.GetTempPath()),
             EventScope = new(null, "session", "thread"),
             State = new()
         };
@@ -722,6 +747,8 @@ public sealed class DebugExecutionPlanningV3Tests
             SessionId = "session",
             ThreadId = "thread",
             SessionManager = manager,
+            Workspace = TestRuntimeWorkspace.Create(
+                Path.GetTempPath()),
             EventScope = new(null, "session", "thread"),
             State = new()
         };
@@ -747,6 +774,8 @@ public sealed class DebugExecutionPlanningV3Tests
         {
             SessionId = "root",
             RootSessionId = "root",
+            Workspace = TestRuntimeWorkspace.Create(
+                Path.GetTempPath()),
             AdapterStartMethod = DebugAdapterStartMethod.Launch,
             AdapterPlan = adapter,
             Protocol = new DebugProtocolClient(transport)
@@ -909,7 +938,8 @@ public sealed class DebugExecutionPlanningV3Tests
         Operation = new LaunchDebugOperation(new ExecutableDebugTarget("/workspace/app")),
         Target = new ExecutableDebugTarget("/workspace/app"),
         Runtime = null!,
-        Workspace = null!,
+        RuntimeWorkspace = TestRuntimeWorkspace.Create(
+            Path.GetTempPath()),
         CanonicalWorkspacePath = "/workspace",
         CanonicalTargetPath = "/workspace/app",
         Evidence = new(
@@ -1004,11 +1034,15 @@ public sealed class DebugExecutionPlanningV3Tests
                     SessionId = "session",
                     ThreadId = "thread",
                     SessionManager = Manager,
+                    Workspace =
+                        TestRuntimeWorkspace.FromAgentWorkspace(
+                            workspace),
                     EventScope = new(null, "session", "thread"),
                     ProcessExecution = process,
                     State = new()
                 },
-                Workspace = workspace,
+                RuntimeWorkspace =
+                    TestRuntimeWorkspace.FromAgentWorkspace(workspace),
                 CanonicalWorkspacePath = Root,
                 CanonicalTargetPath = target is SourceFileDebugTarget source
                     ? Path.Combine(Root, source.Path)

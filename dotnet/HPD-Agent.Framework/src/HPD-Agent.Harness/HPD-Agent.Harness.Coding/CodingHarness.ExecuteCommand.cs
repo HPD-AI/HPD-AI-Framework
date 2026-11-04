@@ -8,6 +8,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Xml;
 using HPD.Agent;
+using HPD.Agent.Sandbox;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.Middleware;
 using HPD.Agent.Security;
@@ -778,7 +779,20 @@ public partial class CodingToolHarness
         IReadOnlyDictionary<string, string>? environment,
         FunctionExecutionContext context,
         ExecuteCommandOptions options)
-        => NormalizeExecuteCommandRequest(
+    {
+        RuntimeWorkspaceBinding? workspace =
+            CodingWorkspaceAccess.TryGet(
+                context,
+                out var sessionWorkspace)
+                ? sessionWorkspace
+                : null;
+        RuntimeProcessExecutionBinding? processExecution =
+            context.RuntimeCapabilities.TryGet<
+                RuntimeProcessExecutionBinding>(
+                out var execution)
+                ? execution
+                : null;
+        return NormalizeExecuteCommandRequest(
             action,
             command,
             operationId,
@@ -789,7 +803,10 @@ public partial class CodingToolHarness
             delayMilliseconds,
             environment,
             context.RunConfig,
-            options);
+            options,
+            workspace,
+            processExecution);
+    }
 
     internal static ExecuteCommandNormalizationResult NormalizeExecuteCommandRequest(
         ExecuteCommandAction action,
@@ -802,7 +819,9 @@ public partial class CodingToolHarness
         int delayMilliseconds,
         IReadOnlyDictionary<string, string>? environment,
         AgentRunConfig runConfig,
-        ExecuteCommandOptions options)
+        ExecuteCommandOptions options,
+        RuntimeWorkspaceBinding? workspace = null,
+        RuntimeProcessExecutionBinding? processExecution = null)
     {
         if (timeoutMilliseconds <= 0)
         {
@@ -840,7 +859,10 @@ public partial class CodingToolHarness
         if (argumentError is not null)
             return InvalidArguments(command, workingDirectory, argumentError);
 
-        var cwd = ResolveExecuteCommandWorkingDirectory(workingDirectory, runConfig);
+        var cwd = ResolveExecuteCommandWorkingDirectory(
+            workingDirectory,
+            runConfig,
+            workspace);
         if (cwd.Error is { } cwdError)
         {
             return new ExecuteCommandNormalizationResult(null, cwdError with
@@ -850,14 +872,24 @@ public partial class CodingToolHarness
             });
         }
 
-        AgentSandboxRuntime sandbox;
-        try
+        ProcessIsolationPolicy isolation;
+        if (processExecution is not null)
         {
-            sandbox = CodingSandboxRuntime.Capture(runConfig);
+            isolation = processExecution.Isolation;
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or JsonException)
+        else
         {
-            return InvalidArguments(command, cwd.WorkingDirectory, ex.Message);
+            AgentSandboxRuntime sandbox;
+            try
+            {
+                sandbox = CodingSandboxRuntime.Capture(runConfig);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or JsonException)
+            {
+                return InvalidArguments(command, cwd.WorkingDirectory, ex.Message);
+            }
+            isolation = sandbox.ToProcessIsolationPolicy(
+                cwd.WorkingDirectory!);
         }
 
         var effectiveEnvironment = BuildExecuteCommandEnvironment(environment, options);
@@ -874,7 +906,7 @@ public partial class CodingToolHarness
                 tailLines,
                 TimeSpan.FromMilliseconds(delayMilliseconds),
                 effectiveEnvironment,
-                sandbox.ToProcessIsolationPolicy(cwd.WorkingDirectory!)),
+                isolation),
             null);
     }
 
@@ -925,12 +957,53 @@ public partial class CodingToolHarness
     private static ExecuteCommandWorkingDirectoryResult ResolveExecuteCommandWorkingDirectory(
         string? workingDirectory,
         FunctionExecutionContext context)
-        => ResolveExecuteCommandWorkingDirectory(workingDirectory, context.RunConfig);
+        => ResolveExecuteCommandWorkingDirectory(
+            workingDirectory,
+            context.RunConfig,
+            CodingWorkspaceAccess.TryGet(context, out var workspace)
+                ? workspace
+                : null);
 
     private static ExecuteCommandWorkingDirectoryResult ResolveExecuteCommandWorkingDirectory(
         string? workingDirectory,
-        AgentRunConfig runConfig)
+        AgentRunConfig runConfig,
+        RuntimeWorkspaceBinding? sessionWorkspace)
     {
+        if (sessionWorkspace is not null)
+        {
+            try
+            {
+                string modelPath = string.IsNullOrWhiteSpace(
+                    workingDirectory)
+                    ? CodingWorkspaceAccess.Display(
+                        sessionWorkspace,
+                        sessionWorkspace.WorkingDirectory)
+                    : workingDirectory;
+                WorkspacePath logical =
+                    CodingWorkspaceAccess.Resolve(
+                        sessionWorkspace,
+                        modelPath);
+                return new ExecuteCommandWorkingDirectoryResult(
+                    sessionWorkspace.Paths
+                        .ToExecutionPath(logical)
+                        .Value,
+                    null);
+            }
+            catch (Exception exception)
+                when (exception is ArgumentException or
+                    UnauthorizedAccessException or
+                    NotSupportedException)
+            {
+                return new ExecuteCommandWorkingDirectoryResult(
+                    workingDirectory,
+                    new ExecuteCommandError(
+                        ExecuteCommandErrorKind.WorkingDirectoryNotFound,
+                        null,
+                        workingDirectory,
+                        exception.Message));
+            }
+        }
+
         string fullPath;
         try
         {

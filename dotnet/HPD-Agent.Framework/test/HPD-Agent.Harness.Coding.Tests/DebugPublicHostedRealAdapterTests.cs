@@ -12,10 +12,9 @@ using HPD.Agent.Sandbox;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.ToolHarness.Coding.Debugging;
 using HPD.Agent.ToolHarness.Coding.Debugging.Protocol;
-using HPD.Agent.Sandbox.Local;
-using HPD.Agent.Sandbox.ProcessIsolation;
 using HPD.Events.Core;
 using HPD.Environment.Contracts;
+using HPD.Environment.HostProcess;
 using HPD.Environment.Runtime;
 using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
@@ -973,16 +972,49 @@ public sealed class DebugPublicHostedRealAdapterTests
     {
         private readonly ServiceProvider _services;
         private readonly EventCoordinator _events = new();
-        private readonly SandboxIsolationManager _isolation = new();
+        private readonly HostProcessProviderModule _module;
+        private readonly InMemoryEnvironmentRuntime _runtime;
+        private readonly ResourceRef<ExecutionUnit> _unit;
         private readonly IProcessProvider _process;
+        private readonly TargetHandle<ExecutionUnit> _executionTarget;
 
         public PublicFixture(
             Func<IProcessProvider, IProcessProvider>? decorateProcess = null)
         {
-            var localProcess = new LocalProcessProvider(
-                new SandboxIsolationPlanner(),
-                new HostSandboxApplicator(_isolation));
-            _process = decorateProcess?.Invoke(localProcess) ?? localProcess;
+            _module = new HostProcessProviderModule();
+            var registry = new EnvironmentProviderRegistry();
+            registry.RegisterModule(_module);
+            _runtime = new InMemoryEnvironmentRuntime(registry);
+            ResourceSnapshot<
+                RuntimeHost,
+                RuntimeHostSpec,
+                RuntimeHostStatus> host =
+                _runtime.EnsureHostAsync(new RuntimeHostSpec
+                {
+                    PreferredProvider =
+                        HostProcessProviderDescriptor.ProviderId,
+                    Platform =
+                        HostProcessProviderDescriptor.CurrentPlatform(),
+                }).AsTask().GetAwaiter().GetResult();
+            ResourceSnapshot<
+                ExecutionUnit,
+                ExecutionUnitSpec,
+                ExecutionUnitStatus> unit =
+                _runtime.EnsureExecutionUnitAsync(
+                    new ExecutionUnitSpec
+                    {
+                        PreferredHost = new ResourceRef<RuntimeHost>(
+                            host.Metadata.Id,
+                            host.Metadata.Scope,
+                            host.Metadata.Generation),
+                    }).AsTask().GetAwaiter().GetResult();
+            _unit = new ResourceRef<ExecutionUnit>(
+                unit.Metadata.Id,
+                unit.Metadata.Scope,
+                unit.Metadata.Generation);
+            _executionTarget = unit.Status.Handle!.Value;
+            _process = decorateProcess?.Invoke(_module.ProcessProvider) ??
+                _module.ProcessProvider;
             Manager = new DebugSessionManager(
                 new DebugTerminalRecordStore(new DebugTerminalRecordStoreOptions()));
             Scope = new(Manager.RuntimeId, "session", "thread");
@@ -1067,15 +1099,7 @@ public sealed class DebugPublicHostedRealAdapterTests
                 EnvironmentId = "local",
                 EnvironmentRevision = 1,
                 ProcessProvider = _process,
-                ExecutionTarget = new(
-                    new TargetRoute
-                    {
-                        Kind = new("local.execution"),
-                        Scope = new("qualification")
-                    },
-                    TargetHandleLifetime.LiveCapability,
-                    TargetHandleAuthority.Control |
-                    TargetHandleAuthority.Observe)
+                ExecutionTarget = _executionTarget
             });
             var function = AIFunctionFactory.Create(
                 () => "ok",
@@ -1134,7 +1158,9 @@ public sealed class DebugPublicHostedRealAdapterTests
             await Operations.DisposeAsync();
             await Manager.DisposeAsync();
             await _services.DisposeAsync();
-            await _isolation.DisposeAsync();
+            await _runtime.DeleteExecutionUnitAsync(_unit);
+            await _runtime.DeleteHostAsync();
+            await _module.DisposeAsync();
             // dotnet test may reap its detached testhost shortly after the
             // owning runner exits. Keep independent real-adapter cases from
             // racing that bounded operating-system teardown.

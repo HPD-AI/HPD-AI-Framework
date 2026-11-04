@@ -241,7 +241,7 @@ public sealed class DebugRuntimeBindingTests
     }
 
     [Fact]
-    public async Task Attach_transport_disables_cross_process_sandbox_only_after_a_trusted_plan()
+    public async Task Attach_transport_remains_fail_closed_isolated()
     {
         var process = new ProbeProcessProvider();
         var resolution = Resolution(Execution(process), DebugAdapterTrustLevel.Trusted);
@@ -260,7 +260,7 @@ public sealed class DebugRuntimeBindingTests
             await new DebugProtocolTransportFactory().CreateAsync(plan);
 
         process.StartCount.Should().Be(1);
-        process.LastSpec!.Isolation.Mode.Should().Be(ProcessIsolationMode.Disabled);
+        process.LastSpec!.Isolation.Mode.Should().Be(ProcessIsolationMode.Isolated);
     }
 
     [Fact]
@@ -495,6 +495,14 @@ public sealed class DebugRuntimeBindingTests
         var agentContext = new AgentContext("AgentA", "conversation-1", state, coordinator, session, thread, CancellationToken.None);
         agentContext.RuntimeCapabilities.Set(manager);
         agentContext.RuntimeCapabilities.Set(new DebugRuntimeBindingState());
+        HPD.Agent.Sandbox.RuntimeWorkspaceBinding workspace =
+            AgentWorkspace.TryFrom(
+                runConfig,
+                out AgentWorkspace configured,
+                out _)
+                ? TestRuntimeWorkspace.FromAgentWorkspace(configured)
+                : TestRuntimeWorkspace.Create(Path.GetTempPath());
+        agentContext.RuntimeCapabilities.Set(workspace);
         if (processExecution is not null)
             agentContext.RuntimeCapabilities.Set(processExecution);
         var before = agentContext.AsBeforeFunction(function, "call-1", new Dictionary<string, object?>(), runConfig, null, null);
