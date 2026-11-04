@@ -6,6 +6,7 @@ using HPD.Agent.Middleware;
 using HPD.Agent.Middleware.Function;
 using HPD.Agent.Tests.Infrastructure;
 using Microsoft.Extensions.AI;
+using System.Text.Json;
 using Xunit;
 
 namespace HPD.Agent.Tests.Middleware;
@@ -24,7 +25,7 @@ public class RetryMiddlewareTests
         // Arrange
         var config = new ErrorHandlingConfig
         {
-            MaxRetries = 3
+            FunctionRetries = new() { MaxRetries = 3 }
         };
         var middleware = new RetryMiddleware(config);
         var request = CreateFunctionRequest();
@@ -50,8 +51,11 @@ public class RetryMiddlewareTests
         // Arrange
         var config = new ErrorHandlingConfig
         {
-            MaxRetries = 3,
-            RetryDelay = TimeSpan.FromMilliseconds(10)
+            FunctionRetries = new()
+            {
+                MaxRetries = 3,
+                RetryDelay = TimeSpan.FromMilliseconds(10)
+            }
         };
         var middleware = new RetryMiddleware(config);
         var request = CreateFunctionRequest();
@@ -76,8 +80,11 @@ public class RetryMiddlewareTests
         // Arrange
         var config = new ErrorHandlingConfig
         {
-            MaxRetries = 3,
-            RetryDelay = TimeSpan.FromMilliseconds(10)
+            FunctionRetries = new()
+            {
+                MaxRetries = 3,
+                RetryDelay = TimeSpan.FromMilliseconds(10)
+            }
         };
         var middleware = new RetryMiddleware(config);
         var request = CreateFunctionRequest();
@@ -110,11 +117,14 @@ public class RetryMiddlewareTests
         var customDelayCalled = false;
         var config = new ErrorHandlingConfig
         {
-            MaxRetries = 3,
-            CustomRetryStrategy = async (ex, attempt, ct) =>
+            FunctionRetries = new()
             {
-                customDelayCalled = true;
-                return TimeSpan.FromMilliseconds(100); // Custom delay
+                MaxRetries = 3,
+                CustomRetryStrategy = async (ex, attempt, ct) =>
+                {
+                    customDelayCalled = true;
+                    return TimeSpan.FromMilliseconds(100); // Custom delay
+                }
             }
         };
         var middleware = new RetryMiddleware(config);
@@ -146,10 +156,13 @@ public class RetryMiddlewareTests
         // Arrange
         var config = new ErrorHandlingConfig
         {
-            MaxRetries = 3,
-            CustomRetryStrategy = async (ex, attempt, ct) =>
+            FunctionRetries = new()
             {
-                return null; // Don't retry
+                MaxRetries = 3,
+                CustomRetryStrategy = async (ex, attempt, ct) =>
+                {
+                    return null; // Don't retry
+                }
             }
         };
         var middleware = new RetryMiddleware(config);
@@ -188,8 +201,11 @@ public class RetryMiddlewareTests
 
         var config = new ErrorHandlingConfig
         {
-            MaxRetries = 3,
-            UseProviderRetryDelays = true
+            FunctionRetries = new()
+            {
+                MaxRetries = 3,
+                UseProviderRetryDelays = true
+            }
         };
         var middleware = new RetryMiddleware(config, providerHandler);
         var request = CreateFunctionRequest();
@@ -229,7 +245,7 @@ public class RetryMiddlewareTests
 
         var config = new ErrorHandlingConfig
         {
-            MaxRetries = 3
+            FunctionRetries = new() { MaxRetries = 3 }
         };
         var middleware = new RetryMiddleware(config, providerHandler);
         var request = CreateFunctionRequest();
@@ -262,12 +278,15 @@ public class RetryMiddlewareTests
 
         var config = new ErrorHandlingConfig
         {
-            MaxRetries = 5, // Global max
-            MaxRetriesByCategory = new Dictionary<ErrorCategory, int>
+            FunctionRetries = new()
             {
-                [ErrorCategory.RateLimitRetryable] = 2 // Category-specific limit
-            },
-            RetryDelay = TimeSpan.FromMilliseconds(10)
+                MaxRetries = 5, // Global max
+                MaxRetriesByCategory = new Dictionary<ErrorCategory, int>
+                {
+                    [ErrorCategory.RateLimitRetryable] = 2 // Category-specific limit
+                },
+                RetryDelay = TimeSpan.FromMilliseconds(10)
+            }
         };
         var middleware = new RetryMiddleware(config, providerHandler);
         var request = CreateFunctionRequest();
@@ -296,9 +315,12 @@ public class RetryMiddlewareTests
         // Arrange
         var config = new ErrorHandlingConfig
         {
-            MaxRetries = 2,
-            RetryDelay = TimeSpan.FromMilliseconds(100),
-            BackoffMultiplier = 2.0
+            FunctionRetries = new()
+            {
+                MaxRetries = 2,
+                RetryDelay = TimeSpan.FromMilliseconds(100),
+                BackoffMultiplier = 2.0
+            }
         };
         var middleware = new RetryMiddleware(config);
         var request = CreateFunctionRequest();
@@ -338,10 +360,13 @@ public class RetryMiddlewareTests
         // Arrange
         var config = new ErrorHandlingConfig
         {
-            MaxRetries = 3,
-            RetryDelay = TimeSpan.FromMilliseconds(100),
-            BackoffMultiplier = 10.0, // Huge multiplier
-            MaxRetryDelay = TimeSpan.FromMilliseconds(200) // Cap at 200ms
+            FunctionRetries = new()
+            {
+                MaxRetries = 3,
+                RetryDelay = TimeSpan.FromMilliseconds(100),
+                BackoffMultiplier = 10.0, // Huge multiplier
+                MaxRetryDelay = TimeSpan.FromMilliseconds(200) // Cap at 200ms
+            }
         };
         var middleware = new RetryMiddleware(config);
         var retryEvents = new List<FunctionRetryEvent>();
@@ -400,7 +425,7 @@ public class RetryMiddlewareTests
         // Arrange
         var config = new ErrorHandlingConfig
         {
-            MaxRetries = 0 // No retries allowed
+            FunctionRetries = new() { MaxRetries = 0 } // No retries allowed
         };
         var middleware = new RetryMiddleware(config);
         var request = CreateFunctionRequest();
@@ -425,8 +450,11 @@ public class RetryMiddlewareTests
         // Arrange
         var config = new ErrorHandlingConfig
         {
-            MaxRetries = 10,
-            RetryDelay = TimeSpan.FromMilliseconds(100)
+            FunctionRetries = new()
+            {
+                MaxRetries = 10,
+                RetryDelay = TimeSpan.FromMilliseconds(100)
+            }
         };
         var middleware = new RetryMiddleware(config);
         var request = CreateFunctionRequest();
@@ -458,7 +486,7 @@ public class RetryMiddlewareTests
         // Arrange
         var config = new ErrorHandlingConfig
         {
-            MaxRetries = 3
+            ModelRetries = new() { MaxRetries = 3 }
         };
         var middleware = new RetryMiddleware(config);
         var mockClient = new FakeChatClient();
@@ -498,8 +526,11 @@ public class RetryMiddlewareTests
         // Arrange
         var config = new ErrorHandlingConfig
         {
-            MaxRetries = 3,
-            RetryDelay = TimeSpan.FromMilliseconds(10)
+            ModelRetries = new()
+            {
+                MaxRetries = 3,
+                RetryDelay = TimeSpan.FromMilliseconds(10)
+            }
         };
         var middleware = new RetryMiddleware(config);
         var mockClient = new FakeChatClient();
@@ -551,7 +582,7 @@ public class RetryMiddlewareTests
 
         var config = new ErrorHandlingConfig
         {
-            MaxRetries = 3
+            ModelRetries = new() { MaxRetries = 3 }
         };
         var middleware = new RetryMiddleware(config, providerHandler);
         var mockClient = new FakeChatClient();
@@ -592,8 +623,11 @@ public class RetryMiddlewareTests
 
         var config = new ErrorHandlingConfig
         {
-            MaxRetries = 3,
-            UseProviderRetryDelays = true
+            ModelRetries = new()
+            {
+                MaxRetries = 3,
+                UseProviderRetryDelays = true
+            }
         };
         var middleware = new RetryMiddleware(config, providerHandler);
         var mockClient = new FakeChatClient();
@@ -638,8 +672,11 @@ public class RetryMiddlewareTests
         // Arrange
         var config = new ErrorHandlingConfig
         {
-            MaxRetries = 3,
-            RetryDelay = TimeSpan.FromMilliseconds(10)
+            ModelRetries = new()
+            {
+                MaxRetries = 3,
+                RetryDelay = TimeSpan.FromMilliseconds(10)
+            }
         };
         var middleware = new RetryMiddleware(config);
         var mockClient = new FakeChatClient();
@@ -690,8 +727,11 @@ public class RetryMiddlewareTests
         // Arrange
         var config = new ErrorHandlingConfig
         {
-            MaxRetries = 2,
-            RetryDelay = TimeSpan.FromMilliseconds(10)
+            ModelRetries = new()
+            {
+                MaxRetries = 2,
+                RetryDelay = TimeSpan.FromMilliseconds(10)
+            }
         };
         var middleware = new RetryMiddleware(config);
         var mockClient = new FakeChatClient();
@@ -720,7 +760,335 @@ public class RetryMiddlewareTests
 
     #endregion
 
+    #region Replay Eligibility And Exclusions
+
+    [Fact]
+    public async Task WrapFunctionCallAsync_ExternalFunction_DoesNotRetryByDefault()
+    {
+        var config = new ErrorHandlingConfig
+        {
+            FunctionRetries = new() { MaxRetries = 3, RetryDelay = TimeSpan.Zero }
+        };
+        var middleware = new RetryMiddleware(config);
+        var request = CreateFunctionRequest(
+            AIFunctionFactory.Create(() => "external", "ExternalFunction"));
+        var attempts = 0;
+
+        Func<FunctionRequest, Task<object?>> handler = _ =>
+        {
+            attempts++;
+            throw new InvalidOperationException("Transient");
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            middleware.WrapFunctionCallAsync(request, handler, CancellationToken.None));
+
+        Assert.Equal(1, attempts);
+    }
+
+    [Fact]
+    public async Task WrapFunctionCallAsync_IdempotentFunction_Retries()
+    {
+        var config = new ErrorHandlingConfig
+        {
+            FunctionRetries = new() { MaxRetries = 1, RetryDelay = TimeSpan.Zero }
+        };
+        var middleware = new RetryMiddleware(config);
+        var request = CreateFunctionRequest(CreateHpdFunction(ReplayPolicy.Idempotent));
+        var attempts = 0;
+
+        Func<FunctionRequest, Task<object?>> handler = _ =>
+        {
+            attempts++;
+            if (attempts == 1)
+                throw new InvalidOperationException("Transient");
+            return Task.FromResult<object?>("Success");
+        };
+
+        var result = await middleware.WrapFunctionCallAsync(
+            request,
+            handler,
+            CancellationToken.None);
+
+        Assert.Equal("Success", result);
+        Assert.Equal(2, attempts);
+    }
+
+    [Fact]
+    public async Task WrapFunctionCallAsync_ActionReplayOverride_ControlsEligibility()
+    {
+        var config = new ErrorHandlingConfig
+        {
+            FunctionRetries = new() { MaxRetries = 1, RetryDelay = TimeSpan.Zero }
+        };
+        var middleware = new RetryMiddleware(config);
+        var function = CreateActionFunction();
+
+        foreach (var (action, expectedAttempts) in new[]
+                 {
+                     ("read", 2),
+                     ("write", 1)
+                 })
+        {
+            var request = CreateFunctionRequest(function) with
+            {
+                InvocationMode = new ResolvedFunctionInvocation
+                {
+                    Action = action,
+                    Mode = AgentInvocationMode.Synchronous,
+                    Policy = AgentInvocationModePolicy.SynchronousOnly,
+                    Handling = AgentInvocationModeHandling.Runtime
+                }
+            };
+            var attempts = 0;
+
+            Func<FunctionRequest, Task<object?>> handler = _ =>
+            {
+                attempts++;
+                if (attempts == 1)
+                    throw new InvalidOperationException("Transient");
+                return Task.FromResult<object?>("Success");
+            };
+
+            if (expectedAttempts == 1)
+            {
+                await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                    middleware.WrapFunctionCallAsync(request, handler, CancellationToken.None));
+            }
+            else
+            {
+                await middleware.WrapFunctionCallAsync(request, handler, CancellationToken.None);
+            }
+
+            Assert.Equal(expectedAttempts, attempts);
+        }
+    }
+
+    [Fact]
+    public async Task WrapFunctionCallAsync_ExactFunctionExclusion_DoesNotRetry()
+    {
+        var config = new ErrorHandlingConfig
+        {
+            FunctionRetries = new()
+            {
+                MaxRetries = 2,
+                RetryDelay = TimeSpan.Zero,
+                Exclude = new() { Functions = ["ExcludedFunction"] }
+            }
+        };
+        var middleware = new RetryMiddleware(config);
+        var request = CreateFunctionRequest(
+            CreateHpdFunction(ReplayPolicy.Idempotent, "ExcludedFunction"));
+        var attempts = 0;
+
+        Func<FunctionRequest, Task<object?>> handler = _ =>
+        {
+            attempts++;
+            throw new InvalidOperationException("Transient");
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            middleware.WrapFunctionCallAsync(request, handler, CancellationToken.None));
+
+        Assert.Equal(1, attempts);
+    }
+
+    [Fact]
+    public async Task WrapFunctionCallAsync_ExactHarnessExclusion_DoesNotRetry()
+    {
+        var config = new ErrorHandlingConfig
+        {
+            FunctionRetries = new()
+            {
+                MaxRetries = 2,
+                RetryDelay = TimeSpan.Zero,
+                Exclude = new() { Harnesses = ["ComputerHarness"] }
+            }
+        };
+        var middleware = new RetryMiddleware(config);
+        var request = CreateFunctionRequest(CreateHpdFunction(ReplayPolicy.Idempotent)) with
+        {
+            ToolHarnessName = "ComputerHarness"
+        };
+        var attempts = 0;
+
+        Func<FunctionRequest, Task<object?>> handler = _ =>
+        {
+            attempts++;
+            throw new InvalidOperationException("Transient");
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            middleware.WrapFunctionCallAsync(request, handler, CancellationToken.None));
+
+        Assert.Equal(1, attempts);
+    }
+
+    [Fact]
+    public async Task WrapFunctionCallAsync_ExactActionExclusion_DoesNotRetry()
+    {
+        var config = new ErrorHandlingConfig
+        {
+            FunctionRetries = new()
+            {
+                MaxRetries = 2,
+                RetryDelay = TimeSpan.Zero,
+                Exclude = new()
+                {
+                    Actions =
+                    [
+                        new ActionRetryExclusion
+                        {
+                            Function = "ActionFunction",
+                            Action = "read"
+                        }
+                    ]
+                }
+            }
+        };
+        var middleware = new RetryMiddleware(config);
+        var request = CreateFunctionRequest(CreateActionFunction()) with
+        {
+            InvocationMode = new ResolvedFunctionInvocation
+            {
+                Action = "read",
+                Mode = AgentInvocationMode.Synchronous,
+                Policy = AgentInvocationModePolicy.SynchronousOnly,
+                Handling = AgentInvocationModeHandling.Runtime
+            }
+        };
+        var attempts = 0;
+
+        Func<FunctionRequest, Task<object?>> handler = _ =>
+        {
+            attempts++;
+            throw new InvalidOperationException("Transient");
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            middleware.WrapFunctionCallAsync(request, handler, CancellationToken.None));
+
+        Assert.Equal(1, attempts);
+    }
+
+    [Fact]
+    public async Task WrapModelTurnStreamingAsync_FunctionExclusion_DoesNotDisableModelRetry()
+    {
+        var config = new ErrorHandlingConfig
+        {
+            ModelRetries = new() { MaxRetries = 1, RetryDelay = TimeSpan.Zero },
+            FunctionRetries = new()
+            {
+                MaxRetries = 0,
+                Exclude = new() { Functions = ["ExcludedFunction"] }
+            }
+        };
+        var middleware = new RetryMiddleware(config);
+        var request = CreateAgentModelTurnRequest(new FakeChatClient());
+        var attempts = 0;
+
+        async IAsyncEnumerable<AgentModelUpdate> Handler(AgentModelTurnRequest _)
+        {
+            attempts++;
+            if (attempts == 1)
+                throw new InvalidOperationException("Transient");
+            yield return new AgentChatModelUpdate(new ChatResponseUpdate
+            {
+                Contents = [new TextContent("Success")]
+            });
+        }
+
+        await foreach (var _ in middleware.WrapModelTurnStreamingAsync(
+                           request,
+                           Handler,
+                           CancellationToken.None)!)
+        {
+        }
+
+        Assert.Equal(2, attempts);
+    }
+
+    #endregion
+
     #region Test Doubles
+
+    private static AIFunction CreateHpdFunction(
+        ReplayPolicy replay,
+        string name = "IdempotentFunction") =>
+        HPDAIFunctionFactory.Create(
+            (_, _, _) => Task.FromResult<object?>("test"),
+            new HPDAIFunctionFactoryOptions
+            {
+                Name = name,
+                Replay = replay
+            });
+
+    private static AIFunction CreateActionFunction()
+    {
+        var actions = CreateActionPolicies();
+        var contract = new AIFunctionOperationContract
+        {
+            ActionArgumentName = "command",
+            Discriminator = "action",
+            Actions = actions
+        };
+        using var document = JsonDocument.Parse("""
+            {
+              "type": "object",
+              "properties": {
+                "command": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": { "action": { "type": "string", "const": "read" } },
+                      "additionalProperties": false,
+                      "required": ["action"]
+                    },
+                    {
+                      "type": "object",
+                      "properties": { "action": { "type": "string", "const": "write" } },
+                      "additionalProperties": false,
+                      "required": ["action"]
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": ["command"]
+            }
+            """);
+        return HPDAIFunctionFactory.Create(
+            (_, _, _) => Task.FromResult<object?>("test"),
+            new HPDAIFunctionFactoryOptions
+            {
+                Name = "ActionFunction",
+                VerifiedActionComposition = new VerifiedAIFunctionActionComposition(
+                    document.RootElement.Clone(),
+                    contract)
+            });
+    }
+
+    private static Dictionary<string, AIFunctionActionPolicy> CreateActionPolicies()
+    {
+        static AIFunctionActionPolicy Policy(ReplayPolicy replay) => new()
+        {
+            InvocationModePolicy = AgentInvocationModePolicy.SynchronousOnly,
+            InvocationModeHandling = AgentInvocationModeHandling.Runtime,
+            Replay = replay,
+            Permission = new AIFunctionPermissionDeclaration
+            {
+                RequiresPermission = false,
+                Authority = "function/ActionFunction/action/test",
+                Source = PermissionDeclarationSource.FrameworkDefault
+            }
+        };
+
+        return new Dictionary<string, AIFunctionActionPolicy>(StringComparer.Ordinal)
+        {
+            ["read"] = Policy(ReplayPolicy.Idempotent),
+            ["write"] = Policy(ReplayPolicy.Never)
+        };
+    }
 
     private class TestProviderErrorHandler : IProviderErrorHandler
     {

@@ -86,6 +86,9 @@ internal class FunctionCapability : BaseCapability
     /// </summary>
     public string InvocationModeHandling { get; set; } = "Runtime";
 
+    /// <summary>Whether the function is safe to replay automatically.</summary>
+    public string Replay { get; set; } = "Never";
+
     /// <summary>
     /// Whether this function has any conditional parameters.
     /// </summary>
@@ -220,6 +223,7 @@ $@"({asyncKeyword} (arguments, functionContext, cancellationToken) =>
             options.AppendLine($"                FunctionPermission = {CreatePermissionDeclaration(true, PermissionAuthority ?? GeneratedAuthority(FunctionName), PermissionPolicyDescriptorId, PermissionInteractionDescriptorId, "FunctionAttribute")},");
         options.AppendLine($"                InvocationModePolicy = global::HPD.Agent.AgentInvocationModePolicy.{InvocationModePolicy},");
         options.AppendLine($"                InvocationModeHandling = global::HPD.Agent.AgentInvocationModeHandling.{InvocationModeHandling},");
+        options.AppendLine($"                Replay = global::ReplayPolicy.{Replay},");
         var operationContract = GenerateOperationContractCode(relevantParams);
         if (operationContract is not null)
         {
@@ -280,7 +284,8 @@ $@"({asyncKeyword} (arguments, functionContext, cancellationToken) =>
         }
 
         options.AppendLine($"                    [\"InvocationModePolicy\"] = \"{InvocationModePolicy}\",");
-        options.AppendLine($"                    [\"InvocationModeHandling\"] = \"{InvocationModeHandling}\"");
+        options.AppendLine($"                    [\"InvocationModeHandling\"] = \"{InvocationModeHandling}\",");
+        options.AppendLine($"                    [\"Replay\"] = \"{Replay}\"");
         options.Append("                }");
 
         return
@@ -384,7 +389,8 @@ $@"HPDAIFunctionFactory.Create(
             var handling = ResolveActionOverride(attribute, "InvocationModeHandling", InvocationModeHandling,
                 "Runtime", "ToolBody");
             var permission = ResolveActionPermissionOverride(attribute, unionCase.Discriminator);
-            entries.Add($"[\"{Escape(unionCase.Discriminator)}\"] = new global::HPD.Agent.AIFunctionActionPolicy {{ InvocationModePolicy = global::HPD.Agent.AgentInvocationModePolicy.{policy}, InvocationModeHandling = global::HPD.Agent.AgentInvocationModeHandling.{handling}, Permission = {permission} }}");
+            var replay = ResolveActionReplayOverride(attribute);
+            entries.Add($"[\"{Escape(unionCase.Discriminator)}\"] = new global::HPD.Agent.AIFunctionActionPolicy {{ InvocationModePolicy = global::HPD.Agent.AgentInvocationModePolicy.{policy}, InvocationModeHandling = global::HPD.Agent.AgentInvocationModeHandling.{handling}, Replay = global::ReplayPolicy.{replay}, Permission = {permission} }}");
         }
         return $"new global::HPD.Agent.AIFunctionOperationContract {{ ActionArgumentName = \"{Escape(parameter.JsonName)}\", Discriminator = \"{Escape(union.DiscriminatorPropertyName)}\", Actions = new global::System.Collections.Generic.Dictionary<string, global::HPD.Agent.AIFunctionActionPolicy>(global::System.StringComparer.Ordinal) {{ {string.Join(", ", entries)} }} }}";
     }
@@ -428,6 +434,22 @@ $@"HPDAIFunctionFactory.Create(
         type?.GetAttributes()
             .FirstOrDefault(attribute => attribute.AttributeClass?.Name == attributeName)
             ?.ConstructorArguments.FirstOrDefault().Value as string;
+
+    private string ResolveActionReplayOverride(AttributeData attribute)
+    {
+        var argument = attribute.NamedArguments.FirstOrDefault(pair => pair.Key == "Replay");
+        if (argument.Key is null || argument.Value.Value is null)
+            return Replay;
+
+        var numeric = Convert.ToInt32(argument.Value.Value, System.Globalization.CultureInfo.InvariantCulture);
+        return numeric switch
+        {
+            0 => Replay,
+            1 => "Never",
+            2 => "Idempotent",
+            _ => throw new InvalidOperationException($"Unsupported Replay value '{numeric}'.")
+        };
+    }
 
     private static string GeneratedAuthority(string function, string? action = null) => action is null
         ? $"function/{Uri.EscapeDataString(function)}"

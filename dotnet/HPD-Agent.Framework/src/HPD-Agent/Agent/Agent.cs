@@ -2892,6 +2892,8 @@ public sealed partial class Agent : IAsyncDisposable
                 "Non-default propagation requires an explicit Chat selection in the subagent run configuration.");
         }
         var runConfig = AgentRunConfigSnapshot.Capture(input.RunConfig, _chatClientResolver.Composition) ?? new AgentRunConfig();
+        ValidateCommunicationRunConfig(runConfig);
+        ApplyCommunicationDefaults(runConfig);
         runConfig.HarnessConfiguration = _harnessConfigurations.Capture(
             runConfig.Harnesses,
             runConfig.HarnessOverrideLayers,
@@ -2932,11 +2934,44 @@ public sealed partial class Agent : IAsyncDisposable
     internal AgentRunConfig CaptureRunConfig(AgentRunConfig? runConfig)
     {
         var captured = AgentRunConfigSnapshot.Capture(runConfig, _chatClientResolver.Composition) ?? new AgentRunConfig();
+        ValidateCommunicationRunConfig(captured);
+        ApplyCommunicationDefaults(captured);
         captured.HarnessConfiguration = _harnessConfigurations.Capture(
             captured.Harnesses,
             captured.HarnessOverrideLayers,
             captured.HarnessOverridePath);
         return captured;
+    }
+
+    private void ApplyCommunicationDefaults(AgentRunConfig runConfig)
+    {
+        runConfig.EnableParentCommunication ??=
+            Config?.EnableParentCommunication ?? false;
+        runConfig.AllowUserQuestions ??=
+            Config?.AllowUserQuestions ?? false;
+    }
+
+    private void ValidateCommunicationRunConfig(AgentRunConfig runConfig)
+    {
+        if (runConfig.AllowUserQuestions == true &&
+            Config?.explicitlyRegisteredToolHarnesses.Contains(
+                nameof(QuestionToolHarness)) != true)
+        {
+            throw new AgentRunConfigurationException(
+                "user_questions_not_enabled",
+                "allowUserQuestions",
+                "AskUser must be enabled in AgentConfig or through AgentBuilder.WithUserQuestions before a run can expose it.");
+        }
+
+        if (runConfig.EnableParentCommunication == true &&
+            Config?.explicitlyRegisteredToolHarnesses.Contains(
+                nameof(ParentToolHarness)) != true)
+        {
+            throw new AgentRunConfigurationException(
+                "parent_communication_not_enabled",
+                "enableParentCommunication",
+                "Parent communication must be enabled in AgentConfig or through AgentBuilder.WithParentCommunication before a run can expose it.");
+        }
     }
 
     /// <summary>

@@ -144,6 +144,21 @@ public class AgentConfig
     public Goals.GoalConfig? Goals { get; set; }
 
     /// <summary>
+    /// Gets or sets whether this agent can use the <c>Parent</c> communication tool when it
+    /// runs as a controlled subagent. <see langword="null"/> uses the framework default:
+    /// enabled automatically for materialized subagents and disabled for standalone agents.
+    /// </summary>
+    public bool? EnableParentCommunication { get; set; }
+
+    /// <summary>
+    /// Gets or sets whether this agent exposes the <c>AskUser</c> tool by default.
+    /// The default is disabled. An <see cref="AgentRunConfig"/> value overrides this setting
+    /// for one run, but this setting must be enabled when the agent is built so the harmless
+    /// tool definition is available for that run-time policy decision.
+    /// </summary>
+    public bool AllowUserQuestions { get; set; }
+
+    /// <summary>
     /// Configuration for agentic loop safety controls (timeouts, circuit breakers).
     /// </summary>
     public AgenticLoopConfig? AgenticLoop { get; set; }
@@ -744,10 +759,11 @@ public class ErrorHandlingConfig
     /// </remarks>
     public bool IncludeDetailedErrorsInChat { get; set; } = true;
 
-    /// <summary>
-    /// Maximum number of retries for transient errors
-    /// </summary>
-    public int MaxRetries { get; set; } = 3;
+    /// <summary>Gets or sets retry behavior for model calls.</summary>
+    public ModelRetryConfig ModelRetries { get; set; } = new();
+
+    /// <summary>Gets or sets retry behavior for function calls.</summary>
+    public FunctionRetryConfig FunctionRetries { get; set; } = new();
 
     /// <summary>
     /// Optional timeout for a single function execution.
@@ -755,9 +771,16 @@ public class ErrorHandlingConfig
     /// Set an explicit value to enable function timeout middleware.
     /// </summary>
     public TimeSpan? SingleFunctionTimeout { get; set; }
+}
+
+/// <summary>Configures retry attempts and backoff for one execution scope.</summary>
+public class RetryPolicyConfig
+{
+    /// <summary>Gets or sets the number of retries after the initial attempt.</summary>
+    public int MaxRetries { get; set; } = 3;
 
     /// <summary>
-    /// Delay before retrying failed function (default: 1 second, exponentially increased per attempt)
+    /// Gets or sets the delay before retrying a failed call. The default is one second.
     /// </summary>
     public TimeSpan RetryDelay { get; set; } = TimeSpan.FromSeconds(1);
 
@@ -766,12 +789,6 @@ public class ErrorHandlingConfig
     /// Default is true (opinionated: respect provider guidance).
     /// </summary>
     public bool UseProviderRetryDelays { get; set; } = true;
-
-    /// <summary>
-    /// Whether to automatically attempt token refresh on 401 authentication errors.
-    /// Default is true (opinionated: auto-recovery when possible).
-    /// </summary>
-    public bool AutoRefreshTokensOn401 { get; set; } = true;
 
     /// <summary>
     /// Maximum retry delay cap to prevent excessive waiting.
@@ -797,6 +814,47 @@ public class ErrorHandlingConfig
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public Func<Exception, int, CancellationToken, Task<TimeSpan?>>? CustomRetryStrategy { get; set; }
+}
+
+/// <summary>Configures retry behavior for model calls.</summary>
+public sealed class ModelRetryConfig : RetryPolicyConfig
+{
+    /// <summary>
+    /// Gets or sets whether model retries attempt to refresh authentication after a 401.
+    /// </summary>
+    public bool AutoRefreshTokensOn401 { get; set; } = true;
+}
+
+/// <summary>Configures retry behavior and replay exclusions for function calls.</summary>
+public sealed class FunctionRetryConfig : RetryPolicyConfig
+{
+    /// <summary>
+    /// Gets or sets selectors that disable automatic replay for otherwise eligible calls.
+    /// </summary>
+    public RetryExclusionConfig Exclude { get; set; } = new();
+}
+
+/// <summary>Identifies exact function and action selectors excluded from automatic replay.</summary>
+public sealed class RetryExclusionConfig
+{
+    /// <summary>Gets or sets exact ToolHarness owner names.</summary>
+    public List<string> Harnesses { get; set; } = [];
+
+    /// <summary>Gets or sets exact model-facing function names.</summary>
+    public List<string> Functions { get; set; } = [];
+
+    /// <summary>Gets or sets exact function action selectors.</summary>
+    public List<ActionRetryExclusion> Actions { get; set; } = [];
+}
+
+/// <summary>Identifies one exact function action excluded from automatic replay.</summary>
+public sealed class ActionRetryExclusion
+{
+    /// <summary>Gets or sets the exact model-facing function name.</summary>
+    public string Function { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the exact validated action discriminator.</summary>
+    public string Action { get; set; } = string.Empty;
 }
 
 /// <summary>Configuration for canonical thread compaction.</summary>

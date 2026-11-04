@@ -20,7 +20,7 @@ namespace HPD.Agent.Middleware.Function;
 ///
 /// <para><b>Example Registration Order:</b></para>
 /// <code>
-/// .WithFunctionRetry()   // Outermost - retry the entire timeout operation
+/// .WithRetry()           // Outermost - retry the entire timeout operation
 /// .WithFunctionTimeout() // Middle - timeout individual attempts
 /// .WithPermissions()     // Innermost - check permissions before execution
 /// </code>

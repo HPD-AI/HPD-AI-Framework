@@ -73,8 +73,8 @@ public class ErrorHandlingConvenienceMethodTest
                 },
                 configureRetry: retry =>
                 {
-                    retry.MaxRetries = 10;
-                    retry.RetryDelay = TimeSpan.FromSeconds(5);
+                    retry.FunctionRetries.MaxRetries = 10;
+                    retry.FunctionRetries.RetryDelay = TimeSpan.FromSeconds(5);
                 },
                 configureFunctionTimeout: TimeSpan.FromMinutes(3));
 
@@ -90,8 +90,11 @@ public class ErrorHandlingConvenienceMethodTest
         {
             ErrorHandling = new ErrorHandlingConfig
             {
-                MaxRetries = 5,
-                RetryDelay = TimeSpan.FromSeconds(2)
+                FunctionRetries = new()
+                {
+                    MaxRetries = 5,
+                    RetryDelay = TimeSpan.FromSeconds(2)
+                }
             }
         };
 
@@ -102,6 +105,16 @@ public class ErrorHandlingConvenienceMethodTest
         // Assert
         Assert.Single(builder.Middlewares);
         Assert.IsType<HPD.Agent.Middleware.Function.RetryMiddleware>(builder.Middlewares[0]);
+    }
+
+    [Fact]
+    public void WithRetry_CalledTwice_RejectsDuplicateMiddleware()
+    {
+        var builder = new AgentBuilder().WithRetry();
+
+        var error = Assert.Throws<InvalidOperationException>(() => builder.WithRetry());
+
+        Assert.Contains("already registered", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]

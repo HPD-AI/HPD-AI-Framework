@@ -74,7 +74,6 @@ public static class TestAgentFactory
             },
             ErrorHandling = new ErrorHandlingConfig
             {
-                MaxRetries = 3,
                 NormalizeErrors = true
             }
         };

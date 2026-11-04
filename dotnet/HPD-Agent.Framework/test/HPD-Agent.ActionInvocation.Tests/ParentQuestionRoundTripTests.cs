@@ -31,7 +31,13 @@ public sealed class ParentQuestionRoundTripTests
             1 => Call("Parent", "complete", """{"request":{"action":"complete","report":"Verified staging result"}}"""),
             _ => throw new InvalidOperationException("Child ran beyond complete")
         });
-        await using var child = await new AgentBuilder(new AgentConfig { AgentId = "worker", Name = "worker", SessionStore = store }, Composition(childClient))
+        await using var child = await new AgentBuilder(new AgentConfig
+            {
+                AgentId = "worker",
+                Name = "worker",
+                SessionStore = store,
+                EnableParentCommunication = true
+            }, Composition(childClient))
             .WithEventComposition(CoreAgentEventComposition.Instance).WithServiceProvider(services)
             .WithChatClient(childClient).BuildAsync();
         resolver.Agents["worker"] = child;
@@ -132,7 +138,13 @@ public sealed class ParentQuestionRoundTripTests
         var workerKey = new ThreadKey("nested", "worker");
         const string ask = """{"request":{"action":"ask","questions":[{"id":"choice","text":"Which environment?"}]}}""";
         const string complete = """{"request":{"action":"complete","report":"Verified staging"}}""";
-        AgentBuilder Builder(string id, IChatClient client) => new AgentBuilder(new AgentConfig { AgentId = id, Name = id, SessionStore = store }, Composition(client))
+        AgentBuilder Builder(string id, IChatClient client) => new AgentBuilder(new AgentConfig
+            {
+                AgentId = id,
+                Name = id,
+                SessionStore = store,
+                EnableParentCommunication = true
+            }, Composition(client))
             .WithEventComposition(CoreAgentEventComposition.Instance).WithServiceProvider(services).WithChatClient(client);
         await using var worker = await Builder("worker", new ScriptedClient(step => step == 0 ? Call("Parent", "ask", ask) : Call("Parent", "complete", complete))).BuildAsync();
         resolver.Agents["worker"] = worker;

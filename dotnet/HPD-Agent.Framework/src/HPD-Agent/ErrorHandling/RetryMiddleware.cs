@@ -72,7 +72,17 @@ public class RetryMiddleware : IAgentMiddleware
         Func<FunctionRequest, Task<object?>> handler,
         CancellationToken cancellationToken)
     {
-        var maxRetries = _config.MaxRetries;
+        var policy = _config.FunctionRetries;
+        var effectiveReplay = FunctionReplayPolicy.Resolve(
+            request.Function,
+            request.InvocationMode?.Action);
+        if (effectiveReplay != ReplayPolicy.Idempotent ||
+            FunctionReplayPolicy.IsExcluded(request, policy.Exclude))
+        {
+            return await handler(request);
+        }
+
+        var maxRetries = policy.MaxRetries;
         Exception? lastException = null;
 
         for (int attempt = 0; attempt <= maxRetries; attempt++)
@@ -87,7 +97,17 @@ public class RetryMiddleware : IAgentMiddleware
                 lastException = ex;
 
                 // Check if we should retry
-                var delay = await CalculateRetryDelayAsync(ex, attempt, cancellationToken);
+                if (cancellationToken.IsCancellationRequested)
+                    throw new OperationCanceledException(
+                        "Function retry was cancelled after the current attempt failed.",
+                        ex,
+                        cancellationToken);
+
+                var delay = await CalculateRetryDelayAsync(
+                    ex,
+                    attempt,
+                    policy,
+                    cancellationToken);
 
                 if (!delay.HasValue || attempt >= maxRetries)
                 {
@@ -136,7 +156,8 @@ public class RetryMiddleware : IAgentMiddleware
         Func<AgentModelTurnRequest, IAsyncEnumerable<AgentModelUpdate>> handler,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var maxRetries = _config.MaxRetries;
+        var policy = _config.ModelRetries;
+        var maxRetries = policy.MaxRetries;
         var channel = Channel.CreateUnbounded<AgentModelUpdate>();
         Exception? producerException = null;
 
@@ -181,7 +202,17 @@ public class RetryMiddleware : IAgentMiddleware
                         lastException = ex;
 
                         // Calculate retry delay
-                        delay = await CalculateRetryDelayAsync(ex, attempt, cancellationToken);
+                        if (cancellationToken.IsCancellationRequested)
+                            throw new OperationCanceledException(
+                                "Model retry was cancelled after the current attempt failed.",
+                                ex,
+                                cancellationToken);
+
+                        delay = await CalculateRetryDelayAsync(
+                            ex,
+                            attempt,
+                            policy,
+                            cancellationToken);
 
                         if (!delay.HasValue || attempt >= maxRetries)
                         {
@@ -225,14 +256,15 @@ public class RetryMiddleware : IAgentMiddleware
     private async Task<TimeSpan?> CalculateRetryDelayAsync(
         Exception ex,
         int attempt,
+        RetryPolicyConfig policy,
         CancellationToken cancellationToken)
     {
         //     
         // PRIORITY 1: Custom Retry Strategy (user-provided)
         //     
-        if (_config.CustomRetryStrategy != null)
+        if (policy.CustomRetryStrategy != null)
         {
-            var customDelay = await _config.CustomRetryStrategy(ex, attempt, cancellationToken);
+            var customDelay = await policy.CustomRetryStrategy(ex, attempt, cancellationToken);
             // Custom strategy result is authoritative - don't fall through
             return customDelay;
         }
@@ -244,8 +276,8 @@ public class RetryMiddleware : IAgentMiddleware
         if (errorDetails != null)
         {
             // Check per-category retry limits
-            if (_config.MaxRetriesByCategory != null &&
-                _config.MaxRetriesByCategory.TryGetValue(errorDetails.Category, out var categoryMax))
+            if (policy.MaxRetriesByCategory != null &&
+                policy.MaxRetriesByCategory.TryGetValue(errorDetails.Category, out var categoryMax))
             {
                 if (attempt >= categoryMax)
                     return null; // Exceeded category-specific limit
@@ -255,29 +287,32 @@ public class RetryMiddleware : IAgentMiddleware
             var providerDelay = _providerHandler.GetRetryDelay(
                 errorDetails,
                 attempt,
-                _config.RetryDelay,
-                _config.BackoffMultiplier,
-                _config.MaxRetryDelay);
+                policy.RetryDelay,
+                policy.BackoffMultiplier,
+                policy.MaxRetryDelay);
 
-            // Provider result is authoritative - don't fall through
-            return providerDelay;
+            if (!providerDelay.HasValue)
+                return null;
+
+            return policy.UseProviderRetryDelays
+                ? providerDelay
+                : CalculateExponentialBackoff(attempt, policy);
         }
 
         //     
         // PRIORITY 3: Exponential Backoff (fallback - only if no provider)
         //     
-        return CalculateExponentialBackoff(attempt);
+        return CalculateExponentialBackoff(attempt, policy);
     }
 
     /// <summary>
     /// Calculates exponential backoff with jitter.
     /// </summary>
-    private TimeSpan CalculateExponentialBackoff(int attempt)
+    private static TimeSpan CalculateExponentialBackoff(int attempt, RetryPolicyConfig policy)
     {
-        // Use defaults if config values are not set
-        var baseDelay = _config.RetryDelay;
-        var backoffMultiplier = _config.BackoffMultiplier;
-        var maxDelay = _config.MaxRetryDelay;
+        var baseDelay = policy.RetryDelay;
+        var backoffMultiplier = policy.BackoffMultiplier;
+        var maxDelay = policy.MaxRetryDelay;
 
         var baseMs = baseDelay.TotalMilliseconds;
         var expDelayMs = baseMs * Math.Pow(backoffMultiplier, attempt);

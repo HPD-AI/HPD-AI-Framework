@@ -33,6 +33,7 @@ internal sealed class AgentDefinitionMaterializer(IAgentStore store)
             _ => throw new ArgumentOutOfRangeException(nameof(definition.Configuration))
         };
         config.AgentId = definition.AgentId;
+        config.EnableParentCommunication ??= true;
         config.AgentStore = null;
         config.AgentStoreOptions = null;
 

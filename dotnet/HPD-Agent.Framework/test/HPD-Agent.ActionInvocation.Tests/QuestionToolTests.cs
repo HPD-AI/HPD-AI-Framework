@@ -47,7 +47,11 @@ public sealed class QuestionToolTests
             ["questions"] = System.Text.Json.JsonDocument.Parse("""[{"id":"question","text":"What should I do?"}]""").RootElement.Clone()
         });
         client.EnqueueTextResponse("Answer received.");
-        await using var agent = await new AgentBuilder(new AgentConfig { Name = "questions" })
+        await using var agent = await new AgentBuilder(new AgentConfig
+            {
+                Name = "questions",
+                AllowUserQuestions = true
+            })
             .WithEventComposition(CoreAgentEventComposition.Instance).WithChatClient(new IdentifiedClient(client)).BuildAsync();
         await agent.CreateSessionAsync("session");
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -106,7 +110,11 @@ public sealed class QuestionToolTests
             ["questions"] = System.Text.Json.JsonDocument.Parse("""[{"id":"q","text":"Continue?"}]""").RootElement.Clone()
         });
         client.EnqueueTextResponse("No answer was received.");
-        await using var agent = await new AgentBuilder(new AgentConfig { Name = "deadline" })
+        await using var agent = await new AgentBuilder(new AgentConfig
+            {
+                Name = "deadline",
+                AllowUserQuestions = true
+            })
             .WithEventComposition(CoreAgentEventComposition.Instance).WithChatClient(new IdentifiedClient(client))
             .WithMiddleware(new HPD.Agent.Middleware.Function.FunctionTimeoutMiddleware(TimeSpan.FromMilliseconds(200))).BuildAsync();
         await agent.CreateSessionAsync("deadline");

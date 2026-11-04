@@ -240,7 +240,13 @@ public static class MiddlewareTestHelpers
             "test-conv",
             "TestAgent");
 
-        function ??= AIFunctionFactory.Create(() => "test", "TestFunction");
+        function ??= HPDAIFunctionFactory.Create(
+            (_, _, _) => Task.FromResult<object?>("test"),
+            new HPDAIFunctionFactoryOptions
+            {
+                Name = "TestFunction",
+                Replay = ReplayPolicy.Idempotent
+            });
         arguments ??= new Dictionary<string, object?>();
 
         return new FunctionRequest

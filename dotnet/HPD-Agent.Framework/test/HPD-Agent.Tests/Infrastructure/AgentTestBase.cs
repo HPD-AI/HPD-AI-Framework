@@ -73,7 +73,6 @@ public abstract class AgentTestBase : IAsyncDisposable, IDisposable
         },
         ErrorHandling = new ErrorHandlingConfig
         {
-            MaxRetries = 3,
             NormalizeErrors = true
         }
     };

@@ -2091,9 +2091,14 @@ public class AgentBuilder
         var secretResolver = _secretResolver
             ?? throw new InvalidOperationException("The provider secret resolver chain was not initialized.");
 
-        if (!_builderAddedToolHarnesses.Contains(nameof(ParentToolHarness)))
+        // Communication tools are capabilities, not ambient framework tools. Parent is
+        // materialized into child definitions automatically; standalone agents only get it
+        // when explicitly requested. AskUser is always an explicit agent/builder opt-in.
+        if (_config.EnableParentCommunication == true &&
+            !_builderAddedToolHarnesses.Contains(nameof(ParentToolHarness)))
             this.WithToolHarness<ParentToolHarness>();
-        if (!_builderAddedToolHarnesses.Contains(nameof(QuestionToolHarness)))
+        if (_config.AllowUserQuestions &&
+            !_builderAddedToolHarnesses.Contains(nameof(QuestionToolHarness)))
             this.WithToolHarness<QuestionToolHarness>();
         var hostServices = _serviceProvider;
         if (_config.Goals is { Enabled: true } goals)
@@ -2294,6 +2299,68 @@ public class AgentBuilder
                 StringComparer.Ordinal.Equals(pair.First.Discriminator, pair.Second.Discriminator) &&
                 pair.First.Durability == pair.Second.Durability &&
                 StringComparer.Ordinal.Equals(pair.First.ModuleId, pair.Second.ModuleId));
+    }
+
+    private void ValidateRetryExclusions(IReadOnlyList<AIFunction> functions)
+    {
+        var exclusions = _config.ErrorHandling?.FunctionRetries.Exclude;
+        if (exclusions is null)
+            return;
+
+        var functionNames = functions
+            .Select(static function => function.Name)
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var selector in exclusions.Functions)
+        {
+            if (!functionNames.Contains(selector))
+            {
+                throw new InvalidOperationException(
+                    $"errorHandling.functionRetries.exclude.functions contains unknown function '{selector}'.");
+            }
+        }
+
+        var harnessNames = functions
+            .Select(static function =>
+                function.AdditionalProperties?.TryGetValue("ToolHarnessName", out var value) == true
+                    ? value as string
+                    : null)
+            .Where(static name => !string.IsNullOrWhiteSpace(name))
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var selector in exclusions.Harnesses)
+        {
+            if (!harnessNames.Contains(selector))
+            {
+                throw new InvalidOperationException(
+                    $"errorHandling.functionRetries.exclude.harnesses contains unknown harness '{selector}'.");
+            }
+        }
+
+        for (var index = 0; index < exclusions.Actions.Count; index++)
+        {
+            var selector = exclusions.Actions[index];
+            var candidates = functions
+                .Where(function => string.Equals(
+                    function.Name,
+                    selector.Function,
+                    StringComparison.Ordinal))
+                .ToArray();
+            if (candidates.Length == 0)
+            {
+                throw new InvalidOperationException(
+                    $"errorHandling.functionRetries.exclude.actions[{index}] references unknown function '{selector.Function}'.");
+            }
+            if (candidates.Length > 1)
+            {
+                throw new InvalidOperationException(
+                    $"errorHandling.functionRetries.exclude.actions[{index}] references ambiguous function '{selector.Function}'.");
+            }
+            if (candidates[0] is not HPDAIFunctionFactory.HPDAIFunction function ||
+                function.OperationContract?.Actions.ContainsKey(selector.Action) != true)
+            {
+                throw new InvalidOperationException(
+                    $"errorHandling.functionRetries.exclude.actions[{index}] references unknown action '{selector.Function}.{selector.Action}'.");
+            }
+        }
     }
 
     private void ValidatePermissionEventAuthority(IEnumerable<AIFunction> functions)
@@ -2680,11 +2747,8 @@ public class AgentBuilder
         // - RetryMiddleware wraps timeout (retry the entire timeout operation)
         // - FunctionTimeoutMiddleware wraps execution (timeout individual attempts)
 
-        // Register RetryMiddleware if retry is enabled
-        if (_config.ErrorHandling?.MaxRetries > 0)
-        {
-            _middlewares.Add(new Middleware.Function.RetryMiddleware(_config.ErrorHandling, buildData.ErrorHandler));
-        }
+        // Retry behavior is explicit. Configuration supplies policy, but a positive budget
+        // does not install middleware or grant replay eligibility.
 
         // Register FunctionTimeoutMiddleware if timeout is configured
         if (_config.ErrorHandling?.SingleFunctionTimeout != null)
@@ -2862,6 +2926,7 @@ public class AgentBuilder
             cancellationToken).ConfigureAwait(false);
         toolFunctions = initialRevision.Snapshot.Functions.Concat(staticFunctions.Where(function =>
             !TryGetCapabilityMetadata(function, out _))).ToList();
+        ValidateRetryExclusions(toolFunctions);
         var refreshBaseFunctions = staticFunctions.ToList();
 
         var typedSkillFunctions = toolFunctions.Where(function =>
@@ -4009,7 +4074,7 @@ public static class AgentBuilderMiddlewareExtensions
     /// This middleware provides intelligent retry logic with a 3-tier priority system:
     /// </para>
     /// <list type="number">
-    /// <item><b>Priority 1:</b> Custom retry strategy (if configured via ErrorHandling.CustomRetryStrategy)</item>
+    /// <item><b>Priority 1:</b> Custom strategy on the selected model or function retry policy</item>
     /// <item><b>Priority 2:</b> Provider-aware handling (respects Retry-After headers, error categorization)</item>
     /// <item><b>Priority 3:</b> Exponential backoff fallback (with jitter)</item>
     /// </list>
@@ -4023,13 +4088,9 @@ public static class AgentBuilderMiddlewareExtensions
     /// </code>
     /// <para>
     /// The middleware uses settings from <c>AgentConfig.ErrorHandling</c>:
-    /// - MaxRetries (default: 3)
-    /// - RetryDelay (default: 1 second)
-    /// - BackoffMultiplier (default: 2.0)
-    /// - MaxRetryDelay (default: 30 seconds)
-    /// - UseProviderRetryDelays (default: true)
-    /// - MaxRetriesByCategory (optional per-category limits)
-    /// - CustomRetryStrategy (optional override)
+    /// - ModelRetries and FunctionRetries budgets and backoff
+    /// - FunctionRetries exclusions by harness, function, or action
+    /// - Per-scope provider delay, category, and custom-strategy settings
     /// </para>
     /// </remarks>
     /// <example>
@@ -4038,8 +4099,11 @@ public static class AgentBuilderMiddlewareExtensions
     /// {
     ///     ErrorHandling = new ErrorHandlingConfig
     ///     {
-    ///         MaxRetries = 5,
-    ///         RetryDelay = TimeSpan.FromSeconds(2)
+    ///         FunctionRetries = new()
+    ///         {
+    ///             MaxRetries = 5,
+    ///             RetryDelay = TimeSpan.FromSeconds(2)
+    ///         }
     ///     }
     /// };
     ///
@@ -4050,10 +4114,10 @@ public static class AgentBuilderMiddlewareExtensions
     /// </example>
     public static AgentBuilder WithRetry(this AgentBuilder builder)
     {
+        EnsureRetryMiddlewareNotRegistered(builder);
         var config = builder.Config.ErrorHandling ?? new ErrorHandlingConfig();
-        // Note: When manually adding via extension method, no provider-specific error handler is available.
-        // The middleware will use GenericErrorHandler. If provider-specific handling is needed,
-        // use the automatic registration in Build() which has access to the provider.
+        // This convenience overload uses GenericErrorHandler. Hosts that need provider-specific
+        // classification construct RetryMiddleware with their provider error handler.
         var middleware = new RetryMiddleware(config);
         builder.Middlewares.Add(middleware);
         return builder;
@@ -4070,27 +4134,37 @@ public static class AgentBuilderMiddlewareExtensions
     /// var agent = new AgentBuilder()
     ///     .WithRetry(config =>
     ///     {
-    ///         config.MaxRetries = 5;
-    ///         config.RetryDelay = TimeSpan.FromSeconds(2);
-    ///         config.MaxRetriesByCategory = new Dictionary&lt;ErrorCategory, int&gt;
-    ///         {
-    ///             [ErrorCategory.RateLimitRetryable] = 10,
-    ///             [ErrorCategory.ServerError] = 3
-    ///         };
+    ///         config.FunctionRetries.MaxRetries = 5;
+    ///         config.FunctionRetries.RetryDelay = TimeSpan.FromSeconds(2);
+    ///         config.FunctionRetries.MaxRetriesByCategory =
+    ///             new Dictionary&lt;ErrorCategory, int&gt;
+    ///             {
+    ///                 [ErrorCategory.RateLimitRetryable] = 10,
+    ///                 [ErrorCategory.ServerError] = 3
+    ///             };
     ///     })
     ///     .Build();
     /// </code>
     /// </example>
     public static AgentBuilder WithRetry(this AgentBuilder builder, Action<ErrorHandlingConfig> configure)
     {
+        EnsureRetryMiddlewareNotRegistered(builder);
         var config = new ErrorHandlingConfig();
         configure(config);
-        // Note: When manually adding via extension method, no provider-specific error handler is available.
-        // The middleware will use GenericErrorHandler. If provider-specific handling is needed,
-        // use the automatic registration in Build() which has access to the provider.
+        // This convenience overload uses GenericErrorHandler. Hosts that need provider-specific
+        // classification construct RetryMiddleware with their provider error handler.
         var middleware = new RetryMiddleware(config);
         builder.Middlewares.Add(middleware);
         return builder;
+    }
+
+    private static void EnsureRetryMiddlewareNotRegistered(AgentBuilder builder)
+    {
+        if (builder.Middlewares.Any(middleware => middleware is RetryMiddleware))
+        {
+            throw new InvalidOperationException(
+                "RetryMiddleware is already registered. Register retry handling exactly once.");
+        }
     }
 
     /// <summary>
@@ -4359,9 +4433,10 @@ public static class AgentBuilderMiddlewareExtensions
     ///         },
     ///         configureRetry: retry =>
     ///         {
-    ///             retry.MaxRetries = 5;
-    ///             retry.RetryDelay = TimeSpan.FromSeconds(2);
-    ///             retry.MaxRetriesByCategory = new Dictionary&lt;ErrorCategory, int&gt;
+    ///             retry.FunctionRetries.MaxRetries = 5;
+    ///             retry.FunctionRetries.RetryDelay = TimeSpan.FromSeconds(2);
+    ///             retry.FunctionRetries.MaxRetriesByCategory =
+    ///                 new Dictionary&lt;ErrorCategory, int&gt;
     ///             {
     ///                 [ErrorCategory.RateLimitRetryable] = 10
     ///             };

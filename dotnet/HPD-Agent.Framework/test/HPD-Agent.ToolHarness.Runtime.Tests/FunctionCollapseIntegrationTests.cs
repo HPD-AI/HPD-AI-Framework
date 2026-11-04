@@ -14,6 +14,20 @@ namespace HPD.Agent.Tests;
 public sealed class FunctionCollapseIntegrationTests
 {
     [Fact]
+    public async Task GeneratedActionRegistration_PreservesReplayPolicy()
+    {
+        await using var agent = await BuildAgentAsync();
+        var function = Assert.IsType<HPDAIFunctionFactory.HPDAIFunction>(
+            Assert.Single(
+                agent.DefaultOptions!.Tools!.OfType<AIFunction>(),
+                tool => tool.Name == "CollapsedEcho"));
+
+        Assert.Equal(
+            ReplayPolicy.Idempotent,
+            Assert.Single(function.OperationContract!.Actions).Value.Replay);
+    }
+
+    [Fact]
     public async Task CollapsedActionFunctionRequiresBothHarnessAndFunctionActivation()
     {
         await using var agent = await BuildAgentAsync();
@@ -531,7 +545,7 @@ public sealed class FunctionCollapseIntegrationTests
 [JsonDerivedType(typeof(EchoCollapseAction), "echo")]
 public abstract record FunctionCollapseAction;
 
-[AIFunctionAction("echo")]
+[AIFunctionAction("echo", Replay = ActionReplayPolicy.Idempotent)]
 public sealed record EchoCollapseAction(string Value) : FunctionCollapseAction;
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]

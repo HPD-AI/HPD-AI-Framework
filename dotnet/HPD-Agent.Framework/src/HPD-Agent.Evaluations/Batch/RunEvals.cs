@@ -42,8 +42,8 @@ public class RunEvalsOptions
     /// <summary>Judge LLM configuration for evaluator calls.</summary>
     public EvaluationJudgeRunConfig? JudgeConfig { get; init; }
 
-    /// <summary>Retry policy for agent-side 429/503 errors. Reuses ErrorHandlingConfig.</summary>
-    public ErrorHandlingConfig? TaskRetryPolicy { get; init; }
+    /// <summary>Retry policy for agent-side 429/503 errors.</summary>
+    public ModelRetryConfig? TaskRetryPolicy { get; init; }
 
     /// <summary>Store used when PersistResults is true.</summary>
     public IScoreStore? ScoreStore { get; init; }
@@ -652,7 +652,7 @@ public static class RunEvals
 
     private static async Task<T> ExecuteWithRetryAsync<T>(
         Func<Task<T>> action,
-        ErrorHandlingConfig? retryPolicy,
+        ModelRetryConfig? retryPolicy,
         CancellationToken ct)
     {
         if (retryPolicy is null || retryPolicy.MaxRetries <= 0)
@@ -674,7 +674,7 @@ public static class RunEvals
         }
     }
 
-    private static TimeSpan GetRetryDelay(ErrorHandlingConfig policy, int attempt)
+    private static TimeSpan GetRetryDelay(ModelRetryConfig policy, int attempt)
     {
         var delayMs = policy.RetryDelay.TotalMilliseconds *
                       Math.Pow(policy.BackoffMultiplier, Math.Max(0, attempt - 1));

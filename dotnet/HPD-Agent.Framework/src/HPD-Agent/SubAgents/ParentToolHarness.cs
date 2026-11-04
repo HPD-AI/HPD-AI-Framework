@@ -129,11 +129,19 @@ internal sealed class ParentCommunicationMiddleware : IAgentMiddleware
     {
         await ParentQuestions.AddPendingContextAsync(context, cancellationToken).ConfigureAwait(false);
         if (context.Options.Tools is null) return;
-        var eligible = context.Config?.SessionStore is { } store && context.ThreadExecutionId is { } execution &&
+        var parentEnabled = context.RunConfig.EnableParentCommunication
+            ?? context.Config?.EnableParentCommunication
+            ?? false;
+        var userQuestionsEnabled = context.RunConfig.AllowUserQuestions
+            ?? context.Config?.AllowUserQuestions
+            ?? false;
+        var eligible = parentEnabled &&
+            context.Config?.SessionStore is { } store && context.ThreadExecutionId is { } execution &&
             context.SessionId is { } session && context.ThreadId is { } thread &&
             await SubAgentResults.ControllerAsync(store, new(session, thread), execution, cancellationToken).ConfigureAwait(false) is not null;
         context.Options.Tools = context.Options.Tools
-            .Where(t => (t.Name != "Parent" || eligible) && (t.Name != "AskUser" || context.RunConfig.AllowUserQuestions)).ToList();
+            .Where(t => (t.Name != "Parent" || eligible) &&
+                (t.Name != "AskUser" || userQuestionsEnabled)).ToList();
     }
 
     public Task BeforeToolExecutionAsync(BeforeToolExecutionContext context, CancellationToken cancellationToken)

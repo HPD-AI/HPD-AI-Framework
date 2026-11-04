@@ -160,7 +160,8 @@ public class TeamsBotInteractionTests
             },
             ErrorHandling = new ErrorHandlingConfig
             {
-                MaxRetries = 0,
+                ModelRetries = new() { MaxRetries = 0 },
+                FunctionRetries = new() { MaxRetries = 0 },
                 NormalizeErrors = true,
             },
             SessionStore = new InMemorySessionStore(HPD.Agent.Serialization.CoreAgentEventComposition.Instance.Codec),

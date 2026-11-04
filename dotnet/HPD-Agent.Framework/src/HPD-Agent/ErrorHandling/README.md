@@ -2,19 +2,20 @@
 
 ## Overview
 
-HPD-Agent includes a sophisticated, provider-aware error handling system that intelligently classifies errors, determines retry strategies, and respects provider-specific guidance (like Retry-After headers). The system is **opinionated by default** (auto-detects and configures itself) but **flexible when needed** (fully customizable).
+HPD-Agent includes a provider-aware error handling system that classifies
+failures, uses independent model and function retry policies, and respects
+provider guidance such as Retry-After headers.
 
 ## Design Philosophy
 
 **"Opinionated by default, flexible when needed"**
 
--  Works automatically without any configuration
--  Auto-detects provider and selects appropriate handler
--  Respects provider retry guidance (Retry-After headers)
--  Intelligent error classification (terminal vs retryable)
--  Fully customizable when you need control
--  Native AOT compatible (no reflection)
--  Zero breaking changes to existing code
+- Model and function retries have independent budgets and backoff.
+- Function replay requires explicit `ReplayPolicy.Idempotent` metadata.
+- Exact harness, function, and action exclusions override declarations.
+- Retry middleware registration is explicit.
+- Provider guidance and classification are shared by both retry scopes.
+- Configuration and generated metadata remain Native AOT compatible.
 
 ## Architecture Layers
 
@@ -345,36 +346,25 @@ Status:\s*(\d{3})      // "Status: 429"
 
 ### ErrorHandlingConfig (`AgentConfig.cs`)
 
-All error handling settings in one place:
+Error formatting and timeout remain top-level. Retry policy is split by scope,
+and function exclusions are portable configuration:
 
 ```csharp
 public class ErrorHandlingConfig
 {
-    // Existing properties (backward compatible)
     public bool NormalizeErrors { get; set; } = true;
     public bool IncludeProviderDetails { get; set; } = false;
-    public int MaxRetries { get; set; } = 3;
-    public TimeSpan? SingleFunctionTimeout { get; set; } // null by default; opt in explicitly
-    public TimeSpan RetryDelay { get; set; } = TimeSpan.FromSeconds(1);
-
-    // NEW: Provider-aware settings
-    public bool UseProviderRetryDelays { get; set; } = true;
-    public bool AutoRefreshTokensOn401 { get; set; } = true;
-    public TimeSpan MaxRetryDelay { get; set; } = TimeSpan.FromSeconds(30);
-    public double BackoffMultiplier { get; set; } = 2.0;
-
-    // Per-category retry limits (optional)
-    public Dictionary<ErrorCategory, int>? MaxRetriesByCategory { get; set; }
-
-    // Custom handler (advanced)
-    [JsonIgnore]
-    public IProviderErrorHandler? ProviderHandler { get; set; }
-
-    // Custom strategy (expert mode)
-    [JsonIgnore]
-    public Func<Exception, int, CancellationToken, Task<TimeSpan?>>? CustomRetryStrategy { get; set; }
+    public bool IncludeDetailedErrorsInChat { get; set; } = true;
+    public TimeSpan? SingleFunctionTimeout { get; set; }
+    public ModelRetryConfig ModelRetries { get; set; } = new();
+    public FunctionRetryConfig FunctionRetries { get; set; } = new();
 }
 ```
+
+Both policy objects provide `MaxRetries`, `RetryDelay`, `MaxRetryDelay`,
+`BackoffMultiplier`, `UseProviderRetryDelays`, `MaxRetriesByCategory`, and a
+non-serializable `CustomRetryStrategy`. `FunctionRetries.Exclude` contains exact
+harness, function, and function/action selectors.
 
 ## How It Works
 
@@ -561,11 +551,14 @@ var config = new AgentConfig
 {
     ErrorHandling = new ErrorHandlingConfig
     {
-        MaxRetries = 3,  // Default for all
-        MaxRetriesByCategory = new Dictionary<ErrorCategory, int>
+        FunctionRetries = new()
         {
-            [ErrorCategory.RateLimitRetryable] = 5,  // More retries for rate limits
-            [ErrorCategory.ServerError] = 2           // Fewer for server errors
+            MaxRetries = 3,
+            MaxRetriesByCategory = new Dictionary<ErrorCategory, int>
+            {
+                [ErrorCategory.RateLimitRetryable] = 5,
+                [ErrorCategory.ServerError] = 2
+            }
         }
     }
 };
@@ -574,7 +567,7 @@ var config = new AgentConfig
 ### Custom Retry Strategy (Expert Mode)
 
 ```csharp
-config.ErrorHandling.CustomRetryStrategy = async (exception, attempt, ct) =>
+config.ErrorHandling.FunctionRetries.CustomRetryStrategy = async (exception, attempt, ct) =>
 {
     if (exception is HttpRequestException httpEx && httpEx.StatusCode == HttpStatusCode.TooManyRequests)
     {
@@ -620,7 +613,8 @@ var config = new AgentConfig
 ### Disable Error Handling (Unit Tests)
 
 ```csharp
-config.ErrorHandling.MaxRetries = 0;  // No retries
+config.ErrorHandling.ModelRetries.MaxRetries = 0;
+config.ErrorHandling.FunctionRetries.MaxRetries = 0;
 ```
 
 ## Native AOT Compatibility
@@ -781,7 +775,7 @@ void OnFunctionRetryEvent(FunctionRetryEvent evt)
 
 **Solution**:
 - Check if the tool itself has bugs
-- Increase `MaxRetries` if transient issues are common
+- Increase the relevant scope's `MaxRetries` if transient issues are common and the operation is replay-safe
 - Add custom retry strategy for specific error patterns
 
 ### Provider delays not respected
@@ -790,7 +784,7 @@ void OnFunctionRetryEvent(FunctionRetryEvent evt)
 
 **Solution**:
 ```csharp
-config.ErrorHandling.UseProviderRetryDelays = true;  // Default
+config.ErrorHandling.ModelRetries.UseProviderRetryDelays = true;  // Default
 ```
 
 ### Retries happening too fast

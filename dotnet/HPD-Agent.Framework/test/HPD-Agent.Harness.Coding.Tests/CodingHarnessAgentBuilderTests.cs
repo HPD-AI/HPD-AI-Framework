@@ -172,8 +172,8 @@ public class CodingToolHarnessAgentBuilderTests
         // and graph relationships can be resolved without reflection.
         toolNames.Should().BeEquivalentTo([
             nameof(CodingToolHarness), "ReadFile", "ListDirectory", "GlobSearch", "Grep",
-            "Parent", "AskUser"
         ]);
+        toolNames.Should().NotContain(["Parent", "AskUser"]);
         toolNames.Should().NotContain("SubAgents",
             "the read-only profile does not admit any subagent role declarations");
         agent.Middlewares.Should().ContainSingle(middleware => middleware is ContainerMiddleware);

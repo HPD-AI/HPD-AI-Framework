@@ -81,6 +81,27 @@ public sealed class AgentConfigSerializationTests
         yaml.Should().Contain("systemInstructions: Export me.");
     }
 
+    [Theory]
+    [InlineData(HpdConfigFormat.Json)]
+    [InlineData(HpdConfigFormat.Yaml)]
+    public void CommunicationCapabilities_RoundTrip(HpdConfigFormat format)
+    {
+        var config = new AgentConfig
+        {
+            Name = "Communication Agent",
+            EnableParentCommunication = true,
+            AllowUserQuestions = true
+        };
+
+        var restored = HpdAgentConfigSerializer.Deserialize(
+            HpdAgentConfigSerializer.Serialize(config, format),
+            format);
+
+        restored.Should().NotBeNull();
+        restored!.EnableParentCommunication.Should().BeTrue();
+        restored.AllowUserQuestions.Should().BeTrue();
+    }
+
     [Fact]
     public void Deserialize_RejectsUnknownAgentConfigProperties()
     {
@@ -96,6 +117,87 @@ public sealed class AgentConfigSerializationTests
 
         act.Should().Throw<JsonException>()
             .WithMessage("*oldProvider*");
+    }
+
+    [Theory]
+    [InlineData(HpdConfigFormat.Json)]
+    [InlineData(HpdConfigFormat.Yaml)]
+    public void ErrorHandling_SplitRetryPolicies_RoundTrip(HpdConfigFormat format)
+    {
+        var config = new AgentConfig
+        {
+            Name = "Retry Agent",
+            ErrorHandling = new ErrorHandlingConfig
+            {
+                ModelRetries = new()
+                {
+                    MaxRetries = 4,
+                    RetryDelay = TimeSpan.FromMilliseconds(25)
+                },
+                FunctionRetries = new()
+                {
+                    MaxRetries = 2,
+                    RetryDelay = TimeSpan.FromMilliseconds(50),
+                    Exclude = new()
+                    {
+                        Harnesses = ["ComputerHarness"],
+                        Functions = ["SendPayment"],
+                        Actions =
+                        [
+                            new ActionRetryExclusion
+                            {
+                                Function = "Files",
+                                Action = "delete"
+                            }
+                        ]
+                    }
+                }
+            }
+        };
+
+        var serialized = HpdAgentConfigSerializer.Serialize(config, format);
+        var restored = HpdAgentConfigSerializer.Deserialize(serialized, format);
+
+        restored.Should().NotBeNull();
+        restored!.ErrorHandling.Should().NotBeNull();
+        restored.ErrorHandling!.ModelRetries.MaxRetries.Should().Be(4);
+        restored.ErrorHandling.FunctionRetries.MaxRetries.Should().Be(2);
+        restored.ErrorHandling.FunctionRetries.Exclude.Harnesses.Should()
+            .BeEquivalentTo("ComputerHarness");
+        restored.ErrorHandling.FunctionRetries.Exclude.Functions.Should()
+            .BeEquivalentTo("SendPayment");
+        restored.ErrorHandling.FunctionRetries.Exclude.Actions.Should().ContainSingle()
+            .Which.Should().BeEquivalentTo(new ActionRetryExclusion
+            {
+                Function = "Files",
+                Action = "delete"
+            });
+    }
+
+    [Theory]
+    [InlineData(HpdConfigFormat.Json)]
+    [InlineData(HpdConfigFormat.Yaml)]
+    public void Deserialize_RejectsRetiredCombinedRetryConfiguration(HpdConfigFormat format)
+    {
+        var text = format == HpdConfigFormat.Json
+            ? """
+              {
+                "name": "Legacy Retry Agent",
+                "errorHandling": {
+                  "maxRetries": 3
+                }
+              }
+              """
+            : """
+              name: Legacy Retry Agent
+              errorHandling:
+                maxRetries: 3
+              """;
+
+        var act = () => HpdAgentConfigSerializer.Deserialize(text, format);
+
+        act.Should().Throw<JsonException>()
+            .WithMessage("*maxRetries*");
     }
 
     [Fact]

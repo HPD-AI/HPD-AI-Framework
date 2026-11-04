@@ -1748,6 +1748,7 @@ public static class SubAgentRuntime
             ?? throw new InvalidOperationException($"Subagent definition '{subAgent.AgentId}' was not found.");
         var config = AgentConfigSnapshot.Create(stored.Config);
         config.AgentId = subAgent.AgentId;
+        config.EnableParentCommunication ??= true;
         var builder = new AgentBuilder(config)
             .WithAgentStore(agentStore)
             .WithSessionStore(sessionStore);

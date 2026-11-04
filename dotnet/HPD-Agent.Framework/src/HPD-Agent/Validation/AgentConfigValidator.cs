@@ -125,12 +125,72 @@ public static class AgentConfigValidator
 
     private static void ValidateErrorHandling(AgentConfig config, List<string> errors)
     {
-        if (config.ErrorHandling != null)
+        if (config.ErrorHandling is not { } errorHandling)
+            return;
+
+        ValidateRetryPolicy(errorHandling.ModelRetries, "errorHandling.modelRetries", errors);
+        ValidateRetryPolicy(errorHandling.FunctionRetries, "errorHandling.functionRetries", errors);
+        ValidateRetryExclusions(errorHandling.FunctionRetries.Exclude, errors);
+    }
+
+    private static void ValidateRetryPolicy(
+        RetryPolicyConfig policy,
+        string path,
+        List<string> errors)
+    {
+        if (policy.MaxRetries < 0 || policy.MaxRetries > 10)
+            errors.Add($"{path}.MaxRetries must be between 0 and 10.");
+        if (policy.RetryDelay < TimeSpan.Zero)
+            errors.Add($"{path}.RetryDelay must not be negative.");
+        if (policy.MaxRetryDelay < TimeSpan.Zero)
+            errors.Add($"{path}.MaxRetryDelay must not be negative.");
+        if (policy.BackoffMultiplier < 1)
+            errors.Add($"{path}.BackoffMultiplier must be at least 1.");
+
+        foreach (var (category, retries) in policy.MaxRetriesByCategory ?? [])
         {
-            if (config.ErrorHandling.MaxRetries < 0 || config.ErrorHandling.MaxRetries > 10)
+            if (retries < 0 || retries > 10)
+                errors.Add($"{path}.MaxRetriesByCategory.{category} must be between 0 and 10.");
+        }
+    }
+
+    private static void ValidateRetryExclusions(
+        RetryExclusionConfig exclusions,
+        List<string> errors)
+    {
+        ValidateExactSelectors(exclusions.Harnesses, "errorHandling.functionRetries.exclude.harnesses", errors);
+        ValidateExactSelectors(exclusions.Functions, "errorHandling.functionRetries.exclude.functions", errors);
+
+        var actions = new HashSet<(string Function, string Action)>();
+        for (var index = 0; index < exclusions.Actions.Count; index++)
+        {
+            var selector = exclusions.Actions[index];
+            var path = $"errorHandling.functionRetries.exclude.actions[{index}]";
+            if (string.IsNullOrWhiteSpace(selector.Function))
+                errors.Add($"{path}.function must not be empty.");
+            if (string.IsNullOrWhiteSpace(selector.Action))
+                errors.Add($"{path}.action must not be empty.");
+            if (!string.IsNullOrWhiteSpace(selector.Function) &&
+                !string.IsNullOrWhiteSpace(selector.Action) &&
+                !actions.Add((selector.Function, selector.Action)))
             {
-                errors.Add("ErrorHandling MaxRetries must be between 0 and 10.");
+                errors.Add($"{path} duplicates function '{selector.Function}' action '{selector.Action}'.");
             }
+        }
+    }
+
+    private static void ValidateExactSelectors(
+        IEnumerable<string> selectors,
+        string path,
+        List<string> errors)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var selector in selectors)
+        {
+            if (string.IsNullOrWhiteSpace(selector))
+                errors.Add($"{path} must not contain an empty selector.");
+            else if (!seen.Add(selector))
+                errors.Add($"{path} contains duplicate selector '{selector}'.");
         }
     }
 

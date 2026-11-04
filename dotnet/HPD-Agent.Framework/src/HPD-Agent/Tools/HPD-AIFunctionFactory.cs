@@ -81,6 +81,11 @@ public class HPDAIFunctionFactory
             _invocationHandler = invocationHandler ?? throw new ArgumentNullException(nameof(invocationHandler));
             _method = invocationHandler.Method; // For metadata
             options = SnapshotOptions(options);
+            if (!Enum.IsDefined(options.Replay))
+            {
+                throw new InvalidOperationException(
+                    $"Function '{options.Name ?? _method?.Name ?? "Unknown"}' has an unsupported replay policy.");
+            }
             if (options.OperationContract is not null &&
                 options.AdditionalProperties?.TryGetValue("Kind", out var kind) == true &&
                 string.Equals(kind?.ToString(), "Output", StringComparison.Ordinal))
@@ -109,7 +114,11 @@ public class HPDAIFunctionFactory
             ContractDescriptor = JsonSchema.ValueKind == JsonValueKind.Undefined
                 ? null
                 : AIFunctionContractDescriptor.Create(
-                    Name, JsonSchema, options.OperationContract, options.FunctionPermission);
+                    Name,
+                    JsonSchema,
+                    options.OperationContract,
+                    options.FunctionPermission,
+                    options.Replay);
             CanonicalInputContract = options.VerifiedActionComposition?.InputContract ??
                 (JsonSchema.ValueKind == JsonValueKind.Undefined
                     ? null
@@ -161,6 +170,7 @@ public class HPDAIFunctionFactory
             MarshalResult = source.MarshalResult,
             InvocationModePolicy = source.InvocationModePolicy,
             InvocationModeHandling = source.InvocationModeHandling,
+            Replay = source.Replay,
             OperationContract = source.OperationContract,
             VerifiedActionComposition = source.VerifiedActionComposition,
             OperationNotification = source.OperationNotification,
@@ -183,7 +193,9 @@ public class HPDAIFunctionFactory
             {
                 if (string.IsNullOrWhiteSpace(action) || policy is null || !actions.TryAdd(action, policy))
                     throw new InvalidOperationException("Function actions must have unique non-empty discriminators.");
-                if (!Enum.IsDefined(policy.InvocationModePolicy) || !Enum.IsDefined(policy.InvocationModeHandling))
+                if (!Enum.IsDefined(policy.InvocationModePolicy) ||
+                    !Enum.IsDefined(policy.InvocationModeHandling) ||
+                    !Enum.IsDefined(policy.Replay))
                     throw new InvalidOperationException($"Function action '{action}' has an unsupported invocation policy.");
             }
             return contract with
@@ -196,6 +208,9 @@ public class HPDAIFunctionFactory
 
         /// <summary>Gets the immutable function-level permission declaration snapshot.</summary>
         public AIFunctionPermissionDeclaration? PermissionDeclaration => HPDOptions.FunctionPermission;
+
+        /// <summary>Gets the immutable function-level replay eligibility snapshot.</summary>
+        public ReplayPolicy Replay => HPDOptions.Replay;
 
         /// <summary>Gets the immutable normalized closed-action contract snapshot.</summary>
         public AIFunctionOperationContract? OperationContract => HPDOptions.OperationContract;
@@ -448,7 +463,8 @@ public sealed record AIFunctionContractDescriptor
         string functionName,
         JsonElement schema,
         AIFunctionOperationContract? operationContract = null,
-        AIFunctionPermissionDeclaration? functionPermission = null)
+        AIFunctionPermissionDeclaration? functionPermission = null,
+        ReplayPolicy functionReplay = ReplayPolicy.Never)
     {
         var canonical = new StringBuilder(schema.GetRawText());
         if (operationContract is not null)
@@ -459,10 +475,12 @@ public sealed record AIFunctionContractDescriptor
             {
                 canonical.Append('|').Append(action).Append(':')
                     .Append((int)policy.InvocationModePolicy).Append(':')
-                    .Append((int)policy.InvocationModeHandling);
+                    .Append((int)policy.InvocationModeHandling).Append(':')
+                    .Append((int)policy.Replay);
                 AppendPermission(canonical, policy.Permission);
             }
         }
+        canonical.Append("|replay:").Append((int)functionReplay);
         AppendPermission(canonical, functionPermission);
         var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString())))
             .ToLowerInvariant();
@@ -790,6 +808,9 @@ public class HPDAIFunctionFactoryOptions
         AgentInvocationModePolicy.SynchronousOnly;
     public AgentInvocationModeHandling InvocationModeHandling { get; set; } =
         AgentInvocationModeHandling.Runtime;
+
+    /// <summary>Gets or sets whether the function is safe to replay automatically.</summary>
+    public ReplayPolicy Replay { get; set; } = ReplayPolicy.Never;
 
     /// <summary>Gets or sets the generated closed-union action contract for this function.</summary>
     public AIFunctionOperationContract? OperationContract { get; set; }

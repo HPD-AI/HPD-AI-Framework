@@ -129,7 +129,8 @@ public sealed class AudioFunctionCallingValidationTests
             },
             ErrorHandling = new ErrorHandlingConfig
             {
-                MaxRetries = 0,
+                ModelRetries = new() { MaxRetries = 0 },
+                FunctionRetries = new() { MaxRetries = 0 },
                 NormalizeErrors = true
             }
         };

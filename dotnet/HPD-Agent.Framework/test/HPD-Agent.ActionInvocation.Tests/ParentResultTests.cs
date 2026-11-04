@@ -78,7 +78,11 @@ public sealed class ParentResultTests
         {
             ["request"] = new Dictionary<string, object?> { ["action"] = "complete", ["report"] = "verified result" }
         });
-        await using var agent = await new AgentBuilder(new AgentConfig { Name = "worker" })
+        await using var agent = await new AgentBuilder(new AgentConfig
+            {
+                Name = "worker",
+                EnableParentCommunication = true
+            })
             .WithEventComposition(CoreAgentEventComposition.Instance)
             .WithChatClient(new IdentifiedClient(client))
             .WithNativeFunction(Microsoft.Extensions.AI.AIFunctionFactory.Create(() => ++sideEffects,

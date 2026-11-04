@@ -1010,6 +1010,7 @@ internal static class CapabilityAnalyzer
         var kind = GetToolKind(attrs);
         var invocationModePolicy = GetInvocationModePolicy(attrs);
         var invocationModeHandling = GetInvocationModeHandling(attrs);
+        var replayPolicy = GetReplayPolicy(attrs);
         var functionCollapse = AnalyzeFunctionCollapse(
             symbol,
             semanticModel.Compilation,
@@ -1044,6 +1045,7 @@ internal static class CapabilityAnalyzer
             Kind = kind,
             InvocationModePolicy = invocationModePolicy,
             InvocationModeHandling = invocationModeHandling,
+            Replay = replayPolicy,
             FunctionCollapse = functionCollapse,
 
             // TODO Phase 2: Add validation data
@@ -1128,6 +1130,7 @@ internal static class CapabilityAnalyzer
             Kind = kind,
             InvocationModePolicy = EnumSetting("InvocationModePolicy", "SynchronousOnly"),
             InvocationModeHandling = EnumSetting("InvocationModeHandling", "Runtime"),
+            Replay = EnumSetting("Replay", "Never"),
             FunctionCollapse = functionCollapse
         };
     }
@@ -1588,7 +1591,7 @@ internal static class CapabilityAnalyzer
             }
             var declared = attributes[0].ConstructorArguments.FirstOrDefault().Value as string;
             foreach (var named in attributes[0].NamedArguments.Where(static named =>
-                         named.Key is "InvocationModePolicy" or "InvocationModeHandling" or "Permission"))
+                named.Key is "InvocationModePolicy" or "InvocationModeHandling" or "Permission" or "Replay"))
             {
                 var numeric = named.Value.Value is null
                     ? 0
@@ -1916,6 +1919,25 @@ internal static class CapabilityAnalyzer
             return memberAccess.Name.Identifier.ValueText;
 
         return "Runtime";
+    }
+
+    /// <summary>Extracts replay eligibility from [AIFunction(Replay = ...)].</summary>
+    private static string GetReplayPolicy(List<AttributeSyntax> attrs)
+    {
+        var aiFunctionAttr = attrs.FirstOrDefault(a =>
+            a.Name.ToString().Contains("AIFunction"));
+
+        var replayArg = aiFunctionAttr?.ArgumentList?.Arguments
+            .FirstOrDefault(a => a.NameEquals?.Name.Identifier.ValueText == "Replay");
+
+        if (replayArg?.Expression is MemberAccessExpressionSyntax memberAccess)
+        {
+            return memberAccess.Name.Identifier.ValueText is "Never" or "Idempotent"
+                ? memberAccess.Name.Identifier.ValueText
+                : "Never";
+        }
+
+        return "Never";
     }
 
     /// <summary>

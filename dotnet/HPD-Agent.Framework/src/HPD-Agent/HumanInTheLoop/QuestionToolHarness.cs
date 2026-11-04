@@ -94,7 +94,8 @@ public sealed class QuestionToolHarness
     public async Task<string> AskUserAsync(AgentQuestion[] questions, FunctionExecutionContext context,
         CancellationToken cancellationToken)
     {
-        if (!context.RunConfig.AllowUserQuestions) throw new InvalidOperationException("user_questions_unavailable");
+        if (context.RunConfig.AllowUserQuestions != true)
+            throw new InvalidOperationException("user_questions_unavailable");
         QuestionValidation.Validate(questions);
         var response = await context.RequestAsync<UserQuestionRequestEvent, QuestionResponseEvent>(
             new(Guid.NewGuid().ToString("N"), "AskUser", questions), cancellationToken).ConfigureAwait(false);

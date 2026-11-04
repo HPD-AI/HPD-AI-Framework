@@ -74,6 +74,9 @@ public sealed record AIFunctionActionPolicy
 
     /// <summary>Gets the complete permission declaration resolved for this action.</summary>
     public required AIFunctionPermissionDeclaration Permission { get; init; }
+
+    /// <summary>Gets the replay eligibility resolved for this action.</summary>
+    public ReplayPolicy Replay { get; init; } = ReplayPolicy.Never;
 }
 
 /// <summary>Identifies where an effective permission declaration originated.</summary>

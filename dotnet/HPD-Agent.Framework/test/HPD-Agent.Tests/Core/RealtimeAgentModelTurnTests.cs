@@ -640,7 +640,14 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
             return 42;
         }
 
-        var flakyTool = AIFunctionFactory.Create((Func<int>)Flaky, name: "Flaky", description: "Fails once, then succeeds.");
+        var flakyTool = HPDAIFunctionFactory.Create(
+            (_, _, _) => Task.FromResult<object?>(Flaky()),
+            new HPDAIFunctionFactoryOptions
+            {
+                Name = "Flaky",
+                Description = "Fails once, then succeeds.",
+                Replay = ReplayPolicy.Idempotent
+            });
         var session = new ScriptedRealtimeSession(
             [
                 [ToolCallDone("resp-flaky", "call-flaky", "Flaky", new Dictionary<string, object?>())],
@@ -648,8 +655,11 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
             ]);
         var retryConfig = new ErrorHandlingConfig
         {
-            MaxRetries = 1,
-            RetryDelay = TimeSpan.Zero,
+            FunctionRetries = new()
+            {
+                MaxRetries = 1,
+                RetryDelay = TimeSpan.Zero
+            },
             NormalizeErrors = true
         };
         var agent = TestAgentFactory.CreateWithMiddlewares(

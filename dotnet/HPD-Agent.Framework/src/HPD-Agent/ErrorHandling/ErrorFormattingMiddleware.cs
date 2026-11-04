@@ -36,7 +36,7 @@ namespace HPD.Agent.Middleware.Function;
 ///
 /// <para><b>Recommended Middleware Order:</b></para>
 /// <code>
-/// .WithFunctionRetry()      // Outermost - retry the entire operation
+/// .WithRetry()              // Outermost - retry the entire operation
 /// .WithFunctionTimeout()    // Middle - timeout individual attempts
 /// .WithErrorFormatting()    // Innermost - format errors after all retries exhausted
 /// </code>

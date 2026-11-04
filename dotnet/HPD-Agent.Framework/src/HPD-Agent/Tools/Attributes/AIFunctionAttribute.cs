@@ -36,6 +36,29 @@ public enum PermissionRequirement
     NotRequired
 }
 
+/// <summary>Declares whether an admitted function call may be automatically replayed after a transient failure.</summary>
+public enum ReplayPolicy
+{
+    /// <summary>The function is not safe to replay automatically. This is the default.</summary>
+    Never,
+
+    /// <summary>The author guarantees that repeating the same admitted request is safe.</summary>
+    Idempotent
+}
+
+/// <summary>Declares whether an action overrides its containing function's replay policy.</summary>
+public enum ActionReplayPolicy
+{
+    /// <summary>Uses the replay policy declared by the containing function.</summary>
+    Inherit,
+
+    /// <summary>The action is not safe to replay automatically.</summary>
+    Never,
+
+    /// <summary>The author guarantees that repeating the same admitted action is safe.</summary>
+    Idempotent
+}
+
 /// <summary>Associates one closed-union discriminator with invocation-mode overrides.</summary>
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
 public sealed class AIFunctionActionAttribute : Attribute
@@ -67,6 +90,10 @@ public sealed class AIFunctionActionAttribute : Attribute
 
     /// <summary>Gets or sets the permission interaction implementation for this action.</summary>
     public Type? PermissionInteraction { get; set; }
+
+    /// <summary>Gets or sets this action's replay-eligibility override.</summary>
+    public ActionReplayPolicy Replay { get; set; }
+        = ActionReplayPolicy.Inherit;
 }
 
 /// <summary>
@@ -123,6 +150,11 @@ public sealed class AIFunctionAttribute<TMetadata> : Attribute where TMetadata :
     public AgentInvocationModeHandling InvocationModeHandling { get; set; } =
         AgentInvocationModeHandling.Runtime;
 
+    /// <summary>
+    /// Gets or sets whether this function is safe to replay automatically. Default: Never.
+    /// </summary>
+    public ReplayPolicy Replay { get; set; } = ReplayPolicy.Never;
+
 }
 
 /// <summary>
@@ -159,6 +191,11 @@ public sealed class AIFunctionAttribute : Attribute
     /// </summary>
     public AgentInvocationModeHandling InvocationModeHandling { get; set; } =
         AgentInvocationModeHandling.Runtime;
+
+    /// <summary>
+    /// Gets or sets whether this function is safe to replay automatically. Default: Never.
+    /// </summary>
+    public ReplayPolicy Replay { get; set; } = ReplayPolicy.Never;
 
 }
 

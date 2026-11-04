@@ -16,6 +16,7 @@ public class SubAgentRuntimeTests
     {
         Name = "SubAgentUnderTest",
         SystemInstructions = "Test sub-agent.",
+        EnableParentCommunication = true,
         Clients = new AgentClientsConfig { Chat = new ChatClientConfig { Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" }, ModelName = "test-model" } }
     };
 

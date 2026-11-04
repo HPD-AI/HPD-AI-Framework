@@ -255,7 +255,7 @@ namespace TestToolHarnesses
                 [JsonDerivedType(typeof(Read), "read")]
                 [JsonDerivedType(typeof(Run), "run")]
                 public abstract record Request;
-                [AIFunctionAction("read")]
+                [AIFunctionAction("read", Replay = ActionReplayPolicy.Idempotent)]
                 public sealed record Read(string Id) : Request;
                 [AIFunctionAction("run", InvocationModePolicy = AIFunctionActionInvocationModePolicy.ModelChoice,
                     InvocationModeHandling = AIFunctionActionInvocationModeHandling.ToolBody)]
@@ -263,7 +263,7 @@ namespace TestToolHarnesses
                 [Collapse("Action", FunctionResult = "ok")]
                 public partial class Harness
                 {
-                    [AIFunction]
+                    [AIFunction(Replay = ReplayPolicy.Idempotent)]
                     public string Execute(Request request) => "ok";
                 }
             }
@@ -276,6 +276,7 @@ namespace TestToolHarnesses
         Assert.DoesNotContain("OperationContractSchemaComposed", generatedCode);
         Assert.Contains("AIFunctionOperationContract", generatedCode);
         Assert.Contains("\\\"invocationMode\\\"", generatedCode);
+        Assert.Contains("Replay = global::ReplayPolicy.Idempotent", generatedCode);
     }
 
     [Fact]

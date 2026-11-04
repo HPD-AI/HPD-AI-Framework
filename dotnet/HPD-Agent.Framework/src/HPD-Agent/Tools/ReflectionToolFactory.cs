@@ -212,13 +212,14 @@ internal static class ReflectionToolFactory
         var functionAttribute = GetAIFunctionAttribute(method);
         var invocationModePolicy = GetInvocationModePolicy(functionAttribute);
         var invocationModeHandling = GetInvocationModeHandling(functionAttribute);
+        var replayPolicy = GetReplayPolicy(functionAttribute);
         var permissionAttribute = method.GetCustomAttribute<RequiresPermissionAttribute>(inherit: false);
         var requiresPermission = permissionAttribute is not null;
         ValidatePermissionAuthority(permissionAttribute?.PermissionAuthority);
         var policyDescriptorId = ResolveDefinitionId(permissionAttribute?.PermissionPolicy, policy: true);
         var interactionDescriptorId = ResolveDefinitionId(permissionAttribute?.PermissionInteraction, policy: false);
         var operationContract = CreateOperationContract(
-            parameters, invocationModePolicy, invocationModeHandling, requiresPermission);
+            parameters, invocationModePolicy, invocationModeHandling, replayPolicy, requiresPermission);
         var actionSchema = operationContract is null
             ? default
             : CreateSchema(method, parameters, serializerOptions);
@@ -251,6 +252,7 @@ internal static class ReflectionToolFactory
                     : null,
                 InvocationModePolicy = invocationModePolicy,
                 InvocationModeHandling = invocationModeHandling,
+                Replay = replayPolicy,
                 OperationContract = operationContract,
                 VerifiedActionComposition = operationContract is null
                     ? null
@@ -862,11 +864,20 @@ internal static class ReflectionToolFactory
             : AgentInvocationModeHandling.Runtime;
     }
 
+    private static ReplayPolicy GetReplayPolicy(object? attribute)
+    {
+        var value = attribute?.GetType().GetProperty("Replay")?.GetValue(attribute);
+        return Enum.TryParse<ReplayPolicy>(value?.ToString(), out var policy)
+            ? policy
+            : ReplayPolicy.Never;
+    }
+
     [RequiresUnreferencedCode("Operation contract discovery inspects runtime assembly types.")]
     private static AIFunctionOperationContract? CreateOperationContract(
         ParameterInfo[] parameters,
         AgentInvocationModePolicy defaultPolicy,
         AgentInvocationModeHandling defaultHandling,
+        ReplayPolicy defaultReplay,
         bool requiresPermissionByDefault)
     {
         var analyzed = parameters.Select(parameter => new
@@ -924,6 +935,13 @@ internal static class ReflectionToolFactory
                 AIFunctionActionInvocationModeHandling.ToolBody => AgentInvocationModeHandling.ToolBody,
                 _ => throw new InvalidOperationException("Unsupported action invocation-mode handling.")
             };
+            var replay = declaration.Replay switch
+            {
+                ActionReplayPolicy.Inherit => defaultReplay,
+                ActionReplayPolicy.Never => ReplayPolicy.Never,
+                ActionReplayPolicy.Idempotent => ReplayPolicy.Idempotent,
+                _ => throw new InvalidOperationException("Unsupported action replay policy.")
+            };
             var requiresPermission = declaration.Permission switch
             {
                 PermissionRequirement.Inherit => requiresPermissionByDefault,
@@ -935,6 +953,7 @@ internal static class ReflectionToolFactory
                 {
                     InvocationModePolicy = policy,
                     InvocationModeHandling = handling,
+                    Replay = replay,
                     Permission = new AIFunctionPermissionDeclaration
                     {
                         RequiresPermission = requiresPermission,

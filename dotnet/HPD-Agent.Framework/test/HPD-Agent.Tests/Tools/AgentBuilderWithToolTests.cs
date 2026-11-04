@@ -175,6 +175,25 @@ public class AgentBuilderWithToolTests
         Assert.Equal("get_weather", function.Name);
         Assert.Equal("Gets the current weather for a city.", function.Description);
         Assert.Equal("The city to get weather for.", function.JsonSchema.GetProperty("properties").GetProperty("city").GetProperty("description").GetString());
+        Assert.Equal(ReplayPolicy.Idempotent, Assert.IsType<HPDAIFunctionFactory.HPDAIFunction>(function).Replay);
+    }
+
+    [Fact]
+    public void GeneratedRegistration_PreservesFunctionReplayPolicy()
+    {
+        var builder = new AgentBuilder()
+            .WithToolHarness<NamedWeatherToolHarness>();
+        var factory = Assert.Single(builder._selectedToolHarnessFactories);
+        var functions = factory.CreateFunctions(new NamedWeatherToolHarness(), null, null);
+
+        Assert.Equal(
+            ReplayPolicy.Idempotent,
+            Assert.IsType<HPDAIFunctionFactory.HPDAIFunction>(
+                Assert.Single(functions, function => function.Name == "get_weather")).Replay);
+        Assert.Equal(
+            ReplayPolicy.Never,
+            Assert.IsType<HPDAIFunctionFactory.HPDAIFunction>(
+                Assert.Single(functions, function => function.Name == "get_forecast")).Replay);
     }
 
     [Fact]
@@ -413,7 +432,10 @@ public class AgentBuilderWithToolTests
 
 public class ReflectionWeatherToolHarness
 {
-    [AIFunction(Name = "get_weather", Description = "Gets the current weather for a city.")]
+    [AIFunction(
+        Name = "get_weather",
+        Description = "Gets the current weather for a city.",
+        Replay = ReplayPolicy.Idempotent)]
     public string ReflectWeather([AIDescription("The city to get weather for.")] string city)
     {
         return $"It is sunny and 72 F in {city}.";

@@ -471,7 +471,7 @@ public sealed class RunEvalsTests
             [new OutputContainsEvaluator("response")],
             new RunEvalsOptions<string>
             {
-                TaskRetryPolicy = new ErrorHandlingConfig
+                TaskRetryPolicy = new ModelRetryConfig
                 {
                     MaxRetries = 2,
                     RetryDelay = TimeSpan.Zero,

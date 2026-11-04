@@ -151,8 +151,19 @@ public class AgentRunConfig
     [JsonIgnore]
     internal HarnessExecutionConfiguration? HarnessConfiguration { get; set; }
 
-    /// <summary>Explicit client capability and policy to expose waiting human questions.</summary>
-    public bool AllowUserQuestions { get; set; }
+    /// <summary>
+    /// Per-run override for exposing the <c>AskUser</c> tool. When omitted, the agent default
+    /// from <see cref="AgentConfig.AllowUserQuestions"/> is used. The tool must be enabled on
+    /// the built agent before a run can expose it.
+    /// </summary>
+    public bool? AllowUserQuestions { get; set; }
+
+    /// <summary>
+    /// Per-run override for exposing the <c>Parent</c> tool to a controlled subagent.
+    /// When omitted, the agent default from <see cref="AgentConfig.EnableParentCommunication"/>
+    /// is used. A root execution never receives <c>Parent</c>, regardless of this setting.
+    /// </summary>
+    public bool? EnableParentCommunication { get; set; }
 
     /// <summary>
     /// Security controls for this run.

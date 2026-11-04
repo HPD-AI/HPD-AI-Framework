@@ -321,7 +321,7 @@ public class CharacterizationTests : AgentTestBase
 
         var config = DefaultConfig();
         config.ErrorHandling ??= new ErrorHandlingConfig();
-        config.ErrorHandling.MaxRetries = 3;
+        config.ErrorHandling.FunctionRetries.MaxRetries = 3;
         // Ensure provider is configured
         config.EnsureChatClientConfig();
         config.EnsureChatClientConfig().Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" };
