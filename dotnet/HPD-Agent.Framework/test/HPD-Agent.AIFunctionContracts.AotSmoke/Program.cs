@@ -1,12 +1,23 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Agent;
+using HPD.Agent.ErrorHandling;
 using HPD.Agent.Middleware;
+using HPD.Agent.Middleware.Function;
+using HPD.Agent.Serialization;
 using HPD.Events.Core;
 using Microsoft.Extensions.AI;
 
 var harness = new ContractSmokeHarness();
 var function = ContractSmokeHarnessRegistration.CreateToolHarness(harness).Single();
+var hpdFunction = (HPDAIFunctionFactory.HPDAIFunction)function;
+if (hpdFunction.Replay != ReplayPolicy.Idempotent ||
+    hpdFunction.OperationContract?.Actions["launch"].Replay != ReplayPolicy.Idempotent ||
+    hpdFunction.OperationContract.Actions["continue"].Replay != ReplayPolicy.Never)
+{
+    return 8;
+}
+
 var requestSchema = function.JsonSchema.GetProperty("properties").GetProperty("request");
 if (requestSchema.GetProperty("oneOf").GetArrayLength() != 2)
     return 1;
@@ -80,7 +91,84 @@ if (!operationJson.Contains("reviewer-1", StringComparison.Ordinal) ||
     !forkJson.Contains("fork-1", StringComparison.Ordinal))
     return 5;
 
+var retryConfig = new ErrorHandlingConfig
+{
+    ModelRetries = new() { MaxRetries = 2 },
+    FunctionRetries = new()
+    {
+        MaxRetries = 1,
+        RetryDelay = TimeSpan.Zero,
+        Exclude = new() { Harnesses = ["OtherHarness"] }
+    }
+};
+var retryJson = HpdAgentConfigSerializer.Serialize(new AgentConfig
+{
+    Name = "AOT Retry",
+    ErrorHandling = retryConfig
+});
+var restored = HpdAgentConfigSerializer.Deserialize(retryJson);
+if (restored?.ErrorHandling?.ModelRetries.MaxRetries != 2 ||
+    restored.ErrorHandling.FunctionRetries.MaxRetries != 1 ||
+    restored.ErrorHandling.FunctionRetries.Exclude.Harnesses.Single() != "OtherHarness")
+{
+    return 9;
+}
+
+var retryMiddleware = new RetryMiddleware(restored.ErrorHandling);
+var retryAttempts = 0;
+var retryResult = await retryMiddleware.WrapFunctionCallAsync(
+    RetryRequest(function),
+    _ =>
+    {
+        retryAttempts++;
+        if (retryAttempts == 1)
+            throw new InvalidOperationException("transient");
+        return Task.FromResult<object?>("retried");
+    },
+    CancellationToken.None);
+if (!string.Equals(retryResult as string, "retried", StringComparison.Ordinal) || retryAttempts != 2)
+    return 10;
+
+var actionAttempts = 0;
+try
+{
+    _ = await retryMiddleware.WrapFunctionCallAsync(
+        RetryRequest(function, "continue"),
+        _ =>
+        {
+            actionAttempts++;
+            throw new InvalidOperationException("must not replay");
+        },
+        CancellationToken.None);
+    return 11;
+}
+catch (InvalidOperationException exception) when (
+    exception.Message == "must not replay" && actionAttempts == 1)
+{
+}
+
 return result as string == "worker:2" && harness.InvocationCount == 1 ? 0 : 2;
+
+static FunctionRequest RetryRequest(AIFunction function, string? action = null)
+{
+    var state = AgentLoopState.InitialSafe([], "retry-run", "retry-conversation", "RetryAgent");
+    return new FunctionRequest
+    {
+        Function = function,
+        CallId = "retry-call",
+        Arguments = new Dictionary<string, object?>(),
+        State = state,
+        InvocationMode = action is null
+            ? null
+            : new ResolvedFunctionInvocation
+            {
+                Action = action,
+                Mode = AgentInvocationMode.Synchronous,
+                Policy = AgentInvocationModePolicy.SynchronousOnly,
+                Handling = AgentInvocationModeHandling.Runtime
+            }
+    };
+}
 
 static global::HPD.Agent.Middleware.FunctionExecutionContext CreateContext(
     AIFunction function,
@@ -136,7 +224,7 @@ public sealed partial class ContractSmokeHarness
 {
     public int InvocationCount { get; private set; }
 
-    [AIFunction]
+    [AIFunction(Replay = ReplayPolicy.Idempotent)]
     public string Execute(OperationRequest request)
     {
         InvocationCount++;
@@ -159,5 +247,6 @@ public sealed record LaunchRequest(string Target, IReadOnlyList<int> Retries) : 
 
 [AIFunctionAction("continue",
     InvocationModePolicy = AIFunctionActionInvocationModePolicy.ModelChoice,
-    InvocationModeHandling = AIFunctionActionInvocationModeHandling.ToolBody)]
+    InvocationModeHandling = AIFunctionActionInvocationModeHandling.ToolBody,
+    Replay = ActionReplayPolicy.Never)]
 public sealed record ContinueRequest(string DebugTreeId, int? ThreadId = null) : OperationRequest;

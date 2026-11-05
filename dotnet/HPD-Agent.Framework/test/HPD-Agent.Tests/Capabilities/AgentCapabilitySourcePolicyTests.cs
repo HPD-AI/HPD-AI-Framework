@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using HPD.Agent.Tests.Infrastructure;
+using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Tests.Capabilities;
 
@@ -69,24 +70,69 @@ public sealed class AgentCapabilitySourcePolicyTests
         Assert.Equal(0, source.Owners[0].DisposeCount);
     }
 
+    [Fact]
+    public async Task RefreshRemovingRetrySelectedFunctionRejectsCandidateAndRetainsEpoch()
+    {
+        var source = new ScriptedSource(
+            "retry-selector",
+            [LoadOutcome.RetrySelectedTool, LoadOutcome.MissingRetrySelectedTool]);
+        await using var agent = await BuildAsync(
+            source,
+            CapabilitySourceInitialLoadPolicy.Required,
+            CapabilitySourceRefreshFailurePolicy.RejectCandidate,
+            errorHandling: new ErrorHandlingConfig
+            {
+                FunctionRetries = new()
+                {
+                    Exclude = new() { Functions = ["DynamicTool"] }
+                }
+            });
+
+        Assert.Equal(0, agent.CapabilityEpoch);
+
+        var result = await agent.RefreshCapabilitiesAsync();
+
+        Assert.False(result.Published);
+        Assert.Equal(0, result.Epoch);
+        Assert.Contains(
+            "unknown function 'DynamicTool'",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Equal(1, source.Owners[1].DisposeCount);
+        Assert.Equal(0, source.Owners[0].DisposeCount);
+    }
+
     private static Task<Agent> BuildAsync(
         ScriptedSource source,
         CapabilitySourceInitialLoadPolicy initial,
         CapabilitySourceRefreshFailurePolicy refresh,
-        TimeSpan? timeout = null)
+        TimeSpan? timeout = null,
+        ErrorHandlingConfig? errorHandling = null)
     {
         var registration = new AgentCapabilitySourceRegistration(
             new SingleSourceFactory(source), initial, refresh)
         {
             LoadTimeout = timeout ?? TimeSpan.FromSeconds(1)
         };
-        return new AgentBuilder(new AgentConfig { Name = "source-policy-test" })
+        return new AgentBuilder(new AgentConfig
+            {
+                Name = "source-policy-test",
+                ErrorHandling = errorHandling
+            })
             .WithChatClient(new FakeChatClient())
             .AddCapabilitySource(registration)
             .BuildAsync();
     }
 
-    private enum LoadOutcome { Success, Failure, Timeout, InvalidOwner }
+    private enum LoadOutcome
+    {
+        Success,
+        Failure,
+        Timeout,
+        InvalidOwner,
+        RetrySelectedTool,
+        MissingRetrySelectedTool
+    }
 
     private sealed class SingleSourceFactory(ScriptedSource source) : IAgentCapabilitySourceFactory
     {
@@ -115,7 +161,8 @@ public sealed class AgentCapabilitySourcePolicyTests
                 throw new InvalidOperationException("scripted source failure");
             var owner = new TestOwner(
                 outcome == LoadOutcome.InvalidOwner ? CapabilitySourceId.Create("wrong") : Id,
-                CapabilitySourceRevision.Create(context.CandidateEpoch));
+                CapabilitySourceRevision.Create(context.CandidateEpoch),
+                outcome == LoadOutcome.RetrySelectedTool ? [CreateRetrySelectedTool()] : []);
             Owners.Add(owner);
             return new CapabilitySourceLoadResult(owner);
         }
@@ -134,16 +181,43 @@ public sealed class AgentCapabilitySourcePolicyTests
         }
     }
 
+    private static AIFunction CreateRetrySelectedTool() =>
+        HPDAIFunctionFactory.Create(
+            (_, _, _) => Task.FromResult<object?>("ok"),
+            new HPDAIFunctionFactoryOptions
+            {
+                Name = "DynamicTool",
+                Replay = ReplayPolicy.Idempotent,
+                AdditionalProperties = new Dictionary<string, object?>
+                {
+                    [HPDCapabilityMetadata.AdditionalPropertiesKey] = new HPDCapabilityMetadata
+                    {
+                        Id = CapabilityId.Create("retry-selector:DynamicTool"),
+                        Kind = HPDCapabilityKind.Function
+                    }
+                }
+            });
+
     private sealed class TestOwner(
         CapabilitySourceId sourceId,
-        CapabilitySourceRevision revision) : ICapabilitySourceRevisionOwner
+        CapabilitySourceRevision revision,
+        IReadOnlyList<AIFunction> functions) : ICapabilitySourceRevisionOwner
     {
         public CapabilitySourceId SourceId { get; } = sourceId;
         public CapabilitySourceRevision Revision { get; } = revision;
         public CapabilitySourceSnapshot Snapshot { get; } = new()
         {
-            Functions = [],
-            Descriptors = ImmutableDictionary<CapabilityId, CapabilityDescriptor>.Empty
+            Functions = functions.OfType<AIFunction>().ToImmutableArray(),
+            Descriptors = functions.ToImmutableDictionary(
+                function => CapabilityId.Create($"{sourceId.Value}:{function.Name}"),
+                function => new CapabilityDescriptor
+                {
+                    Id = CapabilityId.Create($"{sourceId.Value}:{function.Name}"),
+                    SourceId = sourceId,
+                    SourceRevision = revision,
+                    ModelName = function.Name,
+                    Kind = HPDCapabilityKind.Function
+                })
         };
         internal int DisposeCount { get; private set; }
         public ValueTask DisposeAsync()

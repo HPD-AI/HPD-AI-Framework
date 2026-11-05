@@ -2926,7 +2926,6 @@ public class AgentBuilder
             cancellationToken).ConfigureAwait(false);
         toolFunctions = initialRevision.Snapshot.Functions.Concat(staticFunctions.Where(function =>
             !TryGetCapabilityMetadata(function, out _))).ToList();
-        ValidateRetryExclusions(toolFunctions);
         var refreshBaseFunctions = staticFunctions.ToList();
 
         var typedSkillFunctions = toolFunctions.Where(function =>
@@ -3076,6 +3075,7 @@ public class AgentBuilder
         try
         {
             ValidatePermissionEventAuthority(toolFunctions);
+            ValidateRetryExclusions(toolFunctions);
             NormalizeCapabilityMetadata(toolFunctions);
             _ = CapabilityGraph.CreateFromFunctions(toolFunctions);
         }
@@ -3160,6 +3160,8 @@ public class AgentBuilder
                     }
                     ValidatePermissionEventAuthority(
                         candidateOwners.SelectMany(static owner => owner.Snapshot.Functions));
+                    ValidateRetryExclusions(
+                        candidateOwners.SelectMany(static owner => owner.Snapshot.Functions).ToArray());
                     return candidateOwners;
                 }
                 catch
