@@ -1150,8 +1150,20 @@ public sealed record ToolResultPayload(
 
             IEnumerable<ClientTools.IToolResultContent> contents => FromContent(contents.ToArray(), resultType),
 
-            _ => new ToolResultPayload(Text: result.ToString(), ResultType: resultType)
+            _ => Unsupported(resultType)
         };
+    }
+
+    private static ToolResultPayload Unsupported(string? resultType)
+    {
+        var error = new ToolResultError(
+            "tool_result_unrepresentable",
+            $"Tool result type '{resultType ?? "unknown"}' escaped canonical normalization.");
+        var json = JsonSerializer.SerializeToElement(error, HPDJsonContext.Default.ToolResultError);
+        return new ToolResultPayload(
+            Text: json.GetRawText(),
+            Json: json,
+            ResultType: typeof(ToolResultError).FullName);
     }
 
     private static ToolResultPayload FromContent(

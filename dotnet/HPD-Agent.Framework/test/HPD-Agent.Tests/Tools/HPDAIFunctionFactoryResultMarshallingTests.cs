@@ -240,6 +240,30 @@ public class HPDAIFunctionFactoryResultMarshallingTests
     }
 
     [Fact]
+    public async Task InvokeRawAsync_PreservesDeclaredResultForAfterFunctionNormalization()
+    {
+        var function = HPDAIFunctionFactory.Create(
+            (_, _, _) => Task.FromResult<object?>(new WeatherResult("Chicago", 72)),
+            new HPDAIFunctionFactoryOptions
+            {
+                Name = "GetWeatherRaw",
+                ResultType = typeof(WeatherResult),
+                SerializerOptions = ResultMarshallingJsonContext.Default.Options
+            });
+        var context = CreateContext(function);
+
+        var raw = await Assert.IsType<HPDAIFunctionFactory.HPDAIFunction>(function)
+            .InvokeRawAsync(new AIFunctionArguments(), context, CancellationToken.None);
+        var normalized = await ToolResultNormalizer.NormalizeAsync(
+            raw, typeof(WeatherResult), ResultMarshallingJsonContext.Default.Options);
+
+        Assert.IsType<WeatherResult>(raw);
+        var json = Assert.IsType<JsonElement>(normalized.ToModelResult());
+        Assert.Equal("Chicago", json.GetProperty("city").GetString());
+        Assert.Equal(72, normalized.ToPayload().Json!.Value.GetProperty("temperature").GetInt32());
+    }
+
+    [Fact]
     public async Task InvokeAsync_WithStringResult_PreservesStringResult()
     {
         var function = HPDAIFunctionFactory.Create(

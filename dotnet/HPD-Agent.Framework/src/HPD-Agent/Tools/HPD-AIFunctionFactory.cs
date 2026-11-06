@@ -234,7 +234,16 @@ public class HPDAIFunctionFactory
             CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(functionContext);
-            return InvokeCoreAsync(arguments, functionContext, cancellationToken);
+            return InvokeCoreAsync(arguments, functionContext, normalizeResult: true, cancellationToken);
+        }
+
+        internal ValueTask<object?> InvokeRawAsync(
+            AIFunctionArguments arguments,
+            FunctionExecutionContext functionContext,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(functionContext);
+            return InvokeCoreAsync(arguments, functionContext, normalizeResult: false, cancellationToken);
         }
 
         public override IReadOnlyDictionary<string, object?> AdditionalProperties
@@ -255,6 +264,7 @@ public class HPDAIFunctionFactory
         private async ValueTask<object?> InvokeCoreAsync(
             AIFunctionArguments arguments,
             FunctionExecutionContext functionContext,
+            bool normalizeResult,
             CancellationToken cancellationToken)
         {
             // 1. Robustly get the JSON arguments for validation.
@@ -335,8 +345,11 @@ public class HPDAIFunctionFactory
                     arguments,
                     functionContext,
                     cancellationToken).ConfigureAwait(false);
-                return await MarshalResultAsync(directResult, HPDOptions, serializerOptions, cancellationToken)
-                    .ConfigureAwait(false);
+                if (!normalizeResult)
+                    return directResult;
+                var normalized = await ToolResultNormalizer.NormalizeAsync(
+                    directResult, HPDOptions.ResultType, serializerOptions, cancellationToken).ConfigureAwait(false);
+                return normalized.ToModelResult();
             }
 
             var invocation = await FunctionInvocationRuntime.InvokeAsync(
@@ -363,8 +376,11 @@ public class HPDAIFunctionFactory
                     invocationArguments,
                     invocationContext,
                     invocationToken).ConfigureAwait(false);
-                return await MarshalResultAsync(result, HPDOptions, serializerOptions, invocationToken)
-                    .ConfigureAwait(false);
+                if (!normalizeResult)
+                    return result;
+                var normalized = await ToolResultNormalizer.NormalizeAsync(
+                    result, HPDOptions.ResultType, serializerOptions, invocationToken).ConfigureAwait(false);
+                return normalized.ToModelResult();
             }
         }
     }
@@ -381,70 +397,6 @@ public class HPDAIFunctionFactory
         return JsonSerializer.SerializeToElement(response, HPDJsonContext.Default.ValidationErrorResponse);
     }
 
-    private static async ValueTask<object?> MarshalResultAsync(
-        object? result,
-        HPDAIFunctionFactoryOptions options,
-        JsonSerializerOptions serializerOptions,
-        CancellationToken cancellationToken)
-    {
-        var declaredResultType = options.ResultType;
-
-        if (result is null)
-            return null;
-
-        if (IsEventSafeResult(result))
-            return result;
-
-        if (options.MarshalResult is not null)
-        {
-            return await options.MarshalResult(result, declaredResultType, cancellationToken).ConfigureAwait(false);
-        }
-
-        if (result is JsonDocument document)
-            return document.RootElement.Clone();
-
-        if (result is JsonNode node)
-        {
-            return JsonSerializer.SerializeToElement(
-                node,
-                HPDJsonContext.Default.JsonNode);
-        }
-
-        var resultType = declaredResultType ?? result.GetType();
-        if (resultType == typeof(void) || resultType == typeof(Task) || resultType == typeof(ValueTask))
-            return null;
-
-        var typeInfo = serializerOptions.GetTypeInfo(resultType);
-        return await SerializeResultAsync(result, typeInfo, cancellationToken).ConfigureAwait(false);
-    }
-
-    private static bool IsEventSafeResult(object result)
-    {
-        return result is string
-            or JsonElement
-            or ToolResultPayload
-            or ClientTools.IToolResultContent
-            or AIContent
-            || result is IEnumerable<ClientTools.IToolResultContent>
-            || result is IEnumerable<AIContent>;
-    }
-
-    private static async ValueTask<JsonElement> SerializeResultAsync(
-        object result,
-        JsonTypeInfo typeInfo,
-        CancellationToken cancellationToken)
-    {
-        if (typeInfo.Kind is JsonTypeInfoKind.None)
-        {
-            return JsonSerializer.SerializeToElement(result, typeInfo);
-        }
-
-        await using var stream = new MemoryStream();
-        await JsonSerializer.SerializeAsync(stream, result, typeInfo, cancellationToken).ConfigureAwait(false);
-        stream.Position = 0;
-        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
-        return document.RootElement.Clone();
-    }
 }
 
 /// <summary>Describes the immutable composed JSON contract exposed by an HPD AI function.</summary>

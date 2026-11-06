@@ -27,7 +27,8 @@ internal static class ToolResultText
             IEnumerable<ClientTools.IToolResultContent> contents => string.Join(
                 System.Environment.NewLine,
                 contents.Select(FromResult)),
-            _ => result.ToString() ?? string.Empty
+            _ => "[" + (result.GetType().FullName ?? result.GetType().Name) +
+                ": tool result was not canonically normalized]"
         };
     }
 }

@@ -135,6 +135,7 @@ using Microsoft.Extensions.AI;
 [JsonSerializable(typeof(HarnessRunOverride))]
 [JsonSerializable(typeof(List<HarnessRunOverride>))]
 [JsonSerializable(typeof(List<List<HarnessRunOverride>>))]
+[JsonSerializable(typeof(ToolResultError))]
 [JsonSerializable(typeof(AgentRunConfig))]
 [JsonSerializable(typeof(SubAgentRunConfig))]
 [JsonSerializable(typeof(SubAgentClientPropagation))]

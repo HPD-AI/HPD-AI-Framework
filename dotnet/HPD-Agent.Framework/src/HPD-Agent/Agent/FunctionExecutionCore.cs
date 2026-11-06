@@ -670,7 +670,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                                 ? functionCall.Arguments as AIFunctionArguments
                                 : null);
                         return effectiveRequest.Function is HPDAIFunctionFactory.HPDAIFunction hpdFunction
-                            ? await hpdFunction.InvokeAsync(args, functionContext, effectiveRequest.CancellationToken ?? cancellationToken).ConfigureAwait(false)
+                            ? await hpdFunction.InvokeRawAsync(args, functionContext, effectiveRequest.CancellationToken ?? cancellationToken).ConfigureAwait(false)
                             : await effectiveRequest.Function.InvokeAsync(args, effectiveRequest.CancellationToken ?? cancellationToken).ConfigureAwait(false);
                     }
                 },
@@ -908,12 +908,14 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             }
         }
 
+        var normalizedResult = await NormalizeResultAsync(
+            preparation, afterFunctionContext.Result, cancellationToken).ConfigureAwait(false);
         return new FunctionExecutionOutcome(
             functionCall.CallId,
             functionCall.Name,
             preparation.Function,
-            Result: afterFunctionContext.Result,
-            ResultPayload: ToolResultPayload.FromResult(afterFunctionContext.Result),
+            Result: normalizedResult.ToModelResult(),
+            ResultPayload: normalizedResult.ToPayload(),
             Exception: afterFunctionContext.Exception,
             WasBlocked: false,
             WasUnknown: preparation.Function == null,
@@ -923,6 +925,27 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             CallType: preparation.CallType,
             ResultMetadata: afterFunctionContext.ResultMetadata,
             Invocation: preparation.Invocation);
+    }
+
+    private static async ValueTask<NormalizedToolResult> NormalizeResultAsync(
+        FunctionExecutionPreparation preparation,
+        object? result,
+        CancellationToken cancellationToken)
+    {
+        var hpdFunction = preparation.Function as HPDAIFunctionFactory.HPDAIFunction;
+        var declaredResultType = hpdFunction?.HPDOptions.ResultType;
+        var serializerOptions = hpdFunction?.JsonSerializerOptions ?? HPDToolArgumentBinder.DefaultSerializerOptions;
+        try
+        {
+            return await ToolResultNormalizer.NormalizeAsync(
+                result, declaredResultType, serializerOptions, cancellationToken).ConfigureAwait(false);
+        }
+        catch (ToolResultNormalizationException exception)
+        {
+            return new NormalizedToolResult(
+                [new NormalizedToolErrorPart(exception.Code, exception.Message)],
+                declaredResultType?.FullName);
+        }
     }
 
     private static string BoundDurableMessage(string value) =>
