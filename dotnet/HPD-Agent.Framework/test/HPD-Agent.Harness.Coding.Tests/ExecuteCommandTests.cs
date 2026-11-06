@@ -702,8 +702,10 @@ public sealed class ExecuteCommandTests : IDisposable
         xml.Should().Contain("completion_kind=\"completed\"");
         xml.Should().Contain("hello");
         xml.Should().Contain("warn");
-        xml.Should().Contain("local_path=");
-        xml.Should().Contain("<combined_output");
+        xml.Should().NotContain("local_path=");
+        xml.Should().NotContain("content_store_available=");
+        xml.Should().NotContain("<output_store");
+        xml.Should().NotContain("<combined_output");
 
         runner.StartCalls.Should().Be(1);
         runner.LastSpec.Should().NotBeNull();

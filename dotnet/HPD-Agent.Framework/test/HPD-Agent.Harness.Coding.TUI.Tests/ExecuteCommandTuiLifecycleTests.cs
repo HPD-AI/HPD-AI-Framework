@@ -1037,7 +1037,6 @@ public sealed class ExecuteCommandTuiLifecycleTests
             OutputTruncated = false,
             OutputDrainTimedOut = false,
             OutputEventsSuppressed = false,
-            OutputContentState = ExecuteCommandOutputContentState.Unavailable,
             MaxPersistedOutputBytes = 0,
             CombinedOutputFormat = "hpd.execute-command.interleaved.v1"
         };

@@ -40,7 +40,6 @@ HPD.Agent.SubAgentRegistrySeedEvent
 HPD.Agent.ThreadForkOperationChangedEvent
 HPD.Agent.ToolBodyOperationCommittedFailureEvent
 ExecuteCommandAutoBackgroundedEvent
-ExecuteCommandContentWriteFailedEvent
 ExecuteCommandProcessExitedEvent
 ExecuteCommandProcessStartedEvent
 ExecuteCommandProgressEvent

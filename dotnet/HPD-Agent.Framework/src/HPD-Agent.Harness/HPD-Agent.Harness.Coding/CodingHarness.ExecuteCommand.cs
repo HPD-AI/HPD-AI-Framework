@@ -306,7 +306,6 @@ public partial class CodingToolHarness
                 var duration = DateTimeOffset.UtcNow - background.StartedAt;
                 var outputMetadata = await outputStore.CompleteAsync(
                     result,
-                    environmentContext.ShellExecutable,
                     cancellationToken).ConfigureAwait(false);
                 var terminalEventPublished = await EmitExecuteCommandProcessExitedEventAsync(
                     context,
@@ -522,7 +521,6 @@ public partial class CodingToolHarness
 
             var outputMetadata = await outputStore.CompleteAsync(
                 result,
-                environmentContext.ShellExecutable,
                 cancellationToken).ConfigureAwait(false);
             var terminalEventPublished = await EmitExecuteCommandProcessExitedEventAsync(
                 context,
@@ -1120,14 +1118,8 @@ public partial class CodingToolHarness
         if (IsNoOutputExpected(baseCommand, result))
             writer.WriteAttributeString("no_output_expected", "true");
 
-        WriteExecuteCommandStreamElement(writer, "stdout", stdout, result.Output.Stdout, outputMetadata.Stdout);
-        WriteExecuteCommandStreamElement(writer, "stderr", stderr, result.Output.Stderr, outputMetadata.Stderr);
-
-        writer.WriteStartElement("combined_output");
-        WriteExecuteCommandOutputHandleAttributes(writer, outputMetadata.Combined);
-        writer.WriteEndElement();
-
-        WriteExecuteCommandOutputStoreElement(writer, outputMetadata);
+        WriteExecuteCommandStreamElement(writer, "stdout", stdout, result.Output.Stdout);
+        WriteExecuteCommandStreamElement(writer, "stderr", stderr, result.Output.Stderr);
 
         if (interpretation.Message is not null)
         {
@@ -1313,8 +1305,6 @@ public partial class CodingToolHarness
                 $"Failed to read background command output: {ex.Message}"));
         }
 
-        var metadata = background.OutputMetadata;
-
         var builder = new StringBuilder();
         using var writer = CreateCodingToolHarnessXmlWriter(builder);
 
@@ -1330,15 +1320,8 @@ public partial class CodingToolHarness
 
         writer.WriteStartElement("combined_output");
         writer.WriteAttributeString("tail_lines", request.TailLines.ToString(CultureInfo.InvariantCulture));
-        if (metadata is not null)
-            WriteExecuteCommandOutputHandleAttributes(writer, metadata.Combined);
-        else
-            writer.WriteAttributeString("local_path", background.OutputStore.CombinedPath);
         writer.WriteString(SanitizeTerminalOutputForXml(tail));
         writer.WriteEndElement();
-
-        if (metadata is not null)
-            WriteExecuteCommandOutputStoreElement(writer, metadata);
 
         writer.WriteEndElement();
         writer.Flush();
@@ -1375,7 +1358,6 @@ public partial class CodingToolHarness
                 cancellationToken).ConfigureAwait(false);
 
         var result = await background.WaitForCompletionAsync(cancellationToken).ConfigureAwait(false);
-        var outputMetadata = background.OutputMetadata;
 
         var builder = new StringBuilder();
         using var writer = CreateCodingToolHarnessXmlWriter(builder);
@@ -1388,13 +1370,6 @@ public partial class CodingToolHarness
         if (result.ExitCode is not null)
             writer.WriteAttributeString("exit_code", result.ExitCode.Value.ToString(CultureInfo.InvariantCulture));
         writer.WriteAttributeString("completion_kind", FormatEnum(ToExecuteCommandCompletionKind(result.CompletionKind)));
-        if (outputMetadata is not null)
-        {
-            writer.WriteStartElement("combined_output");
-            WriteExecuteCommandOutputHandleAttributes(writer, outputMetadata.Combined);
-            writer.WriteEndElement();
-            WriteExecuteCommandOutputStoreElement(writer, outputMetadata);
-        }
         writer.WriteEndElement();
         writer.Flush();
         return new ExecuteCommandResult
@@ -1419,26 +1394,6 @@ public partial class CodingToolHarness
         TimeSpan duration,
         CancellationToken cancellationToken)
     {
-        if (outputMetadata.ContentWriteFailure is { } failure)
-        {
-            await context.TryPublishAsync(new ExecuteCommandContentWriteFailedEvent
-            {
-                ToolCallId = context.FunctionCallId,
-                FunctionName = context.FunctionName,
-                EventFlowId = request.CommandId,
-                CommandId = request.CommandId,
-                Command = request.Command,
-                BaseCommand = baseCommand,
-                Category = category,
-                WorkingDirectory = request.WorkingDirectory,
-                FailureKind = failure.Kind,
-                ArtifactRole = failure.ArtifactRole,
-                Message = failure.Message,
-                StdoutTail = failure.StdoutTail,
-                StderrTail = failure.StderrTail,
-                MaxPersistedOutputBytes = outputMetadata.MaxPersistedOutputBytes
-            }, cancellationToken).ConfigureAwait(false);
-        }
         return await context.TryPublishAsync(new ExecuteCommandProcessExitedEvent
         {
             ToolCallId = context.FunctionCallId,
@@ -1461,10 +1416,6 @@ public partial class CodingToolHarness
             OutputTruncated = result.Output.Stdout.Truncated || result.Output.Stderr.Truncated || outputMetadata.Stdout.Truncated || outputMetadata.Stderr.Truncated,
             OutputDrainTimedOut = result.Output.OutputDrainTimedOut,
             OutputEventsSuppressed = false,
-            OutputContentState = outputMetadata.ContentState,
-            Stdout = outputMetadata.Stdout.Address,
-            Stderr = outputMetadata.Stderr.Address,
-            CombinedOutput = outputMetadata.Combined.Address,
             MaxPersistedOutputBytes = outputMetadata.MaxPersistedOutputBytes,
             CombinedOutputFormat = "hpd.execute-command.interleaved.v1"
         }, cancellationToken).ConfigureAwait(false);
@@ -1514,8 +1465,7 @@ public partial class CodingToolHarness
         XmlWriter writer,
         string elementName,
         ExecuteCommandStreamResult streamResult,
-        ProcessStreamOutput stream,
-        ExecuteCommandOutputHandle handle)
+        ProcessStreamOutput stream)
     {
         writer.WriteStartElement(elementName);
         writer.WriteAttributeString("lines", streamResult.LineCount.ToString(CultureInfo.InvariantCulture));
@@ -1525,24 +1475,11 @@ public partial class CodingToolHarness
         writer.WriteAttributeString("bytes_discarded", stream.BytesDiscarded.ToString(CultureInfo.InvariantCulture));
         writer.WriteAttributeString("truncated", FormatBool(stream.Truncated || streamResult.Truncated));
         writer.WriteAttributeString("binary", FormatBool(streamResult.Binary));
-        WriteExecuteCommandOutputHandleAttributes(writer, handle);
 
         if (!string.IsNullOrEmpty(streamResult.Preview))
             writer.WriteString(SanitizeTerminalOutputForXml(streamResult.Preview));
 
         writer.WriteEndElement();
-    }
-
-    private static void WriteExecuteCommandOutputHandleAttributes(
-        XmlWriter writer,
-        ExecuteCommandOutputHandle handle)
-    {
-        if (!string.IsNullOrWhiteSpace(handle.ArtifactPath))
-            writer.WriteAttributeString("artifact_path", handle.ArtifactPath);
-        if (!string.IsNullOrWhiteSpace(handle.ContentId))
-            writer.WriteAttributeString("content_id", handle.ContentId);
-        if (!string.IsNullOrWhiteSpace(handle.LocalPath))
-            writer.WriteAttributeString("local_path", handle.LocalPath);
     }
 
     private static void WriteBackgroundCommandElement(
@@ -1561,32 +1498,6 @@ public partial class CodingToolHarness
             writer.WriteAttributeString("exit_code", command.ExitCode.Value.ToString(CultureInfo.InvariantCulture));
         if (command.CompletionKind is not null)
             writer.WriteAttributeString("completion_kind", FormatEnum(command.CompletionKind.Value));
-        if (command.OutputMetadata?.Combined is { } combined)
-            WriteExecuteCommandOutputHandleAttributes(writer, combined);
-        else
-            writer.WriteAttributeString("local_path", command.OutputStore.CombinedPath);
-        if (!string.IsNullOrWhiteSpace(command.OutputMetadata?.Warning))
-            writer.WriteAttributeString("output_store_warning", command.OutputMetadata.Warning);
-        writer.WriteEndElement();
-    }
-
-    private static void WriteExecuteCommandOutputStoreElement(
-        XmlWriter writer,
-        ExecuteCommandOutputStoreMetadata outputMetadata)
-    {
-        if (outputMetadata.Warning is null && outputMetadata.ContentStoreAvailable)
-            return;
-
-        writer.WriteStartElement("output_store");
-        writer.WriteAttributeString("content_store_available", FormatBool(outputMetadata.ContentStoreAvailable));
-        if (!string.IsNullOrWhiteSpace(outputMetadata.Warning))
-            writer.WriteAttributeString("warning", outputMetadata.Warning);
-        if (!string.IsNullOrWhiteSpace(outputMetadata.Metadata.ArtifactPath))
-            writer.WriteAttributeString("metadata_artifact_path", outputMetadata.Metadata.ArtifactPath);
-        if (!string.IsNullOrWhiteSpace(outputMetadata.Metadata.ContentId))
-            writer.WriteAttributeString("metadata_content_id", outputMetadata.Metadata.ContentId);
-        if (!string.IsNullOrWhiteSpace(outputMetadata.Metadata.LocalPath))
-            writer.WriteAttributeString("metadata_local_path", outputMetadata.Metadata.LocalPath);
         writer.WriteEndElement();
     }
 
@@ -2169,29 +2080,14 @@ internal sealed record ExecuteCommandOutputStoreMetadata(
     ExecuteCommandOutputHandle Stdout,
     ExecuteCommandOutputHandle Stderr,
     ExecuteCommandOutputHandle Combined,
-    ExecuteCommandOutputHandle Metadata,
-    bool ContentStoreAvailable,
-    string? Warning,
-    ExecuteCommandContentWriteFailure? ContentWriteFailure,
-    ExecuteCommandOutputContentState ContentState,
     long MaxPersistedOutputBytes);
 
-internal sealed record ExecuteCommandContentWriteFailure(
-    ExecuteCommandContentWriteFailureKind Kind,
-    string? ArtifactRole,
-    string Message,
-    string StdoutTail,
-    string StderrTail);
-
 internal sealed record ExecuteCommandOutputHandle(
-    string? ArtifactPath,
-    string? ContentId,
     string? LocalPath,
     string ContentType,
     long Bytes,
     bool Truncated,
-    bool Binary,
-    ContentAddress? Address = null);
+    bool Binary);
 
 internal enum ExecuteCommandErrorKind
 {
@@ -2447,7 +2343,6 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
 
     public async ValueTask<ExecuteCommandOutputStoreMetadata> CompleteAsync(
         ProcessInvocationResult result,
-        string shell,
         CancellationToken cancellationToken)
     {
         if (_completed)
@@ -2464,26 +2359,10 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
         var stderr = CreateLocalHandle(_stderr, "text/plain", stderrBinary);
         var combined = CreateLocalHandle(_combined, "text/plain", stdoutBinary && stderrBinary);
 
-        var metadataPath = Path.Combine(_rootDirectory, "metadata.json");
-        var metadataBytes = BuildMetadataBytes(result, shell, stdout, stderr, combined);
-        await File.WriteAllBytesAsync(metadataPath, metadataBytes, cancellationToken).ConfigureAwait(false);
-        var metadata = new ExecuteCommandOutputHandle(
-            null,
-            null,
-            metadataPath,
-            "application/json",
-            metadataBytes.Length,
-            false,
-            false);
         return new ExecuteCommandOutputStoreMetadata(
             stdout,
             stderr,
             combined,
-            metadata,
-            false,
-            null,
-            null,
-            ExecuteCommandOutputContentState.Unavailable,
             _options.MaxPersistedOutputBytes);
     }
 
@@ -2560,92 +2439,11 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
         try { Directory.Delete(path, recursive: true); } catch { }
     }
 
-    private byte[] BuildMetadataBytes(
-        ProcessInvocationResult result,
-        string shell,
-        ExecuteCommandOutputHandle stdout,
-        ExecuteCommandOutputHandle stderr,
-        ExecuteCommandOutputHandle combined)
-    {
-        using var buffer = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(buffer))
-        {
-            writer.WriteStartObject();
-            writer.WriteString("command_id", _commandId);
-            writer.WriteString("command", _request.Command);
-            writer.WriteString("cwd", _request.WorkingDirectory);
-            writer.WriteString("shell", shell);
-            if (result.ExitCode is { } exitCode)
-                writer.WriteNumber("exit_code", exitCode);
-            else
-                writer.WriteNull("exit_code");
-            writer.WriteString("completion_kind", result.CompletionKind.ToString());
-            writer.WriteNumber("stdout_bytes_observed", result.Output.Stdout.BytesObserved);
-            writer.WriteNumber("stderr_bytes_observed", result.Output.Stderr.BytesObserved);
-            writer.WriteBoolean("output_drain_timed_out", result.Output.OutputDrainTimedOut);
-            WriteOutputHandle(writer, "stdout", stdout);
-            WriteOutputHandle(writer, "stderr", stderr);
-            WriteOutputHandle(writer, "combined", combined);
-            writer.WriteEndObject();
-        }
-
-        return buffer.ToArray();
-    }
-
-    private static void WriteOutputHandle(
-        Utf8JsonWriter writer,
-        string propertyName,
-        ExecuteCommandOutputHandle handle)
-    {
-        writer.WriteStartObject(propertyName);
-        WriteNullableString(writer, "ArtifactPath", handle.ArtifactPath);
-        WriteNullableString(writer, "ContentId", handle.ContentId);
-        WriteNullableString(writer, "LocalPath", handle.LocalPath);
-        writer.WriteString("ContentType", handle.ContentType);
-        writer.WriteNumber("Bytes", handle.Bytes);
-        writer.WriteBoolean("Truncated", handle.Truncated);
-        writer.WriteBoolean("Binary", handle.Binary);
-        if (handle.Address is { } address)
-        {
-            writer.WriteStartObject("Address");
-            writer.WriteStartObject("Scope");
-            writer.WriteString("Value", address.Scope.Value);
-            writer.WriteEndObject();
-            writer.WriteString("ContentId", address.ContentId);
-            WriteNullableString(writer, "Version", address.Version);
-            WriteNullableString(writer, "Sha256", address.Sha256);
-            writer.WriteEndObject();
-        }
-        else
-        {
-            writer.WriteNull("Address");
-        }
-        writer.WriteEndObject();
-    }
-
-    private static void WriteNullableString(
-        Utf8JsonWriter writer,
-        string propertyName,
-        string? value)
-    {
-        if (value is null)
-            writer.WriteNull(propertyName);
-        else
-            writer.WriteString(propertyName, value);
-    }
-
     private static ExecuteCommandOutputHandle CreateLocalHandle(
         CappedOutputFile file,
         string contentType,
         bool binary)
-        => new(
-            null,
-            null,
-            file.Path,
-            contentType,
-            file.Bytes,
-            file.Truncated,
-            binary);
+        => new(file.Path, contentType, file.Bytes, file.Truncated, binary);
 
     private static bool IsBinary(ProcessStreamOutput stream)
     {

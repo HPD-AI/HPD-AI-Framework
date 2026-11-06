@@ -12,7 +12,7 @@ namespace HPD.Agent;
 public sealed class ContentToolHarness
 {
     [AIFunction(Name = "Content", InvocationModePolicy = AgentInvocationModePolicy.SynchronousOnly)]
-    [Description("Lists, inspects, or reads durable content available to the current agent thread. Select exactly one action.")]
+    [Description("Lists, inspects, or reads stored content available to the current agent thread. Persistence metadata identifies whether content survives a restart. Select exactly one action.")]
     public async Task<ContentResult> ContentAsync(
         ContentOperation request,
         FunctionExecutionContext context,

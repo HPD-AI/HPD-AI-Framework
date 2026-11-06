@@ -59,7 +59,7 @@ public sealed class CanonicalCodingEventCodecTests
     }
 
     [Fact]
-    public void ExecuteCommandExit_RoundTripsNullableOutputHandles()
+    public void ExecuteCommandExit_RoundTripsTerminalMetadata()
     {
         var proposed = new ExecuteCommandProcessExitedEvent
         {
@@ -81,8 +81,6 @@ public sealed class CanonicalCodingEventCodecTests
             OutputTruncated = false,
             OutputDrainTimedOut = false,
             OutputEventsSuppressed = false,
-            OutputContentState = ExecuteCommandOutputContentState.RestartDurable,
-            Stdout = new ContentAddress(ContentScope.Create("session-1"), "stdout-content", "v1", "abc"),
             MaxPersistedOutputBytes = 1024,
             CombinedOutputFormat = "hpd.execute-command.interleaved.v1"
         };
@@ -92,10 +90,9 @@ public sealed class CanonicalCodingEventCodecTests
             .Should().BeOfType<ExecuteCommandProcessExitedEvent>().Subject;
 
         decoded.ExitCode.Should().BeNull();
-        decoded.Stdout.Should().NotBeNull();
-        decoded.Stdout!.Value.ContentId.Should().Be("stdout-content");
-        decoded.Stderr.Should().BeNull();
-        decoded.CombinedOutput.Should().BeNull();
+        decoded.CompletionKind.Should().Be(ExecuteCommandCompletionKind.TimedOut);
+        decoded.MaxPersistedOutputBytes.Should().Be(1024);
+        decoded.CombinedOutputFormat.Should().Be("hpd.execute-command.interleaved.v1");
     }
 
     [Fact]

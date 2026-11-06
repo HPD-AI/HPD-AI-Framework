@@ -69,9 +69,9 @@ internal sealed class ExecuteCommandProcessOperation : IAsyncDisposable
             ? [OutputStore.CombinedPath]
             : new[]
             {
-                OutputMetadata.Stdout.ArtifactPath ?? OutputMetadata.Stdout.LocalPath,
-                OutputMetadata.Stderr.ArtifactPath ?? OutputMetadata.Stderr.LocalPath,
-                OutputMetadata.Combined.ArtifactPath ?? OutputMetadata.Combined.LocalPath
+                OutputMetadata.Stdout.LocalPath,
+                OutputMetadata.Stderr.LocalPath,
+                OutputMetadata.Combined.LocalPath
             }
             .Where(static artifact => !string.IsNullOrWhiteSpace(artifact))
             .Select(static artifact => artifact!)
@@ -106,7 +106,7 @@ internal sealed class ExecuteCommandProcessOperation : IAsyncDisposable
                 ProcessCompletionKind.TimedOut => ExecuteCommandProcessOperationStatus.TimedOut,
                 _ => ExecuteCommandProcessOperationStatus.Faulted
             };
-            OutputMetadata = await OutputStore.CompleteAsync(result, Shell, cancellationToken).ConfigureAwait(false);
+            OutputMetadata = await OutputStore.CompleteAsync(result, cancellationToken).ConfigureAwait(false);
             return result;
         }
         finally { _completionLock.Release(); }
@@ -115,18 +115,6 @@ internal sealed class ExecuteCommandProcessOperation : IAsyncDisposable
     private async ValueTask PublishProcessExitedAsync(ProcessInvocationResult result)
     {
         if (OutputMetadata is null) return;
-        if (OutputMetadata.ContentWriteFailure is { } failure)
-        {
-            await _context.TryPublishAsync(new ExecuteCommandContentWriteFailedEvent
-            {
-                ToolCallId = _context.FunctionCallId, FunctionName = _context.FunctionName,
-                EventFlowId = CommandId, CommandId = CommandId, Command = Request.Command,
-                BaseCommand = BaseCommand, Category = Category, WorkingDirectory = Request.WorkingDirectory,
-                FailureKind = failure.Kind, ArtifactRole = failure.ArtifactRole, Message = failure.Message,
-                StdoutTail = failure.StdoutTail, StderrTail = failure.StderrTail,
-                MaxPersistedOutputBytes = OutputMetadata.MaxPersistedOutputBytes
-            }, CancellationToken.None).ConfigureAwait(false);
-        }
         var terminalEventPublished = await _context.TryPublishAsync(new ExecuteCommandProcessExitedEvent
         {
             ToolCallId = _context.FunctionCallId, FunctionName = _context.FunctionName,
@@ -140,10 +128,6 @@ internal sealed class ExecuteCommandProcessOperation : IAsyncDisposable
             CombinedBytesDiscarded = result.Output.Stdout.BytesDiscarded + result.Output.Stderr.BytesDiscarded,
             OutputTruncated = result.Output.Stdout.Truncated || result.Output.Stderr.Truncated || OutputMetadata.Stdout.Truncated || OutputMetadata.Stderr.Truncated,
             OutputDrainTimedOut = result.Output.OutputDrainTimedOut, OutputEventsSuppressed = false,
-            OutputContentState = OutputMetadata.ContentState,
-            Stdout = OutputMetadata.Stdout.Address,
-            Stderr = OutputMetadata.Stderr.Address,
-            CombinedOutput = OutputMetadata.Combined.Address,
             MaxPersistedOutputBytes = OutputMetadata.MaxPersistedOutputBytes,
             CombinedOutputFormat = "hpd.execute-command.interleaved.v1"
         }, CancellationToken.None).ConfigureAwait(false);
