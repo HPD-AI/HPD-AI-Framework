@@ -107,6 +107,49 @@ controls access to existing and new references.
 development escape hatch. The inline budget is a final delivery guard, not an
 automatic offload selector.
 
+## Sensitivity levels
+
+`Public`, `Internal`, and `Restricted` classify how carefully content may be
+disclosed. They do not replace session/thread authorization or tool
+permissions. Bundle sensitivity is the strictest sensitivity of any included
+part.
+
+- `Public`: safe to disclose broadly; model-retrievable.
+- `Internal`: ordinary application/session data and the default;
+  model-retrievable.
+- `Restricted`: sensitive financial, personal, proprietary, or diagnostic
+  evidence; metadata may be inspected, but the body is not model-retrievable.
+
+## Restricted disclosure policy (future work)
+
+This release implements sensitivity classification and fail-closed handling,
+but it does not implement an explicit policy that allows the model to retrieve
+`Restricted` content bodies.
+
+Today:
+
+- `Public` and `Internal` content are model-retrievable.
+- A bundle containing `Restricted` content is itself `Restricted`.
+- The resulting `ContentReference` uses `InternalOnly` disposition.
+- `Content.stat` may report metadata, but `Content.read` rejects the body.
+
+Future work must add an explicit, auditable policy for relaxing that boundary.
+It must not be encoded in `ContentReference`, which is an address rather than a
+credential. At minimum, the policy design needs:
+
+- trusted agent/run/subagent configuration;
+- session and thread authorization;
+- a maximum permitted sensitivity;
+- action-level permission and invocation policy;
+- an optional purpose, expiry, and retrieval budget;
+- bounded durable audit events;
+- interaction with redaction and application-owned artifact policy.
+
+Until that policy exists, applications must keep genuinely restricted data
+behind a separately governed application retrieval surface or a redacted
+projection. Raising `ContentRetrievalEnabled` or changing the read budget does
+not permit `Restricted` reads.
+
 ## Delivery and lifetime
 
 Model-retrievable tool output stays symbolic and is never expanded by
