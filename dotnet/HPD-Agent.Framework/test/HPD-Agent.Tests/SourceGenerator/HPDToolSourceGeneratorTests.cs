@@ -430,7 +430,7 @@ namespace Ns
     }
 
     [Fact]
-    public void SourceGen_ToolHarnessConfigFactory_UsesJsonTypeInfoLookup()
+    public void SourceGen_ToolHarnessPlainConfigConstructor_IsRejected()
     {
         var source = @"
 using HPD.Agent;
@@ -454,12 +454,122 @@ namespace Ns
 ";
         var (generatedCode, diagnostics) = RunGenerator(source);
 
-        Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
+        var diagnostic = Assert.Single(diagnostics, diagnostic => diagnostic.Id == "HPDHIN011");
+        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
+        Assert.Contains("IHarnessConfig<T>", diagnostic.GetMessage());
         Assert.NotNull(generatedCode);
-        AssertDoesNotContainGenericRawTextDeserialize(generatedCode, "Ns.ToolHarnessConfig", "ToolHarnessConfig");
-        Assert.Contains("JsonSerializer.Deserialize(json, GetJsonTypeInfo<Ns.ToolHarnessConfig>())", StripGlobalQualifiers(generatedCode));
-        Assert.Contains("No JSON metadata is registered for tool harness config type", generatedCode);
-        Assert.Contains("typeof(T).FullName", generatedCode);
+        Assert.DoesNotContain("CreateFromConfig", generatedCode);
+    }
+
+    [Fact]
+    public void SourceGen_ToolHarnessWithoutPublicConstructor_EmitsHPDHIN009()
+    {
+        var (_, diagnostics) = RunGenerator("""
+            using HPD.Agent;
+            public sealed class NoPublicConstructorHarness
+            {
+                private NoPublicConstructorHarness() { }
+                [AIFunction] public string Ping() => "pong";
+            }
+            """);
+
+        Assert.Contains(diagnostics, diagnostic => diagnostic.Id == "HPDHIN009");
+        Assert.DoesNotContain(diagnostics, diagnostic => diagnostic.Id == "HPDACT001");
+    }
+
+    [Fact]
+    public void SourceGen_ToolHarnessRequiredValueType_EmitsHPDHIN011OnParameter()
+    {
+        var (_, diagnostics) = RunGenerator("""
+            using HPD.Agent;
+            public sealed class PrimitiveDependencyHarness(int pageSize)
+            {
+                [AIFunction] public string Ping() => pageSize.ToString();
+            }
+            """);
+
+        var diagnostic = Assert.Single(diagnostics, diagnostic => diagnostic.Id == "HPDHIN011");
+        Assert.Contains("pageSize", diagnostic.Location.SourceTree!.GetText().ToString(diagnostic.Location.SourceSpan));
+        Assert.Contains("'pageSize'", diagnostic.GetMessage());
+    }
+
+    [Fact]
+    public void SourceGen_ToolHarnessByRefParameters_EmitHPDHIN011()
+    {
+        var (_, diagnostics) = RunGenerator("""
+            using HPD.Agent;
+            public sealed class RefDependencyHarness
+            {
+                public RefDependencyHarness(ref string input, in int count, out string output)
+                {
+                    output = "";
+                }
+                [AIFunction] public string Ping() => "pong";
+            }
+            """);
+
+        Assert.Equal(3, diagnostics.Count(diagnostic => diagnostic.Id == "HPDHIN011"));
+    }
+
+    [Fact]
+    public void SourceGen_InvalidDependencyDefault_EmitsHPDHIN012()
+    {
+        var (_, diagnostics) = RunGenerator("""
+            using HPD.Agent;
+            public interface ISearchClient { }
+            public abstract class AbstractSearchClient : ISearchClient { }
+            [ToolHarnessDependency(typeof(ISearchClient), typeof(AbstractSearchClient))]
+            public sealed class InvalidDefaultHarness(ISearchClient client)
+            {
+                [AIFunction] public string Ping() => "pong";
+            }
+            """);
+
+        var diagnostic = Assert.Single(diagnostics, diagnostic => diagnostic.Id == "HPDHIN012");
+        Assert.Contains("must be concrete", diagnostic.GetMessage());
+    }
+
+    [Fact]
+    public void SourceGen_DuplicateDependencyDefault_EmitsHPDHIN013WithFirstDeclaration()
+    {
+        var (_, diagnostics) = RunGenerator("""
+            using HPD.Agent;
+            public interface ISearchClient { }
+            public sealed class FirstSearchClient : ISearchClient { }
+            public sealed class SecondSearchClient : ISearchClient { }
+            [ToolHarnessDependency(typeof(ISearchClient), typeof(FirstSearchClient))]
+            public class BaseSearchHarness { }
+            [ToolHarnessDependency(typeof(ISearchClient), typeof(SecondSearchClient))]
+            public sealed class DerivedSearchHarness : BaseSearchHarness
+            {
+                [AIFunction] public string Ping() => "pong";
+            }
+            """);
+
+        var diagnostic = Assert.Single(diagnostics, diagnostic => diagnostic.Id == "HPDHIN013");
+        Assert.Single(diagnostic.AdditionalLocations);
+        Assert.Contains("BaseSearchHarness", diagnostic.GetMessage());
+    }
+
+    [Fact]
+    public void SourceGen_ToolHarnessEmitsOnlyTheCommonActivationContract()
+    {
+        var (generatedCode, diagnostics) = RunGenerator("""
+            using HPD.Agent;
+            public sealed class SingleActivationHarness(string? name = null)
+            {
+                [AIFunction] public string Ping() => name ?? "pong";
+            }
+            """);
+
+        Assert.DoesNotContain(diagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.Contains("Activate: context => new global::SingleActivationHarness(", generatedCode);
+        Assert.Contains("context.GetOptionalService<", generatedCode);
+        Assert.Contains("() ?? default", generatedCode);
+        Assert.DoesNotContain("CreateInstance:", generatedCode);
+        Assert.DoesNotContain("CreateWithSecrets:", generatedCode);
+        Assert.DoesNotContain("CreateFromConfig:", generatedCode);
+        Assert.DoesNotContain("ConfigType:", generatedCode);
     }
 
     [Fact]

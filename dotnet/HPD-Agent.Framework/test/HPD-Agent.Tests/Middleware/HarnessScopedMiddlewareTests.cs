@@ -571,8 +571,13 @@ public sealed class HarnessScopedMiddlewareTests
     }
 
     private static ToolHarnessFactory Harness(params ToolHarnessMiddlewareFactory[] factories) => new(
-        "Harness", typeof(object), static () => new object(), static (_, _, _) => [],
-        static () => [], static () => [], StableIdentity: "tests:Harness",
+        Name: "Harness",
+        ToolHarnessType: typeof(object),
+        CreateFunctions: static (_, _, _) => [],
+        GetReferencedToolHarnesses: static () => [],
+        GetReferencedFunctions: static () => [],
+        StableIdentity: "tests:Harness",
+        Activate: static _ => new object(),
         Middleware: factories.Select(factory => new ToolHarnessMiddlewareDescriptor
         {
             MiddlewareType = typeof(Probe), Factory = factory
@@ -580,8 +585,13 @@ public sealed class HarnessScopedMiddlewareTests
 
     private static ToolHarnessFactory HarnessOf<TMiddleware>(params ToolHarnessMiddlewareFactory[] factories)
         where TMiddleware : IToolHarnessMiddleware => new(
-        "Harness", typeof(object), static () => new object(), static (_, _, _) => [],
-        static () => [], static () => [], StableIdentity: "tests:Harness",
+        Name: "Harness",
+        ToolHarnessType: typeof(object),
+        CreateFunctions: static (_, _, _) => [],
+        GetReferencedToolHarnesses: static () => [],
+        GetReferencedFunctions: static () => [],
+        StableIdentity: "tests:Harness",
+        Activate: static _ => new object(),
         Middleware: factories.Select(factory => new ToolHarnessMiddlewareDescriptor
         {
             MiddlewareType = typeof(TMiddleware), Factory = factory

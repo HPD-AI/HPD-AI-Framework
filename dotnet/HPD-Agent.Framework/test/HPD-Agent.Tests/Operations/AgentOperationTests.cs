@@ -703,13 +703,13 @@ public sealed class AgentOperationTests
         var disposed = 0;
         var execution = ToolHarnessExecutionScope.Create(null);
         var harness = new ToolHarnessFactory(
-            "OperationHarness",
-            typeof(object),
-            static () => new object(),
-            static (_, _, _) => [],
-            static () => [],
-            static () => [],
-            "tests:operation",
+            Name: "OperationHarness",
+            ToolHarnessType: typeof(object),
+            CreateFunctions: static (_, _, _) => [],
+            GetReferencedToolHarnesses: static () => [],
+            GetReferencedFunctions: static () => [],
+            StableIdentity: "tests:operation",
+            Activate: static _ => new object(),
             Middleware:
             [
                 new ToolHarnessMiddlewareDescriptor
@@ -955,13 +955,13 @@ public sealed class AgentOperationTests
         var disposed = 0;
         var execution = ToolHarnessExecutionScope.Create(null);
         var harness = new ToolHarnessFactory(
-            "OperationHarness",
-            typeof(object),
-            static () => new object(),
-            static (_, _, _) => [],
-            static () => [],
-            static () => [],
-            "tests:operation-entrypoint",
+            Name: "OperationHarness",
+            ToolHarnessType: typeof(object),
+            CreateFunctions: static (_, _, _) => [],
+            GetReferencedToolHarnesses: static () => [],
+            GetReferencedFunctions: static () => [],
+            StableIdentity: "tests:operation-entrypoint",
+            Activate: static _ => new object(),
             Middleware:
             [
                 new ToolHarnessMiddlewareDescriptor

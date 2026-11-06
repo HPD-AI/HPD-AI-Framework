@@ -154,9 +154,10 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
 
         // Diagnostics will be stored in ToolHarnessInfo and reported in GenerateToolRegistrations
 
-        // Check if the class has a parameterless constructor (either explicit or implicit)
-        var hasParameterlessConstructor = !owner.IsAbstract && SelectOwnerConstructor(owner) is { } defaultConstructor &&
-            defaultConstructor.Parameters.All(parameter => parameter.IsOptional);
+        var constructionAnalysis = ToolHarnessConstructionAnalyzer.Analyze(owner, semanticModel.Compilation);
+        diagnostics.AddRange(constructionAnalysis.Diagnostics);
+        diagnostics.AddRange(ToolHarnessConstructionAnalyzer.AnalyzeDependencyDefaults(
+            owner, semanticModel.Compilation));
 
         // Check if the class is publicly accessible (for ToolHarnessRegistry.All inclusion)
         // A class is publicly accessible if it's public and not nested inside a non-public class
@@ -174,17 +175,6 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
         var functionNames = capabilities.Where(capability => capability.EmitsIntoCreateTools)
             .Select(capability => capability is FunctionCapability function ? function.FunctionName : capability.Name)
             .ToList();
-
-        // NEW: Extract config constructor type (single-parameter constructor with *Config type)
-        var construction = SelectOwnerConstructor(owner);
-        var configConstructorTypeName = construction is { Parameters.Length: 1 } &&
-            construction.Parameters[0].Type.Name.EndsWith("Config", StringComparison.Ordinal)
-            ? construction.Parameters[0].Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) : null;
-
-        // NEW: Detect ISecretResolver-only constructor
-        var hasSecretsConstructor = owner.InstanceConstructors.Any(ctor =>
-            ctor.DeclaredAccessibility == Accessibility.Public && ctor.Parameters.Length == 1 &&
-            ctor.Parameters[0].Type.ToDisplayString() == "HPD.Agent.Secrets.ISecretResolver");
 
         // NEW: Extract metadata type from capabilities
         var metadataTypes = capabilities.OfType<BaseCapability>()
@@ -267,8 +257,7 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
             SystemPrompt = SystemPrompt,
             SystemPromptExpression = SystemPromptExpression,
             SystemPromptIsStatic = SystemPromptIsStatic,
-            HasParameterlessConstructor = hasParameterlessConstructor,
-            HasSecretsConstructor = hasSecretsConstructor,
+            ConstructionAnalysis = constructionAnalysis,
 
             // Diagnostics from dual-context validation
             Diagnostics = diagnostics,
@@ -276,7 +265,6 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
 
             // NEW: Config serialization fields
             FunctionNames = functionNames,
-            ConfigConstructorTypeName = configConstructorTypeName,
             MetadataTypeName = metadataTypeName,
 
             MiddlewareEntries = middlewareEntries,
@@ -381,85 +369,29 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
         }
     }
 
-    /// <summary>
-    /// Detects if the toolharness class has a constructor that accepts a single *Config parameter.
-    /// This enables config-based instantiation from JSON.
-    /// </summary>
+    /// <summary>Detects the middleware convention for a single JSON configuration constructor.</summary>
     private static string? GetConfigConstructorTypeName(ClassDeclarationSyntax classDecl, SemanticModel semanticModel)
     {
-        var constructors = classDecl.Members
-            .OfType<ConstructorDeclarationSyntax>()
-            .ToList();
-
-        foreach (var ctor in constructors)
+        foreach (var constructor in classDecl.Members.OfType<ConstructorDeclarationSyntax>())
         {
-            // Look for single-parameter constructor where parameter type ends with "Config"
-            if (ctor.ParameterList.Parameters.Count == 1)
-            {
-                var param = ctor.ParameterList.Parameters[0];
-                var paramTypeName = param.Type?.ToString() ?? "";
-
-                // Check if parameter type ends with "Config" (convention for config classes)
-                if (paramTypeName.EndsWith("Config"))
-                {
-                    // Get fully qualified type name via semantic model
-                    var typeInfo = semanticModel.GetTypeInfo(param.Type!);
-                    if (typeInfo.Type != null)
-                    {
-                        return typeInfo.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                    }
-                    return paramTypeName;
-                }
-            }
+            if (constructor.ParameterList.Parameters.Count != 1)
+                continue;
+            var parameter = constructor.ParameterList.Parameters[0];
+            if (parameter.Type?.ToString().EndsWith("Config", StringComparison.Ordinal) != true)
+                continue;
+            return semanticModel.GetTypeInfo(parameter.Type).Type?
+                .ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         }
-
         return null;
     }
 
-    /// <summary>
-    /// Checks if a class has a parameterless constructor (either explicit or implicit).
-    /// A class has an implicit parameterless constructor if it has NO explicit constructors.
-    /// A class has an explicit parameterless constructor if it declares one.
-    /// </summary>
+    /// <summary>Checks whether a middleware class exposes an implicit or explicit parameterless constructor.</summary>
     private static bool HasParameterlessConstructor(ClassDeclarationSyntax classDecl)
     {
-        var constructors = classDecl.Members
-            .OfType<ConstructorDeclarationSyntax>()
-            .ToList();
-
-        // If no explicit constructors, compiler generates implicit parameterless constructor
-        if (!constructors.Any())
-            return true;
-
-        // Check if any explicit constructor is parameterless
-        return constructors.Any(c => c.ParameterList.Parameters.Count == 0);
+        var constructors = classDecl.Members.OfType<ConstructorDeclarationSyntax>().ToArray();
+        return constructors.Length == 0 ||
+            constructors.Any(static constructor => constructor.ParameterList.Parameters.Count == 0);
     }
-
-    /// <summary>
-    /// Detects if the toolharness has a constructor whose sole parameter is ISecretResolver.
-    /// Also handles primary constructors (parameter lists on the class declaration itself).
-    /// Example: public class StripeToolHarness(ISecretResolver secrets) { ... }
-    /// </summary>
-    private static bool HasSecretsOnlyConstructor(ClassDeclarationSyntax classDecl)
-    {
-        // Check primary constructor (C# 12 syntax: class Foo(ISecretResolver secrets))
-        if (classDecl.ParameterList is { Parameters: { Count: 1 } primaryParams })
-        {
-            var typeName = primaryParams[0].Type?.ToString() ?? "";
-            if (IsSecretResolverType(typeName))
-                return true;
-        }
-
-        // Check explicit constructor declarations
-        return classDecl.Members
-            .OfType<ConstructorDeclarationSyntax>()
-            .Any(ctor =>
-                ctor.ParameterList.Parameters.Count == 1 &&
-                IsSecretResolverType(ctor.ParameterList.Parameters[0].Type?.ToString() ?? ""));
-    }
-
-    private static bool IsSecretResolverType(string typeName) =>
-        typeName == "ISecretResolver" || typeName.EndsWith(".ISecretResolver");
 
     /// <summary>
     /// Checks if a class is publicly accessible from outside the assembly.
@@ -541,13 +473,6 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
                 var isCollapsed = group.Any(p => p!.IsCollapsed);
                 var containerDescription = group.FirstOrDefault(p => p!.IsCollapsed)?.ContainerDescription;
 
-                // All partial class parts must have parameterless constructor for the ToolHarness to be AOT-instantiable
-                // (If any part declares a constructor with parameters, no implicit parameterless constructor is generated)
-                var hasParameterlessConstructor = group.All(p => p!.HasParameterlessConstructor);
-
-                // Detect ISecretResolver-only constructor (from any partial part)
-                var hasSecretsConstructor = group.Any(p => p!.HasSecretsConstructor);
-
                 // All partial class parts must be publicly accessible for the ToolHarness to be in the registry
                 var isPubliclyAccessible = group.All(p => p!.IsPubliclyAccessible);
 
@@ -557,10 +482,7 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
                 // Merge function names from all partial classes
                 var allFunctionNames = group.SelectMany(p => p!.FunctionNames).Distinct().ToList();
 
-                // Use first config constructor type found (should only be defined in one partial)
-                var configConstructorTypeName = group.FirstOrDefault(p => !string.IsNullOrEmpty(p!.ConfigConstructorTypeName))?.ConfigConstructorTypeName;
-
-                    // Use first metadata type found
+                // Use first metadata type found
                 var metadataTypeName = group.FirstOrDefault(p => !string.IsNullOrEmpty(p!.MetadataTypeName))?.MetadataTypeName;
 
                 return new ToolHarnessInfo
@@ -585,14 +507,12 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
                     SystemPrompt = group.FirstOrDefault(p => p?.SystemPrompt != null)?.SystemPrompt,
                     SystemPromptExpression = group.FirstOrDefault(p => p?.SystemPromptExpression != null)?.SystemPromptExpression,
                     SystemPromptIsStatic = group.FirstOrDefault(p => p?.SystemPromptExpression != null)?.SystemPromptIsStatic ?? true,
-                    HasParameterlessConstructor = hasParameterlessConstructor,
-                    HasSecretsConstructor = hasSecretsConstructor,
+                    ConstructionAnalysis = group.FirstOrDefault(p => p!.ConstructionAnalysis is not null)?.ConstructionAnalysis,
                     IsPubliclyAccessible = isPubliclyAccessible,
                     // Diagnostics from dual-context validation
                     Diagnostics = allDiagnostics,
                     // NEW: Config serialization fields
                     FunctionNames = allFunctionNames,
-                    ConfigConstructorTypeName = configConstructorTypeName,
                     MetadataTypeName = metadataTypeName,
                     MiddlewareEntries = group.FirstOrDefault(p => p?.MiddlewareEntries != null)?.MiddlewareEntries,
                     EagerMiddlewareEntries = group.FirstOrDefault(p => p?.EagerMiddlewareEntries != null)?.EagerMiddlewareEntries
@@ -603,6 +523,9 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
         var settingsRoots = new List<INamedTypeSymbol>();
         foreach (var harness in ToolHarnessGroups)
         {
+            if (harness.Diagnostics.Any(static diagnostic =>
+                    diagnostic.Severity == DiagnosticSeverity.Error))
+                continue;
             var configType = HarnessConfigurationEmitter.ConfigType(harness.OwnerType);
             if (configType is null) continue;
             var invalid = HarnessConfigurationEmitter.Validate(configType, compilation.Assembly);
@@ -618,15 +541,6 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
         // Report diagnostics for all ToolHarnesses
         foreach (var ToolHarness in ToolHarnessGroups)
         {
-            if (ToolHarness.IsPubliclyAccessible && ToolHarness.OwnerType is { IsAbstract: false } owner &&
-                owner.InstanceConstructors.Any(ctor => ctor.DeclaredAccessibility == Accessibility.Public) &&
-                SelectOwnerConstructor(owner) is null)
-            {
-                context.ReportDiagnostic(Diagnostic.Create(
-                    new DiagnosticDescriptor("HPDACT001", "Ambiguous harness constructor",
-                        "Harness '{0}' has no unambiguous construction plan. Use exactly one public constructor, or register an explicit instance.",
-                        "HPD.Activation", DiagnosticSeverity.Warning, true), owner.Locations.FirstOrDefault(), owner.ToDisplayString()));
-            }
             foreach (var diagnostic in ToolHarness.Diagnostics)
             {
                 context.ReportDiagnostic(diagnostic);
@@ -774,62 +688,6 @@ namespace HPD.Agent.Diagnostics {{
         }
     }
 
-    /// <summary>
-    /// Selects one public construction contract from canonical compiled symbols.
-    /// </summary>
-    private static IMethodSymbol? SelectOwnerConstructor(INamedTypeSymbol owner)
-    {
-        var constructors = owner.InstanceConstructors.Where(ctor =>
-            ctor.DeclaredAccessibility == Accessibility.Public).ToArray();
-        return constructors.Length == 1 ? constructors[0] : null;
-    }
-
-    private static string GenerateOwnerActivation(ToolHarnessInfo harness) => GenerateConstructorActivation(harness.OwnerType!, acceptsConfiguration: true);
-
-    private static string GenerateConstructorActivation(INamedTypeSymbol owner, bool acceptsConfiguration = false)
-    {
-        var selected = SelectOwnerConstructor(owner);
-        var ownerName = owner.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-        if (selected is null)
-            return $"context => throw new InvalidOperationException(\"Harness '{ownerName}' requires exactly one public constructor.\")";
-        var arguments = new List<string>();
-        foreach (var parameter in selected.Parameters)
-        {
-            var type = parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            if (parameter.Type is INamedTypeSymbol handle && handle.OriginalDefinition.ToDisplayString() == "HPD.Agent.IHarnessConfig<T>")
-            {
-                arguments.Add($"context.GetHarnessConfig<{handle.TypeArguments[0].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}>()");
-                continue;
-            }
-            if (parameter.RefKind != RefKind.None)
-                return $"context => throw new InvalidOperationException(\"Harness '{ownerName}' constructor cannot use ref/out parameters.\")";
-            if (acceptsConfiguration && selected.Parameters.Length == 1 && parameter.Type.Name.EndsWith("Config", StringComparison.Ordinal))
-            {
-                var canDefault = parameter.Type is INamedTypeSymbol named && named.InstanceConstructors.Any(ctor =>
-                    ctor.DeclaredAccessibility == Accessibility.Public && ctor.Parameters.Length == 0) &&
-                    !named.GetMembers().OfType<IPropertySymbol>().Any(property => property.IsRequired);
-                arguments.Add($"context.GetConfiguration(GetJsonTypeInfo<{type}>(){(canDefault ? $", () => new {type}()" : "")})");
-            }
-            else if (parameter.IsOptional)
-            {
-                var literal = parameter.ExplicitDefaultValue is null
-                    ? "default"
-                    : Microsoft.CodeAnalysis.CSharp.SymbolDisplay.FormatPrimitive(
-                        parameter.ExplicitDefaultValue,
-                        true,
-                        false) ?? "default";
-                if (parameter.Type.TypeKind == TypeKind.Enum) literal = $"({type}){literal}";
-                arguments.Add(parameter.Type.IsReferenceType
-                    ? $"context.GetOptionalService<{type}>() ?? {literal}" : literal);
-            }
-            else if (parameter.Type.IsReferenceType)
-                arguments.Add($"context.GetRequiredService<{type}>()");
-            else
-                return $"context => throw new InvalidOperationException(\"Harness '{ownerName}' requires a reference-type dependency for '{parameter.Name}'.\")";
-        }
-        return $"context => new {ownerName}({string.Join(", ", arguments)})";
-    }
-
     private static string GenerateToolHarnessRegistry(
         List<ToolHarnessInfo> ToolHarnesses,
         Compilation compilation)
@@ -866,7 +724,7 @@ namespace HPD.Agent.Diagnostics {{
         sb.AppendLine("    public static class ToolHarnessRegistry");
         sb.AppendLine("    {");
         sb.AppendLine("        /// <summary>");
-        sb.AppendLine("        /// Catalog of all ToolHarnesses in this assembly with parameterless or ISecretResolver-only constructors.");
+        sb.AppendLine("        /// Catalog of all ToolHarnesses in this assembly with one generated construction plan.");
         sb.AppendLine("        /// AgentBuilder automatically discovers and uses this at construction time.");
         sb.AppendLine("        /// </summary>");
         sb.AppendLine("        public static readonly ToolHarnessFactory[] All = new ToolHarnessFactory[]");
@@ -878,13 +736,14 @@ namespace HPD.Agent.Diagnostics {{
             var inheritedHarnessIdentities = GetBaseHarnessIdentities(ToolHarness.OwnerType);
             var ns = string.IsNullOrEmpty(ToolHarness.Namespace) ? "" : $"{ToolHarness.Namespace}.";
             var fullTypeName = $"{ns}{ToolHarness.ClassName}";
+            var construction = ToolHarness.ConstructionAnalysis
+                ?? throw new InvalidOperationException($"ToolHarness '{fullTypeName}' has no valid construction analysis.");
 
             sb.AppendLine($"            new ToolHarnessFactory(");
-            sb.AppendLine($"                // ========== EXISTING FIELDS ==========");
             // Use EffectiveName for registry lookup (always ClassName now)
             sb.AppendLine($"                Name: \"{ToolHarness.EffectiveName}\",");
             sb.AppendLine($"                ToolHarnessType: typeof({fullTypeName}),");
-            sb.AppendLine($"                Activate: {GenerateOwnerActivation(ToolHarness)},");
+            sb.AppendLine($"                Activate: {construction.ActivationExpression()},");
             var configContractType = HarnessConfigurationEmitter.ConfigType(ToolHarness.OwnerType);
             if (configContractType is not null)
                 sb.AppendLine($"                Configuration: {HarnessConfigurationEmitter.Name(configContractType)}.Contract,");
@@ -897,23 +756,10 @@ namespace HPD.Agent.Diagnostics {{
                     if (attribute.ConstructorArguments.Length != 2 ||
                         attribute.ConstructorArguments[0].Value is not INamedTypeSymbol service ||
                         attribute.ConstructorArguments[1].Value is not INamedTypeSymbol implementation) continue;
-                    defaults.Add($"new ToolHarnessDependency(typeof({service.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}), {GenerateConstructorActivation(implementation)})");
+                    defaults.Add($"new ToolHarnessDependency(typeof({service.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}), {ToolHarnessConstructionAnalyzer.ConstructorExpression(implementation, compilation)})");
                 }
             }
             sb.AppendLine($"                DependencyDefaults: new ToolHarnessDependency[] {{ {string.Join(", ", defaults)} }},");
-            if (ToolHarness.HasParameterlessConstructor)
-                sb.AppendLine($"                CreateInstance: () => new {fullTypeName}(),  // Direct instantiation (AOT-safe)");
-            else if (!string.IsNullOrEmpty(ToolHarness.ConfigConstructorTypeName))
-                sb.AppendLine($"                CreateInstance: () => throw new InvalidOperationException(\"{fullTypeName} requires config — use CreateFromConfig\"),");
-            else
-                sb.AppendLine($"                CreateInstance: () => throw new InvalidOperationException(\"{fullTypeName} requires ISecretResolver — use CreateWithSecrets\"),");
-
-            // ========== SECRETS-BASED INSTANTIATION ==========
-            sb.AppendLine($"                // ========== SECRETS-BASED INSTANTIATION ==========");
-            if (ToolHarness.HasSecretsConstructor)
-                sb.AppendLine($"                CreateWithSecrets: secrets => new {fullTypeName}(secrets),");
-            else
-                sb.AppendLine($"                CreateWithSecrets: null,");
 
             // Handle skill-only containers (no instance parameter)
             if (!ToolHarness.RequiresInstance)
@@ -943,20 +789,6 @@ namespace HPD.Agent.Diagnostics {{
             sb.AppendLine($"                Description: {(string.IsNullOrEmpty(ToolHarness.ContainerDescription) ? "null" : $"@\"{EscapeForVerbatim(ToolHarness.ContainerDescription!)}\"")},");
             sb.AppendLine($"                FunctionResult: {(string.IsNullOrEmpty(ToolHarness.FunctionResult) ? "null" : $"@\"{EscapeForVerbatim(ToolHarness.FunctionResult!)}\"")},");
             sb.AppendLine($"                SystemPrompt: {(string.IsNullOrEmpty(ToolHarness.SystemPrompt) ? "null" : $"@\"{EscapeForVerbatim(ToolHarness.SystemPrompt!)}\"")},");
-
-            // NEW: Config-based instantiation
-            sb.AppendLine($"                // ========== CONFIG INSTANTIATION ==========");
-            if (!string.IsNullOrEmpty(ToolHarness.ConfigConstructorTypeName))
-            {
-                sb.AppendLine($"                ConfigType: typeof({ToolHarness.ConfigConstructorTypeName}),");
-                sb.AppendLine($"                // No JSON metadata is registered for tool harness config type");
-                sb.AppendLine($"                CreateFromConfig: json => new {fullTypeName}(JsonSerializer.Deserialize(json, GetJsonTypeInfo<{ToolHarness.ConfigConstructorTypeName}>())!),");
-            }
-            else
-            {
-                sb.AppendLine($"                ConfigType: null,");
-                sb.AppendLine($"                CreateFromConfig: null,");
-            }
 
             // NEW: Metadata type
             sb.AppendLine($"                // ========== METADATA ==========");

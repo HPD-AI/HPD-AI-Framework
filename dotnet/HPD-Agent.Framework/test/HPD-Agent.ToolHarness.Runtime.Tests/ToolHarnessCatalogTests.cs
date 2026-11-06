@@ -7,11 +7,11 @@ public sealed class ToolHarnessCatalogTests
     private static ToolHarnessFactory Factory<T>(string? identity = null) where T : new() => new(
         Name: typeof(T).Name,
         ToolHarnessType: typeof(T),
-        CreateInstance: static () => new T()!,
         CreateFunctions: static (_, _, _) => [],
         GetReferencedToolHarnesses: static () => [],
         GetReferencedFunctions: static () => [],
-        StableIdentity: identity ?? $"catalog-test:{typeof(T).FullName}");
+        StableIdentity: identity ?? $"catalog-test:{typeof(T).FullName}",
+        Activate: static _ => new T()!);
 
     [Fact]
     public void ExactTypesAndIdentitiesSurviveShortNameCollision()

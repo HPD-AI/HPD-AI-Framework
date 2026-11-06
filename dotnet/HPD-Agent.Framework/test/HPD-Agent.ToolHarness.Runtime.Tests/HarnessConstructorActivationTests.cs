@@ -114,6 +114,41 @@ public sealed class HarnessConstructorActivationTests
         Assert.Equal(0, probe.ServiceDisposals);
     }
 
+    [Fact]
+    public async Task ApplicationDependency_WinsOverGeneratedDefault()
+    {
+        var probe = new ActivationProbe("probe");
+        await using var services = new ServiceCollection()
+            .AddSingleton<IDefaultActivationService>(
+                new DefaultActivationService(new ActivationProbe("application")))
+            .BuildServiceProvider();
+        await using var agent = await Builder()
+            .WithServiceProvider(services)
+            .WithToolHarness<DefaultActivationHarness>(options => options.UseDependency(probe))
+            .BuildAsync();
+
+        var tool = Assert.Single(
+            agent.DefaultOptions!.Tools!.OfType<AIFunction>(),
+            function => function.Name == "DefaultProbe");
+        Assert.Equal("application", (await InvokeAsync(tool))?.ToString());
+    }
+
+    [Fact]
+    public async Task ScopedConstructorDependency_FailsUnderHostScopeValidation()
+    {
+        await using var services = new ServiceCollection()
+            .AddScoped<ScopedActivationService>()
+            .BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            Builder()
+                .WithServiceProvider(services)
+                .WithToolHarness<ScopedConstructorHarness>()
+                .BuildAsync());
+
+        Assert.Contains("Cannot resolve scoped service", error.ToString());
+    }
+
     private static ValueTask<object?> InvokeAsync(AIFunction function)
     {
         var request = MiddlewareTestHelpers.CreateFunctionRequest(function);
@@ -182,6 +217,14 @@ public sealed class ConfigurableExplicitHarness(IHarnessConfig<ConfigurableExpli
     public string ConfiguredProbe() =>
         configuration.For(new NoopHarnessConfigurationContext()).Value
             .ToString(System.Globalization.CultureInfo.InvariantCulture);
+}
+
+public sealed class ScopedActivationService;
+
+public sealed class ScopedConstructorHarness(ScopedActivationService dependency)
+{
+    [AIFunction]
+    public string Probe() => dependency.ToString()!;
 }
 
 internal sealed class FixedHarnessConfig<T>(T value) : IHarnessConfig<T> where T : class

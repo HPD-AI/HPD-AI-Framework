@@ -52,9 +52,9 @@ public sealed class CompiledHarnessInheritanceTests
     }
 
     [Fact]
-    public async Task MultiplePublicConstructors_AreDiagnosed_WithoutASelectionAttribute()
+    public void MultiplePublicConstructors_AreCompileTimeDiagnosed_WithoutASelectionAttribute()
     {
-        var generated = Generate(Compilation("AmbiguousOwner" + Guid.NewGuid().ToString("N"), """
+        _ = Generate(Compilation("AmbiguousOwner" + Guid.NewGuid().ToString("N"), """
             public class AmbiguousHarness
             {
                 public AmbiguousHarness(int value = 1) { }
@@ -62,14 +62,11 @@ public sealed class CompiledHarnessInheritanceTests
                 [AIFunction] public string Probe() => "ok";
             }
             """), out var diagnostics);
-        Assert.Contains(diagnostics, diagnostic => diagnostic.Id == "HPDACT001");
-        var assembly = AssemblyLoadContext.Default.LoadFromStream(new MemoryStream(Emit(generated)));
-        var owner = assembly.GetType("AmbiguousHarness")!;
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => new AgentBuilder(new AgentConfig())
-            .WithChatClient(new MiddlewareTestHelpers.TestChatClient())
-            .WithEventComposition(Infrastructure.TestEventComposition.Current)
-            .WithToolHarness(owner).BuildAsync());
-        Assert.Contains("exactly one public constructor", error.ToString());
+        var diagnostic = Assert.Single(diagnostics, diagnostic => diagnostic.Id == "HPDHIN010");
+        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
+        Assert.Contains("AmbiguousHarness.AmbiguousHarness(int)", diagnostic.GetMessage());
+        Assert.Contains("AmbiguousHarness.AmbiguousHarness(string)", diagnostic.GetMessage());
+        Assert.DoesNotContain(diagnostics, diagnostic => diagnostic.Id == "HPDACT001");
     }
 
     [Fact]

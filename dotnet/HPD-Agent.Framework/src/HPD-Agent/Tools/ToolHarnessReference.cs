@@ -69,9 +69,8 @@ public class ToolHarnessReference
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The source generator detects constructors with a single config parameter
-    /// and stores the config type in ToolHarnessFactory.ConfigType. At resolution time,
-    /// this JsonElement is deserialized to that type and passed to the constructor.
+    /// The source generator binds this payload through the owner's
+    /// <c>IHarnessConfig&lt;T&gt;</c> construction contract.
     /// </para>
     /// <para>
     /// <b>Example:</b>

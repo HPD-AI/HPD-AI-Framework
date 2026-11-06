@@ -58,8 +58,6 @@ internal static class ReflectionToolFactory
         factory = new ToolHarnessFactory(
             Name: toolharnessType.Name,
             ToolHarnessType: toolharnessType,
-            CreateInstance: () => Activator.CreateInstance(toolharnessType)
-                ?? throw new InvalidOperationException($"Could not create toolharness '{toolharnessType.Name}'."),
             CreateFunctions: (instance, context, serialization) => CreateFunctions(methods, collapseAttribute, instance, context, serialization),
             GetReferencedToolHarnesses: () => Array.Empty<string>(),
             GetReferencedFunctions: () => new Dictionary<string, string[]>(),
@@ -69,6 +67,8 @@ internal static class ReflectionToolFactory
             SystemPrompt: GetStringProperty(collapseAttribute, "SystemPrompt"),
             FunctionNames: methods.Select(GetCapabilityName).ToArray(),
             StableIdentity: $"{toolharnessType.Assembly.GetName().Name}:{toolharnessType.FullName ?? toolharnessType.Name}",
+            Activate: _ => Activator.CreateInstance(toolharnessType)
+                ?? throw new InvalidOperationException($"Could not create toolharness '{toolharnessType.Name}'."),
             Middleware: RejectReflectionMiddleware(collapseAttribute, eagerMiddlewareAttribute),
             CreateSubAgentActions: (instance, _, _) => CreateSubAgentActionDescriptors(
                 methods, instance, toolharnessType.Name, collapseAttribute is not null));

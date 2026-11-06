@@ -1,7 +1,6 @@
 using System.Text.Json;
 using Microsoft.Extensions.AI;
 using HPD.Agent.Middleware;
-using HPD.Agent.Secrets;
 using HPD.Agent.Serialization;
 
 namespace HPD.Agent;
@@ -17,7 +16,7 @@ namespace HPD.Agent;
 /// This record is the key to eliminating reflection in hot paths:
 /// </para>
 /// <list type="bullet">
-/// <item>CreateInstance: Direct constructor call (no Activator.CreateInstance!)</item>
+/// <item>Activate: Direct constructor call through the common construction context</item>
 /// <item>CreateFunctions: Direct delegate to generated CreateToolHarness method</item>
 /// <item>GetReferencedToolHarnesses: Direct delegate to generated GetReferencedToolHarnesses method</item>
 /// <item>GetReferencedFunctions: Direct delegate to generated GetReferencedFunctions method</item>
@@ -42,12 +41,6 @@ public record ToolHarnessFactory(
     /// ToolHarness type (for type checking and compatibility)
     /// </summary>
     Type ToolHarnessType,
-
-    /// <summary>
-    /// Direct constructor call delegate - AOT-safe, no Activator.CreateInstance
-    /// Example: () => new MathToolHarness()
-    /// </summary>
-    Func<object> CreateInstance,
 
     /// <summary>
     /// Direct delegate to generated CreateToolHarness method.
@@ -95,32 +88,6 @@ public record ToolHarnessFactory(
     /// From [Collapse(SystemPrompt = "...")] or method reference.
     /// </summary>
     string? SystemPrompt = null,
-
-    // ========== NEW: SECRETS-BASED INSTANTIATION ==========
-
-    /// <summary>
-    /// Delegate to create a toolharness instance from an ISecretResolver.
-    /// Generated when the toolharness has a constructor whose only parameter is ISecretResolver.
-    /// Example: secrets => new StripeToolHarness(secrets)
-    /// Null if toolharness has no ISecretResolver-only constructor.
-    /// </summary>
-    Func<ISecretResolver, object>? CreateWithSecrets = null,
-
-    // ========== NEW: CONFIG-BASED INSTANTIATION ==========
-
-    /// <summary>
-    /// Type of the config constructor parameter, if detected.
-    /// Example: typeof(SearchToolHarnessConfig) for SearchToolHarness(SearchToolHarnessConfig config).
-    /// Null if toolharness has no config constructor.
-    /// </summary>
-    Type? ConfigType = null,
-
-    /// <summary>
-    /// Delegate to create a toolharness instance from JSON config.
-    /// Example: json => new SearchToolHarness(json.Deserialize&lt;SearchToolHarnessConfig&gt;()!)
-    /// Null if toolharness has no config constructor.
-    /// </summary>
-    Func<JsonElement, object>? CreateFromConfig = null,
 
     // ========== NEW: METADATA DESERIALIZATION ==========
 

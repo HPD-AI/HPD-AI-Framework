@@ -1647,13 +1647,13 @@ public class ContainerMiddlewareTests
         AIFunction[] members,
         Type middlewareType,
         ToolHarnessMiddlewareFactory middleware) => new(
-            name,
-            typeof(object),
-            static () => new object(),
-            (_, _, _) => members.ToList(),
-            () => members.Select(member => member.Name).ToArray(),
-            static () => [],
+            Name: name,
+            ToolHarnessType: typeof(object),
+            CreateFunctions: (_, _, _) => members.ToList(),
+            GetReferencedToolHarnesses: () => members.Select(member => member.Name).ToArray(),
+            GetReferencedFunctions: static () => [],
             StableIdentity: $"tests:{name}",
+            Activate: static _ => new object(),
             Middleware:
             [
                 new ToolHarnessMiddlewareDescriptor

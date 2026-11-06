@@ -284,7 +284,7 @@ public class AgentBuilder
 
     /// <summary>
     /// ToolHarness configs from config ToolHarnesses list.
-    /// Maps toolharness name -> JsonElement config for CreateFromConfig delegate.
+    /// Maps exact owner identity to the portable construction configuration.
     /// </summary>
     internal readonly Dictionary<string, System.Text.Json.JsonElement> _toolharnessConfigs = new(StringComparer.OrdinalIgnoreCase);
 

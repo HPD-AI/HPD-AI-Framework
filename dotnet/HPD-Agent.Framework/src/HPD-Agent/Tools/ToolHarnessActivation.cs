@@ -5,7 +5,7 @@ using HPD.Agent.Secrets;
 namespace HPD.Agent;
 
 /// <summary>Declares an owner-local default implementation resolved after application DI.</summary>
-[AttributeUsage(AttributeTargets.Class, AllowMultiple = true)]
+[AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
 public sealed class ToolHarnessDependencyAttribute(Type serviceType, Type implementationType) : Attribute
 {
     public Type ServiceType { get; } = serviceType;

@@ -103,21 +103,8 @@ internal class ToolHarnessInfo
     public bool RequiresContext =>
         Capabilities.Any(c => c.IsConditional || c.HasDynamicDescription);
 
-    /// <summary>
-    /// Whether this ToolHarness has a parameterless constructor.
-    /// Only ToolHarnesses with parameterless constructors can be included in the ToolHarnessRegistry.All catalog.
-    /// ToolHarnesses without parameterless constructors (e.g., those requiring DI) must be registered through
-    /// special extension methods like WithDynamicMemory() or WithPlanMode().
-    /// </summary>
-    public bool HasParameterlessConstructor { get; set; } = true;
-
-    /// <summary>
-    /// Whether this ToolHarness has a constructor whose sole parameter is ISecretResolver.
-    /// When true, the source generator emits a CreateWithSecrets delegate and includes
-    /// the toolharness in ToolHarnessRegistry.All so AgentBuilder can instantiate it automatically.
-    /// Example: public StripeToolHarness(ISecretResolver secrets)
-    /// </summary>
-    public bool HasSecretsConstructor { get; set; } = false;
+    /// <summary>Gets or sets the single constructor and dependency analysis used for activation.</summary>
+    public ToolHarnessConstructionAnalysis? ConstructionAnalysis { get; set; }
 
     /// <summary>
     /// Whether this ToolHarness class is publicly accessible.
@@ -134,14 +121,6 @@ internal class ToolHarnessInfo
     public List<Diagnostic> Diagnostics { get; set; } = new();
 
     // ========== CONFIG SERIALIZATION PROPERTIES (Phase: Config Serialization) ==========
-
-    /// <summary>
-    /// Fully qualified type name of the config constructor parameter, if detected.
-    /// Example: "MyApp.Config.SearchToolHarnessConfig" for SearchToolHarness(SearchToolHarnessConfig config).
-    /// Null if toolharness has no config constructor.
-    /// Used by source generator to emit CreateFromConfig delegate.
-    /// </summary>
-    public string? ConfigConstructorTypeName { get; set; }
 
     /// <summary>
     /// Metadata type name from [AIFunction&lt;TMetadata&gt;] on toolharness methods.
