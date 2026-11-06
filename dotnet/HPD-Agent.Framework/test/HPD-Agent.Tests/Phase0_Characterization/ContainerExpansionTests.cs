@@ -53,11 +53,11 @@ public class ContainerExpansionTests : AgentTestBase
         var snapshots = fakeLLM.CapturedRequestSnapshots;
         snapshots.Should().HaveCount(4,
             "the first run makes three model calls and the second run makes one");
-        snapshots[0].ToolNames.Should().BeEquivalentTo(["CodingTools"],
+        snapshots[0].ToolNames.Should().BeEquivalentTo(["CodingTools", "Content"],
             "the first run must begin collapsed");
         snapshots[1].ToolNames.Should().Contain(["ReadFile", "WriteFile"])
             .And.NotContain("CodingTools", "members replace their expanded container within the turn");
-        snapshots[3].ToolNames.Should().BeEquivalentTo(["CodingTools"],
+        snapshots[3].ToolNames.Should().BeEquivalentTo(["CodingTools", "Content"],
             $"a new run must collapse again; observed request tool sets: {FormatToolSnapshots(snapshots)}");
     }
 

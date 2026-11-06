@@ -12,6 +12,7 @@ internal static class AgentRunConfigSnapshot
     internal static IReadOnlySet<string> CapturedPropertyNames { get; } = new HashSet<string>(StringComparer.Ordinal)
     {
         nameof(AgentRunConfig.Harnesses),
+        nameof(AgentRunConfig.ToolOutputs),
         nameof(AgentRunConfig.HarnessOverrideLayers),
         nameof(AgentRunConfig.HarnessOverridePath),
         nameof(AgentRunConfig.HarnessConfiguration),
@@ -67,6 +68,7 @@ internal static class AgentRunConfigSnapshot
         return new SubAgentRunConfig
         {
             Harnesses = core.Harnesses.Select(static value => value.Capture()).ToList(),
+            ToolOutputs = core.ToolOutputs,
             HarnessOverrideLayers = CloneHarnessOverrideLayers(core.HarnessOverrideLayers),
             HarnessOverridePath = core.HarnessOverridePath,
             Security = core.Security,
@@ -93,6 +95,7 @@ internal static class AgentRunConfigSnapshot
     private static AgentRunConfig CloneCore(AgentRunConfig source, ProviderComposition? composition) => new()
     {
         Harnesses = source.Harnesses.Select(value => value.Capture()).ToList(),
+        ToolOutputs = source.ToolOutputs,
         HarnessOverrideLayers = CloneHarnessOverrideLayers(source.HarnessOverrideLayers),
         HarnessOverridePath = source.HarnessOverridePath,
         HarnessConfiguration = source.HarnessConfiguration,

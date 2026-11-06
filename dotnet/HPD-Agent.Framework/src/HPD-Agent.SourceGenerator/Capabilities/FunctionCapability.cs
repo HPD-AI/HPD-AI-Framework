@@ -40,6 +40,9 @@ internal class FunctionCapability : BaseCapability
 
     public string ReturnType { get; set; } = string.Empty;
 
+    /// <summary>Gets or sets the declared result symbol after Task/ValueTask unwrapping.</summary>
+    public INamedTypeSymbol? ResultTypeSymbol { get; set; }
+
     /// <summary>Harness that declared the effective capability contract.</summary>
     public string? DeclaringHarnessIdentity { get; set; }
 
@@ -235,6 +238,18 @@ $@"({asyncKeyword} (arguments, functionContext, cancellationToken) =>
         if (!isVoidReturn)
         {
             options.AppendLine($"                ResultType = typeof({GetDeclaredResultType(ReturnType)}),");
+            var offloadPaths = GetOffloadPaths(ResultTypeSymbol);
+            if (offloadPaths.Count > 0)
+            {
+                options.AppendLine($"                ContentProjectionPlan = new global::HPD.Agent.ContentProjectionPlan(typeof({GetDeclaredResultType(ReturnType)}), new global::HPD.Agent.ContentProjectionPath[]");
+                options.AppendLine("                {");
+                foreach (var path in offloadPaths)
+                {
+                    options.AppendLine(
+                        $"                    new({SymbolDisplay.FormatLiteral(path.Pointer, true)}, {SymbolDisplay.FormatLiteral(path.Name, true)}, global::HPD.Agent.ContentSensitivity.{path.Sensitivity}),");
+                }
+                options.AppendLine("                }),");
+            }
         }
         options.AppendLine($"                ParameterDescriptions = {GenerateParameterDescriptions()},");
 
@@ -492,6 +507,49 @@ $@"HPDAIFunctionFactory.Create(
         }
 
         return normalized;
+    }
+
+    private static List<(string Pointer, string Name, string Sensitivity)> GetOffloadPaths(
+        INamedTypeSymbol? type)
+    {
+        var result = new List<(string, string, string)>();
+        if (type is null) return result;
+        Collect(type, "", new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default));
+        return result;
+
+        void Collect(INamedTypeSymbol current, string prefix, HashSet<ITypeSymbol> visiting)
+        {
+            if (!visiting.Add(current)) return;
+            foreach (var property in current.GetMembers().OfType<IPropertySymbol>()
+                         .Where(static property => !property.IsStatic && property.DeclaredAccessibility == Accessibility.Public))
+            {
+                var jsonName = property.GetAttributes().FirstOrDefault(attribute =>
+                        attribute.AttributeClass?.ToDisplayString() == "System.Text.Json.Serialization.JsonPropertyNameAttribute")
+                    ?.ConstructorArguments.FirstOrDefault().Value as string
+                    ?? char.ToLowerInvariant(property.Name[0]) + property.Name.Substring(1)
+                    ?? property.Name;
+                var pointer = prefix + "/" + jsonName.Replace("~", "~0").Replace("/", "~1");
+                var offload = property.GetAttributes().FirstOrDefault(attribute =>
+                    attribute.AttributeClass?.ToDisplayString() == "HPD.Agent.OffloadAttribute");
+                if (offload is not null)
+                {
+                    var sensitivity = offload.NamedArguments.FirstOrDefault(pair => pair.Key == "Sensitivity")
+                        .Value.Value is int value && value is >= 0 and <= 2
+                        ? new[] { "Public", "Internal", "Restricted" }[value]
+                        : "Internal";
+                    result.Add((pointer, jsonName, sensitivity));
+                    continue;
+                }
+                if (property.Type is INamedTypeSymbol nested &&
+                    nested.SpecialType == SpecialType.None &&
+                    nested.TypeKind == TypeKind.Class &&
+                    nested.OriginalDefinition.ToDisplayString() is not "System.String")
+                {
+                    Collect(nested, pointer, visiting);
+                }
+            }
+            visiting.Remove(current);
+        }
     }
 
     private static bool TryUnwrapGeneric(string typeName, string genericTypeName, out string typeArgument)

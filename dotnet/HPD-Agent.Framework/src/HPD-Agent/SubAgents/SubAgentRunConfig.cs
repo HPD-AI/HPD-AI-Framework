@@ -89,7 +89,7 @@ public enum SubAgentClientSelectionSource
 public sealed record SubAgentExecutionPolicy
 {
     /// <summary>The only policy contract understood by this greenfield runtime.</summary>
-    public const int CurrentContractVersion = 5;
+    public const int CurrentContractVersion = 6;
 
     /// <summary>Gets the contract version.</summary>
     public required int ContractVersion { get; init; }
@@ -251,7 +251,7 @@ public sealed record SubAgentExecutionPolicy
         var harnessLayers = JsonSerializer.Serialize(harnessOverrideLayers,
             AgentEventJsonContext.Default.ListListHarnessRunOverride);
         var canonical = string.Join('|',
-            "hpd.subagent.execution-policy.v5",
+            "hpd.subagent.execution-policy.v6",
             initialRun,
             clients,
             sources,

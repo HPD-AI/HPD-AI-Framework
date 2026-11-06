@@ -961,6 +961,17 @@ internal static class CapabilityAnalyzer
 
     // ========== Function Analysis ==========
 
+    private static INamedTypeSymbol? UnwrapResultType(ITypeSymbol returnType)
+    {
+        if (returnType is not INamedTypeSymbol named)
+            return null;
+        if (named.ContainingNamespace.ToDisplayString() == "System.Threading.Tasks" &&
+            named.Name is "Task" or "ValueTask" &&
+            named.TypeArguments.Length == 1)
+            return named.TypeArguments[0] as INamedTypeSymbol;
+        return named;
+    }
+
     /// <summary>
     /// Analyzes a method with [AIFunction] attribute and creates a FunctionCapability.
     /// For Phase 1, performs basic analysis similar to existing inline analysis.
@@ -1036,6 +1047,7 @@ internal static class CapabilityAnalyzer
             // Function-specific properties
             Parameters = parameters,
             ReturnType = returnType,
+            ResultTypeSymbol = UnwrapResultType(symbol.ReturnType),
             IsAsync = isAsync,
             RequiresPermission = requiresPermission,
             PermissionAuthority = permissionAuthority,
@@ -1114,6 +1126,7 @@ internal static class CapabilityAnalyzer
             ConditionalExpression = Text("ConditionalFunctionAttribute"),
             Parameters = parameters,
             ReturnType = method.ReturnType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            ResultTypeSymbol = UnwrapResultType(method.ReturnType),
             DeclaringHarnessIdentity =
                 $"{declaringType.ContainingAssembly.Name}:{declaringNamespace}:{declaringType.Name}",
             ImplementationIdentity =

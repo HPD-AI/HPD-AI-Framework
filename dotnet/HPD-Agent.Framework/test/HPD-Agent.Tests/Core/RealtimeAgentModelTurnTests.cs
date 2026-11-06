@@ -591,7 +591,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         Assert.True(middleware.WasCalled);
         Assert.Equal(AgentModelTransport.Realtime, middleware.Transport);
         Assert.NotNull(middleware.RealtimeModel);
-        Assert.Equal(3, middleware.ToolCount);
+        Assert.Equal(4, middleware.ToolCount);
         Assert.Contains(middleware.Messages, message => message.Role == ChatRole.User && message.Text == "Use realtime.");
     }
 

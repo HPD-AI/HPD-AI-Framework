@@ -8,6 +8,7 @@ public sealed record SubAgentRunDefaults
 {
     public bool AllowUserQuestions { get; init; }
     public List<HarnessRunOverride> Harnesses { get; init; } = [];
+    public ToolOutputRunPolicy? ToolOutputs { get; init; }
     public AgentContextRunConfig? Context { get; init; }
     public CollapsingRunPolicy? Collapsing { get; init; }
     public CompactionRunPolicy? Compaction { get; init; }
@@ -31,6 +32,7 @@ public sealed record SubAgentRunDefaults
         {
             AllowUserQuestions = copy.AllowUserQuestions,
             Harnesses = copy.Harnesses.Select(static value => value.Capture()).ToList(),
+            ToolOutputs = copy.ToolOutputs,
             Context = copy.Context, Collapsing = copy.Collapsing,
             Compaction = copy.Compaction, HandoffCompaction = copy.HandoffCompaction, Security = copy.Security,
             DescendantDefaults = copy

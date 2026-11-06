@@ -909,7 +909,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
         }
 
         var normalizedResult = await NormalizeResultAsync(
-            preparation, afterFunctionContext.Result, cancellationToken).ConfigureAwait(false);
+            preparation, afterFunctionContext.Result, runConfig, agentContext, cancellationToken).ConfigureAwait(false);
         return new FunctionExecutionOutcome(
             functionCall.CallId,
             functionCall.Name,
@@ -930,6 +930,8 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
     private static async ValueTask<NormalizedToolResult> NormalizeResultAsync(
         FunctionExecutionPreparation preparation,
         object? result,
+        AgentRunConfig runConfig,
+        AgentContext agentContext,
         CancellationToken cancellationToken)
     {
         var hpdFunction = preparation.Function as HPDAIFunctionFactory.HPDAIFunction;
@@ -937,8 +939,10 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
         var serializerOptions = hpdFunction?.JsonSerializerOptions ?? HPDToolArgumentBinder.DefaultSerializerOptions;
         try
         {
-            return await ToolResultNormalizer.NormalizeAsync(
+            var normalized = await ToolResultNormalizer.NormalizeAsync(
                 result, declaredResultType, serializerOptions, cancellationToken).ConfigureAwait(false);
+            return await ContentRuntime.ProjectAsync(
+                normalized, hpdFunction, preparation, runConfig, agentContext, cancellationToken).ConfigureAwait(false);
         }
         catch (ToolResultNormalizationException exception)
         {

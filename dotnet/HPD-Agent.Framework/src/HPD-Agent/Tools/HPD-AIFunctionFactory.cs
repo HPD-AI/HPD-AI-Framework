@@ -167,6 +167,7 @@ public class HPDAIFunctionFactory
             FunctionPermission = source.FunctionPermission,
             SerializerOptions = source.SerializerOptions,
             ResultType = source.ResultType,
+            ContentProjectionPlan = source.ContentProjectionPlan,
             MarshalResult = source.MarshalResult,
             InvocationModePolicy = source.InvocationModePolicy,
             InvocationModeHandling = source.InvocationModeHandling,
@@ -755,6 +756,8 @@ public class HPDAIFunctionFactoryOptions
 
     public JsonSerializerOptions? SerializerOptions { get; set; }
     public Type? ResultType { get; set; }
+    /// <summary>Gets or sets the generated native result offload projection.</summary>
+    public ContentProjectionPlan? ContentProjectionPlan { get; set; }
     public Func<object?, Type?, CancellationToken, ValueTask<object?>>? MarshalResult { get; set; }
     public AgentInvocationModePolicy InvocationModePolicy { get; set; } =
         AgentInvocationModePolicy.SynchronousOnly;

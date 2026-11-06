@@ -192,6 +192,9 @@ public class AgentConfig
     /// <summary>Gets or sets progressive skill runtime behavior.</summary>
     public SkillRuntimeOptions Skills { get; set; } = new();
 
+    /// <summary>Gets or sets native tool-output offloading and retrieval behavior.</summary>
+    public ToolOutputConfig ToolOutputs { get; set; } = new();
+
     /// <summary>
     /// ToolHarnesses to include. Supports both simple string names and rich references.
     /// Resolved via source-generated registry at Build() time.

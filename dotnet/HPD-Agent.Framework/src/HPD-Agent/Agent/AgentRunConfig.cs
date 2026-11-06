@@ -140,6 +140,12 @@ public class AgentRunConfig
     /// <summary>Portable overrides for already registered harnesses.</summary>
     public List<HarnessRunOverride> Harnesses { get; set; } = [];
 
+    /// <summary>Gets or sets per-run native tool-output behavior overrides.</summary>
+    public ToolOutputRunPolicy? ToolOutputs { get; set; }
+
+    [JsonIgnore]
+    internal ContentRetrievalBudget? ContentRetrievalBudget;
+
     /// <summary>Runtime-only portable layers applied before <see cref="Harnesses"/>.</summary>
     [JsonIgnore]
     internal List<List<HarnessRunOverride>>? HarnessOverrideLayers { get; set; }

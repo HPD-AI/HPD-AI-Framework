@@ -2152,6 +2152,9 @@ public class AgentBuilder
                     "Use .WithContentStore() for persistence (e.g., LocalFileContentStore).");
             }
         }
+        if (_config.ToolOutputs.ContentRetrievalEnabled &&
+            !_builderAddedToolHarnesses.Contains(nameof(ContentToolHarness)))
+            this.WithToolHarness<ContentToolHarness>();
         if (_storedSkillSources.Count > 0)
         {
             _skillStore ??= _serviceProvider.GetService<ISkillStore>();
